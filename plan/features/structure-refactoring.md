@@ -12,6 +12,8 @@ One long-term differentiator is making spreadsheet restructuring safer. Users sh
 - Rewrite formulas where safe.
 - Report formulas that cannot be rewritten safely.
 - Support sheet or range diff views for selected tables.
+- Allow users to select two sheets, ranges, or tables and compare them in a diff view.
+- Support multi-select workflows for choosing left and right sides of a diff.
 
 ## Open Decisions
 
