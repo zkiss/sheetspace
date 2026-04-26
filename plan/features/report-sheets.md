@@ -1,24 +1,10 @@
 # Report Sheets And Visualization
 
-MVP importance: Later.
-
 ## Purpose
 
 Report sheets would let users create presentation-oriented outputs that are not strict tables. This expands Sheetspace beyond tabular editing into lightweight reporting.
 
-## MVP Slice
-
-- Report sheets are not part of the MVP.
-
-## MVP Limitations
-
-- No charts.
-- No free-positioned cells.
-- No text boxes.
-- No report-specific layout mode.
-- No dashboard or presentation view.
-
-## Long-Term Scope
+## Feature Scope
 
 - Create report sheets distinct from tabular worksheets.
 - Place cells, text boxes, charts, and graphs freely.

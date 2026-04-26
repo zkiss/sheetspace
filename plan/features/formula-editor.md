@@ -1,26 +1,10 @@
 # Formula Editor
 
-MVP importance: Later.
-
 ## Purpose
 
-Formula editing should eventually support richer interaction than a plain text input. It should help users read, navigate, format, and explain formulas.
+Formula editing should support richer interaction than a plain text input. It should help users read, navigate, format, and explain formulas.
 
-## MVP Slice
-
-- The MVP only needs a basic way to enter formulas in cells.
-- Advanced editor behavior is out of scope.
-
-## MVP Limitations
-
-- No multiline formula editor.
-- No formula indentation or formatting.
-- No formula comments.
-- No autocomplete.
-- No reference hover cards.
-- No token-level reference navigation.
-
-## Long-Term Scope
+## Feature Scope
 
 - Highlight formula references as tokens.
 - Preserve token spans for hover and jump interactions.

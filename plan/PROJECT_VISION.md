@@ -46,14 +46,14 @@ Secondary users:
 3. References should become inspectable and navigable.
    Formula references should eventually behave like code symbols: jumpable, hoverable, highlightable, and refactorable.
 
-4. Build in useful slices.
-   Each milestone should produce a usable product increment rather than a broad unfinished clone of an existing spreadsheet.
+4. Coherent workflows matter more than broad feature checklists.
+   Sheetspace should make important spreadsheet modeling workflows feel clear, reliable, and connected instead of accumulating shallow feature coverage.
 
 5. Correctness matters more than formula breadth.
    A small, well-tested formula engine is better than a wide but unreliable Excel compatibility layer.
 
-6. User data should remain portable.
-   The model should leave room for JSON, CSV, XLSX, and other import/export paths even if the first implementation is local and simple.
+6. The internal model should serve the product.
+   Sheetspace can store whatever structure it needs to support spatial layout, formulas, references, navigation, and refactoring. Import and export formats are separate product capabilities, not constraints on the core model.
 
 ## Long-Term Product Shape
 
@@ -67,61 +67,20 @@ The full product is made from focused feature areas, each tracked in its own bri
 - Formula editing tools such as token highlighting, hover information, multiline editing, and comments.
 - Cell comments and annotations for explaining assumptions and review notes.
 - Refactoring tools such as extracting selected regions into new sheets.
-- Report sheets, charts, grouping, layers, sectors, table object patterns, and custom functions as later capabilities.
+- Persistence for saved workspaces.
+- Import and export for moving data between Sheetspace and external formats.
+- Report sheets, charts, grouping, layers, sectors, table object patterns, and custom functions as part of the full product surface.
 
-The feature briefs are the detailed source of scope. This document should stay high level and directional.
-
-## MVP Direction
-
-The MVP should prove the smallest useful version of the product:
-
-- Basic tabular worksheets.
-- Multiple sheets in one workspace.
-- Free placement of sheets in 2D space.
-- Pan and zoom.
-- Basic cell editing.
-- Simple formula editing with a very small formula set.
-
-The MVP is intentionally narrow. It should not attempt resizing, jump-to-reference navigation, hover inspection, custom column names, broad formula compatibility, structural refactoring, or advanced spreadsheet behavior. The exact first iteration is specified in [mvp.task.md](mvp.task.md).
-
-Technical stack decisions belong in the project skeleton and related technical notes, not in the MVP task. Current technical planning is in [tech-skeleton.md](tech-skeleton.md).
-
-## Iterative Roadmap
-
-1. Project skeleton.
-   Establish the repository structure, build orchestration, test setup, and a runnable shell.
-
-2. MVP.
-   Implement the smallest spatial spreadsheet loop described in [mvp.task.md](mvp.task.md).
-
-3. Spreadsheet depth.
-   Add more grid behavior, persistence, formula coverage, error handling, and cross-sheet references.
-
-4. Reference understanding.
-   Add tokenized formula references, hover inspection, visual reference links, jump-to-definition, jump-to-sheet, and navigation history.
-
-5. Structural editing.
-   Add row/column operations, custom column names, extraction refactors, diff tools, and safer formula behavior during reorganization.
-
-6. Higher-level modeling.
-   Explore report sheets, charts, grouping, layers, sectors, custom functions, and table object patterns.
+The feature briefs are the detailed source of feature direction. This document should stay high level and directional.
 
 ## Success Measures
 
-Early success:
-
 - A user can create or use several sheets, arrange them spatially, and edit values.
 - A user can zoom out to understand the workspace and zoom in to work on a sheet.
-- Simple formulas work reliably within the supported scope.
-
-Medium-term success:
-
+- Formulas work reliably within the supported product scope.
 - A user can inspect where a formula gets its data from without manually searching.
-- Cross-sheet references become understandable through hover, highlighting, and navigation.
+- Cross-sheet references are understandable through hover, highlighting, and navigation.
 - The app remains responsive on small-to-medium real workbooks.
-
-Long-term success:
-
 - A user can restructure a messy workbook into clearer spatial components with less manual risk.
 - Sheetspace becomes a practical alternative for spreadsheet models where spatial organization and formula understanding matter.
 

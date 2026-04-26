@@ -1,23 +1,10 @@
 # Table Object Model
 
-MVP importance: Research.
-
 ## Purpose
 
-Some sheets represent structured records where each row is an object and each column is a property. Sheetspace could eventually provide a table model that makes this pattern explicit.
+Some sheets represent structured records where each row is an instantiation of an OOP class and each column is a property defined in that class. Sheetspace could eventually provide a table model that makes this pattern explicit.
 
-## MVP Slice
-
-- Not part of the MVP.
-
-## MVP Limitations
-
-- No typed tables.
-- No object-style rows.
-- No property-based formulas.
-- No enforcement that formulas are consistent down a column.
-
-## Long-Term Scope
+## Feature Scope
 
 - Treat one row as one object.
 - Treat columns as object properties.

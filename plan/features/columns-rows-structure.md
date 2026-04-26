@@ -1,28 +1,13 @@
 # Columns, Rows, And Structure
 
-MVP importance: Limited.
-
 ## Purpose
 
-Rows and columns give worksheets their spreadsheet shape. The first implementation should stay simple while leaving room for richer structural editing later.
+Rows and columns give worksheets their spreadsheet shape. Structural editing should let users reshape sheets while keeping formulas and references understandable.
 
-## MVP Slice
+## Feature Scope
 
 - Use default row numbers.
 - Use Excel-style column labels such as `A`, `B`, `C`, `Z`, `AA`, and `AB`.
-- Keep the grid structure simple and predictable.
-
-## MVP Limitations
-
-- No custom column names.
-- No row reordering.
-- No column reordering.
-- No row or column insertion unless required by the initial grid implementation.
-- No row or column deletion unless required by the initial grid implementation.
-- No formula behavior guarantees for structural operations because those operations are out of scope.
-
-## Long-Term Scope
-
 - Insert and delete rows.
 - Insert and delete columns.
 - Reorder rows and columns.
@@ -33,9 +18,9 @@ Rows and columns give worksheets their spreadsheet shape. The first implementati
 
 ## Custom Column Names
 
-Long term, users should be able to rename columns for readability. A renamed column should still have a stable internal column id and a default A1-style address so display names do not unexpectedly break formulas.
+Users should be able to rename columns for readability. A renamed column should still have a stable internal column id and a default A1-style address so display names do not unexpectedly break formulas.
 
-Requirements to resolve later:
+Requirements to resolve:
 
 - Custom names should be unique within a sheet or conflicts must be handled clearly.
 - Formula references need a stable canonical representation.

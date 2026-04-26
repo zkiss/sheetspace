@@ -1,23 +1,10 @@
 # Custom Functions And Programming
 
-MVP importance: Research.
-
 ## Purpose
 
-Custom functions could let users build reusable logic out of formulas. A more advanced version could support imperative programming, but this should be treated as a later research area.
+Custom functions could let users build reusable logic out of formulas. A more advanced version could support imperative programming, but this should be treated as a research area until the product needs it.
 
-## MVP Slice
-
-- Not part of the MVP.
-
-## MVP Limitations
-
-- No custom functions.
-- No imperative formula language.
-- No user-defined function registry.
-- No scripting runtime.
-
-## Long-Term Scope
+## Feature Scope
 
 - Define reusable functions from spreadsheet formulas.
 - Call custom functions from cells.

@@ -1,23 +1,10 @@
 # Comments And Annotations
 
-MVP importance: Later.
-
 ## Purpose
 
 Comments let users explain assumptions, caveats, decisions, and review notes without changing cell values or formulas.
 
-## MVP Slice
-
-- Comments are not part of the MVP.
-
-## MVP Limitations
-
-- No cell comments.
-- No threaded discussions.
-- No comment indicators.
-- No formula comments unless introduced later through the formula editor.
-
-## Long-Term Scope
+## Feature Scope
 
 - Add comments to individual cells.
 - Show a visible marker for cells with comments.

@@ -1,38 +1,24 @@
 # Formulas
 
-MVP importance: Limited.
-
 ## Purpose
 
-Formulas make sheets more than static tables. The formula engine should grow slowly, with correctness and clear errors taking priority over broad compatibility.
+Formulas make sheets more than static tables. The formula engine should grow deliberately, with correctness and clear errors taking priority over broad compatibility.
 
-## MVP Slice
+## Feature Scope
 
 - Treat cell content beginning with `=` as a formula.
-- Support `SUM` only.
-- Support enough A1-style references and ranges for `SUM` to be useful.
-- Recompute formulas after edits.
-- It is acceptable to recompute the whole workspace after each edit if incremental recalculation would add complexity.
-- Display basic formula errors without crashing the app.
-
-## MVP Limitations
-
-- No broad Excel formula compatibility.
-- No arithmetic operators unless they are already trivial in the chosen formula parser.
-- No `SUMIF`, lookup functions, text functions, logical functions, or custom functions.
-- No formula optimization requirements.
-- No dependency graph requirement for the MVP.
-- No custom column names in formulas.
-- Cross-sheet formulas are not required for the MVP unless they are already cheap to support.
-
-## Long-Term Scope
-
 - Parse formulas into an AST.
 - Evaluate formulas against a workbook snapshot.
+- Support A1-style cell references, ranges, and cross-sheet references.
+- Support `SUM` with a variable number of arguments, where each argument can be an individual cell reference or a 2D range, such as `=SUM(A1)`, `=SUM(A1,B2)`, and `=SUM(A1:C3,D4)`.
 - Track dependencies between cells and ranges.
 - Recalculate affected cells instead of the whole workbook.
 - Detect circular references.
+- Compute formulas independently where possible.
+- Treat formula errors as cell-level results: cells that cannot be computed should display an error while unrelated formulas continue computing where possible.
 - Support typed errors such as `#PARSE!`, `#REF!`, `#NAME!`, `#VALUE!`, `#DIV/0!`, `#CYCLE!`, and `#N/A`.
+- Keep the app and UI usable when formulas fail.
+- Keep cells with formula errors selectable and editable.
 - Expand formula support deliberately after the parser and evaluator are stable.
 
 ## Candidate Function Growth
