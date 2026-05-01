@@ -30,6 +30,28 @@ Prefer small, focused, testable changes. Avoid unrelated cleanup or reorganisati
 
 A bead is complete only when its acceptance criteria are satisfied and the relevant checks have been run. If checks cannot be run, state why and record the remaining risk.
 
+## Agent Mail coordination
+
+If the Agent Mail MCP server is available, use it for coordination.
+
+At the start of a work session:
+- register or identify yourself in Agent Mail for this repository
+- use the repository absolute path as the Agent Mail project key, unless the MCP tool provides a canonical project key
+- check for recent messages relevant to your selected bead
+- announce which bead you are working on
+
+Before editing files:
+- reserve the files or globs you expect to modify, if Agent Mail file reservations are available
+- respect active reservations from other agents
+- if there is a reservation conflict, coordinate through Agent Mail instead of editing anyway
+
+During work:
+- send short progress or blocker messages when useful
+- do not spend excessive time on coordination if no other agents are active
+
+At completion:
+- mention the bead id, summary of changes, tests run, and any follow-up beads or risks
+
 <!-- br-agent-instructions-v1 -->
 
 ---
