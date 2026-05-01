@@ -38,3 +38,5 @@ redirect
 
 # bv (beads viewer) lock file
 .bv.lock
+
+.br_recovery
