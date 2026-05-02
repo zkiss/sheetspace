@@ -104,18 +104,30 @@ button:hover {
 }
 
 .sheet-frame-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   border-bottom: 1px solid #d6dee3;
   padding: 0.65rem 0.8rem;
   background: #f9fbfc;
 }
 
 .sheet-frame h2 {
+  min-width: 0;
   overflow: hidden;
   color: #17202a;
   font-size: 1rem;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sheet-frame-header button {
+  min-height: 1.75rem;
+  flex: 0 0 auto;
+  padding: 0 0.55rem;
+  font-size: 0.78rem;
 }
 
 .sheet-frame-body {
@@ -193,6 +205,7 @@ button:hover {
 
 .dialog-backdrop {
   position: fixed;
+  z-index: 1000;
   inset: 0;
   display: grid;
   place-items: center;
