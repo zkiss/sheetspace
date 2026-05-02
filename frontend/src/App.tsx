@@ -21,6 +21,11 @@ type PendingSheetRename = {
   currentName: string;
 };
 
+type ActiveCellSelection = {
+  sheetId: string;
+  cellKey: string;
+};
+
 const SHEET_FRAME_WIDTH = 240;
 const SHEET_FRAME_HEIGHT = 160;
 
@@ -59,7 +64,15 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
   return 'A sheet with that name already exists.';
 }
 
-function SheetGrid({ sheet }: { sheet: Sheet }) {
+function SheetGrid({
+  activeCell,
+  onSelectCell,
+  sheet,
+}: {
+  activeCell: ActiveCellSelection | null;
+  onSelectCell: (selection: ActiveCellSelection) => void;
+  sheet: Sheet;
+}) {
   const columns = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
     index: columnIndex,
     label: columnIndexToLabel(columnIndex),
@@ -88,14 +101,17 @@ function SheetGrid({ sheet }: { sheet: Sheet }) {
               const address = { columnIndex: column.index, rowIndex };
               const key = cellKey(address);
               const cell = sheet.cells[key];
+              const isActive = activeCell?.sheetId === sheet.id && activeCell.cellKey === key;
 
               return (
                 <td
                   aria-label={`${sheet.name} ${key}${cell ? '' : ' empty'} cell`}
-                  className="sheet-grid-cell"
+                  className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}`}
+                  data-active-cell={isActive ? 'true' : undefined}
                   data-cell-key={key}
                   data-testid="sheet-grid-cell"
                   key={key}
+                  onClick={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
                   tabIndex={0}
                 >
                   {cell?.raw ?? ''}
@@ -113,6 +129,7 @@ export function App({ initialWorkbook }: AppProps = {}) {
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
+  const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
 
@@ -222,7 +239,8 @@ export function App({ initialWorkbook }: AppProps = {}) {
         {workbook.sheets.map((sheet) => (
           <article
             aria-label={`Sheet ${sheet.name}`}
-            className="sheet-frame"
+            className={`sheet-frame${activeCell?.sheetId === sheet.id ? ' sheet-frame-active' : ''}`}
+            data-active-sheet={activeCell?.sheetId === sheet.id ? 'true' : undefined}
             data-column-count={sheet.columnCount}
             data-row-count={sheet.rowCount}
             data-sheet-id={sheet.id}
@@ -242,7 +260,7 @@ export function App({ initialWorkbook }: AppProps = {}) {
               </button>
             </header>
             <div className="sheet-frame-body" data-testid="sheet-frame-body">
-              <SheetGrid sheet={sheet} />
+              <SheetGrid activeCell={activeCell} onSelectCell={setActiveCell} sheet={sheet} />
             </div>
           </article>
         ))}

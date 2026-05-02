@@ -103,6 +103,13 @@ button:hover {
   box-shadow: 0 8px 24px rgb(23 32 42 / 12%);
 }
 
+.sheet-frame-active {
+  border-color: #2f747e;
+  box-shadow:
+    0 0 0 2px rgb(47 116 126 / 18%),
+    0 8px 24px rgb(23 32 42 / 12%);
+}
+
 .sheet-frame-header {
   display: flex;
   align-items: center;
@@ -139,7 +146,8 @@ button:hover {
 
 .sheet-grid {
   min-width: max-content;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   color: #17202a;
   font-size: 0.78rem;
   table-layout: fixed;
@@ -166,7 +174,7 @@ button:hover {
 .sheet-grid-row-header {
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 20;
   width: 2.5rem;
   min-width: 2.5rem;
 }
@@ -175,11 +183,11 @@ button:hover {
 .sheet-grid-column-header {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 30;
 }
 
 .sheet-grid-corner {
-  z-index: 3;
+  z-index: 40;
 }
 
 .sheet-grid-column-header,
@@ -200,6 +208,13 @@ button:hover {
 .sheet-grid-cell:focus {
   position: relative;
   z-index: 1;
+  box-shadow: inset 0 0 0 2px #2f747e;
+}
+
+.sheet-grid-cell-active {
+  position: relative;
+  z-index: 1;
+  background: #e8f4f2;
   box-shadow: inset 0 0 0 2px #2f747e;
 }
 
