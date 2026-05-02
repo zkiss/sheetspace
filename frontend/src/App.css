@@ -54,7 +54,6 @@ button:hover {
 .workspace-toolbar h1,
 .workspace-toolbar p,
 .sheet-frame h2,
-.sheet-frame p,
 .sheet-dialog h2,
 .form-error {
   margin: 0;
@@ -65,8 +64,7 @@ button:hover {
   font-weight: 700;
 }
 
-.workspace-toolbar p,
-.sheet-frame p {
+.workspace-toolbar p {
   margin-top: 0.15rem;
   color: #637381;
   font-size: 0.85rem;
@@ -123,7 +121,74 @@ button:hover {
 .sheet-frame-body {
   flex: 1;
   min-height: 0;
-  padding: 0.8rem;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.sheet-grid {
+  min-width: max-content;
+  border-collapse: collapse;
+  color: #17202a;
+  font-size: 0.78rem;
+  table-layout: fixed;
+}
+
+.sheet-grid th,
+.sheet-grid-cell {
+  height: 1.65rem;
+  border: 1px solid #d9e1e6;
+  padding: 0 0.35rem;
+}
+
+.sheet-grid-corner,
+.sheet-grid-column-header,
+.sheet-grid-row-header {
+  background: #f4f7f8;
+  color: #50606d;
+  font-weight: 600;
+  text-align: center;
+  user-select: none;
+}
+
+.sheet-grid-corner,
+.sheet-grid-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 2.5rem;
+  min-width: 2.5rem;
+}
+
+.sheet-grid-corner,
+.sheet-grid-column-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.sheet-grid-corner {
+  z-index: 3;
+}
+
+.sheet-grid-column-header,
+.sheet-grid-cell {
+  width: 4.75rem;
+  min-width: 4.75rem;
+}
+
+.sheet-grid-cell {
+  overflow: hidden;
+  background: #ffffff;
+  line-height: 1.65rem;
+  outline: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-grid-cell:focus {
+  position: relative;
+  z-index: 1;
+  box-shadow: inset 0 0 0 2px #2f747e;
 }
 
 .dialog-backdrop {

@@ -67,7 +67,7 @@ describe('App workspace', () => {
     expect(frame).toHaveAttribute('data-sheet-id', 'sheet-inputs');
     expect(frame).toHaveStyle({ left: '120px', top: '80px' });
     expect(within(frame).getByRole('heading', { name: 'Inputs' })).toBeInTheDocument();
-    expect(within(frame).getByTestId('sheet-frame-body')).toHaveTextContent('10 columns x 20 rows');
+    expect(within(frame).getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
     expect(screen.queryByText(/right-click the workspace/i)).not.toBeInTheDocument();
   });
 
@@ -89,6 +89,75 @@ describe('App workspace', () => {
     expect(frames[1]).toHaveStyle({ left: '420px', top: '260px' });
     expect(within(frames[1]).getByRole('heading', { name: 'Outputs' })).toBeInTheDocument();
     expect(screen.getAllByTestId('sheet-frame-body')).toHaveLength(2);
+  });
+
+  it('renders new sheets as default 10-column by 20-row grids without stored cells', () => {
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 });
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const frame = screen.getByTestId('sheet-frame');
+    expect(frame).toHaveAttribute('data-column-count', '10');
+    expect(frame).toHaveAttribute('data-row-count', '20');
+    expect(sheet.cells).toEqual({});
+    expect(within(frame).getAllByRole('columnheader')).toHaveLength(11);
+    expect(within(frame).getAllByRole('rowheader')).toHaveLength(20);
+    expect(within(frame).getAllByTestId('sheet-grid-cell')).toHaveLength(200);
+  });
+
+  it('renders spreadsheet row numbers and Excel-style column labels beyond Z', () => {
+    const sheet = {
+      ...positionedSheet('sheet-wide', 'Wide Sheet', { x: 0, y: 0 }),
+      columnCount: 28,
+      rowCount: 3,
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const grid = screen.getByRole('table', { name: 'Wide Sheet grid' });
+    expect(within(grid).getByRole('columnheader', { name: 'A' })).toBeInTheDocument();
+    expect(within(grid).getByRole('columnheader', { name: 'Z' })).toBeInTheDocument();
+    expect(within(grid).getByRole('columnheader', { name: 'AA' })).toBeInTheDocument();
+    expect(within(grid).getByRole('columnheader', { name: 'AB' })).toBeInTheDocument();
+    expect(within(grid).getByRole('rowheader', { name: '1' })).toBeInTheDocument();
+    expect(within(grid).getByRole('rowheader', { name: '3' })).toBeInTheDocument();
+  });
+
+  it('renders empty cells as visible addressable cells', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const j20 = within(frame).getByRole('cell', { name: 'Inputs J20 empty cell' });
+
+    expect(a1).toHaveAttribute('data-cell-key', 'A1');
+    expect(a1).toHaveTextContent('');
+    expect(j20).toHaveAttribute('data-cell-key', 'J20');
+    expect(j20).toHaveTextContent('');
+  });
+
+  it('renders multiple sheet grids independently inside their frames', () => {
+    const first = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const second = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }),
+      columnCount: 2,
+      rowCount: 2,
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([first, second])} />);
+
+    const frames = screen.getAllByTestId('sheet-frame');
+    expect(within(frames[0]).getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
+    expect(within(frames[0]).getAllByTestId('sheet-grid-cell')).toHaveLength(200);
+    expect(within(frames[1]).getByRole('table', { name: 'Outputs grid' })).toBeInTheDocument();
+    expect(within(frames[1]).getAllByTestId('sheet-grid-cell')).toHaveLength(4);
+    expect(within(frames[1]).queryByRole('cell', { name: 'Outputs C1 empty cell' })).not.toBeInTheDocument();
   });
 
   it('creates a named sheet from the toolbar at the viewport center', async () => {

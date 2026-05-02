@@ -1,6 +1,14 @@
 import { FormEvent, MouseEvent, useState } from 'react';
 import './App.css';
-import { createEmptyWorkbook, createSheet, type Workbook, type WorkspacePosition } from './workbook';
+import {
+  cellKey,
+  columnIndexToLabel,
+  createEmptyWorkbook,
+  createSheet,
+  type Sheet,
+  type Workbook,
+  type WorkspacePosition,
+} from './workbook';
 
 type PendingSheetCreation = {
   position: WorkspacePosition;
@@ -43,6 +51,56 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
   }
 
   return 'A sheet with that name already exists.';
+}
+
+function SheetGrid({ sheet }: { sheet: Sheet }) {
+  const columns = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
+    index: columnIndex,
+    label: columnIndexToLabel(columnIndex),
+  }));
+  const rows = Array.from({ length: sheet.rowCount }, (_, rowIndex) => rowIndex);
+
+  return (
+    <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
+      <thead>
+        <tr>
+          <th aria-label="Grid corner" className="sheet-grid-corner" scope="col" />
+          {columns.map((column) => (
+            <th className="sheet-grid-column-header" key={column.index} scope="col">
+              {column.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((rowIndex) => (
+          <tr key={rowIndex}>
+            <th className="sheet-grid-row-header" scope="row">
+              {rowIndex + 1}
+            </th>
+            {columns.map((column) => {
+              const address = { columnIndex: column.index, rowIndex };
+              const key = cellKey(address);
+              const cell = sheet.cells[key];
+
+              return (
+                <td
+                  aria-label={`${sheet.name} ${key}${cell ? '' : ' empty'} cell`}
+                  className="sheet-grid-cell"
+                  data-cell-key={key}
+                  data-testid="sheet-grid-cell"
+                  key={key}
+                  tabIndex={0}
+                >
+                  {cell?.raw ?? ''}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 export function App({ initialWorkbook }: AppProps = {}) {
@@ -143,9 +201,7 @@ export function App({ initialWorkbook }: AppProps = {}) {
               <h2>{sheet.name}</h2>
             </header>
             <div className="sheet-frame-body" data-testid="sheet-frame-body">
-              <p>
-                {sheet.columnCount} columns x {sheet.rowCount} rows
-              </p>
+              <SheetGrid sheet={sheet} />
             </div>
           </article>
         ))}
