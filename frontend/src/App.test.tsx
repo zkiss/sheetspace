@@ -142,6 +142,102 @@ describe('App workspace', () => {
     expect(j20).toHaveTextContent('');
   });
 
+  it('selects a single cell and visibly marks it as active', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    await user.click(a1);
+
+    expect(frame).toHaveAttribute('data-active-sheet', 'true');
+    expect(a1).toHaveAttribute('data-active-cell', 'true');
+    expect(a1).toHaveClass('sheet-grid-cell-active');
+  });
+
+  it('moves single-cell selection within a sheet', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b2 = within(frame).getByRole('cell', { name: 'Inputs B2 empty cell' });
+
+    await user.click(a1);
+    await user.click(b2);
+
+    expect(a1).not.toHaveAttribute('data-active-cell');
+    expect(b2).toHaveAttribute('data-active-cell', 'true');
+    expect(within(frame).getAllByTestId('sheet-grid-cell').filter((cell) => cell.dataset.activeCell)).toHaveLength(
+      1,
+    );
+  });
+
+  it('moves active sheet and cell focus when selecting a cell in another sheet', async () => {
+    const user = userEvent.setup();
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 });
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const inputsA1 = within(inputFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const outputsB2 = within(outputFrame).getByRole('cell', { name: 'Outputs B2 empty cell' });
+
+    await user.click(inputsA1);
+    await user.click(outputsB2);
+
+    expect(inputFrame).not.toHaveAttribute('data-active-sheet');
+    expect(inputsA1).not.toHaveAttribute('data-active-cell');
+    expect(outputFrame).toHaveAttribute('data-active-sheet', 'true');
+    expect(outputsB2).toHaveAttribute('data-active-cell', 'true');
+  });
+
+  it('selects empty, text, numeric-looking, and formula cells through the same cell path', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: 'Region' },
+        B1: { raw: '42' },
+        C1: { raw: '=SUM(B1:B2)' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const frame = screen.getByTestId('sheet-frame');
+    const cells = [
+      within(frame).getByRole('cell', { name: 'Inputs A1 cell' }),
+      within(frame).getByRole('cell', { name: 'Inputs B1 cell' }),
+      within(frame).getByRole('cell', { name: 'Inputs C1 cell' }),
+      within(frame).getByRole('cell', { name: 'Inputs D1 empty cell' }),
+    ];
+
+    for (const cell of cells) {
+      await user.click(cell);
+      expect(cell).toHaveAttribute('data-active-cell', 'true');
+    }
+
+    expect(within(frame).getAllByTestId('sheet-grid-cell').filter((cell) => cell.dataset.activeCell)).toHaveLength(
+      1,
+    );
+  });
+
   it('renders multiple sheet grids independently inside their frames', () => {
     const first = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
     const second = {
