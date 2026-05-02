@@ -5,6 +5,7 @@ import {
   columnIndexToLabel,
   createEmptyWorkbook,
   createSheet,
+  renameSheet,
   type Sheet,
   type Workbook,
   type WorkspacePosition,
@@ -13,6 +14,11 @@ import {
 type PendingSheetCreation = {
   position: WorkspacePosition;
   label: string;
+};
+
+type PendingSheetRename = {
+  sheetId: string;
+  currentName: string;
 };
 
 const SHEET_FRAME_WIDTH = 240;
@@ -106,12 +112,19 @@ function SheetGrid({ sheet }: { sheet: Sheet }) {
 export function App({ initialWorkbook }: AppProps = {}) {
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
+  const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
 
   function openCreationDialog(position: WorkspacePosition, label: string) {
     setPendingCreation({ position, label });
     setSheetName('');
+    setError('');
+  }
+
+  function openRenameDialog(sheet: Sheet) {
+    setPendingRename({ sheetId: sheet.id, currentName: sheet.name });
+    setSheetName(sheet.name);
     setError('');
   }
 
@@ -159,6 +172,31 @@ export function App({ initialWorkbook }: AppProps = {}) {
     setError('');
   }
 
+  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pendingRename) {
+      return;
+    }
+
+    const result = renameSheet(workbook, pendingRename.sheetId, sheetName);
+    if (!result.ok) {
+      setError(validationMessage(result.reason));
+      return;
+    }
+
+    setWorkbook(result.value);
+    setPendingRename(null);
+    setSheetName('');
+    setError('');
+  }
+
+  function closeDialog() {
+    setPendingCreation(null);
+    setPendingRename(null);
+    setSheetName('');
+    setError('');
+  }
+
   return (
     <main className="workspace-shell">
       <header className="workspace-toolbar" aria-label="Workspace toolbar">
@@ -199,6 +237,9 @@ export function App({ initialWorkbook }: AppProps = {}) {
           >
             <header className="sheet-frame-header">
               <h2>{sheet.name}</h2>
+              <button type="button" onClick={() => openRenameDialog(sheet)}>
+                Rename
+              </button>
             </header>
             <div className="sheet-frame-body" data-testid="sheet-frame-body">
               <SheetGrid sheet={sheet} />
@@ -232,6 +273,36 @@ export function App({ initialWorkbook }: AppProps = {}) {
                 Cancel
               </button>
               <button type="submit">Create</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {pendingRename ? (
+        <div className="dialog-backdrop" role="presentation">
+          <form aria-label="Rename sheet" className="sheet-dialog" onSubmit={handleRenameSubmit}>
+            <h2>Rename {pendingRename.currentName}</h2>
+            <label htmlFor="rename-sheet-name">Sheet name</label>
+            <input
+              aria-describedby={error ? 'rename-sheet-name-error' : undefined}
+              autoFocus
+              id="rename-sheet-name"
+              onChange={(event) => {
+                setSheetName(event.target.value);
+                setError('');
+              }}
+              value={sheetName}
+            />
+            {error ? (
+              <p className="form-error" id="rename-sheet-name-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <div className="dialog-actions">
+              <button type="button" onClick={closeDialog}>
+                Cancel
+              </button>
+              <button type="submit">Save</button>
             </div>
           </form>
         </div>

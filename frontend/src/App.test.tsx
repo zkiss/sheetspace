@@ -257,4 +257,73 @@ describe('App workspace', () => {
     expect(within(frames[1]).getByRole('heading', { name: 'Outputs' })).toBeInTheDocument();
     expect(screen.getByText('2 sheets')).toBeInTheDocument();
   });
+
+  it('renames an existing sheet and preserves raw formula text', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '=SUM(Old Name!A1)' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const frame = screen.getByTestId('sheet-frame');
+    await user.click(within(frame).getByRole('button', { name: /rename/i }));
+    expect(screen.getByRole('form', { name: /rename sheet/i })).toBeInTheDocument();
+
+    const input = screen.getByLabelText(/sheet name/i);
+    await user.clear(input);
+    await user.type(input, '  Renamed Inputs  ');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const renamedFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
+    expect(within(renamedFrame).getByRole('heading', { name: 'Renamed Inputs' })).toBeInTheDocument();
+    expect(within(renamedFrame).getByRole('table', { name: 'Renamed Inputs grid' })).toBeInTheDocument();
+    expect(within(renamedFrame).getByRole('cell', { name: 'Renamed Inputs A1 cell' })).toHaveTextContent(
+      '=SUM(Old Name!A1)',
+    );
+    expect(screen.queryByRole('heading', { name: 'Inputs' })).not.toBeInTheDocument();
+  });
+
+  it('rejects empty sheet renames and keeps the old name active', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /rename/i }));
+    const input = screen.getByLabelText(/sheet name/i);
+    await user.clear(input);
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Sheet name is required.');
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Sheet Renamed Inputs' })).not.toBeInTheDocument();
+  });
+
+  it('rejects duplicate sheet renames and keeps the old name active', async () => {
+    const user = userEvent.setup();
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 });
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    await user.click(within(outputFrame).getByRole('button', { name: /rename/i }));
+    const input = screen.getByLabelText(/sheet name/i);
+    await user.clear(input);
+    await user.type(input, 'Inputs');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('A sheet with that name already exists.');
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Sheet Outputs' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('article', { name: 'Sheet Inputs' })).toHaveLength(1);
+  });
 });
