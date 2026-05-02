@@ -5,6 +5,7 @@ import {
   cellKey,
   columnIndexToLabel,
   columnLabelToIndex,
+  commitCellRawContent,
   createEmptyWorkbook,
   createSheet,
   expandRange,
@@ -97,6 +98,58 @@ describe('workbook model', () => {
       columnCount: 11,
       cells: { A1: { raw: '42' } },
     });
+  });
+
+  it('commits raw cell content and clears stored cells', () => {
+    const workbook = {
+      version: 1 as const,
+      sheets: [sheet('sheet-1', 'Inputs')],
+    };
+
+    const withText = commitCellRawContent(workbook, 'sheet-1', 'A1', 'Region');
+    expect(withText).not.toBe(workbook);
+    expect(withText.sheets[0].cells.A1.raw).toBe('Region');
+
+    const cleared = commitCellRawContent(withText, 'sheet-1', 'A1', '');
+    expect(cleared).not.toBe(withText);
+    expect(cleared.sheets[0].cells.A1).toBeUndefined();
+  });
+
+  it('clears an existing stored empty cell instead of preserving it as a no-op', () => {
+    const workbook = {
+      version: 1 as const,
+      sheets: [
+        {
+          ...sheet('sheet-1', 'Inputs'),
+          cells: {
+            A1: { raw: '' },
+          },
+        },
+      ],
+    };
+
+    const cleared = commitCellRawContent(workbook, 'sheet-1', 'A1', '');
+
+    expect(cleared).not.toBe(workbook);
+    expect(cleared.sheets[0].cells.A1).toBeUndefined();
+  });
+
+  it('leaves workbook state unchanged for no-op cell commits', () => {
+    const workbook = {
+      version: 1 as const,
+      sheets: [
+        {
+          ...sheet('sheet-1', 'Inputs'),
+          cells: {
+            A1: { raw: 'Original' },
+          },
+        },
+      ],
+    };
+
+    expect(commitCellRawContent(workbook, 'sheet-1', 'B1', '')).toBe(workbook);
+    expect(commitCellRawContent(workbook, 'sheet-1', 'A1', 'Original')).toBe(workbook);
+    expect(commitCellRawContent(workbook, 'missing-sheet', 'A1', 'Value')).toBe(workbook);
   });
 });
 

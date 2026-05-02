@@ -129,6 +129,46 @@ export function renameSheet(workbook: Workbook, sheetId: string, nextName: strin
   };
 }
 
+export function commitCellRawContent(workbook: Workbook, sheetId: string, key: CellKey, raw: string): Workbook {
+  let changed = false;
+  const sheets = workbook.sheets.map((sheet) => {
+    if (sheet.id !== sheetId) {
+      return sheet;
+    }
+
+    const existingCell = sheet.cells[key];
+    if (raw.length === 0) {
+      if (!existingCell) {
+        return sheet;
+      }
+
+      changed = true;
+      const cells = { ...sheet.cells };
+      delete cells[key];
+
+      return {
+        ...sheet,
+        cells,
+      };
+    }
+
+    if (existingCell?.raw === raw) {
+      return sheet;
+    }
+
+    changed = true;
+    const cells = { ...sheet.cells };
+    cells[key] = { raw };
+
+    return {
+      ...sheet,
+      cells,
+    };
+  });
+
+  return changed ? { ...workbook, sheets } : workbook;
+}
+
 export function findSheetByName(workbook: Workbook, sheetName: string): ParseResult<Sheet> {
   const sheet = workbook.sheets.find((candidate) => candidate.name === sheetName);
   if (!sheet) {

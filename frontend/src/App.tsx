@@ -1,8 +1,9 @@
-import { FormEvent, MouseEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, MouseEvent, useState } from 'react';
 import './App.css';
 import {
   cellKey,
   columnIndexToLabel,
+  commitCellRawContent,
   createEmptyWorkbook,
   createSheet,
   renameSheet,
@@ -24,6 +25,10 @@ type PendingSheetRename = {
 type ActiveCellSelection = {
   sheetId: string;
   cellKey: string;
+};
+
+type EditingCell = ActiveCellSelection & {
+  value: string;
 };
 
 const SHEET_FRAME_WIDTH = 240;
@@ -66,11 +71,21 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
 
 function SheetGrid({
   activeCell,
+  editingCell,
+  onCancelEdit,
+  onCommitEdit,
+  onEditValueChange,
   onSelectCell,
+  onStartEdit,
   sheet,
 }: {
   activeCell: ActiveCellSelection | null;
+  editingCell: EditingCell | null;
+  onCancelEdit: () => void;
+  onCommitEdit: (editToCommit?: EditingCell) => void;
+  onEditValueChange: (value: string) => void;
   onSelectCell: (selection: ActiveCellSelection) => void;
+  onStartEdit: (selection: ActiveCellSelection) => void;
   sheet: Sheet;
 }) {
   const columns = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
@@ -102,19 +117,58 @@ function SheetGrid({
               const key = cellKey(address);
               const cell = sheet.cells[key];
               const isActive = activeCell?.sheetId === sheet.id && activeCell.cellKey === key;
+              const isEditing = editingCell?.sheetId === sheet.id && editingCell.cellKey === key;
+
+              function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
+                if (event.key === 'Enter' && isActive) {
+                  event.preventDefault();
+                  onStartEdit({ sheetId: sheet.id, cellKey: key });
+                }
+              }
 
               return (
                 <td
                   aria-label={`${sheet.name} ${key}${cell ? '' : ' empty'} cell`}
-                  className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}`}
+                  className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
+                    isEditing ? ' sheet-grid-cell-editing' : ''
+                  }`}
                   data-active-cell={isActive ? 'true' : undefined}
                   data-cell-key={key}
+                  data-editing-cell={isEditing ? 'true' : undefined}
                   data-testid="sheet-grid-cell"
                   key={key}
                   onClick={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
+                  onDoubleClick={() => onStartEdit({ sheetId: sheet.id, cellKey: key })}
+                  onFocus={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
+                  onKeyDown={handleCellKeyDown}
                   tabIndex={0}
                 >
-                  {cell?.raw ?? ''}
+                  {isEditing ? (
+                    <input
+                      aria-label={`${sheet.name} ${key} editor`}
+                      autoFocus
+                      className="sheet-grid-cell-editor"
+                      onBlur={(event) => onCommitEdit({ ...editingCell, value: event.currentTarget.value })}
+                      onChange={(event) => onEditValueChange(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onCommitEdit({ ...editingCell, value: event.currentTarget.value });
+                        }
+
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onCancelEdit();
+                        }
+                      }}
+                      value={editingCell.value}
+                    />
+                  ) : (
+                    (cell?.raw ?? '')
+                  )}
                 </td>
               );
             })}
@@ -130,8 +184,35 @@ export function App({ initialWorkbook }: AppProps = {}) {
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
+
+  function commitActiveEdit(editToCommit = editingCell) {
+    if (!editToCommit) {
+      return;
+    }
+
+    setWorkbook((currentWorkbook) =>
+      commitCellRawContent(currentWorkbook, editToCommit.sheetId, editToCommit.cellKey, editToCommit.value),
+    );
+    setEditingCell(null);
+  }
+
+  function startEditingCell(selection: ActiveCellSelection) {
+    const sheet = workbook.sheets.find((candidate) => candidate.id === selection.sheetId);
+    const value = sheet?.cells[selection.cellKey]?.raw ?? '';
+
+    setActiveCell(selection);
+    setEditingCell({
+      ...selection,
+      value,
+    });
+  }
+
+  function selectCell(selection: ActiveCellSelection) {
+    setActiveCell(selection);
+  }
 
   function openCreationDialog(position: WorkspacePosition, label: string) {
     setPendingCreation({ position, label });
@@ -260,7 +341,20 @@ export function App({ initialWorkbook }: AppProps = {}) {
               </button>
             </header>
             <div className="sheet-frame-body" data-testid="sheet-frame-body">
-              <SheetGrid activeCell={activeCell} onSelectCell={setActiveCell} sheet={sheet} />
+              <SheetGrid
+                activeCell={activeCell}
+                editingCell={editingCell}
+                onCancelEdit={() => setEditingCell(null)}
+                onCommitEdit={commitActiveEdit}
+                onEditValueChange={(value) =>
+                  setEditingCell((currentEditingCell) =>
+                    currentEditingCell ? { ...currentEditingCell, value } : currentEditingCell,
+                  )
+                }
+                onSelectCell={selectCell}
+                onStartEdit={startEditingCell}
+                sheet={sheet}
+              />
             </div>
           </article>
         ))}
