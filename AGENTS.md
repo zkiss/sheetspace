@@ -1,14 +1,38 @@
-# Project guidance
+# Sheetspace agent guidance
 
-## Product context
+## Repository purpose
 
-This repository implements the product described in `plan/*.md`.
+This repository implements Sheetspace: a visual spreadsheet workspace where spreadsheet-like tables can be arranged in a 2D space, linked through formulas, navigated like code, and gradually refactored from conventional spreadsheet layouts into clearer calculation structures.
 
-The plan describes the intended complete product direction: goals, workflows, UX, architecture, constraints, trade-offs, and future capabilities. Use it to understand the project and make coherent engineering decisions.
+The product direction is described in `plan/*.md`.
 
-Start with `plan/PROJECT_VISION.md`. Use that file as the entry point for understanding the rest of the plan.
+Start with: `plan/PROJECT_VISION.md`
 
-## Scope model
+Use the plan to understand goals, workflows, UX, architecture, constraints, trade-offs, and future capabilities.
+
+## Stack and repo map
+
+This is a makefile-driven monorepo.
+
+- `frontend/`: React + TypeScript + Vite client.
+- `backend/`: Kotlin + Ktor API server.
+- Root `Makefile`: orchestration commands for setup, compile, test, and build.
+- `plan/`: product vision, design notes, feature planning, and implementation context.
+- `.beads/`: Beads issue state exported by `br`; tracked in git.
+
+Common commands:
+
+```bash
+make setup
+make test
+make compile
+make frontend-dist
+make build
+```
+
+Prefer these root commands over ad-hoc per-package commands unless the active bead or debugging context requires something narrower.
+
+## Core operating rule
 
 Beads define executable work.
 
@@ -18,9 +42,9 @@ When implementing, use the selected bead and its acceptance criteria as the impl
 
 If extra work appears necessary, capture it as a new or updated bead rather than silently expanding the current bead.
 
-If the plan and the active bead appear to disagree, follow the bead for immediate implementation scope, but do not ignore the disagreement. Record the ambiguity, create or update a decision bead if needed, and ask the user when the correct direction is not clear.
+Work on one bead at a time unless explicitly instructed otherwise.
 
-## Decision handling
+## Product and scope decisions
 
 Do not invent product decisions, UX behaviour, technical constraints, or scope trade-offs that are not specified by the plan, the active bead, or explicit user instructions.
 
@@ -30,7 +54,7 @@ When a decision is needed:
 
 1. State the decision required.
 2. Explain why it blocks or affects the current work.
-3. List the realistic options, with trade-offs if useful.
+3. List realistic options, with trade-offs if useful.
 4. Recommend a default only if there is a clearly safe default.
 5. Create an `ask-human` / `question` bead if the decision should be tracked.
 
@@ -46,7 +70,13 @@ Keep the plan and beads consistent.
 
 The plan describes the intended product direction. Beads describe the current executable breakdown. They should not silently contradict each other.
 
-If a bead intentionally diverges from the plan, the bead must say so explicitly and explain why. Examples include reduced MVP scope, deferred functionality, temporary omissions, implementation shortcuts, or changed assumptions.
+If a bead intentionally diverges from the plan, the bead must say so explicitly and explain why. Examples:
+
+- reduced MVP scope
+- deferred functionality
+- temporary omissions
+- implementation shortcuts
+- changed assumptions
 
 If the active bead and the plan conflict:
 
@@ -60,21 +90,166 @@ When closing or materially changing beads, check whether the relevant plan files
 
 ## Working expectations
 
-Work on one bead at a time unless explicitly instructed otherwise.
+Before editing:
 
-Before editing, inspect the relevant existing files and the relevant plan sections. Preserve existing conventions unless the bead requires changing them.
+1. Read this file.
+2. Inspect the active bead.
+3. Inspect relevant plan sections.
+4. Inspect relevant existing code.
+5. Check git status.
+6. Check Agent Mail if available.
 
-Prefer small, focused, testable changes. Avoid unrelated cleanup or reorganisation.
+Preserve existing conventions unless the bead requires changing them.
 
-If blocked by a product, UX, technical, or scope decision, stop and ask rather than making up the answer, unless the user has explicitly delegated that decision.
+Prefer small, focused, testable changes.
 
-A bead is complete only when its acceptance criteria are satisfied, the relevant checks have been run, and review feedback has been addressed or explicitly recorded.
+Avoid unrelated cleanup or reorganisation. If unrelated work is discovered, create a bead for it. Only fix it immediately if it blocks the active bead, is a tiny touched-code fix, or would otherwise leave the repo broken.
+
+A bead is complete only when:
+
+- its acceptance criteria are satisfied
+- relevant checks have been run
+- review feedback has been addressed or explicitly recorded
+- bead state has been updated
+- any new follow-up work is captured as beads
+- plan/bead inconsistencies have been resolved or recorded
 
 If checks cannot be run, state why and record the remaining risk.
 
+## Bead quality
+
+When creating or materially updating a bead, make it self-contained enough for a fresh agent to work from it.
+
+A good bead should include:
+
+- clear title
+- task type: `task`, `bug`, `feature`, `epic`, `chore`, `docs`, or `question`
+- priority: P0 critical, P1 high, P2 medium, P3 low, P4 backlog
+- problem / goal
+- implementation scope
+- explicit out-of-scope notes where useful
+- acceptance criteria
+- relevant plan references
+- dependencies / blockers
+- testing expectations
+- human decisions required, if any
+
+Use `question` or `ask-human` style beads for decisions that should not be guessed.
+
+## Beads and bv workflow
+
+This project uses Beads for durable issue tracking.
+
+- `br` manages bead state: create, update, close, dependencies, sync.
+- `bv` analyses the bead graph and recommends what to work on next.
+- `.beads/` is tracked in git and must be kept in sync.
+
+Use `bv` for triage and routing. Use `br` for mutation.
+
+Do not parse `.beads/beads.jsonl` manually unless there is no tool alternative.
+
+### Start-of-session triage
+
+Preferred:
+
+```bash
+bv --robot-triage
+```
+
+For a minimal recommendation:
+
+```bash
+bv --robot-next
+```
+
+For lower-token output:
+
+```bash
+bv --robot-triage --format toon
+```
+
+Important: use only `bv --robot-*` commands. Bare `bv` may launch an interactive UI and block the session.
+
+Useful `bv` commands:
+
+```bash
+bv --robot-triage
+bv --robot-next
+bv --robot-plan
+bv --robot-priority
+bv --robot-insights
+bv --robot-alerts
+bv --robot-suggest
+bv --robot-diff --diff-since <ref>
+bv --robot-graph --graph-format=json
+bv --robot-graph --graph-format=mermaid
+```
+
+Useful scoped examples:
+
+```bash
+bv --robot-plan --label backend
+bv --robot-plan --label frontend
+bv --recipe actionable --robot-plan
+bv --recipe high-impact --robot-triage
+```
+
+### br commands
+
+```bash
+br ready
+br list --status=open
+br show <id>
+br search "keyword"
+
+br create --title="..." --description="..." --type=task --priority=2
+br update <id> --status=in_progress
+br close <id> --reason="Completed"
+
+br dep add <issue> <depends-on>
+br sync --status
+br sync --flush-only
+```
+
+Use numeric priorities:
+
+- `0`: P0 critical
+- `1`: P1 high
+- `2`: P2 medium
+- `3`: P3 low
+- `4`: P4 backlog
+
+### Bead lifecycle
+
+1. Use `bv --robot-triage` or `bv --robot-next` to identify the best actionable bead.
+2. Inspect the bead with `br show <id>`.
+3. Inspect relevant plan files and code.
+4. Mark the bead in progress:
+
+```bash
+br update <id> --status=in_progress
+```
+
+5. Do the work.
+6. Run relevant checks.
+7. Create or update follow-up beads for discovered work.
+8. Close the bead only when acceptance criteria are met:
+
+```bash
+br close <id> --reason="Completed"
+```
+
+9. Sync bead state:
+
+```bash
+br sync --flush-only
+```
+
 ## Agent Mail coordination
 
-Agent Mail is optional. Use it when the MCP tools are available. If Agent Mail is unavailable, continue using Beads, git, the plan files, and the final session summary as the coordination record.
+Agent Mail is optional. Use it when the MCP tools are available.
+
+If Agent Mail is unavailable, continue using Beads, git, plan files, and the final session summary as the coordination record.
 
 Use the repository absolute path as the Agent Mail `project_key`.
 
@@ -109,6 +284,17 @@ identities:
 
 The exact token field name may differ depending on the Agent Mail tool response. Preserve whatever value is needed to authenticate as the same named agent in later sessions.
 
+### Agent Mail conventions
+
+Use the active bead id as the shared coordination key.
+
+For bead `br-123`:
+
+- Agent Mail thread id: `br-123`
+- Mail subject prefix: `[br-123]`
+- File reservation reason: `br-123`
+- Commit message should include `br-123`
+
 At the start of an Agent Mail-enabled session:
 
 1. Read `.agents/am.yml` if present.
@@ -119,7 +305,29 @@ At the start of an Agent Mail-enabled session:
 
 During work, send short progress or blocker messages when useful. Do not spend excessive time on coordination if no other agents are active.
 
-At completion, report the bead id, summary of changes, files changed, tests run, and any risks or follow-up beads.
+At completion, report:
+
+- bead id
+- summary of changes
+- files changed
+- tests run
+- risks
+- follow-up beads
+- review status
+
+## File reservations
+
+When Agent Mail file reservations are available, reserve intended edit surfaces before modifying them.
+
+Reserve narrowly:
+
+- specific files when known
+- small globs when necessary
+- avoid broad repo-wide reservations
+
+If another agent has reserved a file, coordinate through Agent Mail rather than editing over it.
+
+If reservations are unavailable, use git status, bead status, and Agent Mail messages as the fallback coordination mechanism.
 
 ## Review protocol
 
@@ -151,164 +359,76 @@ Reviewer default behaviour:
 - Prefer actionable findings tied to files, behaviours, or acceptance criteria.
 - If no issues are found, say so directly and state what was checked.
 
-<!-- br-agent-instructions-v1 -->
+## Git and session close protocol
 
----
-
-## Beads Workflow Integration
-
-This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`/`bd`) for issue tracking. Issues are stored in `.beads/` and tracked in git.
-
-### Essential Commands
+Before committing:
 
 ```bash
-# View ready issues (open, unblocked, not deferred)
-br ready              # or: bd ready
-
-# List and search
-br list --status=open # All open issues
-br show <id>          # Full issue details with dependencies
-br search "keyword"   # Full-text search
-
-# Create and update
-br create --title="..." --description="..." --type=task --priority=2
-br update <id> --status=in_progress
-br close <id> --reason="Completed"
-br close <id1> <id2>  # Close multiple issues at once
-
-# Sync with git
-br sync --flush-only  # Export DB to JSONL
-br sync --status      # Check sync status
+git status
 ```
 
-### Workflow Pattern
-
-1. **Start**: Run `br ready` to find actionable work
-2. **Claim**: Use `br update <id> --status=in_progress`
-3. **Work**: Implement the task
-4. **Complete**: Use `br close <id>`
-5. **Sync**: Always run `br sync --flush-only` at session end
-
-### Key Concepts
-
-- **Dependencies**: Issues can block other issues. `br ready` shows only open, unblocked work.
-- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words)
-- **Types**: task, bug, feature, epic, chore, docs, question
-- **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
-
-### Session Protocol
-
-**Before ending any session, run this checklist:**
+Stage code/docs changes intentionally:
 
 ```bash
-git status              # Check what changed
-git add <files>         # Stage code changes
-br sync --flush-only    # Export beads changes to JSONL
-git commit -m "..."     # Commit everything
-git push                # Push to remote
+git add <files>
 ```
 
-### Best Practices
-
-- Check `br ready` at session start to find available work
-- Update status as you work (in_progress → closed)
-- Create new issues with `br create` when you discover tasks
-- Use descriptive titles and set appropriate priority/type
-- Always sync before ending session
-
-<!-- end-br-agent-instructions -->
-
-<!-- bv-agent-instructions-v2 -->
-
----
-
-## Beads Workflow Integration
-
-This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking and [beads_viewer](https://github.com/Dicklesworthstone/beads_viewer) (`bv`) for graph-aware triage. Issues are stored in `.beads/` and tracked in git.
-
-### Using bv as an AI sidecar
-
-bv is a graph-aware triage engine for Beads projects (.beads/beads.jsonl). Instead of parsing JSONL or hallucinating graph traversal, use robot flags for deterministic, dependency-aware outputs with precomputed metrics (PageRank, betweenness, critical path, cycles, HITS, eigenvector, k-core).
-
-**Scope boundary:** bv handles *what to work on* (triage, priority, planning). `br` handles creating, modifying, and closing beads.
-
-**CRITICAL: Use ONLY --robot-* flags. Bare bv launches an interactive TUI that blocks your session.**
-
-#### The Workflow: Start With Triage
-
-**`bv --robot-triage` is your single entry point.** It returns everything you need in one call:
-- `quick_ref`: at-a-glance counts + top 3 picks
-- `recommendations`: ranked actionable items with scores, reasons, unblock info
-- `quick_wins`: low-effort high-impact items
-- `blockers_to_clear`: items that unblock the most downstream work
-- `project_health`: status/type/priority distributions, graph metrics
-- `commands`: copy-paste shell commands for next steps
+Sync Beads after bead changes:
 
 ```bash
-bv --robot-triage        # THE MEGA-COMMAND: start here
-bv --robot-next          # Minimal: just the single top pick + claim command
-
-# Token-optimized output (TOON) for lower LLM context usage:
-bv --robot-triage --format toon
+br sync --flush-only
 ```
 
-#### Other bv Commands
-
-| Command | Returns |
-|---------|---------|
-| `--robot-plan` | Parallel execution tracks with unblocks lists |
-| `--robot-priority` | Priority misalignment detection with confidence |
-| `--robot-insights` | Full metrics: PageRank, betweenness, HITS, eigenvector, critical path, cycles, k-core |
-| `--robot-alerts` | Stale issues, blocking cascades, priority mismatches |
-| `--robot-suggest` | Hygiene: duplicates, missing deps, label suggestions, cycle breaks |
-| `--robot-diff --diff-since <ref>` | Changes since ref: new/closed/modified issues |
-| `--robot-graph [--graph-format=json\|dot\|mermaid]` | Dependency graph export |
-
-#### Scoping & Filtering
+Then stage exported bead state:
 
 ```bash
-bv --robot-plan --label backend              # Scope to label's subgraph
-bv --robot-insights --as-of HEAD~30          # Historical point-in-time
-bv --recipe actionable --robot-plan          # Pre-filter: ready to work (no blockers)
-bv --recipe high-impact --robot-triage       # Pre-filter: top PageRank scores
+git add .beads/
 ```
 
-### br Commands for Issue Management
+Check the final staged state:
 
 ```bash
-br ready              # Show issues ready to work (no blockers)
-br list --status=open # All open issues
-br show <id>          # Full issue details with dependencies
-br create --title="..." --type=task --priority=2
-br update <id> --status=in_progress
-br close <id> --reason="Completed"
-br close <id1> <id2>  # Close multiple issues at once
-br sync --flush-only  # Export DB to JSONL
+git status
 ```
 
-### Workflow Pattern
-
-1. **Triage**: Run `bv --robot-triage` to find the highest-impact actionable work
-2. **Claim**: Use `br update <id> --status=in_progress`
-3. **Work**: Implement the task
-4. **Complete**: Use `br close <id>`
-5. **Sync**: Always run `br sync --flush-only` at session end
-
-### Key Concepts
-
-- **Dependencies**: Issues can block other issues. `br ready` shows only unblocked work.
-- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words)
-- **Types**: task, bug, feature, epic, chore, docs, question
-- **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
-
-### Session Protocol
+Commit with the bead id in the message:
 
 ```bash
-git status              # Check what changed
-git add <files>         # Stage code changes
-br sync --flush-only    # Export beads changes to JSONL
-git commit -m "..."     # Commit everything
-git push                # Push to remote
+git commit -m "br-123: concise description"
 ```
 
-<!-- end-bv-agent-instructions -->
+Push when appropriate:
+
+```bash
+git push
+```
+
+Do not forget the second `git add .beads/` after `br sync --flush-only`.
+
+## Context recovery
+
+After compaction, context reset, or a fresh session:
+
+1. Re-read `AGENTS.md`.
+2. Inspect the active bead with `br show <id>`.
+3. Inspect relevant plan files.
+4. Check Agent Mail if available.
+5. Check git status.
+6. Continue only once the current scope and repo state are clear.
+
+If the session appears confused or stale after recovery, stop and ask for a fresh instruction rather than guessing.
+
+## Final response expectations
+
+When finishing work, report:
+
+- active bead id
+- what changed
+- files changed
+- checks run
+- checks not run, with reason
+- follow-up beads created or needed
+- unresolved decisions or risks
+- whether review has happened
+
+Be explicit about blockers, uncertainty, and decisions that require the user.

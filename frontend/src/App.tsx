@@ -10,6 +10,10 @@ type PendingSheetCreation = {
 const SHEET_FRAME_WIDTH = 240;
 const SHEET_FRAME_HEIGHT = 160;
 
+type AppProps = {
+  initialWorkbook?: Workbook;
+};
+
 function getWorkspacePoint(
   event: Pick<MouseEvent<HTMLElement>, 'clientX' | 'clientY'>,
   element: HTMLElement,
@@ -41,8 +45,8 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
   return 'A sheet with that name already exists.';
 }
 
-export function App() {
-  const [workbook, setWorkbook] = useState<Workbook>(() => createEmptyWorkbook());
+export function App({ initialWorkbook }: AppProps = {}) {
+  const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
@@ -135,10 +139,14 @@ export function App() {
               height: SHEET_FRAME_HEIGHT,
             }}
           >
-            <h2>{sheet.name}</h2>
-            <p>
-              {sheet.columnCount} columns x {sheet.rowCount} rows
-            </p>
+            <header className="sheet-frame-header">
+              <h2>{sheet.name}</h2>
+            </header>
+            <div className="sheet-frame-body" data-testid="sheet-frame-body">
+              <p>
+                {sheet.columnCount} columns x {sheet.rowCount} rows
+              </p>
+            </div>
           </article>
         ))}
       </section>
