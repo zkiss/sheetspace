@@ -36,6 +36,11 @@ function workbookWithSheets(sheets: Workbook['sheets']): Workbook {
   };
 }
 
+async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HTMLElement) {
+  await user.dblClick(cell);
+  return within(cell).getByRole('textbox');
+}
+
 describe('App workspace', () => {
   it('opens to an empty spatial workspace without a default sheet', () => {
     render(<App />);
@@ -207,6 +212,49 @@ describe('App workspace', () => {
     expect(outputsB2).toHaveAttribute('data-active-cell', 'true');
   });
 
+  it('moves active selection when keyboard focus moves to another cell', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b1 = within(frame).getByRole('cell', { name: 'Inputs B1 empty cell' });
+
+    fireEvent.focus(a1);
+    expect(a1).toHaveAttribute('data-active-cell', 'true');
+
+    fireEvent.focus(b1);
+    expect(a1).not.toHaveAttribute('data-active-cell');
+    expect(b1).toHaveAttribute('data-active-cell', 'true');
+  });
+
+  it('commits an active edit when keyboard focus moves to another cell', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const editedCell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const nextCell = within(frame).getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const editor = await openCellEditor(user, editedCell);
+    await user.type(editor, 'Keyboard commit');
+    await user.tab();
+
+    expect(editedCell).toHaveTextContent('Keyboard commit');
+    expect(nextCell).toHaveFocus();
+    expect(nextCell).toHaveAttribute('data-active-cell', 'true');
+  });
+
   it('selects empty, text, numeric-looking, and formula cells through the same cell path', async () => {
     const user = userEvent.setup();
     const sheet = {
@@ -236,6 +284,202 @@ describe('App workspace', () => {
     expect(within(frame).getAllByTestId('sheet-grid-cell').filter((cell) => cell.dataset.activeCell)).toHaveLength(
       1,
     );
+  });
+
+  it('enters edit mode for a selected cell', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(cell);
+    await user.keyboard('{Enter}');
+
+    expect(cell).toHaveAttribute('data-editing-cell', 'true');
+    expect(within(cell).getByRole('textbox', { name: 'Inputs A1 editor' })).toHaveValue('');
+  });
+
+  it('commits typed text as raw cell content with Enter', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const editor = await openCellEditor(user, cell);
+    await user.type(editor, 'Region');
+    await user.keyboard('{Enter}');
+
+    expect(cell).not.toHaveAttribute('data-editing-cell');
+    expect(cell).toHaveTextContent('Region');
+    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toBe(cell);
+  });
+
+  it('commits numeric-looking values as raw cell content', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const editor = await openCellEditor(user, cell);
+    await user.type(editor, '42.50');
+    await user.keyboard('{Enter}');
+
+    expect(cell).toHaveTextContent('42.50');
+  });
+
+  it('commits formula-looking values as raw cell content without normalization', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs C1 empty cell' });
+    const editor = await openCellEditor(user, cell);
+    await user.type(editor, '=SUM(B1:B2)');
+    await user.keyboard('{Enter}');
+
+    expect(cell).toHaveTextContent('=SUM(B1:B2)');
+  });
+
+  it('commits an active edit when selection moves within a sheet', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const editedCell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const nextCell = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const editor = await openCellEditor(user, editedCell);
+    await user.type(editor, 'Committed on move');
+    await user.click(nextCell);
+
+    expect(editedCell).toHaveTextContent('Committed on move');
+    expect(editedCell).not.toHaveAttribute('data-editing-cell');
+    expect(nextCell).toHaveAttribute('data-active-cell', 'true');
+  });
+
+  it('commits an active edit when selection moves to another sheet', async () => {
+    const user = userEvent.setup();
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 });
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const editedCell = within(inputFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const outputCell = within(outputFrame).getByRole('cell', { name: 'Outputs A1 empty cell' });
+    const editor = await openCellEditor(user, editedCell);
+    await user.type(editor, 'Cross-sheet commit');
+    await user.click(outputCell);
+
+    expect(editedCell).toHaveTextContent('Cross-sheet commit');
+    expect(outputFrame).toHaveAttribute('data-active-sheet', 'true');
+    expect(outputCell).toHaveAttribute('data-active-cell', 'true');
+  });
+
+  it('cancels active edits with Escape and restores prior content', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: 'Original' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const editor = await openCellEditor(user, cell);
+    await user.clear(editor);
+    await user.type(editor, 'Changed');
+    await user.keyboard('{Escape}');
+
+    expect(cell).not.toHaveAttribute('data-editing-cell');
+    expect(cell).toHaveTextContent('Original');
+  });
+
+  it.each([
+    ['text', 'Remove me'],
+    ['numeric-looking', '123'],
+    ['formula', '=SUM(A2:A3)'],
+  ])('clears existing %s content when an empty edit is committed', async (_label, raw) => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const editor = await openCellEditor(user, cell);
+    await user.clear(editor);
+    await user.keyboard('{Enter}');
+
+    expect(cell).toHaveTextContent('');
+    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toBe(cell);
+  });
+
+  it('commits an empty edit on an already-empty cell without adding visible content', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await openCellEditor(user, cell);
+    await user.keyboard('{Enter}');
+
+    expect(cell).toHaveTextContent('');
+    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toBe(cell);
+  });
+
+  it('clears a stored empty cell so it renders as an empty cell again', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    await openCellEditor(user, cell);
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toBe(cell);
   });
 
   it('renders multiple sheet grids independently inside their frames', () => {
