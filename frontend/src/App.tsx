@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, MouseEvent, useState } from 'react';
+import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useState } from 'react';
 import './App.css';
 import {
   cellKey,
@@ -6,7 +6,9 @@ import {
   commitCellRawContent,
   createEmptyWorkbook,
   createSheet,
+  evaluateFormulaCells,
   renameSheet,
+  type FormulaEvaluationSnapshot,
   type Sheet,
   type Workbook,
   type WorkspacePosition,
@@ -77,6 +79,7 @@ function SheetGrid({
   onEditValueChange,
   onSelectCell,
   onStartEdit,
+  formulaResults,
   sheet,
 }: {
   activeCell: ActiveCellSelection | null;
@@ -85,7 +88,8 @@ function SheetGrid({
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onEditValueChange: (value: string) => void;
   onSelectCell: (selection: ActiveCellSelection) => void;
-  onStartEdit: (selection: ActiveCellSelection) => void;
+  onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
+  formulaResults: FormulaEvaluationSnapshot;
   sheet: Sheet;
 }) {
   const columns = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
@@ -118,11 +122,32 @@ function SheetGrid({
               const cell = sheet.cells[key];
               const isActive = activeCell?.sheetId === sheet.id && activeCell.cellKey === key;
               const isEditing = editingCell?.sheetId === sheet.id && editingCell.cellKey === key;
+              const displayText = formulaResults[sheet.id]?.[key]?.display ?? cell?.raw ?? '';
 
               function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
-                if (event.key === 'Enter' && isActive) {
+                if (event.target !== event.currentTarget) {
+                  return;
+                }
+
+                if (!isActive || event.altKey || event.ctrlKey || event.metaKey) {
+                  return;
+                }
+
+                if (event.key === 'Enter') {
                   event.preventDefault();
                   onStartEdit({ sheetId: sheet.id, cellKey: key });
+                  return;
+                }
+
+                if (event.key === 'Backspace' || event.key === 'Delete') {
+                  event.preventDefault();
+                  onStartEdit({ sheetId: sheet.id, cellKey: key }, '');
+                  return;
+                }
+
+                if (event.key.length === 1) {
+                  event.preventDefault();
+                  onStartEdit({ sheetId: sheet.id, cellKey: key }, event.key);
                 }
               }
 
@@ -167,7 +192,7 @@ function SheetGrid({
                       value={editingCell.value}
                     />
                   ) : (
-                    (cell?.raw ?? '')
+                    displayText
                   )}
                 </td>
               );
@@ -187,6 +212,7 @@ export function App({ initialWorkbook }: AppProps = {}) {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
+  const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
 
   function commitActiveEdit(editToCommit = editingCell) {
     if (!editToCommit) {
@@ -199,9 +225,9 @@ export function App({ initialWorkbook }: AppProps = {}) {
     setEditingCell(null);
   }
 
-  function startEditingCell(selection: ActiveCellSelection) {
+  function startEditingCell(selection: ActiveCellSelection, initialValue?: string) {
     const sheet = workbook.sheets.find((candidate) => candidate.id === selection.sheetId);
-    const value = sheet?.cells[selection.cellKey]?.raw ?? '';
+    const value = initialValue ?? sheet?.cells[selection.cellKey]?.raw ?? '';
 
     setActiveCell(selection);
     setEditingCell({
@@ -353,6 +379,7 @@ export function App({ initialWorkbook }: AppProps = {}) {
                 }
                 onSelectCell={selectCell}
                 onStartEdit={startEditingCell}
+                formulaResults={formulaResults}
                 sheet={sheet}
               />
             </div>
