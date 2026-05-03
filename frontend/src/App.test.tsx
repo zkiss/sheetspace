@@ -304,6 +304,51 @@ describe('App workspace', () => {
     expect(within(cell).getByRole('textbox', { name: 'Inputs A1 editor' })).toHaveValue('');
   });
 
+  it('starts editing a selected cell when typing a printable character', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(cell);
+    await user.keyboard('R');
+
+    const editor = within(cell).getByRole('textbox', { name: 'Inputs A1 editor' });
+    expect(editor).toHaveValue('R');
+
+    await user.type(editor, 'egion');
+    await user.keyboard('{Enter}');
+
+    expect(cell).toHaveTextContent('Region');
+  });
+
+  it('starts an empty edit for a selected cell with Backspace or Delete', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: 'Remove me' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    await user.click(cell);
+    await user.keyboard('{Backspace}');
+
+    expect(within(cell).getByRole('textbox', { name: 'Inputs A1 editor' })).toHaveValue('');
+
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toBe(cell);
+  });
+
   it('commits typed text as raw cell content with Enter', async () => {
     const user = userEvent.setup();
     render(
@@ -357,7 +402,35 @@ describe('App workspace', () => {
     await user.type(editor, '=SUM(B1:B2)');
     await user.keyboard('{Enter}');
 
-    expect(cell).toHaveTextContent('=SUM(B1:B2)');
+    expect(cell).toHaveTextContent('0');
+
+    const reopenedEditor = await openCellEditor(user, cell);
+    expect(reopenedEditor).toHaveValue('=SUM(B1:B2)');
+  });
+
+  it('displays formula results and recomputes after referenced cell edits', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '=SUM(B1:B2)' },
+        B1: { raw: '1' },
+        B2: { raw: '2' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('3');
+
+    const b2 = screen.getByRole('cell', { name: 'Inputs B2 cell' });
+    const editor = await openCellEditor(user, b2);
+    await user.clear(editor);
+    await user.type(editor, '5');
+    await user.keyboard('{Enter}');
+
+    expect(formulaCell).toHaveTextContent('6');
   });
 
   it('commits an active edit when selection moves within a sheet', async () => {
@@ -621,9 +694,13 @@ describe('App workspace', () => {
     const renamedFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
     expect(within(renamedFrame).getByRole('heading', { name: 'Renamed Inputs' })).toBeInTheDocument();
     expect(within(renamedFrame).getByRole('table', { name: 'Renamed Inputs grid' })).toBeInTheDocument();
-    expect(within(renamedFrame).getByRole('cell', { name: 'Renamed Inputs A1 cell' })).toHaveTextContent(
-      '=SUM(Old Name!A1)',
-    );
+    const formulaCell = within(renamedFrame).getByRole('cell', { name: 'Renamed Inputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('#REF!');
+
+    const editor = await openCellEditor(user, formulaCell);
+    expect(editor).toHaveValue('=SUM(Old Name!A1)');
+    await user.keyboard('{Escape}');
+
     expect(screen.queryByRole('heading', { name: 'Inputs' })).not.toBeInTheDocument();
   });
 

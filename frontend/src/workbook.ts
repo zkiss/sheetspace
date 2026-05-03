@@ -45,7 +45,7 @@ export type NamedRangeReference = CellRange & {
   sheetName?: string;
 };
 
-export type FormulaErrorCode = '#PARSE!' | '#REF!' | '#NAME!';
+export type FormulaErrorCode = '#PARSE!' | '#REF!' | '#NAME!' | '#VALUE!' | '#CYCLE!';
 
 export type FormulaReference =
   | {
@@ -69,6 +69,12 @@ export type FormulaParseResult =
   | { kind: 'not-formula'; raw: string }
   | { kind: 'formula'; raw: string; expression: SumFormula }
   | { kind: 'error'; raw: string; error: FormulaErrorCode };
+
+export type FormulaDisplayResult =
+  | { kind: 'number'; value: number; display: string }
+  | { kind: 'error'; error: FormulaErrorCode; display: FormulaErrorCode };
+
+export type FormulaEvaluationSnapshot = Record<string, Record<CellKey, FormulaDisplayResult>>;
 
 export type ValidationResult =
   | { ok: true; name: string }
@@ -383,6 +389,11 @@ export function parseFormula(raw: string, workbook: Workbook, defaultSheet?: She
   return parser.parse(raw);
 }
 
+export function evaluateFormulaCells(workbook: Workbook): FormulaEvaluationSnapshot {
+  const evaluator = new FormulaEvaluator(workbook);
+  return evaluator.evaluate();
+}
+
 export function isAddressWithinBounds(
   address: CellAddress,
   bounds: Pick<Sheet, 'columnCount' | 'rowCount'>,
@@ -421,6 +432,189 @@ function resolveReferenceSheet(
   }
 
   return findSheetByName(workbook, sheetName);
+}
+
+function sheetCellNodeId(sheetId: string, key: CellKey): string {
+  return `${sheetId}\u0000${key}`;
+}
+
+function numericDisplay(value: number): FormulaDisplayResult {
+  return { kind: 'number', value, display: String(value) };
+}
+
+function formulaError(error: FormulaErrorCode): FormulaDisplayResult {
+  return { kind: 'error', error, display: error };
+}
+
+function parseStrictNumber(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return 0;
+  }
+
+  if (!/^-?[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) {
+    return undefined;
+  }
+
+  return Number(trimmed);
+}
+
+class FormulaEvaluator {
+  private readonly results = new Map<string, FormulaDisplayResult>();
+  private readonly visiting = new Set<string>();
+  private readonly stack: { nodeId: string; sheet: Sheet; key: CellKey }[] = [];
+
+  constructor(private readonly workbook: Workbook) {}
+
+  evaluate(): FormulaEvaluationSnapshot {
+    for (const sheet of this.workbook.sheets) {
+      for (const key of Object.keys(sheet.cells).sort()) {
+        if (sheet.cells[key].raw.startsWith('=')) {
+          this.evaluateFormulaCell(sheet, key);
+        }
+      }
+    }
+
+    const snapshot: FormulaEvaluationSnapshot = {};
+    for (const sheet of this.workbook.sheets) {
+      const sheetResults: Record<CellKey, FormulaDisplayResult> = {};
+      for (const key of Object.keys(sheet.cells).sort()) {
+        const result = this.results.get(sheetCellNodeId(sheet.id, key));
+        if (result) {
+          sheetResults[key] = result;
+        }
+      }
+      snapshot[sheet.id] = sheetResults;
+    }
+
+    return snapshot;
+  }
+
+  private evaluateFormulaCell(sheet: Sheet, key: CellKey): FormulaDisplayResult {
+    const nodeId = sheetCellNodeId(sheet.id, key);
+    const cached = this.results.get(nodeId);
+    if (cached) {
+      return cached;
+    }
+
+    if (this.visiting.has(nodeId)) {
+      const cycleStart = this.stack.findIndex((entry) => entry.nodeId === nodeId);
+      for (const entry of this.stack.slice(cycleStart)) {
+        this.results.set(entry.nodeId, formulaError('#CYCLE!'));
+      }
+      return formulaError('#CYCLE!');
+    }
+
+    const cell = sheet.cells[key];
+    if (!cell?.raw.startsWith('=')) {
+      return this.evaluateLiteralCell(sheet, key);
+    }
+
+    this.visiting.add(nodeId);
+    this.stack.push({ nodeId, sheet, key });
+
+    const parsed = parseFormula(cell.raw, this.workbook, sheet);
+    let result: FormulaDisplayResult;
+    if (parsed.kind === 'error') {
+      result = formulaError(parsed.error);
+    } else if (parsed.kind === 'formula') {
+      result = this.evaluateSum(parsed.expression, sheet);
+    } else {
+      result = formulaError('#PARSE!');
+    }
+
+    this.stack.pop();
+    this.visiting.delete(nodeId);
+
+    const cycleResult = this.results.get(nodeId);
+    if (cycleResult?.kind === 'error' && cycleResult.error === '#CYCLE!') {
+      return cycleResult;
+    }
+
+    this.results.set(nodeId, result);
+    return result;
+  }
+
+  private evaluateSum(expression: SumFormula, currentSheet: Sheet): FormulaDisplayResult {
+    let total = 0;
+
+    for (const argument of expression.arguments) {
+      const cells = this.resolveArgumentCells(argument, currentSheet);
+      if (!cells.ok) {
+        return formulaError(cells.error);
+      }
+
+      for (const cell of cells.value) {
+        const value = this.evaluateReferencedCell(cell.sheet, cell.key);
+        if (!value.ok) {
+          return formulaError(value.error);
+        }
+        total += value.value;
+      }
+    }
+
+    return numericDisplay(total);
+  }
+
+  private resolveArgumentCells(
+    argument: FormulaReference,
+    currentSheet: Sheet,
+  ): { ok: true; value: { sheet: Sheet; key: CellKey }[] } | { ok: false; error: FormulaErrorCode } {
+    const sheet = resolveReferenceSheet(argument.sheetName, this.workbook, currentSheet);
+    if (!sheet.ok) {
+      return { ok: false, error: '#REF!' };
+    }
+
+    if (argument.kind === 'cell') {
+      if (!isAddressWithinBounds(argument.address, sheet.value)) {
+        return { ok: false, error: '#REF!' };
+      }
+      return { ok: true, value: [{ sheet: sheet.value, key: cellKey(argument.address) }] };
+    }
+
+    const range = expandRange(argument.range, sheet.value);
+    if (!range.ok) {
+      return { ok: false, error: '#REF!' };
+    }
+
+    return {
+      ok: true,
+      value: range.value.map((address) => ({ sheet: sheet.value, key: cellKey(address) })),
+    };
+  }
+
+  private evaluateReferencedCell(
+    sheet: Sheet,
+    key: CellKey,
+  ): { ok: true; value: number } | { ok: false; error: FormulaErrorCode } {
+    const cell = sheet.cells[key];
+    if (!cell) {
+      return { ok: true, value: 0 };
+    }
+
+    if (cell.raw.startsWith('=')) {
+      const result = this.evaluateFormulaCell(sheet, key);
+      if (result.kind === 'error') {
+        return { ok: false, error: result.error };
+      }
+      return { ok: true, value: result.value };
+    }
+
+    const parsed = parseStrictNumber(cell.raw);
+    if (parsed === undefined) {
+      return { ok: false, error: '#VALUE!' };
+    }
+
+    return { ok: true, value: parsed };
+  }
+
+  private evaluateLiteralCell(
+    sheet: Sheet,
+    key: CellKey,
+  ): FormulaDisplayResult {
+    const value = parseStrictNumber(sheet.cells[key]?.raw ?? '');
+    return value === undefined ? formulaError('#VALUE!') : numericDisplay(value);
+  }
 }
 
 function splitSheetReference(
