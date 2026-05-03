@@ -45,6 +45,31 @@ export type NamedRangeReference = CellRange & {
   sheetName?: string;
 };
 
+export type FormulaErrorCode = '#PARSE!' | '#REF!' | '#NAME!';
+
+export type FormulaReference =
+  | {
+      kind: 'cell';
+      sheetName?: string;
+      address: CellAddress;
+    }
+  | {
+      kind: 'range';
+      sheetName?: string;
+      range: CellRange;
+    };
+
+export type SumFormula = {
+  kind: 'sum';
+  functionName: 'SUM';
+  arguments: FormulaReference[];
+};
+
+export type FormulaParseResult =
+  | { kind: 'not-formula'; raw: string }
+  | { kind: 'formula'; raw: string; expression: SumFormula }
+  | { kind: 'error'; raw: string; error: FormulaErrorCode };
+
 export type ValidationResult =
   | { ok: true; name: string }
   | { ok: false; reason: 'empty' | 'duplicate' };
@@ -349,6 +374,15 @@ export function parseNamedA1Range(
   };
 }
 
+export function parseFormula(raw: string, workbook: Workbook, defaultSheet?: Sheet): FormulaParseResult {
+  if (!raw.startsWith('=')) {
+    return { kind: 'not-formula', raw };
+  }
+
+  const parser = new FormulaParser(raw.slice(1), workbook, defaultSheet);
+  return parser.parse(raw);
+}
+
 export function isAddressWithinBounds(
   address: CellAddress,
   bounds: Pick<Sheet, 'columnCount' | 'rowCount'>,
@@ -424,4 +458,244 @@ function splitSheetReference(
       reference: trimmedInput.slice(separatorIndex + 1),
     },
   };
+}
+
+class FormulaParser {
+  private index = 0;
+
+  constructor(
+    private readonly input: string,
+    private readonly workbook: Workbook,
+    private readonly defaultSheet: Sheet | undefined,
+  ) {}
+
+  parse(raw: string): FormulaParseResult {
+    this.skipWhitespace();
+    const functionName = this.readIdentifier();
+    if (!functionName) {
+      return { kind: 'error', raw, error: '#PARSE!' };
+    }
+
+    this.skipWhitespace();
+    if (!this.consume('(')) {
+      return { kind: 'error', raw, error: '#PARSE!' };
+    }
+
+    if (functionName.toUpperCase() !== 'SUM') {
+      return { kind: 'error', raw, error: '#NAME!' };
+    }
+
+    this.skipWhitespace();
+    if (this.peek() === ')') {
+      return { kind: 'error', raw, error: '#PARSE!' };
+    }
+
+    const args: FormulaReference[] = [];
+    while (true) {
+      const arg = this.readReferenceArgument();
+      if (!arg.ok) {
+        return { kind: 'error', raw, error: arg.error };
+      }
+      args.push(arg.value);
+
+      this.skipWhitespace();
+      if (this.consume(',')) {
+        this.skipWhitespace();
+        if (this.peek() === ')' || this.isAtEnd()) {
+          return { kind: 'error', raw, error: '#PARSE!' };
+        }
+        continue;
+      }
+
+      if (!this.consume(')')) {
+        return { kind: 'error', raw, error: '#PARSE!' };
+      }
+      break;
+    }
+
+    this.skipWhitespace();
+    if (!this.isAtEnd()) {
+      return { kind: 'error', raw, error: '#PARSE!' };
+    }
+
+    return {
+      kind: 'formula',
+      raw,
+      expression: {
+        kind: 'sum',
+        functionName: 'SUM',
+        arguments: args,
+      },
+    };
+  }
+
+  private readReferenceArgument(): { ok: true; value: FormulaReference } | { ok: false; error: FormulaErrorCode } {
+    const sheetName = this.readOptionalSheetName();
+    if (sheetName === false) {
+      return { ok: false, error: '#PARSE!' };
+    }
+
+    const sheet = resolveReferenceSheet(sheetName, this.workbook, this.defaultSheet);
+    if (!sheet.ok) {
+      return { ok: false, error: '#REF!' };
+    }
+
+    const startAddressToken = this.readA1AddressToken();
+    if (!startAddressToken) {
+      return { ok: false, error: '#PARSE!' };
+    }
+
+    const startAddress = parseA1Address(startAddressToken, sheet.value);
+    if (!startAddress.ok) {
+      return { ok: false, error: startAddress.reason === 'out-of-bounds' ? '#REF!' : '#PARSE!' };
+    }
+
+    this.skipWhitespace();
+    if (!this.consume(':')) {
+      return {
+        ok: true,
+        value: { kind: 'cell', sheetName, address: startAddress.value },
+      };
+    }
+
+    this.skipWhitespace();
+    const endAddressToken = this.readA1AddressToken();
+    if (!endAddressToken) {
+      return { ok: false, error: '#PARSE!' };
+    }
+
+    const endAddress = parseA1Address(endAddressToken, sheet.value);
+    if (!endAddress.ok) {
+      return { ok: false, error: endAddress.reason === 'out-of-bounds' ? '#REF!' : '#PARSE!' };
+    }
+
+    return {
+      ok: true,
+      value: {
+        kind: 'range',
+        sheetName,
+        range: normalizeRange({ start: startAddress.value, end: endAddress.value }),
+      },
+    };
+  }
+
+  private readOptionalSheetName(): string | undefined | false {
+    const startIndex = this.index;
+    const quotedSheetName = this.readQuotedSheetName();
+    if (quotedSheetName !== undefined) {
+      this.skipWhitespace();
+      if (!this.consume('!')) {
+        return false;
+      }
+      this.skipWhitespace();
+      return quotedSheetName;
+    }
+
+    this.index = startIndex;
+    const separatorIndex = this.findUnquotedSheetSeparator();
+    if (separatorIndex === -1) {
+      return undefined;
+    }
+
+    const sheetName = this.input.slice(this.index, separatorIndex).trim();
+    if (sheetName.length === 0 || sheetName.includes("'")) {
+      return false;
+    }
+
+    this.index = separatorIndex + 1;
+    this.skipWhitespace();
+    return sheetName;
+  }
+
+  private readQuotedSheetName(): string | undefined | false {
+    if (this.peek() !== "'") {
+      return undefined;
+    }
+
+    this.index += 1;
+    let sheetName = '';
+    while (!this.isAtEnd()) {
+      const char = this.peek();
+      if (char !== "'") {
+        sheetName += char;
+        this.index += 1;
+        continue;
+      }
+
+      if (this.input[this.index + 1] === "'") {
+        sheetName += "'";
+        this.index += 2;
+        continue;
+      }
+
+      this.index += 1;
+      return sheetName.length > 0 ? sheetName : false;
+    }
+
+    return false;
+  }
+
+  private findUnquotedSheetSeparator(): number {
+    let cursor = this.index;
+    while (cursor < this.input.length) {
+      const char = this.input[cursor];
+      if (char === '!') {
+        return cursor;
+      }
+      if (char === ',' || char === ')' || char === ':') {
+        return -1;
+      }
+      cursor += 1;
+    }
+
+    return -1;
+  }
+
+  private readA1AddressToken(): string | undefined {
+    const match = /^[A-Za-z]+[1-9][0-9]*/.exec(this.input.slice(this.index));
+    if (!match) {
+      return undefined;
+    }
+
+    this.index += match[0].length;
+    const nextChar = this.peek();
+    if (nextChar && /[A-Za-z0-9]/.test(nextChar)) {
+      return undefined;
+    }
+
+    return match[0];
+  }
+
+  private readIdentifier(): string | undefined {
+    const match = /^[A-Za-z][A-Za-z0-9_]*/.exec(this.input.slice(this.index));
+    if (!match) {
+      return undefined;
+    }
+
+    this.index += match[0].length;
+    return match[0];
+  }
+
+  private skipWhitespace(): void {
+    while (!this.isAtEnd() && /\s/.test(this.peek())) {
+      this.index += 1;
+    }
+  }
+
+  private consume(char: string): boolean {
+    if (this.peek() !== char) {
+      return false;
+    }
+
+    this.index += 1;
+    return true;
+  }
+
+  private peek(): string {
+    return this.input[this.index] ?? '';
+  }
+
+  private isAtEnd(): boolean {
+    return this.index >= this.input.length;
+  }
 }

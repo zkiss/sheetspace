@@ -12,6 +12,7 @@ import {
   findSheetByName,
   parseA1Address,
   parseA1Range,
+  parseFormula,
   parseNamedA1Address,
   parseNamedA1Range,
   renameSheet,
@@ -271,6 +272,208 @@ describe('cross-sheet helpers', () => {
     expect(parseNamedA1Address("'Missing!A1", workbook)).toEqual({
       ok: false,
       reason: 'invalid-format',
+    });
+  });
+});
+
+describe('formula parser', () => {
+  function formulaWorkbook() {
+    const inputs = sheet('sheet-1', 'Inputs');
+    const outputs = sheet('sheet-2', 'Outputs');
+    const sales = sheet('sheet-3', 'Sales Q1');
+    const planned = sheet('sheet-4', 'Planned-Revenue (FY26)');
+    const ownerPlan = sheet('sheet-5', "Owner's Plan");
+
+    return {
+      workbook: {
+        version: 1 as const,
+        sheets: [inputs, outputs, sales, planned, ownerPlan],
+      },
+      inputs,
+      outputs,
+      sales,
+      planned,
+      ownerPlan,
+    };
+  }
+
+  it('ignores non-formula content', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('SUM(A1)', workbook, inputs)).toEqual({ kind: 'not-formula', raw: 'SUM(A1)' });
+  });
+
+  it('parses SUM formulas case-insensitively without rewriting raw formula text', () => {
+    const { workbook, inputs } = formulaWorkbook();
+    const raw = '=sUm(A1, B2:C3)';
+
+    expect(parseFormula(raw, workbook, inputs)).toEqual({
+      kind: 'formula',
+      raw,
+      expression: {
+        kind: 'sum',
+        functionName: 'SUM',
+        arguments: [
+          {
+            kind: 'cell',
+            sheetName: undefined,
+            address: { columnIndex: 0, rowIndex: 0 },
+          },
+          {
+            kind: 'range',
+            sheetName: undefined,
+            range: {
+              start: { columnIndex: 1, rowIndex: 1 },
+              end: { columnIndex: 2, rowIndex: 2 },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it('allows whitespace and newlines around formula separators', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('= \n SUM \t ( \n A1 \n , \t B2 \n : \t C3 \n ) ', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [
+          { kind: 'cell', address: { columnIndex: 0, rowIndex: 0 } },
+          {
+            kind: 'range',
+            range: {
+              start: { columnIndex: 1, rowIndex: 1 },
+              end: { columnIndex: 2, rowIndex: 2 },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it('parses unquoted cross-sheet cell and range references', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('=SUM(Outputs!A1, Inputs!B2:C3)', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [
+          {
+            kind: 'cell',
+            sheetName: 'Outputs',
+            address: { columnIndex: 0, rowIndex: 0 },
+          },
+          {
+            kind: 'range',
+            sheetName: 'Inputs',
+            range: {
+              start: { columnIndex: 1, rowIndex: 1 },
+              end: { columnIndex: 2, rowIndex: 2 },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it('parses quoted cross-sheet references for sheet names with spaces and punctuation', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula("=SUM('Sales Q1'!A1:B2, 'Planned-Revenue (FY26)'!C3)", workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [
+          {
+            kind: 'range',
+            sheetName: 'Sales Q1',
+            range: {
+              start: { columnIndex: 0, rowIndex: 0 },
+              end: { columnIndex: 1, rowIndex: 1 },
+            },
+          },
+          {
+            kind: 'cell',
+            sheetName: 'Planned-Revenue (FY26)',
+            address: { columnIndex: 2, rowIndex: 2 },
+          },
+        ],
+      },
+    });
+  });
+
+  it('parses quoted sheet names with escaped apostrophes', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula("=SUM('Owner''s Plan'!A1:B2)", workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [
+          {
+            kind: 'range',
+            sheetName: "Owner's Plan",
+            range: {
+              start: { columnIndex: 0, rowIndex: 0 },
+              end: { columnIndex: 1, rowIndex: 1 },
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it('reports unsupported functions as #NAME!', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('=AVERAGE(A1:A3)', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=AVERAGE(A1:A3)',
+      error: '#NAME!',
+    });
+  });
+
+  it('reports invalid syntax as #PARSE!', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('=SUM(A1,)', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=SUM(A1,)',
+      error: '#PARSE!',
+    });
+    expect(parseFormula('=SUM(A 1)', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=SUM(A 1)',
+      error: '#PARSE!',
+    });
+  });
+
+  it('reports unresolved sheet names and out-of-bounds references as #REF!', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('=SUM(Missing!A1)', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=SUM(Missing!A1)',
+      error: '#REF!',
+    });
+    expect(parseFormula('=SUM(K1)', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=SUM(K1)',
+      error: '#REF!',
+    });
+  });
+
+  it('reports malformed quote and address cases as #PARSE!', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula("=SUM('Sales Q1!A1)", workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: "=SUM('Sales Q1!A1)",
+      error: '#PARSE!',
+    });
+    expect(parseFormula('=SUM(A0)', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=SUM(A0)',
+      error: '#PARSE!',
     });
   });
 });
