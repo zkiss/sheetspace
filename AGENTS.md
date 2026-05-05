@@ -249,7 +249,7 @@ br sync --flush-only
 
 Agent Mail is optional. Use it when the MCP tools are available.
 
-If Agent Mail is unavailable, continue using Beads, git, plan files, and the final session summary as the coordination record.
+If Agent Mail is unavailable, continue using Beads, git, plan files, reviewer subagent output, and the final session summary as the coordination record.
 
 Use the repository absolute path as the Agent Mail `project_key`.
 
@@ -331,26 +331,47 @@ If reservations are unavailable, use git status, bead status, and Agent Mail mes
 
 ## Review protocol
 
-Implementation work should be reviewed by a separate agent identity or a fresh agent session before the bead is considered complete.
+Implementation work should be reviewed by a dedicated reviewer subagent before the bead is considered complete.
+
+The implementer must not self-review. Review must use a separate reviewer subagent, even when Agent Mail is unavailable. Use Agent Mail for review coordination when available, but do not treat Agent Mail as the review mechanism itself.
+
+If subagents are unavailable, state that review could not be performed and do not close the bead as reviewed unless the user explicitly waives the review requirement.
+
+### Reviewer subagent invocation
+
+Invoke a named reviewer or code-review subagent with the active bead id and current diff.
+
+Use this minimal prompt shape unless the user gives a more specific one:
+
+```text
+Code review for bead <bead-id>.
+Read AGENTS.md, the bead, relevant plan files, the current git diff, and test results.
+Suggest improvements.
+Do not edit files unless explicitly instructed.
+Return findings, required changes, residual risks, and whether the bead appears ready to close.
+```
+
+The reviewer subagent should start from fresh context and should not rely on the implementer's reasoning alone.
 
 Preferred flow with Agent Mail:
 
 1. Implementer selects one bead, implements it, runs checks, and leaves the bead ready for review.
 2. Implementer sends a review request through Agent Mail to the reviewer identity, including bead id, changed files, tests run, and known risks.
-3. Reviewer starts from a fresh context, inspects the bead, plan context, git diff, and test results.
-4. Reviewer sends findings through Agent Mail.
-5. Implementer addresses feedback or explains why no change is needed.
-6. Reviewer re-checks if necessary.
-7. The bead is closed only once both implementer and reviewer are satisfied, or remaining disagreement/risk is explicitly recorded.
+3. Implementer invokes the reviewer subagent, using the reviewer Agent Mail identity when available.
+4. Reviewer subagent inspects the bead, plan context, git diff, and test results.
+5. Reviewer sends findings through Agent Mail and returns them to the implementer session.
+6. Implementer addresses feedback or explains why no change is needed.
+7. Reviewer subagent re-checks if necessary.
+8. The bead is closed only once both implementer and reviewer are satisfied, or remaining disagreement/risk is explicitly recorded.
 
 Offline flow when Agent Mail is unavailable:
 
 1. Implementer completes the change and stops without relying on Agent Mail.
-2. A fresh reviewer session is started.
-3. Reviewer reads `AGENTS.md`, the active bead, relevant plan files, and the current git diff.
-4. Reviewer provides findings in its final response or in a follow-up bead.
+2. Implementer invokes the reviewer subagent with the active bead id, current git diff, changed files, tests run, and known risks.
+3. Reviewer subagent reads `AGENTS.md`, the active bead, relevant plan files, and the current git diff.
+4. Reviewer subagent provides findings in its final response or asks the implementer to create/update follow-up beads.
 5. Implementer addresses the feedback.
-6. Close the bead only after review feedback is addressed or explicitly recorded.
+6. Close the bead only after reviewer subagent feedback is addressed or explicitly recorded.
 
 Reviewer default behaviour:
 
