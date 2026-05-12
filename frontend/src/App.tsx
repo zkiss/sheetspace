@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useState } from 'react';
+import { FormEvent, KeyboardEvent, MouseEvent, PointerEvent, useMemo, useRef, useState, WheelEvent } from 'react';
 import './App.css';
 import {
   appendColumn,
@@ -35,30 +35,45 @@ type EditingCell = ActiveCellSelection & {
   value: string;
 };
 
+type WorkspaceViewport = {
+  x: number;
+  y: number;
+  scale: number;
+};
+
 const SHEET_FRAME_WIDTH = 240;
 const SHEET_FRAME_HEIGHT = 160;
+const WORKSPACE_PAN_STEP = 80;
+const WORKSPACE_ZOOM_STEP = 0.2;
+const MIN_WORKSPACE_ZOOM = 0.5;
+const MAX_WORKSPACE_ZOOM = 2;
 
 type AppProps = {
   initialWorkbook?: Workbook;
 };
 
 function getWorkspacePoint(
-  event: Pick<MouseEvent<HTMLElement>, 'clientX' | 'clientY'>,
+  event: Pick<MouseEvent<HTMLElement> | PointerEvent<HTMLElement> | WheelEvent<HTMLElement>, 'clientX' | 'clientY'>,
   element: HTMLElement,
+  viewport: WorkspaceViewport,
 ): WorkspacePosition {
   const rect = element.getBoundingClientRect();
 
   return {
-    x: Math.round(event.clientX - rect.left + element.scrollLeft),
-    y: Math.round(event.clientY - rect.top + element.scrollTop),
+    x: Math.round((event.clientX - rect.left - viewport.x) / viewport.scale),
+    y: Math.round((event.clientY - rect.top - viewport.y) / viewport.scale),
   };
 }
 
-function getViewportCenter(element: HTMLElement): WorkspacePosition {
+function getViewportCenter(element: HTMLElement, viewport: WorkspaceViewport): WorkspacePosition {
   return {
-    x: Math.round(element.scrollLeft + element.clientWidth / 2),
-    y: Math.round(element.scrollTop + element.clientHeight / 2),
+    x: Math.round((element.clientWidth / 2 - viewport.x) / viewport.scale),
+    y: Math.round((element.clientHeight / 2 - viewport.y) / viewport.scale),
   };
+}
+
+function clampWorkspaceZoom(scale: number) {
+  return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, scale));
 }
 
 function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
@@ -208,12 +223,15 @@ function SheetGrid({
 
 export function App({ initialWorkbook }: AppProps = {}) {
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
+  const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
+  const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
 
   function commitActiveEdit(editToCommit = editingCell) {
@@ -263,12 +281,98 @@ export function App({ initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    openCreationDialog(getViewportCenter(workspace), 'Create sheet at viewport center');
+    openCreationDialog(getViewportCenter(workspace, viewport), 'Create sheet at viewport center');
   }
 
   function handleContextMenu(event: MouseEvent<HTMLElement>) {
     event.preventDefault();
-    openCreationDialog(getWorkspacePoint(event, event.currentTarget), 'Create sheet here');
+    openCreationDialog(getWorkspacePoint(event, event.currentTarget, viewport), 'Create sheet here');
+  }
+
+  function panWorkspace(deltaX: number, deltaY: number) {
+    setViewport((currentViewport) => ({
+      ...currentViewport,
+      x: currentViewport.x + deltaX,
+      y: currentViewport.y + deltaY,
+    }));
+  }
+
+  function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
+    setViewport((currentViewport) => {
+      const scale = clampWorkspaceZoom(nextScale);
+      const zoomOrigin = origin ?? { x: 0, y: 0 };
+      const workspaceOrigin = {
+        x: (zoomOrigin.x - currentViewport.x) / currentViewport.scale,
+        y: (zoomOrigin.y - currentViewport.y) / currentViewport.scale,
+      };
+
+      return {
+        x: Math.round(zoomOrigin.x - workspaceOrigin.x * scale),
+        y: Math.round(zoomOrigin.y - workspaceOrigin.y * scale),
+        scale,
+      };
+    });
+  }
+
+  function resetViewport() {
+    setViewport({ x: 0, y: 0, scale: 1 });
+  }
+
+  function handleWorkspacePointerDown(event: PointerEvent<HTMLElement>) {
+    if (
+      (event.button !== 0 && event.button !== undefined) ||
+      (event.target as HTMLElement).closest('[data-testid="sheet-frame"]')
+    ) {
+      return;
+    }
+
+    panDrag.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    setIsPanningWorkspace(true);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function handleWorkspacePointerMove(event: PointerEvent<HTMLElement>) {
+    if (!panDrag.current || panDrag.current.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - panDrag.current.clientX;
+    const deltaY = event.clientY - panDrag.current.clientY;
+    panDrag.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    panWorkspace(deltaX, deltaY);
+  }
+
+  function stopWorkspacePan(event: PointerEvent<HTMLElement>) {
+    if (!panDrag.current || panDrag.current.pointerId !== event.pointerId) {
+      return;
+    }
+
+    panDrag.current = null;
+    setIsPanningWorkspace(false);
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }
+
+  function handleWorkspaceWheel(event: WheelEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest('[data-testid="sheet-frame"]')) {
+      return;
+    }
+
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const origin = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    const delta = event.deltaY < 0 ? WORKSPACE_ZOOM_STEP : -WORKSPACE_ZOOM_STEP;
+    zoomWorkspace(viewport.scale + delta, origin);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -344,79 +448,129 @@ export function App({ initialWorkbook }: AppProps = {}) {
           <h1>Sheetspace</h1>
           <p>{workbook.sheets.length} sheets</p>
         </div>
-        <button type="button" onClick={handleToolbarCreate}>
-          New sheet
-        </button>
+        <div className="workspace-toolbar-actions">
+          <div className="workspace-viewport-controls" aria-label="Workspace viewport controls">
+            <button type="button" aria-label="Pan workspace left" onClick={() => panWorkspace(-WORKSPACE_PAN_STEP, 0)}>
+              ←
+            </button>
+            <button type="button" aria-label="Pan workspace right" onClick={() => panWorkspace(WORKSPACE_PAN_STEP, 0)}>
+              →
+            </button>
+            <button type="button" aria-label="Pan workspace up" onClick={() => panWorkspace(0, -WORKSPACE_PAN_STEP)}>
+              ↑
+            </button>
+            <button type="button" aria-label="Pan workspace down" onClick={() => panWorkspace(0, WORKSPACE_PAN_STEP)}>
+              ↓
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom workspace out"
+              onClick={() => zoomWorkspace(viewport.scale - WORKSPACE_ZOOM_STEP)}
+            >
+              -
+            </button>
+            <output aria-label="Workspace zoom level">{Math.round(viewport.scale * 100)}%</output>
+            <button
+              type="button"
+              aria-label="Zoom workspace in"
+              onClick={() => zoomWorkspace(viewport.scale + WORKSPACE_ZOOM_STEP)}
+            >
+              +
+            </button>
+            <button type="button" aria-label="Reset workspace viewport" onClick={resetViewport}>
+              Reset
+            </button>
+          </div>
+          <button type="button" onClick={handleToolbarCreate}>
+            New sheet
+          </button>
+        </div>
       </header>
 
       <section
         aria-label="Spatial workspace"
-        className="workspace-surface"
+        className={`workspace-surface${isPanningWorkspace ? ' workspace-surface-panning' : ''}`}
+        data-viewport-scale={viewport.scale}
+        data-viewport-x={viewport.x}
+        data-viewport-y={viewport.y}
         data-testid="workspace-surface"
         onContextMenu={handleContextMenu}
+        onPointerCancel={stopWorkspacePan}
+        onPointerDown={handleWorkspacePointerDown}
+        onPointerMove={handleWorkspacePointerMove}
+        onPointerUp={stopWorkspacePan}
+        onWheel={handleWorkspaceWheel}
       >
         {workbook.sheets.length === 0 ? (
           <p className="empty-workspace">Right-click the workspace or use New sheet to create a sheet.</p>
         ) : null}
 
-        {workbook.sheets.map((sheet) => (
-          <article
-            aria-label={`Sheet ${sheet.name}`}
-            className={`sheet-frame${activeCell?.sheetId === sheet.id ? ' sheet-frame-active' : ''}`}
-            data-active-sheet={activeCell?.sheetId === sheet.id ? 'true' : undefined}
-            data-column-count={sheet.columnCount}
-            data-row-count={sheet.rowCount}
-            data-sheet-id={sheet.id}
-            data-testid="sheet-frame"
-            key={sheet.id}
-            style={{
-              left: sheet.position.x,
-              top: sheet.position.y,
-              width: SHEET_FRAME_WIDTH,
-              height: SHEET_FRAME_HEIGHT,
-            }}
-          >
-            <header className="sheet-frame-header">
-              <h2>{sheet.name}</h2>
-              <div className="sheet-frame-actions">
-                <button
-                  type="button"
-                  aria-label={`Append row to ${sheet.name}`}
-                  onClick={() => appendSheetRow(sheet.id)}
-                >
-                  Row +
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Append column to ${sheet.name}`}
-                  onClick={() => appendSheetColumn(sheet.id)}
-                >
-                  Col +
-                </button>
-                <button type="button" onClick={() => openRenameDialog(sheet)}>
-                  Rename
-                </button>
+        <div
+          className="workspace-plane"
+          data-testid="workspace-plane"
+          style={{
+            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
+          }}
+        >
+          {workbook.sheets.map((sheet) => (
+            <article
+              aria-label={`Sheet ${sheet.name}`}
+              className={`sheet-frame${activeCell?.sheetId === sheet.id ? ' sheet-frame-active' : ''}`}
+              data-active-sheet={activeCell?.sheetId === sheet.id ? 'true' : undefined}
+              data-column-count={sheet.columnCount}
+              data-row-count={sheet.rowCount}
+              data-sheet-id={sheet.id}
+              data-testid="sheet-frame"
+              key={sheet.id}
+              style={{
+                left: sheet.position.x,
+                top: sheet.position.y,
+                width: SHEET_FRAME_WIDTH,
+                height: SHEET_FRAME_HEIGHT,
+              }}
+            >
+              <header className="sheet-frame-header">
+                <h2>{sheet.name}</h2>
+                <div className="sheet-frame-actions">
+                  <button
+                    type="button"
+                    aria-label={`Append row to ${sheet.name}`}
+                    onClick={() => appendSheetRow(sheet.id)}
+                  >
+                    Row +
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Append column to ${sheet.name}`}
+                    onClick={() => appendSheetColumn(sheet.id)}
+                  >
+                    Col +
+                  </button>
+                  <button type="button" onClick={() => openRenameDialog(sheet)}>
+                    Rename
+                  </button>
+                </div>
+              </header>
+              <div className="sheet-frame-body" data-testid="sheet-frame-body">
+                <SheetGrid
+                  activeCell={activeCell}
+                  editingCell={editingCell}
+                  onCancelEdit={() => setEditingCell(null)}
+                  onCommitEdit={commitActiveEdit}
+                  onEditValueChange={(value) =>
+                    setEditingCell((currentEditingCell) =>
+                      currentEditingCell ? { ...currentEditingCell, value } : currentEditingCell,
+                    )
+                  }
+                  onSelectCell={selectCell}
+                  onStartEdit={startEditingCell}
+                  formulaResults={formulaResults}
+                  sheet={sheet}
+                />
               </div>
-            </header>
-            <div className="sheet-frame-body" data-testid="sheet-frame-body">
-              <SheetGrid
-                activeCell={activeCell}
-                editingCell={editingCell}
-                onCancelEdit={() => setEditingCell(null)}
-                onCommitEdit={commitActiveEdit}
-                onEditValueChange={(value) =>
-                  setEditingCell((currentEditingCell) =>
-                    currentEditingCell ? { ...currentEditingCell, value } : currentEditingCell,
-                  )
-                }
-                onSelectCell={selectCell}
-                onStartEdit={startEditingCell}
-                formulaResults={formulaResults}
-                sheet={sheet}
-              />
-            </div>
-          </article>
-        ))}
+            </article>
+          ))}
+        </div>
       </section>
 
       {pendingCreation ? (
