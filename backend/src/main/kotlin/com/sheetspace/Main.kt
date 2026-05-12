@@ -13,14 +13,21 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import java.nio.file.Paths
+
+private val workbookRepository by lazy {
+    WorkbookRepository(Paths.get(System.getenv("SHEETSPACE_DB_PATH") ?: "sheetspace.db"))
+}
 
 @Serializable
 data class HealthResponse(val status: String, val service: String)
 
-fun Application.module() {
+fun Application.module(repository: WorkbookRepository = workbookRepository) {
     install(ContentNegotiation) {
         json()
     }
+
+    repository
 
     routing {
         get("/api/health") {

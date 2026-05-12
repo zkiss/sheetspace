@@ -20,6 +20,9 @@ dependencies {
     implementation("io.ktor:ktor-server-netty-jvm:2.3.13")
     implementation("io.ktor:ktor-server-content-negotiation-jvm:2.3.13")
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:2.3.13")
+    implementation("org.flywaydb:flyway-core:12.3.0")
+    implementation("org.flywaydb:flyway-database-nc-sqlite:12.3.0")
+    implementation("org.xerial:sqlite-jdbc:3.50.3.0")
 
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-server-test-host-jvm:2.3.13")
