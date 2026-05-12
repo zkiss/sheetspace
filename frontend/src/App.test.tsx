@@ -579,9 +579,6 @@ describe('App workspace', () => {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 }),
       rowCount: 2,
       columnCount: 2,
-      cells: {
-        A1: { raw: 'Existing' },
-      },
     };
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }),
@@ -594,6 +591,10 @@ describe('App workspace', () => {
     const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
 
+    const existingCell = within(inputFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const editor = await openCellEditor(user, existingCell);
+    await user.type(editor, 'Existing');
+    await user.keyboard('{Enter}');
     await user.click(within(inputFrame).getByRole('button', { name: 'Append row to Inputs' }));
 
     expect(inputFrame).toHaveAttribute('data-row-count', '3');
@@ -610,9 +611,6 @@ describe('App workspace', () => {
       ...positionedSheet('sheet-wide', 'Wide Sheet', { x: 48, y: 96 }),
       rowCount: 2,
       columnCount: 26,
-      cells: {
-        Z1: { raw: 'Edge' },
-      },
     };
     const compact = {
       ...positionedSheet('sheet-compact', 'Compact', { x: 420, y: 260 }),
@@ -625,6 +623,10 @@ describe('App workspace', () => {
     const wideFrame = screen.getByRole('article', { name: 'Sheet Wide Sheet' });
     const compactFrame = screen.getByRole('article', { name: 'Sheet Compact' });
 
+    const edgeCell = within(wideFrame).getByRole('cell', { name: 'Wide Sheet Z1 empty cell' });
+    const editor = await openCellEditor(user, edgeCell);
+    await user.type(editor, 'Edge');
+    await user.keyboard('{Enter}');
     await user.click(within(wideFrame).getByRole('button', { name: 'Append column to Wide Sheet' }));
 
     expect(wideFrame).toHaveAttribute('data-column-count', '27');
