@@ -573,6 +573,68 @@ describe('App workspace', () => {
     expect(within(frames[1]).queryByRole('cell', { name: 'Outputs C1 empty cell' })).not.toBeInTheDocument();
   });
 
+  it('appends a row at the end of one sheet and preserves existing cell content', async () => {
+    const user = userEvent.setup();
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 }),
+      rowCount: 2,
+      columnCount: 2,
+      cells: {
+        A1: { raw: 'Existing' },
+      },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }),
+      rowCount: 2,
+      columnCount: 2,
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+
+    await user.click(within(inputFrame).getByRole('button', { name: 'Append row to Inputs' }));
+
+    expect(inputFrame).toHaveAttribute('data-row-count', '3');
+    expect(within(inputFrame).getByRole('rowheader', { name: '3' })).toBeInTheDocument();
+    expect(within(inputFrame).getByRole('cell', { name: 'Inputs A1 cell' })).toHaveTextContent('Existing');
+    expect(within(inputFrame).getByRole('cell', { name: 'Inputs B3 empty cell' })).toBeInTheDocument();
+    expect(outputFrame).toHaveAttribute('data-row-count', '2');
+    expect(within(outputFrame).queryByRole('rowheader', { name: '3' })).not.toBeInTheDocument();
+  });
+
+  it('appends a column at the end of one sheet and updates labels beyond Z', async () => {
+    const user = userEvent.setup();
+    const wide = {
+      ...positionedSheet('sheet-wide', 'Wide Sheet', { x: 48, y: 96 }),
+      rowCount: 2,
+      columnCount: 26,
+      cells: {
+        Z1: { raw: 'Edge' },
+      },
+    };
+    const compact = {
+      ...positionedSheet('sheet-compact', 'Compact', { x: 420, y: 260 }),
+      rowCount: 2,
+      columnCount: 2,
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([wide, compact])} />);
+
+    const wideFrame = screen.getByRole('article', { name: 'Sheet Wide Sheet' });
+    const compactFrame = screen.getByRole('article', { name: 'Sheet Compact' });
+
+    await user.click(within(wideFrame).getByRole('button', { name: 'Append column to Wide Sheet' }));
+
+    expect(wideFrame).toHaveAttribute('data-column-count', '27');
+    expect(within(wideFrame).getByRole('columnheader', { name: 'AA' })).toBeInTheDocument();
+    expect(within(wideFrame).getByRole('cell', { name: 'Wide Sheet Z1 cell' })).toHaveTextContent('Edge');
+    expect(within(wideFrame).getByRole('cell', { name: 'Wide Sheet AA2 empty cell' })).toBeInTheDocument();
+    expect(compactFrame).toHaveAttribute('data-column-count', '2');
+    expect(within(compactFrame).queryByRole('columnheader', { name: 'C' })).not.toBeInTheDocument();
+  });
+
   it('creates a named sheet from the toolbar at the viewport center', async () => {
     const user = userEvent.setup();
     render(<App />);

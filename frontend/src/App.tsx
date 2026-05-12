@@ -1,6 +1,8 @@
 import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useState } from 'react';
 import './App.css';
 import {
+  appendColumn,
+  appendRow,
   cellKey,
   columnIndexToLabel,
   commitCellRawContent,
@@ -314,6 +316,20 @@ export function App({ initialWorkbook }: AppProps = {}) {
     setError('');
   }
 
+  function appendSheetRow(sheetId: string) {
+    setWorkbook((currentWorkbook) => ({
+      ...currentWorkbook,
+      sheets: currentWorkbook.sheets.map((sheet) => (sheet.id === sheetId ? appendRow(sheet) : sheet)),
+    }));
+  }
+
+  function appendSheetColumn(sheetId: string) {
+    setWorkbook((currentWorkbook) => ({
+      ...currentWorkbook,
+      sheets: currentWorkbook.sheets.map((sheet) => (sheet.id === sheetId ? appendColumn(sheet) : sheet)),
+    }));
+  }
+
   function closeDialog() {
     setPendingCreation(null);
     setPendingRename(null);
@@ -362,9 +378,25 @@ export function App({ initialWorkbook }: AppProps = {}) {
           >
             <header className="sheet-frame-header">
               <h2>{sheet.name}</h2>
-              <button type="button" onClick={() => openRenameDialog(sheet)}>
-                Rename
-              </button>
+              <div className="sheet-frame-actions">
+                <button
+                  type="button"
+                  aria-label={`Append row to ${sheet.name}`}
+                  onClick={() => appendSheetRow(sheet.id)}
+                >
+                  Row +
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Append column to ${sheet.name}`}
+                  onClick={() => appendSheetColumn(sheet.id)}
+                >
+                  Col +
+                </button>
+                <button type="button" onClick={() => openRenameDialog(sheet)}>
+                  Rename
+                </button>
+              </div>
             </header>
             <div className="sheet-frame-body" data-testid="sheet-frame-body">
               <SheetGrid
