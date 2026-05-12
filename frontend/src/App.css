@@ -130,9 +130,15 @@ button:hover {
   white-space: nowrap;
 }
 
-.sheet-frame-header button {
-  min-height: 1.75rem;
+.sheet-frame-actions {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sheet-frame-actions button {
+  min-height: 1.75rem;
   padding: 0 0.55rem;
   font-size: 0.78rem;
 }
