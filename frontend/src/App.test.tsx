@@ -96,6 +96,106 @@ describe('App workspace', () => {
     expect(screen.getAllByTestId('sheet-frame-body')).toHaveLength(2);
   });
 
+  it('pans the workspace with viewport controls while preserving frame workspace coordinates', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const surface = workspaceSurface();
+    const plane = screen.getByTestId('workspace-plane');
+    const frame = screen.getByTestId('sheet-frame');
+
+    await user.click(screen.getByRole('button', { name: 'Pan workspace right' }));
+    await user.click(screen.getByRole('button', { name: 'Pan workspace down' }));
+
+    expect(surface).toHaveAttribute('data-viewport-x', '80');
+    expect(surface).toHaveAttribute('data-viewport-y', '80');
+    expect(surface).toHaveAttribute('data-viewport-scale', '1');
+    expect(plane).toHaveStyle({ transform: 'translate(80px, 80px) scale(1)' });
+    expect(frame).toHaveStyle({ left: '120px', top: '80px' });
+  });
+
+  it('pans the workspace by dragging empty workspace without starting cell interaction', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const surface = workspaceSurface();
+    fireEvent(surface, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
+    fireEvent(surface, new MouseEvent('pointermove', { bubbles: true, clientX: 160, clientY: 170 }));
+    fireEvent(surface, new MouseEvent('pointerup', { bubbles: true, clientX: 160, clientY: 170 }));
+
+    expect(surface).toHaveAttribute('data-viewport-x', '60');
+    expect(surface).toHaveAttribute('data-viewport-y', '50');
+    expect(screen.getByTestId('sheet-frame')).not.toHaveAttribute('data-active-sheet');
+  });
+
+  it('zooms the workspace with controls and clamps unusable extreme scales', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const surface = workspaceSurface();
+
+    for (let count = 0; count < 10; count += 1) {
+      await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+    }
+
+    expect(surface).toHaveAttribute('data-viewport-scale', '2');
+    expect(screen.getByLabelText('Workspace zoom level')).toHaveTextContent('200%');
+
+    for (let count = 0; count < 12; count += 1) {
+      await user.click(screen.getByRole('button', { name: 'Zoom workspace out' }));
+    }
+
+    expect(surface).toHaveAttribute('data-viewport-scale', '0.5');
+    expect(screen.getByLabelText('Workspace zoom level')).toHaveTextContent('50%');
+
+    await user.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+
+    expect(surface).toHaveAttribute('data-viewport-x', '0');
+    expect(surface).toHaveAttribute('data-viewport-y', '0');
+    expect(surface).toHaveAttribute('data-viewport-scale', '1');
+  });
+
+  it('zooms empty workspace around the wheel pointer without changing stored frame positions', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    workspaceSurface().getBoundingClientRect = () =>
+      ({
+        left: 20,
+        top: 30,
+        right: 1020,
+        bottom: 830,
+        width: 1000,
+        height: 800,
+        x: 20,
+        y: 30,
+        toJSON: () => undefined,
+      }) as DOMRect;
+
+    fireEvent.wheel(workspaceSurface(), { clientX: 220, clientY: 180, deltaY: -100 });
+
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-scale', '1.2');
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '-40');
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-y', '-30');
+    expect(screen.getByTestId('sheet-frame')).toHaveStyle({ left: '120px', top: '80px' });
+  });
+
   it('renders new sheets as default 10-column by 20-row grids without stored cells', () => {
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 });
 
@@ -644,9 +744,9 @@ describe('App workspace', () => {
     Object.defineProperties(workspaceSurface(), {
       clientWidth: { configurable: true, value: 800 },
       clientHeight: { configurable: true, value: 600 },
-      scrollLeft: { configurable: true, value: 100 },
-      scrollTop: { configurable: true, value: 40 },
     });
+    await user.click(screen.getByRole('button', { name: 'Pan workspace right' }));
+    await user.click(screen.getByRole('button', { name: 'Pan workspace down' }));
 
     await user.click(screen.getByRole('button', { name: /new sheet/i }));
     expect(screen.getByRole('form', { name: /create sheet/i })).toBeInTheDocument();
@@ -659,7 +759,7 @@ describe('App workspace', () => {
     expect(frame).toHaveAttribute('data-sheet-id', 'sheet-1');
     expect(frame).toHaveAttribute('data-column-count', '10');
     expect(frame).toHaveAttribute('data-row-count', '20');
-    expect(frame).toHaveStyle({ left: '500px', top: '340px' });
+    expect(frame).toHaveStyle({ left: '320px', top: '220px' });
     expect(screen.queryByText(/right-click the workspace/i)).not.toBeInTheDocument();
     expect(screen.getByText('1 sheets')).toBeInTheDocument();
   });
@@ -680,10 +780,7 @@ describe('App workspace', () => {
         y: 30,
         toJSON: () => undefined,
       }) as DOMRect;
-    Object.defineProperties(workspaceSurface(), {
-      scrollLeft: { configurable: true, value: 50 },
-      scrollTop: { configurable: true, value: 70 },
-    });
+    await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
 
     fireEvent.contextMenu(workspaceSurface(), { clientX: 240, clientY: 330 });
     expect(screen.getByRole('form', { name: /create sheet/i })).toBeInTheDocument();
@@ -694,7 +791,7 @@ describe('App workspace', () => {
 
     const frame = screen.getByTestId('sheet-frame');
     expect(within(frame).getByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
-    expect(frame).toHaveStyle({ left: '270px', top: '370px' });
+    expect(frame).toHaveStyle({ left: '183px', top: '250px' });
   });
 
   it('rejects empty sheet names without adding a sheet', async () => {
