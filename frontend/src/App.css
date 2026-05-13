@@ -190,12 +190,6 @@ button:hover {
   border-bottom: 1px solid #d6dee3;
   padding: 0.65rem 0.8rem;
   background: #f9fbfc;
-  cursor: grab;
-  user-select: none;
-}
-
-.sheet-frame-header:active {
-  cursor: grabbing;
 }
 
 .sheet-frame h2 {

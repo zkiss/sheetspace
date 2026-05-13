@@ -52,14 +52,6 @@ type WorkspaceViewport = {
   scale: number;
 };
 
-type SheetFrameDrag = {
-  pointerId: number;
-  sheetId: string;
-  startClientX: number;
-  startClientY: number;
-  startPosition: WorkspacePosition;
-};
-
 const SHEET_FRAME_WIDTH = 240;
 const SHEET_FRAME_HEIGHT = 160;
 const WORKSPACE_PAN_STEP = 80;
@@ -260,7 +252,6 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
-  const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
 
   useEffect(() => {
@@ -420,71 +411,6 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
 
     panDrag.current = null;
     setIsPanningWorkspace(false);
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-  }
-
-  function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: currentWorkbook.sheets.map((sheet) =>
-        sheet.id === sheetId
-          ? {
-              ...sheet,
-              position,
-            }
-          : sheet,
-      ),
-    }));
-  }
-
-  function handleSheetFrameDragStart(sheetId: string, event: PointerEvent<HTMLElement>) {
-    if (
-      (event.button !== 0 && event.button !== undefined) ||
-      (event.target as HTMLElement).closest('button, input, textarea, select')
-    ) {
-      return;
-    }
-
-    const sheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
-    if (!sheet) {
-      return;
-    }
-
-    sheetFrameDrag.current = {
-      pointerId: event.pointerId,
-      sheetId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startPosition: sheet.position,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
-  }
-
-  function handleSheetFrameDragMove(event: PointerEvent<HTMLElement>) {
-    if (!sheetFrameDrag.current || sheetFrameDrag.current.pointerId !== event.pointerId) {
-      return;
-    }
-
-    const nextPosition = {
-      x: Math.round(
-        sheetFrameDrag.current.startPosition.x +
-          (event.clientX - sheetFrameDrag.current.startClientX) / viewport.scale,
-      ),
-      y: Math.round(
-        sheetFrameDrag.current.startPosition.y +
-          (event.clientY - sheetFrameDrag.current.startClientY) / viewport.scale,
-      ),
-    };
-    moveSheetFrame(sheetFrameDrag.current.sheetId, nextPosition);
-  }
-
-  function stopSheetFrameDrag(event: PointerEvent<HTMLElement>) {
-    if (!sheetFrameDrag.current || sheetFrameDrag.current.pointerId !== event.pointerId) {
-      return;
-    }
-
-    sheetFrameDrag.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
@@ -671,8 +597,6 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
               data-active-sheet={activeCell?.sheetId === sheet.id ? 'true' : undefined}
               data-column-count={sheet.columnCount}
               data-row-count={sheet.rowCount}
-              data-position-x={sheet.position.x}
-              data-position-y={sheet.position.y}
               data-sheet-id={sheet.id}
               data-testid="sheet-frame"
               key={sheet.id}
@@ -683,14 +607,7 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
                 height: SHEET_FRAME_HEIGHT,
               }}
             >
-              <header
-                className="sheet-frame-header"
-                data-testid="sheet-frame-header"
-                onPointerCancel={stopSheetFrameDrag}
-                onPointerDown={(event) => handleSheetFrameDragStart(sheet.id, event)}
-                onPointerMove={handleSheetFrameDragMove}
-                onPointerUp={stopSheetFrameDrag}
-              >
+              <header className="sheet-frame-header">
                 <h2>{sheet.name}</h2>
                 <div className="sheet-frame-actions">
                   <button
