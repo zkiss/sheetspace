@@ -35,6 +35,40 @@ button:hover {
   background: #344454;
 }
 
+.startup-screen {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.startup-screen h1,
+.startup-screen h2,
+.startup-screen p {
+  margin: 0;
+}
+
+.startup-screen h1 {
+  font-size: 1.35rem;
+}
+
+.startup-error {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.startup-error h2 {
+  color: #a33a3a;
+  font-size: 1rem;
+}
+
+.startup-error p {
+  max-width: 28rem;
+  color: #50606d;
+}
+
 .workspace-shell {
   display: grid;
   min-height: 100vh;

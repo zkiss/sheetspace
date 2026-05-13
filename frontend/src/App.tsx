@@ -1,5 +1,16 @@
-import { FormEvent, KeyboardEvent, MouseEvent, PointerEvent, useMemo, useRef, useState, WheelEvent } from 'react';
+import {
+  FormEvent,
+  KeyboardEvent,
+  MouseEvent,
+  PointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  WheelEvent,
+} from 'react';
 import './App.css';
+import { workbookApi, type WorkbookApi } from './workbookApi';
 import {
   appendColumn,
   appendRow,
@@ -49,8 +60,14 @@ const MIN_WORKSPACE_ZOOM = 0.5;
 const MAX_WORKSPACE_ZOOM = 2;
 
 type AppProps = {
+  apiClient?: Pick<WorkbookApi, 'loadWorkbook'>;
   initialWorkbook?: Workbook;
 };
+
+type StartupLoadState =
+  | { status: 'loading' }
+  | { status: 'loaded' }
+  | { status: 'error'; message: string };
 
 function getWorkspacePoint(
   event: Pick<MouseEvent<HTMLElement> | PointerEvent<HTMLElement> | WheelEvent<HTMLElement>, 'clientX' | 'clientY'>,
@@ -221,8 +238,11 @@ function SheetGrid({
   );
 }
 
-export function App({ initialWorkbook }: AppProps = {}) {
+export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {}) {
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
+  const [startupLoad, setStartupLoad] = useState<StartupLoadState>(
+    initialWorkbook ? { status: 'loaded' } : { status: 'loading' },
+  );
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
@@ -233,6 +253,40 @@ export function App({ initialWorkbook }: AppProps = {}) {
   const [error, setError] = useState('');
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
+
+  useEffect(() => {
+    if (initialWorkbook || startupLoad.status !== 'loading') {
+      return;
+    }
+
+    let active = true;
+
+    apiClient
+      .loadWorkbook()
+      .then((loadedWorkbook) => {
+        if (!active) {
+          return;
+        }
+
+        setWorkbook(loadedWorkbook);
+        setStartupLoad({ status: 'loaded' });
+      })
+      .catch((cause: unknown) => {
+        if (!active) {
+          return;
+        }
+
+        const message = cause instanceof Error ? cause.message : 'Workbook could not be loaded.';
+        setStartupLoad({
+          status: 'error',
+          message,
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [apiClient, initialWorkbook, startupLoad.status]);
 
   function commitActiveEdit(editToCommit = editingCell) {
     if (!editToCommit) {
@@ -439,6 +493,30 @@ export function App({ initialWorkbook }: AppProps = {}) {
     setPendingRename(null);
     setSheetName('');
     setError('');
+  }
+
+  if (startupLoad.status === 'loading') {
+    return (
+      <main className="startup-screen" aria-busy="true">
+        <h1>Sheetspace</h1>
+        <p>Loading workbook...</p>
+      </main>
+    );
+  }
+
+  if (startupLoad.status === 'error') {
+    return (
+      <main className="startup-screen">
+        <h1>Sheetspace</h1>
+        <div className="startup-error" role="alert">
+          <h2>Workbook could not be loaded</h2>
+          <p>{startupLoad.message}</p>
+        </div>
+        <button type="button" onClick={() => setStartupLoad({ status: 'loading' })}>
+          Retry
+        </button>
+      </main>
+    );
   }
 
   return (
