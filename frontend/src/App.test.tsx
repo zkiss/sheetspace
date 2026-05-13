@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { createSheet, type Workbook, type WorkspacePosition } from './workbook';
 
@@ -42,8 +42,59 @@ async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HT
 }
 
 describe('App workspace', () => {
+  it('loads the current workbook before showing the editable workspace', async () => {
+    const apiClient = {
+      loadWorkbook: vi.fn().mockResolvedValue(
+        workbookWithSheets([positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 })]),
+      ),
+    };
+
+    render(<App apiClient={apiClient} />);
+
+    expect(screen.getByText('Loading workbook...')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /new sheet/i })).not.toBeInTheDocument();
+
+    expect(await screen.findByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
+    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('1 sheets')).toBeInTheDocument();
+  });
+
+  it('renders an empty workspace after loading an empty backend state', async () => {
+    const apiClient = {
+      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    };
+
+    render(<App apiClient={apiClient} />);
+
+    expect(await screen.findByText(/right-click the workspace/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('sheet-frame')).not.toBeInTheDocument();
+    expect(screen.getByText('0 sheets')).toBeInTheDocument();
+  });
+
+  it('blocks editing on startup load failure and retries into the workspace', async () => {
+    const apiClient = {
+      loadWorkbook: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('backend unavailable'))
+        .mockResolvedValueOnce(workbookWithSheets([])),
+    };
+    const user = userEvent.setup();
+
+    render(<App apiClient={apiClient} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('backend unavailable');
+    expect(screen.queryByRole('button', { name: /new sheet/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-surface')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByRole('region', { name: /spatial workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new sheet/i })).toBeInTheDocument();
+    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(2);
+  });
+
   it('opens to an empty spatial workspace without a default sheet', () => {
-    render(<App />);
+    render(<App initialWorkbook={workbookWithSheets([])} />);
 
     expect(screen.getByRole('heading', { name: 'Sheetspace' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: /spatial workspace/i })).toBeInTheDocument();
@@ -141,7 +192,7 @@ describe('App workspace', () => {
 
   it('zooms the workspace with controls and clamps unusable extreme scales', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    render(<App initialWorkbook={workbookWithSheets([])} />);
 
     const surface = workspaceSurface();
 
@@ -739,7 +790,7 @@ describe('App workspace', () => {
 
   it('creates a named sheet from the toolbar at the viewport center', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    render(<App initialWorkbook={workbookWithSheets([])} />);
 
     Object.defineProperties(workspaceSurface(), {
       clientWidth: { configurable: true, value: 800 },
@@ -766,7 +817,7 @@ describe('App workspace', () => {
 
   it('creates a named sheet from the workspace context menu at the clicked coordinate', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    render(<App initialWorkbook={workbookWithSheets([])} />);
 
     workspaceSurface().getBoundingClientRect = () =>
       ({
@@ -796,7 +847,7 @@ describe('App workspace', () => {
 
   it('rejects empty sheet names without adding a sheet', async () => {
     const user = userEvent.setup();
-    render(<App />);
+    render(<App initialWorkbook={workbookWithSheets([])} />);
 
     await user.click(screen.getByRole('button', { name: /new sheet/i }));
     await user.click(screen.getByRole('button', { name: /^create$/i }));
@@ -807,7 +858,7 @@ describe('App workspace', () => {
   });
 
   it('rejects duplicate sheet names without adding another sheet', async () => {
-    render(<App />);
+    render(<App initialWorkbook={workbookWithSheets([])} />);
 
     await createSheetFromToolbar('Inputs');
     await createSheetFromToolbar('Inputs');
@@ -818,7 +869,7 @@ describe('App workspace', () => {
   });
 
   it('creates multiple sheets with stable ids and distinguishable names', async () => {
-    render(<App />);
+    render(<App initialWorkbook={workbookWithSheets([])} />);
 
     await createSheetFromToolbar('Inputs');
     await createSheetFromToolbar('Outputs');
