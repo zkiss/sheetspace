@@ -75,7 +75,7 @@ The feature briefs are the detailed source of feature direction. This document s
 
 ## Success Measures
 
-- A user can create or use several sheets, arrange them spatially, and edit values.
+- A user can create or use several sheets, arrange and order them spatially, and edit values.
 - A user can zoom out to understand the workspace and zoom in to work on a sheet.
 - Formulas work reliably within the supported product scope.
 - A user can inspect where a formula gets its data from without manually searching.
