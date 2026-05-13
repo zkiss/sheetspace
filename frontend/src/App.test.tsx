@@ -698,6 +698,68 @@ describe('App workspace', () => {
     expect(formulaCell).toHaveTextContent('6');
   });
 
+  it('recomputes formula references that become valid after appending a row', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      rowCount: 2,
+      columnCount: 2,
+      cells: {
+        A1: { raw: '=SUM(A3)' },
+        A2: { raw: '=SUM(K1)' },
+        A3: { raw: '7' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const formulaCell = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
+    const persistentErrorCell = within(frame).getByRole('cell', { name: 'Inputs A2 cell' });
+
+    expect(formulaCell).toHaveTextContent('#REF!');
+    expect(persistentErrorCell).toHaveTextContent('#REF!');
+
+    await user.click(within(frame).getByRole('button', { name: 'Append row to Inputs' }));
+
+    expect(formulaCell).toHaveTextContent('7');
+    expect(persistentErrorCell).toHaveTextContent('#REF!');
+
+    const editor = await openCellEditor(user, persistentErrorCell);
+    expect(editor).toHaveValue('=SUM(K1)');
+  });
+
+  it('recomputes formula references that become valid after appending a column', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      rowCount: 2,
+      columnCount: 2,
+      cells: {
+        A1: { raw: '=SUM(C1)' },
+        B1: { raw: '=SUM(A99)' },
+        C1: { raw: '11' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const formulaCell = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
+    const persistentErrorCell = within(frame).getByRole('cell', { name: 'Inputs B1 cell' });
+
+    expect(formulaCell).toHaveTextContent('#REF!');
+    expect(persistentErrorCell).toHaveTextContent('#REF!');
+
+    await user.click(within(frame).getByRole('button', { name: 'Append column to Inputs' }));
+
+    expect(formulaCell).toHaveTextContent('11');
+    expect(persistentErrorCell).toHaveTextContent('#REF!');
+
+    const editor = await openCellEditor(user, persistentErrorCell);
+    expect(editor).toHaveValue('=SUM(A99)');
+  });
+
   it('commits an active edit when selection moves within a sheet', async () => {
     const user = userEvent.setup();
     render(
