@@ -221,6 +221,12 @@ Use numeric priorities:
 
 ### Bead lifecycle
 
+Closed beads are immutable history. Do not change the scope, acceptance criteria,
+description, or dependencies of a closed bead to account for newly discovered work
+or changed decisions. Create a new bead, or update an open dependent bead, and
+reference the closed bead for context. Only correct closed bead metadata for
+clerical/export errors when explicitly instructed.
+
 1. Use `bv --robot-triage` or `bv --robot-next` to identify the best actionable bead.
 2. Inspect the bead with `br show <id>`.
 3. Inspect relevant plan files and code.
