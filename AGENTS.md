@@ -153,22 +153,18 @@ Do not parse `.beads/beads.jsonl` manually unless there is no tool alternative.
 Preferred:
 
 ```bash
-bv --robot-triage
+bv --robot-triage --format toon
 ```
 
 For a minimal recommendation:
 
 ```bash
-bv --robot-next
-```
-
-For lower-token output:
-
-```bash
-bv --robot-triage --format toon
+bv --robot-next --format toon
 ```
 
 Important: use only `bv --robot-*` commands. Bare `bv` may launch an interactive UI and block the session.
+
+The `--format toon` flag enables lower-token formatted output.
 
 Useful `bv` commands:
 
