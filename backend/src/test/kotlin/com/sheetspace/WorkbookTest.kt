@@ -22,9 +22,23 @@ class WorkbookTest {
         assertEquals("sheet-1", sheet.id)
         assertEquals("Inputs", sheet.name)
         assertEquals(WorkspacePosition(x = 12.0, y = 24.0), sheet.position)
+        assertEquals(1, sheet.zIndex)
         assertEquals(DEFAULT_COLUMN_COUNT, sheet.columnCount)
         assertEquals(DEFAULT_ROW_COUNT, sheet.rowCount)
         assertEquals(emptyMap(), sheet.cells)
+    }
+
+    @Test
+    fun `new sheets stack above older sheets by default`() {
+        val first = assertIs<SheetNameResult.Valid<Sheet>>(
+            createSheet(id = "sheet-1", name = "Inputs"),
+        ).value
+        val second = assertIs<SheetNameResult.Valid<Sheet>>(
+            createSheet(id = "sheet-2", name = "Outputs", existingSheets = listOf(first)),
+        ).value
+
+        assertEquals(1, first.zIndex)
+        assertEquals(2, second.zIndex)
     }
 
     @Test

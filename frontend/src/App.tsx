@@ -20,7 +20,9 @@ import {
   createEmptyWorkbook,
   createSheet,
   evaluateFormulaCells,
+  moveSheetZOrder,
   renameSheet,
+  type SheetZOrderDirection,
   type FormulaEvaluationSnapshot,
   type Sheet,
   type Workbook,
@@ -35,6 +37,12 @@ type PendingSheetCreation = {
 type PendingSheetRename = {
   sheetId: string;
   currentName: string;
+};
+
+type PendingSheetMenu = {
+  sheetId: string;
+  x: number;
+  y: number;
 };
 
 type ActiveCellSelection = {
@@ -264,6 +272,7 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
+  const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
   const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
@@ -334,15 +343,27 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
   }
 
   function openCreationDialog(position: WorkspacePosition, label: string) {
+    setPendingSheetMenu(null);
     setPendingCreation({ position, label });
     setSheetName('');
     setError('');
   }
 
   function openRenameDialog(sheet: Sheet) {
+    setPendingSheetMenu(null);
     setPendingRename({ sheetId: sheet.id, currentName: sheet.name });
     setSheetName(sheet.name);
     setError('');
+  }
+
+  function openSheetMenu(sheetId: string, event: MouseEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setPendingSheetMenu({
+      sheetId,
+      x: event.clientX,
+      y: event.clientY,
+    });
   }
 
   function handleToolbarCreate(event: MouseEvent<HTMLButtonElement>) {
@@ -392,6 +413,12 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
   }
 
   function handleWorkspacePointerDown(event: PointerEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest('.sheet-context-menu')) {
+      return;
+    }
+
+    setPendingSheetMenu(null);
+
     if (
       (event.button !== 0 && event.button !== undefined) ||
       (event.target as HTMLElement).closest('[data-testid="sheet-frame"]')
@@ -572,12 +599,25 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
     }));
   }
 
+  function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
+    setPendingSheetMenu(null);
+    setWorkbook((currentWorkbook) => {
+      const result = moveSheetZOrder(currentWorkbook, sheetId, direction);
+      return result.ok ? result.value : currentWorkbook;
+    });
+  }
+
   function closeDialog() {
     setPendingCreation(null);
     setPendingRename(null);
+    setPendingSheetMenu(null);
     setSheetName('');
     setError('');
   }
+
+  const menuSheet = pendingSheetMenu
+    ? workbook.sheets.find((candidate) => candidate.id === pendingSheetMenu.sheetId)
+    : undefined;
 
   if (startupLoad.status === 'loading') {
     return (
@@ -685,10 +725,13 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
               data-position-y={sheet.position.y}
               data-sheet-id={sheet.id}
               data-testid="sheet-frame"
+              data-z-index={sheet.zIndex}
               key={sheet.id}
+              onContextMenu={(event) => openSheetMenu(sheet.id, event)}
               style={{
                 left: sheet.position.x,
                 top: sheet.position.y,
+                zIndex: sheet.zIndex,
                 width: SHEET_FRAME_WIDTH,
                 height: SHEET_FRAME_HEIGHT,
               }}
@@ -702,25 +745,6 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
                 onPointerUp={stopSheetFrameDrag}
               >
                 <h2>{sheet.name}</h2>
-                <div className="sheet-frame-actions">
-                  <button
-                    type="button"
-                    aria-label={`Append row to ${sheet.name}`}
-                    onClick={() => appendSheetRow(sheet.id)}
-                  >
-                    Row +
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Append column to ${sheet.name}`}
-                    onClick={() => appendSheetColumn(sheet.id)}
-                  >
-                    Col +
-                  </button>
-                  <button type="button" onClick={() => openRenameDialog(sheet)}>
-                    Rename
-                  </button>
-                </div>
               </header>
               <div className="sheet-frame-body" data-testid="sheet-frame-body">
                 <SheetGrid
@@ -742,6 +766,54 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
             </article>
           ))}
         </div>
+
+        {pendingSheetMenu && menuSheet ? (
+          <div
+            aria-label={`${menuSheet.name} sheet menu`}
+            className="sheet-context-menu"
+            role="menu"
+            style={{
+              left: pendingSheetMenu.x,
+              top: pendingSheetMenu.y,
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPendingSheetMenu(null);
+                appendSheetRow(menuSheet.id);
+              }}
+            >
+              Append row
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setPendingSheetMenu(null);
+                appendSheetColumn(menuSheet.id);
+              }}
+            >
+              Append column
+            </button>
+            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'top')}>
+              Bring to front
+            </button>
+            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'up')}>
+              Bring forward
+            </button>
+            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'down')}>
+              Send backward
+            </button>
+            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'bottom')}>
+              Send to back
+            </button>
+            <button type="button" role="menuitem" onClick={() => openRenameDialog(menuSheet)}>
+              Rename
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {pendingCreation ? (

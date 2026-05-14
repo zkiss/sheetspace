@@ -17,6 +17,7 @@ data class Sheet(
     val id: String,
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
+    val zIndex: Int = 1,
     val columnCount: Int = DEFAULT_COLUMN_COUNT,
     val rowCount: Int = DEFAULT_ROW_COUNT,
     val cells: Map<String, CellContent> = emptyMap(),
@@ -40,6 +41,7 @@ fun createSheet(
     name: String,
     existingSheets: List<Sheet> = emptyList(),
     position: WorkspacePosition = WorkspacePosition(),
+    zIndex: Int? = null,
 ): SheetNameResult<Sheet> {
     return when (val validation = validateSheetName(name, existingSheets)) {
         is SheetNameResult.Invalid -> validation
@@ -48,9 +50,14 @@ fun createSheet(
                 id = id,
                 name = validation.value,
                 position = position,
+                zIndex = zIndex ?: nextSheetZIndex(existingSheets),
             ),
         )
     }
+}
+
+private fun nextSheetZIndex(sheets: List<Sheet>): Int {
+    return (sheets.maxOfOrNull { it.zIndex } ?: 0) + 1
 }
 
 fun validateSheetName(
