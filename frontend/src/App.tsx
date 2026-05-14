@@ -211,7 +211,7 @@ function SheetGrid({
                   tabIndex={0}
                 >
                   {isEditing ? (
-                    <input
+                    <textarea
                       aria-label={`${sheet.name} ${key} editor`}
                       autoFocus
                       className="sheet-grid-cell-editor"
