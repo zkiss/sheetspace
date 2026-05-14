@@ -33,6 +33,7 @@ data class CreateSheetRequest(
     val id: String,
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
+    val zIndex: Int? = null,
 )
 
 @Serializable
@@ -42,6 +43,7 @@ data class UpdateCellRequest(val raw: String)
 data class UpdateSheetRequest(
     val name: String? = null,
     val position: WorkspacePosition? = null,
+    val zIndex: Int? = null,
 )
 
 @Serializable
@@ -81,7 +83,8 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                 sheetId.isEmpty() -> call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
                 workbook.sheets.any { it.id == sheetId } -> call.respondError(HttpStatusCode.Conflict, "sheet-id-duplicate")
                 !request.position.isFinite() -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-position")
-                else -> when (val result = createSheet(sheetId, request.name, workbook.sheets, request.position)) {
+                request.zIndex != null && request.zIndex < 1 -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-z-index")
+                else -> when (val result = createSheet(sheetId, request.name, workbook.sheets, request.position, request.zIndex)) {
                     is SheetNameResult.Invalid -> call.respondError(HttpStatusCode.BadRequest, result.reason.apiError)
                     is SheetNameResult.Valid -> {
                         val updated = repository.createSheet(result.value)
@@ -100,16 +103,21 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
             val workbook = repository.loadWorkbook()
             val sheet = workbook.sheets.find { it.id == sheetId }
             val requestedPosition = request.position
+            val requestedZIndex = request.zIndex
 
             when {
                 sheet == null -> call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
-                request.name == null && requestedPosition == null -> call.respondError(
+                request.name == null && requestedPosition == null && requestedZIndex == null -> call.respondError(
                     HttpStatusCode.BadRequest,
                     "sheet-update-required",
                 )
                 requestedPosition != null && !requestedPosition.isFinite() -> call.respondError(
                     HttpStatusCode.BadRequest,
                     "invalid-sheet-position",
+                )
+                requestedZIndex != null && requestedZIndex < 1 -> call.respondError(
+                    HttpStatusCode.BadRequest,
+                    "invalid-sheet-z-index",
                 )
                 request.name != null -> when (val validation = validateSheetName(request.name, workbook.sheets, sheetId)) {
                     is SheetNameResult.Invalid -> call.respondError(HttpStatusCode.BadRequest, validation.reason.apiError)
@@ -118,11 +126,21 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                         if (requestedPosition != null) {
                             updated = repository.updateSheetPosition(sheetId, requestedPosition)
                         }
+                        if (requestedZIndex != null) {
+                            updated = repository.updateSheetZIndex(sheetId, requestedZIndex)
+                        }
                         call.respond(MutationResponse(workbook = updated))
                     }
                 }
+                requestedPosition != null -> {
+                    var updated = repository.updateSheetPosition(sheetId, requestedPosition)
+                    if (requestedZIndex != null) {
+                        updated = repository.updateSheetZIndex(sheetId, requestedZIndex)
+                    }
+                    call.respond(MutationResponse(workbook = updated))
+                }
                 else -> {
-                    val updated = repository.updateSheetPosition(sheetId, requireNotNull(requestedPosition))
+                    val updated = repository.updateSheetZIndex(sheetId, requireNotNull(requestedZIndex))
                     call.respond(MutationResponse(workbook = updated))
                 }
             }

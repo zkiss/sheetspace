@@ -41,6 +41,11 @@ async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HT
   return within(cell).getByRole('textbox');
 }
 
+function openSheetContextMenu(frame: HTMLElement, clientX = 120, clientY = 80) {
+  fireEvent.contextMenu(frame, { clientX, clientY });
+  return screen.getByRole('menu');
+}
+
 describe('App workspace', () => {
   it('loads the current workbook before showing the editable workspace', async () => {
     const apiClient = {
@@ -854,7 +859,7 @@ describe('App workspace', () => {
     expect(formulaCell).toHaveTextContent('#REF!');
     expect(persistentErrorCell).toHaveTextContent('#REF!');
 
-    await user.click(within(frame).getByRole('button', { name: 'Append row to Inputs' }));
+    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Append row' }));
 
     expect(formulaCell).toHaveTextContent('7');
     expect(persistentErrorCell).toHaveTextContent('#REF!');
@@ -885,7 +890,7 @@ describe('App workspace', () => {
     expect(formulaCell).toHaveTextContent('#REF!');
     expect(persistentErrorCell).toHaveTextContent('#REF!');
 
-    await user.click(within(frame).getByRole('button', { name: 'Append column to Inputs' }));
+    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Append column' }));
 
     expect(formulaCell).toHaveTextContent('11');
     expect(persistentErrorCell).toHaveTextContent('#REF!');
@@ -1056,7 +1061,7 @@ describe('App workspace', () => {
     const editor = await openCellEditor(user, existingCell);
     await user.type(editor, 'Existing');
     await user.keyboard('{Enter}');
-    await user.click(within(inputFrame).getByRole('button', { name: 'Append row to Inputs' }));
+    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
 
     expect(inputFrame).toHaveAttribute('data-row-count', '3');
     expect(within(inputFrame).getByRole('rowheader', { name: '3' })).toBeInTheDocument();
@@ -1088,7 +1093,7 @@ describe('App workspace', () => {
     const editor = await openCellEditor(user, edgeCell);
     await user.type(editor, 'Edge');
     await user.keyboard('{Enter}');
-    await user.click(within(wideFrame).getByRole('button', { name: 'Append column to Wide Sheet' }));
+    await user.click(within(openSheetContextMenu(wideFrame)).getByRole('menuitem', { name: 'Append column' }));
 
     expect(wideFrame).toHaveAttribute('data-column-count', '27');
     expect(within(wideFrame).getByRole('columnheader', { name: 'AA' })).toBeInTheDocument();
@@ -1190,7 +1195,117 @@ describe('App workspace', () => {
     expect(frames[1]).toHaveAttribute('data-sheet-id', 'sheet-2');
     expect(within(frames[0]).getByRole('heading', { name: 'Inputs' })).toBeInTheDocument();
     expect(within(frames[1]).getByRole('heading', { name: 'Outputs' })).toBeInTheDocument();
+    expect(frames[0]).toHaveAttribute('data-z-index', '1');
+    expect(frames[1]).toHaveAttribute('data-z-index', '2');
     expect(screen.getByText('2 sheets')).toBeInTheDocument();
+  });
+
+  it('changes only the requested sheet z-order through explicit frame controls', async () => {
+    const user = userEvent.setup();
+    render(<App initialWorkbook={workbookWithSheets([])} />);
+
+    await createSheetFromToolbar('Inputs');
+    await createSheetFromToolbar('Assumptions');
+    await createSheetFromToolbar('Outputs');
+
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const assumptionsFrame = screen.getByRole('article', { name: 'Sheet Assumptions' });
+    const outputsFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+
+    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Bring forward' }));
+
+    expect(inputsFrame).toHaveAttribute('data-z-index', '2');
+    expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
+    expect(outputsFrame).toHaveAttribute('data-z-index', '3');
+    expect(screen.getAllByTestId('sheet-frame').map((frame) => frame.dataset.sheetId)).toEqual([
+      'sheet-1',
+      'sheet-2',
+      'sheet-3',
+    ]);
+
+    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Bring to front' }));
+    expect(inputsFrame).toHaveAttribute('data-z-index', '3');
+    expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
+    expect(outputsFrame).toHaveAttribute('data-z-index', '2');
+
+    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Send backward' }));
+    expect(inputsFrame).toHaveAttribute('data-z-index', '2');
+    expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
+    expect(outputsFrame).toHaveAttribute('data-z-index', '3');
+
+    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Send to back' }));
+    expect(inputsFrame).toHaveAttribute('data-z-index', '1');
+    expect(assumptionsFrame).toHaveAttribute('data-z-index', '2');
+    expect(outputsFrame).toHaveAttribute('data-z-index', '3');
+  });
+
+  it('closes the sheet context menu when returning to frame editing', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    expect(openSheetContextMenu(frame)).toBeInTheDocument();
+
+    fireEvent(cell, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 130, clientY: 120 }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('does not pan the workspace when interacting with the sheet context menu', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const menu = openSheetContextMenu(frame);
+
+    fireEvent(menu, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 120, clientY: 80 }));
+    fireEvent.pointerMove(workspaceSurface(), { clientX: 180, clientY: 120, pointerId: 1 });
+
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '0');
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-y', '0');
+    expect(workspaceSurface()).not.toHaveClass('workspace-surface-panning');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('does not implicitly raise a sheet when dragging selecting or editing it', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+          positionedSheet('sheet-outputs', 'Outputs', { x: 140, y: 100 }),
+        ])}
+      />,
+    );
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const inputHeader = within(inputFrame).getByTestId('sheet-frame-header');
+    const inputCell = within(inputFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    expect(inputFrame).toHaveAttribute('data-z-index', '1');
+    expect(outputFrame).toHaveAttribute('data-z-index', '1');
+
+    fireEvent(inputHeader, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 120, clientY: 80 }));
+    fireEvent(inputHeader, new MouseEvent('pointermove', { bubbles: true, clientX: 150, clientY: 110 }));
+    fireEvent(inputHeader, new MouseEvent('pointerup', { bubbles: true, clientX: 150, clientY: 110 }));
+    await user.click(inputCell);
+    await openCellEditor(user, inputCell);
+
+    expect(inputFrame).toHaveAttribute('data-z-index', '1');
+    expect(outputFrame).toHaveAttribute('data-z-index', '1');
   });
 
   it('renames an existing sheet and preserves raw formula text', async () => {
@@ -1205,7 +1320,7 @@ describe('App workspace', () => {
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 
     const frame = screen.getByTestId('sheet-frame');
-    await user.click(within(frame).getByRole('button', { name: /rename/i }));
+    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Rename' }));
     expect(screen.getByRole('form', { name: /rename sheet/i })).toBeInTheDocument();
 
     const input = screen.getByLabelText(/sheet name/i);
@@ -1236,7 +1351,8 @@ describe('App workspace', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /rename/i }));
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Rename' }));
     const input = screen.getByLabelText(/sheet name/i);
     await user.clear(input);
     await user.click(screen.getByRole('button', { name: /^save$/i }));
@@ -1254,7 +1370,7 @@ describe('App workspace', () => {
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
 
     const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
-    await user.click(within(outputFrame).getByRole('button', { name: /rename/i }));
+    await user.click(within(openSheetContextMenu(outputFrame)).getByRole('menuitem', { name: 'Rename' }));
     const input = screen.getByLabelText(/sheet name/i);
     await user.clear(input);
     await user.type(input, 'Inputs');

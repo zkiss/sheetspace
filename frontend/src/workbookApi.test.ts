@@ -9,6 +9,7 @@ const workbook: Workbook = {
       id: 'sheet-1',
       name: 'Inputs',
       position: { x: 12, y: 24 },
+      zIndex: 1,
       columnCount: 10,
       rowCount: 20,
       cells: {
@@ -59,11 +60,12 @@ describe('workbookApi', () => {
     });
   });
 
-  it('exposes sheet rename and position update calls', async () => {
+  it('exposes sheet rename position and z-order update calls', async () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 
     await workbookApi.renameSheet('sheet-1', 'Renamed');
     await workbookApi.updateSheetPosition('sheet-1', { x: 48, y: 96 });
+    await workbookApi.updateSheetZIndex('sheet-1', 3);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet-1', {
       method: 'PATCH',
@@ -73,6 +75,11 @@ describe('workbookApi', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet-1', {
       method: 'PATCH',
       body: JSON.stringify({ position: { x: 48, y: 96 } }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sheets/sheet-1', {
+      method: 'PATCH',
+      body: JSON.stringify({ zIndex: 3 }),
       headers: { 'Content-Type': 'application/json' },
     });
   });

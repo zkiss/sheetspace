@@ -11,6 +11,7 @@ export type Sheet = {
   id: string;
   name: string;
   position: WorkspacePosition;
+  zIndex: number;
   columnCount: number;
   rowCount: number;
   cells: Record<CellKey, CellContent>;
@@ -84,6 +85,8 @@ export type MutationResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: 'empty' | 'duplicate' | 'unknown-sheet' };
 
+export type SheetZOrderDirection = 'up' | 'down' | 'top' | 'bottom';
+
 export type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: 'invalid-format' | 'out-of-bounds' | 'unknown-sheet' };
@@ -98,8 +101,9 @@ export function createEmptyWorkbook(): Workbook {
 export function createSheet(input: {
   id: string;
   name: string;
-  existingSheets?: Pick<Sheet, 'id' | 'name'>[];
+  existingSheets?: Pick<Sheet, 'id' | 'name' | 'zIndex'>[];
   position?: WorkspacePosition;
+  zIndex?: number;
 }): MutationResult<Sheet> {
   const validation = validateSheetName(input.name, input.existingSheets ?? []);
   if (!validation.ok) {
@@ -112,11 +116,78 @@ export function createSheet(input: {
       id: input.id,
       name: validation.name,
       position: input.position ?? { x: 0, y: 0 },
+      zIndex: input.zIndex ?? nextSheetZIndex(input.existingSheets ?? []),
       columnCount: DEFAULT_COLUMN_COUNT,
       rowCount: DEFAULT_ROW_COUNT,
       cells: {},
     },
   };
+}
+
+export function moveSheetZOrder(
+  workbook: Workbook,
+  sheetId: string,
+  direction: SheetZOrderDirection,
+): MutationResult<Workbook> {
+  if (!workbook.sheets.some((sheet) => sheet.id === sheetId)) {
+    return { ok: false, reason: 'unknown-sheet' };
+  }
+
+  const orderedSheets = sheetsByZOrder(workbook.sheets);
+  const currentIndex = orderedSheets.findIndex((sheet) => sheet.id === sheetId);
+  const targetIndex =
+    direction === 'top'
+      ? orderedSheets.length - 1
+      : direction === 'bottom'
+        ? 0
+        : direction === 'up'
+          ? Math.min(orderedSheets.length - 1, currentIndex + 1)
+          : Math.max(0, currentIndex - 1);
+
+  if (targetIndex === currentIndex) {
+    return { ok: true, value: normalizeSheetZOrder(workbook) };
+  }
+
+  const reordered = [...orderedSheets];
+  const [movedSheet] = reordered.splice(currentIndex, 1);
+  reordered.splice(targetIndex, 0, movedSheet);
+
+  const nextZIndexById = new Map(reordered.map((sheet, index) => [sheet.id, index + 1]));
+  return {
+    ok: true,
+    value: {
+      ...workbook,
+      sheets: workbook.sheets.map((sheet) => ({
+        ...sheet,
+        zIndex: nextZIndexById.get(sheet.id) ?? sheet.zIndex,
+      })),
+    },
+  };
+}
+
+export function normalizeSheetZOrder(workbook: Workbook): Workbook {
+  const orderedSheets = sheetsByZOrder(workbook.sheets);
+  const nextZIndexById = new Map(orderedSheets.map((sheet, index) => [sheet.id, index + 1]));
+
+  if (workbook.sheets.every((sheet) => sheet.zIndex === nextZIndexById.get(sheet.id))) {
+    return workbook;
+  }
+
+  return {
+    ...workbook,
+    sheets: workbook.sheets.map((sheet) => ({
+      ...sheet,
+      zIndex: nextZIndexById.get(sheet.id) ?? sheet.zIndex,
+    })),
+  };
+}
+
+function nextSheetZIndex(sheets: Pick<Sheet, 'zIndex'>[]): number {
+  return Math.max(0, ...sheets.map((sheet) => sheet.zIndex)) + 1;
+}
+
+function sheetsByZOrder(sheets: Sheet[]): Sheet[] {
+  return [...sheets].sort((first, second) => first.zIndex - second.zIndex);
 }
 
 export function validateSheetName(

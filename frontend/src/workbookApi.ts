@@ -59,7 +59,7 @@ export const workbookApi = {
     return requestJson<Workbook>('/api/workbook');
   },
 
-  createSheet(sheet: Pick<Sheet, 'id' | 'name' | 'position'>): Promise<Workbook> {
+  createSheet(sheet: Pick<Sheet, 'id' | 'name' | 'position'> & Partial<Pick<Sheet, 'zIndex'>>): Promise<Workbook> {
     return mutationRequest('/api/sheets', {
       method: 'POST',
       body: JSON.stringify(sheet),
@@ -77,6 +77,13 @@ export const workbookApi = {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ position }),
+    });
+  },
+
+  updateSheetZIndex(sheetId: string, zIndex: number): Promise<Workbook> {
+    return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ zIndex }),
     });
   },
 

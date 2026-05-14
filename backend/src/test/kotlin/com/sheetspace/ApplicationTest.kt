@@ -108,6 +108,24 @@ class ApplicationTest {
     }
 
     @Test
+    fun `sheet update endpoint persists z-order without requiring rename`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        client.createSheet()
+
+        val response = client.patch("/api/sheets/sheet-1") {
+            jsonBody("""{"zIndex":3}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val sheet = client.loadWorkbook().sheets.single()
+        assertEquals("Inputs", sheet.name)
+        assertEquals(3, sheet.zIndex)
+    }
+
+    @Test
     fun `row and column append endpoints persist updated dimensions`() = testApplication {
         val repo = createRepo()
         application {

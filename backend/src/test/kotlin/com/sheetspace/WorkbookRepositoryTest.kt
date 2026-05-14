@@ -23,6 +23,7 @@ class WorkbookRepositoryTest {
                     id = "sheet-1",
                     name = "Inputs",
                     position = WorkspacePosition(12.5, -8.25),
+                    zIndex = 7,
                     rowCount = 25,
                     columnCount = 14,
                     cells = mapOf(
@@ -60,6 +61,7 @@ class WorkbookRepositoryTest {
         repo.updateCell("sheet-1", "B2", "3")
         repo.renameSheet("sheet-1", "Renamed Inputs")
         repo.updateSheetPosition("sheet-1", WorkspacePosition(80.0, 120.0))
+        repo.updateSheetZIndex("sheet-1", 4)
         repo.appendRow("sheet-1")
         repo.appendColumn("sheet-1")
 
@@ -69,6 +71,7 @@ class WorkbookRepositoryTest {
         assertEquals(21, sheet.rowCount)
         assertEquals(11, sheet.columnCount)
         assertEquals(WorkspacePosition(80.0, 120.0), sheet.position)
+        assertEquals(4, sheet.zIndex)
         assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1").raw)
         assertFalse(sheet.cells.containsKey("A1_display"))
     }

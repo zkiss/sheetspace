@@ -11,6 +11,7 @@ import {
   evaluateFormulaCells,
   expandRange,
   findSheetByName,
+  moveSheetZOrder,
   parseA1Address,
   parseA1Range,
   parseFormula,
@@ -47,6 +48,7 @@ describe('workbook model', () => {
         id: 'sheet-1',
         name: 'Inputs',
         position: { x: 12, y: 24 },
+        zIndex: 1,
         columnCount: 10,
         rowCount: 20,
         cells: {},
@@ -60,6 +62,69 @@ describe('workbook model', () => {
     expect(validateSheetName('   ', existing)).toEqual({ ok: false, reason: 'empty' });
     expect(validateSheetName('Inputs', existing)).toEqual({ ok: false, reason: 'duplicate' });
     expect(validateSheetName(' Inputs ', existing, 'sheet-1')).toEqual({ ok: true, name: 'Inputs' });
+  });
+
+  it('stacks new sheets above older sheets by default', () => {
+    const first = sheet('sheet-1', 'Inputs');
+    const secondResult = createSheet({
+      id: 'sheet-2',
+      name: 'Outputs',
+      existingSheets: [first],
+    });
+
+    expect(secondResult.ok).toBe(true);
+    if (secondResult.ok) {
+      expect(first.zIndex).toBe(1);
+      expect(secondResult.value.zIndex).toBe(2);
+    }
+  });
+
+  it('moves a sheet one level through deterministic z-order without reordering workbook sheets', () => {
+    const workbook = {
+      version: 1 as const,
+      sheets: [sheet('sheet-1', 'Inputs'), sheet('sheet-2', 'Assumptions'), sheet('sheet-3', 'Outputs')],
+    };
+
+    const movedUp = moveSheetZOrder(workbook, 'sheet-1', 'up');
+
+    expect(movedUp.ok).toBe(true);
+    if (movedUp.ok) {
+      expect(movedUp.value.sheets.map((candidate) => candidate.id)).toEqual(['sheet-1', 'sheet-2', 'sheet-3']);
+      expect(movedUp.value.sheets.map((candidate) => [candidate.id, candidate.zIndex])).toEqual([
+        ['sheet-1', 2],
+        ['sheet-2', 1],
+        ['sheet-3', 3],
+      ]);
+    }
+  });
+
+  it('moves a sheet to the top and bottom of the deterministic z-order', () => {
+    const workbook = {
+      version: 1 as const,
+      sheets: [sheet('sheet-1', 'Inputs'), sheet('sheet-2', 'Assumptions'), sheet('sheet-3', 'Outputs')],
+    };
+
+    const movedToTop = moveSheetZOrder(workbook, 'sheet-1', 'top');
+    expect(movedToTop.ok).toBe(true);
+    if (!movedToTop.ok) {
+      throw new Error('Expected top z-order move to succeed');
+    }
+
+    expect(movedToTop.value.sheets.map((candidate) => [candidate.id, candidate.zIndex])).toEqual([
+      ['sheet-1', 3],
+      ['sheet-2', 1],
+      ['sheet-3', 2],
+    ]);
+
+    const movedToBottom = moveSheetZOrder(movedToTop.value, 'sheet-1', 'bottom');
+    expect(movedToBottom.ok).toBe(true);
+    if (movedToBottom.ok) {
+      expect(movedToBottom.value.sheets.map((candidate) => [candidate.id, candidate.zIndex])).toEqual([
+        ['sheet-1', 1],
+        ['sheet-2', 2],
+        ['sheet-3', 3],
+      ]);
+    }
   });
 
   it('renames a sheet without rewriting cell content', () => {
