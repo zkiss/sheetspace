@@ -698,6 +698,65 @@ describe('App workspace', () => {
     expect(formulaCell).toHaveTextContent('6');
   });
 
+  it('keeps uncommitted edit text out of formula recomputation until commit', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '=SUM(B1)' },
+        B1: { raw: '1' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const inputCell = screen.getByRole('cell', { name: 'Inputs B1 cell' });
+    expect(formulaCell).toHaveTextContent('1');
+
+    const editor = await openCellEditor(user, inputCell);
+    await user.clear(editor);
+    await user.type(editor, '9');
+
+    expect(editor).toHaveValue('9');
+    expect(formulaCell).toHaveTextContent('1');
+
+    await user.keyboard('{Enter}');
+    expect(formulaCell).toHaveTextContent('9');
+  });
+
+  it('recomputes formula edits and removes formula display after editing back to plain content', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '=SUM(B1)' },
+        B1: { raw: '2' },
+        C1: { raw: '4' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('2');
+
+    const formulaEditor = await openCellEditor(user, formulaCell);
+    await user.clear(formulaEditor);
+    await user.type(formulaEditor, '=SUM(C1)');
+    await user.keyboard('{Enter}');
+
+    expect(formulaCell).toHaveTextContent('4');
+
+    const plainEditor = await openCellEditor(user, formulaCell);
+    await user.clear(plainEditor);
+    await user.type(plainEditor, 'Plain text');
+    await user.keyboard('{Enter}');
+
+    expect(formulaCell).toHaveTextContent('Plain text');
+    expect(await openCellEditor(user, formulaCell)).toHaveValue('Plain text');
+  });
+
   it('recomputes formula references that become valid after appending a row', async () => {
     const user = userEvent.setup();
     const sheet = {
