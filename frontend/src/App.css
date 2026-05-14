@@ -315,7 +315,10 @@ button:hover {
   padding: 0 0.35rem;
   color: inherit;
   background: #ffffff;
+  font: inherit;
+  line-height: 1.2;
   outline: none;
+  resize: none;
 }
 
 .dialog-backdrop {

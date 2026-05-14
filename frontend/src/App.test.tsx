@@ -585,8 +585,10 @@ describe('App workspace', () => {
 
     const editor = within(cell).getByRole('textbox', { name: 'Inputs A1 editor' });
     expect(editor).toHaveValue('R');
+    expect((editor as HTMLTextAreaElement).selectionStart).toBe(1);
+    expect((editor as HTMLTextAreaElement).selectionEnd).toBe(1);
 
-    await user.type(editor, 'egion');
+    await user.keyboard('egion');
     await user.keyboard('{Enter}');
 
     expect(cell).toHaveTextContent('Region');
@@ -671,6 +673,79 @@ describe('App workspace', () => {
 
     const reopenedEditor = await openCellEditor(user, cell);
     expect(reopenedEditor).toHaveValue('=SUM(B1:B2)');
+  });
+
+  it('displays mixed-case spaced multiline formulas while preserving raw edit text', async () => {
+    const user = userEvent.setup();
+    const rawFormula = '= \n sUm \t ( \n B1 \n : \t B2 \n ) ';
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: rawFormula },
+        B1: { raw: '3' },
+        B2: { raw: '4' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('7');
+
+    const editor = await openCellEditor(user, formulaCell);
+    expect(editor).toHaveValue(rawFormula);
+  });
+
+  it('displays cross-sheet formula results outside edit mode', async () => {
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '2' },
+        A2: { raw: '5' },
+      },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
+      cells: {
+        A1: { raw: '=SUM(Inputs!A1:A2)' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('7');
+  });
+
+  it('keeps formula error cells selectable and editable without crashing unrelated results', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '=SUM(B1)' },
+        A2: { raw: '=SUM(B1,)' },
+        B1: { raw: '8' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const validFormulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const errorCell = screen.getByRole('cell', { name: 'Inputs A2 cell' });
+    expect(validFormulaCell).toHaveTextContent('8');
+    expect(errorCell).toHaveTextContent('#PARSE!');
+
+    await user.click(errorCell);
+    expect(errorCell).toHaveAttribute('data-active-cell', 'true');
+
+    const editor = await openCellEditor(user, errorCell);
+    expect(editor).toHaveValue('=SUM(B1,)');
+
+    await user.clear(editor);
+    await user.type(editor, '=SUM(B1)');
+    await user.keyboard('{Enter}');
+
+    expect(errorCell).toHaveTextContent('8');
   });
 
   it('displays formula results and recomputes after referenced cell edits', async () => {
