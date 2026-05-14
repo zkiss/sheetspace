@@ -129,6 +129,19 @@ button:hover {
   font-size: 0.85rem;
 }
 
+.workspace-toolbar .save-status {
+  color: #2f747e;
+  font-weight: 600;
+}
+
+.workspace-toolbar .save-status-saving {
+  color: #6b5f1f;
+}
+
+.workspace-toolbar .save-status-failed {
+  color: #a33a3a;
+}
+
 .workspace-surface {
   position: relative;
   overflow: hidden;

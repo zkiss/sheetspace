@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { createSheet, type Workbook, type WorkspacePosition } from './workbook';
+import type { WorkbookApi } from './workbookApi';
 
 afterEach(() => {
   cleanup();
@@ -36,6 +37,31 @@ function workbookWithSheets(sheets: Workbook['sheets']): Workbook {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
+function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
+  return {
+    loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    updateSheetPosition: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    updateSheetZIndex: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    updateCellContent: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    appendRow: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    appendColumn: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    ...overrides,
+  } satisfies WorkbookApi;
+}
+
 async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HTMLElement) {
   await user.dblClick(cell);
   return within(cell).getByRole('textbox');
@@ -62,6 +88,212 @@ describe('App workspace', () => {
     expect(await screen.findByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
     expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
     expect(screen.getByText('1 sheets')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved');
+  });
+
+  it('autosaves committed sheet creation and reports app-level save status', async () => {
+    const savedWorkbook = workbookWithSheets([positionedSheet('sheet-1', 'Inputs', { x: 0, y: 0 })]);
+    const createSave = deferred<Workbook>();
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSave.promise),
+    });
+    const user = userEvent.setup();
+
+    render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
+
+    await user.click(screen.getByRole('button', { name: /new sheet/i }));
+    await user.type(screen.getByLabelText(/sheet name/i), 'Inputs');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    expect(apiClient.createSheet).toHaveBeenCalledWith({
+      id: 'sheet-1',
+      name: 'Inputs',
+      position: { x: 0, y: 0 },
+      zIndex: 1,
+      columnCount: 10,
+      rowCount: 20,
+      cells: {},
+    });
+    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
+
+    createSave.resolve(savedWorkbook);
+
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+  });
+
+  it('autosaves committed renames, positions, row appends, column appends, and z-order updates', async () => {
+    const user = userEvent.setup();
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }), zIndex: 2 };
+    const apiClient = autosaveClient();
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={apiClient} />);
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
+    await user.clear(screen.getByLabelText(/sheet name/i));
+    await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-inputs', 'Renamed Inputs');
+
+    const renamedFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
+    const header = within(renamedFrame).getByTestId('sheet-frame-header');
+    fireEvent(header, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
+    fireEvent(header, new MouseEvent('pointermove', { bubbles: true, clientX: 130, clientY: 150 }));
+    fireEvent(header, new MouseEvent('pointerup', { bubbles: true, clientX: 130, clientY: 150 }));
+
+    expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-inputs', { x: 78, y: 126 });
+
+    await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Append row' }));
+    await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Append column' }));
+
+    expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-inputs');
+    expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs');
+
+    await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Bring forward' }));
+
+    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-inputs', 2);
+    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-outputs', 1);
+  });
+
+  it('does not autosave transient in-progress cell edits until they are committed', async () => {
+    const user = userEvent.setup();
+    const apiClient = autosaveClient();
+
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+        apiClient={apiClient}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const editor = await openCellEditor(user, cell);
+    await user.type(editor, 'Draft');
+
+    expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+
+    await user.keyboard('{Enter}');
+
+    expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', 'Draft');
+  });
+
+  it('keeps the workbook editable and shows failed unsaved state after autosave failure', async () => {
+    const user = userEvent.setup();
+    const failedSave = deferred<Workbook>();
+    const apiClient = autosaveClient({
+      updateCellContent: vi.fn().mockReturnValue(failedSave.promise),
+    });
+
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+        apiClient={apiClient}
+      />,
+    );
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const a1Editor = await openCellEditor(user, a1);
+    await user.type(a1Editor, 'Local value');
+    await user.keyboard('{Enter}');
+
+    failedSave.reject(new Error('backend unavailable'));
+
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Save failed - unsaved changes'),
+    );
+    expect(a1).toHaveTextContent('Local value');
+
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const b1Editor = await openCellEditor(user, b1);
+    await user.type(b1Editor, 'Still editable');
+    await user.keyboard('{Enter}');
+
+    expect(b1).toHaveTextContent('Still editable');
+  });
+
+  it('runs one save per entity key and keeps only the latest queued replacement', async () => {
+    const user = userEvent.setup();
+    const firstSave = deferred<Workbook>();
+    const queuedSave = deferred<Workbook>();
+    const apiClient = autosaveClient({
+      updateCellContent: vi.fn().mockReturnValueOnce(firstSave.promise).mockReturnValueOnce(queuedSave.promise),
+    });
+
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+        apiClient={apiClient}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    let editor = await openCellEditor(user, cell);
+    await user.type(editor, 'One');
+    await user.keyboard('{Enter}');
+
+    editor = await openCellEditor(user, cell);
+    await user.clear(editor);
+    await user.type(editor, 'Two');
+    await user.keyboard('{Enter}');
+
+    editor = await openCellEditor(user, cell);
+    await user.clear(editor);
+    await user.type(editor, 'Three');
+    await user.keyboard('{Enter}');
+
+    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'One');
+    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
+
+    firstSave.resolve(workbookWithSheets([]));
+
+    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Three');
+    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
+
+    queuedSave.resolve(workbookWithSheets([]));
+
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+  });
+
+  it('saves different entity keys in parallel', async () => {
+    const user = userEvent.setup();
+    const a1Save = deferred<Workbook>();
+    const b1Save = deferred<Workbook>();
+    const apiClient = autosaveClient({
+      updateCellContent: vi.fn().mockReturnValueOnce(a1Save.promise).mockReturnValueOnce(b1Save.promise),
+    });
+
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+        apiClient={apiClient}
+      />,
+    );
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const a1Editor = await openCellEditor(user, a1);
+    await user.type(a1Editor, 'A');
+    await user.keyboard('{Enter}');
+
+    const b1Editor = await openCellEditor(user, b1);
+    await user.type(b1Editor, 'B');
+    await user.keyboard('{Enter}');
+
+    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2);
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'A');
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'B1', 'B');
   });
 
   it('renders an empty workspace after loading an empty backend state', async () => {
