@@ -585,8 +585,10 @@ describe('App workspace', () => {
 
     const editor = within(cell).getByRole('textbox', { name: 'Inputs A1 editor' });
     expect(editor).toHaveValue('R');
+    expect((editor as HTMLTextAreaElement).selectionStart).toBe(1);
+    expect((editor as HTMLTextAreaElement).selectionEnd).toBe(1);
 
-    await user.type(editor, 'egion');
+    await user.keyboard('egion');
     await user.keyboard('{Enter}');
 
     expect(cell).toHaveTextContent('Region');

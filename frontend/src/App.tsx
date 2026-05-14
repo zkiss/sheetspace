@@ -113,6 +113,15 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
   return 'A sheet with that name already exists.';
 }
 
+function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
+  if (!editor) {
+    return;
+  }
+
+  const end = editor.value.length;
+  editor.setSelectionRange(end, end);
+}
+
 function SheetGrid({
   activeCell,
   editingCell,
@@ -231,6 +240,7 @@ function SheetGrid({
                           onCancelEdit();
                         }
                       }}
+                      ref={moveEditorCaretToEnd}
                       value={editingCell.value}
                     />
                   ) : (
