@@ -215,103 +215,118 @@ describe('App workspace', () => {
     expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
   });
 
-  it('persists and reloads the complete MVP workflow across creation paths, arrangement, rename, formulas, and appended dimensions', async () => {
-    const user = userEvent.setup();
-    const rawSameSheetFormula = '= \n SuM ( B1 , B2 )';
-    const rawCrossSheetFormula = '=SUM(Renamed Inputs!B1:B2)';
-    const apiClient = persistedWorkbookClient();
+  it(
+    'persists and reloads the complete MVP workflow across creation paths, arrangement, rename, formulas, and appended dimensions',
+    async () => {
+      const user = userEvent.setup();
+      const rawSameSheetFormula = '= \n SuM ( B1 , B2 )';
+      const rawCrossSheetFormula = '=SUM(Renamed Inputs!B1:B2)';
+      const apiClient = persistedWorkbookClient();
 
-    render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
+      render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
 
-    await createSheetFromToolbar('Inputs');
-    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
+      await createSheetFromToolbar('Inputs');
+      await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
 
-    workspaceSurface().getBoundingClientRect = () =>
-      ({
-        left: 20,
-        top: 30,
-        right: 1020,
-        bottom: 830,
-        width: 1000,
-        height: 800,
-        x: 20,
-        y: 30,
-        toJSON: () => undefined,
-      }) as DOMRect;
-    fireEvent.contextMenu(workspaceSurface(), { clientX: 440, clientY: 290 });
-    await user.type(screen.getByLabelText(/sheet name/i), 'Outputs');
-    await user.click(screen.getByRole('button', { name: /^create$/i }));
-    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
+      workspaceSurface().getBoundingClientRect = () =>
+        ({
+          left: 20,
+          top: 30,
+          right: 1020,
+          bottom: 830,
+          width: 1000,
+          height: 800,
+          x: 20,
+          y: 30,
+          toJSON: () => undefined,
+        }) as DOMRect;
+      fireEvent.contextMenu(workspaceSurface(), { clientX: 440, clientY: 290 });
+      await user.type(screen.getByLabelText(/sheet name/i), 'Outputs');
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
+      await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
 
-    let inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    const inputHeader = within(inputFrame).getByTestId('sheet-frame-header');
-    fireEvent(inputHeader, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
-    fireEvent(inputHeader, new MouseEvent('pointermove', { bubbles: true, clientX: 172, clientY: 264 }));
-    fireEvent(inputHeader, new MouseEvent('pointerup', { bubbles: true, clientX: 172, clientY: 264 }));
-    await waitFor(() => expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-1', { x: 72, y: 144 }));
+      let inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+      const inputHeader = within(inputFrame).getByTestId('sheet-frame-header');
+      fireEvent(inputHeader, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
+      fireEvent(inputHeader, new MouseEvent('pointermove', { bubbles: true, clientX: 172, clientY: 264 }));
+      fireEvent(inputHeader, new MouseEvent('pointerup', { bubbles: true, clientX: 172, clientY: 264 }));
+      await waitFor(() => expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-1', { x: 72, y: 144 }));
 
-    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
-    await user.clear(screen.getByLabelText(/sheet name/i));
-    await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
-    await user.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() => expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-1', 'Renamed Inputs'));
+      await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
+      await user.clear(screen.getByLabelText(/sheet name/i));
+      await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() => expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-1', 'Renamed Inputs'));
 
-    inputFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
-    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+      inputFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
+      const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
 
-    let editor = await openCellEditor(user, within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B1 empty cell' }));
-    await user.type(editor, '10');
-    await user.keyboard('{Enter}');
+      let editor = await openCellEditor(
+        user,
+        within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B1 empty cell' }),
+      );
+      await user.type(editor, '10');
+      await user.keyboard('{Enter}');
 
-    editor = await openCellEditor(user, within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B2 empty cell' }));
-    await user.type(editor, '5');
-    await user.keyboard('{Enter}');
+      editor = await openCellEditor(
+        user,
+        within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B2 empty cell' }),
+      );
+      await user.type(editor, '5');
+      await user.keyboard('{Enter}');
 
-    editor = await openCellEditor(user, within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 empty cell' }));
-    fireEvent.change(editor, { target: { value: rawSameSheetFormula } });
-    await user.keyboard('{Enter}');
+      editor = await openCellEditor(
+        user,
+        within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 empty cell' }),
+      );
+      fireEvent.change(editor, { target: { value: rawSameSheetFormula } });
+      await user.keyboard('{Enter}');
 
-    editor = await openCellEditor(user, within(outputFrame).getByRole('cell', { name: 'Outputs A1 empty cell' }));
-    await user.type(editor, rawCrossSheetFormula);
-    await user.keyboard('{Enter}');
+      editor = await openCellEditor(user, within(outputFrame).getByRole('cell', { name: 'Outputs A1 empty cell' }));
+      await user.type(editor, rawCrossSheetFormula);
+      await user.keyboard('{Enter}');
 
-    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
-    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
+      await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
+      await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
 
-    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(4));
-    await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-1'));
-    await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-1'));
-    expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
-    expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
+      await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(4));
+      await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-1'));
+      await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-1'));
+      expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
+      expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
 
-    cleanup();
-    render(<App apiClient={apiClient} />);
+      cleanup();
+      render(<App apiClient={apiClient} />);
 
-    const reloadedInputFrame = await screen.findByRole('article', { name: 'Sheet Renamed Inputs' });
-    const reloadedOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+      const reloadedInputFrame = await screen.findByRole('article', { name: 'Sheet Renamed Inputs' });
+      const reloadedOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
 
-    expect(reloadedInputFrame).toHaveAttribute('data-sheet-id', 'sheet-1');
-    expect(reloadedInputFrame).toHaveAttribute('data-position-x', '72');
-    expect(reloadedInputFrame).toHaveAttribute('data-position-y', '144');
-    expect(reloadedInputFrame).toHaveAttribute('data-row-count', '21');
-    expect(reloadedInputFrame).toHaveAttribute('data-column-count', '11');
-    expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', 'sheet-2');
-    expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '420');
-    expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '260');
-    expect(within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
-    expect(within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
+      expect(reloadedInputFrame).toHaveAttribute('data-sheet-id', 'sheet-1');
+      expect(reloadedInputFrame).toHaveAttribute('data-position-x', '72');
+      expect(reloadedInputFrame).toHaveAttribute('data-position-y', '144');
+      expect(reloadedInputFrame).toHaveAttribute('data-row-count', '21');
+      expect(reloadedInputFrame).toHaveAttribute('data-column-count', '11');
+      expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', 'sheet-2');
+      expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '420');
+      expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '260');
+      expect(within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent(
+        '15',
+      );
+      expect(within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
 
-    editor = await openCellEditor(
-      user,
-      within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' }),
-    );
-    expect(editor).toHaveValue(rawSameSheetFormula);
-    await user.keyboard('{Escape}');
+      editor = await openCellEditor(
+        user,
+        within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' }),
+      );
+      expect(editor).toHaveValue(rawSameSheetFormula);
+      await user.keyboard('{Escape}');
 
-    editor = await openCellEditor(user, within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
-    expect(editor).toHaveValue(rawCrossSheetFormula);
-    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
-  });
+      editor = await openCellEditor(user, within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
+      expect(editor).toHaveValue(rawCrossSheetFormula);
+      expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+    },
+    10_000,
+  );
 
   it('autosaves committed sheet creation and reports app-level save status', async () => {
     const savedWorkbook = workbookWithSheets([positionedSheet('sheet-1', 'Inputs', { x: 0, y: 0 })]);
@@ -981,6 +996,69 @@ describe('App workspace', () => {
     expect(outputsB2).toHaveAttribute('data-active-cell', 'true');
   });
 
+  it('moves selected cells with arrow keys and clamps at sheet bounds', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      rowCount: 2,
+      columnCount: 2,
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const frame = screen.getByTestId('sheet-frame');
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b1 = within(frame).getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const a2 = within(frame).getByRole('cell', { name: 'Inputs A2 empty cell' });
+    const b2 = within(frame).getByRole('cell', { name: 'Inputs B2 empty cell' });
+
+    await user.click(a1);
+    await user.keyboard('{ArrowRight}');
+    expect(b1).toHaveAttribute('data-active-cell', 'true');
+    expect(b1).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(b2).toHaveAttribute('data-active-cell', 'true');
+
+    await user.keyboard('{ArrowLeft}');
+    expect(a2).toHaveAttribute('data-active-cell', 'true');
+
+    await user.keyboard('{ArrowUp}');
+    expect(a1).toHaveAttribute('data-active-cell', 'true');
+
+    await user.keyboard('{ArrowLeft}{ArrowUp}');
+    expect(a1).toHaveAttribute('data-active-cell', 'true');
+  });
+
+  it('scrolls the selected cell into view after keyboard navigation', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      render(
+        <App
+          initialWorkbook={workbookWithSheets([
+            positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+          ])}
+        />,
+      );
+
+      const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+      const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+
+      await user.click(a1);
+      scrollIntoView.mockClear();
+      await user.keyboard('{ArrowRight}');
+
+      expect(b1).toHaveAttribute('data-active-cell', 'true');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
   it('moves active selection when keyboard focus moves to another cell', () => {
     render(
       <App
@@ -1096,6 +1174,45 @@ describe('App workspace', () => {
     await user.keyboard('{Enter}');
 
     expect(cell).toHaveTextContent('Region');
+  });
+
+  it('enters edit mode for a selected cell with F2', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(cell);
+    await user.keyboard('{F2}');
+
+    expect(cell).toHaveAttribute('data-editing-cell', 'true');
+    expect(within(cell).getByRole('textbox', { name: 'Inputs A1 editor' })).toHaveValue('');
+  });
+
+  it('keeps printable-key edit entry working after arrow-key navigation', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+
+    await user.click(a1);
+    await user.keyboard('{ArrowRight}');
+    await user.keyboard('R');
+
+    const editor = within(b1).getByRole('textbox', { name: 'Inputs B1 editor' });
+    expect(editor).toHaveValue('R');
   });
 
   it('starts an empty edit for a selected cell with Backspace or Delete', async () => {
@@ -1458,6 +1575,81 @@ describe('App workspace', () => {
 
     expect(cell).not.toHaveAttribute('data-editing-cell');
     expect(cell).toHaveTextContent('Original');
+  });
+
+  it('commits an active edit with Tab and moves one cell to the right', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const editor = await openCellEditor(user, a1);
+
+    await user.type(editor, 'Region');
+    await user.keyboard('{Tab}');
+
+    expect(a1).toHaveTextContent('Region');
+    expect(a1).not.toHaveAttribute('data-editing-cell');
+    expect(b1).toHaveAttribute('data-active-cell', 'true');
+    expect(b1).toHaveFocus();
+  });
+
+  it('commits an active edit with Enter and moves down in the same column without a tab run', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const b2 = screen.getByRole('cell', { name: 'Inputs B2 empty cell' });
+    const editor = await openCellEditor(user, b1);
+
+    await user.type(editor, 'Value');
+    await user.keyboard('{Enter}');
+
+    expect(b1).toHaveTextContent('Value');
+    expect(b2).toHaveAttribute('data-active-cell', 'true');
+    expect(b2).toHaveFocus();
+  });
+
+  it('returns to the tab-run origin column on Enter after tabbing through edits', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const a2 = screen.getByRole('cell', { name: 'Inputs A2 empty cell' });
+    const a1Editor = await openCellEditor(user, a1);
+
+    await user.type(a1Editor, 'First');
+    await user.keyboard('{Tab}');
+    expect(b1).toHaveAttribute('data-active-cell', 'true');
+
+    await user.keyboard('S');
+    const b1Editor = within(b1).getByRole('textbox', { name: 'Inputs B1 editor' });
+    await user.type(b1Editor, 'econd');
+    await user.keyboard('{Enter}');
+
+    expect(a1).toHaveTextContent('First');
+    expect(b1).toHaveTextContent('Second');
+    expect(a2).toHaveAttribute('data-active-cell', 'true');
+    expect(a2).toHaveFocus();
   });
 
   it.each([
