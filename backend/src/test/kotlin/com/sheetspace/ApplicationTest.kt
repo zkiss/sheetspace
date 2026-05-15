@@ -144,6 +144,69 @@ class ApplicationTest {
     }
 
     @Test
+    fun `api mutations persist complete MVP workbook state for later reloads`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+
+        val createInputs = client.post("/api/sheets") {
+            jsonBody("""{"id":"sheet-inputs","name":"Inputs","position":{"x":24.0,"y":48.0}}""")
+        }
+        val createOutputs = client.post("/api/sheets") {
+            jsonBody("""{"id":"sheet-outputs","name":"Outputs","position":{"x":420.0,"y":260.0}}""")
+        }
+        val renameAndMoveInputs = client.patch("/api/sheets/sheet-inputs") {
+            jsonBody("""{"name":"Renamed Inputs","position":{"x":72.0,"y":144.0}}""")
+        }
+        val appendInputRow = client.post("/api/sheets/sheet-inputs/rows")
+        val appendInputColumn = client.post("/api/sheets/sheet-inputs/columns")
+        val updateTextCell = client.put("/api/sheets/sheet-inputs/cells/A1") {
+            jsonBody("""{"raw":"Region"}""")
+        }
+        val updateNumericCell = client.put("/api/sheets/sheet-inputs/cells/B1") {
+            jsonBody("""{"raw":"10"}""")
+        }
+        val updateSecondNumericCell = client.put("/api/sheets/sheet-inputs/cells/B2") {
+            jsonBody("""{"raw":"5"}""")
+        }
+        val updateFormulaCell = client.put("/api/sheets/sheet-inputs/cells/C1") {
+            jsonBody("""{"raw":"= \n SuM ( B1 , B2 )"}""")
+        }
+        val updateCrossSheetFormulaCell = client.put("/api/sheets/sheet-outputs/cells/A1") {
+            jsonBody("""{"raw":"=SUM(Renamed Inputs!B1:B2)"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, createInputs.status)
+        assertEquals(HttpStatusCode.Created, createOutputs.status)
+        assertEquals(HttpStatusCode.OK, renameAndMoveInputs.status)
+        assertEquals(HttpStatusCode.OK, appendInputRow.status)
+        assertEquals(HttpStatusCode.OK, appendInputColumn.status)
+        assertEquals(HttpStatusCode.OK, updateTextCell.status)
+        assertEquals(HttpStatusCode.OK, updateNumericCell.status)
+        assertEquals(HttpStatusCode.OK, updateSecondNumericCell.status)
+        assertEquals(HttpStatusCode.OK, updateFormulaCell.status)
+        assertEquals(HttpStatusCode.OK, updateCrossSheetFormulaCell.status)
+
+        val workbook = client.loadWorkbook()
+        val inputs = workbook.sheets.single { it.id == "sheet-inputs" }
+        val outputs = workbook.sheets.single { it.id == "sheet-outputs" }
+
+        assertEquals("Renamed Inputs", inputs.name)
+        assertEquals(WorkspacePosition(72.0, 144.0), inputs.position)
+        assertEquals(DEFAULT_ROW_COUNT + 1, inputs.rowCount)
+        assertEquals(DEFAULT_COLUMN_COUNT + 1, inputs.columnCount)
+        assertEquals("Region", inputs.cells.getValue("A1").raw)
+        assertEquals("10", inputs.cells.getValue("B1").raw)
+        assertEquals("5", inputs.cells.getValue("B2").raw)
+        assertEquals("= \n SuM ( B1 , B2 )", inputs.cells.getValue("C1").raw)
+        assertEquals(WorkspacePosition(420.0, 260.0), outputs.position)
+        assertEquals("=SUM(Renamed Inputs!B1:B2)", outputs.cells.getValue("A1").raw)
+        assertFalse(inputs.cells.containsKey("C1_display"))
+        assertFalse(outputs.cells.containsKey("A1_display"))
+    }
+
+    @Test
     fun `invalid update payloads return 4xx without corrupting workbook data`() = testApplication {
         val repo = createRepo()
         application {
