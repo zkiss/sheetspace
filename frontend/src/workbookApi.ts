@@ -60,9 +60,16 @@ export const workbookApi = {
   },
 
   createSheet(sheet: Pick<Sheet, 'id' | 'name' | 'position'> & Partial<Pick<Sheet, 'zIndex'>>): Promise<Workbook> {
+    const requestBody = {
+      id: sheet.id,
+      name: sheet.name,
+      position: sheet.position,
+      ...(sheet.zIndex === undefined ? {} : { zIndex: sheet.zIndex }),
+    };
+
     return mutationRequest('/api/sheets', {
       method: 'POST',
-      body: JSON.stringify(sheet),
+      body: JSON.stringify(requestBody),
     });
   },
 

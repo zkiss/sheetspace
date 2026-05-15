@@ -76,7 +76,7 @@ const MIN_WORKSPACE_ZOOM = 0.5;
 const MAX_WORKSPACE_ZOOM = 2;
 
 type AppProps = {
-  apiClient?: Pick<WorkbookApi, 'loadWorkbook'>;
+  apiClient?: Partial<WorkbookApi>;
   initialWorkbook?: Workbook;
 };
 
@@ -84,6 +84,18 @@ type StartupLoadState =
   | { status: 'loading' }
   | { status: 'loaded' }
   | { status: 'error'; message: string };
+
+type SaveStatus = 'saved' | 'saving' | 'failed';
+
+type AutosaveTask = {
+  key: string;
+  run: () => Promise<Workbook>;
+};
+
+type AutosaveQueue = {
+  running: AutosaveTask | null;
+  queued: AutosaveTask | null;
+};
 
 function getWorkspacePoint(
   event: Pick<MouseEvent<HTMLElement> | PointerEvent<HTMLElement> | WheelEvent<HTMLElement>, 'clientX' | 'clientY'>,
@@ -119,6 +131,18 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
   }
 
   return 'A sheet with that name already exists.';
+}
+
+function saveStatusText(status: SaveStatus) {
+  if (status === 'saving') {
+    return 'Saving...';
+  }
+
+  if (status === 'failed') {
+    return 'Save failed - unsaved changes';
+  }
+
+  return 'Saved';
 }
 
 function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
@@ -264,11 +288,14 @@ function SheetGrid({
   );
 }
 
-export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {}) {
+export function App({ apiClient, initialWorkbook }: AppProps = {}) {
+  const resolvedApiClient = apiClient ?? workbookApi;
+  const autosaveEnabled = !initialWorkbook || Boolean(apiClient);
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
   const [startupLoad, setStartupLoad] = useState<StartupLoadState>(
     initialWorkbook ? { status: 'loaded' } : { status: 'loading' },
   );
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
@@ -280,6 +307,8 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
   const [error, setError] = useState('');
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
+  const autosaveQueues = useRef(new Map<string, AutosaveQueue>());
+  const failedAutosaveKeys = useRef(new Set<string>());
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
 
   useEffect(() => {
@@ -289,8 +318,9 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
 
     let active = true;
 
-    apiClient
-      .loadWorkbook()
+    const loadWorkbook = resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook;
+
+    loadWorkbook()
       .then((loadedWorkbook) => {
         if (!active) {
           return;
@@ -298,6 +328,7 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
 
         setWorkbook(loadedWorkbook);
         setStartupLoad({ status: 'loaded' });
+        setSaveStatus('saved');
       })
       .catch((cause: unknown) => {
         if (!active) {
@@ -314,16 +345,96 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
     return () => {
       active = false;
     };
-  }, [apiClient, initialWorkbook, startupLoad.status]);
+  }, [resolvedApiClient, initialWorkbook, startupLoad.status]);
+
+  function hasPendingAutosaves() {
+    for (const queue of autosaveQueues.current.values()) {
+      if (queue.running || queue.queued) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function refreshSaveStatus() {
+    if (failedAutosaveKeys.current.size > 0) {
+      setSaveStatus('failed');
+      return;
+    }
+
+    setSaveStatus(hasPendingAutosaves() ? 'saving' : 'saved');
+  }
+
+  function startAutosaveTask(queue: AutosaveQueue, task: AutosaveTask) {
+    queue.running = task;
+    task
+      .run()
+      .catch(() => {
+        if (!queue.queued) {
+          failedAutosaveKeys.current.add(task.key);
+        }
+      })
+      .finally(() => {
+        const nextTask = queue.queued;
+        queue.running = null;
+        queue.queued = null;
+
+        if (nextTask) {
+          startAutosaveTask(queue, nextTask);
+          return;
+        }
+
+        autosaveQueues.current.delete(task.key);
+        refreshSaveStatus();
+      });
+  }
+
+  function enqueueAutosave(key: string, run: () => Promise<Workbook>) {
+    if (!autosaveEnabled) {
+      return;
+    }
+
+    const task = {
+      key,
+      run,
+    };
+    failedAutosaveKeys.current.delete(key);
+
+    const queue = autosaveQueues.current.get(key) ?? { running: null, queued: null };
+    autosaveQueues.current.set(key, queue);
+
+    if (queue.running) {
+      queue.queued = task;
+      refreshSaveStatus();
+      return;
+    }
+
+    startAutosaveTask(queue, task);
+    refreshSaveStatus();
+  }
+
+  function getApiMethod<K extends keyof WorkbookApi>(method: K): WorkbookApi[K] {
+    return resolvedApiClient[method] ?? workbookApi[method];
+  }
 
   function commitActiveEdit(editToCommit = editingCell) {
     if (!editToCommit) {
       return;
     }
 
-    setWorkbook((currentWorkbook) =>
-      commitCellRawContent(currentWorkbook, editToCommit.sheetId, editToCommit.cellKey, editToCommit.value),
-    );
+    const currentSheet = workbook.sheets.find((sheet) => sheet.id === editToCommit.sheetId);
+    const currentRaw = currentSheet?.cells[editToCommit.cellKey]?.raw ?? '';
+    const nextWorkbook = commitCellRawContent(workbook, editToCommit.sheetId, editToCommit.cellKey, editToCommit.value);
+
+    if (nextWorkbook !== workbook) {
+      setWorkbook(nextWorkbook);
+    }
+    if (nextWorkbook !== workbook && currentRaw !== editToCommit.value) {
+      enqueueAutosave(`cell:${editToCommit.sheetId}:${editToCommit.cellKey}`, () =>
+        getApiMethod('updateCellContent')(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value),
+      );
+    }
     setEditingCell(null);
   }
 
@@ -521,6 +632,17 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
       return;
     }
 
+    const finishedDrag = sheetFrameDrag.current;
+    const position = {
+      x: Math.round(finishedDrag.startPosition.x + (event.clientX - finishedDrag.startClientX) / viewport.scale),
+      y: Math.round(finishedDrag.startPosition.y + (event.clientY - finishedDrag.startClientY) / viewport.scale),
+    };
+    if (position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y) {
+      enqueueAutosave(`sheet:${finishedDrag.sheetId}:position`, () =>
+        getApiMethod('updateSheetPosition')(finishedDrag.sheetId, position),
+      );
+    }
+
     sheetFrameDrag.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
@@ -562,6 +684,14 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
       ...currentWorkbook,
       sheets: [...currentWorkbook.sheets, result.value],
     }));
+    enqueueAutosave(`sheet:${result.value.id}:create`, () =>
+      getApiMethod('createSheet')({
+        id: result.value.id,
+        name: result.value.name,
+        position: result.value.position,
+        zIndex: result.value.zIndex,
+      }),
+    );
     setPendingCreation(null);
     setSheetName('');
     setError('');
@@ -579,32 +709,78 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
       return;
     }
 
+    const renamedSheet = result.value.sheets.find((sheet) => sheet.id === pendingRename.sheetId);
     setWorkbook(result.value);
+    if (renamedSheet) {
+      enqueueAutosave(`sheet:${pendingRename.sheetId}:name`, () =>
+        getApiMethod('renameSheet')(pendingRename.sheetId, renamedSheet.name),
+      );
+    }
     setPendingRename(null);
     setSheetName('');
     setError('');
   }
 
   function appendSheetRow(sheetId: string) {
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: currentWorkbook.sheets.map((sheet) => (sheet.id === sheetId ? appendRow(sheet) : sheet)),
-    }));
+    let changed = false;
+    const nextWorkbook = {
+      ...workbook,
+      sheets: workbook.sheets.map((sheet) => {
+        if (sheet.id !== sheetId) {
+          return sheet;
+        }
+
+        changed = true;
+        return appendRow(sheet);
+      }),
+    };
+
+    if (!changed) {
+      return;
+    }
+
+    setWorkbook(nextWorkbook);
+    enqueueAutosave(`sheet:${sheetId}:rows`, () => getApiMethod('appendRow')(sheetId));
   }
 
   function appendSheetColumn(sheetId: string) {
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: currentWorkbook.sheets.map((sheet) => (sheet.id === sheetId ? appendColumn(sheet) : sheet)),
-    }));
+    let changed = false;
+    const nextWorkbook = {
+      ...workbook,
+      sheets: workbook.sheets.map((sheet) => {
+        if (sheet.id !== sheetId) {
+          return sheet;
+        }
+
+        changed = true;
+        return appendColumn(sheet);
+      }),
+    };
+
+    if (!changed) {
+      return;
+    }
+
+    setWorkbook(nextWorkbook);
+    enqueueAutosave(`sheet:${sheetId}:columns`, () => getApiMethod('appendColumn')(sheetId));
   }
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
     setPendingSheetMenu(null);
-    setWorkbook((currentWorkbook) => {
-      const result = moveSheetZOrder(currentWorkbook, sheetId, direction);
-      return result.ok ? result.value : currentWorkbook;
-    });
+    const result = moveSheetZOrder(workbook, sheetId, direction);
+    if (!result.ok) {
+      return;
+    }
+
+    setWorkbook(result.value);
+    for (const nextSheet of result.value.sheets) {
+      const currentSheet = workbook.sheets.find((sheet) => sheet.id === nextSheet.id);
+      if (currentSheet && currentSheet.zIndex !== nextSheet.zIndex) {
+        enqueueAutosave(`sheet:${nextSheet.id}:z-index`, () =>
+          getApiMethod('updateSheetZIndex')(nextSheet.id, nextSheet.zIndex),
+        );
+      }
+    }
   }
 
   function closeDialog() {
@@ -649,6 +825,9 @@ export function App({ apiClient = workbookApi, initialWorkbook }: AppProps = {})
         <div>
           <h1>Sheetspace</h1>
           <p>{workbook.sheets.length} sheets</p>
+          <p className={`save-status save-status-${saveStatus}`} role="status" aria-label="Save status">
+            {saveStatusText(saveStatus)}
+          </p>
         </div>
         <div className="workspace-toolbar-actions">
           <div className="workspace-viewport-controls" aria-label="Workspace viewport controls">

@@ -60,6 +60,18 @@ describe('workbookApi', () => {
     });
   });
 
+  it('keeps local-only sheet fields out of the sheet creation request body', async () => {
+    const fetchMock = mockFetch({ ok: true, workbook });
+
+    await workbookApi.createSheet(workbook.sheets[0]);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
+      method: 'POST',
+      body: JSON.stringify({ id: 'sheet-1', name: 'Inputs', position: { x: 12, y: 24 }, zIndex: 1 }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
   it('exposes sheet rename position and z-order update calls', async () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 
