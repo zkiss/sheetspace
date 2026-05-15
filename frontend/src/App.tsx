@@ -21,8 +21,10 @@ import {
   createSheet,
   evaluateFormulaCells,
   moveSheetZOrder,
+  parseA1Address,
   renameSheet,
   type SheetZOrderDirection,
+  type CellAddress,
   type FormulaEvaluationSnapshot,
   type Sheet,
   type Workbook,
@@ -53,6 +55,8 @@ type ActiveCellSelection = {
 type EditingCell = ActiveCellSelection & {
   value: string;
 };
+
+type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
 
 type WorkspaceViewport = {
   x: number;
@@ -157,9 +161,12 @@ function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
 function SheetGrid({
   activeCell,
   editingCell,
+  keyboardFocusTarget,
   onCancelEdit,
   onCommitEdit,
+  onCommitEditAndNavigate,
   onEditValueChange,
+  onNavigateCell,
   onSelectCell,
   onStartEdit,
   formulaResults,
@@ -167,19 +174,38 @@ function SheetGrid({
 }: {
   activeCell: ActiveCellSelection | null;
   editingCell: EditingCell | null;
+  keyboardFocusTarget: ActiveCellSelection | null;
   onCancelEdit: () => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
+  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
+  onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
   onSelectCell: (selection: ActiveCellSelection) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   sheet: Sheet;
 }) {
+  const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
   const columns = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
     index: columnIndex,
     label: columnIndexToLabel(columnIndex),
   }));
   const rows = Array.from({ length: sheet.rowCount }, (_, rowIndex) => rowIndex);
+
+  useEffect(() => {
+    if (
+      activeCell?.sheetId !== sheet.id ||
+      activeCell.cellKey !== keyboardFocusTarget?.cellKey ||
+      keyboardFocusTarget.sheetId !== sheet.id ||
+      editingCell?.sheetId === sheet.id
+    ) {
+      return;
+    }
+
+    const cell = cellRefs.current.get(activeCell.cellKey);
+    cell?.focus();
+    cell?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeCell, editingCell?.sheetId, keyboardFocusTarget, sheet.id]);
 
   return (
     <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
@@ -222,6 +248,36 @@ function SheetGrid({
                   return;
                 }
 
+                if (event.key === 'F2') {
+                  event.preventDefault();
+                  onStartEdit({ sheetId: sheet.id, cellKey: key });
+                  return;
+                }
+
+                if (event.key === 'ArrowLeft') {
+                  event.preventDefault();
+                  onNavigateCell(sheet, key, 'left');
+                  return;
+                }
+
+                if (event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  onNavigateCell(sheet, key, 'right');
+                  return;
+                }
+
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  onNavigateCell(sheet, key, 'up');
+                  return;
+                }
+
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  onNavigateCell(sheet, key, 'down');
+                  return;
+                }
+
                 if (event.key === 'Backspace' || event.key === 'Delete') {
                   event.preventDefault();
                   onStartEdit({ sheetId: sheet.id, cellKey: key }, '');
@@ -249,6 +305,13 @@ function SheetGrid({
                   onDoubleClick={() => onStartEdit({ sheetId: sheet.id, cellKey: key })}
                   onFocus={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
                   onKeyDown={handleCellKeyDown}
+                  ref={(cellElement) => {
+                    if (cellElement) {
+                      cellRefs.current.set(key, cellElement);
+                    } else {
+                      cellRefs.current.delete(key);
+                    }
+                  }}
                   tabIndex={0}
                 >
                   {isEditing ? (
@@ -263,7 +326,13 @@ function SheetGrid({
                         if (event.key === 'Enter') {
                           event.preventDefault();
                           event.stopPropagation();
-                          onCommitEdit({ ...editingCell, value: event.currentTarget.value });
+                          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'enter');
+                        }
+
+                        if (event.key === 'Tab' && !event.shiftKey) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'tab');
                         }
 
                         if (event.key === 'Escape') {
@@ -301,12 +370,14 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
   const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
+  const [keyboardFocusTarget, setKeyboardFocusTarget] = useState<ActiveCellSelection | null>(null);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
+  const tabRunOriginColumn = useRef<number | null>(null);
   const autosaveQueues = useRef(new Map<string, AutosaveQueue>());
   const failedAutosaveKeys = useRef(new Set<string>());
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
@@ -450,7 +521,85 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   }
 
   function selectCell(selection: ActiveCellSelection) {
+    if (selection.sheetId !== activeCell?.sheetId || selection.cellKey !== activeCell.cellKey) {
+      tabRunOriginColumn.current = null;
+    }
+    setKeyboardFocusTarget(null);
     setActiveCell(selection);
+  }
+
+  function clampedCellAddress(
+    sheet: Sheet,
+    address: CellAddress,
+    delta: { columnIndex: number; rowIndex: number },
+  ): CellAddress {
+    return {
+      columnIndex: Math.min(sheet.columnCount - 1, Math.max(0, address.columnIndex + delta.columnIndex)),
+      rowIndex: Math.min(sheet.rowCount - 1, Math.max(0, address.rowIndex + delta.rowIndex)),
+    };
+  }
+
+  function navigateCell(sheet: Sheet, currentCellKey: string, direction: CellNavigationDirection) {
+    const parsedAddress = parseA1Address(currentCellKey, sheet);
+    if (!parsedAddress.ok) {
+      return;
+    }
+
+    const directionDelta = {
+      left: { columnIndex: -1, rowIndex: 0 },
+      right: { columnIndex: 1, rowIndex: 0 },
+      up: { columnIndex: 0, rowIndex: -1 },
+      down: { columnIndex: 0, rowIndex: 1 },
+    } satisfies Record<CellNavigationDirection, { columnIndex: number; rowIndex: number }>;
+    const nextAddress = clampedCellAddress(sheet, parsedAddress.value, directionDelta[direction]);
+
+    tabRunOriginColumn.current = null;
+    const nextSelection = { sheetId: sheet.id, cellKey: cellKey(nextAddress) };
+    setActiveCell(nextSelection);
+    setKeyboardFocusTarget(nextSelection);
+  }
+
+  function commitEditAndNavigate(editToCommit: EditingCell, direction: 'tab' | 'enter') {
+    const sheet = workbook.sheets.find((candidate) => candidate.id === editToCommit.sheetId);
+    if (!sheet) {
+      commitActiveEdit(editToCommit);
+      return;
+    }
+
+    const parsedAddress = parseA1Address(editToCommit.cellKey, sheet);
+    if (!parsedAddress.ok) {
+      commitActiveEdit(editToCommit);
+      return;
+    }
+
+    commitActiveEdit(editToCommit);
+
+    if (direction === 'tab') {
+      if (tabRunOriginColumn.current === null) {
+        tabRunOriginColumn.current = parsedAddress.value.columnIndex;
+      }
+
+      const nextAddress = clampedCellAddress(sheet, parsedAddress.value, { columnIndex: 1, rowIndex: 0 });
+      const nextSelection = { sheetId: sheet.id, cellKey: cellKey(nextAddress) };
+      setActiveCell(nextSelection);
+      setKeyboardFocusTarget(nextSelection);
+      return;
+    }
+
+    const originColumn = tabRunOriginColumn.current ?? parsedAddress.value.columnIndex;
+    const nextAddress = clampedCellAddress(
+      sheet,
+      {
+        columnIndex: originColumn,
+        rowIndex: parsedAddress.value.rowIndex,
+      },
+      { columnIndex: 0, rowIndex: 1 },
+    );
+
+    tabRunOriginColumn.current = null;
+    const nextSelection = { sheetId: sheet.id, cellKey: cellKey(nextAddress) };
+    setActiveCell(nextSelection);
+    setKeyboardFocusTarget(nextSelection);
   }
 
   function openCreationDialog(position: WorkspacePosition, label: string) {
@@ -929,13 +1078,16 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
                 <SheetGrid
                   activeCell={activeCell}
                   editingCell={editingCell}
+                  keyboardFocusTarget={keyboardFocusTarget}
                   onCancelEdit={() => setEditingCell(null)}
                   onCommitEdit={commitActiveEdit}
+                  onCommitEditAndNavigate={commitEditAndNavigate}
                   onEditValueChange={(value) =>
                     setEditingCell((currentEditingCell) =>
                       currentEditingCell ? { ...currentEditingCell, value } : currentEditingCell,
                     )
                   }
+                  onNavigateCell={navigateCell}
                   onSelectCell={selectCell}
                   onStartEdit={startEditingCell}
                   formulaResults={formulaResults}
