@@ -684,7 +684,14 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       ...currentWorkbook,
       sheets: [...currentWorkbook.sheets, result.value],
     }));
-    enqueueAutosave(`sheet:${result.value.id}:create`, () => getApiMethod('createSheet')(result.value));
+    enqueueAutosave(`sheet:${result.value.id}:create`, () =>
+      getApiMethod('createSheet')({
+        id: result.value.id,
+        name: result.value.name,
+        position: result.value.position,
+        zIndex: result.value.zIndex,
+      }),
+    );
     setPendingCreation(null);
     setSheetName('');
     setError('');

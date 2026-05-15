@@ -110,9 +110,6 @@ describe('App workspace', () => {
       name: 'Inputs',
       position: { x: 0, y: 0 },
       zIndex: 1,
-      columnCount: 10,
-      rowCount: 20,
-      cells: {},
     });
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
 

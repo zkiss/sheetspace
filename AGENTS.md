@@ -223,6 +223,18 @@ or changed decisions. Create a new bead, or update an open dependent bead, and
 reference the closed bead for context. Only correct closed bead metadata for
 clerical/export errors when explicitly instructed.
 
+Exception: if the current git branch is still the branch delivering a closed bead,
+and new feedback, runtime validation, or user testing shows that same scoped work is
+still incomplete, reopen that bead instead of creating a follow-up bead. Add a
+comment recording why it was reopened, mark it `in_progress`, complete the remaining
+work, then close it again when the original acceptance criteria and the new feedback
+are satisfied.
+
+If the current branch is not the branch delivering that closed bead, create a new
+bead or update an open dependent bead and reference the closed bead for context.
+Also create a new bead when the discovered work is genuinely new scope or should
+remain separately tracked after the current bead is complete.
+
 1. Use `bv --robot-triage` or `bv --robot-next` to identify the best actionable bead.
 2. Inspect the bead with `br show <id>`.
 3. Inspect relevant plan files and code.
