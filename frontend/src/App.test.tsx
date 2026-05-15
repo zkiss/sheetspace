@@ -91,6 +91,64 @@ describe('App workspace', () => {
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved');
   });
 
+  it('restores persisted MVP workbook state on startup and recomputes formulas from raw cells', async () => {
+    const user = userEvent.setup();
+    const rawFormula = '= \n SuM ( B1 , B2 )';
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Renamed Inputs', { x: 72, y: 144 }),
+      rowCount: 22,
+      columnCount: 12,
+      cells: {
+        A1: { raw: 'Region' },
+        A2: { raw: rawFormula },
+        B1: { raw: '10' },
+        B2: { raw: '5' },
+      },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }),
+      rowCount: 3,
+      columnCount: 3,
+      cells: {
+        A1: { raw: '=SUM(Renamed Inputs!B1:B2)' },
+      },
+    };
+    const apiClient = {
+      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([inputs, outputs])),
+    };
+
+    render(<App apiClient={apiClient} />);
+
+    const inputFrame = await screen.findByRole('article', { name: 'Sheet Renamed Inputs' });
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+
+    expect(inputFrame).toHaveAttribute('data-sheet-id', 'sheet-inputs');
+    expect(inputFrame).toHaveAttribute('data-position-x', '72');
+    expect(inputFrame).toHaveAttribute('data-position-y', '144');
+    expect(inputFrame).toHaveAttribute('data-row-count', '22');
+    expect(inputFrame).toHaveAttribute('data-column-count', '12');
+    expect(outputFrame).toHaveAttribute('data-position-x', '420');
+    expect(outputFrame).toHaveAttribute('data-position-y', '260');
+    expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs A1 cell' })).toHaveTextContent('Region');
+    expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B1 cell' })).toHaveTextContent('10');
+    expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs A2 cell' })).toHaveTextContent('15');
+    expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
+
+    const formulaEditor = await openCellEditor(
+      user,
+      within(inputFrame).getByRole('cell', { name: 'Renamed Inputs A2 cell' }),
+    );
+    expect(formulaEditor).toHaveValue(rawFormula);
+
+    await user.keyboard('{Escape}');
+    const crossSheetFormulaEditor = await openCellEditor(
+      user,
+      within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' }),
+    );
+    expect(crossSheetFormulaEditor).toHaveValue('=SUM(Renamed Inputs!B1:B2)');
+    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+  });
+
   it('autosaves committed sheet creation and reports app-level save status', async () => {
     const savedWorkbook = workbookWithSheets([positionedSheet('sheet-1', 'Inputs', { x: 0, y: 0 })]);
     const createSave = deferred<Workbook>();
