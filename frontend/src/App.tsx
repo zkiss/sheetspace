@@ -89,7 +89,6 @@ type SaveStatus = 'saved' | 'saving' | 'failed';
 
 type AutosaveTask = {
   key: string;
-  version: number;
   run: () => Promise<Workbook>;
 };
 
@@ -309,7 +308,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
   const autosaveQueues = useRef(new Map<string, AutosaveQueue>());
-  const latestAutosaveVersion = useRef(0);
+  const failedAutosaveKeys = useRef(new Set<string>());
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
 
   useEffect(() => {
@@ -358,18 +357,22 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     return false;
   }
 
+  function refreshSaveStatus() {
+    if (failedAutosaveKeys.current.size > 0) {
+      setSaveStatus('failed');
+      return;
+    }
+
+    setSaveStatus(hasPendingAutosaves() ? 'saving' : 'saved');
+  }
+
   function startAutosaveTask(queue: AutosaveQueue, task: AutosaveTask) {
     queue.running = task;
     task
       .run()
-      .then(() => {
-        if (task.version === latestAutosaveVersion.current && !queue.queued && !hasPendingAutosaves()) {
-          setSaveStatus('saved');
-        }
-      })
       .catch(() => {
-        if (task.version === latestAutosaveVersion.current) {
-          setSaveStatus('failed');
+        if (!queue.queued) {
+          failedAutosaveKeys.current.add(task.key);
         }
       })
       .finally(() => {
@@ -383,9 +386,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         }
 
         autosaveQueues.current.delete(task.key);
-        if (task.version === latestAutosaveVersion.current && !hasPendingAutosaves()) {
-          setSaveStatus((currentStatus) => (currentStatus === 'failed' ? currentStatus : 'saved'));
-        }
+        refreshSaveStatus();
       });
   }
 
@@ -396,21 +397,21 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
 
     const task = {
       key,
-      version: latestAutosaveVersion.current + 1,
       run,
     };
-    latestAutosaveVersion.current = task.version;
-    setSaveStatus('saving');
+    failedAutosaveKeys.current.delete(key);
 
     const queue = autosaveQueues.current.get(key) ?? { running: null, queued: null };
     autosaveQueues.current.set(key, queue);
 
     if (queue.running) {
       queue.queued = task;
+      refreshSaveStatus();
       return;
     }
 
     startAutosaveTask(queue, task);
+    refreshSaveStatus();
   }
 
   function getApiMethod<K extends keyof WorkbookApi>(method: K): WorkbookApi[K] {

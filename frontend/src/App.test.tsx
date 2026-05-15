@@ -294,6 +294,54 @@ describe('App workspace', () => {
     expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2);
     expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'A');
     expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'B1', 'B');
+    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
+
+    b1Save.resolve(workbookWithSheets([]));
+
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...'));
+
+    a1Save.resolve(workbookWithSheets([]));
+
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+  });
+
+  it('keeps failed unsaved status when an older parallel different-key save fails', async () => {
+    const user = userEvent.setup();
+    const a1Save = deferred<Workbook>();
+    const b1Save = deferred<Workbook>();
+    const apiClient = autosaveClient({
+      updateCellContent: vi.fn().mockReturnValueOnce(a1Save.promise).mockReturnValueOnce(b1Save.promise),
+    });
+
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+        apiClient={apiClient}
+      />,
+    );
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const a1Editor = await openCellEditor(user, a1);
+    await user.type(a1Editor, 'A');
+    await user.keyboard('{Enter}');
+
+    const b1Editor = await openCellEditor(user, b1);
+    await user.type(b1Editor, 'B');
+    await user.keyboard('{Enter}');
+
+    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2);
+
+    b1Save.resolve(workbookWithSheets([]));
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...'));
+
+    a1Save.reject(new Error('backend unavailable'));
+
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Save failed - unsaved changes'),
+    );
   });
 
   it('renders an empty workspace after loading an empty backend state', async () => {
