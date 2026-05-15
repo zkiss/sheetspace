@@ -2,7 +2,16 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { createSheet, type Workbook, type WorkspacePosition } from './workbook';
+import {
+  appendColumn,
+  appendRow,
+  commitCellRawContent,
+  createSheet,
+  renameSheet,
+  type Sheet,
+  type Workbook,
+  type WorkspacePosition,
+} from './workbook';
 import type { WorkbookApi } from './workbookApi';
 
 afterEach(() => {
@@ -59,6 +68,63 @@ function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     appendRow: vi.fn().mockResolvedValue(workbookWithSheets([])),
     appendColumn: vi.fn().mockResolvedValue(workbookWithSheets([])),
     ...overrides,
+  } satisfies WorkbookApi;
+}
+
+function persistedWorkbookClient(initialWorkbook: Workbook = workbookWithSheets([])) {
+  let persistedWorkbook = initialWorkbook;
+
+  const updateSheet = (sheetId: string, update: (sheet: Sheet) => Sheet) => {
+    persistedWorkbook = {
+      ...persistedWorkbook,
+      sheets: persistedWorkbook.sheets.map((sheet) => (sheet.id === sheetId ? update(sheet) : sheet)),
+    };
+
+    return persistedWorkbook;
+  };
+
+  return {
+    loadWorkbook: vi.fn().mockImplementation(async () => persistedWorkbook),
+    createSheet: vi.fn().mockImplementation(async (sheet: Sheet) => {
+      const result = createSheet({
+        id: sheet.id,
+        name: sheet.name,
+        existingSheets: persistedWorkbook.sheets,
+        position: sheet.position,
+        zIndex: sheet.zIndex,
+      });
+      if (result.ok) {
+        persistedWorkbook = workbookWithSheets([...persistedWorkbook.sheets, result.value]);
+      }
+
+      return persistedWorkbook;
+    }),
+    renameSheet: vi.fn().mockImplementation(async (sheetId: string, name: string) => {
+      const result = renameSheet(persistedWorkbook, sheetId, name);
+      if (result.ok) {
+        persistedWorkbook = result.value;
+      }
+
+      return persistedWorkbook;
+    }),
+    updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string, position: WorkspacePosition) =>
+      updateSheet(sheetId, (sheet) => ({
+        ...sheet,
+        position,
+      })),
+    ),
+    updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string, zIndex: number) =>
+      updateSheet(sheetId, (sheet) => ({
+        ...sheet,
+        zIndex,
+      })),
+    ),
+    updateCellContent: vi.fn().mockImplementation(async (sheetId: string, cellKey: string, raw: string) => {
+      persistedWorkbook = commitCellRawContent(persistedWorkbook, sheetId, cellKey, raw);
+      return persistedWorkbook;
+    }),
+    appendRow: vi.fn().mockImplementation(async (sheetId: string) => updateSheet(sheetId, appendRow)),
+    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => updateSheet(sheetId, appendColumn)),
   } satisfies WorkbookApi;
 }
 
@@ -146,6 +212,104 @@ describe('App workspace', () => {
       within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' }),
     );
     expect(crossSheetFormulaEditor).toHaveValue('=SUM(Renamed Inputs!B1:B2)');
+    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists and reloads the complete MVP workflow across creation paths, arrangement, rename, formulas, and appended dimensions', async () => {
+    const user = userEvent.setup();
+    const rawSameSheetFormula = '= \n SuM ( B1 , B2 )';
+    const rawCrossSheetFormula = '=SUM(Renamed Inputs!B1:B2)';
+    const apiClient = persistedWorkbookClient();
+
+    render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
+
+    await createSheetFromToolbar('Inputs');
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
+
+    workspaceSurface().getBoundingClientRect = () =>
+      ({
+        left: 20,
+        top: 30,
+        right: 1020,
+        bottom: 830,
+        width: 1000,
+        height: 800,
+        x: 20,
+        y: 30,
+        toJSON: () => undefined,
+      }) as DOMRect;
+    fireEvent.contextMenu(workspaceSurface(), { clientX: 440, clientY: 290 });
+    await user.type(screen.getByLabelText(/sheet name/i), 'Outputs');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
+
+    let inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputHeader = within(inputFrame).getByTestId('sheet-frame-header');
+    fireEvent(inputHeader, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
+    fireEvent(inputHeader, new MouseEvent('pointermove', { bubbles: true, clientX: 172, clientY: 264 }));
+    fireEvent(inputHeader, new MouseEvent('pointerup', { bubbles: true, clientX: 172, clientY: 264 }));
+    await waitFor(() => expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-1', { x: 72, y: 144 }));
+
+    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
+    await user.clear(screen.getByLabelText(/sheet name/i));
+    await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-1', 'Renamed Inputs'));
+
+    inputFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+
+    let editor = await openCellEditor(user, within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B1 empty cell' }));
+    await user.type(editor, '10');
+    await user.keyboard('{Enter}');
+
+    editor = await openCellEditor(user, within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B2 empty cell' }));
+    await user.type(editor, '5');
+    await user.keyboard('{Enter}');
+
+    editor = await openCellEditor(user, within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 empty cell' }));
+    fireEvent.change(editor, { target: { value: rawSameSheetFormula } });
+    await user.keyboard('{Enter}');
+
+    editor = await openCellEditor(user, within(outputFrame).getByRole('cell', { name: 'Outputs A1 empty cell' }));
+    await user.type(editor, rawCrossSheetFormula);
+    await user.keyboard('{Enter}');
+
+    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
+    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
+
+    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-1'));
+    await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-1'));
+    expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
+    expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
+
+    cleanup();
+    render(<App apiClient={apiClient} />);
+
+    const reloadedInputFrame = await screen.findByRole('article', { name: 'Sheet Renamed Inputs' });
+    const reloadedOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+
+    expect(reloadedInputFrame).toHaveAttribute('data-sheet-id', 'sheet-1');
+    expect(reloadedInputFrame).toHaveAttribute('data-position-x', '72');
+    expect(reloadedInputFrame).toHaveAttribute('data-position-y', '144');
+    expect(reloadedInputFrame).toHaveAttribute('data-row-count', '21');
+    expect(reloadedInputFrame).toHaveAttribute('data-column-count', '11');
+    expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', 'sheet-2');
+    expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '420');
+    expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '260');
+    expect(within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
+    expect(within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
+
+    editor = await openCellEditor(
+      user,
+      within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' }),
+    );
+    expect(editor).toHaveValue(rawSameSheetFormula);
+    await user.keyboard('{Escape}');
+
+    editor = await openCellEditor(user, within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
+    expect(editor).toHaveValue(rawCrossSheetFormula);
     expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
   });
 
