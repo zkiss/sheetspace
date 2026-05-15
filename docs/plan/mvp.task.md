@@ -13,7 +13,7 @@ Tech stack and project-shell decisions are handled by [tech-skeleton.task.md](te
 - Add a scoped implementation of [Spatial Workspace](features/workspace.md): provide a 2D workspace that supports multiple sheets, supports independent sheet positions, allows panning, and allows zooming.
 - Add a scoped implementation of [Sheet Frames](features/sheet-frames.md): render each sheet inside an identifiable frame, allow users to create sheets, allow frames to be moved by dragging their header bars, and support explicit z-order commands for overlapping frames.
 - Add a scoped implementation of [Grid Editing](features/grid-editing.md): display a tabular grid with row and column headers, support single-cell selection, edit cell values, commit and display text or numeric values, preserve raw formula text while editing, and display evaluated formula results when not editing.
-- Add a scoped implementation of [Formulas](features/formulas.md): treat cell content beginning with `=` as a formula, support `SUM`, support A1-style individual cell references and 2D ranges, recompute formulas after edits, compute formulas independently where possible, and display errors in cells that cannot be computed.
+- Add a scoped implementation of [Formulas](features/formulas.md): treat cell content beginning with `=` as a formula, support `SUM`, support A1-style individual cell references, 2D ranges, and cross-sheet references using visible sheet names, recompute formulas after edits, compute formulas independently where possible, and display errors in cells that cannot be computed.
 - Add a scoped implementation of [Columns, Rows, And Structure](features/columns-rows-structure.md): start new sheets as empty 10-column by 20-row grids, use default row numbers, use Excel-style column labels such as `A`, `B`, `C`, `Z`, `AA`, and `AB`, and allow users to append rows and columns at the ends of a sheet.
 - Add a scoped implementation of [Persistence](features/persistence.md): persist workbook state through a real backend database using a straightforward single-instance read/write path.
 
@@ -23,33 +23,37 @@ The feature briefs provide the full product context. For this task, implement on
 
 - New workspaces start empty.
 - New sheets start as 10-column by 20-row grids with no cell values.
+- New sheets have unique visible names, and users can rename sheets.
 - New sheets are stacked above older sheets.
 - Moving a sheet happens through its frame header bar.
 - Z-order changes are explicit commands: move one level up, move one level down, move to top, or move to bottom. Dragging, selecting, focusing, or editing a sheet does not implicitly bring it to the front in the MVP.
 - Pressing `Enter` commits an active cell edit.
 - Moving focus to another cell or another sheet commits an active cell edit.
 - Pressing `Escape` cancels an active cell edit.
-- `SUM` should accept a variable number of arguments, where each argument can be an individual cell reference or a 2D range, such as `=SUM(A1)`, `=SUM(A1,B2)`, and `=SUM(A1:C3,D4)`.
+- `SUM` should accept a variable number of arguments, where each argument can be an individual cell reference or a 2D range, including same-sheet references such as `=SUM(A1)`, `=SUM(A1,B2)`, and `=SUM(A1:C3,D4)`, and cross-sheet references such as `=SUM(Inputs!A1)` and `=SUM('Sales Q1'!A1:B3)`.
 - Formula errors should be cell-level results: cells that cannot be computed should display an error while the app continues computing other cells where possible.
 - Cells displaying formula errors should remain selectable and editable.
-- Cross-sheet formula references may be supported when they fit naturally into the formula implementation.
+- Cross-sheet formula references resolve against current visible sheet names.
+- Sheet renames do not rewrite formula text in the MVP. Formulas that still reference an old sheet name should display `#REF!` after recomputation until edited.
 
 ## Acceptance Criteria
 
 - The app opens to an empty 2D workspace where sheets can be created and arranged.
 - A user can create multiple sheets.
+- A user can see and rename sheet names used by cross-sheet formulas.
 - A user can pan and zoom the workspace.
 - A user can move sheet frames to different workspace positions by dragging frame headers.
 - A user can order overlapping sheet frames explicitly by moving a frame up, down, to the top, or to the bottom.
 - New sheets start with 10 columns, 20 rows, and no cell values.
 - A user can append rows and columns at the ends of a sheet.
 - A user can select a single cell and edit text or numeric values.
-- A user can enter a `SUM` formula with a variable number of A1-style cell reference and 2D range arguments.
+- A user can enter a `SUM` formula with a variable number of A1-style cell reference and 2D range arguments, including required same-sheet and cross-sheet references.
 - Formula cells show evaluated results outside edit mode and preserve the original formula text for editing.
+- Renaming a sheet does not rewrite raw formula text, and formulas using the old sheet name display `#REF!` after recomputation.
 - Formula evaluation updates after cell edits.
 - A formula error in one cell does not crash the app, block UI interaction, or prevent unrelated formulas from computing.
 - A user can select and edit cells that are displaying formula errors.
-- Created sheets, grid dimensions, cell content, formulas, sheet positions, and sheet z-order persist through the backend database.
+- Created sheet ids, visible sheet names and renames, grid dimensions, raw cell content, raw formulas, sheet positions, and sheet z-order persist through the backend database.
 
 ## References
 
