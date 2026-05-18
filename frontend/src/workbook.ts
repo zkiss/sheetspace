@@ -10,6 +10,7 @@ export type Workbook = {
 export type Sheet = {
   id: string;
   name: string;
+  revision: number;
   position: WorkspacePosition;
   zIndex: number;
   columnCount: number;
@@ -115,6 +116,7 @@ export function createSheet(input: {
     value: {
       id: input.id,
       name: validation.name,
+      revision: 0,
       position: input.position ?? { x: 0, y: 0 },
       zIndex: input.zIndex ?? nextSheetZIndex(input.existingSheets ?? []),
       columnCount: DEFAULT_COLUMN_COUNT,

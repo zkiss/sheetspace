@@ -104,6 +104,7 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
             val sheet = workbook.sheets.find { it.id == sheetId }
             val requestedPosition = request.position
             val requestedZIndex = request.zIndex
+            val expectedRevision = call.expectedSheetRevision() ?: return@patch
 
             when {
                 sheet == null -> call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
@@ -122,26 +123,35 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                 request.name != null -> when (val validation = validateSheetName(request.name, workbook.sheets, sheetId)) {
                     is SheetNameResult.Invalid -> call.respondError(HttpStatusCode.BadRequest, validation.reason.apiError)
                     is SheetNameResult.Valid -> {
-                        var updated = repository.renameSheet(sheetId, validation.value)
-                        if (requestedPosition != null) {
-                            updated = repository.updateSheetPosition(sheetId, requestedPosition)
+                        call.respondMutation {
+                            repository.updateSheet(
+                                sheetId = sheetId,
+                                expectedRevision = expectedRevision,
+                                name = validation.value,
+                                position = requestedPosition,
+                                zIndex = requestedZIndex,
+                            )
                         }
-                        if (requestedZIndex != null) {
-                            updated = repository.updateSheetZIndex(sheetId, requestedZIndex)
-                        }
-                        call.respond(MutationResponse(workbook = updated))
                     }
                 }
                 requestedPosition != null -> {
-                    var updated = repository.updateSheetPosition(sheetId, requestedPosition)
-                    if (requestedZIndex != null) {
-                        updated = repository.updateSheetZIndex(sheetId, requestedZIndex)
+                    call.respondMutation {
+                        repository.updateSheet(
+                            sheetId = sheetId,
+                            expectedRevision = expectedRevision,
+                            position = requestedPosition,
+                            zIndex = requestedZIndex,
+                        )
                     }
-                    call.respond(MutationResponse(workbook = updated))
                 }
                 else -> {
-                    val updated = repository.updateSheetZIndex(sheetId, requireNotNull(requestedZIndex))
-                    call.respond(MutationResponse(workbook = updated))
+                    call.respondMutation {
+                        repository.updateSheet(
+                            sheetId = sheetId,
+                            expectedRevision = expectedRevision,
+                            zIndex = requireNotNull(requestedZIndex),
+                        )
+                    }
                 }
             }
         }
@@ -158,13 +168,15 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
             val request = call.receiveRequest<UpdateCellRequest>() ?: return@put
             val workbook = repository.loadWorkbook()
             val sheet = workbook.sheets.find { it.id == sheetId }
+            val expectedRevision = call.expectedSheetRevision() ?: return@put
 
             when {
                 sheet == null -> call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
                 !sheet.containsCell(cellAddress) -> call.respondError(HttpStatusCode.BadRequest, "invalid-cell-address")
                 else -> {
-                    val updated = repository.updateCell(sheetId, cellAddress, request.raw)
-                    call.respond(MutationResponse(workbook = updated))
+                    call.respondMutation {
+                        repository.updateCell(sheetId, cellAddress, request.raw, expectedRevision)
+                    }
                 }
             }
         }
@@ -178,8 +190,10 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
             if (workbook.sheets.none { it.id == sheetId }) {
                 call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
             } else {
-                val updated = repository.appendRow(sheetId)
-                call.respond(MutationResponse(workbook = updated))
+                val expectedRevision = call.expectedSheetRevision() ?: return@post
+                call.respondMutation {
+                    repository.appendRow(sheetId, expectedRevision)
+                }
             }
         }
 
@@ -192,8 +206,10 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
             if (workbook.sheets.none { it.id == sheetId }) {
                 call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
             } else {
-                val updated = repository.appendColumn(sheetId)
-                call.respond(MutationResponse(workbook = updated))
+                val expectedRevision = call.expectedSheetRevision() ?: return@post
+                call.respondMutation {
+                    repository.appendColumn(sheetId, expectedRevision)
+                }
             }
         }
 
@@ -209,6 +225,27 @@ fun main() {
 
 private suspend fun ApplicationCall.respondError(status: HttpStatusCode, error: String) {
     respond(status, ErrorResponse(error = error))
+}
+
+private suspend fun ApplicationCall.respondMutation(update: () -> Workbook) {
+    try {
+        respond(MutationResponse(workbook = update()))
+    } catch (conflict: SheetRevisionConflict) {
+        respondError(HttpStatusCode.Conflict, "sheet-revision-conflict")
+    }
+}
+
+private suspend fun ApplicationCall.expectedSheetRevision(): Long? {
+    val header = request.headers["If-Match"]?.trim()
+    if (header.isNullOrEmpty()) {
+        respondError(HttpStatusCode.BadRequest, "sheet-revision-required")
+        return null
+    }
+
+    return header.toLongOrNull() ?: run {
+        respondError(HttpStatusCode.BadRequest, "invalid-sheet-revision")
+        null
+    }
 }
 
 private suspend inline fun <reified T : Any> ApplicationCall.receiveRequest(): T? {

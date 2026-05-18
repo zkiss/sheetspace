@@ -10,7 +10,7 @@ import {
   WheelEvent,
 } from 'react';
 import './App.css';
-import { workbookApi, type WorkbookApi } from './workbookApi';
+import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import {
   appendColumn,
   appendRow,
@@ -441,6 +441,9 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     queue.running = task;
     task
       .run()
+      .then((savedWorkbook) => {
+        mergeSheetRevisions(savedWorkbook);
+      })
       .catch(() => {
         if (!queue.queued) {
           failedAutosaveKeys.current.add(task.key);
@@ -489,6 +492,36 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     return resolvedApiClient[method] ?? workbookApi[method];
   }
 
+  function currentSheetRevision(sheetId: string) {
+    return workbook.sheets.find((sheet) => sheet.id === sheetId)?.revision;
+  }
+
+  function mergeSheetRevisions(savedWorkbook: Workbook) {
+    setWorkbook((currentWorkbook) => ({
+      ...currentWorkbook,
+      sheets: currentWorkbook.sheets.map((sheet) => {
+        const savedSheet = savedWorkbook.sheets.find((candidate) => candidate.id === sheet.id);
+        return savedSheet ? { ...sheet, revision: Math.max(sheet.revision, savedSheet.revision) } : sheet;
+      }),
+    }));
+  }
+
+  function runRevisionedAutosave(sheetId: string, save: (revision: number | undefined) => Promise<Workbook>) {
+    const loadWorkbook = resolvedApiClient.loadWorkbook ?? workbookApi.loadWorkbook;
+    const startingRevision = currentSheetRevision(sheetId);
+
+    return save(startingRevision).catch(async (cause: unknown) => {
+      if (!(cause instanceof WorkbookApiError) || cause.status !== 409 || cause.code !== 'sheet-revision-conflict') {
+        throw cause;
+      }
+
+      const latestWorkbook = await loadWorkbook();
+      const latestRevision = latestWorkbook.sheets.find((sheet) => sheet.id === sheetId)?.revision;
+      mergeSheetRevisions(latestWorkbook);
+      return save(latestRevision);
+    });
+  }
+
   function commitActiveEdit(editToCommit = editingCell) {
     if (!editToCommit) {
       return;
@@ -503,7 +536,11 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     }
     if (nextWorkbook !== workbook && currentRaw !== editToCommit.value) {
       enqueueAutosave(`cell:${editToCommit.sheetId}:${editToCommit.cellKey}`, () =>
-        getApiMethod('updateCellContent')(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value),
+        runRevisionedAutosave(editToCommit.sheetId, (revision) =>
+          getApiMethod('updateCellContent')(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value, {
+            revision,
+          }),
+        ),
       );
     }
     setEditingCell(null);
@@ -788,7 +825,9 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     };
     if (position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y) {
       enqueueAutosave(`sheet:${finishedDrag.sheetId}:position`, () =>
-        getApiMethod('updateSheetPosition')(finishedDrag.sheetId, position),
+        runRevisionedAutosave(finishedDrag.sheetId, (revision) =>
+          getApiMethod('updateSheetPosition')(finishedDrag.sheetId, position, { revision }),
+        ),
       );
     }
 
@@ -862,7 +901,9 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     setWorkbook(result.value);
     if (renamedSheet) {
       enqueueAutosave(`sheet:${pendingRename.sheetId}:name`, () =>
-        getApiMethod('renameSheet')(pendingRename.sheetId, renamedSheet.name),
+        runRevisionedAutosave(pendingRename.sheetId, (revision) =>
+          getApiMethod('renameSheet')(pendingRename.sheetId, renamedSheet.name, { revision }),
+        ),
       );
     }
     setPendingRename(null);
@@ -889,7 +930,9 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     }
 
     setWorkbook(nextWorkbook);
-    enqueueAutosave(`sheet:${sheetId}:rows`, () => getApiMethod('appendRow')(sheetId));
+    enqueueAutosave(`sheet:${sheetId}:rows`, () =>
+      runRevisionedAutosave(sheetId, (revision) => getApiMethod('appendRow')(sheetId, { revision })),
+    );
   }
 
   function appendSheetColumn(sheetId: string) {
@@ -911,7 +954,9 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     }
 
     setWorkbook(nextWorkbook);
-    enqueueAutosave(`sheet:${sheetId}:columns`, () => getApiMethod('appendColumn')(sheetId));
+    enqueueAutosave(`sheet:${sheetId}:columns`, () =>
+      runRevisionedAutosave(sheetId, (revision) => getApiMethod('appendColumn')(sheetId, { revision })),
+    );
   }
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
@@ -926,7 +971,9 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       const currentSheet = workbook.sheets.find((sheet) => sheet.id === nextSheet.id);
       if (currentSheet && currentSheet.zIndex !== nextSheet.zIndex) {
         enqueueAutosave(`sheet:${nextSheet.id}:z-index`, () =>
-          getApiMethod('updateSheetZIndex')(nextSheet.id, nextSheet.zIndex),
+          runRevisionedAutosave(nextSheet.id, (revision) =>
+            getApiMethod('updateSheetZIndex')(nextSheet.id, nextSheet.zIndex, { revision }),
+          ),
         );
       }
     }

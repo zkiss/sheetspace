@@ -1,10 +1,14 @@
 package com.sheetspace
 
 import java.nio.file.Files
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class WorkbookRepositoryTest {
     @Test
@@ -74,6 +78,61 @@ class WorkbookRepositoryTest {
         assertEquals(4, sheet.zIndex)
         assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1").raw)
         assertFalse(sheet.cells.containsKey("A1_display"))
+    }
+
+    @Test
+    fun `rejects stale sheet revision updates without overwriting newer persisted data`() {
+        val repo = createRepo()
+
+        val created = repo.createSheet(Sheet(id = "sheet-1", name = "Inputs")).sheets.single()
+        val afterFirstSave = repo.updateCell("sheet-1", "A1", "newer value", created.revision)
+
+        val conflict = assertFailsWith<SheetRevisionConflict> {
+            repo.updateCell("sheet-1", "A1", "stale value", created.revision)
+        }
+
+        assertEquals("sheet-1", conflict.sheetId)
+        assertEquals(created.revision, conflict.expectedRevision)
+        assertEquals(afterFirstSave.sheets.single().revision, conflict.actualRevision)
+        val reloaded = repo.loadWorkbook().sheets.single()
+        assertEquals("newer value", reloaded.cells.getValue("A1").raw)
+        assertEquals(afterFirstSave.sheets.single().revision, reloaded.revision)
+    }
+
+    @Test
+    fun `concurrent same revision updates resolve as one save and one conflict`() {
+        val repo = createRepo()
+        val revision = repo.createSheet(Sheet(id = "sheet-1", name = "Inputs")).sheets.single().revision
+        val start = CountDownLatch(1)
+        val outcomes = Collections.synchronizedList(mutableListOf<String>())
+
+        val first = thread {
+            start.await()
+            outcomes += runCatching {
+                repo.updateCell("sheet-1", "A1", "first", revision)
+                "saved"
+            }.getOrElse { exception ->
+                if (exception is SheetRevisionConflict) "conflict" else throw exception
+            }
+        }
+        val second = thread {
+            start.await()
+            outcomes += runCatching {
+                repo.updateCell("sheet-1", "A1", "second", revision)
+                "saved"
+            }.getOrElse { exception ->
+                if (exception is SheetRevisionConflict) "conflict" else throw exception
+            }
+        }
+
+        start.countDown()
+        first.join()
+        second.join()
+
+        assertEquals(listOf("conflict", "saved"), outcomes.sorted())
+        val sheet = repo.loadWorkbook().sheets.single()
+        assertTrue(sheet.cells.getValue("A1").raw in setOf("first", "second"))
+        assertEquals(revision + 1, sheet.revision)
     }
 
     @Test

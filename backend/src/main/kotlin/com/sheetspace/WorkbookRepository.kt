@@ -8,6 +8,12 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.ResultSet
 
+class SheetRevisionConflict(
+    val sheetId: String,
+    val expectedRevision: Long,
+    val actualRevision: Long,
+) : RuntimeException("Sheet $sheetId revision conflict: expected $expectedRevision, actual $actualRevision")
+
 class WorkbookRepository(dbPath: Path) {
     private val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
     private val json = Json { ignoreUnknownKeys = false }
@@ -45,61 +51,78 @@ class WorkbookRepository(dbPath: Path) {
         }
     }
 
-    fun renameSheet(sheetId: String, nextName: String): Workbook = updateWorkbook { workbook ->
-        when (val result = com.sheetspace.renameSheet(workbook, sheetId, nextName)) {
-            is WorkbookResult.Valid -> result.workbook
-            else -> workbook
+    fun updateSheet(
+        sheetId: String,
+        expectedRevision: Long?,
+        name: String? = null,
+        position: WorkspacePosition? = null,
+        zIndex: Int? = null,
+    ): Workbook = updateWorkbook(sheetId, expectedRevision) { workbook ->
+        val renamed = if (name == null) {
+            workbook
+        } else {
+            when (val result = com.sheetspace.renameSheet(workbook, sheetId, name)) {
+                is WorkbookResult.Valid -> result.workbook
+                else -> workbook
+            }
         }
-    }
 
-    fun updateSheetPosition(sheetId: String, position: WorkspacePosition): Workbook = updateWorkbook { workbook ->
-        workbook.copy(
-            sheets = workbook.sheets.map { sheet ->
-                if (sheet.id == sheetId) sheet.copy(position = position) else sheet
-            },
-        )
-    }
-
-    fun updateSheetZIndex(sheetId: String, zIndex: Int): Workbook = updateWorkbook { workbook ->
-        workbook.copy(
-            sheets = workbook.sheets.map { sheet ->
-                if (sheet.id == sheetId) sheet.copy(zIndex = zIndex) else sheet
-            },
-        )
-    }
-
-    fun updateCell(sheetId: String, cellAddress: String, raw: String): Workbook = updateWorkbook { workbook ->
-        workbook.copy(
-            sheets = workbook.sheets.map { sheet ->
+        renamed.copy(
+            sheets = renamed.sheets.map { sheet ->
                 if (sheet.id != sheetId) {
                     sheet
                 } else {
-                    val nextCells = if (raw.isEmpty()) {
-                        sheet.cells - cellAddress
-                    } else {
-                        sheet.cells + (cellAddress to CellContent(raw = raw))
-                    }
-                    sheet.copy(cells = nextCells)
+                    sheet.copy(
+                        position = position ?: sheet.position,
+                        zIndex = zIndex ?: sheet.zIndex,
+                    )
                 }
             },
         )
     }
 
-    fun appendRow(sheetId: String): Workbook = updateWorkbook { workbook ->
-        workbook.copy(
-            sheets = workbook.sheets.map { sheet ->
-                if (sheet.id == sheetId) com.sheetspace.appendRow(sheet) else sheet
-            },
-        )
-    }
+    fun renameSheet(sheetId: String, nextName: String): Workbook = updateSheet(sheetId, null, name = nextName)
 
-    fun appendColumn(sheetId: String): Workbook = updateWorkbook { workbook ->
-        workbook.copy(
-            sheets = workbook.sheets.map { sheet ->
-                if (sheet.id == sheetId) com.sheetspace.appendColumn(sheet) else sheet
-            },
-        )
-    }
+    fun updateSheetPosition(sheetId: String, position: WorkspacePosition): Workbook =
+        updateSheet(sheetId, null, position = position)
+
+    fun updateSheetZIndex(sheetId: String, zIndex: Int): Workbook = updateSheet(sheetId, null, zIndex = zIndex)
+
+    fun updateCell(sheetId: String, cellAddress: String, raw: String, expectedRevision: Long? = null): Workbook =
+        updateWorkbook(sheetId, expectedRevision) { workbook ->
+            workbook.copy(
+                sheets = workbook.sheets.map { sheet ->
+                    if (sheet.id != sheetId) {
+                        sheet
+                    } else {
+                        val nextCells = if (raw.isEmpty()) {
+                            sheet.cells - cellAddress
+                        } else {
+                            sheet.cells + (cellAddress to CellContent(raw = raw))
+                        }
+                        sheet.copy(cells = nextCells)
+                    }
+                },
+            )
+        }
+
+    fun appendRow(sheetId: String, expectedRevision: Long? = null): Workbook =
+        updateWorkbook(sheetId, expectedRevision) { workbook ->
+            workbook.copy(
+                sheets = workbook.sheets.map { sheet ->
+                    if (sheet.id == sheetId) com.sheetspace.appendRow(sheet) else sheet
+                },
+            )
+        }
+
+    fun appendColumn(sheetId: String, expectedRevision: Long? = null): Workbook =
+        updateWorkbook(sheetId, expectedRevision) { workbook ->
+            workbook.copy(
+                sheets = workbook.sheets.map { sheet ->
+                    if (sheet.id == sheetId) com.sheetspace.appendColumn(sheet) else sheet
+                },
+            )
+        }
 
     private fun initialize() {
         Flyway.configure()
@@ -109,12 +132,39 @@ class WorkbookRepository(dbPath: Path) {
             .migrate()
     }
 
-    private fun updateWorkbook(transform: (Workbook) -> Workbook): Workbook = connection { conn ->
+    private fun updateWorkbook(
+        lockedSheetId: String? = null,
+        expectedRevision: Long? = null,
+        transform: (Workbook) -> Workbook,
+    ): Workbook = connection { conn ->
+        if (lockedSheetId != null && expectedRevision != null) {
+            val current = loadWorkbook(conn)
+            val currentSheet = current.sheets.find { it.id == lockedSheetId }
+            if (currentSheet != null && currentSheet.revision != expectedRevision) {
+                throw SheetRevisionConflict(lockedSheetId, expectedRevision, currentSheet.revision)
+            }
+
+            val updated = transform(current)
+            val updatedSheet = updated.sheets.find { it.id == lockedSheetId }
+            val currentIndex = current.sheets.indexOfFirst { it.id == lockedSheetId }
+            val updatedIndex = updated.sheets.indexOfFirst { it.id == lockedSheetId }
+
+            if (
+                currentSheet != null &&
+                updatedSheet != null &&
+                (currentSheet != updatedSheet || currentIndex != updatedIndex)
+            ) {
+                updateSheetWithExpectedRevision(conn, updatedSheet, updatedIndex, expectedRevision)
+            }
+
+            return@connection loadWorkbook(conn)
+        }
+
         transaction(conn) {
             val current = loadWorkbook(conn)
             val updated = transform(current)
             saveChangedSheets(conn, current, updated)
-            updated
+            loadWorkbook(conn)
         }
     }
 
@@ -130,7 +180,7 @@ class WorkbookRepository(dbPath: Path) {
     private fun loadWorkbook(conn: Connection): Workbook {
         val sheets = conn.prepareStatement(
             """
-            SELECT id, name, row_count, column_count, position_x, position_y, z_index, cells_json
+            SELECT id, name, row_count, column_count, position_x, position_y, z_index, cells_json, revision
             FROM sheets
             ORDER BY display_order ASC
             """.trimIndent(),
@@ -196,6 +246,54 @@ class WorkbookRepository(dbPath: Path) {
         }
     }
 
+    private fun updateSheetWithExpectedRevision(
+        conn: Connection,
+        sheet: Sheet,
+        displayOrder: Int,
+        expectedRevision: Long,
+    ) {
+        val updatedRows = conn.prepareStatement(
+            """
+            UPDATE sheets SET
+                display_order = ?,
+                name = ?,
+                row_count = ?,
+                column_count = ?,
+                position_x = ?,
+                position_y = ?,
+                z_index = ?,
+                cells_json = ?,
+                revision = revision + 1
+            WHERE id = ? AND revision = ?
+            """.trimIndent(),
+        ).use { statement ->
+            statement.setInt(1, displayOrder)
+            statement.setString(2, sheet.name)
+            statement.setInt(3, sheet.rowCount)
+            statement.setInt(4, sheet.columnCount)
+            statement.setDouble(5, sheet.position.x)
+            statement.setDouble(6, sheet.position.y)
+            statement.setInt(7, sheet.zIndex)
+            statement.setString(8, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
+            statement.setString(9, sheet.id)
+            statement.setLong(10, expectedRevision)
+            statement.executeUpdate()
+        }
+
+        if (updatedRows == 0) {
+            throw SheetRevisionConflict(sheet.id, expectedRevision, loadSheetRevision(conn, sheet.id) ?: -1)
+        }
+    }
+
+    private fun loadSheetRevision(conn: Connection, sheetId: String): Long? {
+        return conn.prepareStatement("SELECT revision FROM sheets WHERE id = ?").use { statement ->
+            statement.setString(1, sheetId)
+            statement.executeQuery().use { rs ->
+                if (rs.next()) rs.getLong("revision") else null
+            }
+        }
+    }
+
     private fun deleteSheet(conn: Connection, sheetId: String) {
         conn.prepareStatement("DELETE FROM sheets WHERE id = ?").use { statement ->
             statement.setString(1, sheetId)
@@ -207,6 +305,7 @@ class WorkbookRepository(dbPath: Path) {
         return Sheet(
             id = getString("id"),
             name = getString("name"),
+            revision = getLong("revision"),
             position = WorkspacePosition(
                 x = getDouble("position_x"),
                 y = getDouble("position_y"),
@@ -234,6 +333,7 @@ class WorkbookRepository(dbPath: Path) {
 
     private fun <T> connection(block: (Connection) -> T): T {
         DriverManager.getConnection(jdbcUrl).use { conn ->
+            conn.createStatement().use { it.execute("PRAGMA busy_timeout = 5000") }
             return block(conn)
         }
     }

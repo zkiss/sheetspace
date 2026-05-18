@@ -12,7 +12,7 @@ import {
   type Workbook,
   type WorkspacePosition,
 } from './workbook';
-import type { WorkbookApi } from './workbookApi';
+import { WorkbookApiError, type WorkbookApi } from './workbookApi';
 
 afterEach(() => {
   cleanup();
@@ -250,13 +250,17 @@ describe('App workspace', () => {
       fireEvent(inputHeader, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
       fireEvent(inputHeader, new MouseEvent('pointermove', { bubbles: true, clientX: 172, clientY: 264 }));
       fireEvent(inputHeader, new MouseEvent('pointerup', { bubbles: true, clientX: 172, clientY: 264 }));
-      await waitFor(() => expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-1', { x: 72, y: 144 }));
+      await waitFor(() =>
+        expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-1', { x: 72, y: 144 }, { revision: 0 }),
+      );
 
       await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
       await user.clear(screen.getByLabelText(/sheet name/i));
       await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
       await user.click(screen.getByRole('button', { name: /^save$/i }));
-      await waitFor(() => expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-1', 'Renamed Inputs'));
+      await waitFor(() =>
+        expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-1', 'Renamed Inputs', { revision: 0 }),
+      );
 
       inputFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
       const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
@@ -290,8 +294,8 @@ describe('App workspace', () => {
       await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
 
       await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(4));
-      await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-1'));
-      await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-1'));
+      await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-1', { revision: 0 }));
+      await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-1', { revision: 0 }));
       expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
       expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
 
@@ -369,7 +373,7 @@ describe('App workspace', () => {
     await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
     await user.click(screen.getByRole('button', { name: /^save$/i }));
 
-    expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-inputs', 'Renamed Inputs');
+    expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-inputs', 'Renamed Inputs', { revision: 0 });
 
     const renamedFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
     const header = within(renamedFrame).getByTestId('sheet-frame-header');
@@ -377,18 +381,18 @@ describe('App workspace', () => {
     fireEvent(header, new MouseEvent('pointermove', { bubbles: true, clientX: 130, clientY: 150 }));
     fireEvent(header, new MouseEvent('pointerup', { bubbles: true, clientX: 130, clientY: 150 }));
 
-    expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-inputs', { x: 78, y: 126 });
+    expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-inputs', { x: 78, y: 126 }, { revision: 0 });
 
     await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Append row' }));
     await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Append column' }));
 
-    expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-inputs');
-    expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs');
+    expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-inputs', { revision: 0 });
+    expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs', { revision: 0 });
 
     await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Bring forward' }));
 
-    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-inputs', 2);
-    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-outputs', 1);
+    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-inputs', 2, { revision: 0 });
+    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-outputs', 1, { revision: 0 });
   });
 
   it('does not autosave transient in-progress cell edits until they are committed', async () => {
@@ -412,7 +416,7 @@ describe('App workspace', () => {
 
     await user.keyboard('{Enter}');
 
-    expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', 'Draft');
+    expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', 'Draft', { revision: 0 });
   });
 
   it('keeps the workbook editable and shows failed unsaved state after autosave failure', async () => {
@@ -451,6 +455,38 @@ describe('App workspace', () => {
     expect(b1).toHaveTextContent('Still editable');
   });
 
+  it('reloads a fresh revision and retries a conflicting autosave without replacing local committed edits', async () => {
+    const user = userEvent.setup();
+    const initialSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 });
+    const staleServerSheet = { ...initialSheet, revision: 4, cells: { A1: { raw: 'server value' } } };
+    const savedServerSheet = { ...staleServerSheet, revision: 5, cells: { A1: { raw: 'Local value' } } };
+    const apiClient = autosaveClient({
+      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([staleServerSheet])),
+      updateCellContent: vi
+        .fn()
+        .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'))
+        .mockResolvedValueOnce(workbookWithSheets([savedServerSheet])),
+    });
+
+    render(<App initialWorkbook={workbookWithSheets([initialSheet])} apiClient={apiClient} />);
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const a1Editor = await openCellEditor(user, a1);
+    await user.type(a1Editor, 'Local value');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'Local value', {
+      revision: 0,
+    });
+    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Local value', {
+      revision: 4,
+    });
+    expect(a1).toHaveTextContent('Local value');
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+  });
+
   it('runs one save per entity key and keeps only the latest queued replacement', async () => {
     const user = userEvent.setup();
     const firstSave = deferred<Workbook>();
@@ -484,13 +520,13 @@ describe('App workspace', () => {
     await user.keyboard('{Enter}');
 
     expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'One');
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'One', { revision: 0 });
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
 
     firstSave.resolve(workbookWithSheets([]));
 
     await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Three');
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Three', { revision: 0 });
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
 
     queuedSave.resolve(workbookWithSheets([]));
@@ -526,8 +562,8 @@ describe('App workspace', () => {
     await user.keyboard('{Enter}');
 
     expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2);
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'A');
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'B1', 'B');
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'A', { revision: 0 });
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'B1', 'B', { revision: 0 });
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
 
     b1Save.resolve(workbookWithSheets([]));
