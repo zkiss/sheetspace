@@ -100,7 +100,7 @@ class ApplicationTest {
     }
 
     @Test
-    fun `sheet update endpoint persists rename and position`() = testApplication {
+    fun `sheet update endpoint persists rename position and frame size`() = testApplication {
         val repo = createRepo()
         application {
             module(repo)
@@ -109,13 +109,14 @@ class ApplicationTest {
 
         val response = client.patch("/api/sheets/sheet-1") {
             revisionHeader(repo, "sheet-1")
-            jsonBody("""{"name":"Renamed Inputs","position":{"x":80.0,"y":120.0}}""")
+            jsonBody("""{"name":"Renamed Inputs","position":{"x":80.0,"y":120.0},"frameSize":{"width":320.0,"height":220.0}}""")
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val sheet = client.loadWorkbook().sheets.single()
         assertEquals("Renamed Inputs", sheet.name)
         assertEquals(WorkspacePosition(80.0, 120.0), sheet.position)
+        assertEquals(SheetFrameSize(320.0, 220.0), sheet.frameSize)
     }
 
     @Test
@@ -135,6 +136,25 @@ class ApplicationTest {
         val sheet = client.loadWorkbook().sheets.single()
         assertEquals("Inputs", sheet.name)
         assertEquals(WorkspacePosition(-10.0, 32.5), sheet.position)
+    }
+
+    @Test
+    fun `sheet update endpoint persists frame size without requiring rename`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        client.createSheet()
+
+        val response = client.patch("/api/sheets/sheet-1") {
+            revisionHeader(repo, "sheet-1")
+            jsonBody("""{"frameSize":{"width":360.0,"height":240.0}}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val sheet = client.loadWorkbook().sheets.single()
+        assertEquals("Inputs", sheet.name)
+        assertEquals(SheetFrameSize(360.0, 240.0), sheet.frameSize)
     }
 
     @Test
@@ -193,7 +213,7 @@ class ApplicationTest {
         }
         val renameAndMoveInputs = client.patch("/api/sheets/sheet-inputs") {
             revisionHeader(repo, "sheet-inputs")
-            jsonBody("""{"name":"Renamed Inputs","position":{"x":72.0,"y":144.0}}""")
+            jsonBody("""{"name":"Renamed Inputs","position":{"x":72.0,"y":144.0},"frameSize":{"width":320.0,"height":220.0}}""")
         }
         val appendInputRow = client.post("/api/sheets/sheet-inputs/rows") {
             revisionHeader(repo, "sheet-inputs")
@@ -239,6 +259,7 @@ class ApplicationTest {
 
         assertEquals("Renamed Inputs", inputs.name)
         assertEquals(WorkspacePosition(72.0, 144.0), inputs.position)
+        assertEquals(SheetFrameSize(320.0, 220.0), inputs.frameSize)
         assertEquals(DEFAULT_ROW_COUNT + 1, inputs.rowCount)
         assertEquals(DEFAULT_COLUMN_COUNT + 1, inputs.columnCount)
         assertEquals("Region", inputs.cells.getValue("A1").raw)
@@ -267,10 +288,15 @@ class ApplicationTest {
             revisionHeader(repo, "sheet-1")
             jsonBody("""{"raw":"outside grid"}""")
         }
+        val invalidFrameSize = client.patch("/api/sheets/sheet-1") {
+            revisionHeader(repo, "sheet-1")
+            jsonBody("""{"frameSize":{"width":0.0,"height":160.0}}""")
+        }
         val missingSheet = client.post("/api/sheets/missing/rows")
 
         assertEquals(HttpStatusCode.BadRequest, invalidRename.status)
         assertEquals(HttpStatusCode.BadRequest, invalidCell.status)
+        assertEquals(HttpStatusCode.BadRequest, invalidFrameSize.status)
         assertEquals(HttpStatusCode.NotFound, missingSheet.status)
         assertEquals(Sheet(id = "sheet-1", name = "Inputs"), client.loadWorkbook().sheets.single())
     }

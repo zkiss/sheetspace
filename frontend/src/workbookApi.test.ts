@@ -10,6 +10,7 @@ const workbook: Workbook = {
       name: 'Inputs',
       revision: 0,
       position: { x: 12, y: 24 },
+      frameSize: { width: 240, height: 160 },
       zIndex: 1,
       columnCount: 10,
       rowCount: 20,
@@ -68,16 +69,23 @@ describe('workbookApi', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
       method: 'POST',
-      body: JSON.stringify({ id: 'sheet-1', name: 'Inputs', position: { x: 12, y: 24 }, zIndex: 1 }),
+      body: JSON.stringify({
+        id: 'sheet-1',
+        name: 'Inputs',
+        position: { x: 12, y: 24 },
+        frameSize: { width: 240, height: 160 },
+        zIndex: 1,
+      }),
       headers: { 'Content-Type': 'application/json' },
     });
   });
 
-  it('exposes sheet rename position and z-order update calls', async () => {
+  it('exposes sheet rename position frame size and z-order update calls', async () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 
     await workbookApi.renameSheet('sheet-1', 'Renamed');
     await workbookApi.updateSheetPosition('sheet-1', { x: 48, y: 96 });
+    await workbookApi.updateSheetFrameSize('sheet-1', { width: 320, height: 220 });
     await workbookApi.updateSheetZIndex('sheet-1', 3);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet-1', {
@@ -91,6 +99,11 @@ describe('workbookApi', () => {
       headers: { 'Content-Type': 'application/json' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sheets/sheet-1', {
+      method: 'PATCH',
+      body: JSON.stringify({ frameSize: { width: 320, height: 220 } }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/sheets/sheet-1', {
       method: 'PATCH',
       body: JSON.stringify({ zIndex: 3 }),
       headers: { 'Content-Type': 'application/json' },

@@ -188,6 +188,77 @@ button:hover {
   cursor: default;
 }
 
+.sheet-frame-resize-handle {
+  position: absolute;
+  z-index: 5;
+  background: transparent;
+  touch-action: none;
+}
+
+.sheet-frame-resize-handle-top,
+.sheet-frame-resize-handle-bottom {
+  right: 8px;
+  left: 8px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.sheet-frame-resize-handle-top {
+  top: -4px;
+}
+
+.sheet-frame-resize-handle-bottom {
+  bottom: -4px;
+}
+
+.sheet-frame-resize-handle-left,
+.sheet-frame-resize-handle-right {
+  top: 8px;
+  bottom: 8px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.sheet-frame-resize-handle-left {
+  left: -4px;
+}
+
+.sheet-frame-resize-handle-right {
+  right: -4px;
+}
+
+.sheet-frame-resize-handle-top-left,
+.sheet-frame-resize-handle-top-right,
+.sheet-frame-resize-handle-bottom-right,
+.sheet-frame-resize-handle-bottom-left {
+  width: 12px;
+  height: 12px;
+}
+
+.sheet-frame-resize-handle-top-left {
+  top: -5px;
+  left: -5px;
+  cursor: nwse-resize;
+}
+
+.sheet-frame-resize-handle-top-right {
+  top: -5px;
+  right: -5px;
+  cursor: nesw-resize;
+}
+
+.sheet-frame-resize-handle-bottom-right {
+  right: -5px;
+  bottom: -5px;
+  cursor: nwse-resize;
+}
+
+.sheet-frame-resize-handle-bottom-left {
+  bottom: -5px;
+  left: -5px;
+  cursor: nesw-resize;
+}
+
 .sheet-frame-active {
   border-color: #2f747e;
   box-shadow:

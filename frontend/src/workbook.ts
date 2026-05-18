@@ -1,6 +1,10 @@
 export const WORKBOOK_SCHEMA_VERSION = 1;
 export const DEFAULT_COLUMN_COUNT = 10;
 export const DEFAULT_ROW_COUNT = 20;
+export const DEFAULT_SHEET_FRAME_SIZE: SheetFrameSize = {
+  width: 240,
+  height: 160,
+};
 
 export type Workbook = {
   version: typeof WORKBOOK_SCHEMA_VERSION;
@@ -12,6 +16,7 @@ export type Sheet = {
   name: string;
   revision: number;
   position: WorkspacePosition;
+  frameSize: SheetFrameSize;
   zIndex: number;
   columnCount: number;
   rowCount: number;
@@ -21,6 +26,11 @@ export type Sheet = {
 export type WorkspacePosition = {
   x: number;
   y: number;
+};
+
+export type SheetFrameSize = {
+  width: number;
+  height: number;
 };
 
 export type CellContent = {
@@ -104,6 +114,7 @@ export function createSheet(input: {
   name: string;
   existingSheets?: Pick<Sheet, 'id' | 'name' | 'zIndex'>[];
   position?: WorkspacePosition;
+  frameSize?: SheetFrameSize;
   zIndex?: number;
 }): MutationResult<Sheet> {
   const validation = validateSheetName(input.name, input.existingSheets ?? []);
@@ -118,6 +129,7 @@ export function createSheet(input: {
       name: validation.name,
       revision: 0,
       position: input.position ?? { x: 0, y: 0 },
+      frameSize: input.frameSize ?? DEFAULT_SHEET_FRAME_SIZE,
       zIndex: input.zIndex ?? nextSheetZIndex(input.existingSheets ?? []),
       columnCount: DEFAULT_COLUMN_COUNT,
       rowCount: DEFAULT_ROW_COUNT,

@@ -52,6 +52,7 @@ class WorkbookRepository(dbPath: Path) {
             name = sheet.name,
             existingSheets = workbook.sheets,
             position = sheet.position,
+            frameSize = sheet.frameSize,
             zIndex = sheet.zIndex,
         )) {
             is SheetNameResult.Valid -> workbook.copy(sheets = workbook.sheets + result.value)
@@ -64,6 +65,7 @@ class WorkbookRepository(dbPath: Path) {
         expectedRevision: Long?,
         name: String? = null,
         position: WorkspacePosition? = null,
+        frameSize: SheetFrameSize? = null,
         zIndex: Int? = null,
     ): Workbook = updateWorkbook(sheetId, expectedRevision) { workbook ->
         val renamed = if (name == null) {
@@ -83,6 +85,7 @@ class WorkbookRepository(dbPath: Path) {
                 } else {
                     sheet.copy(
                         position = position ?: sheet.position,
+                        frameSize = frameSize ?: sheet.frameSize,
                         zIndex = zIndex ?: sheet.zIndex,
                     )
                 }
@@ -94,6 +97,9 @@ class WorkbookRepository(dbPath: Path) {
 
     fun updateSheetPosition(sheetId: String, position: WorkspacePosition): Workbook =
         updateSheet(sheetId, null, position = position)
+
+    fun updateSheetFrameSize(sheetId: String, frameSize: SheetFrameSize): Workbook =
+        updateSheet(sheetId, null, frameSize = frameSize)
 
     fun updateSheetZIndex(sheetId: String, zIndex: Int): Workbook = updateSheet(sheetId, null, zIndex = zIndex)
 
@@ -190,7 +196,7 @@ class WorkbookRepository(dbPath: Path) {
     private fun loadWorkbook(conn: Connection): Workbook {
         val sheets = conn.prepareStatement(
             """
-            SELECT id, name, row_count, column_count, position_x, position_y, z_index, cells_json, revision
+            SELECT id, name, row_count, column_count, position_x, position_y, frame_width, frame_height, z_index, cells_json, revision
             FROM sheets
             ORDER BY display_order ASC
             """.trimIndent(),
@@ -228,9 +234,9 @@ class WorkbookRepository(dbPath: Path) {
         conn.prepareStatement(
             """
             INSERT INTO sheets (
-                id, display_order, name, row_count, column_count, position_x, position_y, z_index, cells_json, revision
+                id, display_order, name, row_count, column_count, position_x, position_y, frame_width, frame_height, z_index, cells_json, revision
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
                 display_order = excluded.display_order,
                 name = excluded.name,
@@ -238,6 +244,8 @@ class WorkbookRepository(dbPath: Path) {
                 column_count = excluded.column_count,
                 position_x = excluded.position_x,
                 position_y = excluded.position_y,
+                frame_width = excluded.frame_width,
+                frame_height = excluded.frame_height,
                 z_index = excluded.z_index,
                 cells_json = excluded.cells_json,
                 revision = sheets.revision + 1
@@ -250,8 +258,10 @@ class WorkbookRepository(dbPath: Path) {
             statement.setInt(5, sheet.columnCount)
             statement.setDouble(6, sheet.position.x)
             statement.setDouble(7, sheet.position.y)
-            statement.setInt(8, sheet.zIndex)
-            statement.setString(9, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
+            statement.setDouble(8, sheet.frameSize.width)
+            statement.setDouble(9, sheet.frameSize.height)
+            statement.setInt(10, sheet.zIndex)
+            statement.setString(11, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
             statement.executeUpdate()
         }
     }
@@ -271,6 +281,8 @@ class WorkbookRepository(dbPath: Path) {
                 column_count = ?,
                 position_x = ?,
                 position_y = ?,
+                frame_width = ?,
+                frame_height = ?,
                 z_index = ?,
                 cells_json = ?,
                 revision = revision + 1
@@ -283,10 +295,12 @@ class WorkbookRepository(dbPath: Path) {
             statement.setInt(4, sheet.columnCount)
             statement.setDouble(5, sheet.position.x)
             statement.setDouble(6, sheet.position.y)
-            statement.setInt(7, sheet.zIndex)
-            statement.setString(8, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
-            statement.setString(9, sheet.id)
-            statement.setLong(10, expectedRevision)
+            statement.setDouble(7, sheet.frameSize.width)
+            statement.setDouble(8, sheet.frameSize.height)
+            statement.setInt(9, sheet.zIndex)
+            statement.setString(10, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
+            statement.setString(11, sheet.id)
+            statement.setLong(12, expectedRevision)
             statement.executeUpdate()
         }
 
@@ -319,6 +333,10 @@ class WorkbookRepository(dbPath: Path) {
             position = WorkspacePosition(
                 x = getDouble("position_x"),
                 y = getDouble("position_y"),
+            ),
+            frameSize = SheetFrameSize(
+                width = getDouble("frame_width"),
+                height = getDouble("frame_height"),
             ),
             zIndex = getInt("z_index"),
             rowCount = getInt("row_count"),

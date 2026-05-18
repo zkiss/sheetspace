@@ -1,4 +1,4 @@
-import type { CellKey, Sheet, Workbook, WorkspacePosition } from './workbook';
+import type { CellKey, Sheet, SheetFrameSize, Workbook, WorkspacePosition } from './workbook';
 
 type ApiErrorBody = {
   ok?: false;
@@ -63,11 +63,14 @@ export const workbookApi = {
     return requestJson<Workbook>('/api/workbook');
   },
 
-  createSheet(sheet: Pick<Sheet, 'id' | 'name' | 'position'> & Partial<Pick<Sheet, 'zIndex'>>): Promise<Workbook> {
+  createSheet(
+    sheet: Pick<Sheet, 'id' | 'name' | 'position'> & Partial<Pick<Sheet, 'frameSize' | 'zIndex'>>,
+  ): Promise<Workbook> {
     const requestBody = {
       id: sheet.id,
       name: sheet.name,
       position: sheet.position,
+      ...(sheet.frameSize === undefined ? {} : { frameSize: sheet.frameSize }),
       ...(sheet.zIndex === undefined ? {} : { zIndex: sheet.zIndex }),
     };
 
@@ -93,6 +96,18 @@ export const workbookApi = {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ position }),
+      headers: revisionHeaders(options),
+    });
+  },
+
+  updateSheetFrameSize(
+    sheetId: string,
+    frameSize: SheetFrameSize,
+    options: RevisionedMutationOptions = {},
+  ): Promise<Workbook> {
+    return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ frameSize }),
       headers: revisionHeaders(options),
     });
   },

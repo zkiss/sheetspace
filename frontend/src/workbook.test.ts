@@ -49,6 +49,7 @@ describe('workbook model', () => {
         name: 'Inputs',
         revision: 0,
         position: { x: 12, y: 24 },
+        frameSize: { width: 240, height: 160 },
         zIndex: 1,
         columnCount: 10,
         rowCount: 20,
