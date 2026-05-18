@@ -615,6 +615,13 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     });
   }
 
+  function cancelActiveEdit() {
+    if (editingCell) {
+      setKeyboardFocusTarget({ sheetId: editingCell.sheetId, cellKey: editingCell.cellKey });
+    }
+    setEditingCell(null);
+  }
+
   function selectCell(selection: ActiveCellSelection) {
     if (selection.sheetId !== activeCell?.sheetId || selection.cellKey !== activeCell.cellKey) {
       tabRunOriginColumn.current = null;
@@ -1295,7 +1302,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
                     activeCell={activeCell}
                     editingCell={editingCell}
                     keyboardFocusTarget={keyboardFocusTarget}
-                    onCancelEdit={() => setEditingCell(null)}
+                    onCancelEdit={cancelActiveEdit}
                     onCommitEdit={commitActiveEdit}
                     onCommitEditAndNavigate={commitEditAndNavigate}
                     onEditValueChange={(value) =>

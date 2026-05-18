@@ -1765,6 +1765,42 @@ describe('App workspace', () => {
     expect(cell).toHaveTextContent('Original');
   });
 
+  it('restores cell keyboard focus after canceling an edit with Escape', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      rowCount: 1,
+      columnCount: 2,
+      cells: {
+        A1: { raw: 'Original' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
+    const editor = await openCellEditor(user, a1);
+    await user.clear(editor);
+    await user.type(editor, 'Changed');
+    await user.keyboard('{Escape}');
+
+    expect(a1).not.toHaveAttribute('data-editing-cell');
+    expect(a1).toHaveTextContent('Original');
+    expect(a1).toHaveFocus();
+
+    await user.keyboard('{ArrowRight}');
+    expect(b1).toHaveAttribute('data-active-cell', 'true');
+    expect(b1).toHaveFocus();
+
+    await user.keyboard('N');
+    const nextEditor = within(b1).getByRole('textbox', { name: 'Inputs B1 editor' });
+    expect(nextEditor).toHaveValue('N');
+
+    await user.keyboard('ext{Enter}');
+    expect(b1).toHaveTextContent('Next');
+  });
+
   it('commits an active edit with Tab and moves one cell to the right', async () => {
     const user = userEvent.setup();
     render(
