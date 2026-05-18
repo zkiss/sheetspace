@@ -8,6 +8,7 @@ const workbook: Workbook = {
     {
       id: 'sheet-1',
       name: 'Inputs',
+      revision: 0,
       position: { x: 12, y: 24 },
       zIndex: 1,
       columnCount: 10,
@@ -115,6 +116,23 @@ describe('workbookApi', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sheets/sheet%201/columns', {
       method: 'POST',
       headers: {},
+    });
+  });
+
+  it('sends sheet revisions as optimistic lock tokens for revisioned mutations', async () => {
+    const fetchMock = mockFetch({ ok: true, workbook });
+
+    await workbookApi.updateCellContent('sheet-1', 'A1', 'Value', { revision: 7 });
+    await workbookApi.appendRow('sheet-1', { revision: 8 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet-1/cells/A1', {
+      method: 'PUT',
+      body: JSON.stringify({ raw: 'Value' }),
+      headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet-1/rows', {
+      method: 'POST',
+      headers: { 'If-Match': '8' },
     });
   });
 

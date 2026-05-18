@@ -10,6 +10,10 @@ type MutationResponse = {
   workbook: Workbook;
 };
 
+export type RevisionedMutationOptions = {
+  revision?: number;
+};
+
 export class WorkbookApiError extends Error {
   constructor(
     message: string,
@@ -73,45 +77,64 @@ export const workbookApi = {
     });
   },
 
-  renameSheet(sheetId: string, name: string): Promise<Workbook> {
+  renameSheet(sheetId: string, name: string, options: RevisionedMutationOptions = {}): Promise<Workbook> {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ name }),
+      headers: revisionHeaders(options),
     });
   },
 
-  updateSheetPosition(sheetId: string, position: WorkspacePosition): Promise<Workbook> {
+  updateSheetPosition(
+    sheetId: string,
+    position: WorkspacePosition,
+    options: RevisionedMutationOptions = {},
+  ): Promise<Workbook> {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ position }),
+      headers: revisionHeaders(options),
     });
   },
 
-  updateSheetZIndex(sheetId: string, zIndex: number): Promise<Workbook> {
+  updateSheetZIndex(sheetId: string, zIndex: number, options: RevisionedMutationOptions = {}): Promise<Workbook> {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ zIndex }),
+      headers: revisionHeaders(options),
     });
   },
 
-  updateCellContent(sheetId: string, cellAddress: CellKey, raw: string): Promise<Workbook> {
+  updateCellContent(
+    sheetId: string,
+    cellAddress: CellKey,
+    raw: string,
+    options: RevisionedMutationOptions = {},
+  ): Promise<Workbook> {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}/cells/${encodePathSegment(cellAddress)}`, {
       method: 'PUT',
       body: JSON.stringify({ raw }),
+      headers: revisionHeaders(options),
     });
   },
 
-  appendRow(sheetId: string): Promise<Workbook> {
+  appendRow(sheetId: string, options: RevisionedMutationOptions = {}): Promise<Workbook> {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}/rows`, {
       method: 'POST',
+      headers: revisionHeaders(options),
     });
   },
 
-  appendColumn(sheetId: string): Promise<Workbook> {
+  appendColumn(sheetId: string, options: RevisionedMutationOptions = {}): Promise<Workbook> {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}/columns`, {
       method: 'POST',
+      headers: revisionHeaders(options),
     });
   },
 };
 
 export type WorkbookApi = typeof workbookApi;
+
+function revisionHeaders(options: RevisionedMutationOptions): HeadersInit {
+  return options.revision === undefined ? {} : { 'If-Match': String(options.revision) };
+}

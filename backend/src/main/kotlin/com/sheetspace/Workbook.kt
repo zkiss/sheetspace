@@ -16,6 +16,7 @@ data class Workbook(
 data class Sheet(
     val id: String,
     val name: String,
+    val revision: Long = 0,
     val position: WorkspacePosition = WorkspacePosition(),
     val zIndex: Int = 1,
     val columnCount: Int = DEFAULT_COLUMN_COUNT,

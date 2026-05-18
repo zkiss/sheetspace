@@ -2,6 +2,7 @@ package com.sheetspace
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -62,6 +63,7 @@ class ApplicationTest {
         client.createSheet()
 
         val response = client.put("/api/sheets/sheet-1/cells/A1") {
+            revisionHeader(repo, "sheet-1")
             jsonBody("""{"raw":"=SUM(B1:B2)"}""")
         }
 
@@ -69,6 +71,32 @@ class ApplicationTest {
         val sheet = client.loadWorkbook().sheets.single()
         assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1").raw)
         assertFalse(sheet.cells.containsKey("A1_display"))
+    }
+
+    @Test
+    fun `stale sheet revision mutation returns conflict without overwriting newer content`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        client.createSheet()
+        val initialRevision = client.loadWorkbook().sheets.single().revision
+
+        val firstUpdate = client.put("/api/sheets/sheet-1/cells/A1") {
+            header("If-Match", initialRevision.toString())
+            jsonBody("""{"raw":"newer value"}""")
+        }
+        val staleUpdate = client.put("/api/sheets/sheet-1/cells/A1") {
+            header("If-Match", initialRevision.toString())
+            jsonBody("""{"raw":"stale value"}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, firstUpdate.status)
+        assertEquals(HttpStatusCode.Conflict, staleUpdate.status)
+        assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleUpdate.decodeBody<ErrorResponse>())
+        val sheet = client.loadWorkbook().sheets.single()
+        assertEquals("newer value", sheet.cells.getValue("A1").raw)
+        assertTrue(sheet.revision > initialRevision)
     }
 
     @Test
@@ -80,6 +108,7 @@ class ApplicationTest {
         client.createSheet()
 
         val response = client.patch("/api/sheets/sheet-1") {
+            revisionHeader(repo, "sheet-1")
             jsonBody("""{"name":"Renamed Inputs","position":{"x":80.0,"y":120.0}}""")
         }
 
@@ -98,6 +127,7 @@ class ApplicationTest {
         client.createSheet()
 
         val response = client.patch("/api/sheets/sheet-1") {
+            revisionHeader(repo, "sheet-1")
             jsonBody("""{"position":{"x":-10.0,"y":32.5}}""")
         }
 
@@ -116,6 +146,7 @@ class ApplicationTest {
         client.createSheet()
 
         val response = client.patch("/api/sheets/sheet-1") {
+            revisionHeader(repo, "sheet-1")
             jsonBody("""{"zIndex":3}""")
         }
 
@@ -133,8 +164,12 @@ class ApplicationTest {
         }
         client.createSheet()
 
-        val rowResponse = client.post("/api/sheets/sheet-1/rows")
-        val columnResponse = client.post("/api/sheets/sheet-1/columns")
+        val rowResponse = client.post("/api/sheets/sheet-1/rows") {
+            revisionHeader(repo, "sheet-1")
+        }
+        val columnResponse = client.post("/api/sheets/sheet-1/columns") {
+            revisionHeader(repo, "sheet-1")
+        }
 
         assertEquals(HttpStatusCode.OK, rowResponse.status)
         assertEquals(HttpStatusCode.OK, columnResponse.status)
@@ -157,23 +192,33 @@ class ApplicationTest {
             jsonBody("""{"id":"sheet-outputs","name":"Outputs","position":{"x":420.0,"y":260.0}}""")
         }
         val renameAndMoveInputs = client.patch("/api/sheets/sheet-inputs") {
+            revisionHeader(repo, "sheet-inputs")
             jsonBody("""{"name":"Renamed Inputs","position":{"x":72.0,"y":144.0}}""")
         }
-        val appendInputRow = client.post("/api/sheets/sheet-inputs/rows")
-        val appendInputColumn = client.post("/api/sheets/sheet-inputs/columns")
+        val appendInputRow = client.post("/api/sheets/sheet-inputs/rows") {
+            revisionHeader(repo, "sheet-inputs")
+        }
+        val appendInputColumn = client.post("/api/sheets/sheet-inputs/columns") {
+            revisionHeader(repo, "sheet-inputs")
+        }
         val updateTextCell = client.put("/api/sheets/sheet-inputs/cells/A1") {
+            revisionHeader(repo, "sheet-inputs")
             jsonBody("""{"raw":"Region"}""")
         }
         val updateNumericCell = client.put("/api/sheets/sheet-inputs/cells/B1") {
+            revisionHeader(repo, "sheet-inputs")
             jsonBody("""{"raw":"10"}""")
         }
         val updateSecondNumericCell = client.put("/api/sheets/sheet-inputs/cells/B2") {
+            revisionHeader(repo, "sheet-inputs")
             jsonBody("""{"raw":"5"}""")
         }
         val updateFormulaCell = client.put("/api/sheets/sheet-inputs/cells/C1") {
+            revisionHeader(repo, "sheet-inputs")
             jsonBody("""{"raw":"= \n SuM ( B1 , B2 )"}""")
         }
         val updateCrossSheetFormulaCell = client.put("/api/sheets/sheet-outputs/cells/A1") {
+            revisionHeader(repo, "sheet-outputs")
             jsonBody("""{"raw":"=SUM(Renamed Inputs!B1:B2)"}""")
         }
 
@@ -215,9 +260,11 @@ class ApplicationTest {
         client.createSheet()
 
         val invalidRename = client.patch("/api/sheets/sheet-1") {
+            revisionHeader(repo, "sheet-1")
             jsonBody("""{"name":"   "}""")
         }
         val invalidCell = client.put("/api/sheets/sheet-1/cells/Z999") {
+            revisionHeader(repo, "sheet-1")
             jsonBody("""{"raw":"outside grid"}""")
         }
         val missingSheet = client.post("/api/sheets/missing/rows")
@@ -226,6 +273,52 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.BadRequest, invalidCell.status)
         assertEquals(HttpStatusCode.NotFound, missingSheet.status)
         assertEquals(Sheet(id = "sheet-1", name = "Inputs"), client.loadWorkbook().sheets.single())
+    }
+
+    @Test
+    fun `revisioned mutations require valid sheet revision headers`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        client.createSheet()
+
+        val missingRevision = client.put("/api/sheets/sheet-1/cells/A1") {
+            jsonBody("""{"raw":"value"}""")
+        }
+        val invalidRevision = client.put("/api/sheets/sheet-1/cells/A1") {
+            header("If-Match", "not-a-revision")
+            jsonBody("""{"raw":"value"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, missingRevision.status)
+        assertEquals(ErrorResponse(error = "sheet-revision-required"), missingRevision.decodeBody<ErrorResponse>())
+        assertEquals(HttpStatusCode.BadRequest, invalidRevision.status)
+        assertEquals(ErrorResponse(error = "invalid-sheet-revision"), invalidRevision.decodeBody<ErrorResponse>())
+        assertEquals(emptyMap(), client.loadWorkbook().sheets.single().cells)
+    }
+
+    @Test
+    fun `invalid sheet rename returns name error before stale revision conflict`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        client.createSheet()
+        val initialRevision = client.loadWorkbook().sheets.single().revision
+        val firstUpdate = client.put("/api/sheets/sheet-1/cells/A1") {
+            header("If-Match", initialRevision.toString())
+            jsonBody("""{"raw":"newer value"}""")
+        }
+
+        val invalidRename = client.patch("/api/sheets/sheet-1") {
+            header("If-Match", initialRevision.toString())
+            jsonBody("""{"name":"   "}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, firstUpdate.status)
+        assertEquals(HttpStatusCode.BadRequest, invalidRename.status)
+        assertEquals(ErrorResponse(error = "sheet-name-required"), invalidRename.decodeBody<ErrorResponse>())
     }
 
     @Test
@@ -278,6 +371,11 @@ class ApplicationTest {
 
     private suspend fun HttpClient.loadWorkbook(): Workbook {
         return get("/api/workbook").decodeBody()
+    }
+
+    private fun io.ktor.client.request.HttpRequestBuilder.revisionHeader(repo: WorkbookRepository, sheetId: String) {
+        val revision = repo.loadWorkbook().sheets.single { it.id == sheetId }.revision
+        header("If-Match", revision.toString())
     }
 
     private suspend inline fun <reified T> io.ktor.client.statement.HttpResponse.decodeBody(): T {

@@ -47,6 +47,7 @@ describe('workbook model', () => {
       value: {
         id: 'sheet-1',
         name: 'Inputs',
+        revision: 0,
         position: { x: 12, y: 24 },
         zIndex: 1,
         columnCount: 10,
