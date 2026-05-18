@@ -33,6 +33,7 @@ data class CreateSheetRequest(
     val id: String,
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
+    val frameSize: SheetFrameSize = SheetFrameSize(),
     val zIndex: Int? = null,
 )
 
@@ -43,6 +44,7 @@ data class UpdateCellRequest(val raw: String)
 data class UpdateSheetRequest(
     val name: String? = null,
     val position: WorkspacePosition? = null,
+    val frameSize: SheetFrameSize? = null,
     val zIndex: Int? = null,
 )
 
@@ -83,8 +85,18 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                 sheetId.isEmpty() -> call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
                 workbook.sheets.any { it.id == sheetId } -> call.respondError(HttpStatusCode.Conflict, "sheet-id-duplicate")
                 !request.position.isFinite() -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-position")
+                !request.frameSize.isValid() -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-frame-size")
                 request.zIndex != null && request.zIndex < 1 -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-z-index")
-                else -> when (val result = createSheet(sheetId, request.name, workbook.sheets, request.position, request.zIndex)) {
+                else -> when (
+                    val result = createSheet(
+                        sheetId,
+                        request.name,
+                        workbook.sheets,
+                        request.position,
+                        request.frameSize,
+                        request.zIndex,
+                    )
+                ) {
                     is SheetNameResult.Invalid -> call.respondError(HttpStatusCode.BadRequest, result.reason.apiError)
                     is SheetNameResult.Valid -> {
                         val updated = repository.createSheet(result.value)
@@ -103,18 +115,26 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
             val workbook = repository.loadWorkbook()
             val sheet = workbook.sheets.find { it.id == sheetId }
             val requestedPosition = request.position
+            val requestedFrameSize = request.frameSize
             val requestedZIndex = request.zIndex
             val expectedRevision = call.expectedSheetRevision() ?: return@patch
 
             when {
                 sheet == null -> call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
-                request.name == null && requestedPosition == null && requestedZIndex == null -> call.respondError(
+                request.name == null &&
+                    requestedPosition == null &&
+                    requestedFrameSize == null &&
+                    requestedZIndex == null -> call.respondError(
                     HttpStatusCode.BadRequest,
                     "sheet-update-required",
                 )
                 requestedPosition != null && !requestedPosition.isFinite() -> call.respondError(
                     HttpStatusCode.BadRequest,
                     "invalid-sheet-position",
+                )
+                requestedFrameSize != null && !requestedFrameSize.isValid() -> call.respondError(
+                    HttpStatusCode.BadRequest,
+                    "invalid-sheet-frame-size",
                 )
                 requestedZIndex != null && requestedZIndex < 1 -> call.respondError(
                     HttpStatusCode.BadRequest,
@@ -127,16 +147,18 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                             expectedRevision = expectedRevision,
                             name = request.name,
                             position = requestedPosition,
+                            frameSize = requestedFrameSize,
                             zIndex = requestedZIndex,
                         )
                     }
                 }
-                requestedPosition != null -> {
+                requestedPosition != null || requestedFrameSize != null -> {
                     call.respondMutation {
                         repository.updateSheet(
                             sheetId = sheetId,
                             expectedRevision = expectedRevision,
                             position = requestedPosition,
+                            frameSize = requestedFrameSize,
                             zIndex = requestedZIndex,
                         )
                     }
@@ -266,6 +288,10 @@ private val SheetNameError.apiError: String
 
 private fun WorkspacePosition.isFinite(): Boolean {
     return x.isFinite() && y.isFinite()
+}
+
+private fun SheetFrameSize.isValid(): Boolean {
+    return width.isFinite() && height.isFinite() && width > 0.0 && height > 0.0
 }
 
 private fun Sheet.containsCell(address: String): Boolean {

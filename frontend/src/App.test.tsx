@@ -63,6 +63,7 @@ function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
     renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
     updateSheetPosition: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    updateSheetFrameSize: vi.fn().mockResolvedValue(workbookWithSheets([])),
     updateSheetZIndex: vi.fn().mockResolvedValue(workbookWithSheets([])),
     updateCellContent: vi.fn().mockResolvedValue(workbookWithSheets([])),
     appendRow: vi.fn().mockResolvedValue(workbookWithSheets([])),
@@ -113,6 +114,12 @@ function persistedWorkbookClient(initialWorkbook: Workbook = workbookWithSheets(
         position,
       })),
     ),
+    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string, frameSize: Sheet['frameSize']) =>
+      updateSheet(sheetId, (sheet) => ({
+        ...sheet,
+        frameSize,
+      })),
+    ),
     updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string, zIndex: number) =>
       updateSheet(sheetId, (sheet) => ({
         ...sheet,
@@ -136,6 +143,17 @@ async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HT
 function openSheetContextMenu(frame: HTMLElement, clientX = 120, clientY = 80) {
   fireEvent.contextMenu(frame, { clientX, clientY });
   return screen.getByRole('menu');
+}
+
+function resizeHandle(frame: HTMLElement, handle: string) {
+  const match = within(frame)
+    .getAllByTestId('sheet-frame-resize-handle')
+    .find((candidate) => candidate.dataset.resizeHandle === handle);
+  if (!match) {
+    throw new Error(`Missing resize handle ${handle}`);
+  }
+
+  return match;
 }
 
 describe('App workspace', () => {
@@ -350,6 +368,7 @@ describe('App workspace', () => {
       id: 'sheet-1',
       name: 'Inputs',
       position: { x: 0, y: 0 },
+      frameSize: { width: 240, height: 160 },
       zIndex: 1,
     });
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
@@ -677,6 +696,9 @@ describe('App workspace', () => {
     const frame = screen.getByTestId('sheet-frame');
     expect(frame).toHaveAttribute('data-sheet-id', 'sheet-inputs');
     expect(frame).toHaveStyle({ left: '120px', top: '80px' });
+    expect(frame).toHaveStyle({ width: '240px', height: '160px' });
+    expect(frame).toHaveAttribute('data-frame-width', '240');
+    expect(frame).toHaveAttribute('data-frame-height', '160');
     expect(within(frame).getByRole('heading', { name: 'Inputs' })).toBeInTheDocument();
     expect(within(frame).getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
     expect(screen.queryByText(/right-click the workspace/i)).not.toBeInTheDocument();
@@ -801,6 +823,136 @@ describe('App workspace', () => {
     fireEvent(body, new MouseEvent('pointerup', { bubbles: true, clientX: 160, clientY: 170 }));
 
     expect(frame).toHaveStyle({ left: '120px', top: '80px' });
+  });
+
+  it('resizes a sheet frame horizontally from the right border', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const rightHandle = resizeHandle(frame, 'right');
+
+    fireEvent(rightHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 360, clientY: 120 }));
+    fireEvent(rightHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 440, clientY: 120 }));
+    fireEvent(rightHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 440, clientY: 120 }));
+
+    expect(frame).toHaveStyle({ left: '120px', top: '80px', width: '320px', height: '160px' });
+    expect(frame).toHaveAttribute('data-frame-width', '320');
+    expect(frame).toHaveAttribute('data-frame-height', '160');
+  });
+
+  it('resizes a sheet frame vertically from the top border while keeping the bottom edge fixed', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const topHandle = resizeHandle(frame, 'top');
+
+    fireEvent(topHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 220, clientY: 80 }));
+    fireEvent(topHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 220, clientY: 40 }));
+    fireEvent(topHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 220, clientY: 40 }));
+
+    expect(frame).toHaveStyle({ left: '120px', top: '40px', width: '240px', height: '200px' });
+    expect(frame).toHaveAttribute('data-position-y', '40');
+    expect(frame).toHaveAttribute('data-frame-height', '200');
+  });
+
+  it('resizes both dimensions from a corner without affecting other frames', () => {
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 });
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const cornerHandle = resizeHandle(inputFrame, 'bottom-right');
+
+    fireEvent(cornerHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 288, clientY: 256 }));
+    fireEvent(cornerHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 328, clientY: 306 }));
+    fireEvent(cornerHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 328, clientY: 306 }));
+
+    expect(inputFrame).toHaveStyle({ left: '48px', top: '96px', width: '280px', height: '210px' });
+    expect(outputFrame).toHaveStyle({ left: '420px', top: '260px', width: '240px', height: '160px' });
+  });
+
+  it('clamps resized frames to practical minimum dimensions', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const leftHandle = resizeHandle(frame, 'left');
+
+    fireEvent(leftHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 120, clientY: 120 }));
+    fireEvent(leftHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 260, clientY: 120 }));
+    fireEvent(leftHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 260, clientY: 120 }));
+
+    expect(frame).toHaveStyle({ left: '180px', top: '80px', width: '180px', height: '160px' });
+    expect(frame).toHaveAttribute('data-position-x', '180');
+  });
+
+  it('uses workspace-coordinate deltas when resizing after pan and zoom', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Pan workspace right' }));
+    await user.click(screen.getByRole('button', { name: 'Pan workspace down' }));
+    await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+
+    const frame = screen.getByTestId('sheet-frame');
+    const rightHandle = resizeHandle(frame, 'right');
+
+    fireEvent(rightHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 360, clientY: 120 }));
+    fireEvent(rightHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 420, clientY: 120 }));
+    fireEvent(rightHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 420, clientY: 120 }));
+
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-scale', '1.2');
+    expect(frame).toHaveStyle({ left: '120px', top: '80px', width: '290px', height: '160px' });
+  });
+
+  it('autosaves updated frame size after resizing a persisted workbook', () => {
+    const apiClient = autosaveClient();
+    render(
+      <App
+        apiClient={apiClient}
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const rightHandle = resizeHandle(frame, 'right');
+
+    fireEvent(rightHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 360, clientY: 120 }));
+    fireEvent(rightHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 420, clientY: 120 }));
+    fireEvent(rightHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 420, clientY: 120 }));
+
+    expect(apiClient.updateSheetFrameSize).toHaveBeenCalledWith(
+      'sheet-inputs',
+      { width: 300, height: 160 },
+      { revision: 0 },
+    );
   });
 
   it('uses workspace-coordinate deltas when dragging a frame header after pan and zoom', async () => {

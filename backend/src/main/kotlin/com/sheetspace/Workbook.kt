@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 const val WORKBOOK_SCHEMA_VERSION = 1
 const val DEFAULT_COLUMN_COUNT = 10
 const val DEFAULT_ROW_COUNT = 20
+const val DEFAULT_SHEET_FRAME_WIDTH = 240.0
+const val DEFAULT_SHEET_FRAME_HEIGHT = 160.0
 
 @Serializable
 data class Workbook(
@@ -18,6 +20,7 @@ data class Sheet(
     val name: String,
     val revision: Long = 0,
     val position: WorkspacePosition = WorkspacePosition(),
+    val frameSize: SheetFrameSize = SheetFrameSize(),
     val zIndex: Int = 1,
     val columnCount: Int = DEFAULT_COLUMN_COUNT,
     val rowCount: Int = DEFAULT_ROW_COUNT,
@@ -28,6 +31,12 @@ data class Sheet(
 data class WorkspacePosition(
     val x: Double = 0.0,
     val y: Double = 0.0,
+)
+
+@Serializable
+data class SheetFrameSize(
+    val width: Double = DEFAULT_SHEET_FRAME_WIDTH,
+    val height: Double = DEFAULT_SHEET_FRAME_HEIGHT,
 )
 
 @Serializable
@@ -42,6 +51,7 @@ fun createSheet(
     name: String,
     existingSheets: List<Sheet> = emptyList(),
     position: WorkspacePosition = WorkspacePosition(),
+    frameSize: SheetFrameSize = SheetFrameSize(),
     zIndex: Int? = null,
 ): SheetNameResult<Sheet> {
     return when (val validation = validateSheetName(name, existingSheets)) {
@@ -51,6 +61,7 @@ fun createSheet(
                 id = id,
                 name = validation.value,
                 position = position,
+                frameSize = frameSize,
                 zIndex = zIndex ?: nextSheetZIndex(existingSheets),
             ),
         )

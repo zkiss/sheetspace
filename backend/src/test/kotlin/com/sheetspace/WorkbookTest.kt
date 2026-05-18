@@ -22,6 +22,7 @@ class WorkbookTest {
         assertEquals("sheet-1", sheet.id)
         assertEquals("Inputs", sheet.name)
         assertEquals(WorkspacePosition(x = 12.0, y = 24.0), sheet.position)
+        assertEquals(SheetFrameSize(), sheet.frameSize)
         assertEquals(1, sheet.zIndex)
         assertEquals(DEFAULT_COLUMN_COUNT, sheet.columnCount)
         assertEquals(DEFAULT_ROW_COUNT, sheet.rowCount)

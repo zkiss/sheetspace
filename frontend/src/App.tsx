@@ -27,6 +27,7 @@ import {
   type CellAddress,
   type FormulaEvaluationSnapshot,
   type Sheet,
+  type SheetFrameSize,
   type Workbook,
   type WorkspacePosition,
 } from './workbook';
@@ -72,8 +73,33 @@ type SheetFrameDrag = {
   startPosition: WorkspacePosition;
 };
 
-const SHEET_FRAME_WIDTH = 240;
-const SHEET_FRAME_HEIGHT = 160;
+type SheetFrameResizeDirection = {
+  horizontal: -1 | 0 | 1;
+  vertical: -1 | 0 | 1;
+};
+
+type SheetFrameResize = {
+  pointerId: number;
+  sheetId: string;
+  startClientX: number;
+  startClientY: number;
+  startPosition: WorkspacePosition;
+  startFrameSize: SheetFrameSize;
+  direction: SheetFrameResizeDirection;
+};
+
+const MIN_SHEET_FRAME_WIDTH = 180;
+const MIN_SHEET_FRAME_HEIGHT = 120;
+const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
+  ['top', { horizontal: 0, vertical: -1 }],
+  ['right', { horizontal: 1, vertical: 0 }],
+  ['bottom', { horizontal: 0, vertical: 1 }],
+  ['left', { horizontal: -1, vertical: 0 }],
+  ['top-left', { horizontal: -1, vertical: -1 }],
+  ['top-right', { horizontal: 1, vertical: -1 }],
+  ['bottom-right', { horizontal: 1, vertical: 1 }],
+  ['bottom-left', { horizontal: -1, vertical: 1 }],
+];
 const WORKSPACE_PAN_STEP = 80;
 const WORKSPACE_ZOOM_STEP = 0.2;
 const MIN_WORKSPACE_ZOOM = 0.5;
@@ -123,6 +149,37 @@ function getViewportCenter(element: HTMLElement, viewport: WorkspaceViewport): W
 
 function clampWorkspaceZoom(scale: number) {
   return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, scale));
+}
+
+function clampSheetFrameSize(frameSize: SheetFrameSize): SheetFrameSize {
+  return {
+    width: Math.max(MIN_SHEET_FRAME_WIDTH, frameSize.width),
+    height: Math.max(MIN_SHEET_FRAME_HEIGHT, frameSize.height),
+  };
+}
+
+function resizeSheetFrame(
+  resize: Pick<SheetFrameResize, 'startFrameSize' | 'startPosition' | 'direction'>,
+  delta: WorkspacePosition,
+) {
+  const nextFrameSize = clampSheetFrameSize({
+    width: Math.round(resize.startFrameSize.width + delta.x * resize.direction.horizontal),
+    height: Math.round(resize.startFrameSize.height + delta.y * resize.direction.vertical),
+  });
+
+  return {
+    position: {
+      x:
+        resize.direction.horizontal < 0
+          ? Math.round(resize.startPosition.x + resize.startFrameSize.width - nextFrameSize.width)
+          : resize.startPosition.x,
+      y:
+        resize.direction.vertical < 0
+          ? Math.round(resize.startPosition.y + resize.startFrameSize.height - nextFrameSize.height)
+          : resize.startPosition.y,
+    },
+    frameSize: nextFrameSize,
+  };
 }
 
 function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
@@ -377,6 +434,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [error, setError] = useState('');
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
+  const sheetFrameResize = useRef<SheetFrameResize | null>(null);
   const tabRunOriginColumn = useRef<number | null>(null);
   const autosaveQueues = useRef(new Map<string, AutosaveQueue>());
   const failedAutosaveKeys = useRef(new Set<string>());
@@ -771,6 +829,21 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     }));
   }
 
+  function resizeSheetFrameInWorkbook(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
+    setWorkbook((currentWorkbook) => ({
+      ...currentWorkbook,
+      sheets: currentWorkbook.sheets.map((sheet) =>
+        sheet.id === sheetId
+          ? {
+              ...sheet,
+              position,
+              frameSize,
+            }
+          : sheet,
+      ),
+    }));
+  }
+
   function handleSheetFrameDragStart(sheetId: string, event: PointerEvent<HTMLElement>) {
     if (
       (event.button !== 0 && event.button !== undefined) ||
@@ -835,6 +908,82 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
+  function handleSheetFrameResizeStart(
+    sheetId: string,
+    direction: SheetFrameResizeDirection,
+    event: PointerEvent<HTMLElement>,
+  ) {
+    if (event.button !== 0 && event.button !== undefined) {
+      return;
+    }
+
+    const sheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
+    if (!sheet) {
+      return;
+    }
+
+    sheetFrameResize.current = {
+      pointerId: event.pointerId,
+      sheetId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startPosition: sheet.position,
+      startFrameSize: sheet.frameSize,
+      direction,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleSheetFrameResizeMove(event: PointerEvent<HTMLElement>) {
+    if (!sheetFrameResize.current || sheetFrameResize.current.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const resize = sheetFrameResize.current;
+    const nextLayout = resizeSheetFrame(resize, {
+      x: (event.clientX - resize.startClientX) / viewport.scale,
+      y: (event.clientY - resize.startClientY) / viewport.scale,
+    });
+    resizeSheetFrameInWorkbook(resize.sheetId, nextLayout.position, nextLayout.frameSize);
+  }
+
+  function stopSheetFrameResize(event: PointerEvent<HTMLElement>) {
+    if (!sheetFrameResize.current || sheetFrameResize.current.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const resize = sheetFrameResize.current;
+    const nextLayout = resizeSheetFrame(resize, {
+      x: (event.clientX - resize.startClientX) / viewport.scale,
+      y: (event.clientY - resize.startClientY) / viewport.scale,
+    });
+
+    if (
+      nextLayout.position.x !== resize.startPosition.x ||
+      nextLayout.position.y !== resize.startPosition.y ||
+      nextLayout.frameSize.width !== resize.startFrameSize.width ||
+      nextLayout.frameSize.height !== resize.startFrameSize.height
+    ) {
+      enqueueAutosave(`sheet:${resize.sheetId}:frame-size`, () =>
+        runRevisionedAutosave(resize.sheetId, (revision) =>
+          getApiMethod('updateSheetFrameSize')(resize.sheetId, nextLayout.frameSize, { revision }),
+        ),
+      );
+      if (nextLayout.position.x !== resize.startPosition.x || nextLayout.position.y !== resize.startPosition.y) {
+        enqueueAutosave(`sheet:${resize.sheetId}:position`, () =>
+          runRevisionedAutosave(resize.sheetId, (revision) =>
+            getApiMethod('updateSheetPosition')(resize.sheetId, nextLayout.position, { revision }),
+          ),
+        );
+      }
+    }
+
+    sheetFrameResize.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }
+
   function handleWorkspaceWheel(event: WheelEvent<HTMLElement>) {
     if ((event.target as HTMLElement).closest('[data-testid="sheet-frame"]')) {
       return;
@@ -877,6 +1026,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         id: result.value.id,
         name: result.value.name,
         position: result.value.position,
+        frameSize: result.value.frameSize,
         zIndex: result.value.zIndex,
       }),
     );
@@ -1089,60 +1239,80 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
             transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
           }}
         >
-          {workbook.sheets.map((sheet) => (
-            <article
-              aria-label={`Sheet ${sheet.name}`}
-              className={`sheet-frame${activeCell?.sheetId === sheet.id ? ' sheet-frame-active' : ''}`}
-              data-active-sheet={activeCell?.sheetId === sheet.id ? 'true' : undefined}
-              data-column-count={sheet.columnCount}
-              data-row-count={sheet.rowCount}
-              data-position-x={sheet.position.x}
-              data-position-y={sheet.position.y}
-              data-sheet-id={sheet.id}
-              data-testid="sheet-frame"
-              data-z-index={sheet.zIndex}
-              key={sheet.id}
-              onContextMenu={(event) => openSheetMenu(sheet.id, event)}
-              style={{
-                left: sheet.position.x,
-                top: sheet.position.y,
-                zIndex: sheet.zIndex,
-                width: SHEET_FRAME_WIDTH,
-                height: SHEET_FRAME_HEIGHT,
-              }}
-            >
-              <header
-                className="sheet-frame-header"
-                data-testid="sheet-frame-header"
-                onPointerCancel={stopSheetFrameDrag}
-                onPointerDown={(event) => handleSheetFrameDragStart(sheet.id, event)}
-                onPointerMove={handleSheetFrameDragMove}
-                onPointerUp={stopSheetFrameDrag}
+          {workbook.sheets.map((sheet) => {
+            const frameSize = clampSheetFrameSize(sheet.frameSize);
+
+            return (
+              <article
+                aria-label={`Sheet ${sheet.name}`}
+                className={`sheet-frame${activeCell?.sheetId === sheet.id ? ' sheet-frame-active' : ''}`}
+                data-active-sheet={activeCell?.sheetId === sheet.id ? 'true' : undefined}
+                data-column-count={sheet.columnCount}
+                data-frame-height={frameSize.height}
+                data-frame-width={frameSize.width}
+                data-row-count={sheet.rowCount}
+                data-position-x={sheet.position.x}
+                data-position-y={sheet.position.y}
+                data-sheet-id={sheet.id}
+                data-testid="sheet-frame"
+                data-z-index={sheet.zIndex}
+                key={sheet.id}
+                onContextMenu={(event) => openSheetMenu(sheet.id, event)}
+                style={{
+                  left: sheet.position.x,
+                  top: sheet.position.y,
+                  zIndex: sheet.zIndex,
+                  width: frameSize.width,
+                  height: frameSize.height,
+                }}
               >
-                <h2>{sheet.name}</h2>
-              </header>
-              <div className="sheet-frame-body" data-testid="sheet-frame-body">
-                <SheetGrid
-                  activeCell={activeCell}
-                  editingCell={editingCell}
-                  keyboardFocusTarget={keyboardFocusTarget}
-                  onCancelEdit={() => setEditingCell(null)}
-                  onCommitEdit={commitActiveEdit}
-                  onCommitEditAndNavigate={commitEditAndNavigate}
-                  onEditValueChange={(value) =>
-                    setEditingCell((currentEditingCell) =>
-                      currentEditingCell ? { ...currentEditingCell, value } : currentEditingCell,
-                    )
-                  }
-                  onNavigateCell={navigateCell}
-                  onSelectCell={selectCell}
-                  onStartEdit={startEditingCell}
-                  formulaResults={formulaResults}
-                  sheet={sheet}
-                />
-              </div>
-            </article>
-          ))}
+                {SHEET_FRAME_RESIZE_HANDLES.map(([handle, direction]) => (
+                  <div
+                    aria-label={`Resize sheet ${sheet.name} from ${handle}`}
+                    className={`sheet-frame-resize-handle sheet-frame-resize-handle-${handle}`}
+                    data-resize-handle={handle}
+                    data-testid="sheet-frame-resize-handle"
+                    key={handle}
+                    onPointerCancel={stopSheetFrameResize}
+                    onPointerDown={(event) => handleSheetFrameResizeStart(sheet.id, direction, event)}
+                    onPointerMove={handleSheetFrameResizeMove}
+                    onPointerUp={stopSheetFrameResize}
+                    role="separator"
+                  />
+                ))}
+                <header
+                  className="sheet-frame-header"
+                  data-testid="sheet-frame-header"
+                  onPointerCancel={stopSheetFrameDrag}
+                  onPointerDown={(event) => handleSheetFrameDragStart(sheet.id, event)}
+                  onPointerMove={handleSheetFrameDragMove}
+                  onPointerUp={stopSheetFrameDrag}
+                >
+                  <h2>{sheet.name}</h2>
+                </header>
+                <div className="sheet-frame-body" data-testid="sheet-frame-body">
+                  <SheetGrid
+                    activeCell={activeCell}
+                    editingCell={editingCell}
+                    keyboardFocusTarget={keyboardFocusTarget}
+                    onCancelEdit={() => setEditingCell(null)}
+                    onCommitEdit={commitActiveEdit}
+                    onCommitEditAndNavigate={commitEditAndNavigate}
+                    onEditValueChange={(value) =>
+                      setEditingCell((currentEditingCell) =>
+                        currentEditingCell ? { ...currentEditingCell, value } : currentEditingCell,
+                      )
+                    }
+                    onNavigateCell={navigateCell}
+                    onSelectCell={selectCell}
+                    onStartEdit={startEditingCell}
+                    formulaResults={formulaResults}
+                    sheet={sheet}
+                  />
+                </div>
+              </article>
+            );
+          })}
         </div>
 
         {pendingSheetMenu && menuSheet ? (
