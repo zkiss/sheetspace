@@ -14,6 +14,14 @@ class SheetRevisionConflict(
     val actualRevision: Long,
 ) : RuntimeException("Sheet $sheetId revision conflict: expected $expectedRevision, actual $actualRevision")
 
+class SheetNameRejected(
+    val reason: SheetNameError,
+) : RuntimeException("Sheet name rejected: $reason")
+
+class UnknownSheetUpdate(
+    val sheetId: String,
+) : RuntimeException("Unknown sheet: $sheetId")
+
 class WorkbookRepository(dbPath: Path) {
     private val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
     private val json = Json { ignoreUnknownKeys = false }
@@ -63,7 +71,8 @@ class WorkbookRepository(dbPath: Path) {
         } else {
             when (val result = com.sheetspace.renameSheet(workbook, sheetId, name)) {
                 is WorkbookResult.Valid -> result.workbook
-                else -> workbook
+                is WorkbookResult.InvalidName -> throw SheetNameRejected(result.reason)
+                WorkbookResult.UnknownSheet -> throw UnknownSheetUpdate(sheetId)
             }
         }
 
@@ -140,11 +149,12 @@ class WorkbookRepository(dbPath: Path) {
         if (lockedSheetId != null && expectedRevision != null) {
             val current = loadWorkbook(conn)
             val currentSheet = current.sheets.find { it.id == lockedSheetId }
+            val updated = transform(current)
+
             if (currentSheet != null && currentSheet.revision != expectedRevision) {
                 throw SheetRevisionConflict(lockedSheetId, expectedRevision, currentSheet.revision)
             }
 
-            val updated = transform(current)
             val updatedSheet = updated.sheets.find { it.id == lockedSheetId }
             val currentIndex = current.sheets.indexOfFirst { it.id == lockedSheetId }
             val updatedIndex = updated.sheets.indexOfFirst { it.id == lockedSheetId }

@@ -299,6 +299,29 @@ class ApplicationTest {
     }
 
     @Test
+    fun `invalid sheet rename returns name error before stale revision conflict`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        client.createSheet()
+        val initialRevision = client.loadWorkbook().sheets.single().revision
+        val firstUpdate = client.put("/api/sheets/sheet-1/cells/A1") {
+            header("If-Match", initialRevision.toString())
+            jsonBody("""{"raw":"newer value"}""")
+        }
+
+        val invalidRename = client.patch("/api/sheets/sheet-1") {
+            header("If-Match", initialRevision.toString())
+            jsonBody("""{"name":"   "}""")
+        }
+
+        assertEquals(HttpStatusCode.OK, firstUpdate.status)
+        assertEquals(HttpStatusCode.BadRequest, invalidRename.status)
+        assertEquals(ErrorResponse(error = "sheet-name-required"), invalidRename.decodeBody<ErrorResponse>())
+    }
+
+    @Test
     fun `malformed request bodies return structured 4xx errors without corrupting workbook data`() = testApplication {
         val repo = createRepo()
         application {

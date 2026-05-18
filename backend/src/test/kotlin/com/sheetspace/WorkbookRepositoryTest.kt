@@ -100,6 +100,24 @@ class WorkbookRepositoryTest {
     }
 
     @Test
+    fun `rejects invalid sheet renames instead of silently ignoring them`() {
+        val repo = createRepo()
+        repo.createSheet(Sheet(id = "sheet-1", name = "Inputs"))
+        repo.createSheet(Sheet(id = "sheet-2", name = "Outputs"))
+
+        val emptyName = assertFailsWith<SheetNameRejected> {
+            repo.renameSheet("sheet-1", "   ")
+        }
+        val duplicateName = assertFailsWith<SheetNameRejected> {
+            repo.renameSheet("sheet-1", "Outputs")
+        }
+
+        assertEquals(SheetNameError.EMPTY, emptyName.reason)
+        assertEquals(SheetNameError.DUPLICATE, duplicateName.reason)
+        assertEquals(listOf("Inputs", "Outputs"), repo.loadWorkbook().sheets.map { it.name })
+    }
+
+    @Test
     fun `concurrent same revision updates resolve as one save and one conflict`() {
         val repo = createRepo()
         val revision = repo.createSheet(Sheet(id = "sheet-1", name = "Inputs")).sheets.single().revision

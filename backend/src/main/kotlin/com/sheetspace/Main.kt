@@ -120,18 +120,15 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                     HttpStatusCode.BadRequest,
                     "invalid-sheet-z-index",
                 )
-                request.name != null -> when (val validation = validateSheetName(request.name, workbook.sheets, sheetId)) {
-                    is SheetNameResult.Invalid -> call.respondError(HttpStatusCode.BadRequest, validation.reason.apiError)
-                    is SheetNameResult.Valid -> {
-                        call.respondMutation {
-                            repository.updateSheet(
-                                sheetId = sheetId,
-                                expectedRevision = expectedRevision,
-                                name = validation.value,
-                                position = requestedPosition,
-                                zIndex = requestedZIndex,
-                            )
-                        }
+                request.name != null -> {
+                    call.respondMutation {
+                        repository.updateSheet(
+                            sheetId = sheetId,
+                            expectedRevision = expectedRevision,
+                            name = request.name,
+                            position = requestedPosition,
+                            zIndex = requestedZIndex,
+                        )
                     }
                 }
                 requestedPosition != null -> {
@@ -232,6 +229,10 @@ private suspend fun ApplicationCall.respondMutation(update: () -> Workbook) {
         respond(MutationResponse(workbook = update()))
     } catch (conflict: SheetRevisionConflict) {
         respondError(HttpStatusCode.Conflict, "sheet-revision-conflict")
+    } catch (rejection: SheetNameRejected) {
+        respondError(HttpStatusCode.BadRequest, rejection.reason.apiError)
+    } catch (unknown: UnknownSheetUpdate) {
+        respondError(HttpStatusCode.NotFound, "sheet-not-found")
     }
 }
 
