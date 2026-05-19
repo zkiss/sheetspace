@@ -2173,6 +2173,31 @@ describe('App workspace', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('closes the sheet context menu when opening rename or create dialogs', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Rename' }));
+
+    expect(screen.getByRole('form', { name: 'Rename sheet' })).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    openSheetContextMenu(frame);
+    await user.click(screen.getByRole('button', { name: /new sheet/i }));
+
+    expect(screen.getByRole('form', { name: 'Create sheet' })).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('does not pan the workspace when interacting with the sheet context menu', () => {
     render(
       <App

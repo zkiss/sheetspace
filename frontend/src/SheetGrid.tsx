@@ -17,9 +17,9 @@ function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
 }
 
 export function SheetGrid({
-  activeCell,
+  activeCellKey,
   editingCell,
-  keyboardFocusTarget,
+  keyboardFocusCellKey,
   onCancelEdit,
   onCommitEdit,
   onCommitEditAndNavigate,
@@ -30,9 +30,9 @@ export function SheetGrid({
   formulaResults,
   sheet,
 }: {
-  activeCell: ActiveCellSelection | null;
+  activeCellKey: string | null;
   editingCell: EditingCell | null;
-  keyboardFocusTarget: ActiveCellSelection | null;
+  keyboardFocusCellKey: string | null;
   onCancelEdit: () => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
@@ -51,19 +51,14 @@ export function SheetGrid({
   const rows = Array.from({ length: sheet.rowCount }, (_, rowIndex) => rowIndex);
 
   useEffect(() => {
-    if (
-      activeCell?.sheetId !== sheet.id ||
-      activeCell.cellKey !== keyboardFocusTarget?.cellKey ||
-      keyboardFocusTarget.sheetId !== sheet.id ||
-      editingCell?.sheetId === sheet.id
-    ) {
+    if (!activeCellKey || activeCellKey !== keyboardFocusCellKey || editingCell) {
       return;
     }
 
-    const cell = cellRefs.current.get(activeCell.cellKey);
+    const cell = cellRefs.current.get(activeCellKey);
     cell?.focus();
     cell?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [activeCell, editingCell?.sheetId, keyboardFocusTarget, sheet.id]);
+  }, [activeCellKey, editingCell, keyboardFocusCellKey]);
 
   return (
     <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
@@ -87,8 +82,8 @@ export function SheetGrid({
               const address = { columnIndex: column.index, rowIndex };
               const key = cellKey(address);
               const cell = sheet.cells[key];
-              const isActive = activeCell?.sheetId === sheet.id && activeCell.cellKey === key;
-              const isEditing = editingCell?.sheetId === sheet.id && editingCell.cellKey === key;
+              const isActive = activeCellKey === key;
+              const isEditing = editingCell?.cellKey === key;
               const displayText = formulaResults[sheet.id]?.[key]?.display ?? cell?.raw ?? '';
 
               function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
