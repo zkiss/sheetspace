@@ -1,6 +1,5 @@
 import {
   FormEvent,
-  KeyboardEvent,
   MouseEvent,
   PointerEvent,
   useEffect,
@@ -15,7 +14,6 @@ import {
   appendColumn,
   appendRow,
   cellKey,
-  columnIndexToLabel,
   commitCellRawContent,
   createEmptyWorkbook,
   createSheet,
@@ -25,71 +23,39 @@ import {
   renameSheet,
   type SheetZOrderDirection,
   type CellAddress,
-  type FormulaEvaluationSnapshot,
   type Sheet,
   type SheetFrameSize,
   type Workbook,
   type WorkspacePosition,
 } from './workbook';
+import {
+  type ActiveCellSelection,
+  type CellNavigationDirection,
+  type EditingCell,
+  type PendingSheetCreation,
+  type PendingSheetMenu,
+  type PendingSheetRename,
+  type SaveStatus,
+  type SheetFrameDrag,
+  type SheetFrameResize,
+  type SheetFrameResizeDirection,
+  type StartupLoadState,
+  type WorkspaceViewport,
+} from './appTypes';
+import { CreateSheetDialog, RenameSheetDialog } from './SheetDialogs';
+import { SheetContextMenu } from './SheetContextMenu';
+import { SheetGrid } from './SheetGrid';
+import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
+import { WorkspaceToolbar } from './WorkspaceToolbar';
+import {
+  clampSheetFrameSize,
+  clampWorkspaceZoom,
+  getViewportCenter,
+  getWorkspacePoint,
+  resizeSheetFrame,
+  WORKSPACE_ZOOM_STEP,
+} from './workspaceGeometry';
 
-type PendingSheetCreation = {
-  position: WorkspacePosition;
-  label: string;
-};
-
-type PendingSheetRename = {
-  sheetId: string;
-  currentName: string;
-};
-
-type PendingSheetMenu = {
-  sheetId: string;
-  x: number;
-  y: number;
-};
-
-type ActiveCellSelection = {
-  sheetId: string;
-  cellKey: string;
-};
-
-type EditingCell = ActiveCellSelection & {
-  value: string;
-};
-
-type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
-
-type WorkspaceViewport = {
-  x: number;
-  y: number;
-  scale: number;
-};
-
-type SheetFrameDrag = {
-  pointerId: number;
-  sheetId: string;
-  startClientX: number;
-  startClientY: number;
-  startPosition: WorkspacePosition;
-};
-
-type SheetFrameResizeDirection = {
-  horizontal: -1 | 0 | 1;
-  vertical: -1 | 0 | 1;
-};
-
-type SheetFrameResize = {
-  pointerId: number;
-  sheetId: string;
-  startClientX: number;
-  startClientY: number;
-  startPosition: WorkspacePosition;
-  startFrameSize: SheetFrameSize;
-  direction: SheetFrameResizeDirection;
-};
-
-const MIN_SHEET_FRAME_WIDTH = 180;
-const MIN_SHEET_FRAME_HEIGHT = 120;
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
   ['top', { horizontal: 0, vertical: -1 }],
   ['right', { horizontal: 1, vertical: 0 }],
@@ -100,22 +66,11 @@ const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
   ['bottom-right', { horizontal: 1, vertical: 1 }],
   ['bottom-left', { horizontal: -1, vertical: 1 }],
 ];
-const WORKSPACE_PAN_STEP = 80;
-const WORKSPACE_ZOOM_STEP = 0.2;
-const MIN_WORKSPACE_ZOOM = 0.5;
-const MAX_WORKSPACE_ZOOM = 2;
 
 type AppProps = {
   apiClient?: Partial<WorkbookApi>;
   initialWorkbook?: Workbook;
 };
-
-type StartupLoadState =
-  | { status: 'loading' }
-  | { status: 'loaded' }
-  | { status: 'error'; message: string };
-
-type SaveStatus = 'saved' | 'saving' | 'failed';
 
 type AutosaveTask = {
   key: string;
@@ -127,61 +82,6 @@ type AutosaveQueue = {
   queued: AutosaveTask | null;
 };
 
-function getWorkspacePoint(
-  event: Pick<MouseEvent<HTMLElement> | PointerEvent<HTMLElement> | WheelEvent<HTMLElement>, 'clientX' | 'clientY'>,
-  element: HTMLElement,
-  viewport: WorkspaceViewport,
-): WorkspacePosition {
-  const rect = element.getBoundingClientRect();
-
-  return {
-    x: Math.round((event.clientX - rect.left - viewport.x) / viewport.scale),
-    y: Math.round((event.clientY - rect.top - viewport.y) / viewport.scale),
-  };
-}
-
-function getViewportCenter(element: HTMLElement, viewport: WorkspaceViewport): WorkspacePosition {
-  return {
-    x: Math.round((element.clientWidth / 2 - viewport.x) / viewport.scale),
-    y: Math.round((element.clientHeight / 2 - viewport.y) / viewport.scale),
-  };
-}
-
-function clampWorkspaceZoom(scale: number) {
-  return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, scale));
-}
-
-function clampSheetFrameSize(frameSize: SheetFrameSize): SheetFrameSize {
-  return {
-    width: Math.max(MIN_SHEET_FRAME_WIDTH, frameSize.width),
-    height: Math.max(MIN_SHEET_FRAME_HEIGHT, frameSize.height),
-  };
-}
-
-function resizeSheetFrame(
-  resize: Pick<SheetFrameResize, 'startFrameSize' | 'startPosition' | 'direction'>,
-  delta: WorkspacePosition,
-) {
-  const nextFrameSize = clampSheetFrameSize({
-    width: Math.round(resize.startFrameSize.width + delta.x * resize.direction.horizontal),
-    height: Math.round(resize.startFrameSize.height + delta.y * resize.direction.vertical),
-  });
-
-  return {
-    position: {
-      x:
-        resize.direction.horizontal < 0
-          ? Math.round(resize.startPosition.x + resize.startFrameSize.width - nextFrameSize.width)
-          : resize.startPosition.x,
-      y:
-        resize.direction.vertical < 0
-          ? Math.round(resize.startPosition.y + resize.startFrameSize.height - nextFrameSize.height)
-          : resize.startPosition.y,
-    },
-    frameSize: nextFrameSize,
-  };
-}
-
 function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
   if (reason === 'empty') {
     return 'Sheet name is required.';
@@ -192,226 +92,6 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
   }
 
   return 'A sheet with that name already exists.';
-}
-
-function saveStatusText(status: SaveStatus) {
-  if (status === 'saving') {
-    return 'Saving...';
-  }
-
-  if (status === 'failed') {
-    return 'Save failed - unsaved changes';
-  }
-
-  return 'Saved';
-}
-
-function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
-  if (!editor) {
-    return;
-  }
-
-  const end = editor.value.length;
-  editor.setSelectionRange(end, end);
-}
-
-function SheetGrid({
-  activeCell,
-  editingCell,
-  keyboardFocusTarget,
-  onCancelEdit,
-  onCommitEdit,
-  onCommitEditAndNavigate,
-  onEditValueChange,
-  onNavigateCell,
-  onSelectCell,
-  onStartEdit,
-  formulaResults,
-  sheet,
-}: {
-  activeCell: ActiveCellSelection | null;
-  editingCell: EditingCell | null;
-  keyboardFocusTarget: ActiveCellSelection | null;
-  onCancelEdit: () => void;
-  onCommitEdit: (editToCommit?: EditingCell) => void;
-  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
-  onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
-  onSelectCell: (selection: ActiveCellSelection) => void;
-  onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
-  formulaResults: FormulaEvaluationSnapshot;
-  sheet: Sheet;
-}) {
-  const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
-  const columns = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
-    index: columnIndex,
-    label: columnIndexToLabel(columnIndex),
-  }));
-  const rows = Array.from({ length: sheet.rowCount }, (_, rowIndex) => rowIndex);
-
-  useEffect(() => {
-    if (
-      activeCell?.sheetId !== sheet.id ||
-      activeCell.cellKey !== keyboardFocusTarget?.cellKey ||
-      keyboardFocusTarget.sheetId !== sheet.id ||
-      editingCell?.sheetId === sheet.id
-    ) {
-      return;
-    }
-
-    const cell = cellRefs.current.get(activeCell.cellKey);
-    cell?.focus();
-    cell?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [activeCell, editingCell?.sheetId, keyboardFocusTarget, sheet.id]);
-
-  return (
-    <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
-      <thead>
-        <tr>
-          <th aria-label="Grid corner" className="sheet-grid-corner" scope="col" />
-          {columns.map((column) => (
-            <th className="sheet-grid-column-header" key={column.index} scope="col">
-              {column.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((rowIndex) => (
-          <tr key={rowIndex}>
-            <th className="sheet-grid-row-header" scope="row">
-              {rowIndex + 1}
-            </th>
-            {columns.map((column) => {
-              const address = { columnIndex: column.index, rowIndex };
-              const key = cellKey(address);
-              const cell = sheet.cells[key];
-              const isActive = activeCell?.sheetId === sheet.id && activeCell.cellKey === key;
-              const isEditing = editingCell?.sheetId === sheet.id && editingCell.cellKey === key;
-              const displayText = formulaResults[sheet.id]?.[key]?.display ?? cell?.raw ?? '';
-
-              function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
-                if (event.target !== event.currentTarget) {
-                  return;
-                }
-
-                if (!isActive || event.altKey || event.ctrlKey || event.metaKey) {
-                  return;
-                }
-
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key });
-                  return;
-                }
-
-                if (event.key === 'F2') {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key });
-                  return;
-                }
-
-                if (event.key === 'ArrowLeft') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'left');
-                  return;
-                }
-
-                if (event.key === 'ArrowRight') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'right');
-                  return;
-                }
-
-                if (event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'up');
-                  return;
-                }
-
-                if (event.key === 'ArrowDown') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'down');
-                  return;
-                }
-
-                if (event.key === 'Backspace' || event.key === 'Delete') {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key }, '');
-                  return;
-                }
-
-                if (event.key.length === 1) {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key }, event.key);
-                }
-              }
-
-              return (
-                <td
-                  aria-label={`${sheet.name} ${key}${cell ? '' : ' empty'} cell`}
-                  className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
-                    isEditing ? ' sheet-grid-cell-editing' : ''
-                  }`}
-                  data-active-cell={isActive ? 'true' : undefined}
-                  data-cell-key={key}
-                  data-editing-cell={isEditing ? 'true' : undefined}
-                  data-testid="sheet-grid-cell"
-                  key={key}
-                  onClick={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
-                  onDoubleClick={() => onStartEdit({ sheetId: sheet.id, cellKey: key })}
-                  onFocus={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
-                  onKeyDown={handleCellKeyDown}
-                  ref={(cellElement) => {
-                    if (cellElement) {
-                      cellRefs.current.set(key, cellElement);
-                    } else {
-                      cellRefs.current.delete(key);
-                    }
-                  }}
-                  tabIndex={0}
-                >
-                  {isEditing ? (
-                    <textarea
-                      aria-label={`${sheet.name} ${key} editor`}
-                      autoFocus
-                      className="sheet-grid-cell-editor"
-                      onBlur={(event) => onCommitEdit({ ...editingCell, value: event.currentTarget.value })}
-                      onChange={(event) => onEditValueChange(event.target.value)}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'enter');
-                        }
-
-                        if (event.key === 'Tab' && !event.shiftKey) {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'tab');
-                        }
-
-                        if (event.key === 'Escape') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onCancelEdit();
-                        }
-                      }}
-                      ref={moveEditorCaretToEnd}
-                      value={editingCell.value}
-                    />
-                  ) : (
-                    displayText
-                  )}
-                </td>
-              );
-            })}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
 }
 
 export function App({ apiClient, initialWorkbook }: AppProps = {}) {
@@ -1149,77 +829,24 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     : undefined;
 
   if (startupLoad.status === 'loading') {
-    return (
-      <main className="startup-screen" aria-busy="true">
-        <h1>Sheetspace</h1>
-        <p>Loading workbook...</p>
-      </main>
-    );
+    return <StartupLoadingScreen />;
   }
 
   if (startupLoad.status === 'error') {
-    return (
-      <main className="startup-screen">
-        <h1>Sheetspace</h1>
-        <div className="startup-error" role="alert">
-          <h2>Workbook could not be loaded</h2>
-          <p>{startupLoad.message}</p>
-        </div>
-        <button type="button" onClick={() => setStartupLoad({ status: 'loading' })}>
-          Retry
-        </button>
-      </main>
-    );
+    return <StartupErrorScreen message={startupLoad.message} onRetry={() => setStartupLoad({ status: 'loading' })} />;
   }
 
   return (
     <main className="workspace-shell">
-      <header className="workspace-toolbar" aria-label="Workspace toolbar">
-        <div>
-          <h1>Sheetspace</h1>
-          <p>{workbook.sheets.length} sheets</p>
-          <p className={`save-status save-status-${saveStatus}`} role="status" aria-label="Save status">
-            {saveStatusText(saveStatus)}
-          </p>
-        </div>
-        <div className="workspace-toolbar-actions">
-          <div className="workspace-viewport-controls" aria-label="Workspace viewport controls">
-            <button type="button" aria-label="Pan workspace left" onClick={() => panWorkspace(-WORKSPACE_PAN_STEP, 0)}>
-              ←
-            </button>
-            <button type="button" aria-label="Pan workspace right" onClick={() => panWorkspace(WORKSPACE_PAN_STEP, 0)}>
-              →
-            </button>
-            <button type="button" aria-label="Pan workspace up" onClick={() => panWorkspace(0, -WORKSPACE_PAN_STEP)}>
-              ↑
-            </button>
-            <button type="button" aria-label="Pan workspace down" onClick={() => panWorkspace(0, WORKSPACE_PAN_STEP)}>
-              ↓
-            </button>
-            <button
-              type="button"
-              aria-label="Zoom workspace out"
-              onClick={() => zoomWorkspace(viewport.scale - WORKSPACE_ZOOM_STEP)}
-            >
-              -
-            </button>
-            <output aria-label="Workspace zoom level">{Math.round(viewport.scale * 100)}%</output>
-            <button
-              type="button"
-              aria-label="Zoom workspace in"
-              onClick={() => zoomWorkspace(viewport.scale + WORKSPACE_ZOOM_STEP)}
-            >
-              +
-            </button>
-            <button type="button" aria-label="Reset workspace viewport" onClick={resetViewport}>
-              Reset
-            </button>
-          </div>
-          <button type="button" onClick={handleToolbarCreate}>
-            New sheet
-          </button>
-        </div>
-      </header>
+      <WorkspaceToolbar
+        onCreateSheet={handleToolbarCreate}
+        onPanWorkspace={panWorkspace}
+        onResetViewport={resetViewport}
+        onZoomWorkspace={zoomWorkspace}
+        saveStatus={saveStatus}
+        sheetCount={workbook.sheets.length}
+        viewport={viewport}
+      />
 
       <section
         aria-label="Spatial workspace"
@@ -1323,112 +950,49 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         </div>
 
         {pendingSheetMenu && menuSheet ? (
-          <div
-            aria-label={`${menuSheet.name} sheet menu`}
-            className="sheet-context-menu"
-            role="menu"
-            style={{
-              left: pendingSheetMenu.x,
-              top: pendingSheetMenu.y,
+          <SheetContextMenu
+            menu={pendingSheetMenu}
+            onAppendColumn={(sheetId) => {
+              setPendingSheetMenu(null);
+              appendSheetColumn(sheetId);
             }}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setPendingSheetMenu(null);
-                appendSheetRow(menuSheet.id);
-              }}
-            >
-              Append row
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setPendingSheetMenu(null);
-                appendSheetColumn(menuSheet.id);
-              }}
-            >
-              Append column
-            </button>
-            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'top')}>
-              Bring to front
-            </button>
-            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'up')}>
-              Bring forward
-            </button>
-            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'down')}>
-              Send backward
-            </button>
-            <button type="button" role="menuitem" onClick={() => changeSheetZOrder(menuSheet.id, 'bottom')}>
-              Send to back
-            </button>
-            <button type="button" role="menuitem" onClick={() => openRenameDialog(menuSheet)}>
-              Rename
-            </button>
-          </div>
+            onAppendRow={(sheetId) => {
+              setPendingSheetMenu(null);
+              appendSheetRow(sheetId);
+            }}
+            onChangeZOrder={changeSheetZOrder}
+            onRename={openRenameDialog}
+            sheet={menuSheet}
+          />
         ) : null}
       </section>
 
       {pendingCreation ? (
-        <div className="dialog-backdrop" role="presentation">
-          <form aria-label="Create sheet" className="sheet-dialog" onSubmit={handleSubmit}>
-            <h2>{pendingCreation.label}</h2>
-            <label htmlFor="sheet-name">Sheet name</label>
-            <input
-              aria-describedby={error ? 'sheet-name-error' : undefined}
-              autoFocus
-              id="sheet-name"
-              onChange={(event) => {
-                setSheetName(event.target.value);
-                setError('');
-              }}
-              value={sheetName}
-            />
-            {error ? (
-              <p className="form-error" id="sheet-name-error" role="alert">
-                {error}
-              </p>
-            ) : null}
-            <div className="dialog-actions">
-              <button type="button" onClick={() => setPendingCreation(null)}>
-                Cancel
-              </button>
-              <button type="submit">Create</button>
-            </div>
-          </form>
-        </div>
+        <CreateSheetDialog
+          error={error}
+          pendingCreation={pendingCreation}
+          sheetName={sheetName}
+          onCancel={() => setPendingCreation(null)}
+          onNameChange={(name) => {
+            setSheetName(name);
+            setError('');
+          }}
+          onSubmit={handleSubmit}
+        />
       ) : null}
 
       {pendingRename ? (
-        <div className="dialog-backdrop" role="presentation">
-          <form aria-label="Rename sheet" className="sheet-dialog" onSubmit={handleRenameSubmit}>
-            <h2>Rename {pendingRename.currentName}</h2>
-            <label htmlFor="rename-sheet-name">Sheet name</label>
-            <input
-              aria-describedby={error ? 'rename-sheet-name-error' : undefined}
-              autoFocus
-              id="rename-sheet-name"
-              onChange={(event) => {
-                setSheetName(event.target.value);
-                setError('');
-              }}
-              value={sheetName}
-            />
-            {error ? (
-              <p className="form-error" id="rename-sheet-name-error" role="alert">
-                {error}
-              </p>
-            ) : null}
-            <div className="dialog-actions">
-              <button type="button" onClick={closeDialog}>
-                Cancel
-              </button>
-              <button type="submit">Save</button>
-            </div>
-          </form>
-        </div>
+        <RenameSheetDialog
+          error={error}
+          pendingRename={pendingRename}
+          sheetName={sheetName}
+          onCancel={closeDialog}
+          onNameChange={(name) => {
+            setSheetName(name);
+            setError('');
+          }}
+          onSubmit={handleRenameSubmit}
+        />
       ) : null}
     </main>
   );
