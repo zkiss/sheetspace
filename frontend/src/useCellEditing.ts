@@ -1,14 +1,13 @@
-import { Dispatch, SetStateAction, useRef, useState } from 'react';
-import type { WorkbookApi } from './workbookApi';
+import { useRef, useState } from 'react';
 import {
   cellKey,
-  commitCellRawContent,
   parseA1Address,
   type CellAddress,
   type Sheet,
   type Workbook,
 } from './workbook';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
+import type { WorkbookCommands } from './useWorkbookController';
 
 function clampedCellAddress(
   sheet: Sheet,
@@ -22,19 +21,10 @@ function clampedCellAddress(
 }
 
 export function useCellEditing({
-  enqueueEdit,
-  getApiMethod,
-  runRevisionedEdit,
-  setWorkbook,
+  commands,
   workbook,
 }: {
-  enqueueEdit: (key: string, run: () => Promise<Workbook>) => void;
-  getApiMethod: <K extends keyof WorkbookApi>(method: K) => WorkbookApi[K];
-  runRevisionedEdit: (
-    sheetId: string,
-    save: (revision: number | undefined) => Promise<Workbook>,
-  ) => Promise<Workbook>;
-  setWorkbook: Dispatch<SetStateAction<Workbook>>;
+  commands: Pick<WorkbookCommands, 'updateCellContent'>;
   workbook: Workbook;
 }) {
   const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
@@ -48,20 +38,10 @@ export function useCellEditing({
     }
 
     const currentSheet = workbook.sheets.find((sheet) => sheet.id === editToCommit.sheetId);
-    const currentRaw = currentSheet?.cells[editToCommit.cellKey]?.raw ?? '';
-    const nextWorkbook = commitCellRawContent(workbook, editToCommit.sheetId, editToCommit.cellKey, editToCommit.value);
-
-    if (nextWorkbook !== workbook) {
-      setWorkbook(nextWorkbook);
-    }
-    if (nextWorkbook !== workbook && currentRaw !== editToCommit.value) {
-      enqueueEdit(`cell:${editToCommit.sheetId}:${editToCommit.cellKey}`, () =>
-        runRevisionedEdit(editToCommit.sheetId, (revision) =>
-          getApiMethod('updateCellContent')(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value, {
-            revision,
-          }),
-        ),
-      );
+    const currentCell = currentSheet?.cells[editToCommit.cellKey];
+    const currentRaw = currentCell?.raw ?? '';
+    if (currentCell || currentRaw !== editToCommit.value) {
+      commands.updateCellContent(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value);
     }
     setEditingCell(null);
   }

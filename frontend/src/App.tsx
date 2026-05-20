@@ -1,19 +1,7 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import './App.css';
-import { workbookApi, type WorkbookApi } from './workbookApi';
-import {
-  appendColumn,
-  appendRow,
-  createEmptyWorkbook,
-  createSheet,
-  evaluateFormulaCells,
-  moveSheetZOrder,
-  renameSheet,
-  type SheetZOrderDirection,
-  type Sheet,
-  type Workbook,
-  type WorkspacePosition,
-} from './workbook';
+import type { WorkbookApi } from './workbookApi';
+import type { Sheet, Workbook, WorkspacePosition } from './workbook';
 import {
   type PendingSheetCreation,
   type PendingSheetRename,
@@ -21,8 +9,7 @@ import {
 import { CreateSheetDialog, RenameSheetDialog } from './SheetDialogs';
 import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
 import { useCellEditing } from './useCellEditing';
-import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
-import { useEditQueue } from './useEditQueue';
+import { useWorkbookController } from './useWorkbookController';
 import { Workspace } from './Workspace';
 
 type AppProps = {
@@ -43,25 +30,13 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
 }
 
 export function App({ apiClient, initialWorkbook }: AppProps = {}) {
-  const resolvedApiClient = apiClient ?? workbookApi;
-  const autosaveEnabled = !initialWorkbook || Boolean(apiClient);
-  const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
-  const { enqueueEdit, getApiMethod, markSaved, runRevisionedEdit, saveStatus } = useEditQueue({
-    autosaveEnabled,
-    resolvedApiClient,
-    setWorkbook,
-    workbook,
-  });
-  const { retryStartupLoad, startupLoad } = useStartupWorkbookLoad({
+  const { commands, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } = useWorkbookController({
+    apiClient,
     initialWorkbook,
-    markSaved,
-    resolvedApiClient,
-    setWorkbook,
   });
   const {
     activeCell,
@@ -75,10 +50,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     startEditingCell,
     updateEditingCellValue,
   } = useCellEditing({
-    enqueueEdit,
-    getApiMethod,
-    runRevisionedEdit,
-    setWorkbook,
+    commands,
     workbook,
   });
 
@@ -100,31 +72,13 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    const result = createSheet({
-      id: `sheet-${workbook.sheets.length + 1}`,
-      name: sheetName,
-      existingSheets: workbook.sheets,
-      position: pendingCreation.position,
-    });
+    const result = commands.createSheet(sheetName, pendingCreation.position);
 
     if (!result.ok) {
       setError(validationMessage(result.reason));
       return;
     }
 
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: [...currentWorkbook.sheets, result.value],
-    }));
-    enqueueEdit(`sheet:${result.value.id}:create`, () =>
-      getApiMethod('createSheet')({
-        id: result.value.id,
-        name: result.value.name,
-        position: result.value.position,
-        frameSize: result.value.frameSize,
-        zIndex: result.value.zIndex,
-      }),
-    );
     setPendingCreation(null);
     setSheetName('');
     setError('');
@@ -136,91 +90,15 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    const result = renameSheet(workbook, pendingRename.sheetId, sheetName);
+    const result = commands.renameSheet(pendingRename.sheetId, sheetName);
     if (!result.ok) {
       setError(validationMessage(result.reason));
       return;
     }
 
-    const renamedSheet = result.value.sheets.find((sheet) => sheet.id === pendingRename.sheetId);
-    setWorkbook(result.value);
-    if (renamedSheet) {
-      enqueueEdit(`sheet:${pendingRename.sheetId}:name`, () =>
-        runRevisionedEdit(pendingRename.sheetId, (revision) =>
-          getApiMethod('renameSheet')(pendingRename.sheetId, renamedSheet.name, { revision }),
-        ),
-      );
-    }
     setPendingRename(null);
     setSheetName('');
     setError('');
-  }
-
-  function appendSheetRow(sheetId: string) {
-    let changed = false;
-    const nextWorkbook = {
-      ...workbook,
-      sheets: workbook.sheets.map((sheet) => {
-        if (sheet.id !== sheetId) {
-          return sheet;
-        }
-
-        changed = true;
-        return appendRow(sheet);
-      }),
-    };
-
-    if (!changed) {
-      return;
-    }
-
-    setWorkbook(nextWorkbook);
-    enqueueEdit(`sheet:${sheetId}:rows`, () =>
-      runRevisionedEdit(sheetId, (revision) => getApiMethod('appendRow')(sheetId, { revision })),
-    );
-  }
-
-  function appendSheetColumn(sheetId: string) {
-    let changed = false;
-    const nextWorkbook = {
-      ...workbook,
-      sheets: workbook.sheets.map((sheet) => {
-        if (sheet.id !== sheetId) {
-          return sheet;
-        }
-
-        changed = true;
-        return appendColumn(sheet);
-      }),
-    };
-
-    if (!changed) {
-      return;
-    }
-
-    setWorkbook(nextWorkbook);
-    enqueueEdit(`sheet:${sheetId}:columns`, () =>
-      runRevisionedEdit(sheetId, (revision) => getApiMethod('appendColumn')(sheetId, { revision })),
-    );
-  }
-
-  function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
-    const result = moveSheetZOrder(workbook, sheetId, direction);
-    if (!result.ok) {
-      return;
-    }
-
-    setWorkbook(result.value);
-    for (const nextSheet of result.value.sheets) {
-      const currentSheet = workbook.sheets.find((sheet) => sheet.id === nextSheet.id);
-      if (currentSheet && currentSheet.zIndex !== nextSheet.zIndex) {
-        enqueueEdit(`sheet:${nextSheet.id}:z-index`, () =>
-          runRevisionedEdit(nextSheet.id, (revision) =>
-            getApiMethod('updateSheetZIndex')(nextSheet.id, nextSheet.zIndex, { revision }),
-          ),
-        );
-      }
-    }
   }
 
   function closeDialog() {
@@ -242,15 +120,11 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     <main className="workspace-shell">
       <Workspace
         activeCell={activeCell}
+        commands={commands}
         editingCell={editingCell}
-        enqueueEdit={enqueueEdit}
         formulaResults={formulaResults}
-        getApiMethod={getApiMethod}
         keyboardFocusTarget={keyboardFocusTarget}
-        onAppendColumn={appendSheetColumn}
-        onAppendRow={appendSheetRow}
         onCancelEdit={cancelActiveEdit}
-        onChangeSheetZOrder={changeSheetZOrder}
         onCommitEdit={commitActiveEdit}
         onCommitEditAndNavigate={commitEditAndNavigate}
         onCreateSheet={openCreationDialog}
@@ -259,9 +133,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onOpenRenameDialog={openRenameDialog}
         onSelectCell={selectCell}
         onStartEdit={startEditingCell}
-        runRevisionedEdit={runRevisionedEdit}
         saveStatus={saveStatus}
-        setWorkbook={setWorkbook}
         workbook={workbook}
       />
 

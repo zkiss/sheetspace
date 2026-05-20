@@ -1,4 +1,4 @@
-import { KeyboardEvent, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   cellKey,
   columnIndexToLabel,
@@ -6,15 +6,9 @@ import {
   type Sheet,
 } from './workbook';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
-
-function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
-  if (!editor) {
-    return;
-  }
-
-  const end = editor.value.length;
-  editor.setSelectionRange(end, end);
-}
+import { SheetGridCell } from './SheetGridCell';
+import { SheetGridHeaders } from './SheetGridHeaders';
+import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
 
 export function SheetGrid({
   activeCellKey,
@@ -44,11 +38,19 @@ export function SheetGrid({
   sheet: Sheet;
 }) {
   const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
-  const columns = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
+  const columns: ColumnHeader[] = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
     index: columnIndex,
     label: columnIndexToLabel(columnIndex),
   }));
   const rows = Array.from({ length: sheet.rowCount }, (_, rowIndex) => rowIndex);
+
+  function registerCell(key: string, cellElement: HTMLTableCellElement | null) {
+    if (cellElement) {
+      cellRefs.current.set(key, cellElement);
+    } else {
+      cellRefs.current.delete(key);
+    }
+  }
 
   useEffect(() => {
     if (!activeCellKey || activeCellKey !== keyboardFocusCellKey || editingCell) {
@@ -62,16 +64,7 @@ export function SheetGrid({
 
   return (
     <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
-      <thead>
-        <tr>
-          <th aria-label="Grid corner" className="sheet-grid-corner" scope="col" />
-          {columns.map((column) => (
-            <th className="sheet-grid-column-header" key={column.index} scope="col">
-              {column.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
+      <SheetGridHeaders columns={columns} />
       <tbody>
         {rows.map((rowIndex) => (
           <tr key={rowIndex}>
@@ -81,126 +74,27 @@ export function SheetGrid({
             {columns.map((column) => {
               const address = { columnIndex: column.index, rowIndex };
               const key = cellKey(address);
-              const cell = sheet.cells[key];
               const isActive = activeCellKey === key;
               const isEditing = editingCell?.cellKey === key;
-              const displayText = formulaResults[sheet.id]?.[key]?.display ?? cell?.raw ?? '';
-
-              function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
-                if (event.target !== event.currentTarget) {
-                  return;
-                }
-
-                if (!isActive || event.altKey || event.ctrlKey || event.metaKey) {
-                  return;
-                }
-
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key });
-                  return;
-                }
-
-                if (event.key === 'F2') {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key });
-                  return;
-                }
-
-                if (event.key === 'ArrowLeft') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'left');
-                  return;
-                }
-
-                if (event.key === 'ArrowRight') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'right');
-                  return;
-                }
-
-                if (event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'up');
-                  return;
-                }
-
-                if (event.key === 'ArrowDown') {
-                  event.preventDefault();
-                  onNavigateCell(sheet, key, 'down');
-                  return;
-                }
-
-                if (event.key === 'Backspace' || event.key === 'Delete') {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key }, '');
-                  return;
-                }
-
-                if (event.key.length === 1) {
-                  event.preventDefault();
-                  onStartEdit({ sheetId: sheet.id, cellKey: key }, event.key);
-                }
-              }
 
               return (
-                <td
-                  aria-label={`${sheet.name} ${key}${cell ? '' : ' empty'} cell`}
-                  className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
-                    isEditing ? ' sheet-grid-cell-editing' : ''
-                  }`}
-                  data-active-cell={isActive ? 'true' : undefined}
-                  data-cell-key={key}
-                  data-editing-cell={isEditing ? 'true' : undefined}
-                  data-testid="sheet-grid-cell"
+                <SheetGridCell
+                  cellKey={key}
+                  displayText={getSheetCellDisplayText({ cellKey: key, formulaResults, sheet })}
+                  editingCell={editingCell}
+                  isActive={isActive}
+                  isEditing={isEditing}
                   key={key}
-                  onClick={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
-                  onDoubleClick={() => onStartEdit({ sheetId: sheet.id, cellKey: key })}
-                  onFocus={() => onSelectCell({ sheetId: sheet.id, cellKey: key })}
-                  onKeyDown={handleCellKeyDown}
-                  ref={(cellElement) => {
-                    if (cellElement) {
-                      cellRefs.current.set(key, cellElement);
-                    } else {
-                      cellRefs.current.delete(key);
-                    }
-                  }}
-                  tabIndex={0}
-                >
-                  {isEditing ? (
-                    <textarea
-                      aria-label={`${sheet.name} ${key} editor`}
-                      autoFocus
-                      className="sheet-grid-cell-editor"
-                      onBlur={(event) => onCommitEdit({ ...editingCell, value: event.currentTarget.value })}
-                      onChange={(event) => onEditValueChange(event.target.value)}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'enter');
-                        }
-
-                        if (event.key === 'Tab' && !event.shiftKey) {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'tab');
-                        }
-
-                        if (event.key === 'Escape') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onCancelEdit();
-                        }
-                      }}
-                      ref={moveEditorCaretToEnd}
-                      value={editingCell.value}
-                    />
-                  ) : (
-                    displayText
-                  )}
-                </td>
+                  onCancelEdit={onCancelEdit}
+                  onCommitEdit={onCommitEdit}
+                  onCommitEditAndNavigate={onCommitEditAndNavigate}
+                  onEditValueChange={onEditValueChange}
+                  onNavigateCell={onNavigateCell}
+                  onSelectCell={onSelectCell}
+                  onStartEdit={onStartEdit}
+                  registerCell={registerCell}
+                  sheet={sheet}
+                />
               );
             })}
           </tr>

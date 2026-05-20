@@ -1,58 +1,20 @@
-import { Dispatch, PointerEvent, SetStateAction, useRef } from 'react';
-import type { WorkbookApi } from './workbookApi';
+import { PointerEvent, useRef } from 'react';
 import type { SheetFrameDrag, SheetFrameResize, SheetFrameResizeDirection } from './appTypes';
-import type { SheetFrameSize, Workbook, WorkspacePosition } from './workbook';
+import type { Workbook } from './workbook';
+import type { WorkbookCommands } from './useWorkbookController';
 import { resizeSheetFrame } from './workspaceGeometry';
 
 export function useSheetFrameInteractions({
-  enqueueEdit,
-  getApiMethod,
-  runRevisionedEdit,
-  setWorkbook,
+  commands,
   viewportScale,
   workbook,
 }: {
-  enqueueEdit: (key: string, run: () => Promise<Workbook>) => void;
-  getApiMethod: <K extends keyof WorkbookApi>(method: K) => WorkbookApi[K];
-  runRevisionedEdit: (
-    sheetId: string,
-    save: (revision: number | undefined) => Promise<Workbook>,
-  ) => Promise<Workbook>;
-  setWorkbook: Dispatch<SetStateAction<Workbook>>;
+  commands: Pick<WorkbookCommands, 'moveSheetFrame' | 'previewSheetFrameLayout' | 'resizeSheetFrame'>;
   viewportScale: number;
   workbook: Workbook;
 }) {
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
   const sheetFrameResize = useRef<SheetFrameResize | null>(null);
-
-  function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: currentWorkbook.sheets.map((sheet) =>
-        sheet.id === sheetId
-          ? {
-              ...sheet,
-              position,
-            }
-          : sheet,
-      ),
-    }));
-  }
-
-  function resizeSheetFrameInWorkbook(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: currentWorkbook.sheets.map((sheet) =>
-        sheet.id === sheetId
-          ? {
-              ...sheet,
-              position,
-              frameSize,
-            }
-          : sheet,
-      ),
-    }));
-  }
 
   function handleSheetFrameDragStart(sheetId: string, event: PointerEvent<HTMLElement>) {
     if (
@@ -93,7 +55,7 @@ export function useSheetFrameInteractions({
           (event.clientY - sheetFrameDrag.current.startClientY) / viewportScale,
       ),
     };
-    moveSheetFrame(sheetFrameDrag.current.sheetId, nextPosition);
+    commands.previewSheetFrameLayout(sheetFrameDrag.current.sheetId, nextPosition);
   }
 
   function stopSheetFrameDrag(event: PointerEvent<HTMLElement>) {
@@ -107,11 +69,7 @@ export function useSheetFrameInteractions({
       y: Math.round(finishedDrag.startPosition.y + (event.clientY - finishedDrag.startClientY) / viewportScale),
     };
     if (position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y) {
-      enqueueEdit(`sheet:${finishedDrag.sheetId}:position`, () =>
-        runRevisionedEdit(finishedDrag.sheetId, (revision) =>
-          getApiMethod('updateSheetPosition')(finishedDrag.sheetId, position, { revision }),
-        ),
-      );
+      commands.moveSheetFrame(finishedDrag.sheetId, position);
     }
 
     sheetFrameDrag.current = null;
@@ -156,7 +114,7 @@ export function useSheetFrameInteractions({
       x: (event.clientX - resize.startClientX) / viewportScale,
       y: (event.clientY - resize.startClientY) / viewportScale,
     });
-    resizeSheetFrameInWorkbook(resize.sheetId, nextLayout.position, nextLayout.frameSize);
+    commands.previewSheetFrameLayout(resize.sheetId, nextLayout.position, nextLayout.frameSize);
   }
 
   function stopSheetFrameResize(event: PointerEvent<HTMLElement>) {
@@ -176,18 +134,7 @@ export function useSheetFrameInteractions({
       nextLayout.frameSize.width !== resize.startFrameSize.width ||
       nextLayout.frameSize.height !== resize.startFrameSize.height
     ) {
-      enqueueEdit(`sheet:${resize.sheetId}:frame-size`, () =>
-        runRevisionedEdit(resize.sheetId, (revision) =>
-          getApiMethod('updateSheetFrameSize')(resize.sheetId, nextLayout.frameSize, { revision }),
-        ),
-      );
-      if (nextLayout.position.x !== resize.startPosition.x || nextLayout.position.y !== resize.startPosition.y) {
-        enqueueEdit(`sheet:${resize.sheetId}:position`, () =>
-          runRevisionedEdit(resize.sheetId, (revision) =>
-            getApiMethod('updateSheetPosition')(resize.sheetId, nextLayout.position, { revision }),
-          ),
-        );
-      }
+      commands.resizeSheetFrame(resize.sheetId, nextLayout.position, nextLayout.frameSize);
     }
 
     sheetFrameResize.current = null;
