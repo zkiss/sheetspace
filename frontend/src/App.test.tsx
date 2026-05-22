@@ -46,6 +46,20 @@ function workbookWithSheets(sheets: Workbook['sheets']): Workbook {
   };
 }
 
+function testRect({ height, left, top, width }: { height: number; left: number; top: number; width: number }) {
+  return {
+    bottom: top + height,
+    height,
+    left,
+    right: left + width,
+    top,
+    width,
+    x: left,
+    y: top,
+    toJSON: () => undefined,
+  } as DOMRect;
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -1244,6 +1258,77 @@ describe('App workspace', () => {
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it('keeps keyboard-navigated cells fully visible outside sticky headers', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    Element.prototype.getBoundingClientRect = function getMockRect() {
+      if (this.classList.contains('sheet-frame-body')) {
+        return testRect({ left: 0, top: 0, width: 220, height: 140 });
+      }
+
+      if (this.classList.contains('sheet-grid-column-header')) {
+        return testRect({ left: 40, top: 0, width: 76, height: 24 });
+      }
+
+      if (this.classList.contains('sheet-grid-row-header')) {
+        return testRect({ left: 0, top: 24, width: 40, height: 24 });
+      }
+
+      if ((this as HTMLElement).dataset.cellKey === 'B1') {
+        return testRect({ left: 80, top: 10, width: 76, height: 24 });
+      }
+
+      if ((this as HTMLElement).dataset.cellKey === 'A1') {
+        return testRect({ left: 20, top: 10, width: 76, height: 24 });
+      }
+
+      return testRect({ left: 80, top: 48, width: 76, height: 24 });
+    };
+
+    try {
+      render(
+        <App
+          initialWorkbook={workbookWithSheets([
+            {
+              ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+              rowCount: 2,
+              columnCount: 2,
+            },
+          ])}
+        />,
+      );
+
+      const frame = screen.getByTestId('sheet-frame');
+      const frameBody = within(frame).getByTestId('sheet-frame-body');
+      const b2 = within(frame).getByRole('cell', { name: 'Inputs B2 empty cell' });
+      const b1 = within(frame).getByRole('cell', { name: 'Inputs B1 empty cell' });
+      const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+      await user.click(b2);
+      frameBody.scrollTop = 100;
+      frameBody.scrollLeft = 100;
+
+      await user.keyboard('{ArrowUp}');
+
+      expect(b1).toHaveAttribute('data-active-cell', 'true');
+      expect(frameBody.scrollTop).toBe(86);
+      expect(frameBody.scrollLeft).toBe(100);
+
+      await user.keyboard('{ArrowLeft}');
+
+      expect(a1).toHaveAttribute('data-active-cell', 'true');
+      expect(frameBody.scrollTop).toBe(72);
+      expect(frameBody.scrollLeft).toBe(80);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     }
   });
 
