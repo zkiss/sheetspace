@@ -24,6 +24,7 @@ export function Workspace({
   formulaResults,
   keyboardFocusTarget,
   onCancelEdit,
+  onClearCell,
   onCommitEdit,
   onCommitEditAndNavigate,
   onCreateSheet,
@@ -41,6 +42,7 @@ export function Workspace({
   formulaResults: FormulaEvaluationSnapshot;
   keyboardFocusTarget: ActiveCellSelection | null;
   onCancelEdit: () => void;
+  onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onCreateSheet: (position: WorkspacePosition, label: string) => void;
@@ -110,6 +112,7 @@ export function Workspace({
           commands.appendRow(sheetId);
         }}
         onCancelEdit={onCancelEdit}
+        onClearCell={onClearCell}
         onChangeSheetZOrder={(sheetId, direction) => {
           workspaceController.closeSheetMenu();
           commands.changeSheetZOrder(sheetId, direction);

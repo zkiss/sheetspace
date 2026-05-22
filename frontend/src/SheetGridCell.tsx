@@ -19,6 +19,7 @@ export function SheetGridCell({
   isActive,
   isEditing,
   onCancelEdit,
+  onClearCell,
   onCommitEdit,
   onCommitEditAndNavigate,
   onEditValueChange,
@@ -34,6 +35,7 @@ export function SheetGridCell({
   isActive: boolean;
   isEditing: boolean;
   onCancelEdit: () => void;
+  onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
@@ -61,6 +63,11 @@ export function SheetGridCell({
 
     if (action.kind === 'navigate') {
       onNavigateCell(sheet, cellKey, action.direction);
+      return;
+    }
+
+    if (action.kind === 'clear-cell') {
+      onClearCell({ sheetId: sheet.id, cellKey });
       return;
     }
 

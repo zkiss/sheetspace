@@ -9,6 +9,7 @@ export type ColumnHeader = {
 export type GridCellKeyboardAction =
   | { kind: 'none' }
   | { kind: 'start-edit'; initialValue?: string }
+  | { kind: 'clear-cell' }
   | { kind: 'navigate'; direction: CellNavigationDirection };
 
 export function getSheetCellDisplayText({
@@ -63,7 +64,7 @@ export function gridCellKeyboardAction({
   }
 
   if (key === 'Backspace' || key === 'Delete') {
-    return { kind: 'start-edit', initialValue: '' };
+    return { kind: 'clear-cell' };
   }
 
   if (key.length === 1) {

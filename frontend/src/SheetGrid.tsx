@@ -42,6 +42,7 @@ export function SheetGrid({
   editingCell,
   keyboardFocusCellKey,
   onCancelEdit,
+  onClearCell,
   onCommitEdit,
   onCommitEditAndNavigate,
   onEditValueChange,
@@ -55,6 +56,7 @@ export function SheetGrid({
   editingCell: EditingCell | null;
   keyboardFocusCellKey: string | null;
   onCancelEdit: () => void;
+  onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
@@ -115,6 +117,7 @@ export function SheetGrid({
                   isEditing={isEditing}
                   key={key}
                   onCancelEdit={onCancelEdit}
+                  onClearCell={onClearCell}
                   onCommitEdit={onCommitEdit}
                   onCommitEditAndNavigate={onCommitEditAndNavigate}
                   onEditValueChange={onEditValueChange}

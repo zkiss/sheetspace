@@ -26,6 +26,7 @@ function renderCell(overrides: Partial<Parameters<typeof SheetGridCell>[0]> = {}
     isActive: true,
     isEditing: false,
     onCancelEdit: vi.fn(),
+    onClearCell: vi.fn(),
     onCommitEdit: vi.fn(),
     onCommitEditAndNavigate: vi.fn(),
     onEditValueChange: vi.fn(),
@@ -63,6 +64,9 @@ describe('SheetGridCell', () => {
 
     fireEvent.keyDown(cell, { key: 'ArrowRight' });
     expect(props.onNavigateCell).toHaveBeenCalledWith(props.sheet, 'A1', 'right');
+
+    fireEvent.keyDown(cell, { key: 'Backspace' });
+    expect(props.onClearCell).toHaveBeenCalledWith({ sheetId: 'sheet-inputs', cellKey: 'A1' });
   });
 
   it('renders the editor and commits or cancels editor keyboard actions', () => {

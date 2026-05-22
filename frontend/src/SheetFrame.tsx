@@ -27,6 +27,7 @@ export function SheetFrame({
   isActiveSheet,
   keyboardFocusCellKey,
   onCancelEdit,
+  onClearCell,
   onCommitEdit,
   onCommitEditAndNavigate,
   onEditValueChange,
@@ -50,6 +51,7 @@ export function SheetFrame({
   isActiveSheet: boolean;
   keyboardFocusCellKey: string | null;
   onCancelEdit: () => void;
+  onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
@@ -122,6 +124,7 @@ export function SheetFrame({
           editingCell={editingCell}
           keyboardFocusCellKey={keyboardFocusCellKey}
           onCancelEdit={onCancelEdit}
+          onClearCell={onClearCell}
           onCommitEdit={onCommitEdit}
           onCommitEditAndNavigate={onCommitEditAndNavigate}
           onEditValueChange={onEditValueChange}
