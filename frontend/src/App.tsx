@@ -41,6 +41,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const {
     activeCell,
     cancelActiveEdit,
+    clearCellContent,
     commitActiveEdit,
     commitEditAndNavigate,
     editingCell,
@@ -125,6 +126,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         formulaResults={formulaResults}
         keyboardFocusTarget={keyboardFocusTarget}
         onCancelEdit={cancelActiveEdit}
+        onClearCell={clearCellContent}
         onCommitEdit={commitActiveEdit}
         onCommitEditAndNavigate={commitEditAndNavigate}
         onCreateSheet={openCreationDialog}

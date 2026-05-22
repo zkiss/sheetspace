@@ -20,6 +20,7 @@ export function WorkspaceSurface({
   onAppendColumn,
   onAppendRow,
   onCancelEdit,
+  onClearCell,
   onChangeSheetZOrder,
   onCommitEdit,
   onCommitEditAndNavigate,
@@ -55,6 +56,7 @@ export function WorkspaceSurface({
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
   onCancelEdit: () => void;
+  onClearCell: (selection: ActiveCellSelection) => void;
   onChangeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
@@ -126,6 +128,7 @@ export function WorkspaceSurface({
               key={sheet.id}
               keyboardFocusCellKey={keyboardFocusCellKey}
               onCancelEdit={onCancelEdit}
+              onClearCell={onClearCell}
               onCommitEdit={onCommitEdit}
               onCommitEditAndNavigate={onCommitEditAndNavigate}
               onEditValueChange={onEditValueChange}

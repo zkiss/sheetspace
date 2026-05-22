@@ -1488,7 +1488,10 @@ describe('App workspace', () => {
     expect(editor).toHaveValue('R');
   });
 
-  it('starts an empty edit for a selected cell with Backspace or Delete', async () => {
+  it.each([
+    ['Backspace', '{Backspace}'],
+    ['Delete', '{Delete}'],
+  ])('clears a selected cell with %s without entering edit mode', async (_label, keyCommand) => {
     const user = userEvent.setup();
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
@@ -1501,13 +1504,54 @@ describe('App workspace', () => {
 
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     await user.click(cell);
-    await user.keyboard('{Backspace}');
-
-    expect(within(cell).getByRole('textbox', { name: 'Inputs A1 editor' })).toHaveValue('');
-
-    await user.keyboard('{Enter}');
+    await user.keyboard(keyCommand);
 
     expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toBe(cell);
+    expect(cell).not.toHaveAttribute('data-editing-cell');
+    expect(cell).toHaveFocus();
+  });
+
+  it('leaves an empty selected cell empty on Backspace without entering edit mode', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(cell);
+    await user.keyboard('{Backspace}');
+
+    expect(cell).not.toHaveAttribute('data-editing-cell');
+    expect(cell).toHaveTextContent('');
+    expect(cell).toHaveFocus();
+  });
+
+  it('keeps Delete and Backspace as normal text editing keys inside the cell editor', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: 'Remove me' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const editor = await openCellEditor(user, cell);
+
+    await user.keyboard('{Backspace}');
+    expect(editor).toHaveValue('Remove m');
+
+    (editor as HTMLTextAreaElement).setSelectionRange(0, 0);
+    await user.keyboard('{Delete}');
+
+    expect(editor).toHaveValue('emove m');
+    expect(cell).toHaveAttribute('data-editing-cell', 'true');
   });
 
   it('commits typed text as raw cell content with Enter', async () => {

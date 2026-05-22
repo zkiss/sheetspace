@@ -51,7 +51,7 @@ describe('sheet grid model', () => {
         key: 'Delete',
         metaKey: false,
       }),
-    ).toEqual({ kind: 'start-edit', initialValue: '' });
+    ).toEqual({ kind: 'clear-cell' });
     expect(
       gridCellKeyboardAction({
         altKey: false,

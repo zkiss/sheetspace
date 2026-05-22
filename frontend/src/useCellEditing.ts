@@ -64,6 +64,19 @@ export function useCellEditing({
     setEditingCell(null);
   }
 
+  function clearCellContent(selection: ActiveCellSelection) {
+    setActiveCell(selection);
+    setKeyboardFocusTarget(selection);
+    setEditingCell(null);
+
+    const sheet = workbook.sheets.find((candidate) => candidate.id === selection.sheetId);
+    if (!sheet?.cells[selection.cellKey]) {
+      return;
+    }
+
+    commands.updateCellContent(selection.sheetId, selection.cellKey, '');
+  }
+
   function selectCell(selection: ActiveCellSelection) {
     if (selection.sheetId !== activeCell?.sheetId || selection.cellKey !== activeCell.cellKey) {
       tabRunOriginColumn.current = null;
@@ -144,6 +157,7 @@ export function useCellEditing({
   return {
     activeCell,
     cancelActiveEdit,
+    clearCellContent,
     commitActiveEdit,
     commitEditAndNavigate,
     editingCell,
