@@ -10,6 +10,33 @@ import { SheetGridCell } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
 import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
 
+function ensureCellVisibleOutsideStickyHeaders(cell: HTMLTableCellElement) {
+  const scrollContainer = cell.closest<HTMLElement>('.sheet-frame-body');
+
+  cell.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+
+  if (!scrollContainer) {
+    return;
+  }
+
+  const columnHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-column-header');
+  const rowHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-row-header');
+  const cellRect = cell.getBoundingClientRect();
+  const scrollContainerRect = scrollContainer.getBoundingClientRect();
+  const columnHeaderHeight = columnHeader?.getBoundingClientRect().height ?? 0;
+  const rowHeaderWidth = rowHeader?.getBoundingClientRect().width ?? 0;
+  const visibleTop = scrollContainerRect.top + columnHeaderHeight;
+  const visibleLeft = scrollContainerRect.left + rowHeaderWidth;
+
+  if (cellRect.top < visibleTop) {
+    scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop - (visibleTop - cellRect.top));
+  }
+
+  if (cellRect.left < visibleLeft) {
+    scrollContainer.scrollLeft = Math.max(0, scrollContainer.scrollLeft - (visibleLeft - cellRect.left));
+  }
+}
+
 export function SheetGrid({
   activeCellKey,
   editingCell,
@@ -59,7 +86,9 @@ export function SheetGrid({
 
     const cell = cellRefs.current.get(activeCellKey);
     cell?.focus();
-    cell?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    if (cell) {
+      ensureCellVisibleOutsideStickyHeaders(cell);
+    }
   }, [activeCellKey, editingCell, keyboardFocusCellKey]);
 
   return (
