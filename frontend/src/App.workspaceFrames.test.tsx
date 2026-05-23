@@ -1,15 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { autosaveClient } from './test/apiClients';
 import { openCellEditor, openSheetContextMenu, resizeHandle, workspaceSurface } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-
-afterEach(() => {
-  cleanup();
-});
 
 describe('App workspace and sheet frame integration', () => {
   it('renders an empty workbook without sheet frames', () => {

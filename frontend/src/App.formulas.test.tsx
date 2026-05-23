@@ -1,13 +1,9 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { openCellEditor, openSheetContextMenu } from './test/appScreen';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-
-afterEach(() => {
-  cleanup();
-});
 
 describe('App formula integration', () => {
   it('displays mixed-case spaced multiline formulas while preserving raw edit text', async () => {

@@ -1,13 +1,9 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { testRect } from './test/domGeometry';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-
-afterEach(() => {
-  cleanup();
-});
 
 describe('App grid rendering and navigation', () => {
   it('renders new sheets as default 10-column by 20-row grids without stored cells', () => {

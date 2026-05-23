@@ -1,15 +1,11 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { autosaveClient, deferred } from './test/apiClients';
 import { openCellEditor } from './test/appScreen';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 import type { Workbook } from './workbook';
-
-afterEach(() => {
-  cleanup();
-});
 
 describe('App autosave integration', () => {
   it('autosaves committed sheet creation and reports app-level save status', async () => {
