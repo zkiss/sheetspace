@@ -1,15 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { persistedWorkbookClient } from './test/apiClients';
 import { createSheetFromToolbar, openCellEditor, openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
 import { workbookWithSheets } from './test/workbookFactories';
-
-afterEach(() => {
-  cleanup();
-});
 
 describe('App MVP workflow', () => {
   it(

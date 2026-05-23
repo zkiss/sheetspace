@@ -1,13 +1,9 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from './test/appScreen';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-
-afterEach(() => {
-  cleanup();
-});
 
 describe('App cell editing integration', () => {
   it('commits an active edit when keyboard focus moves to another cell', async () => {

@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import {
   createSheetFromToolbar,
@@ -10,10 +10,6 @@ import {
 } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-
-afterEach(() => {
-  cleanup();
-});
 
 describe('App sheet management integration', () => {
   it('creates a named sheet from the workspace context menu at the clicked coordinate', async () => {
