@@ -25,7 +25,7 @@ br sync --flush-only
 6. Make the smallest focused change that satisfies the bead.
 7. Run relevant checks and record what passed or was skipped.
 8. Export bead changes and open a PR containing code, docs, and `.beads/` updates.
-9. Invoke a strict reviewer subagent with the bead id, current diff, changed files, and check results.
+9. Invoke a strict reviewer subagent with clean context, and pass it all the relevant information it needs to perform an unbiased review: the bead id, current diff, changed files, and check results.
 10. Do not edit while review is active. If files change, restart review.
 11. Address review feedback until the reviewer passes the work.
 12. Update the PR with final code and bead export.
