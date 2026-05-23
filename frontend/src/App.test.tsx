@@ -2,173 +2,22 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { autosaveClient, deferred, persistedWorkbookClient } from './test/apiClients';
 import {
-  appendColumn,
-  appendRow,
-  commitCellRawContent,
-  createSheet,
-  renameSheet,
-  type Sheet,
-  type Workbook,
-  type WorkspacePosition,
-} from './workbook';
-import { WorkbookApiError, type WorkbookApi } from './workbookApi';
+  createSheetFromToolbar,
+  openCellEditor,
+  openSheetContextMenu,
+  resizeHandle,
+  workspaceSurface,
+} from './test/appScreen';
+import { testRect, workspaceRect } from './test/domGeometry';
+import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import type { Workbook } from './workbook';
+import { WorkbookApiError } from './workbookApi';
 
 afterEach(() => {
   cleanup();
 });
-
-function workspaceSurface() {
-  return screen.getByTestId('workspace-surface');
-}
-
-async function createSheetFromToolbar(name: string) {
-  const user = userEvent.setup();
-
-  await user.click(screen.getByRole('button', { name: /new sheet/i }));
-  await user.type(screen.getByLabelText(/sheet name/i), name);
-  await user.click(screen.getByRole('button', { name: /^create$/i }));
-}
-
-function positionedSheet(id: string, name: string, position: WorkspacePosition) {
-  const result = createSheet({ id, name, position });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-
-  return result.value;
-}
-
-function workbookWithSheets(sheets: Workbook['sheets']): Workbook {
-  return {
-    version: 1,
-    sheets,
-  };
-}
-
-function testRect({ height, left, top, width }: { height: number; left: number; top: number; width: number }) {
-  return {
-    bottom: top + height,
-    height,
-    left,
-    right: left + width,
-    top,
-    width,
-    x: left,
-    y: top,
-    toJSON: () => undefined,
-  } as DOMRect;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((promiseResolve, promiseReject) => {
-    resolve = promiseResolve;
-    reject = promiseReject;
-  });
-
-  return { promise, resolve, reject };
-}
-
-function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
-  return {
-    loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetPosition: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetFrameSize: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetZIndex: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateCellContent: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    appendRow: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    appendColumn: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    ...overrides,
-  } satisfies WorkbookApi;
-}
-
-function persistedWorkbookClient(initialWorkbook: Workbook = workbookWithSheets([])) {
-  let persistedWorkbook = initialWorkbook;
-
-  const updateSheet = (sheetId: string, update: (sheet: Sheet) => Sheet) => {
-    persistedWorkbook = {
-      ...persistedWorkbook,
-      sheets: persistedWorkbook.sheets.map((sheet) => (sheet.id === sheetId ? update(sheet) : sheet)),
-    };
-
-    return persistedWorkbook;
-  };
-
-  return {
-    loadWorkbook: vi.fn().mockImplementation(async () => persistedWorkbook),
-    createSheet: vi.fn().mockImplementation(async (sheet: Sheet) => {
-      const result = createSheet({
-        id: sheet.id,
-        name: sheet.name,
-        existingSheets: persistedWorkbook.sheets,
-        position: sheet.position,
-        zIndex: sheet.zIndex,
-      });
-      if (result.ok) {
-        persistedWorkbook = workbookWithSheets([...persistedWorkbook.sheets, result.value]);
-      }
-
-      return persistedWorkbook;
-    }),
-    renameSheet: vi.fn().mockImplementation(async (sheetId: string, name: string) => {
-      const result = renameSheet(persistedWorkbook, sheetId, name);
-      if (result.ok) {
-        persistedWorkbook = result.value;
-      }
-
-      return persistedWorkbook;
-    }),
-    updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string, position: WorkspacePosition) =>
-      updateSheet(sheetId, (sheet) => ({
-        ...sheet,
-        position,
-      })),
-    ),
-    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string, frameSize: Sheet['frameSize']) =>
-      updateSheet(sheetId, (sheet) => ({
-        ...sheet,
-        frameSize,
-      })),
-    ),
-    updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string, zIndex: number) =>
-      updateSheet(sheetId, (sheet) => ({
-        ...sheet,
-        zIndex,
-      })),
-    ),
-    updateCellContent: vi.fn().mockImplementation(async (sheetId: string, cellKey: string, raw: string) => {
-      persistedWorkbook = commitCellRawContent(persistedWorkbook, sheetId, cellKey, raw);
-      return persistedWorkbook;
-    }),
-    appendRow: vi.fn().mockImplementation(async (sheetId: string) => updateSheet(sheetId, appendRow)),
-    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => updateSheet(sheetId, appendColumn)),
-  } satisfies WorkbookApi;
-}
-
-async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HTMLElement) {
-  await user.dblClick(cell);
-  return within(cell).getByRole('textbox');
-}
-
-function openSheetContextMenu(frame: HTMLElement, clientX = 120, clientY = 80) {
-  fireEvent.contextMenu(frame, { clientX, clientY });
-  return screen.getByRole('menu');
-}
-
-function resizeHandle(frame: HTMLElement, handle: string) {
-  const match = within(frame)
-    .getAllByTestId('sheet-frame-resize-handle')
-    .find((candidate) => candidate.dataset.resizeHandle === handle);
-  if (!match) {
-    throw new Error(`Missing resize handle ${handle}`);
-  }
-
-  return match;
-}
 
 describe('App workspace', () => {
   it('loads the current workbook before showing the editable workspace', async () => {
@@ -260,18 +109,7 @@ describe('App workspace', () => {
       await createSheetFromToolbar('Inputs');
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
 
-      workspaceSurface().getBoundingClientRect = () =>
-        ({
-          left: 20,
-          top: 30,
-          right: 1020,
-          bottom: 830,
-          width: 1000,
-          height: 800,
-          x: 20,
-          y: 30,
-          toJSON: () => undefined,
-        }) as DOMRect;
+      workspaceSurface().getBoundingClientRect = workspaceRect;
       fireEvent.contextMenu(workspaceSurface(), { clientX: 440, clientY: 290 });
       await user.type(screen.getByLabelText(/sheet name/i), 'Outputs');
       await user.click(screen.getByRole('button', { name: /^create$/i }));
@@ -1061,18 +899,7 @@ describe('App workspace', () => {
       />,
     );
 
-    workspaceSurface().getBoundingClientRect = () =>
-      ({
-        left: 20,
-        top: 30,
-        right: 1020,
-        bottom: 830,
-        width: 1000,
-        height: 800,
-        x: 20,
-        y: 30,
-        toJSON: () => undefined,
-      }) as DOMRect;
+    workspaceSurface().getBoundingClientRect = workspaceRect;
 
     fireEvent.wheel(workspaceSurface(), { clientX: 220, clientY: 180, deltaY: -100 });
 
@@ -2178,18 +2005,7 @@ describe('App workspace', () => {
     const user = userEvent.setup();
     render(<App initialWorkbook={workbookWithSheets([])} />);
 
-    workspaceSurface().getBoundingClientRect = () =>
-      ({
-        left: 20,
-        top: 30,
-        right: 1020,
-        bottom: 830,
-        width: 1000,
-        height: 800,
-        x: 20,
-        y: 30,
-        toJSON: () => undefined,
-      }) as DOMRect;
+    workspaceSurface().getBoundingClientRect = workspaceRect;
     await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
 
     fireEvent.contextMenu(workspaceSurface(), { clientX: 240, clientY: 330 });
