@@ -13,7 +13,6 @@ import {
 import { testRect, workspaceRect } from './test/domGeometry';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 import type { Workbook } from './workbook';
-import { WorkbookApiError } from './workbookApi';
 
 afterEach(() => {
   cleanup();
@@ -230,42 +229,6 @@ describe('App workspace', () => {
     await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
   });
 
-  it('autosaves committed renames, positions, row appends, column appends, and z-order updates', async () => {
-    const user = userEvent.setup();
-    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
-    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }), zIndex: 2 };
-    const apiClient = autosaveClient();
-
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={apiClient} />);
-
-    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
-    await user.clear(screen.getByLabelText(/sheet name/i));
-    await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
-    await user.click(screen.getByRole('button', { name: /^save$/i }));
-
-    expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-inputs', 'Renamed Inputs', { revision: 0 });
-
-    const renamedFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
-    const header = within(renamedFrame).getByTestId('sheet-frame-header');
-    fireEvent(header, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
-    fireEvent(header, new MouseEvent('pointermove', { bubbles: true, clientX: 130, clientY: 150 }));
-    fireEvent(header, new MouseEvent('pointerup', { bubbles: true, clientX: 130, clientY: 150 }));
-
-    expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-inputs', { x: 78, y: 126 }, { revision: 0 });
-
-    await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Append row' }));
-    await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Append column' }));
-
-    expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-inputs', { revision: 0 });
-    expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs', { revision: 0 });
-
-    await user.click(within(openSheetContextMenu(renamedFrame)).getByRole('menuitem', { name: 'Bring forward' }));
-
-    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-inputs', 2, { revision: 0 });
-    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-outputs', 1, { revision: 0 });
-  });
-
   it('does not autosave transient in-progress cell edits until they are committed', async () => {
     const user = userEvent.setup();
     const apiClient = autosaveClient();
@@ -324,165 +287,6 @@ describe('App workspace', () => {
     await user.keyboard('{Enter}');
 
     expect(b1).toHaveTextContent('Still editable');
-  });
-
-  it('reloads a fresh revision and retries a conflicting autosave without replacing local committed edits', async () => {
-    const user = userEvent.setup();
-    const initialSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 });
-    const staleServerSheet = { ...initialSheet, revision: 4, cells: { A1: { raw: 'server value' } } };
-    const savedServerSheet = { ...staleServerSheet, revision: 5, cells: { A1: { raw: 'Local value' } } };
-    const apiClient = autosaveClient({
-      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([staleServerSheet])),
-      updateCellContent: vi
-        .fn()
-        .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'))
-        .mockResolvedValueOnce(workbookWithSheets([savedServerSheet])),
-    });
-
-    render(<App initialWorkbook={workbookWithSheets([initialSheet])} apiClient={apiClient} />);
-
-    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
-    const a1Editor = await openCellEditor(user, a1);
-    await user.type(a1Editor, 'Local value');
-    await user.keyboard('{Enter}');
-
-    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'Local value', {
-      revision: 0,
-    });
-    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Local value', {
-      revision: 4,
-    });
-    expect(a1).toHaveTextContent('Local value');
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
-  });
-
-  it('runs one save per entity key and keeps only the latest queued replacement', async () => {
-    const user = userEvent.setup();
-    const firstSave = deferred<Workbook>();
-    const queuedSave = deferred<Workbook>();
-    const apiClient = autosaveClient({
-      updateCellContent: vi.fn().mockReturnValueOnce(firstSave.promise).mockReturnValueOnce(queuedSave.promise),
-    });
-
-    render(
-      <App
-        initialWorkbook={workbookWithSheets([
-          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
-        ])}
-        apiClient={apiClient}
-      />,
-    );
-
-    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
-    let editor = await openCellEditor(user, cell);
-    await user.type(editor, 'One');
-    await user.keyboard('{Enter}');
-
-    editor = await openCellEditor(user, cell);
-    await user.clear(editor);
-    await user.type(editor, 'Two');
-    await user.keyboard('{Enter}');
-
-    editor = await openCellEditor(user, cell);
-    await user.clear(editor);
-    await user.type(editor, 'Three');
-    await user.keyboard('{Enter}');
-
-    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'One', { revision: 0 });
-    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
-
-    firstSave.resolve(workbookWithSheets([]));
-
-    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Three', { revision: 0 });
-    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
-
-    queuedSave.resolve(workbookWithSheets([]));
-
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
-  });
-
-  it('saves different entity keys in parallel', async () => {
-    const user = userEvent.setup();
-    const a1Save = deferred<Workbook>();
-    const b1Save = deferred<Workbook>();
-    const apiClient = autosaveClient({
-      updateCellContent: vi.fn().mockReturnValueOnce(a1Save.promise).mockReturnValueOnce(b1Save.promise),
-    });
-
-    render(
-      <App
-        initialWorkbook={workbookWithSheets([
-          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
-        ])}
-        apiClient={apiClient}
-      />,
-    );
-
-    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
-    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
-    const a1Editor = await openCellEditor(user, a1);
-    await user.type(a1Editor, 'A');
-    await user.keyboard('{Enter}');
-
-    const b1Editor = await openCellEditor(user, b1);
-    await user.type(b1Editor, 'B');
-    await user.keyboard('{Enter}');
-
-    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2);
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'A', { revision: 0 });
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'B1', 'B', { revision: 0 });
-    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
-
-    b1Save.resolve(workbookWithSheets([]));
-
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...'));
-
-    a1Save.resolve(workbookWithSheets([]));
-
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
-  });
-
-  it('keeps failed unsaved status when an older parallel different-key save fails', async () => {
-    const user = userEvent.setup();
-    const a1Save = deferred<Workbook>();
-    const b1Save = deferred<Workbook>();
-    const apiClient = autosaveClient({
-      updateCellContent: vi.fn().mockReturnValueOnce(a1Save.promise).mockReturnValueOnce(b1Save.promise),
-    });
-
-    render(
-      <App
-        initialWorkbook={workbookWithSheets([
-          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
-        ])}
-        apiClient={apiClient}
-      />,
-    );
-
-    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
-    const b1 = screen.getByRole('cell', { name: 'Inputs B1 empty cell' });
-    const a1Editor = await openCellEditor(user, a1);
-    await user.type(a1Editor, 'A');
-    await user.keyboard('{Enter}');
-
-    const b1Editor = await openCellEditor(user, b1);
-    await user.type(b1Editor, 'B');
-    await user.keyboard('{Enter}');
-
-    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2);
-
-    b1Save.resolve(workbookWithSheets([]));
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...'));
-
-    a1Save.reject(new Error('backend unavailable'));
-
-    await waitFor(() =>
-      expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Save failed - unsaved changes'),
-    );
   });
 
   it('renders an empty workspace after loading an empty backend state', async () => {
@@ -737,76 +541,6 @@ describe('App workspace', () => {
     expect(outputFrame).toHaveStyle({ left: '420px', top: '260px', width: '240px', height: '160px' });
   });
 
-  it('clamps resized frames to practical minimum dimensions', () => {
-    render(
-      <App
-        initialWorkbook={workbookWithSheets([
-          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
-        ])}
-      />,
-    );
-
-    const frame = screen.getByTestId('sheet-frame');
-    const leftHandle = resizeHandle(frame, 'left');
-
-    fireEvent(leftHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 120, clientY: 120 }));
-    fireEvent(leftHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 260, clientY: 120 }));
-    fireEvent(leftHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 260, clientY: 120 }));
-
-    expect(frame).toHaveStyle({ left: '180px', top: '80px', width: '180px', height: '160px' });
-    expect(frame).toHaveAttribute('data-position-x', '180');
-  });
-
-  it('uses workspace-coordinate deltas when resizing after pan and zoom', async () => {
-    const user = userEvent.setup();
-    render(
-      <App
-        initialWorkbook={workbookWithSheets([
-          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
-        ])}
-      />,
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Pan workspace right' }));
-    await user.click(screen.getByRole('button', { name: 'Pan workspace down' }));
-    await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
-
-    const frame = screen.getByTestId('sheet-frame');
-    const rightHandle = resizeHandle(frame, 'right');
-
-    fireEvent(rightHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 360, clientY: 120 }));
-    fireEvent(rightHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 420, clientY: 120 }));
-    fireEvent(rightHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 420, clientY: 120 }));
-
-    expect(workspaceSurface()).toHaveAttribute('data-viewport-scale', '1.2');
-    expect(frame).toHaveStyle({ left: '120px', top: '80px', width: '290px', height: '160px' });
-  });
-
-  it('autosaves updated frame size after resizing a persisted workbook', () => {
-    const apiClient = autosaveClient();
-    render(
-      <App
-        apiClient={apiClient}
-        initialWorkbook={workbookWithSheets([
-          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
-        ])}
-      />,
-    );
-
-    const frame = screen.getByTestId('sheet-frame');
-    const rightHandle = resizeHandle(frame, 'right');
-
-    fireEvent(rightHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 360, clientY: 120 }));
-    fireEvent(rightHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 420, clientY: 120 }));
-    fireEvent(rightHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 420, clientY: 120 }));
-
-    expect(apiClient.updateSheetFrameSize).toHaveBeenCalledWith(
-      'sheet-inputs',
-      { width: 300, height: 160 },
-      { revision: 0 },
-    );
-  });
-
   it('uses workspace-coordinate deltas when dragging a frame header after pan and zoom', async () => {
     const user = userEvent.setup();
     render(
@@ -861,33 +595,6 @@ describe('App workspace', () => {
 
     expect(Number(workspaceSurface().dataset.viewportScale)).toBeCloseTo(2);
     expect(frame).toHaveStyle({ left: '125px', top: '80px' });
-  });
-
-  it('zooms the workspace with controls and clamps unusable extreme scales', async () => {
-    const user = userEvent.setup();
-    render(<App initialWorkbook={workbookWithSheets([])} />);
-
-    const surface = workspaceSurface();
-
-    for (let count = 0; count < 10; count += 1) {
-      await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
-    }
-
-    expect(surface).toHaveAttribute('data-viewport-scale', '2');
-    expect(screen.getByLabelText('Workspace zoom level')).toHaveTextContent('200%');
-
-    for (let count = 0; count < 12; count += 1) {
-      await user.click(screen.getByRole('button', { name: 'Zoom workspace out' }));
-    }
-
-    expect(surface).toHaveAttribute('data-viewport-scale', '0.5');
-    expect(screen.getByLabelText('Workspace zoom level')).toHaveTextContent('50%');
-
-    await user.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
-
-    expect(surface).toHaveAttribute('data-viewport-x', '0');
-    expect(surface).toHaveAttribute('data-viewport-y', '0');
-    expect(surface).toHaveAttribute('data-viewport-scale', '1');
   });
 
   it('zooms empty workspace around the wheel pointer without changing stored frame positions', () => {

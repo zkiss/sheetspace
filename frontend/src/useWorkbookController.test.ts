@@ -1,12 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  createSheet,
-  type Sheet,
-  type Workbook,
-  type WorkspacePosition,
-} from './workbook';
-import type { WorkbookApi } from './workbookApi';
+import { createSheet, type Sheet, type Workbook, type WorkspacePosition } from './workbook';
+import { WorkbookApiError, type WorkbookApi } from './workbookApi';
 import { useWorkbookController } from './useWorkbookController';
 
 function workbookWithSheets(sheets: Workbook['sheets']): Workbook {
@@ -118,5 +113,128 @@ describe('useWorkbookController', () => {
     expect(result.current.workbook.sheets[0].cells.A1).toEqual({ raw: '7' });
     expect(result.current.formulaResults['sheet-inputs'].B1.display).toBe('7');
     expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', '7', { revision: 0 });
+  });
+
+  it('keeps local committed cell edits while retrying a conflicting revisioned autosave', async () => {
+    const initialSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const staleServerSheet: Sheet = { ...initialSheet, revision: 4, cells: { A1: { raw: 'server value' } } };
+    const savedServerSheet: Sheet = { ...staleServerSheet, revision: 5, cells: { A1: { raw: 'Local value' } } };
+    const apiClient = autosaveClient({
+      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([staleServerSheet])),
+      updateCellContent: vi
+        .fn()
+        .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'))
+        .mockResolvedValueOnce(workbookWithSheets([savedServerSheet])),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([initialSheet]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.updateCellContent('sheet-inputs', 'A1', 'Local value');
+    });
+
+    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'Local value', {
+      revision: 0,
+    });
+    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Local value', {
+      revision: 4,
+    });
+    expect(result.current.workbook.sheets[0].cells.A1).toEqual({ raw: 'Local value' });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  });
+
+  it('renames sheets through autosave with the current revision token', () => {
+    const apiClient = autosaveClient();
+    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 4 };
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([sheet]),
+      }),
+    );
+
+    act(() => {
+      const renamed = result.current.commands.renameSheet('sheet-inputs', 'Renamed Inputs');
+      expect(renamed.ok).toBe(true);
+    });
+
+    expect(result.current.workbook.sheets[0].name).toBe('Renamed Inputs');
+    expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-inputs', 'Renamed Inputs', { revision: 4 });
+  });
+
+  it('appends rows and columns through autosave with revision tokens', () => {
+    const apiClient = autosaveClient();
+    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 5 };
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([sheet]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.appendRow('sheet-inputs');
+    });
+    act(() => {
+      result.current.commands.appendColumn('sheet-inputs');
+    });
+
+    expect(result.current.workbook.sheets[0].rowCount).toBe(21);
+    expect(result.current.workbook.sheets[0].columnCount).toBe(11);
+    expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-inputs', { revision: 5 });
+    expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs', { revision: 5 });
+  });
+
+  it('persists committed frame size and anchored position updates separately', () => {
+    const apiClient = autosaveClient();
+    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }), revision: 6 };
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([sheet]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.resizeSheetFrame('sheet-inputs', { x: 180, y: 80 }, { width: 180, height: 160 });
+    });
+
+    expect(result.current.workbook.sheets[0]).toMatchObject({
+      frameSize: { width: 180, height: 160 },
+      position: { x: 180, y: 80 },
+    });
+    expect(apiClient.updateSheetFrameSize).toHaveBeenCalledWith(
+      'sheet-inputs',
+      { width: 180, height: 160 },
+      { revision: 6 },
+    );
+    expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-inputs', { x: 180, y: 80 }, { revision: 6 });
+  });
+
+  it('persists z-order changes for every sheet whose z-index changes', () => {
+    const apiClient = autosaveClient();
+    const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 7, zIndex: 1 };
+    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 20 }), revision: 8, zIndex: 2 };
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([inputs, outputs]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.changeSheetZOrder('sheet-inputs', 'up');
+    });
+
+    expect(result.current.workbook.sheets.find((sheet) => sheet.id === 'sheet-inputs')?.zIndex).toBe(2);
+    expect(result.current.workbook.sheets.find((sheet) => sheet.id === 'sheet-outputs')?.zIndex).toBe(1);
+    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-inputs', 2, { revision: 7 });
+    expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-outputs', 1, { revision: 8 });
   });
 });
