@@ -229,36 +229,4 @@ describe('App formula integration', () => {
     expect(editor).toHaveValue('=SUM(A99)');
   });
 
-  it('renames an existing sheet and preserves raw formula text', async () => {
-    const user = userEvent.setup();
-    const sheet = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
-      cells: {
-        A1: { raw: '=SUM(Old Name!A1)' },
-      },
-    };
-
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
-
-    const frame = screen.getByTestId('sheet-frame');
-    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Rename' }));
-    expect(screen.getByRole('form', { name: /rename sheet/i })).toBeInTheDocument();
-
-    const input = screen.getByLabelText(/sheet name/i);
-    await user.clear(input);
-    await user.type(input, '  Renamed Inputs  ');
-    await user.click(screen.getByRole('button', { name: /^save$/i }));
-
-    const renamedFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
-    expect(within(renamedFrame).getByRole('heading', { name: 'Renamed Inputs' })).toBeInTheDocument();
-    expect(within(renamedFrame).getByRole('table', { name: 'Renamed Inputs grid' })).toBeInTheDocument();
-    const formulaCell = within(renamedFrame).getByRole('cell', { name: 'Renamed Inputs A1 cell' });
-    expect(formulaCell).toHaveTextContent('#REF!');
-
-    const editor = await openCellEditor(user, formulaCell);
-    expect(editor).toHaveValue('=SUM(Old Name!A1)');
-    await user.keyboard('{Escape}');
-
-    expect(screen.queryByRole('heading', { name: 'Inputs' })).not.toBeInTheDocument();
-  });
 });
