@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -25,6 +25,59 @@ describe('App formula integration', () => {
 
     const editor = await openCellEditor(user, formulaCell);
     expect(editor).toHaveValue(rawFormula);
+    expect(editor).toHaveAttribute('data-multiline-editor', 'true');
+    expect(editor).toHaveAttribute('data-max-width', '28rem');
+    expect(editor).toHaveAttribute('data-max-height', '12rem');
+  });
+
+  it('commits multiline formula edits exactly and recomputes the visible result', async () => {
+    const user = userEvent.setup();
+    const rawFormula = '=SUM(\n\tB1,\n B2\n)';
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '=SUM(B1)' },
+        B1: { raw: '3' },
+        B2: { raw: '5' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('3');
+
+    const editor = await openCellEditor(user, formulaCell);
+    fireEvent.change(editor, { target: { value: rawFormula } });
+    await user.keyboard('{Enter}');
+
+    expect(formulaCell).toHaveTextContent('8');
+    expect(await openCellEditor(user, formulaCell)).toHaveValue(rawFormula);
+  });
+
+  it('cancels multiline formula error edits without mutating raw content', async () => {
+    const user = userEvent.setup();
+    const rawFormula = '=SUM(\n  B1,\n)';
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: rawFormula },
+        B1: { raw: '4' },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const errorCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    expect(errorCell).toHaveTextContent('#PARSE!');
+
+    const editor = await openCellEditor(user, errorCell);
+    expect(editor).toHaveAttribute('data-multiline-editor', 'true');
+    fireEvent.change(editor, { target: { value: '=SUM(B1)' } });
+    await user.keyboard('{Escape}');
+
+    expect(errorCell).toHaveTextContent('#PARSE!');
+    expect(await openCellEditor(user, errorCell)).toHaveValue(rawFormula);
   });
 
   it('displays cross-sheet formula results outside edit mode', async () => {
