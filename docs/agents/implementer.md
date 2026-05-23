@@ -1,122 +1,56 @@
 # Implementer protocol
 
-## Scope discipline
+Implementers own one bead from pickup through merged PR, unless blocked or redirected.
 
 The active bead is the implementation boundary. Preserve existing conventions unless the bead requires changing them.
 
-Prefer small, focused, testable changes. Avoid unrelated cleanup or reorganisation. If unrelated work is discovered, create a bead for it. Only fix it immediately if it blocks the active bead, is a tiny touched-code fix, or would otherwise leave the repo broken.
+## Commands
 
-## Product and scope decisions
-
-Do not invent product decisions, UX behaviour, technical constraints, or scope trade-offs that are not specified by the plan, the active bead, or explicit user instructions.
-
-If a decision is needed to complete the active bead, stop and surface the question clearly unless the user explicitly delegated that type of decision.
-
-When a decision is needed:
-
-1. State the decision required.
-2. Explain why it blocks or affects the current work.
-3. List realistic options, with trade-offs if useful.
-4. Recommend a default only if there is a clearly safe default.
-5. Create an `ask-human` / `question` bead if the decision should be tracked.
-
-It is acceptable to continue with work clearly unaffected by the unresolved decision. Do not continue with work that depends on a guessed answer.
-
-If the decision affects other beads, update the dependency graph so blocked beads depend on the decision bead. If it only affects part of the work, split the work: complete the independent part, create or update beads for the blocked part, and record the dependency.
-
-## Plan and bead consistency
-
-Keep the plan and beads consistent.
-
-The plan describes intended product direction. Beads describe the current executable breakdown. They should not silently contradict each other.
-
-If a bead intentionally diverges from the plan, the bead must say so explicitly and explain why. Examples:
-
-- reduced MVP scope
-- deferred functionality
-- temporary omissions
-- implementation shortcuts
-- changed assumptions
-
-If the active bead and plan conflict:
-
-1. Do not guess.
-2. Treat the active bead as immediate implementation scope.
-3. Record the conflict in the bead or create a follow-up/decision bead.
-4. Update dependencies if the conflict blocks other work.
-5. Ask the user if the correct direction is not clear.
-
-When closing or materially changing beads, check whether relevant plan files need a small update to avoid stale or contradictory guidance.
-
-## Implementation flow
-
-Before editing:
-
-1. Inspect the active bead.
-2. Inspect relevant plan sections.
-3. Inspect relevant existing code.
-4. Check git status.
-5. Check the current branch.
-6. If currently on `main`, `master`, or the repository default branch and the work may be committed, create or switch to a feature branch before editing.
-7. Check Agent Mail if available.
-8. Reserve intended edit surfaces if Agent Mail file reservations are available.
-
-During implementation:
-
-- keep changes focused on the bead
-- run relevant checks when practical
-- record skipped checks and remaining risk
-- create/update beads for follow-up work
-- request dedicated reviewer subagent review before closing
-- do not close if reviewer subagents are unavailable unless the user explicitly waives review
-
-## Git and session close
-
-Before staging or committing:
+Use `--help` for details. These are the commands implementers normally need:
 
 ```bash
-git status
-git branch --show-current
-```
-
-If the current branch is `main`, `master`, or the repository default branch, do not commit. Switch to a feature branch first, or leave the changes uncommitted and state that explicitly in the final response.
-
-If a commit is accidentally made on `main`, preserve it on a feature branch before resetting local `main` to `origin/main`.
-
-Stage code/docs changes intentionally:
-
-```bash
-git add <files>
-```
-
-Sync Beads after bead changes:
-
-```bash
+bv --robot-next --format toon
+br update <id> --status=in_progress
+br close <id> --reason="Completed"
 br sync --flush-only
 ```
 
-Then stage exported bead state:
+## Flow
 
-```bash
-git add .beads/
-```
+1. Refresh `main` from `origin/main`.
+2. Pick the next ready bead, unless the user named the work.
+3. Create a feature branch from `main`.
+4. Mark the bead `in_progress`.
+5. Read the bead, relevant plan context, relevant code, and git status.
+6. Make the smallest focused change that satisfies the bead.
+7. Run relevant checks and record what passed or was skipped.
+8. Export bead changes and open a PR containing code, docs, and `.beads/` updates.
+9. Invoke a strict reviewer subagent with the bead id, current diff, changed files, and check results.
+10. Do not edit while review is active. If files change, restart review.
+11. Address review feedback until the reviewer passes the work.
+12. Update the PR with final code and bead export.
+13. Close the bead, export bead state, and update the PR.
+14. Merge with a commit message that includes the PR number, matching current history.
+15. Refresh `main` after merge.
 
-Check final staged state:
+Never commit on `main`.
 
-```bash
-git status
-```
+## Scope
 
-Commit with the bead id in the message:
+Keep changes focused. Do not use the plan as permission for adjacent features, future ideas, broad refactors, or speculative architecture.
 
-```bash
-git commit -m "br-123: concise description"
-```
+If new work is needed, invoke the planner with the bead, relevant plan context, and what was discovered. The planner decides how to create or connect follow-up beads.
 
-Push when appropriate:
+If a human decision is needed, stop on that part and make the question explicit.
 
-```bash
-git push
-```
+## Done
 
-Do not forget the second `git add .beads/` after `br sync --flush-only`.
+A bead is ready to close when:
+
+- acceptance criteria are satisfied
+- relevant checks have run, or skipped checks and risk are recorded
+- strict reviewer subagent feedback has passed or is explicitly waived by the user
+- follow-up work has been given to the planner
+- bead state is exported, included in the PR, and merged
+
+If reviewer subagents are unavailable, say so and do not close the bead unless the user explicitly waives review.
