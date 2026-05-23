@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSheet } from './workbook';
-import { SheetGridCell } from './SheetGridCell';
+import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from './SheetGridCell';
 import type { EditingCell } from './appTypes';
 
 afterEach(() => {
@@ -89,5 +89,26 @@ describe('SheetGridCell', () => {
 
     fireEvent.keyDown(editor, { key: 'Escape' });
     expect(props.onCancelEdit).toHaveBeenCalled();
+  });
+
+  it('anchors multiline editor sizing to the cell with documented maximum dimensions', () => {
+    const editingCell: EditingCell = {
+      sheetId: 'sheet-inputs',
+      cellKey: 'A1',
+      value: '=SUM(\n  B1,\n  B2,\n  B3,\n  B4,\n  B5,\n  B6,\n  B7,\n  B8,\n  B9\n)',
+    };
+
+    renderCell({ editingCell, isEditing: true });
+
+    const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
+    expect(editor).toHaveAttribute('data-multiline-editor', 'true');
+    expect(editor).toHaveAttribute('data-max-width', CELL_EDITOR_MAX_WIDTH);
+    expect(editor).toHaveAttribute('data-max-height', CELL_EDITOR_MAX_HEIGHT);
+    expect(editor).toHaveAttribute('data-visible-lines', '8');
+    expect(editor).toHaveStyle({
+      maxHeight: CELL_EDITOR_MAX_HEIGHT,
+      maxWidth: CELL_EDITOR_MAX_WIDTH,
+      overflow: 'auto',
+    });
   });
 });
