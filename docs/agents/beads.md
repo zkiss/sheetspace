@@ -4,7 +4,7 @@ Beads are the durable issue-tracking system for this repo.
 
 - `bv` reads the bead graph and recommends useful work.
 - `br` mutates bead state: create, update, close, dependencies, sync.
-- `.beads/` is tracked in git; after bead mutations, export/sync it and commit the result.
+- `.beads/` is tracked in git; after bead mutations, export/sync it and include it in the same feature-branch commit as the code/docs changes. Never commit bead mutations directly on `main`.
 
 Use `bv` for choosing work. Use `br` for managing work. Do not parse or edit `.beads/`.
 
@@ -38,7 +38,7 @@ br dep add <issue> <depends-on>
 br close <id> --reason="Completed"
 ```
 
-Use `br sync --flush-only` before committing bead changes, then stage `.beads/`:
+Use `br sync --flush-only` before committing bead changes, then stage `.beads/` on the feature branch:
 
 ```bash
 br sync --flush-only

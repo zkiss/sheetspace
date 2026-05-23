@@ -56,8 +56,10 @@ Before editing:
 2. Inspect relevant plan sections.
 3. Inspect relevant existing code.
 4. Check git status.
-5. Check Agent Mail if available.
-6. Reserve intended edit surfaces if Agent Mail file reservations are available.
+5. Check the current branch.
+6. If currently on `main`, `master`, or the repository default branch and the work may be committed, create or switch to a feature branch before editing.
+7. Check Agent Mail if available.
+8. Reserve intended edit surfaces if Agent Mail file reservations are available.
 
 During implementation:
 
@@ -70,11 +72,16 @@ During implementation:
 
 ## Git and session close
 
-Before committing:
+Before staging or committing:
 
 ```bash
 git status
+git branch --show-current
 ```
+
+If the current branch is `main`, `master`, or the repository default branch, do not commit. Switch to a feature branch first, or leave the changes uncommitted and state that explicitly in the final response.
+
+If a commit is accidentally made on `main`, preserve it on a feature branch before resetting local `main` to `origin/main`.
 
 Stage code/docs changes intentionally:
 

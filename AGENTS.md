@@ -34,6 +34,20 @@ Work on one bead at a time unless explicitly instructed otherwise. Use the activ
 
 If extra work appears necessary, create or update a bead rather than silently expanding scope.
 
+## Git branch rule
+
+`main` must match `origin/main`. Agents must not commit on `main`, `master`, or the repository default branch.
+
+Before making implementation changes that may be committed, create or switch to a feature branch. When starting from `main` with a clean worktree, use a branch name like:
+
+```bash
+git switch -c codex/<bead-id>-<short-description>
+```
+
+If work is already in progress on `main`, do not commit there. Either create/switch to a feature branch before committing while preserving the worktree, or leave the changes uncommitted and report that they are ready but not committed.
+
+If a commit is accidentally made on `main`, immediately preserve it on a feature branch, then reset local `main` to `origin/main` before continuing.
+
 ## Required protocols
 
 Read the relevant protocol files before acting:
