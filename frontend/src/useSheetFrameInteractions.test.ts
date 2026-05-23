@@ -99,6 +99,26 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.moveSheetFrame).toHaveBeenCalledWith('sheet-inputs', { x: 30, y: 35 });
   });
 
+  it('accumulates scaled drag movement from total pointer displacement', () => {
+    const { commands: testCommands, result } = renderInteractions({ viewportScale: 2 });
+
+    act(() => {
+      result.current.handleSheetFrameDragStart(
+        'sheet-inputs',
+        pointerEvent({ clientX: 100, clientY: 120 }),
+      );
+
+      for (let clientX = 101; clientX <= 110; clientX += 1) {
+        result.current.handleSheetFrameDragMove(pointerEvent({ clientX, clientY: 120 }));
+      }
+
+      result.current.stopSheetFrameDrag(pointerEvent({ clientX: 110, clientY: 120 }));
+    });
+
+    expect(testCommands.previewSheetFrameLayout).toHaveBeenLastCalledWith('sheet-inputs', { x: 15, y: 20 });
+    expect(testCommands.moveSheetFrame).toHaveBeenCalledWith('sheet-inputs', { x: 15, y: 20 });
+  });
+
   it('does not commit an unchanged drag', () => {
     const { commands: testCommands, result } = renderInteractions();
 
