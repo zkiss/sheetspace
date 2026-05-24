@@ -3,6 +3,9 @@ import type { Sheet } from './workbook';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
 import { gridCellKeyboardAction } from './sheetGridModel';
 
+export const CELL_EDITOR_MAX_WIDTH = '28rem';
+export const CELL_EDITOR_MAX_HEIGHT = '12rem';
+
 function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
   if (!editor) {
     return;
@@ -122,11 +125,17 @@ export function SheetGridCellEditor({
   onEditValueChange: (value: string) => void;
   sheetName: string;
 }) {
+  const editorSizing = cellEditorSizing(editingCell.value);
+
   return (
     <textarea
       aria-label={`${sheetName} ${editingCell.cellKey} editor`}
       autoFocus
       className="sheet-grid-cell-editor"
+      data-max-height={CELL_EDITOR_MAX_HEIGHT}
+      data-max-width={CELL_EDITOR_MAX_WIDTH}
+      data-multiline-editor={editorSizing.multiline ? 'true' : undefined}
+      data-visible-lines={editorSizing.visibleLineCount}
       onBlur={(event) => onCommitEdit({ ...editingCell, value: event.currentTarget.value })}
       onChange={(event) => onEditValueChange(event.target.value)}
       onClick={(event) => event.stopPropagation()}
@@ -150,7 +159,29 @@ export function SheetGridCellEditor({
         }
       }}
       ref={moveEditorCaretToEnd}
+      style={{
+        height: editorSizing.height,
+        maxHeight: CELL_EDITOR_MAX_HEIGHT,
+        maxWidth: CELL_EDITOR_MAX_WIDTH,
+        overflow: 'auto',
+        width: editorSizing.width,
+      }}
       value={editingCell.value}
     />
   );
+}
+
+function cellEditorSizing(value: string) {
+  const lines = value.split('\n');
+  const lineCount = lines.length;
+  const longestLineLength = Math.max(...lines.map((line) => line.length), 0);
+  const visibleLineCount = Math.min(Math.max(lineCount, 1), 8);
+  const visibleColumnCount = Math.min(Math.max(longestLineLength + 2, 12), 64);
+
+  return {
+    height: `min(${CELL_EDITOR_MAX_HEIGHT}, max(1.65rem, ${visibleLineCount * 1.45}rem))`,
+    multiline: lineCount > 1,
+    visibleLineCount,
+    width: `min(${CELL_EDITOR_MAX_WIDTH}, max(100%, ${visibleColumnCount}ch))`,
+  };
 }
