@@ -28,6 +28,7 @@ Test evidence means sufficient tests exist for the change and the implementer re
 - weak or missing tests
 - unfocused refactors
 - incomplete bead or PR state
+- bead complexity that has become too broad to review confidently: too many files, too many concepts, or too many review rounds
 
 ## Output
 
@@ -39,5 +40,7 @@ Then state:
 - required changes
 - residual risks
 - whether the bead appears ready to close
+
+If the bead has become too complex, say so and recommend invoking the planner to split or adjust the bead graph.
 
 If there are no findings, say that directly.
