@@ -14,6 +14,10 @@ codex exec \
   -c model_reasoning_effort=medium \
   --json \
   --output-last-message "$last" \
+  --sandbox workspace-write \
+  --ask-for-approval never \
+  --add-dir ~/.gradle \
+  --add-dir `pwd -P` \
   "Implement next bead. Use subagents as instructed." >"$log"
 status=$?
 
