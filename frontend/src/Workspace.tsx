@@ -34,6 +34,7 @@ export function Workspace({
   onSelectCell,
   onStartEdit,
   saveStatus,
+  sheetIdRemaps,
   workbook,
 }: {
   activeCell: ActiveCellSelection | null;
@@ -52,6 +53,7 @@ export function Workspace({
   onSelectCell: (selection: ActiveCellSelection) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   saveStatus: SaveStatus;
+  sheetIdRemaps: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
   const workspaceController = useWorkspaceController({ onCreateSheet });
@@ -140,6 +142,7 @@ export function Workspace({
         onStartEdit={onStartEdit}
         onWheel={workspaceController.handleWorkspaceWheel}
         pendingSheetMenu={workspaceController.pendingSheetMenu}
+        sheetIdRemaps={sheetIdRemaps}
         sheets={workbook.sheets}
         viewport={workspaceController.viewport}
       />

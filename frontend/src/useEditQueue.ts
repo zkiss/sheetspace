@@ -7,12 +7,27 @@ type EditQueueTask = {
   key: string;
   run: () => Promise<Workbook>;
   reconcile: (savedWorkbook: Workbook) => void;
+  sheetId?: string;
 };
 
 type EditQueue = {
   running: EditQueueTask | null;
   queued: EditQueueTask | null;
 };
+
+type PendingSheetCreate = {
+  deleted: boolean;
+  promise: Promise<string>;
+  reject: (cause: unknown) => void;
+  resolve: (savedSheetId: string) => void;
+};
+
+class PendingSheetDeletedError extends Error {
+  constructor() {
+    super('Pending sheet was deleted before it became durable.');
+    this.name = 'PendingSheetDeletedError';
+  }
+}
 
 export function useEditQueue({
   autosaveEnabled,
@@ -26,8 +41,12 @@ export function useEditQueue({
   workbook: Workbook;
 }) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [sheetIdRemaps, setSheetIdRemaps] = useState<Readonly<Record<string, string>>>({});
   const editQueues = useRef(new Map<string, EditQueue>());
   const failedEditKeys = useRef(new Set<string>());
+  const knownSheetRevisions = useRef(new Map<string, number>());
+  const pendingSheetCreates = useRef(new Map<string, PendingSheetCreate>());
+  const sheetIdAliases = useRef(new Map<string, string>());
 
   const getApiMethod = useCallback(
     <K extends keyof WorkbookApi>(method: K): WorkbookApi[K] => resolvedApiClient[method] ?? workbookApi[method],
@@ -55,6 +74,9 @@ export function useEditQueue({
 
   const mergeSheetRevisions = useCallback(
     (savedWorkbook: Workbook) => {
+      for (const sheet of savedWorkbook.sheets) {
+        knownSheetRevisions.current.set(sheet.id, sheet.revision);
+      }
       setWorkbook((currentWorkbook) => ({
         ...currentWorkbook,
         sheets: currentWorkbook.sheets.map((sheet) => {
@@ -85,14 +107,16 @@ export function useEditQueue({
     [setWorkbook],
   );
 
+  const resolveSheetId = useCallback((sheetId: string) => sheetIdAliases.current.get(sheetId) ?? sheetId, []);
+
   const startEditTask = useCallback(
     (queue: EditQueue, task: EditQueueTask) => {
       queue.running = task;
       task
         .run()
         .then(task.reconcile)
-        .catch(() => {
-          if (!queue.queued) {
+        .catch((cause: unknown) => {
+          if (!(cause instanceof PendingSheetDeletedError) && !queue.queued) {
             failedEditKeys.current.add(task.key);
           }
         })
@@ -114,7 +138,7 @@ export function useEditQueue({
   );
 
   const enqueueEdit = useCallback(
-    (key: string, run: () => Promise<Workbook>, reconcile = mergeSheetRevisions) => {
+    (key: string, run: () => Promise<Workbook>, reconcile = mergeSheetRevisions, sheetId?: string) => {
       if (!autosaveEnabled) {
         return;
       }
@@ -123,6 +147,7 @@ export function useEditQueue({
         key,
         run,
         reconcile,
+        sheetId,
       };
       failedEditKeys.current.delete(key);
 
@@ -141,9 +166,120 @@ export function useEditQueue({
     [autosaveEnabled, mergeSheetRevisions, refreshSaveStatus, startEditTask],
   );
 
+  const registerPendingSheet = useCallback((pendingSheetId: string) => {
+    let resolve!: (savedSheetId: string) => void;
+    let reject!: (cause: unknown) => void;
+    const promise = new Promise<string>((promiseResolve, promiseReject) => {
+      resolve = promiseResolve;
+      reject = promiseReject;
+    });
+    void promise.catch(() => undefined);
+    pendingSheetCreates.current.set(pendingSheetId, {
+      deleted: false,
+      promise,
+      reject,
+      resolve,
+    });
+  }, []);
+
+  const enqueuePendingSheetCreate = useCallback(
+    (
+      pendingSheetId: string,
+      run: () => Promise<Workbook>,
+      getCreatedSheetId: (savedWorkbook: Workbook) => string | undefined,
+      reconcile: (savedWorkbook: Workbook, savedSheetId: string) => void,
+    ) => {
+      enqueueEdit(
+        `sheet:${pendingSheetId}:create`,
+        async () => {
+          await Promise.resolve();
+          const pendingCreate = pendingSheetCreates.current.get(pendingSheetId);
+          if (!pendingCreate || pendingCreate.deleted) {
+            pendingSheetCreates.current.delete(pendingSheetId);
+            throw new PendingSheetDeletedError();
+          }
+
+          let savedWorkbook: Workbook;
+          try {
+            savedWorkbook = await run();
+          } catch (cause: unknown) {
+            pendingCreate.reject(cause);
+            pendingSheetCreates.current.delete(pendingSheetId);
+            throw cause;
+          }
+
+          const savedSheetId = getCreatedSheetId(savedWorkbook);
+          if (!savedSheetId) {
+            const cause = new Error('Created sheet was missing from the saved workbook.');
+            pendingCreate.reject(cause);
+            pendingSheetCreates.current.delete(pendingSheetId);
+            throw cause;
+          }
+
+          sheetIdAliases.current.set(pendingSheetId, savedSheetId);
+          for (const sheet of savedWorkbook.sheets) {
+            knownSheetRevisions.current.set(sheet.id, sheet.revision);
+          }
+          setSheetIdRemaps((currentRemaps) => ({ ...currentRemaps, [pendingSheetId]: savedSheetId }));
+          if (!pendingCreate.deleted) {
+            pendingCreate.resolve(savedSheetId);
+            reconcile(savedWorkbook, savedSheetId);
+          }
+          pendingSheetCreates.current.delete(pendingSheetId);
+          return savedWorkbook;
+        },
+        () => undefined,
+        pendingSheetId,
+      );
+    },
+    [enqueueEdit],
+  );
+
+  const cancelPendingSheet = useCallback(
+    (pendingSheetId: string) => {
+      const pendingCreate = pendingSheetCreates.current.get(pendingSheetId);
+      if (!pendingCreate) {
+        return;
+      }
+
+      pendingCreate.deleted = true;
+      pendingCreate.reject(new PendingSheetDeletedError());
+      for (const [key, queue] of editQueues.current) {
+        if (queue.queued?.sheetId === pendingSheetId) {
+          queue.queued = null;
+        }
+        if (!queue.running && !queue.queued) {
+          editQueues.current.delete(key);
+        }
+      }
+      refreshSaveStatus();
+    },
+    [refreshSaveStatus],
+  );
+
+  const runForSavedSheet = useCallback(
+    async (sheetId: string, save: (savedSheetId: string) => Promise<Workbook>) => {
+      const savedSheetId = sheetIdAliases.current.get(sheetId);
+      if (savedSheetId) {
+        return save(savedSheetId);
+      }
+
+      const pendingCreate = pendingSheetCreates.current.get(sheetId);
+      if (!pendingCreate) {
+        return save(sheetId);
+      }
+
+      return save(await pendingCreate.promise);
+    },
+    [],
+  );
+
   const currentSheetRevision = useCallback(
-    (sheetId: string) => workbook.sheets.find((sheet) => sheet.id === sheetId)?.revision,
-    [workbook.sheets],
+    (sheetId: string) => {
+      const savedSheetId = resolveSheetId(sheetId);
+      return workbook.sheets.find((sheet) => sheet.id === savedSheetId)?.revision ?? knownSheetRevisions.current.get(savedSheetId);
+    },
+    [resolveSheetId, workbook.sheets],
   );
 
   const runRevisionedEdit = useCallback(
@@ -170,11 +306,17 @@ export function useEditQueue({
   }, []);
 
   return {
+    cancelPendingSheet,
     enqueueEdit,
+    enqueuePendingSheetCreate,
     getApiMethod,
     markSaved,
     mergeCreatedSheets,
+    registerPendingSheet,
+    resolveSheetId,
+    runForSavedSheet,
     runRevisionedEdit,
     saveStatus,
+    sheetIdRemaps,
   };
 }

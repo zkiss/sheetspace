@@ -29,6 +29,25 @@ function renderQueue({
 }
 
 describe('useEditQueue', () => {
+  it('cancels a pending sheet create before the request is sent', async () => {
+    const createRun = vi.fn().mockResolvedValue(workbookWithSheets([]));
+    const { result } = renderQueue();
+
+    act(() => {
+      result.current.queue.registerPendingSheet('pending:sheet-inputs');
+      result.current.queue.enqueuePendingSheetCreate(
+        'pending:sheet-inputs',
+        createRun,
+        () => 'sheet-inputs',
+        vi.fn(),
+      );
+      result.current.queue.cancelPendingSheet('pending:sheet-inputs');
+    });
+
+    await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
   it('runs one save per entity key and keeps only the latest queued replacement', async () => {
     const firstSave = deferred<Workbook>();
     const latestSave = deferred<Workbook>();

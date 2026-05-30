@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   cellKey,
   parseA1Address,
@@ -8,6 +8,18 @@ import {
 } from './workbook';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
 import type { WorkbookCommands } from './useWorkbookController';
+
+const EMPTY_SHEET_ID_REMAPS: Readonly<Record<string, string>> = {};
+
+function remapSelectionSheetId<T extends ActiveCellSelection>(
+  selection: T | null,
+  sheetIdRemaps: Readonly<Record<string, string>>,
+): T | null {
+  const remappedSheetId = selection && sheetIdRemaps[selection.sheetId];
+  return selection && remappedSheetId && remappedSheetId !== selection.sheetId
+    ? { ...selection, sheetId: remappedSheetId }
+    : selection;
+}
 
 function clampedCellAddress(
   sheet: Sheet,
@@ -22,15 +34,25 @@ function clampedCellAddress(
 
 export function useCellEditing({
   commands,
+  sheetIdRemaps = EMPTY_SHEET_ID_REMAPS,
   workbook,
 }: {
   commands: Pick<WorkbookCommands, 'updateCellContent'>;
+  sheetIdRemaps?: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
   const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
   const [keyboardFocusTarget, setKeyboardFocusTarget] = useState<ActiveCellSelection | null>(null);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const tabRunOriginColumn = useRef<number | null>(null);
+
+  useEffect(() => {
+    setActiveCell((currentActiveCell) => remapSelectionSheetId(currentActiveCell, sheetIdRemaps));
+    setKeyboardFocusTarget((currentFocusTarget) =>
+      remapSelectionSheetId(currentFocusTarget, sheetIdRemaps),
+    );
+    setEditingCell((currentEditingCell) => remapSelectionSheetId(currentEditingCell, sheetIdRemaps));
+  }, [sheetIdRemaps]);
 
   function commitActiveEdit(editToCommit = editingCell) {
     if (!editToCommit) {

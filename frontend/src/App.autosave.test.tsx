@@ -27,7 +27,9 @@ describe('App autosave integration', () => {
       position: { x: 0, y: 0 },
     });
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
-    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' }).getAttribute('data-sheet-id')).toMatch(
+      /^pending:[0-9a-f-]+$/,
+    );
 
     createSave.resolve(savedWorkbook);
 
