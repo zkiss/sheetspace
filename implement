@@ -14,7 +14,7 @@ codex exec \
   -c model_reasoning_effort=medium \
   --json \
   --output-last-message "$last" \
-  "$@" >"$log"
+  "Implement next bead. Use subagents as instructed." >"$log"
 status=$?
 
 session_id="$(jq -r 'select(.type == "thread.started") | .thread_id' "$log" | tail -n 1)"
