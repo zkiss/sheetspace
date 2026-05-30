@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { workbookApi, type WorkbookApi } from './workbookApi';
 import {
   appendColumn,
@@ -52,6 +52,7 @@ export function useWorkbookController({
   const resolvedApiClient = apiClient ?? workbookApi;
   const autosaveEnabled = !initialWorkbook || Boolean(apiClient);
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
+  const pendingSheetNames = useRef(new Set<string>());
   const { enqueueEdit, getApiMethod, markSaved, mergeCreatedSheets, runRevisionedEdit, saveStatus } = useEditQueue({
     autosaveEnabled,
     resolvedApiClient,
@@ -72,11 +73,17 @@ export function useWorkbookController({
     if (!result.ok) {
       return result;
     }
+    if (pendingSheetNames.current.has(result.name)) {
+      return { ok: false, reason: 'duplicate' };
+    }
 
+    pendingSheetNames.current.add(result.name);
     enqueueEdit(`sheet:${result.name}:create`, () =>
       getApiMethod('createSheet')({
         name: result.name,
         position,
+      }).finally(() => {
+        pendingSheetNames.current.delete(result.name);
       }),
       mergeCreatedSheets,
     );

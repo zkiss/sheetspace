@@ -100,6 +100,38 @@ describe('useWorkbookController', () => {
     expect(result.current.workbook.sheets[1].id).toBe('00000000-0000-4000-8000-000000000001');
   });
 
+  it('rejects a duplicate sheet create while the first request is pending', async () => {
+    const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
+    let resolveCreate!: (workbook: Workbook) => void;
+    const createSheetSave = new Promise<Workbook>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSheetSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([]),
+      }),
+    );
+
+    act(() => {
+      expect(result.current.commands.createSheet('Inputs', { x: 24, y: 48 })).toEqual({ ok: true, name: 'Inputs' });
+      expect(result.current.commands.createSheet(' Inputs ', { x: 96, y: 144 })).toEqual({
+        ok: false,
+        reason: 'duplicate',
+      });
+    });
+
+    expect(apiClient.createSheet).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveCreate(workbookWithSheets([savedSheet]));
+      await createSheetSave;
+    });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  });
+
   it('keeps frame previews local and persists only committed frame commands', () => {
     const apiClient = autosaveClient();
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });

@@ -165,11 +165,70 @@ class WorkbookRepositoryTest {
         val repo = createRepo()
 
         repo.createSheet(Sheet(id = SHEET_1, name = "  Inputs  "))
-        repo.createSheet(Sheet(id = SHEET_2, name = "Inputs"))
+        val duplicateName = assertFailsWith<SheetNameRejected> {
+            repo.createSheet(Sheet(id = SHEET_2, name = "Inputs"))
+        }
 
+        assertEquals(SheetNameError.DUPLICATE, duplicateName.reason)
         val workbook = repo.loadWorkbook()
         assertEquals(1, workbook.sheets.size)
         assertEquals("Inputs", workbook.sheets.single().name)
+    }
+
+    @Test
+    fun `concurrent default z-index sheet creations stack deterministically`() {
+        val repo = createRepo()
+        val start = CountDownLatch(1)
+        val outcomes = Collections.synchronizedList(mutableListOf<Workbook>())
+
+        val first = thread {
+            start.await()
+            outcomes += repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"), assignDefaultZIndex = true)
+        }
+        val second = thread {
+            start.await()
+            outcomes += repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"), assignDefaultZIndex = true)
+        }
+
+        start.countDown()
+        first.join()
+        second.join()
+
+        assertEquals(2, outcomes.size)
+        assertEquals(setOf(1, 2), repo.loadWorkbook().sheets.map { it.zIndex }.toSet())
+    }
+
+    @Test
+    fun `concurrent duplicate sheet creations save one sheet and reject one request`() {
+        val repo = createRepo()
+        val start = CountDownLatch(1)
+        val outcomes = Collections.synchronizedList(mutableListOf<String>())
+
+        val first = thread {
+            start.await()
+            outcomes += runCatching {
+                repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"), assignDefaultZIndex = true)
+                "saved"
+            }.getOrElse { exception ->
+                if (exception is SheetNameRejected) "duplicate" else throw exception
+            }
+        }
+        val second = thread {
+            start.await()
+            outcomes += runCatching {
+                repo.createSheet(Sheet(id = SHEET_2, name = "Inputs"), assignDefaultZIndex = true)
+                "saved"
+            }.getOrElse { exception ->
+                if (exception is SheetNameRejected) "duplicate" else throw exception
+            }
+        }
+
+        start.countDown()
+        first.join()
+        second.join()
+
+        assertEquals(listOf("duplicate", "saved"), outcomes.sorted())
+        assertEquals(listOf("Inputs"), repo.loadWorkbook().sheets.map { it.name })
     }
 
     @Test

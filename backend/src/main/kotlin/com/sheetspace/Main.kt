@@ -94,8 +94,15 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                 ) {
                     is SheetNameResult.Invalid -> call.respondError(HttpStatusCode.BadRequest, result.reason.apiError)
                     is SheetNameResult.Valid -> {
-                        val updated = repository.createSheet(result.value)
-                        call.respond(HttpStatusCode.Created, MutationResponse(workbook = updated))
+                        try {
+                            val updated = repository.createSheet(
+                                result.value,
+                                assignDefaultZIndex = request.zIndex == null,
+                            )
+                            call.respond(HttpStatusCode.Created, MutationResponse(workbook = updated))
+                        } catch (rejection: SheetNameRejected) {
+                            call.respondError(HttpStatusCode.BadRequest, rejection.reason.apiError)
+                        }
                     }
                 }
             }

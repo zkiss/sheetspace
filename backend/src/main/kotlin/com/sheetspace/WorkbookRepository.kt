@@ -27,6 +27,7 @@ class UnknownSheetUpdate(
 class WorkbookRepository(dbPath: Path) {
     private val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
     private val json = Json { ignoreUnknownKeys = false }
+    private val sheetCreationLock = Any()
 
     init {
         initialize()
@@ -48,10 +49,21 @@ class WorkbookRepository(dbPath: Path) {
         }
     }
 
-    fun createSheet(sheet: Sheet): Workbook = updateWorkbook { workbook ->
-        when (val result = validateSheetName(sheet.name, workbook.sheets)) {
-            is SheetNameResult.Valid -> workbook.copy(sheets = workbook.sheets + sheet.copy(name = result.value))
-            is SheetNameResult.Invalid -> workbook
+    fun createSheet(sheet: Sheet, assignDefaultZIndex: Boolean = false): Workbook = synchronized(sheetCreationLock) {
+        updateWorkbook { workbook ->
+            when (val result = validateSheetName(sheet.name, workbook.sheets)) {
+                is SheetNameResult.Valid -> workbook.copy(
+                    sheets = workbook.sheets + sheet.copy(
+                        name = result.value,
+                        zIndex = if (assignDefaultZIndex) {
+                            (workbook.sheets.maxOfOrNull { it.zIndex } ?: 0) + 1
+                        } else {
+                            sheet.zIndex
+                        },
+                    ),
+                )
+                is SheetNameResult.Invalid -> throw SheetNameRejected(result.reason)
+            }
         }
     }
 
