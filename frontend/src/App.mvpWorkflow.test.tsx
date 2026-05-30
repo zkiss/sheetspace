@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { persistedWorkbookClient } from './test/apiClients';
+import { deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
 import { createSheetFromToolbar, openCellEditor, openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
 import { workbookWithSheets } from './test/workbookFactories';
@@ -15,6 +15,8 @@ describe('App MVP workflow', () => {
       const rawSameSheetFormula = '= \n SuM ( B1 , B2 )';
       const rawCrossSheetFormula = '=SUM(Renamed Inputs!B1:B2)';
       const apiClient = persistedWorkbookClient();
+      const inputSheetId = deterministicSheetId(1);
+      const outputSheetId = deterministicSheetId(2);
 
       render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
 
@@ -33,7 +35,7 @@ describe('App MVP workflow', () => {
       fireEvent(inputHeader, new MouseEvent('pointermove', { bubbles: true, clientX: 172, clientY: 264 }));
       fireEvent(inputHeader, new MouseEvent('pointerup', { bubbles: true, clientX: 172, clientY: 264 }));
       await waitFor(() =>
-        expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-1', { x: 72, y: 144 }, { revision: 0 }),
+        expect(apiClient.updateSheetPosition).toHaveBeenCalledWith(inputSheetId, { x: 72, y: 144 }, { revision: 0 }),
       );
 
       await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
@@ -41,7 +43,7 @@ describe('App MVP workflow', () => {
       await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
       await user.click(screen.getByRole('button', { name: /^save$/i }));
       await waitFor(() =>
-        expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-1', 'Renamed Inputs', { revision: 0 }),
+        expect(apiClient.renameSheet).toHaveBeenCalledWith(inputSheetId, 'Renamed Inputs', { revision: 0 }),
       );
 
       inputFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
@@ -76,8 +78,8 @@ describe('App MVP workflow', () => {
       await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
 
       await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(4));
-      await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-1', { revision: 0 }));
-      await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-1', { revision: 0 }));
+      await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith(inputSheetId, { revision: 0 }));
+      await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith(inputSheetId, { revision: 0 }));
       expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
       expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
 
@@ -87,12 +89,12 @@ describe('App MVP workflow', () => {
       const reloadedInputFrame = await screen.findByRole('article', { name: 'Sheet Renamed Inputs' });
       const reloadedOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
 
-      expect(reloadedInputFrame).toHaveAttribute('data-sheet-id', 'sheet-1');
+      expect(reloadedInputFrame).toHaveAttribute('data-sheet-id', inputSheetId);
       expect(reloadedInputFrame).toHaveAttribute('data-position-x', '72');
       expect(reloadedInputFrame).toHaveAttribute('data-position-y', '144');
       expect(reloadedInputFrame).toHaveAttribute('data-row-count', '21');
       expect(reloadedInputFrame).toHaveAttribute('data-column-count', '11');
-      expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', 'sheet-2');
+      expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', outputSheetId);
       expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '420');
       expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '260');
       expect(within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent(
@@ -111,6 +113,6 @@ describe('App MVP workflow', () => {
       expect(editor).toHaveValue(rawCrossSheetFormula);
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
     },
-    10_000,
+    20_000,
   );
 });

@@ -40,6 +40,7 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
 
 export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWithSheets([])) {
   let persistedWorkbook = initialWorkbook;
+  let nextSheetId = initialWorkbook.sheets.length + 1;
 
   const updateSheet = (sheetId: string, update: (sheet: Sheet) => Sheet) => {
     persistedWorkbook = {
@@ -54,7 +55,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
     loadWorkbook: vi.fn().mockImplementation(async () => persistedWorkbook),
     createSheet: vi.fn().mockImplementation(async (sheet: Parameters<WorkbookApi['createSheet']>[0]) => {
       const result = createSheet({
-        id: sheet.id,
+        id: deterministicSheetId(nextSheetId++),
         name: sheet.name,
         existingSheets: persistedWorkbook.sheets,
         position: sheet.position,
@@ -101,3 +102,6 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
   } satisfies WorkbookApi;
 }
 
+export function deterministicSheetId(index: number) {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+}

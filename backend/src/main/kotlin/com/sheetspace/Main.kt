@@ -30,7 +30,6 @@ data class HealthResponse(val status: String, val service: String)
 
 @Serializable
 data class CreateSheetRequest(
-    val id: String,
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
     val frameSize: SheetFrameSize = SheetFrameSize(),
@@ -79,28 +78,31 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
         post("/api/sheets") {
             val request = call.receiveRequest<CreateSheetRequest>() ?: return@post
             val workbook = repository.loadWorkbook()
-            val sheetId = request.id.trim()
 
             when {
-                sheetId.isEmpty() -> call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
-                workbook.sheets.any { it.id == sheetId } -> call.respondError(HttpStatusCode.Conflict, "sheet-id-duplicate")
                 !request.position.isFinite() -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-position")
                 !request.frameSize.isValid() -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-frame-size")
                 request.zIndex != null && request.zIndex < 1 -> call.respondError(HttpStatusCode.BadRequest, "invalid-sheet-z-index")
                 else -> when (
                     val result = createSheet(
-                        sheetId,
-                        request.name,
-                        workbook.sheets,
-                        request.position,
-                        request.frameSize,
-                        request.zIndex,
+                        name = request.name,
+                        existingSheets = workbook.sheets,
+                        position = request.position,
+                        frameSize = request.frameSize,
+                        zIndex = request.zIndex,
                     )
                 ) {
                     is SheetNameResult.Invalid -> call.respondError(HttpStatusCode.BadRequest, result.reason.apiError)
                     is SheetNameResult.Valid -> {
-                        val updated = repository.createSheet(result.value)
-                        call.respond(HttpStatusCode.Created, MutationResponse(workbook = updated))
+                        try {
+                            val updated = repository.createSheet(
+                                result.value,
+                                assignDefaultZIndex = request.zIndex == null,
+                            )
+                            call.respond(HttpStatusCode.Created, MutationResponse(workbook = updated))
+                        } catch (rejection: SheetNameRejected) {
+                            call.respondError(HttpStatusCode.BadRequest, rejection.reason.apiError)
+                        }
                     }
                 }
             }

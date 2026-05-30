@@ -3,10 +3,12 @@ package com.sheetspace
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.flywaydb.core.Flyway
+import java.nio.ByteBuffer
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.ResultSet
+import java.util.UUID
 
 class SheetRevisionConflict(
     val sheetId: String,
@@ -25,6 +27,7 @@ class UnknownSheetUpdate(
 class WorkbookRepository(dbPath: Path) {
     private val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
     private val json = Json { ignoreUnknownKeys = false }
+    private val sheetCreationLock = Any()
 
     init {
         initialize()
@@ -46,17 +49,21 @@ class WorkbookRepository(dbPath: Path) {
         }
     }
 
-    fun createSheet(sheet: Sheet): Workbook = updateWorkbook { workbook ->
-        when (val result = com.sheetspace.createSheet(
-            id = sheet.id,
-            name = sheet.name,
-            existingSheets = workbook.sheets,
-            position = sheet.position,
-            frameSize = sheet.frameSize,
-            zIndex = sheet.zIndex,
-        )) {
-            is SheetNameResult.Valid -> workbook.copy(sheets = workbook.sheets + result.value)
-            is SheetNameResult.Invalid -> workbook
+    fun createSheet(sheet: Sheet, assignDefaultZIndex: Boolean = false): Workbook = synchronized(sheetCreationLock) {
+        updateWorkbook { workbook ->
+            when (val result = validateSheetName(sheet.name, workbook.sheets)) {
+                is SheetNameResult.Valid -> workbook.copy(
+                    sheets = workbook.sheets + sheet.copy(
+                        name = result.value,
+                        zIndex = if (assignDefaultZIndex) {
+                            (workbook.sheets.maxOfOrNull { it.zIndex } ?: 0) + 1
+                        } else {
+                            sheet.zIndex
+                        },
+                    ),
+                )
+                is SheetNameResult.Invalid -> throw SheetNameRejected(result.reason)
+            }
         }
     }
 
@@ -251,7 +258,7 @@ class WorkbookRepository(dbPath: Path) {
                 revision = sheets.revision + 1
             """.trimIndent(),
         ).use { statement ->
-            statement.setString(1, sheet.id)
+            statement.setBytes(1, sheet.id.toUuidBytes())
             statement.setInt(2, displayOrder)
             statement.setString(3, sheet.name)
             statement.setInt(4, sheet.rowCount)
@@ -299,7 +306,7 @@ class WorkbookRepository(dbPath: Path) {
             statement.setDouble(8, sheet.frameSize.height)
             statement.setInt(9, sheet.zIndex)
             statement.setString(10, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
-            statement.setString(11, sheet.id)
+            statement.setBytes(11, sheet.id.toUuidBytes())
             statement.setLong(12, expectedRevision)
             statement.executeUpdate()
         }
@@ -311,7 +318,7 @@ class WorkbookRepository(dbPath: Path) {
 
     private fun loadSheetRevision(conn: Connection, sheetId: String): Long? {
         return conn.prepareStatement("SELECT revision FROM sheets WHERE id = ?").use { statement ->
-            statement.setString(1, sheetId)
+            statement.setBytes(1, sheetId.toUuidBytes())
             statement.executeQuery().use { rs ->
                 if (rs.next()) rs.getLong("revision") else null
             }
@@ -320,14 +327,14 @@ class WorkbookRepository(dbPath: Path) {
 
     private fun deleteSheet(conn: Connection, sheetId: String) {
         conn.prepareStatement("DELETE FROM sheets WHERE id = ?").use { statement ->
-            statement.setString(1, sheetId)
+            statement.setBytes(1, sheetId.toUuidBytes())
             statement.executeUpdate()
         }
     }
 
     private fun ResultSet.toSheet(): Sheet {
         return Sheet(
-            id = getString("id"),
+            id = getBytes("id").toUuidString(),
             name = getString("name"),
             revision = getLong("revision"),
             position = WorkspacePosition(
@@ -365,6 +372,20 @@ class WorkbookRepository(dbPath: Path) {
             return block(conn)
         }
     }
+}
+
+private fun String.toUuidBytes(): ByteArray {
+    val uuid = UUID.fromString(this)
+    return ByteBuffer.allocate(16)
+        .putLong(uuid.mostSignificantBits)
+        .putLong(uuid.leastSignificantBits)
+        .array()
+}
+
+private fun ByteArray.toUuidString(): String {
+    require(size == 16) { "Stored sheet id must be exactly 16 bytes" }
+    val bytes = ByteBuffer.wrap(this)
+    return UUID(bytes.long, bytes.long).toString()
 }
 
 @Serializable

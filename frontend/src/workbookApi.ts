@@ -64,10 +64,9 @@ export const workbookApi = {
   },
 
   createSheet(
-    sheet: Pick<Sheet, 'id' | 'name' | 'position'> & Partial<Pick<Sheet, 'frameSize' | 'zIndex'>>,
+    sheet: Pick<Sheet, 'name' | 'position'> & Partial<Pick<Sheet, 'frameSize' | 'zIndex'>>,
   ): Promise<Workbook> {
     const requestBody = {
-      id: sheet.id,
       name: sheet.name,
       position: sheet.position,
       ...(sheet.frameSize === undefined ? {} : { frameSize: sheet.frameSize }),

@@ -23,17 +23,16 @@ describe('App autosave integration', () => {
     await user.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(apiClient.createSheet).toHaveBeenCalledWith({
-      id: 'sheet-1',
       name: 'Inputs',
       position: { x: 0, y: 0 },
-      frameSize: { width: 240, height: 160 },
-      zIndex: 1,
     });
     expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
 
     createSave.resolve(savedWorkbook);
 
     await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toHaveAttribute('data-sheet-id', 'sheet-1');
   });
 
   it('autosaves committed cell edits while ignoring transient in-progress edits', async () => {

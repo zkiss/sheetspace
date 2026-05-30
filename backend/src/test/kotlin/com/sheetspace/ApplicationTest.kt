@@ -14,6 +14,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -43,15 +44,35 @@ class ApplicationTest {
         }
 
         val response = client.post("/api/sheets") {
-            jsonBody("""{"id":"sheet-1","name":" Inputs ","position":{"x":24.0,"y":48.0}}""")
+            jsonBody("""{"name":" Inputs ","position":{"x":24.0,"y":48.0}}""")
         }
 
         assertEquals(HttpStatusCode.Created, response.status)
+        val created = response.decodeBody<MutationResponse>().workbook.sheets.single()
+        UUID.fromString(created.id)
         val workbook = client.loadWorkbook()
         assertEquals(
-            listOf(Sheet(id = "sheet-1", name = "Inputs", position = WorkspacePosition(24.0, 48.0))),
+            listOf(created),
             workbook.sheets,
         )
+        assertEquals("Inputs", created.name)
+        assertEquals(WorkspacePosition(24.0, 48.0), created.position)
+    }
+
+    @Test
+    fun `sheet creation endpoint rejects client supplied ids`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+
+        val response = client.post("/api/sheets") {
+            jsonBody("""{"id":"client-sheet","name":"Inputs"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(ErrorResponse(error = "invalid-request"), response.decodeBody<ErrorResponse>())
+        assertEquals(emptyWorkbook(), client.loadWorkbook())
     }
 
     @Test
@@ -60,10 +81,10 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
 
-        val response = client.put("/api/sheets/sheet-1/cells/A1") {
-            revisionHeader(repo, "sheet-1")
+        val response = client.put("/api/sheets/$sheetId/cells/A1") {
+            revisionHeader(repo, sheetId)
             jsonBody("""{"raw":"=SUM(B1:B2)"}""")
         }
 
@@ -79,14 +100,14 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
         val initialRevision = client.loadWorkbook().sheets.single().revision
 
-        val firstUpdate = client.put("/api/sheets/sheet-1/cells/A1") {
+        val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", initialRevision.toString())
             jsonBody("""{"raw":"newer value"}""")
         }
-        val staleUpdate = client.put("/api/sheets/sheet-1/cells/A1") {
+        val staleUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", initialRevision.toString())
             jsonBody("""{"raw":"stale value"}""")
         }
@@ -105,10 +126,10 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
 
-        val response = client.patch("/api/sheets/sheet-1") {
-            revisionHeader(repo, "sheet-1")
+        val response = client.patch("/api/sheets/$sheetId") {
+            revisionHeader(repo, sheetId)
             jsonBody("""{"name":"Renamed Inputs","position":{"x":80.0,"y":120.0},"frameSize":{"width":320.0,"height":220.0}}""")
         }
 
@@ -125,10 +146,10 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
 
-        val response = client.patch("/api/sheets/sheet-1") {
-            revisionHeader(repo, "sheet-1")
+        val response = client.patch("/api/sheets/$sheetId") {
+            revisionHeader(repo, sheetId)
             jsonBody("""{"position":{"x":-10.0,"y":32.5}}""")
         }
 
@@ -144,10 +165,10 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
 
-        val response = client.patch("/api/sheets/sheet-1") {
-            revisionHeader(repo, "sheet-1")
+        val response = client.patch("/api/sheets/$sheetId") {
+            revisionHeader(repo, sheetId)
             jsonBody("""{"frameSize":{"width":360.0,"height":240.0}}""")
         }
 
@@ -163,10 +184,10 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
 
-        val response = client.patch("/api/sheets/sheet-1") {
-            revisionHeader(repo, "sheet-1")
+        val response = client.patch("/api/sheets/$sheetId") {
+            revisionHeader(repo, sheetId)
             jsonBody("""{"zIndex":3}""")
         }
 
@@ -182,13 +203,13 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
 
-        val rowResponse = client.post("/api/sheets/sheet-1/rows") {
-            revisionHeader(repo, "sheet-1")
+        val rowResponse = client.post("/api/sheets/$sheetId/rows") {
+            revisionHeader(repo, sheetId)
         }
-        val columnResponse = client.post("/api/sheets/sheet-1/columns") {
-            revisionHeader(repo, "sheet-1")
+        val columnResponse = client.post("/api/sheets/$sheetId/columns") {
+            revisionHeader(repo, sheetId)
         }
 
         assertEquals(HttpStatusCode.OK, rowResponse.status)
@@ -206,39 +227,41 @@ class ApplicationTest {
         }
 
         val createInputs = client.post("/api/sheets") {
-            jsonBody("""{"id":"sheet-inputs","name":"Inputs","position":{"x":24.0,"y":48.0}}""")
+            jsonBody("""{"name":"Inputs","position":{"x":24.0,"y":48.0}}""")
         }
         val createOutputs = client.post("/api/sheets") {
-            jsonBody("""{"id":"sheet-outputs","name":"Outputs","position":{"x":420.0,"y":260.0}}""")
+            jsonBody("""{"name":"Outputs","position":{"x":420.0,"y":260.0}}""")
         }
-        val renameAndMoveInputs = client.patch("/api/sheets/sheet-inputs") {
-            revisionHeader(repo, "sheet-inputs")
+        val inputsId = createInputs.decodeBody<MutationResponse>().workbook.sheets.single { it.name == "Inputs" }.id
+        val outputsId = createOutputs.decodeBody<MutationResponse>().workbook.sheets.single { it.name == "Outputs" }.id
+        val renameAndMoveInputs = client.patch("/api/sheets/$inputsId") {
+            revisionHeader(repo, inputsId)
             jsonBody("""{"name":"Renamed Inputs","position":{"x":72.0,"y":144.0},"frameSize":{"width":320.0,"height":220.0}}""")
         }
-        val appendInputRow = client.post("/api/sheets/sheet-inputs/rows") {
-            revisionHeader(repo, "sheet-inputs")
+        val appendInputRow = client.post("/api/sheets/$inputsId/rows") {
+            revisionHeader(repo, inputsId)
         }
-        val appendInputColumn = client.post("/api/sheets/sheet-inputs/columns") {
-            revisionHeader(repo, "sheet-inputs")
+        val appendInputColumn = client.post("/api/sheets/$inputsId/columns") {
+            revisionHeader(repo, inputsId)
         }
-        val updateTextCell = client.put("/api/sheets/sheet-inputs/cells/A1") {
-            revisionHeader(repo, "sheet-inputs")
+        val updateTextCell = client.put("/api/sheets/$inputsId/cells/A1") {
+            revisionHeader(repo, inputsId)
             jsonBody("""{"raw":"Region"}""")
         }
-        val updateNumericCell = client.put("/api/sheets/sheet-inputs/cells/B1") {
-            revisionHeader(repo, "sheet-inputs")
+        val updateNumericCell = client.put("/api/sheets/$inputsId/cells/B1") {
+            revisionHeader(repo, inputsId)
             jsonBody("""{"raw":"10"}""")
         }
-        val updateSecondNumericCell = client.put("/api/sheets/sheet-inputs/cells/B2") {
-            revisionHeader(repo, "sheet-inputs")
+        val updateSecondNumericCell = client.put("/api/sheets/$inputsId/cells/B2") {
+            revisionHeader(repo, inputsId)
             jsonBody("""{"raw":"5"}""")
         }
-        val updateFormulaCell = client.put("/api/sheets/sheet-inputs/cells/C1") {
-            revisionHeader(repo, "sheet-inputs")
+        val updateFormulaCell = client.put("/api/sheets/$inputsId/cells/C1") {
+            revisionHeader(repo, inputsId)
             jsonBody("""{"raw":"= \n SuM ( B1 , B2 )"}""")
         }
-        val updateCrossSheetFormulaCell = client.put("/api/sheets/sheet-outputs/cells/A1") {
-            revisionHeader(repo, "sheet-outputs")
+        val updateCrossSheetFormulaCell = client.put("/api/sheets/$outputsId/cells/A1") {
+            revisionHeader(repo, outputsId)
             jsonBody("""{"raw":"=SUM(Renamed Inputs!B1:B2)"}""")
         }
 
@@ -254,8 +277,8 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.OK, updateCrossSheetFormulaCell.status)
 
         val workbook = client.loadWorkbook()
-        val inputs = workbook.sheets.single { it.id == "sheet-inputs" }
-        val outputs = workbook.sheets.single { it.id == "sheet-outputs" }
+        val inputs = workbook.sheets.single { it.id == inputsId }
+        val outputs = workbook.sheets.single { it.id == outputsId }
 
         assertEquals("Renamed Inputs", inputs.name)
         assertEquals(WorkspacePosition(72.0, 144.0), inputs.position)
@@ -278,18 +301,18 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheet = client.createSheet()
 
-        val invalidRename = client.patch("/api/sheets/sheet-1") {
-            revisionHeader(repo, "sheet-1")
+        val invalidRename = client.patch("/api/sheets/${sheet.id}") {
+            revisionHeader(repo, sheet.id)
             jsonBody("""{"name":"   "}""")
         }
-        val invalidCell = client.put("/api/sheets/sheet-1/cells/Z999") {
-            revisionHeader(repo, "sheet-1")
+        val invalidCell = client.put("/api/sheets/${sheet.id}/cells/Z999") {
+            revisionHeader(repo, sheet.id)
             jsonBody("""{"raw":"outside grid"}""")
         }
-        val invalidFrameSize = client.patch("/api/sheets/sheet-1") {
-            revisionHeader(repo, "sheet-1")
+        val invalidFrameSize = client.patch("/api/sheets/${sheet.id}") {
+            revisionHeader(repo, sheet.id)
             jsonBody("""{"frameSize":{"width":0.0,"height":160.0}}""")
         }
         val missingSheet = client.post("/api/sheets/missing/rows")
@@ -298,7 +321,7 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.BadRequest, invalidCell.status)
         assertEquals(HttpStatusCode.BadRequest, invalidFrameSize.status)
         assertEquals(HttpStatusCode.NotFound, missingSheet.status)
-        assertEquals(Sheet(id = "sheet-1", name = "Inputs"), client.loadWorkbook().sheets.single())
+        assertEquals(sheet, client.loadWorkbook().sheets.single())
     }
 
     @Test
@@ -307,12 +330,12 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
 
-        val missingRevision = client.put("/api/sheets/sheet-1/cells/A1") {
+        val missingRevision = client.put("/api/sheets/$sheetId/cells/A1") {
             jsonBody("""{"raw":"value"}""")
         }
-        val invalidRevision = client.put("/api/sheets/sheet-1/cells/A1") {
+        val invalidRevision = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", "not-a-revision")
             jsonBody("""{"raw":"value"}""")
         }
@@ -330,14 +353,14 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheetId = client.createSheet().id
         val initialRevision = client.loadWorkbook().sheets.single().revision
-        val firstUpdate = client.put("/api/sheets/sheet-1/cells/A1") {
+        val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", initialRevision.toString())
             jsonBody("""{"raw":"newer value"}""")
         }
 
-        val invalidRename = client.patch("/api/sheets/sheet-1") {
+        val invalidRename = client.patch("/api/sheets/$sheetId") {
             header("If-Match", initialRevision.toString())
             jsonBody("""{"name":"   "}""")
         }
@@ -353,20 +376,20 @@ class ApplicationTest {
         application {
             module(repo)
         }
-        client.createSheet()
+        val sheet = client.createSheet()
 
         val malformedJson = client.post("/api/sheets") {
-            jsonBody("""{"id":"sheet-2","name":""")
+            jsonBody("""{"name":""")
         }
         val missingField = client.post("/api/sheets") {
-            jsonBody("""{"id":"sheet-2"}""")
+            jsonBody("""{}""")
         }
 
         assertEquals(HttpStatusCode.BadRequest, malformedJson.status)
         assertEquals(ErrorResponse(error = "invalid-request"), malformedJson.decodeBody<ErrorResponse>())
         assertEquals(HttpStatusCode.BadRequest, missingField.status)
         assertEquals(ErrorResponse(error = "invalid-request"), missingField.decodeBody<ErrorResponse>())
-        assertEquals(Sheet(id = "sheet-1", name = "Inputs"), client.loadWorkbook().sheets.single())
+        assertEquals(sheet, client.loadWorkbook().sheets.single())
     }
 
     @Test
@@ -388,11 +411,12 @@ class ApplicationTest {
         return WorkbookRepository(Files.createTempFile("sheetspace-application", ".sqlite"))
     }
 
-    private suspend fun HttpClient.createSheet() {
+    private suspend fun HttpClient.createSheet(): Sheet {
         val response = post("/api/sheets") {
-            jsonBody("""{"id":"sheet-1","name":"Inputs","position":{"x":0.0,"y":0.0}}""")
+            jsonBody("""{"name":"Inputs","position":{"x":0.0,"y":0.0}}""")
         }
         assertEquals(HttpStatusCode.Created, response.status)
+        return response.decodeBody<MutationResponse>().workbook.sheets.single()
     }
 
     private suspend fun HttpClient.loadWorkbook(): Workbook {

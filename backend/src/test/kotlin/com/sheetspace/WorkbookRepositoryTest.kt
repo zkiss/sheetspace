@@ -1,6 +1,10 @@
 package com.sheetspace
 
+import org.flywaydb.core.Flyway
 import java.nio.file.Files
+import java.nio.file.Path
+import java.sql.DriverManager
+import java.sql.SQLException
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
@@ -24,7 +28,7 @@ class WorkbookRepositoryTest {
         val workbook = Workbook(
             sheets = listOf(
                 Sheet(
-                    id = "sheet-1",
+                    id = SHEET_1,
                     name = "Inputs",
                     position = WorkspacePosition(12.5, -8.25),
                     frameSize = SheetFrameSize(360.0, 240.0),
@@ -47,8 +51,8 @@ class WorkbookRepositoryTest {
     @Test
     fun `saves workbook as replaceable sheet rows`() {
         val repo = createRepo()
-        val first = Sheet(id = "sheet-1", name = "Inputs")
-        val second = Sheet(id = "sheet-2", name = "Outputs")
+        val first = Sheet(id = SHEET_1, name = "Inputs")
+        val second = Sheet(id = SHEET_2, name = "Outputs")
 
         repo.saveWorkbook(Workbook(sheets = listOf(first, second)))
         repo.saveWorkbook(Workbook(sheets = listOf(second.copy(name = "Renamed Outputs"))))
@@ -60,16 +64,16 @@ class WorkbookRepositoryTest {
     fun `supports sheet-level updates and keeps formula display artifacts out of persistence`() {
         val repo = createRepo()
 
-        repo.createSheet(Sheet(id = "sheet-1", name = "Inputs"))
-        repo.updateCell("sheet-1", "A1", "=SUM(B1:B2)")
-        repo.updateCell("sheet-1", "B1", "2")
-        repo.updateCell("sheet-1", "B2", "3")
-        repo.renameSheet("sheet-1", "Renamed Inputs")
-        repo.updateSheetPosition("sheet-1", WorkspacePosition(80.0, 120.0))
-        repo.updateSheetFrameSize("sheet-1", SheetFrameSize(320.0, 220.0))
-        repo.updateSheetZIndex("sheet-1", 4)
-        repo.appendRow("sheet-1")
-        repo.appendColumn("sheet-1")
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        repo.updateCell(SHEET_1, "A1", "=SUM(B1:B2)")
+        repo.updateCell(SHEET_1, "B1", "2")
+        repo.updateCell(SHEET_1, "B2", "3")
+        repo.renameSheet(SHEET_1, "Renamed Inputs")
+        repo.updateSheetPosition(SHEET_1, WorkspacePosition(80.0, 120.0))
+        repo.updateSheetFrameSize(SHEET_1, SheetFrameSize(320.0, 220.0))
+        repo.updateSheetZIndex(SHEET_1, 4)
+        repo.appendRow(SHEET_1)
+        repo.appendColumn(SHEET_1)
 
         val reloaded = repo.loadWorkbook()
         val sheet = reloaded.sheets.single()
@@ -87,14 +91,14 @@ class WorkbookRepositoryTest {
     fun `rejects stale sheet revision updates without overwriting newer persisted data`() {
         val repo = createRepo()
 
-        val created = repo.createSheet(Sheet(id = "sheet-1", name = "Inputs")).sheets.single()
-        val afterFirstSave = repo.updateCell("sheet-1", "A1", "newer value", created.revision)
+        val created = repo.createSheet(Sheet(id = SHEET_1, name = "Inputs")).sheets.single()
+        val afterFirstSave = repo.updateCell(SHEET_1, "A1", "newer value", created.revision)
 
         val conflict = assertFailsWith<SheetRevisionConflict> {
-            repo.updateCell("sheet-1", "A1", "stale value", created.revision)
+            repo.updateCell(SHEET_1, "A1", "stale value", created.revision)
         }
 
-        assertEquals("sheet-1", conflict.sheetId)
+        assertEquals(SHEET_1, conflict.sheetId)
         assertEquals(created.revision, conflict.expectedRevision)
         assertEquals(afterFirstSave.sheets.single().revision, conflict.actualRevision)
         val reloaded = repo.loadWorkbook().sheets.single()
@@ -105,14 +109,14 @@ class WorkbookRepositoryTest {
     @Test
     fun `rejects invalid sheet renames instead of silently ignoring them`() {
         val repo = createRepo()
-        repo.createSheet(Sheet(id = "sheet-1", name = "Inputs"))
-        repo.createSheet(Sheet(id = "sheet-2", name = "Outputs"))
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
 
         val emptyName = assertFailsWith<SheetNameRejected> {
-            repo.renameSheet("sheet-1", "   ")
+            repo.renameSheet(SHEET_1, "   ")
         }
         val duplicateName = assertFailsWith<SheetNameRejected> {
-            repo.renameSheet("sheet-1", "Outputs")
+            repo.renameSheet(SHEET_1, "Outputs")
         }
 
         assertEquals(SheetNameError.EMPTY, emptyName.reason)
@@ -123,14 +127,14 @@ class WorkbookRepositoryTest {
     @Test
     fun `concurrent same revision updates resolve as one save and one conflict`() {
         val repo = createRepo()
-        val revision = repo.createSheet(Sheet(id = "sheet-1", name = "Inputs")).sheets.single().revision
+        val revision = repo.createSheet(Sheet(id = SHEET_1, name = "Inputs")).sheets.single().revision
         val start = CountDownLatch(1)
         val outcomes = Collections.synchronizedList(mutableListOf<String>())
 
         val first = thread {
             start.await()
             outcomes += runCatching {
-                repo.updateCell("sheet-1", "A1", "first", revision)
+                repo.updateCell(SHEET_1, "A1", "first", revision)
                 "saved"
             }.getOrElse { exception ->
                 if (exception is SheetRevisionConflict) "conflict" else throw exception
@@ -139,7 +143,7 @@ class WorkbookRepositoryTest {
         val second = thread {
             start.await()
             outcomes += runCatching {
-                repo.updateCell("sheet-1", "A1", "second", revision)
+                repo.updateCell(SHEET_1, "A1", "second", revision)
                 "saved"
             }.getOrElse { exception ->
                 if (exception is SheetRevisionConflict) "conflict" else throw exception
@@ -160,25 +164,155 @@ class WorkbookRepositoryTest {
     fun `enforces sheet name trimming and uniqueness for sheet creation`() {
         val repo = createRepo()
 
-        repo.createSheet(Sheet(id = "sheet-1", name = "  Inputs  "))
-        repo.createSheet(Sheet(id = "sheet-2", name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_1, name = "  Inputs  "))
+        val duplicateName = assertFailsWith<SheetNameRejected> {
+            repo.createSheet(Sheet(id = SHEET_2, name = "Inputs"))
+        }
 
+        assertEquals(SheetNameError.DUPLICATE, duplicateName.reason)
         val workbook = repo.loadWorkbook()
         assertEquals(1, workbook.sheets.size)
         assertEquals("Inputs", workbook.sheets.single().name)
     }
 
     @Test
+    fun `concurrent default z-index sheet creations stack deterministically`() {
+        val repo = createRepo()
+        val start = CountDownLatch(1)
+        val outcomes = Collections.synchronizedList(mutableListOf<Workbook>())
+
+        val first = thread {
+            start.await()
+            outcomes += repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"), assignDefaultZIndex = true)
+        }
+        val second = thread {
+            start.await()
+            outcomes += repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"), assignDefaultZIndex = true)
+        }
+
+        start.countDown()
+        first.join()
+        second.join()
+
+        assertEquals(2, outcomes.size)
+        assertEquals(setOf(1, 2), repo.loadWorkbook().sheets.map { it.zIndex }.toSet())
+    }
+
+    @Test
+    fun `concurrent duplicate sheet creations save one sheet and reject one request`() {
+        val repo = createRepo()
+        val start = CountDownLatch(1)
+        val outcomes = Collections.synchronizedList(mutableListOf<String>())
+
+        val first = thread {
+            start.await()
+            outcomes += runCatching {
+                repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"), assignDefaultZIndex = true)
+                "saved"
+            }.getOrElse { exception ->
+                if (exception is SheetNameRejected) "duplicate" else throw exception
+            }
+        }
+        val second = thread {
+            start.await()
+            outcomes += runCatching {
+                repo.createSheet(Sheet(id = SHEET_2, name = "Inputs"), assignDefaultZIndex = true)
+                "saved"
+            }.getOrElse { exception ->
+                if (exception is SheetNameRejected) "duplicate" else throw exception
+            }
+        }
+
+        start.countDown()
+        first.join()
+        second.join()
+
+        assertEquals(listOf("duplicate", "saved"), outcomes.sorted())
+        assertEquals(listOf("Inputs"), repo.loadWorkbook().sheets.map { it.name })
+    }
+
+    @Test
     fun `stores schema version marker in persistence row`() {
         val repo = createRepo()
-        repo.createSheet(Sheet(id = "sheet-1", name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
 
         assertEquals(WORKBOOK_SCHEMA_VERSION, repo.loadStoredSchemaVersion())
         assertTrue(repo.loadWorkbook().sheets.isNotEmpty())
     }
 
+    @Test
+    fun `stores sheet ids as checked 16 byte blobs`() {
+        val dbPath = createDbPath()
+        val repo = WorkbookRepository(dbPath)
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("SELECT typeof(id), length(id) FROM sheets").use { rs ->
+                    assertTrue(rs.next())
+                    assertEquals("blob", rs.getString(1))
+                    assertEquals(16, rs.getInt(2))
+                }
+                assertFailsWith<SQLException> {
+                    statement.executeUpdate(
+                        """
+                        INSERT INTO sheets (
+                            id, display_order, name, row_count, column_count, position_x, position_y,
+                            cells_json, revision, z_index, frame_width, frame_height
+                        ) VALUES (X'00', 1, 'Invalid', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        """.trimIndent(),
+                    )
+                }
+                assertFailsWith<SQLException> {
+                    statement.executeUpdate(
+                        """
+                        INSERT INTO sheets (
+                            id, display_order, name, row_count, column_count, position_x, position_y,
+                            cells_json, revision, z_index, frame_width, frame_height
+                        ) VALUES ('1234567890123456', 1, 'Invalid Text', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `uuid blob migration explicitly discards legacy sheets`() {
+        val dbPath = createDbPath()
+        val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
+        Flyway.configure()
+            .dataSource(jdbcUrl, null, null)
+            .locations("classpath:db/migration")
+            .target("3")
+            .load()
+            .migrate()
+        DriverManager.getConnection(jdbcUrl).use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    INSERT INTO sheets (
+                        id, display_order, name, row_count, column_count, position_x, position_y,
+                        cells_json, revision, z_index, frame_width, frame_height
+                    ) VALUES ('legacy-sheet', 0, 'Legacy', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        assertEquals(emptyWorkbook(), WorkbookRepository(dbPath).loadWorkbook())
+    }
+
     private fun createRepo(): WorkbookRepository {
-        val dbPath = Files.createTempFile("sheetspace-workbook", ".sqlite")
-        return WorkbookRepository(dbPath)
+        return WorkbookRepository(createDbPath())
+    }
+
+    private fun createDbPath(): Path {
+        return Files.createTempFile("sheetspace-workbook", ".sqlite")
+    }
+
+    private companion object {
+        const val SHEET_1 = "00000000-0000-0000-0000-000000000001"
+        const val SHEET_2 = "00000000-0000-0000-0000-000000000002"
     }
 }

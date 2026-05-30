@@ -1,22 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { workbookApi, type WorkbookApi } from './workbookApi';
 import {
   appendColumn,
   appendRow,
   commitCellRawContent,
   createEmptyWorkbook,
-  createSheet,
   evaluateFormulaCells,
   moveSheetZOrder,
   renameSheet,
+  validateSheetName,
   type CellKey,
   type FormulaEvaluationSnapshot,
   type MutationResult,
-  type Sheet,
   type SheetFrameSize,
   type SheetZOrderDirection,
   type Workbook,
   type WorkspacePosition,
+  type ValidationResult,
 } from './workbook';
 import { useEditQueue } from './useEditQueue';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
@@ -25,7 +25,7 @@ export type WorkbookCommands = {
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
-  createSheet: (name: string, position: WorkspacePosition) => MutationResult<Sheet>;
+  createSheet: (name: string, position: WorkspacePosition) => ValidationResult;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   previewSheetFrameLayout: (sheetId: string, position: WorkspacePosition, frameSize?: SheetFrameSize) => void;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
@@ -52,7 +52,8 @@ export function useWorkbookController({
   const resolvedApiClient = apiClient ?? workbookApi;
   const autosaveEnabled = !initialWorkbook || Boolean(apiClient);
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
-  const { enqueueEdit, getApiMethod, markSaved, runRevisionedEdit, saveStatus } = useEditQueue({
+  const pendingSheetNames = useRef(new Set<string>());
+  const { enqueueEdit, getApiMethod, markSaved, mergeCreatedSheets, runRevisionedEdit, saveStatus } = useEditQueue({
     autosaveEnabled,
     resolvedApiClient,
     setWorkbook,
@@ -66,30 +67,25 @@ export function useWorkbookController({
   });
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
 
-  function createSheetCommand(name: string, position: WorkspacePosition): MutationResult<Sheet> {
-    const result = createSheet({
-      id: `sheet-${workbook.sheets.length + 1}`,
-      name,
-      existingSheets: workbook.sheets,
-      position,
-    });
+  function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
+    const result = validateSheetName(name, workbook.sheets);
 
     if (!result.ok) {
       return result;
     }
+    if (pendingSheetNames.current.has(result.name)) {
+      return { ok: false, reason: 'duplicate' };
+    }
 
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: [...currentWorkbook.sheets, result.value],
-    }));
-    enqueueEdit(`sheet:${result.value.id}:create`, () =>
+    pendingSheetNames.current.add(result.name);
+    enqueueEdit(`sheet:${result.name}:create`, () =>
       getApiMethod('createSheet')({
-        id: result.value.id,
-        name: result.value.name,
-        position: result.value.position,
-        frameSize: result.value.frameSize,
-        zIndex: result.value.zIndex,
+        name: result.name,
+        position,
+      }).finally(() => {
+        pendingSheetNames.current.delete(result.name);
       }),
+      mergeCreatedSheets,
     );
 
     return result;
