@@ -25,9 +25,9 @@ br sync --flush-only
 6. Make the smallest focused change that satisfies the bead.
 7. Run relevant checks and record what passed or was skipped.
 8. Export bead changes and open a PR containing code, docs, and `.beads/` updates.
-9. Invoke a strict reviewer subagent with clean context, and pass it all the relevant information it needs to perform an unbiased review: the bead id, current diff, changed files, and check results.
-10. Do not edit while review is active. If files change, restart review.
-11. Address review feedback until the reviewer passes the work.
+9. Invoke a strict reviewer subagent with fresh context for the first review, and pass it all the relevant information it needs to perform an unbiased review: the bead id, current diff, changed files, and check results.
+10. Do not edit while review is active. If files change during review, restart that review pass.
+11. Address review feedback and return to the same reviewer for follow-up passes until the reviewer passes the work.
 12. Update the PR with final code and bead export.
 13. Close the bead, export bead state, and update the PR.
 14. Merge with a commit message that includes the PR number, matching current history.
@@ -39,7 +39,9 @@ Never commit on `main`.
 
 Keep changes focused. Do not use the plan as permission for adjacent features, future ideas, broad refactors, or speculative architecture.
 
-If new work is needed, invoke the planner with the bead, relevant plan context, and what was discovered. The planner decides how to create or connect follow-up beads.
+If new work is needed, invoke the planner with the bead, relevant plan context, and what was discovered. The planner decides how to create, split, adjust, or connect beads.
+
+If a bead split changes the implementation boundary, reassess the current work. When the existing changes are no longer salvageable for the new boundary, start fresh instead of carrying tangled work forward.
 
 If a human decision is needed, stop on that part and make the question explicit.
 
