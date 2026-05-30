@@ -6,6 +6,7 @@ import type { Workbook } from './workbook';
 type EditQueueTask = {
   key: string;
   run: () => Promise<Workbook>;
+  reconcile: (savedWorkbook: Workbook) => void;
 };
 
 type EditQueue = {
@@ -65,14 +66,31 @@ export function useEditQueue({
     [setWorkbook],
   );
 
+  const mergeCreatedSheets = useCallback(
+    (savedWorkbook: Workbook) => {
+      setWorkbook((currentWorkbook) => {
+        const currentSheetIds = new Set(currentWorkbook.sheets.map((sheet) => sheet.id));
+        return {
+          ...currentWorkbook,
+          sheets: [
+            ...currentWorkbook.sheets.map((sheet) => {
+              const savedSheet = savedWorkbook.sheets.find((candidate) => candidate.id === sheet.id);
+              return savedSheet ? { ...sheet, revision: Math.max(sheet.revision, savedSheet.revision) } : sheet;
+            }),
+            ...savedWorkbook.sheets.filter((sheet) => !currentSheetIds.has(sheet.id)),
+          ],
+        };
+      });
+    },
+    [setWorkbook],
+  );
+
   const startEditTask = useCallback(
     (queue: EditQueue, task: EditQueueTask) => {
       queue.running = task;
       task
         .run()
-        .then((savedWorkbook) => {
-          mergeSheetRevisions(savedWorkbook);
-        })
+        .then(task.reconcile)
         .catch(() => {
           if (!queue.queued) {
             failedEditKeys.current.add(task.key);
@@ -96,7 +114,7 @@ export function useEditQueue({
   );
 
   const enqueueEdit = useCallback(
-    (key: string, run: () => Promise<Workbook>) => {
+    (key: string, run: () => Promise<Workbook>, reconcile = mergeSheetRevisions) => {
       if (!autosaveEnabled) {
         return;
       }
@@ -104,6 +122,7 @@ export function useEditQueue({
       const task = {
         key,
         run,
+        reconcile,
       };
       failedEditKeys.current.delete(key);
 
@@ -119,7 +138,7 @@ export function useEditQueue({
       startEditTask(queue, task);
       refreshSaveStatus();
     },
-    [autosaveEnabled, refreshSaveStatus, startEditTask],
+    [autosaveEnabled, mergeSheetRevisions, refreshSaveStatus, startEditTask],
   );
 
   const currentSheetRevision = useCallback(
@@ -154,6 +173,7 @@ export function useEditQueue({
     enqueueEdit,
     getApiMethod,
     markSaved,
+    mergeCreatedSheets,
     runRevisionedEdit,
     saveStatus,
   };

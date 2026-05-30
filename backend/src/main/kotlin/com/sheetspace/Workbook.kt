@@ -1,6 +1,7 @@
 package com.sheetspace
 
 import kotlinx.serialization.Serializable
+import java.util.UUID
 
 const val WORKBOOK_SCHEMA_VERSION = 1
 const val DEFAULT_COLUMN_COUNT = 10
@@ -47,7 +48,6 @@ data class CellContent(
 fun emptyWorkbook(): Workbook = Workbook()
 
 fun createSheet(
-    id: String,
     name: String,
     existingSheets: List<Sheet> = emptyList(),
     position: WorkspacePosition = WorkspacePosition(),
@@ -58,7 +58,7 @@ fun createSheet(
         is SheetNameResult.Invalid -> validation
         is SheetNameResult.Valid -> SheetNameResult.Valid(
             Sheet(
-                id = id,
+                id = UUID.randomUUID().toString(),
                 name = validation.value,
                 position = position,
                 frameSize = frameSize,

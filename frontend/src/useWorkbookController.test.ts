@@ -37,7 +37,10 @@ function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
 
 describe('useWorkbookController', () => {
   it('creates sheets through a command and hides persistence details behind autosave', async () => {
-    const apiClient = autosaveClient();
+    const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockResolvedValue(workbookWithSheets([savedSheet])),
+    });
     const { result } = renderHook(() =>
       useWorkbookController({
         apiClient,
@@ -50,20 +53,51 @@ describe('useWorkbookController', () => {
       expect(created.ok).toBe(true);
     });
 
-    expect(result.current.workbook.sheets).toHaveLength(1);
-    expect(result.current.workbook.sheets[0]).toMatchObject({
-      id: 'sheet-1',
-      name: 'Inputs',
-      position: { x: 24, y: 48 },
-    });
+    expect(result.current.workbook.sheets).toHaveLength(0);
     expect(apiClient.createSheet).toHaveBeenCalledWith({
-      id: 'sheet-1',
       name: 'Inputs',
       position: { x: 24, y: 48 },
-      frameSize: { width: 240, height: 160 },
-      zIndex: 1,
     });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(result.current.workbook.sheets).toHaveLength(1);
+    expect(result.current.workbook.sheets[0]).toMatchObject({
+      id: '00000000-0000-4000-8000-000000000001',
+      name: 'Inputs',
+      position: { x: 24, y: 48 },
+    });
+  });
+
+  it('preserves optimistic edits to existing sheets when a created sheet response arrives', async () => {
+    const existingSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const savedCreatedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Outputs', { x: 24, y: 48 });
+    let resolveCreate!: (workbook: Workbook) => void;
+    const createSheetSave = new Promise<Workbook>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSheetSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([existingSheet]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Outputs', { x: 24, y: 48 });
+      result.current.commands.updateCellContent('sheet-inputs', 'A1', 'Local value');
+    });
+
+    await act(async () => {
+      resolveCreate(workbookWithSheets([existingSheet, savedCreatedSheet]));
+      await createSheetSave;
+    });
+
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(result.current.workbook.sheets).toHaveLength(2);
+    expect(result.current.workbook.sheets[0].cells.A1).toEqual({ raw: 'Local value' });
+    expect(result.current.workbook.sheets[1].id).toBe('00000000-0000-4000-8000-000000000001');
   });
 
   it('keeps frame previews local and persists only committed frame commands', () => {

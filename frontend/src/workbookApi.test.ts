@@ -52,12 +52,12 @@ describe('workbookApi', () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 
     await expect(
-      workbookApi.createSheet({ id: 'sheet-1', name: 'Inputs', position: { x: 12, y: 24 } }),
+      workbookApi.createSheet({ name: 'Inputs', position: { x: 12, y: 24 } }),
     ).resolves.toEqual(workbook);
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
       method: 'POST',
-      body: JSON.stringify({ id: 'sheet-1', name: 'Inputs', position: { x: 12, y: 24 } }),
+      body: JSON.stringify({ name: 'Inputs', position: { x: 12, y: 24 } }),
       headers: { 'Content-Type': 'application/json' },
     });
   });
@@ -65,12 +65,16 @@ describe('workbookApi', () => {
   it('keeps local-only sheet fields out of the sheet creation request body', async () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 
-    await workbookApi.createSheet(workbook.sheets[0]);
+    await workbookApi.createSheet({
+      name: workbook.sheets[0].name,
+      position: workbook.sheets[0].position,
+      frameSize: workbook.sheets[0].frameSize,
+      zIndex: workbook.sheets[0].zIndex,
+    });
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
       method: 'POST',
       body: JSON.stringify({
-        id: 'sheet-1',
         name: 'Inputs',
         position: { x: 12, y: 24 },
         frameSize: { width: 240, height: 160 },

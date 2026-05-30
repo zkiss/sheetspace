@@ -1,5 +1,6 @@
 package com.sheetspace
 
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -13,13 +14,12 @@ class WorkbookTest {
     @Test
     fun `new sheets use MVP defaults and preserve caller position`() {
         val result = createSheet(
-            id = "sheet-1",
             name = "Inputs",
             position = WorkspacePosition(x = 12.0, y = 24.0),
         )
 
         val sheet = assertIs<SheetNameResult.Valid<Sheet>>(result).value
-        assertEquals("sheet-1", sheet.id)
+        UUID.fromString(sheet.id)
         assertEquals("Inputs", sheet.name)
         assertEquals(WorkspacePosition(x = 12.0, y = 24.0), sheet.position)
         assertEquals(SheetFrameSize(), sheet.frameSize)
@@ -32,10 +32,10 @@ class WorkbookTest {
     @Test
     fun `new sheets stack above older sheets by default`() {
         val first = assertIs<SheetNameResult.Valid<Sheet>>(
-            createSheet(id = "sheet-1", name = "Inputs"),
+            createSheet(name = "Inputs"),
         ).value
         val second = assertIs<SheetNameResult.Valid<Sheet>>(
-            createSheet(id = "sheet-2", name = "Outputs", existingSheets = listOf(first)),
+            createSheet(name = "Outputs", existingSheets = listOf(first)),
         ).value
 
         assertEquals(1, first.zIndex)
@@ -45,7 +45,7 @@ class WorkbookTest {
     @Test
     fun `sheet names must be non-empty and unique`() {
         val existingSheet = assertIs<SheetNameResult.Valid<Sheet>>(
-            createSheet(id = "sheet-1", name = "Inputs"),
+            createSheet(name = "Inputs"),
         ).value
 
         assertEquals(
@@ -58,7 +58,7 @@ class WorkbookTest {
         )
         assertEquals(
             SheetNameResult.Valid("Inputs"),
-            validateSheetName(" Inputs ", listOf(existingSheet), currentSheetId = "sheet-1"),
+            validateSheetName(" Inputs ", listOf(existingSheet), currentSheetId = existingSheet.id),
         )
     }
 

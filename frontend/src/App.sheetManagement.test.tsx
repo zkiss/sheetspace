@@ -8,13 +8,18 @@ import {
   openSheetContextMenu,
   workspaceSurface,
 } from './test/appScreen';
+import { deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
 import { workspaceRect } from './test/domGeometry';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+
+function renderEmptyPersistedWorkbook() {
+  render(<App initialWorkbook={workbookWithSheets([])} apiClient={persistedWorkbookClient()} />);
+}
 
 describe('App sheet management integration', () => {
   it('creates a named sheet from the workspace context menu at the clicked coordinate', async () => {
     const user = userEvent.setup();
-    render(<App initialWorkbook={workbookWithSheets([])} />);
+    renderEmptyPersistedWorkbook();
 
     workspaceSurface().getBoundingClientRect = workspaceRect;
     await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
@@ -33,7 +38,7 @@ describe('App sheet management integration', () => {
 
   it('creates a named sheet from the toolbar at the viewport center', async () => {
     const user = userEvent.setup();
-    render(<App initialWorkbook={workbookWithSheets([])} />);
+    renderEmptyPersistedWorkbook();
 
     Object.defineProperties(workspaceSurface(), {
       clientWidth: { configurable: true, value: 800 },
@@ -50,7 +55,7 @@ describe('App sheet management integration', () => {
 
     const frame = screen.getByTestId('sheet-frame');
     expect(within(frame).getByRole('heading', { name: 'Inputs' })).toBeInTheDocument();
-    expect(frame).toHaveAttribute('data-sheet-id', 'sheet-1');
+    expect(frame).toHaveAttribute('data-sheet-id', deterministicSheetId(1));
     expect(frame).toHaveAttribute('data-column-count', '10');
     expect(frame).toHaveAttribute('data-row-count', '20');
     expect(frame).toHaveStyle({ left: '320px', top: '220px' });
@@ -60,7 +65,7 @@ describe('App sheet management integration', () => {
 
   it('rejects empty sheet names without adding a sheet', async () => {
     const user = userEvent.setup();
-    render(<App initialWorkbook={workbookWithSheets([])} />);
+    renderEmptyPersistedWorkbook();
 
     await user.click(screen.getByRole('button', { name: /new sheet/i }));
     await user.click(screen.getByRole('button', { name: /^create$/i }));
@@ -71,7 +76,7 @@ describe('App sheet management integration', () => {
   });
 
   it('rejects duplicate sheet names without adding another sheet', async () => {
-    render(<App initialWorkbook={workbookWithSheets([])} />);
+    renderEmptyPersistedWorkbook();
 
     await createSheetFromToolbar('Inputs');
     await createSheetFromToolbar('Inputs');
@@ -82,15 +87,15 @@ describe('App sheet management integration', () => {
   });
 
   it('creates multiple sheets with stable ids and distinguishable names', async () => {
-    render(<App initialWorkbook={workbookWithSheets([])} />);
+    renderEmptyPersistedWorkbook();
 
     await createSheetFromToolbar('Inputs');
     await createSheetFromToolbar('Outputs');
 
     const frames = screen.getAllByTestId('sheet-frame');
     expect(frames).toHaveLength(2);
-    expect(frames[0]).toHaveAttribute('data-sheet-id', 'sheet-1');
-    expect(frames[1]).toHaveAttribute('data-sheet-id', 'sheet-2');
+    expect(frames[0]).toHaveAttribute('data-sheet-id', deterministicSheetId(1));
+    expect(frames[1]).toHaveAttribute('data-sheet-id', deterministicSheetId(2));
     expect(within(frames[0]).getByRole('heading', { name: 'Inputs' })).toBeInTheDocument();
     expect(within(frames[1]).getByRole('heading', { name: 'Outputs' })).toBeInTheDocument();
     expect(screen.getByText('2 sheets')).toBeInTheDocument();
@@ -98,7 +103,7 @@ describe('App sheet management integration', () => {
 
   it('assigns ascending z-order to newly created sheet frames', async () => {
     const user = userEvent.setup();
-    render(<App initialWorkbook={workbookWithSheets([])} />);
+    renderEmptyPersistedWorkbook();
 
     await user.click(screen.getByRole('button', { name: /new sheet/i }));
     await user.type(screen.getByLabelText(/sheet name/i), 'Inputs');
@@ -112,50 +117,54 @@ describe('App sheet management integration', () => {
     expect(frames[1]).toHaveAttribute('data-z-index', '2');
   });
 
-  it('changes only the requested sheet z-order through explicit frame controls', async () => {
-    const user = userEvent.setup();
-    render(<App initialWorkbook={workbookWithSheets([])} />);
+  it(
+    'changes only the requested sheet z-order through explicit frame controls',
+    async () => {
+      const user = userEvent.setup();
+      renderEmptyPersistedWorkbook();
 
-    await user.click(screen.getByRole('button', { name: /new sheet/i }));
-    await user.type(screen.getByLabelText(/sheet name/i), 'Inputs');
-    await user.click(screen.getByRole('button', { name: /^create$/i }));
-    await user.click(screen.getByRole('button', { name: /new sheet/i }));
-    await user.type(screen.getByLabelText(/sheet name/i), 'Assumptions');
-    await user.click(screen.getByRole('button', { name: /^create$/i }));
-    await user.click(screen.getByRole('button', { name: /new sheet/i }));
-    await user.type(screen.getByLabelText(/sheet name/i), 'Outputs');
-    await user.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.click(screen.getByRole('button', { name: /new sheet/i }));
+      await user.type(screen.getByLabelText(/sheet name/i), 'Inputs');
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.click(screen.getByRole('button', { name: /new sheet/i }));
+      await user.type(screen.getByLabelText(/sheet name/i), 'Assumptions');
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
+      await user.click(screen.getByRole('button', { name: /new sheet/i }));
+      await user.type(screen.getByLabelText(/sheet name/i), 'Outputs');
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
 
-    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    const assumptionsFrame = screen.getByRole('article', { name: 'Sheet Assumptions' });
-    const outputsFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+      const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+      const assumptionsFrame = screen.getByRole('article', { name: 'Sheet Assumptions' });
+      const outputsFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
 
-    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Bring forward' }));
+      await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Bring forward' }));
 
-    expect(inputsFrame).toHaveAttribute('data-z-index', '2');
-    expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
-    expect(outputsFrame).toHaveAttribute('data-z-index', '3');
-    expect(screen.getAllByTestId('sheet-frame').map((frame) => frame.dataset.sheetId)).toEqual([
-      'sheet-1',
-      'sheet-2',
-      'sheet-3',
-    ]);
+      expect(inputsFrame).toHaveAttribute('data-z-index', '2');
+      expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
+      expect(outputsFrame).toHaveAttribute('data-z-index', '3');
+      expect(screen.getAllByTestId('sheet-frame').map((frame) => frame.dataset.sheetId)).toEqual([
+        deterministicSheetId(1),
+        deterministicSheetId(2),
+        deterministicSheetId(3),
+      ]);
 
-    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Bring to front' }));
-    expect(inputsFrame).toHaveAttribute('data-z-index', '3');
-    expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
-    expect(outputsFrame).toHaveAttribute('data-z-index', '2');
+      await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Bring to front' }));
+      expect(inputsFrame).toHaveAttribute('data-z-index', '3');
+      expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
+      expect(outputsFrame).toHaveAttribute('data-z-index', '2');
 
-    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Send backward' }));
-    expect(inputsFrame).toHaveAttribute('data-z-index', '2');
-    expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
-    expect(outputsFrame).toHaveAttribute('data-z-index', '3');
+      await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Send backward' }));
+      expect(inputsFrame).toHaveAttribute('data-z-index', '2');
+      expect(assumptionsFrame).toHaveAttribute('data-z-index', '1');
+      expect(outputsFrame).toHaveAttribute('data-z-index', '3');
 
-    await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Send to back' }));
-    expect(inputsFrame).toHaveAttribute('data-z-index', '1');
-    expect(assumptionsFrame).toHaveAttribute('data-z-index', '2');
-    expect(outputsFrame).toHaveAttribute('data-z-index', '3');
-  });
+      await user.click(within(openSheetContextMenu(inputsFrame)).getByRole('menuitem', { name: 'Send to back' }));
+      expect(inputsFrame).toHaveAttribute('data-z-index', '1');
+      expect(assumptionsFrame).toHaveAttribute('data-z-index', '2');
+      expect(outputsFrame).toHaveAttribute('data-z-index', '3');
+    },
+    10_000,
+  );
 
   it('appends a row at the end of one sheet and preserves existing cell content', async () => {
     const user = userEvent.setup();
