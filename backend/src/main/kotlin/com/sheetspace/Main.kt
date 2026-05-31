@@ -13,6 +13,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.patch
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -174,6 +175,16 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                         )
                     }
                 }
+            }
+        }
+
+        delete("/api/sheets/{sheetId}") {
+            val sheetId = call.parameters["sheetId"] ?: return@delete call.respondError(
+                HttpStatusCode.BadRequest,
+                "sheet-id-required",
+            )
+            call.respondMutation {
+                repository.deleteSheet(sheetId)
             }
         }
 

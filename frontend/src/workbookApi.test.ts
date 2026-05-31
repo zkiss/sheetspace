@@ -66,11 +66,12 @@ describe('workbookApi', () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 
     await workbookApi.createSheet({
+      id: 'pending:local-only-id',
       name: workbook.sheets[0].name,
       position: workbook.sheets[0].position,
       frameSize: workbook.sheets[0].frameSize,
       zIndex: workbook.sheets[0].zIndex,
-    });
+    } as Parameters<typeof workbookApi.createSheet>[0]);
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
       method: 'POST',
@@ -111,6 +112,17 @@ describe('workbookApi', () => {
       method: 'PATCH',
       body: JSON.stringify({ zIndex: 3 }),
       headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
+  it('deletes sheets through the backend mutation endpoint', async () => {
+    const fetchMock = mockFetch({ ok: true, workbook });
+
+    await workbookApi.deleteSheet('sheet 1');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', {
+      method: 'DELETE',
+      headers: {},
     });
   });
 

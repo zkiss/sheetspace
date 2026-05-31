@@ -2,6 +2,7 @@ package com.sheetspace
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -73,6 +74,34 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertEquals(ErrorResponse(error = "invalid-request"), response.decodeBody<ErrorResponse>())
         assertEquals(emptyWorkbook(), client.loadWorkbook())
+    }
+
+    @Test
+    fun `sheet deletion endpoint persists removal for later workbook loads`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        val sheetId = client.createSheet().id
+
+        val response = client.delete("/api/sheets/$sheetId")
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(emptyWorkbook(), response.decodeBody<MutationResponse>().workbook)
+        assertEquals(emptyWorkbook(), client.loadWorkbook())
+    }
+
+    @Test
+    fun `sheet deletion endpoint reports missing sheet ids`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+
+        val response = client.delete("/api/sheets/${UUID.randomUUID()}")
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertEquals(ErrorResponse(error = "sheet-not-found"), response.decodeBody<ErrorResponse>())
     }
 
     @Test

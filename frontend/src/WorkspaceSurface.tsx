@@ -45,6 +45,7 @@ export function WorkspaceSurface({
   onStartEdit,
   onWheel,
   pendingSheetMenu,
+  sheetIdRemaps,
   sheets,
   viewport,
 }: {
@@ -81,12 +82,16 @@ export function WorkspaceSurface({
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   onWheel: (event: WheelEvent<HTMLElement>) => void;
   pendingSheetMenu: PendingSheetMenu | null;
+  sheetIdRemaps: Readonly<Record<string, string>>;
   sheets: Sheet[];
   viewport: WorkspaceViewport;
 }) {
   const menuSheet = pendingSheetMenu
-    ? sheets.find((candidate) => candidate.id === pendingSheetMenu.sheetId)
+    ? sheets.find((candidate) => candidate.id === (sheetIdRemaps[pendingSheetMenu.sheetId] ?? pendingSheetMenu.sheetId))
     : undefined;
+  const resolvedPendingSheetMenu = pendingSheetMenu
+    ? { ...pendingSheetMenu, sheetId: sheetIdRemaps[pendingSheetMenu.sheetId] ?? pendingSheetMenu.sheetId }
+    : null;
 
   return (
     <section
@@ -150,9 +155,9 @@ export function WorkspaceSurface({
         })}
       </div>
 
-      {pendingSheetMenu && menuSheet ? (
+      {resolvedPendingSheetMenu && menuSheet ? (
         <SheetContextMenu
-          menu={pendingSheetMenu}
+          menu={resolvedPendingSheetMenu}
           onAppendColumn={onAppendColumn}
           onAppendRow={onAppendRow}
           onChangeZOrder={onChangeSheetZOrder}

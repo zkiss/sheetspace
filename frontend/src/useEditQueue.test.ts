@@ -29,6 +29,74 @@ function renderQueue({
 }
 
 describe('useEditQueue', () => {
+  it('cancels a pending sheet create before the request is sent', async () => {
+    const createRun = vi.fn().mockResolvedValue(workbookWithSheets([]));
+    const { result } = renderQueue();
+
+    act(() => {
+      result.current.queue.registerPendingSheet('pending:sheet-inputs');
+      result.current.queue.enqueuePendingSheetCreate(
+        'pending:sheet-inputs',
+        'sheet-create:Inputs',
+        createRun,
+        () => 'sheet-inputs',
+        vi.fn(),
+        vi.fn(),
+      );
+      result.current.queue.cancelPendingSheet('pending:sheet-inputs');
+    });
+
+    await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('rekeys pending sheet queues so post-create edits replace older queued work', async () => {
+    const createSave = deferred<Workbook>();
+    const firstCellSave = deferred<Workbook>();
+    const latestCellSave = deferred<Workbook>();
+    const savedSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const firstCellRun = vi.fn().mockReturnValue(firstCellSave.promise);
+    const latestCellRun = vi.fn().mockReturnValue(latestCellSave.promise);
+    const { result } = renderQueue();
+
+    act(() => {
+      result.current.queue.registerPendingSheet('pending:sheet-inputs');
+      result.current.queue.enqueuePendingSheetCreate(
+        'pending:sheet-inputs',
+        'sheet-create:Inputs',
+        () => createSave.promise,
+        () => savedSheet.id,
+        vi.fn(),
+        vi.fn(),
+      );
+      result.current.queue.enqueueEdit(
+        'cell:pending:sheet-inputs:A1',
+        () => result.current.queue.runForSavedSheet('pending:sheet-inputs', () => firstCellRun()),
+        undefined,
+        'pending:sheet-inputs',
+      );
+    });
+
+    await act(async () => {
+      createSave.resolve(workbookWithSheets([savedSheet]));
+      await createSave.promise;
+    });
+    await waitFor(() => expect(firstCellRun).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      result.current.queue.enqueueEdit('cell:sheet-inputs:A1', latestCellRun, undefined, 'sheet-inputs');
+    });
+
+    expect(latestCellRun).not.toHaveBeenCalled();
+    await act(async () => {
+      firstCellSave.resolve(workbookWithSheets([savedSheet]));
+      await firstCellSave.promise;
+    });
+    await waitFor(() => expect(latestCellRun).toHaveBeenCalledTimes(1));
+    latestCellSave.resolve(workbookWithSheets([savedSheet]));
+    await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));
+  });
+
   it('runs one save per entity key and keeps only the latest queued replacement', async () => {
     const firstSave = deferred<Workbook>();
     const latestSave = deferred<Workbook>();

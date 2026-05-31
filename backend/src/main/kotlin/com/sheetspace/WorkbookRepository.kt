@@ -110,6 +110,14 @@ class WorkbookRepository(dbPath: Path) {
 
     fun updateSheetZIndex(sheetId: String, zIndex: Int): Workbook = updateSheet(sheetId, null, zIndex = zIndex)
 
+    fun deleteSheet(sheetId: String): Workbook = updateWorkbook { workbook ->
+        if (workbook.sheets.none { it.id == sheetId }) {
+            throw UnknownSheetUpdate(sheetId)
+        }
+
+        workbook.copy(sheets = workbook.sheets.filterNot { it.id == sheetId })
+    }
+
     fun updateCell(sheetId: String, cellAddress: String, raw: String, expectedRevision: Long? = null): Workbook =
         updateWorkbook(sheetId, expectedRevision) { workbook ->
             workbook.copy(
