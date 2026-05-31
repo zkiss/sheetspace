@@ -115,6 +115,17 @@ describe('workbookApi', () => {
     });
   });
 
+  it('deletes sheets through the backend mutation endpoint', async () => {
+    const fetchMock = mockFetch({ ok: true, workbook });
+
+    await workbookApi.deleteSheet('sheet 1');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', {
+      method: 'DELETE',
+      headers: {},
+    });
+  });
+
   it('exposes cell content, row append, and column append update calls', async () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 

@@ -56,6 +56,8 @@ export function useWorkbookController({
   const autosaveEnabled = !initialWorkbook || Boolean(apiClient);
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
   const pendingSheets = useRef(new Map<string, string>());
+  const suppressedSheetIds = useRef(new Set<string>());
+  const unresolvedCreateNames = useRef(new Map<string, string>());
   const {
     cancelPendingSheet,
     enqueueEdit,
@@ -94,6 +96,7 @@ export function useWorkbookController({
 
     const pendingSheetId = `pending:${crypto.randomUUID()}`;
     pendingSheets.current.set(pendingSheetId, result.name);
+    unresolvedCreateNames.current.set(pendingSheetId, result.name);
     registerPendingSheet(pendingSheetId);
     setWorkbook((currentWorkbook) => {
       const optimisticSheet = createSheet({
@@ -109,6 +112,7 @@ export function useWorkbookController({
     });
     enqueuePendingSheetCreate(
       pendingSheetId,
+      `sheet-create:${result.name}`,
       () =>
         getApiMethod('createSheet')({
           name: result.name,
@@ -117,7 +121,15 @@ export function useWorkbookController({
           pendingSheets.current.delete(pendingSheetId);
         }),
       (savedWorkbook) => savedWorkbook.sheets.find((sheet) => sheet.name === result.name)?.id,
-      (savedWorkbook, savedSheetId) => {
+      async (savedWorkbook, savedSheetId, deleted) => {
+        if (deleted) {
+          suppressedSheetIds.current.add(savedSheetId);
+          unresolvedCreateNames.current.delete(pendingSheetId);
+          await getApiMethod('deleteSheet')(savedSheetId);
+          return;
+        }
+
+        unresolvedCreateNames.current.delete(pendingSheetId);
         setWorkbook((currentWorkbook) => {
           const savedSheet = savedWorkbook.sheets.find((sheet) => sheet.id === savedSheetId);
           if (!savedSheet) {
@@ -139,11 +151,22 @@ export function useWorkbookController({
                   : sheet;
               }),
               ...savedWorkbook.sheets.filter(
-                (sheet) => sheet.id !== savedSheetId && !currentSheetIds.has(sheet.id),
+                (sheet) =>
+                  sheet.id !== savedSheetId &&
+                  !currentSheetIds.has(sheet.id) &&
+                  ![...unresolvedCreateNames.current.values()].includes(sheet.name) &&
+                  !suppressedSheetIds.current.has(sheet.id),
               ),
             ],
           };
         });
+      },
+      () => {
+        unresolvedCreateNames.current.delete(pendingSheetId);
+        setWorkbook((currentWorkbook) => ({
+          ...currentWorkbook,
+          sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== pendingSheetId),
+        }));
       },
     );
 
@@ -156,7 +179,10 @@ export function useWorkbookController({
     }
 
     pendingSheets.current.delete(sheetId);
-    cancelPendingSheet(sheetId);
+    const createWasSent = cancelPendingSheet(sheetId);
+    if (!createWasSent) {
+      unresolvedCreateNames.current.delete(sheetId);
+    }
     setWorkbook((currentWorkbook) => ({
       ...currentWorkbook,
       sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),

@@ -24,6 +24,7 @@ function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
   return {
     loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
     createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    deleteSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
     renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
     updateSheetPosition: vi.fn().mockResolvedValue(workbookWithSheets([])),
     updateSheetFrameSize: vi.fn().mockResolvedValue(workbookWithSheets([])),
@@ -157,6 +158,157 @@ describe('useWorkbookController', () => {
     expect(new Set(sheetIds).size).toBe(2);
     expect(sheetIds).toEqual([expect.stringMatching(/^pending:[0-9a-f-]+$/), expect.stringMatching(/^pending:[0-9a-f-]+$/)]);
     expect(sheetIds).not.toContain('pending:');
+  });
+
+  it('remaps concurrent creates without duplicating durable sheets when responses resolve out of order', async () => {
+    const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
+    const savedOutputs = {
+      ...positionedSheet('00000000-0000-4000-8000-000000000002', 'Outputs', { x: 96, y: 144 }),
+      zIndex: 2,
+    };
+    let resolveInputs!: (workbook: Workbook) => void;
+    let resolveOutputs!: (workbook: Workbook) => void;
+    const inputsSave = new Promise<Workbook>((resolve) => {
+      resolveInputs = resolve;
+    });
+    const outputsSave = new Promise<Workbook>((resolve) => {
+      resolveOutputs = resolve;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockImplementation(({ name }: { name: string }) =>
+        name === 'Inputs' ? inputsSave : outputsSave,
+      ),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+      result.current.commands.createSheet('Outputs', { x: 96, y: 144 });
+    });
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveOutputs(workbookWithSheets([savedInputs, savedOutputs]));
+      await outputsSave;
+    });
+    expect(result.current.workbook.sheets.map((sheet) => sheet.name)).toEqual(['Inputs', 'Outputs']);
+    expect(result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')?.id).toMatch(/^pending:/);
+    expect(result.current.workbook.sheets.find((sheet) => sheet.name === 'Outputs')?.id).toBe(savedOutputs.id);
+
+    await act(async () => {
+      resolveInputs(workbookWithSheets([savedInputs, savedOutputs]));
+      await inputsSave;
+    });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(result.current.workbook.sheets).toEqual([savedInputs, savedOutputs]);
+  });
+
+  it('does not append a durable duplicate when a concurrent pending sheet was renamed locally', async () => {
+    const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
+    const savedOutputs = {
+      ...positionedSheet('00000000-0000-4000-8000-000000000002', 'Outputs', { x: 96, y: 144 }),
+      zIndex: 2,
+    };
+    let resolveInputs!: (workbook: Workbook) => void;
+    let resolveOutputs!: (workbook: Workbook) => void;
+    const inputsSave = new Promise<Workbook>((resolve) => {
+      resolveInputs = resolve;
+    });
+    const outputsSave = new Promise<Workbook>((resolve) => {
+      resolveOutputs = resolve;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockImplementation(({ name }: { name: string }) =>
+        name === 'Inputs' ? inputsSave : outputsSave,
+      ),
+      renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([{ ...savedInputs, name: 'Data' }, savedOutputs])),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+      result.current.commands.createSheet('Outputs', { x: 96, y: 144 });
+    });
+    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    act(() => {
+      result.current.commands.renameSheet(pendingInputsId, 'Data');
+    });
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveOutputs(workbookWithSheets([savedInputs, savedOutputs]));
+      await outputsSave;
+    });
+    expect(result.current.workbook.sheets.map((sheet) => sheet.name)).toEqual(['Data', 'Outputs']);
+
+    await act(async () => {
+      resolveInputs(workbookWithSheets([savedInputs, savedOutputs]));
+      await inputsSave;
+    });
+    await waitFor(() => expect(apiClient.renameSheet).toHaveBeenCalledWith(savedInputs.id, 'Data', { revision: 0 }));
+    expect(result.current.workbook.sheets.map((sheet) => sheet.id)).toEqual([savedInputs.id, savedOutputs.id]);
+  });
+
+  it('does not append a tombstoned concurrent create while compensating deletion is pending', async () => {
+    const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
+    const savedOutputs = {
+      ...positionedSheet('00000000-0000-4000-8000-000000000002', 'Outputs', { x: 96, y: 144 }),
+      zIndex: 2,
+    };
+    let resolveInputs!: (workbook: Workbook) => void;
+    let resolveOutputs!: (workbook: Workbook) => void;
+    const inputsSave = new Promise<Workbook>((resolve) => {
+      resolveInputs = resolve;
+    });
+    const outputsSave = new Promise<Workbook>((resolve) => {
+      resolveOutputs = resolve;
+    });
+    const deleteSave = new Promise<Workbook>(() => undefined);
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockImplementation(({ name }: { name: string }) =>
+        name === 'Inputs' ? inputsSave : outputsSave,
+      ),
+      deleteSheet: vi.fn().mockReturnValue(deleteSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+      result.current.commands.createSheet('Outputs', { x: 96, y: 144 });
+    });
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
+    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    act(() => {
+      result.current.commands.deletePendingSheet(pendingInputsId);
+    });
+
+    await act(async () => {
+      resolveOutputs(workbookWithSheets([savedInputs, savedOutputs]));
+      await outputsSave;
+    });
+    expect(result.current.workbook.sheets).toEqual([savedOutputs]);
+
+    await act(async () => {
+      resolveInputs(workbookWithSheets([savedInputs, savedOutputs]));
+      await inputsSave;
+    });
+    await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedInputs.id));
+    expect(result.current.workbook.sheets).toEqual([savedOutputs]);
   });
 
   it('queues pending sheet mutations until create resolves and sends them with the backend id', async () => {
@@ -307,6 +459,90 @@ describe('useWorkbookController', () => {
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     expect(result.current.workbook.sheets).toHaveLength(0);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+    expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedSheet.id);
+  });
+
+  it('removes an optimistic sheet after create fails', async () => {
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockRejectedValue(new Error('backend unavailable')),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+    });
+
+    expect(result.current.workbook.sheets).toHaveLength(1);
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+    expect(result.current.workbook.sheets).toHaveLength(0);
+  });
+
+  it('drops queued pending mutations after create fails', async () => {
+    let rejectCreate!: (cause: unknown) => void;
+    const createSheetSave = new Promise<Workbook>((_, reject) => {
+      rejectCreate = reject;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSheetSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+    });
+    const pendingSheetId = result.current.workbook.sheets[0].id;
+    act(() => {
+      result.current.commands.updateCellContent(pendingSheetId, 'A1', 'first');
+    });
+    act(() => {
+      result.current.commands.updateCellContent(pendingSheetId, 'A1', 'latest');
+    });
+
+    await act(async () => {
+      rejectCreate(new Error('backend unavailable'));
+      await createSheetSave.catch(() => undefined);
+    });
+
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+    expect(result.current.workbook.sheets).toHaveLength(0);
+    expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+  });
+
+  it('clears a failed create status when retrying the same sheet name succeeds', async () => {
+    const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn()
+        .mockRejectedValueOnce(new Error('backend unavailable'))
+        .mockResolvedValueOnce(workbookWithSheets([savedSheet])),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+    });
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+    });
+
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(result.current.workbook.sheets).toEqual([savedSheet]);
   });
 
   it('keeps frame previews local and persists only committed frame commands', () => {

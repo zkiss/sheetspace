@@ -88,6 +88,19 @@ class WorkbookRepositoryTest {
     }
 
     @Test
+    fun `deletes one persisted sheet and rejects unknown sheet ids`() {
+        val repo = createRepo()
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
+
+        assertEquals(listOf(SHEET_2), repo.deleteSheet(SHEET_1).sheets.map { it.id })
+        assertFailsWith<UnknownSheetUpdate> {
+            repo.deleteSheet(SHEET_1)
+        }
+        assertEquals(listOf(SHEET_2), repo.loadWorkbook().sheets.map { it.id })
+    }
+
+    @Test
     fun `rejects stale sheet revision updates without overwriting newer persisted data`() {
         val repo = createRepo()
 

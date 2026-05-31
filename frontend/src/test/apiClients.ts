@@ -27,6 +27,7 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
   return {
     loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
     createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    deleteSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
     renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
     updateSheetPosition: vi.fn().mockResolvedValue(workbookWithSheets([])),
     updateSheetFrameSize: vi.fn().mockResolvedValue(workbookWithSheets([])),
@@ -65,6 +66,10 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         persistedWorkbook = workbookWithSheets([...persistedWorkbook.sheets, result.value]);
       }
 
+      return persistedWorkbook;
+    }),
+    deleteSheet: vi.fn().mockImplementation(async (sheetId: string) => {
+      persistedWorkbook = workbookWithSheets(persistedWorkbook.sheets.filter((sheet) => sheet.id !== sheetId));
       return persistedWorkbook;
     }),
     renameSheet: vi.fn().mockImplementation(async (sheetId: string, name: string) => {

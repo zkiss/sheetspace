@@ -79,6 +79,12 @@ export const workbookApi = {
     });
   },
 
+  deleteSheet(sheetId: string): Promise<Workbook> {
+    return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
+      method: 'DELETE',
+    });
+  },
+
   renameSheet(sheetId: string, name: string, options: RevisionedMutationOptions = {}): Promise<Workbook> {
     return mutationRequest(`/api/sheets/${encodePathSegment(sheetId)}`, {
       method: 'PATCH',
