@@ -9,6 +9,7 @@ import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -85,6 +86,93 @@ class WorkbookRepositoryTest {
         assertEquals(4, sheet.zIndex)
         assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1").raw)
         assertFalse(sheet.cells.containsKey("A1_display"))
+    }
+
+    @Test
+    fun `stores sheet qualified formula references by uuid and hydrates current display names`() {
+        val dbPath = createDbPath()
+        val repo = WorkbookRepository(dbPath)
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
+        repo.updateCell(SHEET_2, "A1", "=SUM(Inputs!A1, 'Inputs'!A2)")
+
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("SELECT cells_json FROM sheets WHERE name = 'Outputs'").use { rs ->
+                    assertTrue(rs.next())
+                    val cellsJson = rs.getString(1)
+                    assertContains(cellsJson, """"raw":"=SUM(Inputs!A1, 'Inputs'!A2)"""")
+                    assertContains(cellsJson, """"sheetId":"$SHEET_1"""")
+                }
+            }
+        }
+
+        repo.renameSheet(SHEET_1, "Renamed Inputs")
+
+        assertEquals(
+            "=SUM('Renamed Inputs'!A1, 'Renamed Inputs'!A2)",
+            repo.loadWorkbook().sheets.single { it.id == SHEET_2 }.cells.getValue("A1").raw,
+        )
+    }
+
+    @Test
+    fun `keeps missing reference display names while hydrating deleted targets`() {
+        val repo = createRepo()
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
+        repo.updateCell(SHEET_2, "A1", "=SUM(Inputs!A1)")
+
+        repo.deleteSheet(SHEET_1)
+
+        assertEquals(
+            "=SUM(Inputs!A1)",
+            repo.loadWorkbook().sheets.single().cells.getValue("A1").raw,
+        )
+    }
+
+    @Test
+    fun `hydrates quoted punctuation and escaped apostrophe display names after rename`() {
+        val repo = createRepo()
+        repo.createSheet(Sheet(id = SHEET_1, name = "Planned-Revenue (FY26)"))
+        repo.createSheet(Sheet(id = SHEET_2, name = "Owner's Plan"))
+        repo.createSheet(Sheet(id = SHEET_3, name = "Outputs"))
+        repo.updateCell(SHEET_3, "A1", "=SUM('Planned-Revenue (FY26)'!A1, 'Owner''s Plan'!A1)")
+
+        repo.renameSheet(SHEET_1, "Plan, FY27")
+        repo.renameSheet(SHEET_2, "Director's Plan")
+
+        assertEquals(
+            "=SUM('Plan, FY27'!A1, 'Director''s Plan'!A1)",
+            repo.loadWorkbook().sheets.single { it.id == SHEET_3 }.cells.getValue("A1").raw,
+        )
+    }
+
+    @Test
+    fun `leaves malformed and same sheet formulas unchanged during persistence`() {
+        val repo = createRepo()
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_2, name = "Owner's Plan"))
+        repo.createSheet(Sheet(id = SHEET_3, name = "foo)"))
+        repo.createSheet(Sheet(id = SHEET_4, name = "foo"))
+        repo.createSheet(Sheet(id = SHEET_5, name = "foo!bar"))
+        repo.updateCell(SHEET_1, "A1", "=SUM(B1)")
+        repo.updateCell(SHEET_1, "A2", "=SUM('Inputs!A1)")
+        repo.updateCell(SHEET_1, "A3", "=SUM('Owner's Plan'!A1)")
+        repo.updateCell(SHEET_1, "A4", "=SUM(foo)!A1)")
+        repo.updateCell(SHEET_1, "A5", "=SUM(foo!bar!A1)")
+
+        repo.renameSheet(SHEET_2, "Director's Plan")
+        repo.renameSheet(SHEET_3, "Bar")
+        repo.renameSheet(SHEET_4, "Baz")
+        repo.renameSheet(SHEET_5, "Qux")
+
+        val cells = repo.loadWorkbook().sheets.single { it.id == SHEET_1 }.cells
+
+        assertEquals("=SUM(B1)", cells.getValue("A1").raw)
+        assertEquals("=SUM('Inputs!A1)", cells.getValue("A2").raw)
+        assertEquals("=SUM('Owner's Plan'!A1)", cells.getValue("A3").raw)
+        assertEquals("=SUM(foo)!A1)", cells.getValue("A4").raw)
+        assertEquals("=SUM(foo!bar!A1)", cells.getValue("A5").raw)
     }
 
     @Test
@@ -335,6 +423,32 @@ class WorkbookRepositoryTest {
         assertEquals(emptyWorkbook(), WorkbookRepository(dbPath).loadWorkbook())
     }
 
+    @Test
+    fun `formula reference migration explicitly discards sheets with legacy cell json`() {
+        val dbPath = createDbPath()
+        val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
+        Flyway.configure()
+            .dataSource(jdbcUrl, null, null)
+            .locations("classpath:db/migration")
+            .target("4")
+            .load()
+            .migrate()
+        DriverManager.getConnection(jdbcUrl).use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    INSERT INTO sheets (
+                        id, display_order, name, row_count, column_count, position_x, position_y,
+                        cells_json, revision, z_index, frame_width, frame_height
+                    ) VALUES (X'00000000000000000000000000000001', 0, 'Legacy', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        assertEquals(emptyWorkbook(), WorkbookRepository(dbPath).loadWorkbook())
+    }
+
     private fun createRepo(): WorkbookRepository {
         return WorkbookRepository(createDbPath())
     }
@@ -346,5 +460,8 @@ class WorkbookRepositoryTest {
     private companion object {
         const val SHEET_1 = "00000000-0000-0000-0000-000000000001"
         const val SHEET_2 = "00000000-0000-0000-0000-000000000002"
+        const val SHEET_3 = "00000000-0000-0000-0000-000000000003"
+        const val SHEET_4 = "00000000-0000-0000-0000-000000000004"
+        const val SHEET_5 = "00000000-0000-0000-0000-000000000005"
     }
 }
