@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { autosaveClient, deferred } from './test/apiClients';
-import { openCellEditor } from './test/appScreen';
+import { openCellEditor, openSheetContextMenu } from './test/appScreen';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 import type { Workbook } from './workbook';
 
@@ -59,6 +59,27 @@ describe('App autosave integration', () => {
     await user.keyboard('{Enter}');
 
     expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', 'Draft', { revision: 0 });
+  });
+
+  it('autosaves optimistic sheet deletion and reports app-level save status', async () => {
+    const user = userEvent.setup();
+    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }), revision: 2 };
+    const deleteSave = deferred<Workbook>();
+    const apiClient = autosaveClient({
+      deleteSheet: vi.fn().mockReturnValue(deleteSave.promise),
+    });
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+
+    await user.click(within(openSheetContextMenu(screen.getByRole('article', { name: 'Sheet Inputs' }))).getByRole('menuitem', { name: 'Delete' }));
+
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saving...');
+    expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 2 });
+
+    deleteSave.resolve(workbookWithSheets([]));
+
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
   });
 
   it('keeps the workbook editable and shows failed unsaved state after autosave failure', async () => {

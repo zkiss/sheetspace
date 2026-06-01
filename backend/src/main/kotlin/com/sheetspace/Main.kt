@@ -183,8 +183,14 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                 HttpStatusCode.BadRequest,
                 "sheet-id-required",
             )
-            call.respondMutation {
-                repository.deleteSheet(sheetId)
+            val workbook = repository.loadWorkbook()
+            if (workbook.sheets.none { it.id == sheetId }) {
+                call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
+            } else {
+                val expectedRevision = call.expectedSheetRevision() ?: return@delete
+                call.respondMutation {
+                    repository.deleteSheet(sheetId, expectedRevision)
+                }
             }
         }
 

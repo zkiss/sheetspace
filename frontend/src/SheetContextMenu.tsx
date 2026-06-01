@@ -6,6 +6,7 @@ export function SheetContextMenu({
   onAppendColumn,
   onAppendRow,
   onChangeZOrder,
+  onDelete,
   onRename,
   sheet,
 }: {
@@ -13,6 +14,7 @@ export function SheetContextMenu({
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
   onChangeZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
+  onDelete: (sheetId: string) => void;
   onRename: (sheet: Sheet) => void;
   sheet: Sheet;
 }) {
@@ -46,6 +48,9 @@ export function SheetContextMenu({
       </button>
       <button type="button" role="menuitem" onClick={() => onRename(sheet)}>
         Rename
+      </button>
+      <button type="button" data-sheet-menu-action="delete" role="menuitem" onClick={() => onDelete(sheet.id)}>
+        Delete
       </button>
     </div>
   );

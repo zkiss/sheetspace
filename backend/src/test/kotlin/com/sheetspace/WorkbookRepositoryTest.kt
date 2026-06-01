@@ -90,12 +90,12 @@ class WorkbookRepositoryTest {
     @Test
     fun `deletes one persisted sheet and rejects unknown sheet ids`() {
         val repo = createRepo()
-        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        val inputs = repo.createSheet(Sheet(id = SHEET_1, name = "Inputs")).sheets.single { it.id == SHEET_1 }
         repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
 
-        assertEquals(listOf(SHEET_2), repo.deleteSheet(SHEET_1).sheets.map { it.id })
+        assertEquals(listOf(SHEET_2), repo.deleteSheet(SHEET_1, inputs.revision).sheets.map { it.id })
         assertFailsWith<UnknownSheetUpdate> {
-            repo.deleteSheet(SHEET_1)
+            repo.deleteSheet(SHEET_1, inputs.revision)
         }
         assertEquals(listOf(SHEET_2), repo.loadWorkbook().sheets.map { it.id })
     }
@@ -117,6 +117,25 @@ class WorkbookRepositoryTest {
         val reloaded = repo.loadWorkbook().sheets.single()
         assertEquals("newer value", reloaded.cells.getValue("A1").raw)
         assertEquals(afterFirstSave.sheets.single().revision, reloaded.revision)
+    }
+
+    @Test
+    fun `rejects stale sheet deletion without removing newer persisted data`() {
+        val repo = createRepo()
+
+        val created = repo.createSheet(Sheet(id = SHEET_1, name = "Inputs")).sheets.single()
+        val afterFirstSave = repo.updateCell(SHEET_1, "A1", "newer value", created.revision)
+
+        val conflict = assertFailsWith<SheetRevisionConflict> {
+            repo.deleteSheet(SHEET_1, created.revision)
+        }
+
+        assertEquals(SHEET_1, conflict.sheetId)
+        assertEquals(created.revision, conflict.expectedRevision)
+        assertEquals(afterFirstSave.sheets.single().revision, conflict.actualRevision)
+        val reloaded = repo.loadWorkbook().sheets.single()
+        assertEquals(SHEET_1, reloaded.id)
+        assertEquals("newer value", reloaded.cells.getValue("A1").raw)
     }
 
     @Test

@@ -122,6 +122,10 @@ export function Workspace({
         onCommitEdit={onCommitEdit}
         onCommitEditAndNavigate={onCommitEditAndNavigate}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
+        onDeleteSheet={(sheetId) => {
+          workspaceController.closeSheetMenu();
+          commands.deleteSheet(sheetId);
+        }}
         onEditValueChange={onEditValueChange}
         onNavigateCell={onNavigateCell}
         onOpenRenameDialog={handleOpenRenameDialog}

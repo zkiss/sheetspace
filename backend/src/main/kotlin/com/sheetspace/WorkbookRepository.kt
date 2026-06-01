@@ -110,7 +110,7 @@ class WorkbookRepository(dbPath: Path) {
 
     fun updateSheetZIndex(sheetId: String, zIndex: Int): Workbook = updateSheet(sheetId, null, zIndex = zIndex)
 
-    fun deleteSheet(sheetId: String): Workbook = updateWorkbook { workbook ->
+    fun deleteSheet(sheetId: String, expectedRevision: Long? = null): Workbook = updateWorkbook(sheetId, expectedRevision) { workbook ->
         if (workbook.sheets.none { it.id == sheetId }) {
             throw UnknownSheetUpdate(sheetId)
         }
@@ -186,6 +186,9 @@ class WorkbookRepository(dbPath: Path) {
                 (currentSheet != updatedSheet || currentIndex != updatedIndex)
             ) {
                 updateSheetWithExpectedRevision(conn, updatedSheet, updatedIndex, expectedRevision)
+            }
+            if (currentSheet != null && updatedSheet == null) {
+                deleteSheetWithExpectedRevision(conn, lockedSheetId, expectedRevision)
             }
 
             return@connection loadWorkbook(conn)
@@ -321,6 +324,18 @@ class WorkbookRepository(dbPath: Path) {
 
         if (updatedRows == 0) {
             throw SheetRevisionConflict(sheet.id, expectedRevision, loadSheetRevision(conn, sheet.id) ?: -1)
+        }
+    }
+
+    private fun deleteSheetWithExpectedRevision(conn: Connection, sheetId: String, expectedRevision: Long) {
+        val deletedRows = conn.prepareStatement("DELETE FROM sheets WHERE id = ? AND revision = ?").use { statement ->
+            statement.setBytes(1, sheetId.toUuidBytes())
+            statement.setLong(2, expectedRevision)
+            statement.executeUpdate()
+        }
+
+        if (deletedRows == 0) {
+            throw SheetRevisionConflict(sheetId, expectedRevision, loadSheetRevision(conn, sheetId) ?: -1)
         }
     }
 

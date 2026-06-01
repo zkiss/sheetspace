@@ -118,11 +118,11 @@ describe('workbookApi', () => {
   it('deletes sheets through the backend mutation endpoint', async () => {
     const fetchMock = mockFetch({ ok: true, workbook });
 
-    await workbookApi.deleteSheet('sheet 1');
+    await workbookApi.deleteSheet('sheet 1', { revision: 3 });
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', {
       method: 'DELETE',
-      headers: {},
+      headers: { 'If-Match': '3' },
     });
   });
 

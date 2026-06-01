@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { workbookApi, type WorkbookApi } from './workbookApi';
+import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import {
   appendColumn,
   appendRow,
@@ -28,6 +28,7 @@ export type WorkbookCommands = {
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
   createSheet: (name: string, position: WorkspacePosition) => ValidationResult;
   deletePendingSheet: (sheetId: string) => void;
+  deleteSheet: (sheetId: string) => void;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   previewSheetFrameLayout: (sheetId: string, position: WorkspacePosition, frameSize?: SheetFrameSize) => void;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
@@ -61,6 +62,7 @@ export function useWorkbookController({
   const {
     cancelPendingSheet,
     enqueueEdit,
+    dropSheetQueuedTasks,
     enqueuePendingSheetCreate,
     getApiMethod,
     markSaved,
@@ -70,6 +72,7 @@ export function useWorkbookController({
     runRevisionedEdit,
     saveStatus,
     sheetIdRemaps,
+    waitForSheetIdle,
   } = useEditQueue({
     autosaveEnabled,
     resolvedApiClient,
@@ -83,6 +86,16 @@ export function useWorkbookController({
     setWorkbook,
   });
   const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
+
+  function persistDeletedSheet(savedSheetId: string, revision: number | undefined) {
+    return getApiMethod('deleteSheet')(savedSheetId, { revision }).catch((cause: unknown) => {
+      if (cause instanceof WorkbookApiError && cause.status === 404 && cause.code === 'sheet-not-found') {
+        return getApiMethod('loadWorkbook')();
+      }
+
+      throw cause;
+    });
+  }
 
   function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
     const result = validateSheetName(name, workbook.sheets);
@@ -125,7 +138,8 @@ export function useWorkbookController({
         if (deleted) {
           suppressedSheetIds.current.add(savedSheetId);
           unresolvedCreateNames.current.delete(pendingSheetId);
-          await getApiMethod('deleteSheet')(savedSheetId);
+          const savedSheet = savedWorkbook.sheets.find((sheet) => sheet.id === savedSheetId);
+          await persistDeletedSheet(savedSheetId, savedSheet?.revision);
           return;
         }
 
@@ -187,6 +201,29 @@ export function useWorkbookController({
       ...currentWorkbook,
       sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),
     }));
+  }
+
+  function deleteSheetCommand(sheetId: string) {
+    if (pendingSheets.current.has(sheetId)) {
+      deletePendingSheet(sheetId);
+      return;
+    }
+
+    const localSheetId = resolveSheetId(sheetId);
+    if (workbook.sheets.every((sheet) => sheet.id !== localSheetId)) {
+      return;
+    }
+
+    dropSheetQueuedTasks(localSheetId);
+    setWorkbook((currentWorkbook) => ({
+      ...currentWorkbook,
+      sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== localSheetId),
+    }));
+    enqueueEdit(`sheet-delete:${localSheetId}`, async () => {
+      await waitForSheetIdle(localSheetId);
+      dropSheetQueuedTasks(localSheetId);
+      return runRevisionedEdit(localSheetId, (revision) => persistDeletedSheet(localSheetId, revision));
+    });
   }
 
   function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> {
@@ -367,6 +404,7 @@ export function useWorkbookController({
       changeSheetZOrder,
       createSheet: createSheetCommand,
       deletePendingSheet,
+      deleteSheet: deleteSheetCommand,
       moveSheetFrame,
       previewSheetFrameLayout,
       renameSheet: renameSheetCommand,

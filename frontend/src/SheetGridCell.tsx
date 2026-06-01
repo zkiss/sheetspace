@@ -136,7 +136,15 @@ export function SheetGridCellEditor({
       data-max-width={CELL_EDITOR_MAX_WIDTH}
       data-multiline-editor={editorSizing.multiline ? 'true' : undefined}
       data-visible-lines={editorSizing.visibleLineCount}
-      onBlur={(event) => onCommitEdit({ ...editingCell, value: event.currentTarget.value })}
+      onBlur={(event) => {
+        const relatedTarget = event.relatedTarget as HTMLElement | null;
+        if (relatedTarget?.dataset.sheetMenuAction === 'delete') {
+          onCancelEdit();
+          return;
+        }
+
+        onCommitEdit({ ...editingCell, value: event.currentTarget.value });
+      }}
       onChange={(event) => onEditValueChange(event.target.value)}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {

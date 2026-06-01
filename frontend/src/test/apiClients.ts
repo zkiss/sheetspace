@@ -69,6 +69,11 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       return persistedWorkbook;
     }),
     deleteSheet: vi.fn().mockImplementation(async (sheetId: string) => {
+      const existingSheet = persistedWorkbook.sheets.find((sheet) => sheet.id === sheetId);
+      if (!existingSheet) {
+        throw new Error('sheet-not-found');
+      }
+
       persistedWorkbook = workbookWithSheets(persistedWorkbook.sheets.filter((sheet) => sheet.id !== sheetId));
       return persistedWorkbook;
     }),
