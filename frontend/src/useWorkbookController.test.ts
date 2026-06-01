@@ -697,6 +697,65 @@ describe('useWorkbookController', () => {
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
 
+  it('preserves unrelated queued mutations when deleting a saved sheet', async () => {
+    const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 0 };
+    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 0 }), revision: 0 };
+    let resolveFirstOutputSave!: (workbook: Workbook) => void;
+    const firstOutputSave = new Promise<Workbook>((resolve) => {
+      resolveFirstOutputSave = resolve;
+    });
+    let resolveLatestOutputSave!: (workbook: Workbook) => void;
+    const latestOutputSave = new Promise<Workbook>((resolve) => {
+      resolveLatestOutputSave = resolve;
+    });
+    let resolveDeleteSave!: (workbook: Workbook) => void;
+    const deleteSave = new Promise<Workbook>((resolve) => {
+      resolveDeleteSave = resolve;
+    });
+    const apiClient = autosaveClient({
+      updateCellContent: vi.fn().mockReturnValueOnce(firstOutputSave).mockReturnValueOnce(latestOutputSave),
+      deleteSheet: vi.fn().mockReturnValue(deleteSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([inputs, outputs]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.updateCellContent('sheet-outputs', 'A1', 'first');
+      result.current.commands.updateCellContent('sheet-outputs', 'A1', 'latest');
+      result.current.commands.deleteSheet('sheet-inputs');
+    });
+
+    expect(result.current.workbook.sheets.map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
+    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 0 }));
+
+    await act(async () => {
+      resolveDeleteSave(workbookWithSheets([outputs]));
+      await deleteSave;
+    });
+    expect(result.current.saveStatus).toBe('saving');
+
+    await act(async () => {
+      resolveFirstOutputSave(workbookWithSheets([{ ...outputs, revision: 1, cells: { A1: { raw: 'first' } } }]));
+      await firstOutputSave;
+    });
+    await waitFor(() =>
+      expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-outputs', 'A1', 'latest', { revision: 1 }),
+    );
+
+    await act(async () => {
+      resolveLatestOutputSave(workbookWithSheets([{ ...outputs, revision: 2, cells: { A1: { raw: 'latest' } } }]));
+      await latestOutputSave;
+    });
+
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(result.current.workbook.sheets).toEqual([{ ...outputs, revision: 2, cells: { A1: { raw: 'latest' } } }]);
+  });
+
   it('renames sheets through autosave with the current revision token', () => {
     const apiClient = autosaveClient();
     const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 4 };
