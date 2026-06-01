@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import {
   createSheetFromToolbar,
@@ -8,9 +8,10 @@ import {
   openSheetContextMenu,
   workspaceSurface,
 } from './test/appScreen';
-import { deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
+import { autosaveClient, deferred, deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
 import { workspaceRect } from './test/domGeometry';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import type { Workbook } from './workbook';
 
 function renderEmptyPersistedWorkbook() {
   render(<App initialWorkbook={workbookWithSheets([])} apiClient={persistedWorkbookClient()} />);
@@ -326,6 +327,61 @@ describe('App sheet management integration', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Sheet name is required.');
     expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
     expect(screen.queryByRole('article', { name: 'Sheet Renamed Inputs' })).not.toBeInTheDocument();
+  });
+
+  it('deletes a sheet without committing an in-progress cell edit from editor blur', async () => {
+    const user = userEvent.setup();
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const editor = await openCellEditor(user, within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' }));
+    await user.type(editor, 'Draft');
+    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Delete' }));
+
+    expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+    expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 0 });
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+  });
+
+  it('deletes a saved sheet from its context menu and persists removal through reload', async () => {
+    const user = userEvent.setup();
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 });
+    const apiClient = persistedWorkbookClient(workbookWithSheets([inputs, outputs]));
+    const { unmount } = render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={apiClient} />);
+
+    await user.click(within(openSheetContextMenu(screen.getByRole('article', { name: 'Sheet Inputs' }))).getByRole('menuitem', { name: 'Delete' }));
+
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Sheet Outputs' })).toBeInTheDocument();
+    expect(screen.getByText('1 sheets')).toBeInTheDocument();
+    expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 0 });
+
+    unmount();
+    render(<App apiClient={apiClient} />);
+
+    expect(await screen.findByRole('article', { name: 'Sheet Outputs' })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+  });
+
+  it('deletes pending sheets from their context menu without waiting for create persistence', async () => {
+    const user = userEvent.setup();
+    const createSave = deferred<Workbook>();
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSave.promise),
+    });
+    render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
+
+    await createSheetFromToolbar('Inputs');
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    expect(frame.getAttribute('data-sheet-id')).toMatch(/^pending:[0-9a-f-]+$/);
+    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Delete' }));
+
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+    expect(screen.getByText('0 sheets')).toBeInTheDocument();
   });
 
   it('rejects duplicate sheet renames and keeps the old name active', async () => {

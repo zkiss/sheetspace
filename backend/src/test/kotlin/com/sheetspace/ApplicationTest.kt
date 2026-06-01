@@ -84,7 +84,9 @@ class ApplicationTest {
         }
         val sheetId = client.createSheet().id
 
-        val response = client.delete("/api/sheets/$sheetId")
+        val response = client.delete("/api/sheets/$sheetId") {
+            revisionHeader(repo, sheetId)
+        }
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(emptyWorkbook(), response.decodeBody<MutationResponse>().workbook)
@@ -102,6 +104,31 @@ class ApplicationTest {
 
         assertEquals(HttpStatusCode.NotFound, response.status)
         assertEquals(ErrorResponse(error = "sheet-not-found"), response.decodeBody<ErrorResponse>())
+    }
+
+    @Test
+    fun `stale sheet deletion returns conflict without removing newer sheet state`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        val sheetId = client.createSheet().id
+        val initialRevision = client.loadWorkbook().sheets.single().revision
+
+        val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
+            header("If-Match", initialRevision.toString())
+            jsonBody("""{"raw":"newer value"}""")
+        }
+        val staleDelete = client.delete("/api/sheets/$sheetId") {
+            header("If-Match", initialRevision.toString())
+        }
+
+        assertEquals(HttpStatusCode.OK, firstUpdate.status)
+        assertEquals(HttpStatusCode.Conflict, staleDelete.status)
+        assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleDelete.decodeBody<ErrorResponse>())
+        val sheet = client.loadWorkbook().sheets.single()
+        assertEquals(sheetId, sheet.id)
+        assertEquals("newer value", sheet.cells.getValue("A1").raw)
     }
 
     @Test
@@ -364,6 +391,7 @@ class ApplicationTest {
         val missingRevision = client.put("/api/sheets/$sheetId/cells/A1") {
             jsonBody("""{"raw":"value"}""")
         }
+        val missingDeleteRevision = client.delete("/api/sheets/$sheetId")
         val invalidRevision = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", "not-a-revision")
             jsonBody("""{"raw":"value"}""")
@@ -371,6 +399,8 @@ class ApplicationTest {
 
         assertEquals(HttpStatusCode.BadRequest, missingRevision.status)
         assertEquals(ErrorResponse(error = "sheet-revision-required"), missingRevision.decodeBody<ErrorResponse>())
+        assertEquals(HttpStatusCode.BadRequest, missingDeleteRevision.status)
+        assertEquals(ErrorResponse(error = "sheet-revision-required"), missingDeleteRevision.decodeBody<ErrorResponse>())
         assertEquals(HttpStatusCode.BadRequest, invalidRevision.status)
         assertEquals(ErrorResponse(error = "invalid-sheet-revision"), invalidRevision.decodeBody<ErrorResponse>())
         assertEquals(emptyMap(), client.loadWorkbook().sheets.single().cells)

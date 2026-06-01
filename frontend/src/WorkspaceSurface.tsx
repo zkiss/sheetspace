@@ -25,6 +25,7 @@ export function WorkspaceSurface({
   onCommitEdit,
   onCommitEditAndNavigate,
   onContextMenu,
+  onDeleteSheet,
   onEditValueChange,
   onNavigateCell,
   onOpenRenameDialog,
@@ -62,6 +63,7 @@ export function WorkspaceSurface({
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
+  onDeleteSheet: (sheetId: string) => void;
   onEditValueChange: (value: string) => void;
   onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: Sheet) => void;
@@ -161,6 +163,7 @@ export function WorkspaceSurface({
           onAppendColumn={onAppendColumn}
           onAppendRow={onAppendRow}
           onChangeZOrder={onChangeSheetZOrder}
+          onDelete={onDeleteSheet}
           onRename={onOpenRenameDialog}
           sheet={menuSheet}
         />

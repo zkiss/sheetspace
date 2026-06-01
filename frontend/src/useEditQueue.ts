@@ -55,6 +55,7 @@ export function useEditQueue({
   const knownSheetRevisions = useRef(new Map<string, number>());
   const pendingSheetCreates = useRef(new Map<string, PendingSheetCreate>());
   const sheetIdAliases = useRef(new Map<string, string>());
+  const sheetIdleWaiters = useRef(new Map<string, Array<() => void>>());
 
   const getApiMethod = useCallback(
     <K extends keyof WorkbookApi>(method: K): WorkbookApi[K] => resolvedApiClient[method] ?? workbookApi[method],
@@ -137,6 +138,28 @@ export function useEditQueue({
     }
   }, []);
 
+  const notifySheetIdle = useCallback((sheetId: string | undefined) => {
+    if (!sheetId) {
+      return;
+    }
+
+    for (const queue of editQueues.current.values()) {
+      if (queue.running?.sheetId === sheetId || queue.queued?.sheetId === sheetId) {
+        return;
+      }
+    }
+
+    const waiters = sheetIdleWaiters.current.get(sheetId);
+    if (!waiters) {
+      return;
+    }
+
+    sheetIdleWaiters.current.delete(sheetId);
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }, []);
+
   const startEditTask = useCallback(
     (queue: EditQueue, task: EditQueueTask) => {
       queue.running = task;
@@ -159,14 +182,16 @@ export function useEditQueue({
 
           if (nextTask) {
             startEditTask(queue, nextTask);
+            notifySheetIdle(task.sheetId);
             return;
           }
 
           editQueues.current.delete(task.key);
+          notifySheetIdle(task.sheetId);
           refreshSaveStatus();
         });
     },
-    [mergeSheetRevisions, refreshSaveStatus],
+    [notifySheetIdle, refreshSaveStatus],
   );
 
   const enqueueEdit = useCallback(
@@ -200,6 +225,20 @@ export function useEditQueue({
     [autosaveEnabled, mergeSheetRevisions, refreshSaveStatus, resolveSheetId, startEditTask],
   );
 
+  const waitForSheetIdle = useCallback((sheetId: string) => {
+    for (const queue of editQueues.current.values()) {
+      if (queue.running?.sheetId === sheetId || queue.queued?.sheetId === sheetId) {
+        return new Promise<void>((resolve) => {
+          const waiters = sheetIdleWaiters.current.get(sheetId) ?? [];
+          waiters.push(resolve);
+          sheetIdleWaiters.current.set(sheetId, waiters);
+        });
+      }
+    }
+
+    return Promise.resolve();
+  }, []);
+
   const registerPendingSheet = useCallback((pendingSheetId: string) => {
     let resolve!: (savedSheetId: string) => void;
     let reject!: (cause: unknown) => void;
@@ -217,16 +256,25 @@ export function useEditQueue({
     });
   }, []);
 
-  const dropPendingSheetQueuedTasks = useCallback((pendingSheetId: string) => {
+  const dropSheetQueuedTasks = useCallback((sheetId: string) => {
     for (const [key, queue] of editQueues.current) {
-      if (queue.queued?.sheetId === pendingSheetId) {
+      if (queue.queued?.sheetId === sheetId) {
         queue.queued = null;
       }
       if (!queue.running && !queue.queued) {
         editQueues.current.delete(key);
       }
     }
-  }, []);
+
+    for (const key of [...failedEditKeys.current]) {
+      if (key.includes(sheetId)) {
+        failedEditKeys.current.delete(key);
+      }
+    }
+
+    notifySheetIdle(sheetId);
+    refreshSaveStatus();
+  }, [notifySheetIdle, refreshSaveStatus]);
 
   const enqueuePendingSheetCreate = useCallback(
     (
@@ -253,7 +301,7 @@ export function useEditQueue({
             savedWorkbook = await run();
           } catch (cause: unknown) {
             pendingCreate.reject(new PendingSheetCreateFailedError());
-            dropPendingSheetQueuedTasks(pendingSheetId);
+            dropSheetQueuedTasks(pendingSheetId);
             pendingSheetCreates.current.delete(pendingSheetId);
             onFailure();
             throw cause;
@@ -263,7 +311,7 @@ export function useEditQueue({
           if (!savedSheetId) {
             const cause = new Error('Created sheet was missing from the saved workbook.');
             pendingCreate.reject(new PendingSheetCreateFailedError());
-            dropPendingSheetQueuedTasks(pendingSheetId);
+            dropSheetQueuedTasks(pendingSheetId);
             pendingSheetCreates.current.delete(pendingSheetId);
             onFailure();
             throw cause;
@@ -288,7 +336,7 @@ export function useEditQueue({
         pendingSheetId,
       );
     },
-    [dropPendingSheetQueuedTasks, enqueueEdit, remapPendingSheetQueues],
+    [dropSheetQueuedTasks, enqueueEdit, remapPendingSheetQueues],
   );
 
   const cancelPendingSheet = useCallback(
@@ -300,11 +348,11 @@ export function useEditQueue({
 
       pendingCreate.deleted = true;
       pendingCreate.reject(new PendingSheetDeletedError());
-      dropPendingSheetQueuedTasks(pendingSheetId);
+      dropSheetQueuedTasks(pendingSheetId);
       refreshSaveStatus();
       return pendingCreate.started;
     },
-    [dropPendingSheetQueuedTasks, refreshSaveStatus],
+    [dropSheetQueuedTasks, refreshSaveStatus],
   );
 
   const runForSavedSheet = useCallback(
@@ -327,7 +375,17 @@ export function useEditQueue({
   const currentSheetRevision = useCallback(
     (sheetId: string) => {
       const savedSheetId = resolveSheetId(sheetId);
-      return workbook.sheets.find((sheet) => sheet.id === savedSheetId)?.revision ?? knownSheetRevisions.current.get(savedSheetId);
+      const localRevision = workbook.sheets.find((sheet) => sheet.id === savedSheetId)?.revision;
+      const knownRevision = knownSheetRevisions.current.get(savedSheetId);
+
+      if (localRevision === undefined) {
+        return knownRevision;
+      }
+      if (knownRevision === undefined) {
+        return localRevision;
+      }
+
+      return Math.max(localRevision, knownRevision);
     },
     [resolveSheetId, workbook.sheets],
   );
@@ -368,5 +426,7 @@ export function useEditQueue({
     runRevisionedEdit,
     saveStatus,
     sheetIdRemaps,
+    dropSheetQueuedTasks,
+    waitForSheetIdle,
   };
 }

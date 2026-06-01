@@ -54,13 +54,31 @@ export function useCellEditing({
     setEditingCell((currentEditingCell) => remapSelectionSheetId(currentEditingCell, sheetIdRemaps));
   }, [sheetIdRemaps]);
 
+  useEffect(() => {
+    const sheetIds = new Set(workbook.sheets.map((sheet) => sheet.id));
+    setActiveCell((currentActiveCell) =>
+      currentActiveCell && !sheetIds.has(currentActiveCell.sheetId) ? null : currentActiveCell,
+    );
+    setKeyboardFocusTarget((currentFocusTarget) =>
+      currentFocusTarget && !sheetIds.has(currentFocusTarget.sheetId) ? null : currentFocusTarget,
+    );
+    setEditingCell((currentEditingCell) =>
+      currentEditingCell && !sheetIds.has(currentEditingCell.sheetId) ? null : currentEditingCell,
+    );
+  }, [workbook.sheets]);
+
   function commitActiveEdit(editToCommit = editingCell) {
     if (!editToCommit) {
       return;
     }
 
     const currentSheet = workbook.sheets.find((sheet) => sheet.id === editToCommit.sheetId);
-    const currentCell = currentSheet?.cells[editToCommit.cellKey];
+    if (!currentSheet) {
+      setEditingCell(null);
+      return;
+    }
+
+    const currentCell = currentSheet.cells[editToCommit.cellKey];
     const currentRaw = currentCell?.raw ?? '';
     if (currentCell || currentRaw !== editToCommit.value) {
       commands.updateCellContent(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value);

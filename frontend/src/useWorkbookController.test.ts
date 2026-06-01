@@ -307,7 +307,7 @@ describe('useWorkbookController', () => {
       resolveInputs(workbookWithSheets([savedInputs, savedOutputs]));
       await inputsSave;
     });
-    await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedInputs.id));
+    await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedInputs.id, { revision: 0 }));
     expect(result.current.workbook.sheets).toEqual([savedOutputs]);
   });
 
@@ -459,7 +459,7 @@ describe('useWorkbookController', () => {
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     expect(result.current.workbook.sheets).toHaveLength(0);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
-    expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedSheet.id);
+    expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedSheet.id, { revision: 0 });
   });
 
   it('removes an optimistic sheet after create fails', async () => {
@@ -625,6 +625,75 @@ describe('useWorkbookController', () => {
       revision: 4,
     });
     expect(result.current.workbook.sheets[0].cells.A1).toEqual({ raw: 'Local value' });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  });
+
+  it('deletes saved sheets optimistically and persists deletion with the current revision token', async () => {
+    const deletedSheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 4 };
+    const remainingSheet = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 20 }), revision: 6 };
+    const apiClient = autosaveClient({
+      deleteSheet: vi.fn().mockResolvedValue(workbookWithSheets([remainingSheet])),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([deletedSheet, remainingSheet]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.deleteSheet('sheet-inputs');
+    });
+
+    expect(result.current.workbook.sheets.map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
+    await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 4 }));
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  });
+
+  it('drops queued saved-sheet mutations and waits for running saves before deleting', async () => {
+    const initialSheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 0 };
+    let resolveRunningSave!: (workbook: Workbook) => void;
+    const runningSave = new Promise<Workbook>((resolve) => {
+      resolveRunningSave = resolve;
+    });
+    let resolveDeleteSave!: (workbook: Workbook) => void;
+    const deleteSave = new Promise<Workbook>((resolve) => {
+      resolveDeleteSave = resolve;
+    });
+    const apiClient = autosaveClient({
+      updateCellContent: vi.fn().mockReturnValue(runningSave),
+      deleteSheet: vi.fn().mockReturnValue(deleteSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([initialSheet]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.updateCellContent('sheet-inputs', 'A1', 'first');
+      result.current.commands.updateCellContent('sheet-inputs', 'A1', 'second');
+      result.current.commands.deleteSheet('sheet-inputs');
+    });
+
+    expect(result.current.workbook.sheets).toHaveLength(0);
+    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+    expect(apiClient.deleteSheet).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveRunningSave(workbookWithSheets([{ ...initialSheet, revision: 1, cells: { A1: { raw: 'first' } } }]));
+      await runningSave;
+    });
+
+    await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 1 }));
+    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveDeleteSave(workbookWithSheets([]));
+      await deleteSave;
+    });
+
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
 

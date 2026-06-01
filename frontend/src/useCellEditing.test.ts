@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createEmptyWorkbook } from './workbook';
+import { workbookWithSheets, positionedSheet } from './test/workbookFactories';
 import { useCellEditing } from './useCellEditing';
 
 describe('useCellEditing', () => {
@@ -27,5 +28,25 @@ describe('useCellEditing', () => {
       cellKey: 'B3',
       value: 'draft value',
     });
+  });
+
+  it('clears local selection state when deleted sheet disappears from workbook', () => {
+    const commands = { updateCellContent: vi.fn() };
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const { rerender, result } = renderHook(
+      ({ workbook }) => useCellEditing({ commands, workbook }),
+      { initialProps: { workbook: workbookWithSheets([sheet]) } },
+    );
+
+    act(() => {
+      result.current.selectCell({ sheetId: 'sheet-inputs', cellKey: 'A1' });
+      result.current.startEditingCell({ sheetId: 'sheet-inputs', cellKey: 'A1' }, 'draft value');
+    });
+
+    rerender({ workbook: workbookWithSheets([]) });
+
+    expect(result.current.activeCell).toBeNull();
+    expect(result.current.keyboardFocusTarget).toBeNull();
+    expect(result.current.editingCell).toBeNull();
   });
 });
