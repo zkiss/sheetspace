@@ -10,6 +10,7 @@ import {
   createSheet,
   evaluateFormulaCells,
   expandRange,
+  findFormulaSheetReferences,
   findSheetByName,
   moveSheetZOrder,
   parseA1Address,
@@ -543,6 +544,27 @@ describe('formula parser', () => {
       raw: '=SUM(A0)',
       error: '#PARSE!',
     });
+  });
+
+  it('extracts persisted sheet references without treating malformed formulas as references', () => {
+    const { workbook } = formulaWorkbook();
+
+    expect(findFormulaSheetReferences("=SUM(Outputs!A1, 'Sales Q1'!A1:B2, 'Owner''s Plan'!C3)", workbook.sheets))
+      .toEqual([
+        { startIndex: 5, endIndex: 12, sheetId: 'sheet-2' },
+        { startIndex: 17, endIndex: 27, sheetId: 'sheet-3' },
+        { startIndex: 35, endIndex: 50, sheetId: 'sheet-5' },
+      ]);
+    expect(findFormulaSheetReferences("=SUM('Sales Q1!A1, text Outputs! nope)", workbook.sheets)).toEqual([]);
+  });
+
+  it('extracts sheet references using UTF-16 string indices for non-BMP sheet names', () => {
+    const plan = sheet('sheet-plan', '📈 Plan');
+    const workbook = { version: 1 as const, sheets: [plan] };
+
+    expect(findFormulaSheetReferences("=SUM('📈 Plan'!A1)", workbook.sheets)).toEqual([
+      { startIndex: 5, endIndex: 14, sheetId: 'sheet-plan' },
+    ]);
   });
 });
 

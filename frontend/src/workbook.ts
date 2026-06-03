@@ -252,7 +252,13 @@ export function renameSheet(workbook: Workbook, sheetId: string, nextName: strin
   };
 }
 
-export function commitCellRawContent(workbook: Workbook, sheetId: string, key: CellKey, raw: string): Workbook {
+export function commitCellRawContent(
+  workbook: Workbook,
+  sheetId: string,
+  key: CellKey,
+  raw: string,
+  sheetReferences = findFormulaSheetReferences(raw, workbook.sheets),
+): Workbook {
   let changed = false;
   const sheets = workbook.sheets.map((sheet) => {
     if (sheet.id !== sheetId) {
@@ -281,7 +287,7 @@ export function commitCellRawContent(workbook: Workbook, sheetId: string, key: C
 
     changed = true;
     const cells = { ...sheet.cells };
-    cells[key] = { raw };
+    cells[key] = sheetReferences.length > 0 ? { raw, sheetReferences } : { raw };
 
     return {
       ...sheet,
@@ -290,6 +296,16 @@ export function commitCellRawContent(workbook: Workbook, sheetId: string, key: C
   });
 
   return changed ? { ...workbook, sheets } : workbook;
+}
+
+export function findFormulaSheetReferences(
+  raw: string,
+  sheets: Pick<Sheet, 'id' | 'name'>[],
+): FormulaSheetReference[] {
+  return findSheetReferenceTokens(raw).flatMap((token) => {
+    const sheet = sheets.find((candidate) => candidate.name === token.sheetName);
+    return sheet ? [{ startIndex: token.startIndex, endIndex: token.endIndex, sheetId: sheet.id }] : [];
+  });
 }
 
 export function findSheetByName(workbook: Workbook, sheetName: string): ParseResult<Sheet> {
@@ -732,6 +748,120 @@ function formulaRawForEvaluation(cell: CellContent, workbook: Workbook): string 
 function formatSheetReferenceToken(sheetName: string, preferQuoted: boolean): string {
   const quoted = preferQuoted || !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(sheetName);
   return quoted ? `'${sheetName.replace(/'/g, "''")}'` : sheetName;
+}
+
+function findSheetReferenceTokens(raw: string): { startIndex: number; endIndex: number; sheetName: string }[] {
+  if (!raw.startsWith('=')) {
+    return [];
+  }
+
+  const tokens: { startIndex: number; endIndex: number; sheetName: string }[] = [];
+  for (let separatorIndex = 0; separatorIndex < raw.length; separatorIndex += 1) {
+    if (raw[separatorIndex] !== '!' || !hasA1ReferenceAfter(raw, separatorIndex)) {
+      continue;
+    }
+
+    const rawBeforeSeparator = raw.slice(0, separatorIndex);
+    const lastNonWhitespaceIndex = findLastNonWhitespaceIndex(rawBeforeSeparator);
+    const endIndex = lastNonWhitespaceIndex + 1;
+    const startIndex = findSheetReferenceTokenStart(raw, endIndex);
+    if (startIndex === undefined) {
+      continue;
+    }
+
+    const parsed = parseSheetReferenceToken(raw.slice(startIndex, endIndex));
+    if (parsed) {
+      tokens.push({ startIndex, endIndex, sheetName: parsed.sheetName });
+    }
+  }
+
+  return tokens;
+}
+
+function hasA1ReferenceAfter(raw: string, separatorIndex: number): boolean {
+  let referenceStart = separatorIndex + 1;
+  while (referenceStart < raw.length && /\s/.test(raw[referenceStart])) {
+    referenceStart += 1;
+  }
+  if (referenceStart >= raw.length) {
+    return false;
+  }
+
+  const match = /^[A-Za-z]+[1-9][0-9]*/.exec(raw.slice(referenceStart));
+  if (!match) {
+    return false;
+  }
+
+  const nextChar = raw[referenceStart + match[0].length];
+  return !nextChar || /\s/.test(nextChar) || nextChar === ':' || nextChar === ',' || nextChar === ')';
+}
+
+function findLastNonWhitespaceIndex(input: string): number {
+  for (let index = input.length - 1; index >= 0; index -= 1) {
+    if (!/\s/.test(input[index])) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function findSheetReferenceTokenStart(raw: string, endIndex: number): number | undefined {
+  if (endIndex <= 0) {
+    return undefined;
+  }
+  if (raw[endIndex - 1] !== "'") {
+    const boundary =
+      Math.max(
+        raw.lastIndexOf('(', endIndex - 1),
+        raw.lastIndexOf(',', endIndex - 1),
+        raw.lastIndexOf(':', endIndex - 1),
+      ) + 1;
+    for (let index = boundary; index < endIndex; index += 1) {
+      if (!/\s/.test(raw[index])) {
+        return index;
+      }
+    }
+    return undefined;
+  }
+
+  let cursor = endIndex - 2;
+  while (cursor >= 0) {
+    if (raw[cursor] !== "'") {
+      cursor -= 1;
+      continue;
+    }
+    if (cursor > 0 && raw[cursor - 1] === "'") {
+      cursor -= 2;
+      continue;
+    }
+    return cursor;
+  }
+
+  return undefined;
+}
+
+function parseSheetReferenceToken(token: string): { sheetName: string } | undefined {
+  const trimmedToken = token.trim();
+  if (!trimmedToken.startsWith("'")) {
+    return trimmedToken.length > 0 && !/[(),:'!]/.test(trimmedToken) ? { sheetName: trimmedToken } : undefined;
+  }
+  if (!trimmedToken.endsWith("'") || trimmedToken.length < 3) {
+    return undefined;
+  }
+
+  const inner = trimmedToken.slice(1, -1);
+  for (let cursor = 0; cursor < inner.length; cursor += 1) {
+    if (inner[cursor] !== "'") {
+      continue;
+    }
+    if (inner[cursor + 1] !== "'") {
+      return undefined;
+    }
+    cursor += 1;
+  }
+
+  return { sheetName: inner.replace(/''/g, "'") };
 }
 
 function splitSheetReference(

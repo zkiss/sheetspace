@@ -151,6 +151,112 @@ class ApplicationTest {
     }
 
     @Test
+    fun `cell update endpoint persists explicit formula sheet references`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        val outputsId = client.createSheet().id
+
+        val response = client.put("/api/sheets/$outputsId/cells/A1") {
+            revisionHeader(repo, outputsId)
+            jsonBody(
+                """
+                {
+                  "raw": "=SUM(Inputs!A1)",
+                  "sheetReferences": [{"startIndex":5,"endIndex":11,"sheetId":"missing:pending-inputs"}]
+                }
+                """.trimIndent(),
+            )
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val cell = client.loadWorkbook().sheets.single().cells.getValue("A1")
+        assertEquals("=SUM(Inputs!A1)", cell.raw)
+        assertEquals(
+            listOf(FormulaSheetReference(5, 11, "missing:pending-inputs")),
+            cell.sheetReferences,
+        )
+    }
+
+    @Test
+    fun `cell update endpoint rejects invalid formula sheet reference spans`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        val sheetId = client.createSheet().id
+
+        val response = client.put("/api/sheets/$sheetId/cells/A1") {
+            revisionHeader(repo, sheetId)
+            jsonBody(
+                """
+                {
+                  "raw": "=SUM(Inputs!A1)",
+                  "sheetReferences": [{"startIndex":5,"endIndex":99,"sheetId":"missing:pending-inputs"}]
+                }
+                """.trimIndent(),
+            )
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals("invalid-sheet-reference-spans", response.decodeBody<ErrorResponse>().error)
+        assertTrue(client.loadWorkbook().sheets.single().cells.isEmpty())
+    }
+
+    @Test
+    fun `cell update endpoint rejects sheet reference metadata that does not point at a sheet reference`() =
+        testApplication {
+            val repo = createRepo()
+            application {
+                module(repo)
+            }
+            val sheetId = client.createSheet().id
+
+            val response = client.put("/api/sheets/$sheetId/cells/A1") {
+                revisionHeader(repo, sheetId)
+                jsonBody(
+                    """
+                    {
+                      "raw": "=SUM(Inputs A1)",
+                      "sheetReferences": [{"startIndex":5,"endIndex":11,"sheetId":"missing:pending-inputs"}]
+                    }
+                    """.trimIndent(),
+                )
+            }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals("invalid-sheet-reference-spans", response.decodeBody<ErrorResponse>().error)
+            assertTrue(client.loadWorkbook().sheets.single().cells.isEmpty())
+        }
+
+    @Test
+    fun `cell update endpoint rejects sheet reference metadata that starts inside a sheet token`() =
+        testApplication {
+            val repo = createRepo()
+            application {
+                module(repo)
+            }
+            val sheetId = client.createSheet().id
+
+            val response = client.put("/api/sheets/$sheetId/cells/A1") {
+                revisionHeader(repo, sheetId)
+                jsonBody(
+                    """
+                    {
+                      "raw": "=SUM(XInputs!A1)",
+                      "sheetReferences": [{"startIndex":6,"endIndex":12,"sheetId":"missing:pending-inputs"}]
+                    }
+                    """.trimIndent(),
+                )
+            }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals("invalid-sheet-reference-spans", response.decodeBody<ErrorResponse>().error)
+            assertTrue(client.loadWorkbook().sheets.single().cells.isEmpty())
+        }
+
+    @Test
     fun `stale sheet revision mutation returns conflict without overwriting newer content`() = testApplication {
         val repo = createRepo()
         application {
