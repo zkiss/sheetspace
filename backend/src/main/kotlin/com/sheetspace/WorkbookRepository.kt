@@ -118,7 +118,13 @@ class WorkbookRepository(dbPath: Path) {
         workbook.copy(sheets = workbook.sheets.filterNot { it.id == sheetId })
     }
 
-    fun updateCell(sheetId: String, cellAddress: String, raw: String, expectedRevision: Long? = null): Workbook =
+    fun updateCell(
+        sheetId: String,
+        cellAddress: String,
+        raw: String,
+        expectedRevision: Long? = null,
+        sheetReferences: List<FormulaSheetReference> = emptyList(),
+    ): Workbook =
         updateWorkbook(sheetId, expectedRevision) { workbook ->
             workbook.copy(
                 sheets = workbook.sheets.map { sheet ->
@@ -128,7 +134,7 @@ class WorkbookRepository(dbPath: Path) {
                         val nextCells = if (raw.isEmpty()) {
                             sheet.cells - cellAddress
                         } else {
-                            sheet.cells + (cellAddress to CellContent(raw = raw))
+                            sheet.cells + (cellAddress to CellContent(raw = raw, sheetReferences = sheetReferences))
                         }
                         sheet.copy(cells = nextCells)
                     }

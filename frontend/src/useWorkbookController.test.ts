@@ -352,6 +352,91 @@ describe('useWorkbookController', () => {
     });
   });
 
+  it('defers saved-sheet formula saves that reference a pending sheet until the target has a backend id', async () => {
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 0, y: 0 });
+    const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', '📈 Plan', { x: 24, y: 48 });
+    let resolveCreate!: (workbook: Workbook) => void;
+    const createSheetSave = new Promise<Workbook>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSheetSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([outputs]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('📈 Plan', { x: 24, y: 48 });
+    });
+    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === '📈 Plan')!.id;
+    act(() => {
+      result.current.commands.updateCellContent('sheet-outputs', 'A1', "=SUM('📈 Plan'!A1)");
+    });
+
+    expect(result.current.workbook.sheets[0].cells.A1.sheetReferences).toEqual([
+      { startIndex: 5, endIndex: 14, sheetId: pendingInputsId },
+    ]);
+    expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCreate(workbookWithSheets([outputs, savedInputs]));
+      await createSheetSave;
+    });
+
+    await waitFor(() =>
+      expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-outputs', 'A1', "=SUM('📈 Plan'!A1)", {
+        revision: 0,
+        sheetReferences: [{ startIndex: 5, endIndex: 14, sheetId: savedInputs.id }],
+      }),
+    );
+  });
+
+  it('saves formulas that reference a deleted pending sheet as broken references', async () => {
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 0, y: 0 });
+    const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
+    let resolveCreate!: (workbook: Workbook) => void;
+    const createSheetSave = new Promise<Workbook>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSheetSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([outputs]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+    });
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
+    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    act(() => {
+      result.current.commands.updateCellContent('sheet-outputs', 'A1', '=SUM(Inputs!A1)');
+      result.current.commands.deletePendingSheet(pendingInputsId);
+    });
+
+    await waitFor(() =>
+      expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-outputs', 'A1', '=SUM(Inputs!A1)', {
+        revision: 0,
+        sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: `missing:${pendingInputsId}` }],
+      }),
+    );
+    expect(result.current.formulaResults['sheet-outputs'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
+
+    await act(async () => {
+      resolveCreate(workbookWithSheets([outputs, savedInputs]));
+      await createSheetSave;
+    });
+    await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedInputs.id, { revision: 0 }));
+  });
+
   it('preserves pending frame layout changes while saving them with the backend id', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
     let resolveCreate!: (workbook: Workbook) => void;

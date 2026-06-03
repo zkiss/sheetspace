@@ -165,6 +165,24 @@ describe('workbookApi', () => {
     });
   });
 
+  it('sends formula sheet reference metadata for cell updates when provided', async () => {
+    const fetchMock = mockFetch({ ok: true, workbook });
+
+    await workbookApi.updateCellContent('sheet-2', 'A1', '=SUM(Inputs!A1)', {
+      revision: 7,
+      sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet-2/cells/A1', {
+      method: 'PUT',
+      body: JSON.stringify({
+        raw: '=SUM(Inputs!A1)',
+        sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
+      }),
+      headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
+    });
+  });
+
   it('throws testable API errors for failed backend responses', async () => {
     mockFetch({ ok: false, error: 'sheet-not-found' }, { status: 404 });
 

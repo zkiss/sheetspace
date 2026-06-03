@@ -69,6 +69,7 @@ export function useWorkbookController({
     registerPendingSheet,
     resolveSheetId,
     runForSavedSheet,
+    resolveFormulaSheetReferences,
     runRevisionedEdit,
     saveStatus,
     sheetIdRemaps,
@@ -307,20 +308,35 @@ export function useWorkbookController({
     const currentSheet = workbook.sheets.find((sheet) => sheet.id === localSheetId);
     const currentRaw = currentSheet?.cells[cellKey]?.raw ?? '';
     const nextWorkbook = commitCellRawContent(workbook, localSheetId, cellKey, raw);
+    const nextSheet = nextWorkbook.sheets.find((sheet) => sheet.id === localSheetId);
+    const sheetReferences = nextSheet?.cells[cellKey]?.sheetReferences ?? [];
 
     if (nextWorkbook !== workbook) {
       setWorkbook(nextWorkbook);
     }
     if (nextWorkbook !== workbook && currentRaw !== raw) {
-      enqueueEdit(`cell:${sheetId}:${cellKey}`, () =>
-        runForSavedSheet(sheetId, (savedSheetId) =>
-          runRevisionedEdit(savedSheetId, (revision) =>
-            getApiMethod('updateCellContent')(savedSheetId, cellKey, raw, {
-              revision,
-            }),
-          ),
-        ),
-      undefined, sheetId);
+      enqueueEdit(
+        `cell:${sheetId}:${cellKey}`,
+        () => {
+          const saveCellContent = (savedSheetId: string, resolvedSheetReferences = sheetReferences) =>
+            runRevisionedEdit(savedSheetId, (revision) =>
+              getApiMethod('updateCellContent')(savedSheetId, cellKey, raw, {
+                revision,
+                ...(resolvedSheetReferences.length === 0 ? {} : { sheetReferences: resolvedSheetReferences }),
+              }),
+            );
+
+          return runForSavedSheet(sheetId, (savedSheetId) =>
+            sheetReferences.length === 0
+              ? saveCellContent(savedSheetId)
+              : resolveFormulaSheetReferences(sheetReferences).then((resolvedSheetReferences) =>
+                  saveCellContent(savedSheetId, resolvedSheetReferences),
+                ),
+          );
+        },
+        undefined,
+        sheetId,
+      );
     }
   }
 

@@ -1,7 +1,7 @@
 import { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import type { SaveStatus } from './appTypes';
-import type { Workbook } from './workbook';
+import type { FormulaSheetReference, Workbook } from './workbook';
 
 type EditQueueTask = {
   key: string;
@@ -35,6 +35,10 @@ class PendingSheetCreateFailedError extends Error {
     super('Pending sheet creation failed.');
     this.name = 'PendingSheetCreateFailedError';
   }
+}
+
+function brokenPendingSheetReferenceId(pendingSheetId: string): string {
+  return `missing:${pendingSheetId}`;
 }
 
 export function useEditQueue({
@@ -372,6 +376,33 @@ export function useEditQueue({
     [],
   );
 
+  const resolveFormulaSheetReferences = useCallback(async (references: FormulaSheetReference[]) => {
+    return Promise.all(
+      references.map(async (reference) => {
+        const savedSheetId = sheetIdAliases.current.get(reference.sheetId);
+        if (savedSheetId) {
+          return { ...reference, sheetId: savedSheetId };
+        }
+
+        const pendingCreate = pendingSheetCreates.current.get(reference.sheetId);
+        if (!pendingCreate) {
+          return reference.sheetId.startsWith('pending:')
+            ? { ...reference, sheetId: brokenPendingSheetReferenceId(reference.sheetId) }
+            : reference;
+        }
+
+        try {
+          return { ...reference, sheetId: await pendingCreate.promise };
+        } catch (cause: unknown) {
+          if (cause instanceof PendingSheetDeletedError || cause instanceof PendingSheetCreateFailedError) {
+            return { ...reference, sheetId: brokenPendingSheetReferenceId(reference.sheetId) };
+          }
+          throw cause;
+        }
+      }),
+    );
+  }, []);
+
   const currentSheetRevision = useCallback(
     (sheetId: string) => {
       const savedSheetId = resolveSheetId(sheetId);
@@ -423,6 +454,7 @@ export function useEditQueue({
     registerPendingSheet,
     resolveSheetId,
     runForSavedSheet,
+    resolveFormulaSheetReferences,
     runRevisionedEdit,
     saveStatus,
     sheetIdRemaps,
