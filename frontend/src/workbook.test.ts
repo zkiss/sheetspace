@@ -592,6 +592,44 @@ describe('formula evaluator', () => {
     });
   });
 
+  it('evaluates persisted sheet references by uuid after the target is renamed', () => {
+    const inputs = sheetWithCells('sheet-1', 'Renamed Inputs', {
+      A1: { raw: '7' },
+    });
+    const outputs = sheetWithCells('sheet-2', 'Outputs', {
+      A1: {
+        raw: '=SUM(Inputs!A1)',
+        sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
+      },
+    });
+    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+
+    expect(evaluateFormulaCells(workbook)['sheet-2'].A1).toMatchObject({
+      kind: 'number',
+      value: 7,
+      display: '7',
+    });
+  });
+
+  it('does not rebind persisted references when a deleted target placeholder name is reused', () => {
+    const replacementInputs = sheetWithCells('sheet-replacement', '__sheetspace_missing_sheet_deleted', {
+      A1: { raw: '99' },
+    });
+    const outputs = sheetWithCells('sheet-2', 'Outputs', {
+      A1: {
+        raw: '=SUM(Inputs!A1)',
+        sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-deleted' }],
+      },
+    });
+    const workbook = { version: 1 as const, sheets: [replacementInputs, outputs] };
+
+    expect(evaluateFormulaCells(workbook)['sheet-2'].A1).toMatchObject({
+      kind: 'error',
+      error: '#REF!',
+      display: '#REF!',
+    });
+  });
+
   it('uses strict trimmed decimal and integer semantics for referenced values', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: { raw: '  10 ' },

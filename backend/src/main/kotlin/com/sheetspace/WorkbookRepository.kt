@@ -43,7 +43,7 @@ class WorkbookRepository(dbPath: Path) {
             transaction(conn) {
                 conn.createStatement().use { it.executeUpdate("DELETE FROM sheets") }
                 workbook.sheets.forEachIndexed { index, sheet ->
-                    upsertSheet(conn, sheet, index)
+                    upsertSheet(conn, sheet, index, workbook.sheets)
                 }
             }
         }
@@ -185,7 +185,7 @@ class WorkbookRepository(dbPath: Path) {
                 updatedSheet != null &&
                 (currentSheet != updatedSheet || currentIndex != updatedIndex)
             ) {
-                updateSheetWithExpectedRevision(conn, updatedSheet, updatedIndex, expectedRevision)
+                updateSheetWithExpectedRevision(conn, updatedSheet, updatedIndex, expectedRevision, updated.sheets)
             }
             if (currentSheet != null && updatedSheet == null) {
                 deleteSheetWithExpectedRevision(conn, lockedSheetId, expectedRevision)
@@ -212,7 +212,7 @@ class WorkbookRepository(dbPath: Path) {
     }
 
     private fun loadWorkbook(conn: Connection): Workbook {
-        val sheets = conn.prepareStatement(
+        val storedSheets = conn.prepareStatement(
             """
             SELECT id, name, row_count, column_count, position_x, position_y, frame_width, frame_height, z_index, cells_json, revision
             FROM sheets
@@ -222,13 +222,18 @@ class WorkbookRepository(dbPath: Path) {
             statement.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
-                        add(rs.toSheet())
+                        add(rs.toStoredSheet())
                     }
                 }
             }
         }
 
-        return emptyWorkbook().copy(sheets = sheets)
+        val sheetsById = storedSheets.associate { it.sheet.id to it.sheet }
+        return emptyWorkbook().copy(
+            sheets = storedSheets.map { stored ->
+                stored.sheet.copy(cells = hydrateCells(stored.cells, sheetsById))
+            },
+        )
     }
 
     private fun saveChangedSheets(conn: Connection, current: Workbook, updated: Workbook) {
@@ -243,12 +248,12 @@ class WorkbookRepository(dbPath: Path) {
 
         updated.sheets.forEachIndexed { index, sheet ->
             if (currentById[sheet.id] != sheet || current.sheets.indexOfFirst { it.id == sheet.id } != index) {
-                upsertSheet(conn, sheet, index)
+                upsertSheet(conn, sheet, index, updated.sheets)
             }
         }
     }
 
-    private fun upsertSheet(conn: Connection, sheet: Sheet, displayOrder: Int) {
+    private fun upsertSheet(conn: Connection, sheet: Sheet, displayOrder: Int, sheets: List<Sheet>) {
         conn.prepareStatement(
             """
             INSERT INTO sheets (
@@ -279,7 +284,7 @@ class WorkbookRepository(dbPath: Path) {
             statement.setDouble(8, sheet.frameSize.width)
             statement.setDouble(9, sheet.frameSize.height)
             statement.setInt(10, sheet.zIndex)
-            statement.setString(11, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
+            statement.setString(11, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
             statement.executeUpdate()
         }
     }
@@ -289,6 +294,7 @@ class WorkbookRepository(dbPath: Path) {
         sheet: Sheet,
         displayOrder: Int,
         expectedRevision: Long,
+        sheets: List<Sheet>,
     ) {
         val updatedRows = conn.prepareStatement(
             """
@@ -316,7 +322,7 @@ class WorkbookRepository(dbPath: Path) {
             statement.setDouble(7, sheet.frameSize.width)
             statement.setDouble(8, sheet.frameSize.height)
             statement.setInt(9, sheet.zIndex)
-            statement.setString(10, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
+            statement.setString(10, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
             statement.setBytes(11, sheet.id.toUuidBytes())
             statement.setLong(12, expectedRevision)
             statement.executeUpdate()
@@ -355,24 +361,79 @@ class WorkbookRepository(dbPath: Path) {
         }
     }
 
-    private fun ResultSet.toSheet(): Sheet {
-        return Sheet(
-            id = getBytes("id").toUuidString(),
-            name = getString("name"),
-            revision = getLong("revision"),
-            position = WorkspacePosition(
-                x = getDouble("position_x"),
-                y = getDouble("position_y"),
+    private fun ResultSet.toStoredSheet(): StoredSheet {
+        val persistedCells = json.decodeFromString(PersistedCells.serializer(), getString("cells_json")).cells
+        return StoredSheet(
+            sheet = Sheet(
+                id = getBytes("id").toUuidString(),
+                name = getString("name"),
+                revision = getLong("revision"),
+                position = WorkspacePosition(
+                    x = getDouble("position_x"),
+                    y = getDouble("position_y"),
+                ),
+                frameSize = SheetFrameSize(
+                    width = getDouble("frame_width"),
+                    height = getDouble("frame_height"),
+                ),
+                zIndex = getInt("z_index"),
+                rowCount = getInt("row_count"),
+                columnCount = getInt("column_count"),
+                cells = emptyMap(),
             ),
-            frameSize = SheetFrameSize(
-                width = getDouble("frame_width"),
-                height = getDouble("frame_height"),
-            ),
-            zIndex = getInt("z_index"),
-            rowCount = getInt("row_count"),
-            columnCount = getInt("column_count"),
-            cells = json.decodeFromString(PersistedCells.serializer(), getString("cells_json")).cells,
+            cells = persistedCells,
         )
+    }
+
+    private fun persistCells(cells: Map<String, CellContent>, sheets: List<Sheet>): PersistedCells {
+        return PersistedCells(
+            cells = cells.mapValues { (_, cell) ->
+                PersistedCellContent(
+                    raw = cell.raw,
+                    sheetReferences = cell.sheetReferences.ifEmpty {
+                        findSheetReferenceTokens(cell.raw).mapNotNull { token ->
+                            sheets.find { sheet -> sheet.name == token.sheetName }?.let { sheet ->
+                                FormulaSheetReference(
+                                    startIndex = token.startIndex,
+                                    endIndex = token.endIndex,
+                                    sheetId = sheet.id,
+                                )
+                            }
+                        }
+                    },
+                )
+            },
+        )
+    }
+
+    private fun hydrateCells(
+        cells: Map<String, PersistedCellContent>,
+        sheetsById: Map<String, Sheet>,
+    ): Map<String, CellContent> {
+        return cells.mapValues { (_, cell) ->
+            val raw = StringBuilder()
+            val references = buildList {
+                var copiedUntil = 0
+                cell.sheetReferences.sortedBy { it.startIndex }.forEach { reference ->
+                    val token = cell.raw.substring(reference.startIndex, reference.endIndex)
+                    val parsedToken = parseSheetReferenceToken(token)
+                    val sheet = sheetsById[reference.sheetId]
+                    val displayToken = if (parsedToken == null || sheet == null || parsedToken.sheetName == sheet.name) {
+                        token
+                    } else {
+                        formatSheetReferenceToken(sheet.name, parsedToken.quoted)
+                    }
+
+                    raw.append(cell.raw, copiedUntil, reference.startIndex)
+                    val startIndex = raw.length
+                    raw.append(displayToken)
+                    add(FormulaSheetReference(startIndex, raw.length, reference.sheetId))
+                    copiedUntil = reference.endIndex
+                }
+                raw.append(cell.raw, copiedUntil, cell.raw.length)
+            }
+            CellContent(raw = raw.toString(), sheetReferences = references)
+        }
     }
 
     private fun <T> transaction(conn: Connection, block: () -> T): T {
@@ -413,5 +474,116 @@ private fun ByteArray.toUuidString(): String {
 
 @Serializable
 private data class PersistedCells(
-    val cells: Map<String, CellContent>,
+    val cells: Map<String, PersistedCellContent>,
 )
+
+@Serializable
+private data class PersistedCellContent(
+    val raw: String,
+    val sheetReferences: List<FormulaSheetReference> = emptyList(),
+)
+
+private data class StoredSheet(
+    val sheet: Sheet,
+    val cells: Map<String, PersistedCellContent>,
+)
+
+private data class SheetReferenceToken(
+    val startIndex: Int,
+    val endIndex: Int,
+    val sheetName: String,
+)
+
+private data class ParsedSheetReferenceToken(
+    val sheetName: String,
+    val quoted: Boolean,
+)
+
+private fun findSheetReferenceTokens(raw: String): List<SheetReferenceToken> {
+    if (!raw.startsWith("=")) {
+        return emptyList()
+    }
+
+    return buildList {
+        raw.forEachIndexed { separatorIndex, char ->
+            if (char != '!') {
+                return@forEachIndexed
+            }
+            if (!hasA1ReferenceAfter(raw, separatorIndex)) {
+                return@forEachIndexed
+            }
+
+            val endIndex = raw.substring(0, separatorIndex).indexOfLast { !it.isWhitespace() } + 1
+            val startIndex = findSheetReferenceTokenStart(raw, endIndex) ?: return@forEachIndexed
+            val parsed = parseSheetReferenceToken(raw.substring(startIndex, endIndex)) ?: return@forEachIndexed
+            add(SheetReferenceToken(startIndex, endIndex, parsed.sheetName))
+        }
+    }
+}
+
+private fun hasA1ReferenceAfter(raw: String, separatorIndex: Int): Boolean {
+    val referenceStart = (separatorIndex + 1 until raw.length).firstOrNull { !raw[it].isWhitespace() } ?: return false
+    val address = Regex("[A-Za-z]+[1-9][0-9]*").find(raw, referenceStart) ?: return false
+    if (address.range.first != referenceStart) {
+        return false
+    }
+
+    val nextChar = raw.getOrNull(address.range.last + 1)
+    return nextChar == null || nextChar.isWhitespace() || nextChar in ":,)"
+}
+
+private fun findSheetReferenceTokenStart(raw: String, endIndex: Int): Int? {
+    if (endIndex <= 0) {
+        return null
+    }
+    if (raw[endIndex - 1] != '\'') {
+        val boundary = raw.lastIndexOfAny(charArrayOf('(', ',', ':'), endIndex - 1) + 1
+        return (boundary until endIndex).firstOrNull { !raw[it].isWhitespace() }
+    }
+
+    var cursor = endIndex - 2
+    while (cursor >= 0) {
+        if (raw[cursor] != '\'') {
+            cursor -= 1
+            continue
+        }
+        if (cursor > 0 && raw[cursor - 1] == '\'') {
+            cursor -= 2
+            continue
+        }
+        return cursor
+    }
+
+    return null
+}
+
+private fun parseSheetReferenceToken(token: String): ParsedSheetReferenceToken? {
+    val trimmedToken = token.trim()
+    if (!trimmedToken.startsWith("'")) {
+        return trimmedToken.takeIf { it.isNotEmpty() && it.none { char -> char in "'(),:!" } }
+            ?.let { ParsedSheetReferenceToken(sheetName = it, quoted = false) }
+    }
+    if (!trimmedToken.endsWith("'") || trimmedToken.length < 3) {
+        return null
+    }
+
+    val inner = trimmedToken.substring(1, trimmedToken.length - 1)
+    var cursor = 0
+    while (cursor < inner.length) {
+        if (inner[cursor] != '\'') {
+            cursor += 1
+            continue
+        }
+        if (cursor + 1 >= inner.length || inner[cursor + 1] != '\'') {
+            return null
+        }
+        cursor += 2
+    }
+    val sheetName = inner.replace("''", "'")
+    return ParsedSheetReferenceToken(sheetName = sheetName, quoted = true)
+}
+
+private fun formatSheetReferenceToken(sheetName: String, preferQuoted: Boolean): String {
+    val quoted = preferQuoted || !sheetName.matches(Regex("[A-Za-z_][A-Za-z0-9_.]*"))
+    return if (quoted) "'${sheetName.replace("'", "''")}'" else sheetName
+}

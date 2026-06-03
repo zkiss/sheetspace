@@ -43,6 +43,14 @@ data class SheetFrameSize(
 @Serializable
 data class CellContent(
     val raw: String,
+    val sheetReferences: List<FormulaSheetReference> = emptyList(),
+)
+
+@Serializable
+data class FormulaSheetReference(
+    val startIndex: Int,
+    val endIndex: Int,
+    val sheetId: String,
 )
 
 fun emptyWorkbook(): Workbook = Workbook()

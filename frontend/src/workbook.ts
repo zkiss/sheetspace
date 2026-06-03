@@ -35,6 +35,13 @@ export type SheetFrameSize = {
 
 export type CellContent = {
   raw: string;
+  sheetReferences?: FormulaSheetReference[];
+};
+
+export type FormulaSheetReference = {
+  startIndex: number;
+  endIndex: number;
+  sheetId: string;
 };
 
 export type CellKey = string;
@@ -598,8 +605,13 @@ class FormulaEvaluator {
     this.visiting.add(nodeId);
     this.stack.push({ nodeId, sheet, key });
 
-    const parsed = parseFormula(cell.raw, this.workbook, sheet);
     let result: FormulaDisplayResult;
+    const missingSheetReference = cell.sheetReferences?.some(
+      (reference) => !this.workbook.sheets.some((candidate) => candidate.id === reference.sheetId),
+    );
+    const parsed = missingSheetReference
+      ? { kind: 'error' as const, raw: cell.raw, error: '#REF!' as const }
+      : parseFormula(formulaRawForEvaluation(cell, this.workbook), this.workbook, sheet);
     if (parsed.kind === 'error') {
       result = formulaError(parsed.error);
     } else if (parsed.kind === 'formula') {
@@ -700,6 +712,26 @@ class FormulaEvaluator {
     const value = parseStrictNumber(sheet.cells[key]?.raw ?? '');
     return value === undefined ? formulaError('#VALUE!') : numericDisplay(value);
   }
+}
+
+function formulaRawForEvaluation(cell: CellContent, workbook: Workbook): string {
+  return [...(cell.sheetReferences ?? [])]
+    .sort((first, second) => second.startIndex - first.startIndex)
+    .reduce((raw, reference) => {
+      const token = raw.slice(reference.startIndex, reference.endIndex);
+      const sheet = workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
+      if (!sheet) {
+        return raw;
+      }
+      return raw.slice(0, reference.startIndex) +
+        formatSheetReferenceToken(sheet.name, token.startsWith("'")) +
+        raw.slice(reference.endIndex);
+    }, cell.raw);
+}
+
+function formatSheetReferenceToken(sheetName: string, preferQuoted: boolean): string {
+  const quoted = preferQuoted || !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(sheetName);
+  return quoted ? `'${sheetName.replace(/'/g, "''")}'` : sheetName;
 }
 
 function splitSheetReference(
