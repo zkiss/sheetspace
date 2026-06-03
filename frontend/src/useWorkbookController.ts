@@ -91,7 +91,7 @@ export function useWorkbookController({
   function persistDeletedSheet(savedSheetId: string, revision: number | undefined) {
     return getApiMethod('deleteSheet')(savedSheetId, { revision }).catch((cause: unknown) => {
       if (cause instanceof WorkbookApiError && cause.status === 404 && cause.code === 'sheet-not-found') {
-        return getApiMethod('loadWorkbook')();
+        return undefined;
       }
 
       throw cause;
@@ -134,45 +134,29 @@ export function useWorkbookController({
         }).finally(() => {
           pendingSheets.current.delete(pendingSheetId);
         }),
-      (savedWorkbook) => savedWorkbook.sheets.find((sheet) => sheet.name === result.name)?.id,
-      async (savedWorkbook, savedSheetId, deleted) => {
+      (savedResult) =>
+        'sheets' in savedResult
+          ? savedResult.sheets.find((sheet) => sheet.name === result.name)?.id
+          : savedResult.name === result.name
+            ? savedResult.id
+            : undefined,
+      async (savedSheet, savedSheetId, deleted) => {
         if (deleted) {
           suppressedSheetIds.current.add(savedSheetId);
           unresolvedCreateNames.current.delete(pendingSheetId);
-          const savedSheet = savedWorkbook.sheets.find((sheet) => sheet.id === savedSheetId);
-          await persistDeletedSheet(savedSheetId, savedSheet?.revision);
+          await persistDeletedSheet(savedSheetId, savedSheet.revision);
           return;
         }
 
         unresolvedCreateNames.current.delete(pendingSheetId);
         setWorkbook((currentWorkbook) => {
-          const savedSheet = savedWorkbook.sheets.find((sheet) => sheet.id === savedSheetId);
-          if (!savedSheet) {
-            return currentWorkbook;
-          }
-
-          const currentSheetIds = new Set(currentWorkbook.sheets.map((sheet) => sheet.id));
           return {
             ...currentWorkbook,
-            sheets: [
-              ...currentWorkbook.sheets.map((sheet) => {
-                if (sheet.id === pendingSheetId) {
-                  return { ...savedSheet, ...sheet, id: savedSheetId, revision: savedSheet.revision };
-                }
-
-                const matchingSavedSheet = savedWorkbook.sheets.find((candidate) => candidate.id === sheet.id);
-                return matchingSavedSheet
-                  ? { ...sheet, revision: Math.max(sheet.revision, matchingSavedSheet.revision) }
-                  : sheet;
-              }),
-              ...savedWorkbook.sheets.filter(
-                (sheet) =>
-                  sheet.id !== savedSheetId &&
-                  !currentSheetIds.has(sheet.id) &&
-                  ![...unresolvedCreateNames.current.values()].includes(sheet.name) &&
-                  !suppressedSheetIds.current.has(sheet.id),
-              ),
-            ],
+            sheets: currentWorkbook.sheets.map((sheet) =>
+              sheet.id === pendingSheetId
+                ? { ...savedSheet, ...sheet, id: savedSheetId, revision: savedSheet.revision }
+                : sheet,
+            ),
           };
         });
       },

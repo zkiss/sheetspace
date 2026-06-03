@@ -16,6 +16,12 @@ data class Workbook(
 )
 
 @Serializable
+data class WorkbookSummary(
+    val version: Int = WORKBOOK_SCHEMA_VERSION,
+    val sheetIds: List<String> = emptyList(),
+)
+
+@Serializable
 data class Sheet(
     val id: String,
     val name: String,

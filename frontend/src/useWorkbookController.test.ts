@@ -23,17 +23,18 @@ function positionedSheet(id: string, name: string, position: WorkspacePosition) 
 function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
   return {
     loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    loadSheet: vi.fn(),
     createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    deleteSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetPosition: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetFrameSize: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetZIndex: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateCellContent: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    appendRow: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    appendColumn: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    deleteSheet: vi.fn().mockResolvedValue(undefined),
+    renameSheet: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateCellContent: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0 })),
+    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0 })),
     ...overrides,
-  } satisfies WorkbookApi;
+  } satisfies Partial<WorkbookApi>;
 }
 
 describe('useWorkbookController', () => {
@@ -684,11 +685,11 @@ describe('useWorkbookController', () => {
     const staleServerSheet: Sheet = { ...initialSheet, revision: 4, cells: { A1: { raw: 'server value' } } };
     const savedServerSheet: Sheet = { ...staleServerSheet, revision: 5, cells: { A1: { raw: 'Local value' } } };
     const apiClient = autosaveClient({
-      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([staleServerSheet])),
+      loadSheet: vi.fn().mockResolvedValue(staleServerSheet),
       updateCellContent: vi
         .fn()
         .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'))
-        .mockResolvedValueOnce(workbookWithSheets([savedServerSheet])),
+        .mockResolvedValueOnce({ sheetId: savedServerSheet.id, revision: savedServerSheet.revision }),
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -705,7 +706,7 @@ describe('useWorkbookController', () => {
     expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'Local value', {
       revision: 0,
     });
-    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+    expect(apiClient.loadSheet).toHaveBeenCalledWith('sheet-inputs');
     expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Local value', {
       revision: 4,
     });

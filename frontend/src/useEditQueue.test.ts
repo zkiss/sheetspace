@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { deferred } from './test/apiClients';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-import type { Workbook } from './workbook';
+import type { Sheet, Workbook } from './workbook';
 import { WorkbookApiError, type WorkbookApi } from './workbookApi';
 import { useEditQueue } from './useEditQueue';
 
@@ -51,7 +51,7 @@ describe('useEditQueue', () => {
   });
 
   it('rekeys pending sheet queues so post-create edits replace older queued work', async () => {
-    const createSave = deferred<Workbook>();
+    const createSave = deferred<Sheet>();
     const firstCellSave = deferred<Workbook>();
     const latestCellSave = deferred<Workbook>();
     const savedSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
@@ -78,7 +78,7 @@ describe('useEditQueue', () => {
     });
 
     await act(async () => {
-      createSave.resolve(workbookWithSheets([savedSheet]));
+      createSave.resolve(savedSheet);
       await createSave.promise;
     });
     await waitFor(() => expect(firstCellRun).toHaveBeenCalledTimes(1));
@@ -210,12 +210,12 @@ describe('useEditQueue', () => {
     const reloadedSheet = { ...initialSheet, revision: 7 };
     const savedSheet = { ...initialSheet, revision: 8 };
     const apiClient = {
-      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([reloadedSheet])),
+      loadSheet: vi.fn().mockResolvedValue(reloadedSheet),
     };
     const save = vi
       .fn()
       .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'))
-      .mockResolvedValueOnce(workbookWithSheets([savedSheet]));
+      .mockResolvedValueOnce({ sheetId: savedSheet.id, revision: savedSheet.revision });
     const { result } = renderQueue({
       apiClient,
       initialWorkbook: workbookWithSheets([initialSheet]),
@@ -229,8 +229,33 @@ describe('useEditQueue', () => {
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
     expect(save).toHaveBeenNthCalledWith(1, 3);
-    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+    expect(apiClient.loadSheet).toHaveBeenCalledWith('sheet-inputs');
     expect(save).toHaveBeenNthCalledWith(2, 7);
     await waitFor(() => expect(result.current.workbook.sheets[0].revision).toBe(8));
+  });
+
+  it('removes a sheet when conflict recovery cannot reload it', async () => {
+    const initialSheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 3 };
+    const apiClient = {
+      loadSheet: vi.fn().mockRejectedValue(new WorkbookApiError('sheet-not-found', 404, 'sheet-not-found')),
+    };
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'));
+    const { result } = renderQueue({
+      apiClient,
+      initialWorkbook: workbookWithSheets([initialSheet]),
+    });
+
+    act(() => {
+      result.current.queue.enqueueEdit('sheet:sheet-inputs:name', () =>
+        result.current.queue.runRevisionedEdit('sheet-inputs', save),
+      );
+    });
+
+    await waitFor(() => expect(result.current.workbook.sheets).toEqual([]));
+    expect(apiClient.loadSheet).toHaveBeenCalledWith('sheet-inputs');
+    expect(save).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));
   });
 });
