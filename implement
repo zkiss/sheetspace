@@ -17,7 +17,7 @@ codex exec \
   --sandbox workspace-write \
   --add-dir ~/.gradle \
   --add-dir `pwd -P` \
-  "Implement next bead. Use subagents as instructed." >"$log"
+  "Do next bead. Subagents allowed. Caveman ultra." >"$log"
 status=$?
 
 session_id="$(jq -r 'select(.type == "thread.started") | .thread_id' "$log" | tail -n 1)"

@@ -24,16 +24,34 @@ br sync --flush-only
 5. Read the bead, relevant plan context, relevant code, and git status.
 6. Make the smallest focused change that satisfies the bead.
 7. Run relevant checks and record what passed or was skipped.
-8. Export bead changes and open a PR containing code, docs, and `.beads/` updates.
+8. Export bead changes and open a PR containing code, docs, and `.beads/` updates. Use the PR format below.
 9. Invoke a strict reviewer subagent with fresh context for the first review, and pass it all the relevant information it needs to perform an unbiased review: the bead id, current diff, changed files, and check results.
 10. Do not edit while review is active. If files change during review, restart that review pass.
 11. Address review feedback and return to the same reviewer for follow-up passes until the reviewer passes the work.
-12. Update the PR with final code and bead export.
+12. Update the PR with final code and bead export, keeping the PR title and description in the required format.
 13. Close the bead, export bead state, and update the PR.
-14. Merge with a commit message that includes the PR number, matching current history.
+14. Merge with the required merge commit message format below.
 15. Refresh `main` after merge.
 
 Never commit on `main`.
+
+## PRs
+
+Use this PR title format:
+
+```text
+{bead-id}: {bead summary}
+```
+
+Use the PR description to briefly describe the purpose of the change and any non-obvious detail that helps reviewers understand the PR. Do not list changed files, validation performed, or other boilerplate unless the user explicitly asks for it.
+
+Use this merge commit message format:
+
+```text
+{PR title} (#{pr number})
+
+{PR description}
+```
 
 ## Scope
 
