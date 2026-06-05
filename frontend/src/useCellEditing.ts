@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   cellKey,
+  formulaRawForDisplay,
   parseA1Address,
   type CellAddress,
   type Sheet,
@@ -80,7 +81,11 @@ export function useCellEditing({
 
     const currentCell = currentSheet.cells[editToCommit.cellKey];
     const currentRaw = currentCell?.raw ?? '';
-    if (currentCell || currentRaw !== editToCommit.value) {
+    const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook) : currentRaw;
+    if (
+      currentEditValue !== editToCommit.value ||
+      (currentCell && currentRaw.length === 0 && editToCommit.value.length === 0)
+    ) {
       commands.updateCellContent(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value);
     }
     setEditingCell(null);
@@ -88,7 +93,8 @@ export function useCellEditing({
 
   function startEditingCell(selection: ActiveCellSelection, initialValue?: string) {
     const sheet = workbook.sheets.find((candidate) => candidate.id === selection.sheetId);
-    const value = initialValue ?? sheet?.cells[selection.cellKey]?.raw ?? '';
+    const cell = sheet?.cells[selection.cellKey];
+    const value = initialValue ?? (cell ? formulaRawForDisplay(cell, workbook) : '');
 
     setActiveCell(selection);
     setEditingCell({

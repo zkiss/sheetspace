@@ -94,7 +94,15 @@ class WorkbookRepositoryTest {
         val repo = WorkbookRepository(dbPath)
         repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
         repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
-        repo.updateCell(SHEET_2, "A1", "=SUM(Inputs!A1, 'Inputs'!A2)")
+        repo.updateCell(
+            SHEET_2,
+            "A1",
+            "=SUM(Inputs!A1, 'Inputs'!A2)",
+            sheetReferences = listOf(
+                FormulaSheetReference(5, 11, SHEET_1),
+                FormulaSheetReference(16, 24, SHEET_1),
+            ),
+        )
 
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { conn ->
             conn.createStatement().use { statement ->
@@ -116,11 +124,36 @@ class WorkbookRepositoryTest {
     }
 
     @Test
+    fun `does not derive formula reference ids from raw sheet names during persistence`() {
+        val dbPath = createDbPath()
+        val repo = WorkbookRepository(dbPath)
+        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
+        repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
+        repo.updateCell(SHEET_2, "A1", "=SUM(Inputs!A1)")
+
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("SELECT cells_json FROM sheets WHERE name = 'Outputs'").use { rs ->
+                    assertTrue(rs.next())
+                    val cellsJson = rs.getString(1)
+                    assertContains(cellsJson, """"raw":"=SUM(Inputs!A1)"""")
+                    assertFalse(cellsJson.contains("sheetId"))
+                }
+            }
+        }
+    }
+
+    @Test
     fun `keeps missing reference display names while hydrating deleted targets`() {
         val repo = createRepo()
         repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
         repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
-        repo.updateCell(SHEET_2, "A1", "=SUM(Inputs!A1)")
+        repo.updateCell(
+            SHEET_2,
+            "A1",
+            "=SUM(Inputs!A1)",
+            sheetReferences = listOf(FormulaSheetReference(5, 11, SHEET_1)),
+        )
 
         repo.deleteSheet(SHEET_1)
 
@@ -136,7 +169,15 @@ class WorkbookRepositoryTest {
         repo.createSheet(Sheet(id = SHEET_1, name = "Planned-Revenue (FY26)"))
         repo.createSheet(Sheet(id = SHEET_2, name = "Owner's Plan"))
         repo.createSheet(Sheet(id = SHEET_3, name = "Outputs"))
-        repo.updateCell(SHEET_3, "A1", "=SUM('Planned-Revenue (FY26)'!A1, 'Owner''s Plan'!A1)")
+        repo.updateCell(
+            SHEET_3,
+            "A1",
+            "=SUM('Planned-Revenue (FY26)'!A1, 'Owner''s Plan'!A1)",
+            sheetReferences = listOf(
+                FormulaSheetReference(5, 29, SHEET_1),
+                FormulaSheetReference(34, 49, SHEET_2),
+            ),
+        )
 
         repo.renameSheet(SHEET_1, "Plan, FY27")
         repo.renameSheet(SHEET_2, "Director's Plan")

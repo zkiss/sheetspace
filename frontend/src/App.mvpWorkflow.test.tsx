@@ -110,7 +110,7 @@ describe('App MVP workflow', () => {
       await user.keyboard('{Escape}');
 
       editor = await openCellEditor(user, within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
-      expect(editor).toHaveValue(rawCrossSheetFormula);
+      expect(editor).toHaveValue("=SUM('Renamed Inputs'!B1:B2)");
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
     },
     20_000,

@@ -43,7 +43,7 @@ class WorkbookRepository(dbPath: Path) {
             transaction(conn) {
                 conn.createStatement().use { it.executeUpdate("DELETE FROM sheets") }
                 workbook.sheets.forEach { sheet ->
-                    upsertSheet(conn, sheet, workbook.sheets)
+                    upsertSheet(conn, sheet)
                 }
             }
         }
@@ -188,7 +188,7 @@ class WorkbookRepository(dbPath: Path) {
                 updatedSheet != null &&
                 currentSheet != updatedSheet
             ) {
-                updateSheetWithExpectedRevision(conn, updatedSheet, expectedRevision, updated.sheets)
+                updateSheetWithExpectedRevision(conn, updatedSheet, expectedRevision)
             }
             if (currentSheet != null && updatedSheet == null) {
                 deleteSheetWithExpectedRevision(conn, lockedSheetId, expectedRevision)
@@ -251,12 +251,12 @@ class WorkbookRepository(dbPath: Path) {
 
         updated.sheets.forEach { sheet ->
             if (currentById[sheet.id] != sheet) {
-                upsertSheet(conn, sheet, updated.sheets)
+                upsertSheet(conn, sheet)
             }
         }
     }
 
-    private fun upsertSheet(conn: Connection, sheet: Sheet, sheets: List<Sheet>) {
+    private fun upsertSheet(conn: Connection, sheet: Sheet) {
         conn.prepareStatement(
             """
             INSERT INTO sheets (
@@ -285,7 +285,7 @@ class WorkbookRepository(dbPath: Path) {
             statement.setDouble(7, sheet.frameSize.width)
             statement.setDouble(8, sheet.frameSize.height)
             statement.setInt(9, sheet.zIndex)
-            statement.setString(10, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
+            statement.setString(10, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells)))
             statement.executeUpdate()
         }
     }
@@ -294,7 +294,6 @@ class WorkbookRepository(dbPath: Path) {
         conn: Connection,
         sheet: Sheet,
         expectedRevision: Long,
-        sheets: List<Sheet>,
     ) {
         val updatedRows = conn.prepareStatement(
             """
@@ -320,7 +319,7 @@ class WorkbookRepository(dbPath: Path) {
             statement.setDouble(6, sheet.frameSize.width)
             statement.setDouble(7, sheet.frameSize.height)
             statement.setInt(8, sheet.zIndex)
-            statement.setString(9, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
+            statement.setString(9, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells)))
             statement.setBytes(10, sheet.id.toUuidBytes())
             statement.setLong(11, expectedRevision)
             statement.executeUpdate()
@@ -383,22 +382,12 @@ class WorkbookRepository(dbPath: Path) {
         )
     }
 
-    private fun persistCells(cells: Map<String, CellContent>, sheets: List<Sheet>): PersistedCells {
+    private fun persistCells(cells: Map<String, CellContent>): PersistedCells {
         return PersistedCells(
             cells = cells.mapValues { (_, cell) ->
                 PersistedCellContent(
                     raw = cell.raw,
-                    sheetReferences = cell.sheetReferences.ifEmpty {
-                        findSheetReferenceTokens(cell.raw).mapNotNull { token ->
-                            sheets.find { sheet -> sheet.name == token.sheetName }?.let { sheet ->
-                                FormulaSheetReference(
-                                    startIndex = token.startIndex,
-                                    endIndex = token.endIndex,
-                                    sheetId = sheet.id,
-                                )
-                            }
-                        }
-                    },
+                    sheetReferences = cell.sheetReferences,
                 )
             },
         )
