@@ -42,8 +42,8 @@ class WorkbookRepository(dbPath: Path) {
         connection { conn ->
             transaction(conn) {
                 conn.createStatement().use { it.executeUpdate("DELETE FROM sheets") }
-                workbook.sheets.forEachIndexed { index, sheet ->
-                    upsertSheet(conn, sheet, index, workbook.sheets)
+                workbook.sheets.forEach { sheet ->
+                    upsertSheet(conn, sheet, workbook.sheets)
                 }
             }
         }
@@ -183,15 +183,12 @@ class WorkbookRepository(dbPath: Path) {
             }
 
             val updatedSheet = updated.sheets.find { it.id == lockedSheetId }
-            val currentIndex = current.sheets.indexOfFirst { it.id == lockedSheetId }
-            val updatedIndex = updated.sheets.indexOfFirst { it.id == lockedSheetId }
-
             if (
                 currentSheet != null &&
                 updatedSheet != null &&
-                (currentSheet != updatedSheet || currentIndex != updatedIndex)
+                currentSheet != updatedSheet
             ) {
-                updateSheetWithExpectedRevision(conn, updatedSheet, updatedIndex, expectedRevision, updated.sheets)
+                updateSheetWithExpectedRevision(conn, updatedSheet, expectedRevision, updated.sheets)
             }
             if (currentSheet != null && updatedSheet == null) {
                 deleteSheetWithExpectedRevision(conn, lockedSheetId, expectedRevision)
@@ -222,7 +219,7 @@ class WorkbookRepository(dbPath: Path) {
             """
             SELECT id, name, row_count, column_count, position_x, position_y, frame_width, frame_height, z_index, cells_json, revision
             FROM sheets
-            ORDER BY display_order ASC
+            ORDER BY hex(id) ASC
             """.trimIndent(),
         ).use { statement ->
             statement.executeQuery().use { rs ->
@@ -252,22 +249,21 @@ class WorkbookRepository(dbPath: Path) {
             }
         }
 
-        updated.sheets.forEachIndexed { index, sheet ->
-            if (currentById[sheet.id] != sheet || current.sheets.indexOfFirst { it.id == sheet.id } != index) {
-                upsertSheet(conn, sheet, index, updated.sheets)
+        updated.sheets.forEach { sheet ->
+            if (currentById[sheet.id] != sheet) {
+                upsertSheet(conn, sheet, updated.sheets)
             }
         }
     }
 
-    private fun upsertSheet(conn: Connection, sheet: Sheet, displayOrder: Int, sheets: List<Sheet>) {
+    private fun upsertSheet(conn: Connection, sheet: Sheet, sheets: List<Sheet>) {
         conn.prepareStatement(
             """
             INSERT INTO sheets (
-                id, display_order, name, row_count, column_count, position_x, position_y, frame_width, frame_height, z_index, cells_json, revision
+                id, name, row_count, column_count, position_x, position_y, frame_width, frame_height, z_index, cells_json, revision
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
-                display_order = excluded.display_order,
                 name = excluded.name,
                 row_count = excluded.row_count,
                 column_count = excluded.column_count,
@@ -281,16 +277,15 @@ class WorkbookRepository(dbPath: Path) {
             """.trimIndent(),
         ).use { statement ->
             statement.setBytes(1, sheet.id.toUuidBytes())
-            statement.setInt(2, displayOrder)
-            statement.setString(3, sheet.name)
-            statement.setInt(4, sheet.rowCount)
-            statement.setInt(5, sheet.columnCount)
-            statement.setDouble(6, sheet.position.x)
-            statement.setDouble(7, sheet.position.y)
-            statement.setDouble(8, sheet.frameSize.width)
-            statement.setDouble(9, sheet.frameSize.height)
-            statement.setInt(10, sheet.zIndex)
-            statement.setString(11, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
+            statement.setString(2, sheet.name)
+            statement.setInt(3, sheet.rowCount)
+            statement.setInt(4, sheet.columnCount)
+            statement.setDouble(5, sheet.position.x)
+            statement.setDouble(6, sheet.position.y)
+            statement.setDouble(7, sheet.frameSize.width)
+            statement.setDouble(8, sheet.frameSize.height)
+            statement.setInt(9, sheet.zIndex)
+            statement.setString(10, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
             statement.executeUpdate()
         }
     }
@@ -298,14 +293,12 @@ class WorkbookRepository(dbPath: Path) {
     private fun updateSheetWithExpectedRevision(
         conn: Connection,
         sheet: Sheet,
-        displayOrder: Int,
         expectedRevision: Long,
         sheets: List<Sheet>,
     ) {
         val updatedRows = conn.prepareStatement(
             """
             UPDATE sheets SET
-                display_order = ?,
                 name = ?,
                 row_count = ?,
                 column_count = ?,
@@ -319,18 +312,17 @@ class WorkbookRepository(dbPath: Path) {
             WHERE id = ? AND revision = ?
             """.trimIndent(),
         ).use { statement ->
-            statement.setInt(1, displayOrder)
-            statement.setString(2, sheet.name)
-            statement.setInt(3, sheet.rowCount)
-            statement.setInt(4, sheet.columnCount)
-            statement.setDouble(5, sheet.position.x)
-            statement.setDouble(6, sheet.position.y)
-            statement.setDouble(7, sheet.frameSize.width)
-            statement.setDouble(8, sheet.frameSize.height)
-            statement.setInt(9, sheet.zIndex)
-            statement.setString(10, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
-            statement.setBytes(11, sheet.id.toUuidBytes())
-            statement.setLong(12, expectedRevision)
+            statement.setString(1, sheet.name)
+            statement.setInt(2, sheet.rowCount)
+            statement.setInt(3, sheet.columnCount)
+            statement.setDouble(4, sheet.position.x)
+            statement.setDouble(5, sheet.position.y)
+            statement.setDouble(6, sheet.frameSize.width)
+            statement.setDouble(7, sheet.frameSize.height)
+            statement.setInt(8, sheet.zIndex)
+            statement.setString(9, json.encodeToString(PersistedCells.serializer(), persistCells(sheet.cells, sheets)))
+            statement.setBytes(10, sheet.id.toUuidBytes())
+            statement.setLong(11, expectedRevision)
             statement.executeUpdate()
         }
 
