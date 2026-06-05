@@ -509,6 +509,7 @@ export function useEditQueue({
             reloadCause.status === 404 &&
             reloadCause.code === 'sheet-not-found'
           ) {
+            dropSheetQueuedTasks(sheetId);
             knownSheetRevisions.current.delete(sheetId);
             setWorkbook((currentWorkbook) => ({
               ...currentWorkbook,
@@ -523,7 +524,7 @@ export function useEditQueue({
         return save(latestSheet.revision);
       });
     },
-    [currentSheetRevision, mergeSheetRevisions, resolvedApiClient, setWorkbook],
+    [currentSheetRevision, dropSheetQueuedTasks, mergeSheetRevisions, resolvedApiClient, setWorkbook],
   );
 
   const markSaved = useCallback(() => {

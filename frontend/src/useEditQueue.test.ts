@@ -258,4 +258,39 @@ describe('useEditQueue', () => {
     expect(save).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));
   });
+
+  it('drops queued sheet work when conflict recovery cannot reload the sheet', async () => {
+    const initialSheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 3 };
+    const apiClient = {
+      loadSheet: vi.fn().mockRejectedValue(new WorkbookApiError('sheet-not-found', 404, 'sheet-not-found')),
+    };
+    const firstSave = vi
+      .fn()
+      .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'));
+    const queuedSave = vi.fn().mockResolvedValue({ sheetId: 'sheet-inputs', revision: 4 });
+    const { result } = renderQueue({
+      apiClient,
+      initialWorkbook: workbookWithSheets([initialSheet]),
+    });
+
+    act(() => {
+      result.current.queue.enqueueEdit(
+        'sheet:sheet-inputs:name',
+        () => result.current.queue.runRevisionedEdit('sheet-inputs', firstSave),
+        undefined,
+        'sheet-inputs',
+      );
+      result.current.queue.enqueueEdit(
+        'sheet:sheet-inputs:name',
+        () => result.current.queue.runRevisionedEdit('sheet-inputs', queuedSave),
+        undefined,
+        'sheet-inputs',
+      );
+    });
+
+    await waitFor(() => expect(result.current.workbook.sheets).toEqual([]));
+    expect(firstSave).toHaveBeenCalledTimes(1);
+    expect(queuedSave).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));
+  });
 });
