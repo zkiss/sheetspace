@@ -26,17 +26,18 @@ export function deferred<T>() {
 export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
   return {
     loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    deleteSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetPosition: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetFrameSize: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateSheetZIndex: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    updateCellContent: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    appendRow: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    appendColumn: vi.fn().mockResolvedValue(workbookWithSheets([])),
+    loadSheet: vi.fn(),
+    createSheet: vi.fn(),
+    deleteSheet: vi.fn().mockResolvedValue(undefined),
+    renameSheet: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateCellContent: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0 })),
+    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0 })),
     ...overrides,
-  } satisfies WorkbookApi;
+  } satisfies Partial<WorkbookApi>;
 }
 
 export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWithSheets([])) {
@@ -54,6 +55,13 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
 
   return {
     loadWorkbook: vi.fn().mockImplementation(async () => persistedWorkbook),
+    loadSheet: vi.fn().mockImplementation(async (sheetId: string) => {
+      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
+      if (!sheet) {
+        throw new Error('sheet-not-found');
+      }
+      return sheet;
+    }),
     createSheet: vi.fn().mockImplementation(async (sheet: Parameters<WorkbookApi['createSheet']>[0]) => {
       const result = createSheet({
         id: deterministicSheetId(nextSheetId++),
@@ -64,9 +72,10 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       });
       if (result.ok) {
         persistedWorkbook = workbookWithSheets([...persistedWorkbook.sheets, result.value]);
+        return result.value;
       }
 
-      return persistedWorkbook;
+      throw new Error('invalid-sheet');
     }),
     deleteSheet: vi.fn().mockImplementation(async (sheetId: string) => {
       const existingSheet = persistedWorkbook.sheets.find((sheet) => sheet.id === sheetId);
@@ -75,7 +84,6 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       }
 
       persistedWorkbook = workbookWithSheets(persistedWorkbook.sheets.filter((sheet) => sheet.id !== sheetId));
-      return persistedWorkbook;
     }),
     renameSheet: vi.fn().mockImplementation(async (sheetId: string, name: string) => {
       const result = renameSheet(persistedWorkbook, sheetId, name);
@@ -83,33 +91,47 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         persistedWorkbook = result.value;
       }
 
-      return persistedWorkbook;
+      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
+      return { sheetId, revision: sheet?.revision ?? 0 };
     }),
     updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string, position: WorkspacePosition) =>
-      updateSheet(sheetId, (sheet) => ({
+      revisionResponse(updateSheet(sheetId, (sheet) => ({
         ...sheet,
         position,
-      })),
+      })), sheetId),
     ),
     updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string, frameSize: Sheet['frameSize']) =>
-      updateSheet(sheetId, (sheet) => ({
+      revisionResponse(updateSheet(sheetId, (sheet) => ({
         ...sheet,
         frameSize,
-      })),
+      })), sheetId),
     ),
     updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string, zIndex: number) =>
-      updateSheet(sheetId, (sheet) => ({
+      revisionResponse(updateSheet(sheetId, (sheet) => ({
         ...sheet,
         zIndex,
-      })),
+      })), sheetId),
     ),
     updateCellContent: vi.fn().mockImplementation(async (sheetId: string, cellKey: string, raw: string) => {
       persistedWorkbook = commitCellRawContent(persistedWorkbook, sheetId, cellKey, raw);
-      return persistedWorkbook;
+      return revisionResponse(persistedWorkbook, sheetId);
     }),
-    appendRow: vi.fn().mockImplementation(async (sheetId: string) => updateSheet(sheetId, appendRow)),
-    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => updateSheet(sheetId, appendColumn)),
+    appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
+      updateSheet(sheetId, appendRow);
+      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
+      return { sheetId, revision: sheet?.revision ?? 0, rowCount: sheet?.rowCount ?? 0 };
+    }),
+    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => {
+      updateSheet(sheetId, appendColumn);
+      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
+      return { sheetId, revision: sheet?.revision ?? 0, columnCount: sheet?.columnCount ?? 0 };
+    }),
   } satisfies WorkbookApi;
+}
+
+function revisionResponse(workbook: Workbook, sheetId: string) {
+  const sheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
+  return { sheetId, revision: sheet?.revision ?? 0 };
 }
 
 export function deterministicSheetId(index: number) {

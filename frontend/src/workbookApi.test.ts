@@ -41,19 +41,32 @@ afterEach(() => {
 
 describe('workbookApi', () => {
   it('loads the current workbook', async () => {
-    const fetchMock = mockFetch(workbook);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ version: 1, sheetIds: ['sheet-1'] }))
+      .mockResolvedValueOnce(jsonResponse(workbook.sheets[0]));
+    vi.stubGlobal('fetch', fetchMock);
 
     await expect(workbookApi.loadWorkbook()).resolves.toEqual(workbook);
 
     expect(fetchMock).toHaveBeenCalledWith('/api/workbook', { headers: {} });
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet-1', { headers: {} });
+  });
+
+  it('loads one sheet by id', async () => {
+    const fetchMock = mockFetch(workbook.sheets[0]);
+
+    await expect(workbookApi.loadSheet('sheet 1')).resolves.toEqual(workbook.sheets[0]);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', { headers: {} });
   });
 
   it('creates sheets through the backend mutation endpoint', async () => {
-    const fetchMock = mockFetch({ ok: true, workbook });
+    const fetchMock = mockFetch(workbook.sheets[0]);
 
     await expect(
       workbookApi.createSheet({ name: 'Inputs', position: { x: 12, y: 24 } }),
-    ).resolves.toEqual(workbook);
+    ).resolves.toEqual(workbook.sheets[0]);
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
       method: 'POST',
@@ -63,7 +76,7 @@ describe('workbookApi', () => {
   });
 
   it('keeps local-only sheet fields out of the sheet creation request body', async () => {
-    const fetchMock = mockFetch({ ok: true, workbook });
+    const fetchMock = mockFetch(workbook.sheets[0]);
 
     await workbookApi.createSheet({
       id: 'pending:local-only-id',
@@ -86,7 +99,7 @@ describe('workbookApi', () => {
   });
 
   it('exposes sheet rename position frame size and z-order update calls', async () => {
-    const fetchMock = mockFetch({ ok: true, workbook });
+    const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 1 });
 
     await workbookApi.renameSheet('sheet-1', 'Renamed');
     await workbookApi.updateSheetPosition('sheet-1', { x: 48, y: 96 });
@@ -116,7 +129,8 @@ describe('workbookApi', () => {
   });
 
   it('deletes sheets through the backend mutation endpoint', async () => {
-    const fetchMock = mockFetch({ ok: true, workbook });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
 
     await workbookApi.deleteSheet('sheet 1', { revision: 3 });
 
@@ -127,7 +141,7 @@ describe('workbookApi', () => {
   });
 
   it('exposes cell content, row append, and column append update calls', async () => {
-    const fetchMock = mockFetch({ ok: true, workbook });
+    const fetchMock = mockFetch({ sheetId: 'sheet 1', revision: 1, rowCount: 21, columnCount: 11 });
 
     await workbookApi.updateCellContent('sheet 1', 'A1', '=SUM(B1:B2)');
     await workbookApi.appendRow('sheet 1');
@@ -149,7 +163,7 @@ describe('workbookApi', () => {
   });
 
   it('sends sheet revisions as optimistic lock tokens for revisioned mutations', async () => {
-    const fetchMock = mockFetch({ ok: true, workbook });
+    const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 1, rowCount: 21 });
 
     await workbookApi.updateCellContent('sheet-1', 'A1', 'Value', { revision: 7 });
     await workbookApi.appendRow('sheet-1', { revision: 8 });
@@ -166,7 +180,7 @@ describe('workbookApi', () => {
   });
 
   it('sends formula sheet reference metadata for cell updates when provided', async () => {
-    const fetchMock = mockFetch({ ok: true, workbook });
+    const fetchMock = mockFetch({ sheetId: 'sheet-2', revision: 1 });
 
     await workbookApi.updateCellContent('sheet-2', 'A1', '=SUM(Inputs!A1)', {
       revision: 7,

@@ -25,16 +25,35 @@ class ApplicationTest {
     private val json = Json { ignoreUnknownKeys = false }
 
     @Test
-    fun `workbook endpoint loads empty persisted state`() = testApplication {
+    fun `workbook endpoint returns metadata and sheet ids without sheet payloads`() = testApplication {
         val repo = createRepo()
         application {
             module(repo)
         }
+        val sheet = client.createSheet()
 
         val response = client.get("/api/workbook")
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(emptyWorkbook(), response.decodeBody<Workbook>())
+        assertEquals(WorkbookSummary(sheetIds = listOf(sheet.id)), response.decodeBody<WorkbookSummary>())
+        assertFalse(response.bodyAsText().contains("cells"))
+    }
+
+    @Test
+    fun `targeted sheet endpoint returns one full sheet and reports missing sheets`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        val sheet = client.createSheet()
+
+        val found = client.get("/api/sheets/${sheet.id}")
+        val missing = client.get("/api/sheets/${UUID.randomUUID()}")
+
+        assertEquals(HttpStatusCode.OK, found.status)
+        assertEquals(sheet, found.decodeBody<Sheet>())
+        assertEquals(HttpStatusCode.NotFound, missing.status)
+        assertEquals(ErrorResponse(error = "sheet-not-found"), missing.decodeBody<ErrorResponse>())
     }
 
     @Test
@@ -49,7 +68,7 @@ class ApplicationTest {
         }
 
         assertEquals(HttpStatusCode.Created, response.status)
-        val created = response.decodeBody<MutationResponse>().workbook.sheets.single()
+        val created = response.decodeBody<Sheet>()
         UUID.fromString(created.id)
         val workbook = client.loadWorkbook()
         assertEquals(
@@ -88,8 +107,7 @@ class ApplicationTest {
             revisionHeader(repo, sheetId)
         }
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(emptyWorkbook(), response.decodeBody<MutationResponse>().workbook)
+        assertEquals(HttpStatusCode.NoContent, response.status)
         assertEquals(emptyWorkbook(), client.loadWorkbook())
     }
 
@@ -382,6 +400,56 @@ class ApplicationTest {
     }
 
     @Test
+    fun `routine mutation endpoints return minimal responses without ok flags`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        val sheetId = client.createSheet().id
+
+        val patchResponse = client.patch("/api/sheets/$sheetId") {
+            revisionHeader(repo, sheetId)
+            jsonBody("""{"name":"Renamed Inputs"}""")
+        }
+        val cellResponse = client.put("/api/sheets/$sheetId/cells/A1") {
+            revisionHeader(repo, sheetId)
+            jsonBody("""{"raw":"value"}""")
+        }
+        val rowResponse = client.post("/api/sheets/$sheetId/rows") {
+            revisionHeader(repo, sheetId)
+        }
+        val columnResponse = client.post("/api/sheets/$sheetId/columns") {
+            revisionHeader(repo, sheetId)
+        }
+        val deleteResponse = client.delete("/api/sheets/$sheetId") {
+            revisionHeader(repo, sheetId)
+        }
+
+        val patchBody = patchResponse.bodyAsText()
+        val cellBody = cellResponse.bodyAsText()
+        val rowBody = rowResponse.bodyAsText()
+        val columnBody = columnResponse.bodyAsText()
+
+        assertEquals(HttpStatusCode.OK, patchResponse.status)
+        assertEquals(HttpStatusCode.OK, cellResponse.status)
+        assertEquals(HttpStatusCode.OK, rowResponse.status)
+        assertEquals(HttpStatusCode.OK, columnResponse.status)
+        assertEquals(HttpStatusCode.NoContent, deleteResponse.status)
+        assertEquals(SheetRevisionResponse(sheetId = sheetId, revision = 1), json.decodeFromString(patchBody))
+        assertEquals(SheetRevisionResponse(sheetId = sheetId, revision = 2), json.decodeFromString(cellBody))
+        assertEquals(RowAppendResponse(sheetId = sheetId, revision = 3, rowCount = DEFAULT_ROW_COUNT + 1), json.decodeFromString(rowBody))
+        assertEquals(
+            ColumnAppendResponse(sheetId = sheetId, revision = 4, columnCount = DEFAULT_COLUMN_COUNT + 1),
+            json.decodeFromString(columnBody),
+        )
+        assertFalse(patchBody.contains("ok"))
+        assertFalse(cellBody.contains("ok"))
+        assertFalse(rowBody.contains("ok"))
+        assertFalse(columnBody.contains("ok"))
+        assertEquals("", deleteResponse.bodyAsText())
+    }
+
+    @Test
     fun `api mutations persist complete MVP workbook state for later reloads`() = testApplication {
         val repo = createRepo()
         application {
@@ -394,8 +462,8 @@ class ApplicationTest {
         val createOutputs = client.post("/api/sheets") {
             jsonBody("""{"name":"Outputs","position":{"x":420.0,"y":260.0}}""")
         }
-        val inputsId = createInputs.decodeBody<MutationResponse>().workbook.sheets.single { it.name == "Inputs" }.id
-        val outputsId = createOutputs.decodeBody<MutationResponse>().workbook.sheets.single { it.name == "Outputs" }.id
+        val inputsId = createInputs.decodeBody<Sheet>().id
+        val outputsId = createOutputs.decodeBody<Sheet>().id
         val renameAndMoveInputs = client.patch("/api/sheets/$inputsId") {
             revisionHeader(repo, inputsId)
             jsonBody("""{"name":"Renamed Inputs","position":{"x":72.0,"y":144.0},"frameSize":{"width":320.0,"height":220.0}}""")
@@ -551,7 +619,9 @@ class ApplicationTest {
         }
 
         assertEquals(HttpStatusCode.BadRequest, malformedJson.status)
-        assertEquals(ErrorResponse(error = "invalid-request"), malformedJson.decodeBody<ErrorResponse>())
+        val malformedBody = malformedJson.bodyAsText()
+        assertEquals(ErrorResponse(error = "invalid-request"), json.decodeFromString<ErrorResponse>(malformedBody))
+        assertFalse(malformedBody.contains("ok"))
         assertEquals(HttpStatusCode.BadRequest, missingField.status)
         assertEquals(ErrorResponse(error = "invalid-request"), missingField.decodeBody<ErrorResponse>())
         assertEquals(sheet, client.loadWorkbook().sheets.single())
@@ -581,11 +651,15 @@ class ApplicationTest {
             jsonBody("""{"name":"Inputs","position":{"x":0.0,"y":0.0}}""")
         }
         assertEquals(HttpStatusCode.Created, response.status)
-        return response.decodeBody<MutationResponse>().workbook.sheets.single()
+        return response.decodeBody<Sheet>()
     }
 
     private suspend fun HttpClient.loadWorkbook(): Workbook {
-        return get("/api/workbook").decodeBody()
+        val summary = get("/api/workbook").decodeBody<WorkbookSummary>()
+        return Workbook(
+            version = summary.version,
+            sheets = summary.sheetIds.map { sheetId -> get("/api/sheets/$sheetId").decodeBody<Sheet>() },
+        )
     }
 
     private fun io.ktor.client.request.HttpRequestBuilder.revisionHeader(repo: WorkbookRepository, sheetId: String) {
