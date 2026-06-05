@@ -101,6 +101,40 @@ describe('App formula integration', () => {
     expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('7');
   });
 
+  it('keeps cross-sheet formulas bound by sheet id after target rename', async () => {
+    const user = userEvent.setup();
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: { raw: '2' },
+        A2: { raw: '5' },
+      },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
+      cells: {
+        A1: {
+          raw: '=SUM(Inputs!A1:A2)',
+          sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-inputs' }],
+        },
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
+    const nameInput = screen.getByLabelText(/sheet name/i);
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Renamed Inputs');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const formulaCell = within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('7');
+    expect(await openCellEditor(user, formulaCell)).toHaveValue("=SUM('Renamed Inputs'!A1:A2)");
+  });
+
   it('keeps formula error cells selectable and editable without crashing unrelated results', async () => {
     const user = userEvent.setup();
     const sheet = {

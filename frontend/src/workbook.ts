@@ -70,11 +70,13 @@ export type FormulaReference =
   | {
       kind: 'cell';
       sheetName?: string;
+      sheetId?: string;
       address: CellAddress;
     }
   | {
       kind: 'range';
       sheetName?: string;
+      sheetId?: string;
       range: CellRange;
     };
 
@@ -488,12 +490,17 @@ export function parseNamedA1Range(
   };
 }
 
-export function parseFormula(raw: string, workbook: Workbook, defaultSheet?: Sheet): FormulaParseResult {
+export function parseFormula(
+  raw: string,
+  workbook: Workbook,
+  defaultSheet?: Sheet,
+  sheetReferences: readonly FormulaSheetReference[] = [],
+): FormulaParseResult {
   if (!raw.startsWith('=')) {
     return { kind: 'not-formula', raw };
   }
 
-  const parser = new FormulaParser(raw.slice(1), workbook, defaultSheet);
+  const parser = new FormulaParser(raw.slice(1), workbook, defaultSheet, sheetReferences);
   return parser.parse(raw);
 }
 
@@ -540,6 +547,19 @@ function resolveReferenceSheet(
   }
 
   return findSheetByName(workbook, sheetName);
+}
+
+function resolveFormulaReferenceSheet(
+  reference: Pick<FormulaReference, 'sheetId' | 'sheetName'>,
+  workbook: Workbook,
+  defaultSheet: Sheet | undefined,
+): ParseResult<Sheet> {
+  if (reference.sheetId) {
+    const sheet = workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
+    return sheet ? { ok: true, value: sheet } : { ok: false, reason: 'unknown-sheet' };
+  }
+
+  return resolveReferenceSheet(reference.sheetName, workbook, defaultSheet);
 }
 
 function sheetCellNodeId(sheetId: string, key: CellKey): string {
@@ -627,7 +647,7 @@ class FormulaEvaluator {
     );
     const parsed = missingSheetReference
       ? { kind: 'error' as const, raw: cell.raw, error: '#REF!' as const }
-      : parseFormula(formulaRawForEvaluation(cell, this.workbook), this.workbook, sheet);
+      : parseFormula(cell.raw, this.workbook, sheet, cell.sheetReferences);
     if (parsed.kind === 'error') {
       result = formulaError(parsed.error);
     } else if (parsed.kind === 'formula') {
@@ -673,7 +693,7 @@ class FormulaEvaluator {
     argument: FormulaReference,
     currentSheet: Sheet,
   ): { ok: true; value: { sheet: Sheet; key: CellKey }[] } | { ok: false; error: FormulaErrorCode } {
-    const sheet = resolveReferenceSheet(argument.sheetName, this.workbook, currentSheet);
+    const sheet = resolveFormulaReferenceSheet(argument, this.workbook, currentSheet);
     if (!sheet.ok) {
       return { ok: false, error: '#REF!' };
     }
@@ -730,7 +750,7 @@ class FormulaEvaluator {
   }
 }
 
-function formulaRawForEvaluation(cell: CellContent, workbook: Workbook): string {
+export function formulaRawForDisplay(cell: CellContent, workbook: Workbook): string {
   return [...(cell.sheetReferences ?? [])]
     .sort((first, second) => second.startIndex - first.startIndex)
     .reduce((raw, reference) => {
@@ -908,6 +928,7 @@ class FormulaParser {
     private readonly input: string,
     private readonly workbook: Workbook,
     private readonly defaultSheet: Sheet | undefined,
+    private readonly sheetReferences: readonly FormulaSheetReference[],
   ) {}
 
   parse(raw: string): FormulaParseResult {
@@ -971,12 +992,12 @@ class FormulaParser {
   }
 
   private readReferenceArgument(): { ok: true; value: FormulaReference } | { ok: false; error: FormulaErrorCode } {
-    const sheetName = this.readOptionalSheetName();
-    if (sheetName === false) {
+    const sheetReference = this.readOptionalSheetReference();
+    if (sheetReference === false) {
       return { ok: false, error: '#PARSE!' };
     }
 
-    const sheet = resolveReferenceSheet(sheetName, this.workbook, this.defaultSheet);
+    const sheet = resolveFormulaReferenceSheet(sheetReference, this.workbook, this.defaultSheet);
     if (!sheet.ok) {
       return { ok: false, error: '#REF!' };
     }
@@ -995,7 +1016,12 @@ class FormulaParser {
     if (!this.consume(':')) {
       return {
         ok: true,
-        value: { kind: 'cell', sheetName, address: startAddress.value },
+        value: {
+          kind: 'cell',
+          sheetName: sheetReference.sheetName,
+          ...(sheetReference.sheetId === undefined ? {} : { sheetId: sheetReference.sheetId }),
+          address: startAddress.value,
+        },
       };
     }
 
@@ -1014,28 +1040,36 @@ class FormulaParser {
       ok: true,
       value: {
         kind: 'range',
-        sheetName,
+        sheetName: sheetReference.sheetName,
+        ...(sheetReference.sheetId === undefined ? {} : { sheetId: sheetReference.sheetId }),
         range: normalizeRange({ start: startAddress.value, end: endAddress.value }),
       },
     };
   }
 
-  private readOptionalSheetName(): string | undefined | false {
+  private readOptionalSheetReference(): { sheetName?: string; sheetId?: string } | false {
     const startIndex = this.index;
     const quotedSheetName = this.readQuotedSheetName();
+    if (quotedSheetName === false) {
+      return false;
+    }
     if (quotedSheetName !== undefined) {
+      const endIndex = this.index;
       this.skipWhitespace();
       if (!this.consume('!')) {
         return false;
       }
       this.skipWhitespace();
-      return quotedSheetName;
+      return {
+        sheetName: quotedSheetName,
+        ...this.sheetIdForToken(startIndex, endIndex),
+      };
     }
 
     this.index = startIndex;
     const separatorIndex = this.findUnquotedSheetSeparator();
     if (separatorIndex === -1) {
-      return undefined;
+      return {};
     }
 
     const sheetName = this.input.slice(this.index, separatorIndex).trim();
@@ -1043,9 +1077,25 @@ class FormulaParser {
       return false;
     }
 
+    let endIndex = separatorIndex;
+    while (endIndex > startIndex && /\s/.test(this.input[endIndex - 1])) {
+      endIndex -= 1;
+    }
     this.index = separatorIndex + 1;
     this.skipWhitespace();
-    return sheetName;
+    return {
+      sheetName,
+      ...this.sheetIdForToken(startIndex, endIndex),
+    };
+  }
+
+  private sheetIdForToken(startIndex: number, endIndex: number): { sheetId?: string } {
+    const rawStartIndex = startIndex + 1;
+    const rawEndIndex = endIndex + 1;
+    const reference = this.sheetReferences.find(
+      (candidate) => candidate.startIndex === rawStartIndex && candidate.endIndex === rawEndIndex,
+    );
+    return reference ? { sheetId: reference.sheetId } : {};
   }
 
   private readQuotedSheetName(): string | undefined | false {

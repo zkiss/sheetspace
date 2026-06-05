@@ -492,7 +492,14 @@ class ApplicationTest {
         }
         val updateCrossSheetFormulaCell = client.put("/api/sheets/$outputsId/cells/A1") {
             revisionHeader(repo, outputsId)
-            jsonBody("""{"raw":"=SUM(Renamed Inputs!B1:B2)"}""")
+            jsonBody(
+                """
+                {
+                  "raw": "=SUM(Renamed Inputs!B1:B2)",
+                  "sheetReferences": [{"startIndex":5,"endIndex":19,"sheetId":"$inputsId"}]
+                }
+                """.trimIndent(),
+            )
         }
 
         assertEquals(HttpStatusCode.Created, createInputs.status)

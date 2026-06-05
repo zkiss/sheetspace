@@ -12,6 +12,7 @@ import {
   expandRange,
   findFormulaSheetReferences,
   findSheetByName,
+  formulaRawForDisplay,
   moveSheetZOrder,
   parseA1Address,
   parseA1Range,
@@ -491,6 +492,24 @@ describe('formula parser', () => {
     });
   });
 
+  it('binds sheet-qualified references to persisted sheet ids when metadata is available', () => {
+    const { workbook, inputs } = formulaWorkbook();
+    const raw = "=SUM(Inputs!A1, 'Sales Q1'!A1:B2)";
+
+    expect(parseFormula(raw, workbook, inputs, [
+      { startIndex: 5, endIndex: 11, sheetId: 'sheet-1' },
+      { startIndex: 16, endIndex: 26, sheetId: 'sheet-3' },
+    ])).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [
+          { kind: 'cell', sheetName: 'Inputs', sheetId: 'sheet-1' },
+          { kind: 'range', sheetName: 'Sales Q1', sheetId: 'sheet-3' },
+        ],
+      },
+    });
+  });
+
   it('reports unsupported functions as #NAME!', () => {
     const { workbook, inputs } = formulaWorkbook();
 
@@ -565,6 +584,19 @@ describe('formula parser', () => {
     expect(findFormulaSheetReferences("=SUM('📈 Plan'!A1)", workbook.sheets)).toEqual([
       { startIndex: 5, endIndex: 14, sheetId: 'sheet-plan' },
     ]);
+  });
+
+  it('renders formula edit text from current sheet names without changing stored ids', () => {
+    const inputs = sheet('sheet-1', 'Renamed Inputs');
+    const outputs = sheet('sheet-2', 'Outputs');
+    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    const cell = {
+      raw: '=SUM(Inputs!A1)',
+      sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
+    };
+
+    expect(formulaRawForDisplay(cell, workbook)).toBe("=SUM('Renamed Inputs'!A1)");
+    expect(cell.sheetReferences).toEqual([{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }]);
   });
 });
 
