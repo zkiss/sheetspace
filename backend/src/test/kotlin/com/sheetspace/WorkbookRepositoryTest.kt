@@ -377,9 +377,9 @@ class WorkbookRepositoryTest {
                     statement.executeUpdate(
                         """
                         INSERT INTO sheets (
-                            id, display_order, name, row_count, column_count, position_x, position_y,
+                            id, name, row_count, column_count, position_x, position_y,
                             cells_json, revision, z_index, frame_width, frame_height
-                        ) VALUES (X'00', 1, 'Invalid', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        ) VALUES (X'00', 'Invalid', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
                         """.trimIndent(),
                     )
                 }
@@ -387,11 +387,31 @@ class WorkbookRepositoryTest {
                     statement.executeUpdate(
                         """
                         INSERT INTO sheets (
-                            id, display_order, name, row_count, column_count, position_x, position_y,
+                            id, name, row_count, column_count, position_x, position_y,
                             cells_json, revision, z_index, frame_width, frame_height
-                        ) VALUES ('1234567890123456', 1, 'Invalid Text', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        ) VALUES ('1234567890123456', 'Invalid Text', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
                         """.trimIndent(),
                     )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `sheets schema does not expose display order`() {
+        val dbPath = createDbPath()
+        WorkbookRepository(dbPath)
+
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA table_info(sheets)").use { rs ->
+                    val columns = buildList {
+                        while (rs.next()) {
+                            add(rs.getString("name"))
+                        }
+                    }
+
+                    assertFalse(columns.contains("display_order"))
                 }
             }
         }
@@ -421,6 +441,56 @@ class WorkbookRepositoryTest {
         }
 
         assertEquals(emptyWorkbook(), WorkbookRepository(dbPath).loadWorkbook())
+    }
+
+    @Test
+    fun `display order removal migration preserves saved sheet fields`() {
+        val dbPath = createDbPath()
+        val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
+        Flyway.configure()
+            .dataSource(jdbcUrl, null, null)
+            .locations("classpath:db/migration")
+            .target("5")
+            .load()
+            .migrate()
+        DriverManager.getConnection(jdbcUrl).use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    INSERT INTO sheets (
+                        id, display_order, name, row_count, column_count, position_x, position_y,
+                        cells_json, revision, z_index, frame_width, frame_height
+                    ) VALUES (X'00000000000000000000000000000001', 42, 'Inputs', 25, 14, 12.5, -8.25, '{"cells":{"A1":{"raw":"7"}}}', 3, 9, 360, 240)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val loaded = WorkbookRepository(dbPath).loadWorkbook().sheets.single()
+
+        assertEquals(SHEET_1, loaded.id)
+        assertEquals("Inputs", loaded.name)
+        assertEquals(25, loaded.rowCount)
+        assertEquals(14, loaded.columnCount)
+        assertEquals(WorkspacePosition(12.5, -8.25), loaded.position)
+        assertEquals(SheetFrameSize(360.0, 240.0), loaded.frameSize)
+        assertEquals(9, loaded.zIndex)
+        assertEquals(3, loaded.revision)
+        assertEquals("7", loaded.cells.getValue("A1").raw)
+
+        DriverManager.getConnection(jdbcUrl).use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA table_info(sheets)").use { rs ->
+                    val columns = buildList {
+                        while (rs.next()) {
+                            add(rs.getString("name"))
+                        }
+                    }
+
+                    assertFalse(columns.contains("display_order"))
+                }
+            }
+        }
     }
 
     @Test
