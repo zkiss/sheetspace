@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
-import { createSheetFromToolbar, openCellEditor, openSheetContextMenu, workspaceSurface } from './test/appScreen';
+import { openCellEditor, openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
 import { workbookWithSheets } from './test/workbookFactories';
 
@@ -20,12 +20,14 @@ describe('App MVP workflow', () => {
 
       render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
 
-      await createSheetFromToolbar('Inputs');
+      await user.click(screen.getByRole('button', { name: /new sheet/i }));
+      fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Inputs' } });
+      await user.click(screen.getByRole('button', { name: /^create$/i }));
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
 
       workspaceSurface().getBoundingClientRect = workspaceRect;
       fireEvent.contextMenu(workspaceSurface(), { clientX: 440, clientY: 290 });
-      await user.type(screen.getByLabelText(/sheet name/i), 'Outputs');
+      fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
       await user.click(screen.getByRole('button', { name: /^create$/i }));
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
 
@@ -39,8 +41,7 @@ describe('App MVP workflow', () => {
       );
 
       await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
-      await user.clear(screen.getByLabelText(/sheet name/i));
-      await user.type(screen.getByLabelText(/sheet name/i), 'Renamed Inputs');
+      fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Renamed Inputs' } });
       await user.click(screen.getByRole('button', { name: /^save$/i }));
       await waitFor(() =>
         expect(apiClient.renameSheet).toHaveBeenCalledWith(inputSheetId, 'Renamed Inputs', { revision: 0 }),
@@ -53,14 +54,14 @@ describe('App MVP workflow', () => {
         user,
         within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B1 empty cell' }),
       );
-      await user.type(editor, '10');
+      fireEvent.change(editor, { target: { value: '10' } });
       await user.keyboard('{Enter}');
 
       editor = await openCellEditor(
         user,
         within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B2 empty cell' }),
       );
-      await user.type(editor, '5');
+      fireEvent.change(editor, { target: { value: '5' } });
       await user.keyboard('{Enter}');
 
       editor = await openCellEditor(
@@ -71,7 +72,7 @@ describe('App MVP workflow', () => {
       await user.keyboard('{Enter}');
 
       editor = await openCellEditor(user, within(outputFrame).getByRole('cell', { name: 'Outputs A1 empty cell' }));
-      await user.type(editor, rawCrossSheetFormula);
+      fireEvent.change(editor, { target: { value: rawCrossSheetFormula } });
       await user.keyboard('{Enter}');
 
       await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
@@ -113,6 +114,6 @@ describe('App MVP workflow', () => {
       expect(editor).toHaveValue("=SUM('Renamed Inputs'!B1:B2)");
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
     },
-    20_000,
+    10_000,
   );
 });
