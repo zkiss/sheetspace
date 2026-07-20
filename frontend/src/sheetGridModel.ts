@@ -21,7 +21,7 @@ export function getSheetCellDisplayText({
   formulaResults: FormulaEvaluationSnapshot;
   sheet: Sheet;
 }) {
-  return formulaResults[sheet.id]?.[cellKey]?.display ?? sheet.cells[cellKey]?.raw ?? '';
+  return formulaResults[sheet.id]?.[cellKey]?.display ?? sheet.cells[cellKey] ?? '';
 }
 
 export function gridCellKeyboardAction({

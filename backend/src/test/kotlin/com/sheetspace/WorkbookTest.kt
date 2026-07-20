@@ -67,7 +67,7 @@ class WorkbookTest {
         val originalSheet = Sheet(
             id = "sheet-1",
             name = "Inputs",
-            cells = mapOf("A1" to CellContent(raw = " =SUM( 'Old Name'!A1 )\n")),
+            cells = mapOf("A1" to " =SUM( 'Old Name'!A1 )\n"),
         )
         val workbook = Workbook(sheets = listOf(originalSheet))
 
@@ -76,7 +76,7 @@ class WorkbookTest {
         ).workbook
 
         assertEquals("Renamed", renamed.sheets.single().name)
-        assertEquals(" =SUM( 'Old Name'!A1 )\n", renamed.sheets.single().cells.getValue("A1").raw)
+        assertEquals(" =SUM( 'Old Name'!A1 )\n", renamed.sheets.single().cells.getValue("A1"))
     }
 
     @Test
@@ -84,7 +84,7 @@ class WorkbookTest {
         val sheet = Sheet(
             id = "sheet-1",
             name = "Inputs",
-            cells = mapOf("A1" to CellContent(raw = "42")),
+            cells = mapOf("A1" to "42"),
         )
 
         assertEquals(21, appendRow(sheet).rowCount)

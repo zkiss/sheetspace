@@ -1,4 +1,4 @@
-import type { CellKey, FormulaSheetReference, Sheet, SheetFrameSize, Workbook, WorkspacePosition } from './workbook';
+import type { CellKey, Sheet, SheetFrameSize, Workbook, WorkspacePosition } from './workbook';
 
 type ApiErrorBody = {
   error?: string;
@@ -24,10 +24,6 @@ export type ColumnAppendResponse = SheetRevisionResponse & {
 
 export type RevisionedMutationOptions = {
   revision?: number;
-};
-
-export type UpdateCellContentOptions = RevisionedMutationOptions & {
-  sheetReferences?: FormulaSheetReference[];
 };
 
 export class WorkbookApiError extends Error {
@@ -172,15 +168,12 @@ export const workbookApi = {
   updateCellContent(
     sheetId: string,
     cellAddress: CellKey,
-    raw: string,
-    options: UpdateCellContentOptions = {},
+    content: string,
+    options: RevisionedMutationOptions = {},
   ): Promise<SheetRevisionResponse> {
     return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}/cells/${encodePathSegment(cellAddress)}`, {
       method: 'PUT',
-      body: JSON.stringify({
-        raw,
-        ...(options.sheetReferences === undefined ? {} : { sheetReferences: options.sheetReferences }),
-      }),
+      body: JSON.stringify(content),
       headers: revisionHeaders(options),
     });
   },

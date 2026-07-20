@@ -6,6 +6,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.http.content.default
 import io.ktor.server.http.content.staticResources
@@ -20,6 +21,7 @@ import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
 import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.nio.file.Paths
 
 private val workbookRepository by lazy {
@@ -35,12 +37,6 @@ data class CreateSheetRequest(
     val position: WorkspacePosition = WorkspacePosition(),
     val frameSize: SheetFrameSize = SheetFrameSize(),
     val zIndex: Int? = null,
-)
-
-@Serializable
-data class UpdateCellRequest(
-    val raw: String,
-    val sheetReferences: List<FormulaSheetReference> = emptyList(),
 )
 
 @Serializable
@@ -233,7 +229,7 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
                 HttpStatusCode.BadRequest,
                 "cell-address-required",
             )
-            val request = call.receiveRequest<UpdateCellRequest>() ?: return@put
+            val content = call.receiveCellContent() ?: return@put
             val workbook = repository.loadWorkbook()
             val sheet = workbook.sheets.find { it.id == sheetId }
             val expectedRevision = call.expectedSheetRevision() ?: return@put
@@ -241,18 +237,13 @@ fun Application.module(repository: WorkbookRepository = workbookRepository) {
             when {
                 sheet == null -> call.respondError(HttpStatusCode.NotFound, "sheet-not-found")
                 !sheet.containsCell(cellAddress) -> call.respondError(HttpStatusCode.BadRequest, "invalid-cell-address")
-                !request.raw.hasValidSheetReferenceSpans(request.sheetReferences) -> call.respondError(
-                    HttpStatusCode.BadRequest,
-                    "invalid-sheet-reference-spans",
-                )
                 else -> {
                     call.respondSheetRevision(sheetId) {
                         repository.updateCell(
                             sheetId,
                             cellAddress,
-                            request.raw,
+                            content,
                             expectedRevision,
-                            request.sheetReferences,
                         )
                     }
                 }
@@ -373,73 +364,13 @@ private suspend inline fun <reified T : Any> ApplicationCall.receiveRequest(): T
     }
 }
 
-private fun String.hasValidSheetReferenceSpans(references: List<FormulaSheetReference>): Boolean {
-    if (references.isNotEmpty() && !startsWith("=")) {
-        return false
+private suspend fun ApplicationCall.receiveCellContent(): String? {
+    return try {
+        Json.decodeFromString<String>(receiveText())
+    } catch (exception: Exception) {
+        respondError(HttpStatusCode.BadRequest, "invalid-request")
+        null
     }
-
-    var previousEndIndex = -1
-    for (reference in references.sortedBy { it.startIndex }) {
-        if (
-            reference.startIndex < 0 ||
-            reference.endIndex <= reference.startIndex ||
-            reference.endIndex > length ||
-            reference.startIndex < previousEndIndex ||
-            !hasSheetReferenceTokenBoundaryBefore(reference.startIndex) ||
-            !hasValidSheetReferenceToken(substring(reference.startIndex, reference.endIndex)) ||
-            !hasSheetReferenceSeparatorAndAddressAfter(reference.endIndex)
-        ) {
-            return false
-        }
-        previousEndIndex = reference.endIndex
-    }
-
-    return true
-}
-
-private fun String.hasSheetReferenceTokenBoundaryBefore(tokenStartIndex: Int): Boolean {
-    val boundaryIndex = (tokenStartIndex - 1 downTo 0).firstOrNull { !this[it].isWhitespace() } ?: return false
-    return this[boundaryIndex] in "(,:"
-}
-
-private fun String.hasSheetReferenceSeparatorAndAddressAfter(tokenEndIndex: Int): Boolean {
-    val separatorIndex = (tokenEndIndex until length).firstOrNull { !this[it].isWhitespace() } ?: return false
-    if (this[separatorIndex] != '!') {
-        return false
-    }
-
-    val referenceStart = (separatorIndex + 1 until length).firstOrNull { !this[it].isWhitespace() } ?: return false
-    val address = Regex("[A-Za-z]+[1-9][0-9]*").find(this, referenceStart) ?: return false
-    if (address.range.first != referenceStart) {
-        return false
-    }
-
-    val nextChar = getOrNull(address.range.last + 1)
-    return nextChar == null || nextChar.isWhitespace() || nextChar in ":,)"
-}
-
-private fun hasValidSheetReferenceToken(token: String): Boolean {
-    val trimmedToken = token.trim()
-    if (!trimmedToken.startsWith("'")) {
-        return trimmedToken.isNotEmpty() && trimmedToken.none { char -> char in "'(),:!" }
-    }
-    if (!trimmedToken.endsWith("'") || trimmedToken.length < 3) {
-        return false
-    }
-
-    val inner = trimmedToken.substring(1, trimmedToken.length - 1)
-    var cursor = 0
-    while (cursor < inner.length) {
-        if (inner[cursor] != '\'') {
-            cursor += 1
-            continue
-        }
-        if (cursor + 1 >= inner.length || inner[cursor + 1] != '\'') {
-            return false
-        }
-        cursor += 2
-    }
-    return true
 }
 
 private val SheetNameError.apiError: String

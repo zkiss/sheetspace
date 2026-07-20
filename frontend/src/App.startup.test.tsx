@@ -32,10 +32,10 @@ describe('App startup', () => {
       rowCount: 22,
       columnCount: 12,
       cells: {
-        A1: { raw: 'Region' },
-        A2: { raw: rawFormula },
-        B1: { raw: '10' },
-        B2: { raw: '5' },
+        A1: 'Region',
+        A2: rawFormula,
+        B1: '10',
+        B2: '5',
       },
     };
     const outputs = {
@@ -43,7 +43,7 @@ describe('App startup', () => {
       rowCount: 3,
       columnCount: 3,
       cells: {
-        A1: { raw: '=SUM(Renamed Inputs!B1:B2)' },
+        A1: '=SUM(sheet-inputs!B1:B2)',
       },
     };
     const apiClient = {
@@ -78,7 +78,7 @@ describe('App startup', () => {
       user,
       within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' }),
     );
-    expect(crossSheetFormulaEditor).toHaveValue('=SUM(Renamed Inputs!B1:B2)');
+    expect(crossSheetFormulaEditor).toHaveValue("=SUM('Renamed Inputs'!B1:B2)");
     expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
   });
 

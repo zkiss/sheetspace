@@ -7,7 +7,9 @@ import {
   createSheet,
   createEmptyWorkbook,
   evaluateFormulaCells,
+  formulaSheetReferenceIds,
   moveSheetZOrder,
+  remapWorkbookFormulaSheetId,
   renameSheet,
   validateSheetName,
   type CellKey,
@@ -69,7 +71,7 @@ export function useWorkbookController({
     registerPendingSheet,
     resolveSheetId,
     runForSavedSheet,
-    resolveFormulaSheetReferences,
+    resolveFormulaRawForSave,
     runRevisionedEdit,
     saveStatus,
     sheetIdRemaps,
@@ -150,22 +152,28 @@ export function useWorkbookController({
 
         unresolvedCreateNames.current.delete(pendingSheetId);
         setWorkbook((currentWorkbook) => {
-          return {
+          return remapWorkbookFormulaSheetId({
             ...currentWorkbook,
             sheets: currentWorkbook.sheets.map((sheet) =>
               sheet.id === pendingSheetId
                 ? { ...savedSheet, ...sheet, id: savedSheetId, revision: savedSheet.revision }
                 : sheet,
             ),
-          };
+          }, pendingSheetId, savedSheetId);
         });
       },
       () => {
         unresolvedCreateNames.current.delete(pendingSheetId);
-        setWorkbook((currentWorkbook) => ({
-          ...currentWorkbook,
-          sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== pendingSheetId),
-        }));
+        setWorkbook((currentWorkbook) =>
+          remapWorkbookFormulaSheetId(
+            {
+              ...currentWorkbook,
+              sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== pendingSheetId),
+            },
+            pendingSheetId,
+            '#REF',
+          ),
+        );
       },
     );
 
@@ -182,10 +190,16 @@ export function useWorkbookController({
     if (!createWasSent) {
       unresolvedCreateNames.current.delete(sheetId);
     }
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),
-    }));
+    setWorkbook((currentWorkbook) =>
+      remapWorkbookFormulaSheetId(
+        {
+          ...currentWorkbook,
+          sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),
+        },
+        sheetId,
+        '#REF',
+      ),
+    );
   }
 
   function deleteSheetCommand(sheetId: string) {
@@ -290,32 +304,27 @@ export function useWorkbookController({
   function updateCellContent(sheetId: string, cellKey: CellKey, raw: string) {
     const localSheetId = resolveSheetId(sheetId);
     const currentSheet = workbook.sheets.find((sheet) => sheet.id === localSheetId);
-    const currentRaw = currentSheet?.cells[cellKey]?.raw ?? '';
+    const currentRaw = currentSheet?.cells[cellKey] ?? '';
     const nextWorkbook = commitCellRawContent(workbook, localSheetId, cellKey, raw);
     const nextSheet = nextWorkbook.sheets.find((sheet) => sheet.id === localSheetId);
-    const sheetReferences = nextSheet?.cells[cellKey]?.sheetReferences ?? [];
+    const canonicalRaw = nextSheet?.cells[cellKey] ?? '';
 
     if (nextWorkbook !== workbook) {
       setWorkbook(nextWorkbook);
     }
-    if (nextWorkbook !== workbook && currentRaw !== raw) {
+    if (nextWorkbook !== workbook && currentRaw !== canonicalRaw) {
       enqueueEdit(
         `cell:${sheetId}:${cellKey}`,
         () => {
-          const saveCellContent = (savedSheetId: string, resolvedSheetReferences = sheetReferences) =>
+          const saveCellContent = (savedSheetId: string, resolvedRaw = canonicalRaw) =>
             runRevisionedEdit(savedSheetId, (revision) =>
-              getApiMethod('updateCellContent')(savedSheetId, cellKey, raw, {
-                revision,
-                ...(resolvedSheetReferences.length === 0 ? {} : { sheetReferences: resolvedSheetReferences }),
-              }),
+              getApiMethod('updateCellContent')(savedSheetId, cellKey, resolvedRaw, { revision }),
             );
 
           return runForSavedSheet(sheetId, (savedSheetId) =>
-            sheetReferences.length === 0
+            formulaSheetReferenceIds(canonicalRaw).length === 0
               ? saveCellContent(savedSheetId)
-              : resolveFormulaSheetReferences(sheetReferences).then((resolvedSheetReferences) =>
-                  saveCellContent(savedSheetId, resolvedSheetReferences),
-                ),
+              : resolveFormulaRawForSave(canonicalRaw).then((resolvedRaw) => saveCellContent(savedSheetId, resolvedRaw)),
           );
         },
         undefined,
