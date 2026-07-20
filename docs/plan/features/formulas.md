@@ -7,6 +7,8 @@ Formulas make sheets more than static tables. The formula engine should grow del
 ## Feature Scope
 
 - Treat cell content beginning with `=` as a formula.
+- Store each cell as its raw string value, without a cell-content wrapper or persisted formula metadata.
+- Store cross-sheet qualifiers as stable sheet ids inside canonical formula strings; translate visible sheet names to ids when edits commit and ids back to current names while editing.
 - Parse formulas into an AST.
 - Evaluate formulas against a workbook snapshot.
 - Support A1-style cell references, ranges, and cross-sheet references.
@@ -19,6 +21,7 @@ Formulas make sheets more than static tables. The formula engine should grow del
 - Support typed errors such as `#PARSE!`, `#REF!`, `#NAME!`, `#VALUE!`, `#DIV/0!`, `#CYCLE!`, and `#N/A`.
 - Keep the app and UI usable when formulas fail.
 - Keep cells with formula errors selectable and editable.
+- Render missing cross-sheet ids as `#REF` qualifiers and evaluate them as `#REF!` without rebinding them by name.
 - Expand formula support deliberately after the parser and evaluator are stable.
 
 ## Candidate Function Growth

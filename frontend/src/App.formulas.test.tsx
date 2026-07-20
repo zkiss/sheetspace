@@ -12,9 +12,9 @@ describe('App formula integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: rawFormula },
-        B1: { raw: '3' },
-        B2: { raw: '4' },
+        A1: rawFormula,
+        B1: '3',
+        B2: '4',
       },
     };
 
@@ -36,9 +36,9 @@ describe('App formula integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '=SUM(B1)' },
-        B1: { raw: '3' },
-        B2: { raw: '5' },
+        A1: '=SUM(B1)',
+        B1: '3',
+        B2: '5',
       },
     };
 
@@ -61,8 +61,8 @@ describe('App formula integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: rawFormula },
-        B1: { raw: '4' },
+        A1: rawFormula,
+        B1: '4',
       },
     };
 
@@ -84,14 +84,14 @@ describe('App formula integration', () => {
     const inputs = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '2' },
-        A2: { raw: '5' },
+        A1: '2',
+        A2: '5',
       },
     };
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
       cells: {
-        A1: { raw: '=SUM(Inputs!A1:A2)' },
+        A1: '=SUM(sheet-inputs!A1:A2)',
       },
     };
 
@@ -106,17 +106,14 @@ describe('App formula integration', () => {
     const inputs = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '2' },
-        A2: { raw: '5' },
+        A1: '2',
+        A2: '5',
       },
     };
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
       cells: {
-        A1: {
-          raw: '=SUM(Inputs!A1:A2)',
-          sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-inputs' }],
-        },
+        A1: '=SUM(sheet-inputs!A1:A2)',
       },
     };
 
@@ -140,9 +137,9 @@ describe('App formula integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '=SUM(B1)' },
-        A2: { raw: '=SUM(B1,)' },
-        B1: { raw: '8' },
+        A1: '=SUM(B1)',
+        A2: '=SUM(B1,)',
+        B1: '8',
       },
     };
 
@@ -171,9 +168,9 @@ describe('App formula integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '=SUM(B1:B2)' },
-        B1: { raw: '1' },
-        B2: { raw: '2' },
+        A1: '=SUM(B1:B2)',
+        B1: '1',
+        B2: '2',
       },
     };
 
@@ -196,8 +193,8 @@ describe('App formula integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '=SUM(B1)' },
-        B1: { raw: '1' },
+        A1: '=SUM(B1)',
+        B1: '1',
       },
     };
 
@@ -223,9 +220,9 @@ describe('App formula integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '=SUM(B1)' },
-        B1: { raw: '2' },
-        C1: { raw: '4' },
+        A1: '=SUM(B1)',
+        B1: '2',
+        C1: '4',
       },
     };
 
@@ -257,9 +254,9 @@ describe('App formula integration', () => {
       rowCount: 2,
       columnCount: 2,
       cells: {
-        A1: { raw: '=SUM(A3)' },
-        A2: { raw: '=SUM(K1)' },
-        A3: { raw: '7' },
+        A1: '=SUM(A3)',
+        A2: '=SUM(K1)',
+        A3: '7',
       },
     };
 
@@ -288,9 +285,9 @@ describe('App formula integration', () => {
       rowCount: 2,
       columnCount: 2,
       cells: {
-        A1: { raw: '=SUM(C1)' },
-        B1: { raw: '=SUM(A99)' },
-        C1: { raw: '11' },
+        A1: '=SUM(C1)',
+        B1: '=SUM(A99)',
+        C1: '11',
       },
     };
 

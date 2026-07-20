@@ -145,9 +145,9 @@ describe('App grid rendering and navigation', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: 'Region' },
-        B1: { raw: '42' },
-        C1: { raw: '=SUM(B1:B2)' },
+        A1: 'Region',
+        B1: '42',
+        C1: '=SUM(B1:B2)',
       },
     };
 

@@ -118,7 +118,7 @@ describe('App cell editing integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: 'Remove me' },
+        A1: 'Remove me',
       },
     };
 
@@ -157,7 +157,7 @@ describe('App cell editing integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: 'Remove me' },
+        A1: 'Remove me',
       },
     };
 
@@ -281,7 +281,7 @@ describe('App cell editing integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: 'Original' },
+        A1: 'Original',
       },
     };
 
@@ -304,7 +304,7 @@ describe('App cell editing integration', () => {
       rowCount: 1,
       columnCount: 2,
       cells: {
-        A1: { raw: 'Original' },
+        A1: 'Original',
       },
     };
 
@@ -417,7 +417,7 @@ describe('App cell editing integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw },
+        A1: raw,
       },
     };
 
@@ -455,13 +455,13 @@ describe('App cell editing integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '' },
+        A1: '',
       },
     };
 
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 
-    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     await openCellEditor(user, cell);
     await user.keyboard('{Enter}');
 

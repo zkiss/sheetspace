@@ -11,8 +11,8 @@ function testSheet() {
   return {
     ...result.value,
     cells: {
-      A1: { raw: 'Raw value' },
-      B1: { raw: '=SUM(A1)' },
+      A1: 'Raw value',
+      B1: '=SUM(A1)',
     },
   };
 }

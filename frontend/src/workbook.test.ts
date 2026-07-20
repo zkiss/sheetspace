@@ -10,9 +10,10 @@ import {
   createSheet,
   evaluateFormulaCells,
   expandRange,
-  findFormulaSheetReferences,
   findSheetByName,
   formulaRawForDisplay,
+  formulaRawForStorage,
+  formulaSheetReferenceIds,
   moveSheetZOrder,
   parseA1Address,
   parseA1Range,
@@ -138,7 +139,7 @@ describe('workbook model', () => {
         {
           ...sheet('sheet-1', 'Inputs'),
           cells: {
-            A1: { raw: " =SUM( 'Old Name'!A1 )\n" },
+            A1: " =SUM( 'Old Name'!A1 )\n",
           },
         },
       ],
@@ -149,25 +150,25 @@ describe('workbook model', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.sheets[0].name).toBe('Renamed');
-      expect(result.value.sheets[0].cells.A1.raw).toBe(" =SUM( 'Old Name'!A1 )\n");
+      expect(result.value.sheets[0].cells.A1).toBe(" =SUM( 'Old Name'!A1 )\n");
     }
   });
 
   it('appends rows and columns without changing existing cells', () => {
     const original = {
       ...sheet('sheet-1', 'Inputs'),
-      cells: { A1: { raw: '42' } },
+      cells: { A1: '42' },
     };
 
     expect(appendRow(original)).toMatchObject({
       rowCount: 21,
       columnCount: 10,
-      cells: { A1: { raw: '42' } },
+      cells: { A1: '42' },
     });
     expect(appendColumn(original)).toMatchObject({
       rowCount: 20,
       columnCount: 11,
-      cells: { A1: { raw: '42' } },
+      cells: { A1: '42' },
     });
   });
 
@@ -179,7 +180,7 @@ describe('workbook model', () => {
 
     const withText = commitCellRawContent(workbook, 'sheet-1', 'A1', 'Region');
     expect(withText).not.toBe(workbook);
-    expect(withText.sheets[0].cells.A1.raw).toBe('Region');
+    expect(withText.sheets[0].cells.A1).toBe('Region');
 
     const cleared = commitCellRawContent(withText, 'sheet-1', 'A1', '');
     expect(cleared).not.toBe(withText);
@@ -193,7 +194,7 @@ describe('workbook model', () => {
         {
           ...sheet('sheet-1', 'Inputs'),
           cells: {
-            A1: { raw: '' },
+            A1: '',
           },
         },
       ],
@@ -212,7 +213,7 @@ describe('workbook model', () => {
         {
           ...sheet('sheet-1', 'Inputs'),
           cells: {
-            A1: { raw: 'Original' },
+            A1: 'Original',
           },
         },
       ],
@@ -386,12 +387,10 @@ describe('formula parser', () => {
         arguments: [
           {
             kind: 'cell',
-            sheetName: undefined,
             address: { columnIndex: 0, rowIndex: 0 },
           },
           {
             kind: 'range',
-            sheetName: undefined,
             range: {
               start: { columnIndex: 1, rowIndex: 1 },
               end: { columnIndex: 2, rowIndex: 2 },
@@ -422,21 +421,21 @@ describe('formula parser', () => {
     });
   });
 
-  it('parses unquoted cross-sheet cell and range references', () => {
+  it('parses canonical cross-sheet cell and range references by sheet id', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=SUM(Outputs!A1, Inputs!B2:C3)', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=SUM(sheet-2!A1, sheet-1!B2:C3)', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         arguments: [
           {
             kind: 'cell',
-            sheetName: 'Outputs',
+            sheetId: 'sheet-2',
             address: { columnIndex: 0, rowIndex: 0 },
           },
           {
             kind: 'range',
-            sheetName: 'Inputs',
+            sheetId: 'sheet-1',
             range: {
               start: { columnIndex: 1, rowIndex: 1 },
               end: { columnIndex: 2, rowIndex: 2 },
@@ -447,64 +446,25 @@ describe('formula parser', () => {
     });
   });
 
-  it('parses quoted cross-sheet references for sheet names with spaces and punctuation', () => {
-    const { workbook, inputs } = formulaWorkbook();
+  it('canonicalizes visible sheet names while preserving surrounding formula text', () => {
+    const { workbook } = formulaWorkbook();
+    const raw = "=sUm( Outputs !A1, 'Sales Q1'!A1:B2, 'Owner''s Plan'!C3 )";
 
-    expect(parseFormula("=SUM('Sales Q1'!A1:B2, 'Planned-Revenue (FY26)'!C3)", workbook, inputs)).toMatchObject({
-      kind: 'formula',
-      expression: {
-        arguments: [
-          {
-            kind: 'range',
-            sheetName: 'Sales Q1',
-            range: {
-              start: { columnIndex: 0, rowIndex: 0 },
-              end: { columnIndex: 1, rowIndex: 1 },
-            },
-          },
-          {
-            kind: 'cell',
-            sheetName: 'Planned-Revenue (FY26)',
-            address: { columnIndex: 2, rowIndex: 2 },
-          },
-        ],
-      },
-    });
+    expect(formulaRawForStorage(raw, workbook)).toBe(
+      '=sUm( sheet-2 !A1, sheet-3!A1:B2, sheet-5!C3 )',
+    );
   });
 
-  it('parses quoted sheet names with escaped apostrophes', () => {
+  it('keeps canonical ids in parsed formula references', () => {
     const { workbook, inputs } = formulaWorkbook();
+    const raw = '=SUM(sheet-1!A1, sheet-3!A1:B2)';
 
-    expect(parseFormula("=SUM('Owner''s Plan'!A1:B2)", workbook, inputs)).toMatchObject({
+    expect(parseFormula(raw, workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         arguments: [
-          {
-            kind: 'range',
-            sheetName: "Owner's Plan",
-            range: {
-              start: { columnIndex: 0, rowIndex: 0 },
-              end: { columnIndex: 1, rowIndex: 1 },
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  it('binds sheet-qualified references to persisted sheet ids when metadata is available', () => {
-    const { workbook, inputs } = formulaWorkbook();
-    const raw = "=SUM(Inputs!A1, 'Sales Q1'!A1:B2)";
-
-    expect(parseFormula(raw, workbook, inputs, [
-      { startIndex: 5, endIndex: 11, sheetId: 'sheet-1' },
-      { startIndex: 16, endIndex: 26, sheetId: 'sheet-3' },
-    ])).toMatchObject({
-      kind: 'formula',
-      expression: {
-        arguments: [
-          { kind: 'cell', sheetName: 'Inputs', sheetId: 'sheet-1' },
-          { kind: 'range', sheetName: 'Sales Q1', sheetId: 'sheet-3' },
+          { kind: 'cell', sheetId: 'sheet-1' },
+          { kind: 'range', sheetId: 'sheet-3' },
         ],
       },
     });
@@ -565,38 +525,24 @@ describe('formula parser', () => {
     });
   });
 
-  it('extracts persisted sheet references without treating malformed formulas as references', () => {
-    const { workbook } = formulaWorkbook();
-
-    expect(findFormulaSheetReferences("=SUM(Outputs!A1, 'Sales Q1'!A1:B2, 'Owner''s Plan'!C3)", workbook.sheets))
-      .toEqual([
-        { startIndex: 5, endIndex: 12, sheetId: 'sheet-2' },
-        { startIndex: 17, endIndex: 27, sheetId: 'sheet-3' },
-        { startIndex: 35, endIndex: 50, sheetId: 'sheet-5' },
-      ]);
-    expect(findFormulaSheetReferences("=SUM('Sales Q1!A1, text Outputs! nope)", workbook.sheets)).toEqual([]);
-  });
-
-  it('extracts sheet references using UTF-16 string indices for non-BMP sheet names', () => {
-    const plan = sheet('sheet-plan', '📈 Plan');
-    const workbook = { version: 1 as const, sheets: [plan] };
-
-    expect(findFormulaSheetReferences("=SUM('📈 Plan'!A1)", workbook.sheets)).toEqual([
-      { startIndex: 5, endIndex: 14, sheetId: 'sheet-plan' },
-    ]);
+  it('extracts canonical ids without treating malformed formulas as references', () => {
+    expect(formulaSheetReferenceIds('=SUM(sheet-1!A1, sheet-3!A1:B2)')).toEqual(['sheet-1', 'sheet-3']);
+    expect(formulaSheetReferenceIds("=SUM('broken!A1, text sheet-2! nope)")).toEqual([]);
   });
 
   it('renders formula edit text from current sheet names without changing stored ids', () => {
     const inputs = sheet('sheet-1', 'Renamed Inputs');
     const outputs = sheet('sheet-2', 'Outputs');
     const workbook = { version: 1 as const, sheets: [inputs, outputs] };
-    const cell = {
-      raw: '=SUM(Inputs!A1)',
-      sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
-    };
+    const cell = '=SUM(sheet-1!A1)';
 
     expect(formulaRawForDisplay(cell, workbook)).toBe("=SUM('Renamed Inputs'!A1)");
-    expect(cell.sheetReferences).toEqual([{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }]);
+  });
+
+  it('renders unknown canonical ids as #REF qualifiers', () => {
+    const workbook = { version: 1 as const, sheets: [sheet('sheet-2', 'Outputs')] };
+
+    expect(formulaRawForDisplay('=SUM(sheet-deleted!A1)', workbook)).toBe('=SUM(#REF!A1)');
   });
 });
 
@@ -610,10 +556,10 @@ describe('formula evaluator', () => {
 
   it('evaluates same-sheet SUM references, ranges, variable arguments, and empty cells', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: { raw: '1' },
-      A2: { raw: '2' },
-      B1: { raw: '  -3.5  ' },
-      B2: { raw: '=SUM(A1:A2, B1, C1)' },
+      A1: '1',
+      A2: '2',
+      B1: '  -3.5  ',
+      B2: '=SUM(A1:A2, B1, C1)',
     });
     const workbook = { version: 1 as const, sheets: [inputs] };
 
@@ -624,18 +570,18 @@ describe('formula evaluator', () => {
     });
   });
 
-  it('evaluates cross-sheet cell and range references by visible sheet name', () => {
+  it('evaluates cross-sheet cell and range references by canonical sheet id', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: { raw: '4' },
-      A2: { raw: '5' },
-      B1: { raw: '6' },
-      B2: { raw: '7' },
+      A1: '4',
+      A2: '5',
+      B1: '6',
+      B2: '7',
     });
     const sales = sheetWithCells('sheet-2', 'Sales Q1', {
-      A1: { raw: '3' },
+      A1: '3',
     });
     const outputs = sheetWithCells('sheet-3', 'Outputs', {
-      A1: { raw: "=SUM(Inputs!A1:B2, 'Sales Q1'!A1)" },
+      A1: '=SUM(sheet-1!A1:B2, sheet-2!A1)',
     });
     const workbook = { version: 1 as const, sheets: [inputs, sales, outputs] };
 
@@ -648,13 +594,10 @@ describe('formula evaluator', () => {
 
   it('evaluates persisted sheet references by uuid after the target is renamed', () => {
     const inputs = sheetWithCells('sheet-1', 'Renamed Inputs', {
-      A1: { raw: '7' },
+      A1: '7',
     });
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
-      A1: {
-        raw: '=SUM(Inputs!A1)',
-        sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
-      },
+      A1: '=SUM(sheet-1!A1)',
     });
     const workbook = { version: 1 as const, sheets: [inputs, outputs] };
 
@@ -667,13 +610,10 @@ describe('formula evaluator', () => {
 
   it('does not rebind persisted references when a deleted target placeholder name is reused', () => {
     const replacementInputs = sheetWithCells('sheet-replacement', '__sheetspace_missing_sheet_deleted', {
-      A1: { raw: '99' },
+      A1: '99',
     });
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
-      A1: {
-        raw: '=SUM(Inputs!A1)',
-        sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-deleted' }],
-      },
+      A1: '=SUM(sheet-deleted!A1)',
     });
     const workbook = { version: 1 as const, sheets: [replacementInputs, outputs] };
 
@@ -686,15 +626,15 @@ describe('formula evaluator', () => {
 
   it('uses strict trimmed decimal and integer semantics for referenced values', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: { raw: '  10 ' },
-      A2: { raw: '-2.25' },
-      A3: { raw: '=SUM(A1:A2)' },
-      B1: { raw: '=SUM(C1)' },
-      B2: { raw: '=SUM(C2)' },
-      B3: { raw: '=SUM(C3)' },
-      C1: { raw: '+1' },
-      C2: { raw: '1.' },
-      C3: { raw: '1e2' },
+      A1: '  10 ',
+      A2: '-2.25',
+      A3: '=SUM(A1:A2)',
+      B1: '=SUM(C1)',
+      B2: '=SUM(C2)',
+      B3: '=SUM(C3)',
+      C1: '+1',
+      C2: '1.',
+      C3: '1e2',
     });
     const workbook = { version: 1 as const, sheets: [inputs] };
 
@@ -707,16 +647,16 @@ describe('formula evaluator', () => {
 
   it('keeps parse, name, ref, and value failures isolated to cell-level results', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: { raw: '=SUM(A1,)' },
-      A2: { raw: '=AVERAGE(B1)' },
-      A3: { raw: '=SUM(Missing!A1)' },
-      A4: { raw: '=SUM(B1)' },
-      A5: { raw: '=SUM(C1)' },
-      A6: { raw: '=SUM(K1)' },
-      A7: { raw: '=SUM(A1:K1)' },
-      A8: { raw: '=SUM(A1:)' },
-      B1: { raw: 'text' },
-      C1: { raw: '8' },
+      A1: '=SUM(A1,)',
+      A2: '=AVERAGE(B1)',
+      A3: '=SUM(Missing!A1)',
+      A4: '=SUM(B1)',
+      A5: '=SUM(C1)',
+      A6: '=SUM(K1)',
+      A7: '=SUM(A1:K1)',
+      A8: '=SUM(A1:)',
+      B1: 'text',
+      C1: '8',
     });
     const workbook = { version: 1 as const, sheets: [inputs] };
 
@@ -733,10 +673,10 @@ describe('formula evaluator', () => {
 
   it('propagates the first referenced formula error in argument and row-major range order', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: { raw: '=SUM(Missing!A1)' },
-      B1: { raw: 'text' },
-      A2: { raw: '=SUM(A1:B1)' },
-      A3: { raw: '=SUM(B1, A1)' },
+      A1: '=SUM(Missing!A1)',
+      B1: 'text',
+      A2: '=SUM(A1:B1)',
+      A3: '=SUM(B1, A1)',
     });
     const workbook = { version: 1 as const, sheets: [inputs] };
 
@@ -747,13 +687,13 @@ describe('formula evaluator', () => {
 
   it('detects direct, indirect, and cross-sheet cycles without replacing raw formulas', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: { raw: '=SUM(A1)' },
-      A2: { raw: '=SUM(A3)' },
-      A3: { raw: '=SUM(A2)' },
-      B1: { raw: '=SUM(Outputs!B1)' },
+      A1: '=SUM(A1)',
+      A2: '=SUM(A3)',
+      A3: '=SUM(A2)',
+      B1: '=SUM(sheet-2!B1)',
     });
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
-      B1: { raw: '=SUM(Inputs!B1)' },
+      B1: '=SUM(sheet-1!B1)',
     });
     const workbook = { version: 1 as const, sheets: [inputs, outputs] };
 
@@ -763,6 +703,6 @@ describe('formula evaluator', () => {
     expect(results['sheet-1'].A3).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-2'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
-    expect(workbook.sheets[0].cells.A1.raw).toBe('=SUM(A1)');
+    expect(workbook.sheets[0].cells.A1).toBe('=SUM(A1)');
   });
 });

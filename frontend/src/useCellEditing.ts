@@ -80,7 +80,7 @@ export function useCellEditing({
     }
 
     const currentCell = currentSheet.cells[editToCommit.cellKey];
-    const currentRaw = currentCell?.raw ?? '';
+    const currentRaw = currentCell ?? '';
     const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook) : currentRaw;
     if (
       currentEditValue !== editToCommit.value ||

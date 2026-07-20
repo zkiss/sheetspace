@@ -37,8 +37,8 @@ class WorkbookRepositoryTest {
                     rowCount = 25,
                     columnCount = 14,
                     cells = mapOf(
-                        "A1" to CellContent("=SUM(B1:B2)\n"),
-                        "B1" to CellContent("4"),
+                        "A1" to "=SUM(B1:B2)\n",
+                        "B1" to "4",
                     ),
                 ),
             ),
@@ -84,33 +84,27 @@ class WorkbookRepositoryTest {
         assertEquals(WorkspacePosition(80.0, 120.0), sheet.position)
         assertEquals(SheetFrameSize(320.0, 220.0), sheet.frameSize)
         assertEquals(4, sheet.zIndex)
-        assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1").raw)
+        assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1"))
         assertFalse(sheet.cells.containsKey("A1_display"))
     }
 
     @Test
-    fun `stores sheet qualified formula references by uuid and hydrates current display names`() {
+    fun `stores canonical formula strings directly and leaves them unchanged after rename`() {
         val dbPath = createDbPath()
         val repo = WorkbookRepository(dbPath)
         repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
         repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
-        repo.updateCell(
-            SHEET_2,
-            "A1",
-            "=SUM(Inputs!A1, 'Inputs'!A2)",
-            sheetReferences = listOf(
-                FormulaSheetReference(5, 11, SHEET_1),
-                FormulaSheetReference(16, 24, SHEET_1),
-            ),
-        )
+        val formula = "=SUM($SHEET_1!A1, $SHEET_1!A2)"
+        repo.updateCell(SHEET_2, "A1", formula)
 
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { conn ->
             conn.createStatement().use { statement ->
                 statement.executeQuery("SELECT cells_json FROM sheets WHERE name = 'Outputs'").use { rs ->
                     assertTrue(rs.next())
                     val cellsJson = rs.getString(1)
-                    assertContains(cellsJson, """"raw":"=SUM(Inputs!A1, 'Inputs'!A2)"""")
-                    assertContains(cellsJson, """"sheetId":"$SHEET_1"""")
+                    assertContains(cellsJson, """"A1":"$formula"""")
+                    assertFalse(cellsJson.contains("raw"))
+                    assertFalse(cellsJson.contains("sheetReferences"))
                 }
             }
         }
@@ -118,73 +112,23 @@ class WorkbookRepositoryTest {
         repo.renameSheet(SHEET_1, "Renamed Inputs")
 
         assertEquals(
-            "=SUM('Renamed Inputs'!A1, 'Renamed Inputs'!A2)",
-            repo.loadWorkbook().sheets.single { it.id == SHEET_2 }.cells.getValue("A1").raw,
+            formula,
+            repo.loadWorkbook().sheets.single { it.id == SHEET_2 }.cells.getValue("A1"),
         )
     }
 
     @Test
-    fun `does not derive formula reference ids from raw sheet names during persistence`() {
-        val dbPath = createDbPath()
-        val repo = WorkbookRepository(dbPath)
-        repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
-        repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
-        repo.updateCell(SHEET_2, "A1", "=SUM(Inputs!A1)")
-
-        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { conn ->
-            conn.createStatement().use { statement ->
-                statement.executeQuery("SELECT cells_json FROM sheets WHERE name = 'Outputs'").use { rs ->
-                    assertTrue(rs.next())
-                    val cellsJson = rs.getString(1)
-                    assertContains(cellsJson, """"raw":"=SUM(Inputs!A1)"""")
-                    assertFalse(cellsJson.contains("sheetId"))
-                }
-            }
-        }
-    }
-
-    @Test
-    fun `keeps missing reference display names while hydrating deleted targets`() {
+    fun `keeps canonical formula ids after target deletion`() {
         val repo = createRepo()
         repo.createSheet(Sheet(id = SHEET_1, name = "Inputs"))
         repo.createSheet(Sheet(id = SHEET_2, name = "Outputs"))
-        repo.updateCell(
-            SHEET_2,
-            "A1",
-            "=SUM(Inputs!A1)",
-            sheetReferences = listOf(FormulaSheetReference(5, 11, SHEET_1)),
-        )
+        repo.updateCell(SHEET_2, "A1", "=SUM($SHEET_1!A1)")
 
         repo.deleteSheet(SHEET_1)
 
         assertEquals(
-            "=SUM(Inputs!A1)",
-            repo.loadWorkbook().sheets.single().cells.getValue("A1").raw,
-        )
-    }
-
-    @Test
-    fun `hydrates quoted punctuation and escaped apostrophe display names after rename`() {
-        val repo = createRepo()
-        repo.createSheet(Sheet(id = SHEET_1, name = "Planned-Revenue (FY26)"))
-        repo.createSheet(Sheet(id = SHEET_2, name = "Owner's Plan"))
-        repo.createSheet(Sheet(id = SHEET_3, name = "Outputs"))
-        repo.updateCell(
-            SHEET_3,
-            "A1",
-            "=SUM('Planned-Revenue (FY26)'!A1, 'Owner''s Plan'!A1)",
-            sheetReferences = listOf(
-                FormulaSheetReference(5, 29, SHEET_1),
-                FormulaSheetReference(34, 49, SHEET_2),
-            ),
-        )
-
-        repo.renameSheet(SHEET_1, "Plan, FY27")
-        repo.renameSheet(SHEET_2, "Director's Plan")
-
-        assertEquals(
-            "=SUM('Plan, FY27'!A1, 'Director''s Plan'!A1)",
-            repo.loadWorkbook().sheets.single { it.id == SHEET_3 }.cells.getValue("A1").raw,
+            "=SUM($SHEET_1!A1)",
+            repo.loadWorkbook().sheets.single().cells.getValue("A1"),
         )
     }
 
@@ -209,11 +153,11 @@ class WorkbookRepositoryTest {
 
         val cells = repo.loadWorkbook().sheets.single { it.id == SHEET_1 }.cells
 
-        assertEquals("=SUM(B1)", cells.getValue("A1").raw)
-        assertEquals("=SUM('Inputs!A1)", cells.getValue("A2").raw)
-        assertEquals("=SUM('Owner's Plan'!A1)", cells.getValue("A3").raw)
-        assertEquals("=SUM(foo)!A1)", cells.getValue("A4").raw)
-        assertEquals("=SUM(foo!bar!A1)", cells.getValue("A5").raw)
+        assertEquals("=SUM(B1)", cells.getValue("A1"))
+        assertEquals("=SUM('Inputs!A1)", cells.getValue("A2"))
+        assertEquals("=SUM('Owner's Plan'!A1)", cells.getValue("A3"))
+        assertEquals("=SUM(foo)!A1)", cells.getValue("A4"))
+        assertEquals("=SUM(foo!bar!A1)", cells.getValue("A5"))
     }
 
     @Test
@@ -244,7 +188,7 @@ class WorkbookRepositoryTest {
         assertEquals(created.revision, conflict.expectedRevision)
         assertEquals(afterFirstSave.sheets.single().revision, conflict.actualRevision)
         val reloaded = repo.loadWorkbook().sheets.single()
-        assertEquals("newer value", reloaded.cells.getValue("A1").raw)
+        assertEquals("newer value", reloaded.cells.getValue("A1"))
         assertEquals(afterFirstSave.sheets.single().revision, reloaded.revision)
     }
 
@@ -264,7 +208,7 @@ class WorkbookRepositoryTest {
         assertEquals(afterFirstSave.sheets.single().revision, conflict.actualRevision)
         val reloaded = repo.loadWorkbook().sheets.single()
         assertEquals(SHEET_1, reloaded.id)
-        assertEquals("newer value", reloaded.cells.getValue("A1").raw)
+        assertEquals("newer value", reloaded.cells.getValue("A1"))
     }
 
     @Test
@@ -317,7 +261,7 @@ class WorkbookRepositoryTest {
 
         assertEquals(listOf("conflict", "saved"), outcomes.sorted())
         val sheet = repo.loadWorkbook().sheets.single()
-        assertTrue(sheet.cells.getValue("A1").raw in setOf("first", "second"))
+        assertTrue(sheet.cells.getValue("A1") in setOf("first", "second"))
         assertEquals(revision + 1, sheet.revision)
     }
 
@@ -485,13 +429,13 @@ class WorkbookRepositoryTest {
     }
 
     @Test
-    fun `display order removal migration preserves saved sheet fields`() {
+    fun `string cell migration explicitly discards existing sheets`() {
         val dbPath = createDbPath()
         val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
         Flyway.configure()
             .dataSource(jdbcUrl, null, null)
             .locations("classpath:db/migration")
-            .target("5")
+            .target("6")
             .load()
             .migrate()
         DriverManager.getConnection(jdbcUrl).use { conn ->
@@ -499,39 +443,15 @@ class WorkbookRepositoryTest {
                 statement.executeUpdate(
                     """
                     INSERT INTO sheets (
-                        id, display_order, name, row_count, column_count, position_x, position_y,
+                        id, name, row_count, column_count, position_x, position_y,
                         cells_json, revision, z_index, frame_width, frame_height
-                    ) VALUES (X'00000000000000000000000000000001', 42, 'Inputs', 25, 14, 12.5, -8.25, '{"cells":{"A1":{"raw":"7"}}}', 3, 9, 360, 240)
+                    ) VALUES (X'00000000000000000000000000000001', 'Inputs', 25, 14, 12.5, -8.25, '{"cells":{"A1":{"raw":"7"}}}', 3, 9, 360, 240)
                     """.trimIndent(),
                 )
             }
         }
 
-        val loaded = WorkbookRepository(dbPath).loadWorkbook().sheets.single()
-
-        assertEquals(SHEET_1, loaded.id)
-        assertEquals("Inputs", loaded.name)
-        assertEquals(25, loaded.rowCount)
-        assertEquals(14, loaded.columnCount)
-        assertEquals(WorkspacePosition(12.5, -8.25), loaded.position)
-        assertEquals(SheetFrameSize(360.0, 240.0), loaded.frameSize)
-        assertEquals(9, loaded.zIndex)
-        assertEquals(3, loaded.revision)
-        assertEquals("7", loaded.cells.getValue("A1").raw)
-
-        DriverManager.getConnection(jdbcUrl).use { conn ->
-            conn.createStatement().use { statement ->
-                statement.executeQuery("PRAGMA table_info(sheets)").use { rs ->
-                    val columns = buildList {
-                        while (rs.next()) {
-                            add(rs.getString("name"))
-                        }
-                    }
-
-                    assertFalse(columns.contains("display_order"))
-                }
-            }
-        }
+        assertEquals(emptyWorkbook(), WorkbookRepository(dbPath).loadWorkbook())
     }
 
     @Test

@@ -7,6 +7,8 @@ References should become first-class entities. A user should be able to understa
 ## Feature Scope
 
 - Support reference forms such as `A1`, `A1:B10`, `SheetName!A1`, `SheetName!A1:B10`, and quoted sheet names.
+- Treat those name-based forms as editor syntax. Canonical workbook and API formula strings use sheet ids as qualifiers so rename never changes reference identity.
+- Derive visible qualifier text from current sheet metadata; do not persist parallel sheet-reference spans or ids outside formula text.
 - Preserve token spans in parsed formulas for UI interactions.
 - Ctrl-click or hotkey jump from a formula reference to the target cell, range, or sheet.
 - Highlight the target after navigation.

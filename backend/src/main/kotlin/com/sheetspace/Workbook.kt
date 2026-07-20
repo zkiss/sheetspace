@@ -31,7 +31,7 @@ data class Sheet(
     val zIndex: Int = 1,
     val columnCount: Int = DEFAULT_COLUMN_COUNT,
     val rowCount: Int = DEFAULT_ROW_COUNT,
-    val cells: Map<String, CellContent> = emptyMap(),
+    val cells: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -44,19 +44,6 @@ data class WorkspacePosition(
 data class SheetFrameSize(
     val width: Double = DEFAULT_SHEET_FRAME_WIDTH,
     val height: Double = DEFAULT_SHEET_FRAME_HEIGHT,
-)
-
-@Serializable
-data class CellContent(
-    val raw: String,
-    val sheetReferences: List<FormulaSheetReference> = emptyList(),
-)
-
-@Serializable
-data class FormulaSheetReference(
-    val startIndex: Int,
-    val endIndex: Int,
-    val sheetId: String,
 )
 
 fun emptyWorkbook(): Workbook = Workbook()

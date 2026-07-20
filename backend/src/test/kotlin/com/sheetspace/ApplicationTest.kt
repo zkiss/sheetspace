@@ -13,6 +13,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.util.UUID
@@ -135,7 +136,7 @@ class ApplicationTest {
 
         val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", initialRevision.toString())
-            jsonBody("""{"raw":"newer value"}""")
+            cellBody("newer value")
         }
         val staleDelete = client.delete("/api/sheets/$sheetId") {
             header("If-Match", initialRevision.toString())
@@ -146,7 +147,7 @@ class ApplicationTest {
         assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleDelete.decodeBody<ErrorResponse>())
         val sheet = client.loadWorkbook().sheets.single()
         assertEquals(sheetId, sheet.id)
-        assertEquals("newer value", sheet.cells.getValue("A1").raw)
+        assertEquals("newer value", sheet.cells.getValue("A1"))
     }
 
     @Test
@@ -159,120 +160,45 @@ class ApplicationTest {
 
         val response = client.put("/api/sheets/$sheetId/cells/A1") {
             revisionHeader(repo, sheetId)
-            jsonBody("""{"raw":"=SUM(B1:B2)"}""")
+            cellBody("=SUM(B1:B2)")
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val sheet = client.loadWorkbook().sheets.single()
-        assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1").raw)
+        assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1"))
         assertFalse(sheet.cells.containsKey("A1_display"))
     }
 
     @Test
-    fun `cell update endpoint persists explicit formula sheet references`() = testApplication {
-        val repo = createRepo()
-        application {
-            module(repo)
-        }
-        val outputsId = client.createSheet().id
-
-        val response = client.put("/api/sheets/$outputsId/cells/A1") {
-            revisionHeader(repo, outputsId)
-            jsonBody(
-                """
-                {
-                  "raw": "=SUM(Inputs!A1)",
-                  "sheetReferences": [{"startIndex":5,"endIndex":11,"sheetId":"missing:pending-inputs"}]
-                }
-                """.trimIndent(),
-            )
-        }
-
-        assertEquals(HttpStatusCode.OK, response.status)
-        val cell = client.loadWorkbook().sheets.single().cells.getValue("A1")
-        assertEquals("=SUM(Inputs!A1)", cell.raw)
-        assertEquals(
-            listOf(FormulaSheetReference(5, 11, "missing:pending-inputs")),
-            cell.sheetReferences,
-        )
-    }
-
-    @Test
-    fun `cell update endpoint rejects invalid formula sheet reference spans`() = testApplication {
+    fun `cell update endpoint rejects obsolete object bodies`() = testApplication {
         val repo = createRepo()
         application {
             module(repo)
         }
         val sheetId = client.createSheet().id
 
-        val response = client.put("/api/sheets/$sheetId/cells/A1") {
+        val rawObject = client.put("/api/sheets/$sheetId/cells/A1") {
+            revisionHeader(repo, sheetId)
+            jsonBody("""{"raw":"value"}""")
+        }
+        val referenceObject = client.put("/api/sheets/$sheetId/cells/A1") {
             revisionHeader(repo, sheetId)
             jsonBody(
                 """
                 {
                   "raw": "=SUM(Inputs!A1)",
-                  "sheetReferences": [{"startIndex":5,"endIndex":99,"sheetId":"missing:pending-inputs"}]
+                  "sheetReferences": []
                 }
                 """.trimIndent(),
             )
         }
 
-        assertEquals(HttpStatusCode.BadRequest, response.status)
-        assertEquals("invalid-sheet-reference-spans", response.decodeBody<ErrorResponse>().error)
+        assertEquals(HttpStatusCode.BadRequest, rawObject.status)
+        assertEquals("invalid-request", rawObject.decodeBody<ErrorResponse>().error)
+        assertEquals(HttpStatusCode.BadRequest, referenceObject.status)
+        assertEquals("invalid-request", referenceObject.decodeBody<ErrorResponse>().error)
         assertTrue(client.loadWorkbook().sheets.single().cells.isEmpty())
     }
-
-    @Test
-    fun `cell update endpoint rejects sheet reference metadata that does not point at a sheet reference`() =
-        testApplication {
-            val repo = createRepo()
-            application {
-                module(repo)
-            }
-            val sheetId = client.createSheet().id
-
-            val response = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(repo, sheetId)
-                jsonBody(
-                    """
-                    {
-                      "raw": "=SUM(Inputs A1)",
-                      "sheetReferences": [{"startIndex":5,"endIndex":11,"sheetId":"missing:pending-inputs"}]
-                    }
-                    """.trimIndent(),
-                )
-            }
-
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            assertEquals("invalid-sheet-reference-spans", response.decodeBody<ErrorResponse>().error)
-            assertTrue(client.loadWorkbook().sheets.single().cells.isEmpty())
-        }
-
-    @Test
-    fun `cell update endpoint rejects sheet reference metadata that starts inside a sheet token`() =
-        testApplication {
-            val repo = createRepo()
-            application {
-                module(repo)
-            }
-            val sheetId = client.createSheet().id
-
-            val response = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(repo, sheetId)
-                jsonBody(
-                    """
-                    {
-                      "raw": "=SUM(XInputs!A1)",
-                      "sheetReferences": [{"startIndex":6,"endIndex":12,"sheetId":"missing:pending-inputs"}]
-                    }
-                    """.trimIndent(),
-                )
-            }
-
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            assertEquals("invalid-sheet-reference-spans", response.decodeBody<ErrorResponse>().error)
-            assertTrue(client.loadWorkbook().sheets.single().cells.isEmpty())
-        }
 
     @Test
     fun `stale sheet revision mutation returns conflict without overwriting newer content`() = testApplication {
@@ -285,18 +211,18 @@ class ApplicationTest {
 
         val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", initialRevision.toString())
-            jsonBody("""{"raw":"newer value"}""")
+            cellBody("newer value")
         }
         val staleUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", initialRevision.toString())
-            jsonBody("""{"raw":"stale value"}""")
+            cellBody("stale value")
         }
 
         assertEquals(HttpStatusCode.OK, firstUpdate.status)
         assertEquals(HttpStatusCode.Conflict, staleUpdate.status)
         assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleUpdate.decodeBody<ErrorResponse>())
         val sheet = client.loadWorkbook().sheets.single()
-        assertEquals("newer value", sheet.cells.getValue("A1").raw)
+        assertEquals("newer value", sheet.cells.getValue("A1"))
         assertTrue(sheet.revision > initialRevision)
     }
 
@@ -413,7 +339,7 @@ class ApplicationTest {
         }
         val cellResponse = client.put("/api/sheets/$sheetId/cells/A1") {
             revisionHeader(repo, sheetId)
-            jsonBody("""{"raw":"value"}""")
+            cellBody("value")
         }
         val rowResponse = client.post("/api/sheets/$sheetId/rows") {
             revisionHeader(repo, sheetId)
@@ -476,30 +402,23 @@ class ApplicationTest {
         }
         val updateTextCell = client.put("/api/sheets/$inputsId/cells/A1") {
             revisionHeader(repo, inputsId)
-            jsonBody("""{"raw":"Region"}""")
+            cellBody("Region")
         }
         val updateNumericCell = client.put("/api/sheets/$inputsId/cells/B1") {
             revisionHeader(repo, inputsId)
-            jsonBody("""{"raw":"10"}""")
+            cellBody("10")
         }
         val updateSecondNumericCell = client.put("/api/sheets/$inputsId/cells/B2") {
             revisionHeader(repo, inputsId)
-            jsonBody("""{"raw":"5"}""")
+            cellBody("5")
         }
         val updateFormulaCell = client.put("/api/sheets/$inputsId/cells/C1") {
             revisionHeader(repo, inputsId)
-            jsonBody("""{"raw":"= \n SuM ( B1 , B2 )"}""")
+            cellBody("= \n SuM ( B1 , B2 )")
         }
         val updateCrossSheetFormulaCell = client.put("/api/sheets/$outputsId/cells/A1") {
             revisionHeader(repo, outputsId)
-            jsonBody(
-                """
-                {
-                  "raw": "=SUM(Renamed Inputs!B1:B2)",
-                  "sheetReferences": [{"startIndex":5,"endIndex":19,"sheetId":"$inputsId"}]
-                }
-                """.trimIndent(),
-            )
+            cellBody("=SUM($inputsId!B1:B2)")
         }
 
         assertEquals(HttpStatusCode.Created, createInputs.status)
@@ -522,12 +441,12 @@ class ApplicationTest {
         assertEquals(SheetFrameSize(320.0, 220.0), inputs.frameSize)
         assertEquals(DEFAULT_ROW_COUNT + 1, inputs.rowCount)
         assertEquals(DEFAULT_COLUMN_COUNT + 1, inputs.columnCount)
-        assertEquals("Region", inputs.cells.getValue("A1").raw)
-        assertEquals("10", inputs.cells.getValue("B1").raw)
-        assertEquals("5", inputs.cells.getValue("B2").raw)
-        assertEquals("= \n SuM ( B1 , B2 )", inputs.cells.getValue("C1").raw)
+        assertEquals("Region", inputs.cells.getValue("A1"))
+        assertEquals("10", inputs.cells.getValue("B1"))
+        assertEquals("5", inputs.cells.getValue("B2"))
+        assertEquals("= \n SuM ( B1 , B2 )", inputs.cells.getValue("C1"))
         assertEquals(WorkspacePosition(420.0, 260.0), outputs.position)
-        assertEquals("=SUM(Renamed Inputs!B1:B2)", outputs.cells.getValue("A1").raw)
+        assertEquals("=SUM($inputsId!B1:B2)", outputs.cells.getValue("A1"))
         assertFalse(inputs.cells.containsKey("C1_display"))
         assertFalse(outputs.cells.containsKey("A1_display"))
     }
@@ -546,7 +465,7 @@ class ApplicationTest {
         }
         val invalidCell = client.put("/api/sheets/${sheet.id}/cells/Z999") {
             revisionHeader(repo, sheet.id)
-            jsonBody("""{"raw":"outside grid"}""")
+            cellBody("outside grid")
         }
         val invalidFrameSize = client.patch("/api/sheets/${sheet.id}") {
             revisionHeader(repo, sheet.id)
@@ -570,12 +489,12 @@ class ApplicationTest {
         val sheetId = client.createSheet().id
 
         val missingRevision = client.put("/api/sheets/$sheetId/cells/A1") {
-            jsonBody("""{"raw":"value"}""")
+            cellBody("value")
         }
         val missingDeleteRevision = client.delete("/api/sheets/$sheetId")
         val invalidRevision = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", "not-a-revision")
-            jsonBody("""{"raw":"value"}""")
+            cellBody("value")
         }
 
         assertEquals(HttpStatusCode.BadRequest, missingRevision.status)
@@ -597,7 +516,7 @@ class ApplicationTest {
         val initialRevision = client.loadWorkbook().sheets.single().revision
         val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
             header("If-Match", initialRevision.toString())
-            jsonBody("""{"raw":"newer value"}""")
+            cellBody("newer value")
         }
 
         val invalidRename = client.patch("/api/sheets/$sheetId") {
@@ -681,5 +600,9 @@ class ApplicationTest {
     private fun io.ktor.client.request.HttpRequestBuilder.jsonBody(body: String) {
         contentType(ContentType.Application.Json)
         setBody(body)
+    }
+
+    private fun io.ktor.client.request.HttpRequestBuilder.cellBody(content: String) {
+        jsonBody(json.encodeToString(content))
     }
 }

@@ -15,7 +15,7 @@ const workbook: Workbook = {
       columnCount: 10,
       rowCount: 20,
       cells: {
-        A1: { raw: '42' },
+        A1: '42',
       },
     },
   ],
@@ -149,7 +149,7 @@ describe('workbookApi', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet%201/cells/A1', {
       method: 'PUT',
-      body: JSON.stringify({ raw: '=SUM(B1:B2)' }),
+      body: JSON.stringify('=SUM(B1:B2)'),
       headers: { 'Content-Type': 'application/json' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet%201/rows', {
@@ -170,7 +170,7 @@ describe('workbookApi', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet-1/cells/A1', {
       method: 'PUT',
-      body: JSON.stringify({ raw: 'Value' }),
+      body: JSON.stringify('Value'),
       headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet-1/rows', {
@@ -179,20 +179,14 @@ describe('workbookApi', () => {
     });
   });
 
-  it('sends formula sheet reference metadata for cell updates when provided', async () => {
+  it('sends canonical formula strings without reference metadata', async () => {
     const fetchMock = mockFetch({ sheetId: 'sheet-2', revision: 1 });
 
-    await workbookApi.updateCellContent('sheet-2', 'A1', '=SUM(Inputs!A1)', {
-      revision: 7,
-      sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
-    });
+    await workbookApi.updateCellContent('sheet-2', 'A1', '=SUM(sheet-1!A1)', { revision: 7 });
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet-2/cells/A1', {
       method: 'PUT',
-      body: JSON.stringify({
-        raw: '=SUM(Inputs!A1)',
-        sheetReferences: [{ startIndex: 5, endIndex: 11, sheetId: 'sheet-1' }],
-      }),
+      body: JSON.stringify('=SUM(sheet-1!A1)'),
       headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
     });
   });

@@ -280,7 +280,7 @@ describe('App sheet management integration', () => {
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
-        A1: { raw: '=SUM(Old Name!A1)' },
+        A1: '=SUM(#REF!A1)',
       },
     };
 
@@ -302,7 +302,7 @@ describe('App sheet management integration', () => {
     expect(formulaCell).toHaveTextContent('#REF!');
 
     const editor = await openCellEditor(user, formulaCell);
-    expect(editor).toHaveValue('=SUM(Old Name!A1)');
+    expect(editor).toHaveValue('=SUM(#REF!A1)');
     await user.keyboard('{Escape}');
 
     expect(screen.queryByRole('heading', { name: 'Inputs' })).not.toBeInTheDocument();

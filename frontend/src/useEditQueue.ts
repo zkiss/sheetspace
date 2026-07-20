@@ -8,7 +8,12 @@ import {
   type WorkbookApi,
 } from './workbookApi';
 import type { SaveStatus } from './appTypes';
-import type { FormulaSheetReference, Sheet, Workbook } from './workbook';
+import {
+  formulaSheetReferenceIds,
+  remapFormulaSheetIds,
+  type Sheet,
+  type Workbook,
+} from './workbook';
 
 type SaveResult = Workbook | Sheet | SheetRevisionResponse | RowAppendResponse | ColumnAppendResponse | void;
 type SheetCreateResult = Sheet | Workbook;
@@ -45,10 +50,6 @@ class PendingSheetCreateFailedError extends Error {
     super('Pending sheet creation failed.');
     this.name = 'PendingSheetCreateFailedError';
   }
-}
-
-function brokenPendingSheetReferenceId(pendingSheetId: string): string {
-  return `missing:${pendingSheetId}`;
 }
 
 export function useEditQueue({
@@ -445,31 +446,33 @@ export function useEditQueue({
     [],
   );
 
-  const resolveFormulaSheetReferences = useCallback(async (references: FormulaSheetReference[]) => {
-    return Promise.all(
-      references.map(async (reference) => {
-        const savedSheetId = sheetIdAliases.current.get(reference.sheetId);
-        if (savedSheetId) {
-          return { ...reference, sheetId: savedSheetId };
-        }
-
-        const pendingCreate = pendingSheetCreates.current.get(reference.sheetId);
-        if (!pendingCreate) {
-          return reference.sheetId.startsWith('pending:')
-            ? { ...reference, sheetId: brokenPendingSheetReferenceId(reference.sheetId) }
-            : reference;
-        }
-
-        try {
-          return { ...reference, sheetId: await pendingCreate.promise };
-        } catch (cause: unknown) {
-          if (cause instanceof PendingSheetDeletedError || cause instanceof PendingSheetCreateFailedError) {
-            return { ...reference, sheetId: brokenPendingSheetReferenceId(reference.sheetId) };
+  const resolveFormulaRawForSave = useCallback(async (raw: string) => {
+    const sheetIds = [...new Set(formulaSheetReferenceIds(raw))];
+    const remaps = new Map(
+      await Promise.all(
+        sheetIds.map(async (sheetId) => {
+          const savedSheetId = sheetIdAliases.current.get(sheetId);
+          if (savedSheetId) {
+            return [sheetId, savedSheetId] as const;
           }
-          throw cause;
-        }
-      }),
+
+          const pendingCreate = pendingSheetCreates.current.get(sheetId);
+          if (!pendingCreate) {
+            return [sheetId, sheetId.startsWith('pending:') ? '#REF' : sheetId] as const;
+          }
+
+          try {
+            return [sheetId, await pendingCreate.promise] as const;
+          } catch (cause: unknown) {
+            if (cause instanceof PendingSheetDeletedError || cause instanceof PendingSheetCreateFailedError) {
+              return [sheetId, '#REF'] as const;
+            }
+            throw cause;
+          }
+        }),
+      ),
     );
+    return remapFormulaSheetIds(raw, remaps);
   }, []);
 
   const currentSheetRevision = useCallback(
@@ -541,7 +544,7 @@ export function useEditQueue({
     registerPendingSheet,
     resolveSheetId,
     runForSavedSheet,
-    resolveFormulaSheetReferences,
+    resolveFormulaRawForSave,
     runRevisionedEdit,
     saveStatus,
     sheetIdRemaps,
