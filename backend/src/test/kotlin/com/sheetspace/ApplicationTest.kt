@@ -170,6 +170,28 @@ class ApplicationTest {
     }
 
     @Test
+    fun `cell update endpoint deletes stored content when given an empty string`() = testApplication {
+        val repo = createRepo()
+        application {
+            module(repo)
+        }
+        val sheetId = client.createSheet().id
+
+        val storeResponse = client.put("/api/sheets/$sheetId/cells/A1") {
+            revisionHeader(repo, sheetId)
+            cellBody("value")
+        }
+        val clearResponse = client.put("/api/sheets/$sheetId/cells/A1") {
+            revisionHeader(repo, sheetId)
+            cellBody("")
+        }
+
+        assertEquals(HttpStatusCode.OK, storeResponse.status)
+        assertEquals(HttpStatusCode.OK, clearResponse.status)
+        assertFalse(client.loadWorkbook().sheets.single().cells.containsKey("A1"))
+    }
+
+    @Test
     fun `cell update endpoint rejects obsolete object bodies`() = testApplication {
         val repo = createRepo()
         application {

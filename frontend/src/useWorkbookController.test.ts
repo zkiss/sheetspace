@@ -437,6 +437,49 @@ describe('useWorkbookController', () => {
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedInputs.id, { revision: 0 }));
   });
 
+  it('saves formulas that reference a failed pending sheet as broken references', async () => {
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 0, y: 0 });
+    let rejectCreate!: (cause: unknown) => void;
+    const createSheetSave = new Promise<Workbook>((_, reject) => {
+      rejectCreate = reject;
+    });
+    const apiClient = autosaveClient({
+      createSheet: vi.fn().mockReturnValue(createSheetSave),
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([outputs]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
+    });
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
+    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    act(() => {
+      result.current.commands.updateCellContent('sheet-outputs', 'A1', '=SUM(Inputs!A1)');
+    });
+
+    expect(result.current.workbook.sheets[0].cells.A1).toBe(`=SUM(${pendingInputsId}!A1)`);
+    expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rejectCreate(new Error('backend unavailable'));
+      await createSheetSave.catch(() => undefined);
+    });
+
+    await waitFor(() =>
+      expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-outputs', 'A1', '=SUM(#REF!A1)', {
+        revision: 0,
+      }),
+    );
+    expect(result.current.workbook.sheets).toHaveLength(1);
+    expect(result.current.workbook.sheets[0].cells.A1).toBe('=SUM(#REF!A1)');
+    expect(result.current.formulaResults['sheet-outputs'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
+  });
+
   it('preserves pending frame layout changes while saving them with the backend id', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
     let resolveCreate!: (workbook: Workbook) => void;
