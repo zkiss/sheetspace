@@ -7,7 +7,7 @@ User data should be durable. Persistence should save and reload Sheetspace's int
 ## Feature Scope
 
 - Save and reload a workspace.
-- Preserve sheet names, ids, cells, row metadata, column metadata, frame positions, frame sizes, and viewport state.
+- Preserve sheet names, ids, cells, row metadata, column metadata, frame positions, frame sizes, per-sheet visual scales, and viewport state.
 - Persist cells as address-to-string maps. Cross-sheet formula strings embed canonical sheet ids directly.
 - Version saved data for migrations.
 - Keep persistence focused on durable application state.

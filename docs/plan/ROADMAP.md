@@ -13,7 +13,7 @@ The sequence is directional rather than date-based. Product learning may reshape
 | [Technical skeleton](tech-skeleton.task.md) | Establish the Makefile-driven frontend, backend, database, and test foundation. |
 | [MVP](mvp.task.md) | Prove the spatial spreadsheet loop with movable sheets, cell editing, `SUM`, references, and persistence. |
 | [Phase 2](phase2.task.md) | Make calculations practical and add the first reference-navigation workflow. |
-| [Phase 3](phase3.task.md) | Make grid editing fast and familiar enough for sustained spreadsheet work. |
+| [Phase 3](phase3.task.md) | Make grid editing fluent and establish wide-range canvas navigation and multi-scale sheet composition. |
 | [Phase 4](phase4.task.md) | Make structural changes and range extraction safe and understandable. |
 | [Phase 5](phase5.task.md) | Make formulas and spatial data flow inspectable and navigable like code. |
 | [Phase 6](phase6.task.md) | Let users organize large workspaces and explain their models in place. |
@@ -55,4 +55,3 @@ Completing Phase 10 represents the current full-vision product shape, not an end
 
 - [PROJECT_VISION.md](PROJECT_VISION.md)
 - [features/README.md](features/README.md)
-

@@ -25,7 +25,8 @@ Phase 5 makes calculation paths inspectable. Phase 6 adds the human context arou
 
 ### Groups, layers, and sectors
 
-- Group related sheets independently of their formula relationships.
+- Group related sheets independently of their formula relationships and move all sheets in an explicitly selected group by a shared workspace delta.
+- Represent groups as flat membership over independently positioned sheets.
 - Show, hide, filter, and navigate groups.
 - Let users define meaningful named sectors of workspace space and navigate to them.
 - Add layers only as an explicit visibility or presentation mechanism with clear ordering semantics; do not create a second ambiguous grouping system.
@@ -37,6 +38,7 @@ Phase 5 makes calculation paths inspectable. Phase 6 adds the human context arou
 - Users can explain assumptions and review notes without altering formulas or values.
 - Comments stay attached to the intended content through supported editing and structural operations.
 - A large workspace can be divided into named, navigable areas and filtered sets of sheets.
+- Related sheets can be moved together through an explicit flat group while retaining absolute per-sheet coordinates, independent scales, and flat overlap semantics.
 - Hidden or collapsed sources remain safe: formulas keep their identity, and navigation clearly offers to reveal a target when needed.
 - Workspace organization and annotations survive reload and portable JSON round trips once Phase 7 is complete.
 
@@ -53,4 +55,3 @@ Phase 5 makes calculation paths inspectable. Phase 6 adds the human context arou
 - [features/grouping-and-organization.md](features/grouping-and-organization.md)
 - [features/sheet-frames.md](features/sheet-frames.md)
 - [features/workspace.md](features/workspace.md)
-

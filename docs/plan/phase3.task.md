@@ -2,9 +2,9 @@
 
 ## Goal
 
-Make Sheetspace efficient for sustained, familiar spreadsheet work instead of requiring cell-at-a-time interaction.
+Make Sheetspace efficient for sustained, familiar spreadsheet work while making its spatial canvas fluid across radically different scales.
 
-Phase 2 makes small models calculable and introduces reference navigation. Phase 3 improves the everyday editing loop: users can select and manipulate ranges, work primarily from the keyboard, repeat formulas, recover from mistakes, and control the visible grid without losing the spatial context.
+Phase 2 makes small models calculable and introduces reference navigation. Phase 3 improves the everyday editing loop: users can select and manipulate ranges, work primarily from the keyboard, repeat formulas, recover from mistakes, and compose sheets at miniature or large visual scales while preserving spatial context.
 
 ## Included Scope
 
@@ -30,12 +30,23 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 - Preserve correct formula results, selection, and persistence after undo or redo.
 - Define transaction boundaries so a paste or fill action is undone as one action.
 
+### Canvas navigation and multi-scale composition
+
+- Make workspace movement infinite-feeling so users can continue panning and placing sheets at any practical finite coordinate.
+- Support smooth multiplicative viewport zoom across a wide practical range, preserving the workspace point under the pointer or gesture center.
+- Adopt Figma-style navigation: wheel or two-finger scrolling pans empty canvas, pinch or Ctrl/Cmd-wheel zooms at the pointer, and Space-drag or middle-drag pans from anywhere. Preserve ordinary scrolling inside sheet grids.
+- Add persistent uniform visual scale as presentation state stored separately from cells, formulas, grid dimensions, and logical frame size.
+- Create sheets at the inverse of the active viewport scale, clamped to the supported range, so a sheet created while deeply zoomed in appears at a usable screen size and becomes miniature after zooming out.
+- Add a distinct scale handle and numeric percentage control. Keep these controls usable at miniature scales and keep frame resizing a separate operation.
+- Support free composition through independently positioned sheets, visual scale, overlap, and z-order.
+
 ### Sizing, formatting, and zoom behavior
 
 - Resize sheet frames from their edges or corners and persist frame size.
 - Resize row heights and column widths and persist their metadata.
 - Add a focused initial set of value and presentation formatting.
-- Disable detailed cell editing when a sheet is too small to read at the current zoom, while keeping navigation and sheet selection available.
+- Use a lightweight overview presentation when combined viewport-and-sheet scale makes cell editing illegible, while keeping navigation and sheet selection available.
+- Restore detailed editing automatically when the sheet becomes legible again.
 - Respect reduced-motion preferences in selection and focus transitions.
 
 ## Completion Signal
@@ -44,13 +55,17 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 - Range copy, paste, clear, move, and fill preserve raw formulas and produce correct recalculation.
 - Undo and redo reliably reverse and restore compound grid actions.
 - Sheet, row, and column sizing plus supported formatting survive reload.
-- Zoomed-out sheets remain understandable without exposing unusable editing controls.
+- A user can smoothly traverse a wide-range canvas, create a sheet at deep zoom, and later see it as a miniature part of a larger visual composition.
+- Per-sheet visual scale survives reload as its own part of frame layout.
+- Zoomed-out or individually miniaturized sheets present a clear overview suited to their current scale.
 
 ## Deferred To Later Phases
 
 - Row and column insertion, deletion, reordering, custom names, and extraction are Phase 4.
 - Rich formula editing and deeper reference visualization are Phase 5.
-- Comments, groups, layers, and frame hiding are Phase 6.
+- Comments, layers, and frame hiding are Phase 6.
+- Phase 6 adds flat groups for moving selected sheets as a unit.
+- Active viewport and navigation-history persistence are Phase 5; Phase 3 persists per-sheet visual scale with frame layout.
 - Import/export and report-oriented formatting are later phases.
 
 ## References

@@ -18,7 +18,7 @@ Earlier phases make the internal workspace useful and durable in its database. P
 ### Sheetspace JSON
 
 - Export and import the full supported workspace state as a versioned Sheetspace JSON format.
-- Preserve sheet ids, canonical formulas, grid structure, metadata, frame layout, viewport, annotations, and organization state.
+- Preserve sheet ids, canonical formulas, grid structure, metadata, frame position, frame size, per-sheet visual scale, viewport, annotations, and organization state.
 - Validate an import before replacing current state and report incompatible or malformed content.
 - Define identity-remapping behavior when imported content is added to an existing workspace.
 
@@ -54,4 +54,3 @@ Earlier phases make the internal workspace useful and durable in its database. P
 - [features/persistence.md](features/persistence.md)
 - [features/import-export.md](features/import-export.md)
 - [features/formulas.md](features/formulas.md)
-

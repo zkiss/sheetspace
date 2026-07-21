@@ -2,7 +2,7 @@
 
 ## Product Summary
 
-Sheetspace is a spatial spreadsheet workspace. It combines familiar spreadsheet editing with a zoomable 2D canvas, then adds IDE-like tools for understanding formulas, references, and data flow.
+Sheetspace is a spatial spreadsheet workspace. It combines familiar spreadsheet editing with an infinite-feeling, zoomable 2D canvas, then adds IDE-like tools for understanding formulas, references, and data flow.
 
 The core product idea is that a workbook should not be limited to a stack of hidden tabs. A user should be able to place multiple sheets freely in space, arrange source data, assumptions, calculations, reports, and experiments visually, then inspect how those sheets relate to each other.
 
@@ -55,12 +55,15 @@ Secondary users:
 6. The internal model should serve the product.
    Sheetspace can store whatever structure it needs to support spatial layout, formulas, references, navigation, and refactoring. Import and export formats are separate product capabilities, not constraints on the core model.
 
+7. Scale should be part of spatial composition.
+   Users should be able to work across radically different canvas scales and give each sheet its own visual scale. This makes it possible to compose multiple levels of detail in one workspace, including complete sheets presented as miniature elements within larger layouts.
+
 ## Long-Term Product Shape
 
 The full product is made from focused feature areas, each tracked in its own brief under [features/](features/README.md):
 
-- A pan-and-zoom 2D workspace for arranging sheets.
-- Movable sheet frames that hold tabular worksheets.
+- An infinite-feeling 2D workspace with fluid, wide-range pan and zoom for arranging sheets.
+- Movable, resizable, and independently scalable sheet frames that hold tabular worksheets.
 - Spreadsheet grid editing with selection, editing, headers, copy/paste, and structural operations.
 - A formula engine with parsing, evaluation, errors, dependency tracking, and a deliberately grown function set.
 - Reference inspection and IDE-style navigation across cells, ranges, and sheets.
@@ -77,6 +80,7 @@ The feature briefs are the detailed source of feature direction. This document s
 
 - A user can create or use several sheets, arrange and order them spatially, and edit values.
 - A user can zoom out to understand the workspace and zoom in to work on a sheet.
+- A user can compose full sheets at very different visual scales, from miniature overviews to large working surfaces, while each sheet retains its spreadsheet structure.
 - Formulas work reliably within the supported product scope.
 - A user can inspect where a formula gets its data from without manually searching.
 - Cross-sheet references are understandable through hover, highlighting, and navigation.

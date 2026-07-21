@@ -28,7 +28,7 @@ Phase 2 establishes the first reference jump. Phase 5 completes the understandin
 - Draw colored reference lines between a selected formula and its source cells or ranges in workspace coordinates.
 - Let users show lines on selection or on demand without forcing an always-on visual mode.
 - Allow a user to select a reference line and navigate to its source.
-- Keep lines correct while sheets move, resize, overlap, hide, or change zoom.
+- Keep lines correct while sheets move, resize, overlap, hide, change individual visual scale, or change viewport zoom.
 
 ### Navigation tools and history
 
@@ -60,4 +60,3 @@ Phase 2 establishes the first reference jump. Phase 5 completes the understandin
 - [features/references-and-navigation.md](features/references-and-navigation.md)
 - [features/workspace.md](features/workspace.md)
 - [features/interaction-polish.md](features/interaction-polish.md)
-
