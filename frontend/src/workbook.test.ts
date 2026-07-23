@@ -499,6 +499,21 @@ describe('formula parser', () => {
     });
   });
 
+  it('parses zero-argument SUM as an empty call', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('=sUm()', workbook, inputs)).toEqual({
+      kind: 'formula',
+      raw: '=sUm()',
+      expression: {
+        kind: 'sum',
+        functionName: 'SUM',
+        arguments: [],
+        sourceSpan: { start: 1, end: 6 },
+      },
+    });
+  });
+
   it.each([
     '=.',
     '=1e',
@@ -509,6 +524,8 @@ describe('formula parser', () => {
     '=()',
     '=(A1, B1)',
     '="x" trailing',
+    '=SUM(K1',
+    '=SUM(Missing!A1',
   ])('reports malformed literal or grouping %s as #PARSE!', (raw) => {
     const { workbook, inputs } = formulaWorkbook();
 
@@ -665,13 +682,23 @@ describe('formula parser', () => {
   it('reports malformed unknown function calls as #PARSE! before name resolution', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    for (const raw of ['=AVERAGE((A1)', '=NOPE("unterminated)']) {
+    for (const raw of ['=AVERAGE((A1)', '=NOPE("unterminated)', '=NOPE(Missing!A1']) {
       expect(parseFormula(raw, workbook, inputs)).toEqual({
         kind: 'error',
         raw,
         error: '#PARSE!',
       });
     }
+    expect(parseFormula('=NOPE(K1)', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=NOPE(K1)',
+      error: '#NAME!',
+    });
+    expect(parseFormula('=SUM(NOPE())', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=SUM(NOPE())',
+      error: '#NAME!',
+    });
   });
 
   it('reports invalid syntax as #PARSE!', () => {
@@ -754,6 +781,7 @@ describe('formula evaluator', () => {
       A2: '2',
       B1: '  -3.5  ',
       B2: '=SUM(A1:A2, B1, C1)',
+      B3: '=SUM()',
     });
     const workbook = { version: 1 as const, sheets: [inputs] };
 
@@ -761,6 +789,11 @@ describe('formula evaluator', () => {
       kind: 'number',
       value: -0.5,
       display: '-0.5',
+    });
+    expect(evaluateFormulaCells(workbook)['sheet-1'].B3).toEqual({
+      kind: 'number',
+      value: 0,
+      display: '0',
     });
   });
 

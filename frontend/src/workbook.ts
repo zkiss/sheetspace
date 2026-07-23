@@ -996,6 +996,7 @@ function splitSheetReference(
 
 class FormulaParser {
   private index = 0;
+  private deferredNameError = false;
 
   constructor(
     private readonly input: string,
@@ -1007,12 +1008,24 @@ class FormulaParser {
     this.skipWhitespace();
     const expression = this.readExpression();
     if (!expression.ok) {
+      if (expression.error === '#NAME!') {
+        this.skipWhitespace();
+        if (!this.isAtEnd()) {
+          return { kind: 'error', raw, error: '#PARSE!' };
+        }
+      }
       return { kind: 'error', raw, error: expression.error };
     }
 
     this.skipWhitespace();
     if (!this.isAtEnd()) {
       return { kind: 'error', raw, error: '#PARSE!' };
+    }
+    if (this.deferredNameError) {
+      return { kind: 'error', raw, error: '#NAME!' };
+    }
+    if (!this.referencesAreValid(expression.value)) {
+      return { kind: 'error', raw, error: '#REF!' };
     }
 
     return {
@@ -1022,12 +1035,14 @@ class FormulaParser {
     };
   }
 
-  private readExpression(): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
+  private readExpression(
+    validateSemantics = true,
+  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
     this.skipWhitespace();
     const startIndex = this.index;
 
     if (this.consume('(')) {
-      const expression = this.readExpression();
+      const expression = this.readExpression(validateSemantics);
       if (!expression.ok) {
         return expression;
       }
@@ -1075,7 +1090,7 @@ class FormulaParser {
 
       this.skipWhitespace();
       if (this.peek() === '(') {
-        return this.readFunctionCall(identifier, identifierStart);
+        return this.readFunctionCall(identifier, identifierStart, validateSemantics);
       }
       this.index = identifierStart;
     }
@@ -1086,6 +1101,7 @@ class FormulaParser {
   private readFunctionCall(
     functionName: string,
     startIndex: number,
+    validateSemantics: boolean,
   ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
     if (!this.consume('(')) {
       return { ok: false, error: '#PARSE!' };
@@ -1094,12 +1110,27 @@ class FormulaParser {
 
     this.skipWhitespace();
     if (this.peek() === ')') {
-      return { ok: false, error: '#PARSE!' };
+      this.index += 1;
+      if (validateSemantics && !isSum) {
+        return { ok: false, error: '#NAME!' };
+      }
+      if (!isSum) {
+        this.deferredNameError = true;
+      }
+      return {
+        ok: true,
+        value: {
+          kind: 'sum',
+          functionName: 'SUM',
+          arguments: [],
+          sourceSpan: this.sourceSpan(startIndex),
+        },
+      };
     }
 
     const args: FormulaExpression[] = [];
     while (true) {
-      const arg = this.readExpression();
+      const arg = this.readExpression(false);
       if (!arg.ok) {
         return arg;
       }
@@ -1119,8 +1150,11 @@ class FormulaParser {
       break;
     }
 
-    if (!isSum) {
+    if (validateSemantics && !isSum) {
       return { ok: false, error: '#NAME!' };
+    }
+    if (!isSum) {
+      this.deferredNameError = true;
     }
 
     return {
@@ -1190,18 +1224,14 @@ class FormulaParser {
       return { ok: false, error: '#PARSE!' };
     }
 
-    const sheet = resolveFormulaReferenceSheet(sheetReference, this.workbook, this.defaultSheet);
-    if (!sheet.ok) {
-      return { ok: false, error: '#REF!' };
-    }
-
     const startAddressToken = this.readA1AddressToken();
     if (!startAddressToken) {
       return { ok: false, error: '#PARSE!' };
     }
     const startAddressEndIndex = this.index;
 
-    const startAddress = parseA1Address(startAddressToken, sheet.value);
+    const syntaxBounds = { columnCount: Number.MAX_SAFE_INTEGER, rowCount: Number.MAX_SAFE_INTEGER };
+    const startAddress = parseA1Address(startAddressToken, syntaxBounds);
     if (!startAddress.ok) {
       return { ok: false, error: startAddress.reason === 'out-of-bounds' ? '#REF!' : '#PARSE!' };
     }
@@ -1227,7 +1257,7 @@ class FormulaParser {
     }
     const endAddressEndIndex = this.index;
 
-    const endAddress = parseA1Address(endAddressToken, sheet.value);
+    const endAddress = parseA1Address(endAddressToken, syntaxBounds);
     if (!endAddress.ok) {
       return { ok: false, error: endAddress.reason === 'out-of-bounds' ? '#REF!' : '#PARSE!' };
     }
@@ -1354,6 +1384,30 @@ class FormulaParser {
 
   private isIdentifierContinuation(char: string): boolean {
     return char.length > 0 && /[A-Za-z0-9_]/.test(char);
+  }
+
+  private referencesAreValid(expression: FormulaExpression): boolean {
+    if (expression.kind === 'number' || expression.kind === 'text' || expression.kind === 'boolean') {
+      return true;
+    }
+    if (expression.kind === 'group') {
+      return this.referencesAreValid(expression.expression);
+    }
+    if (expression.kind === 'sum') {
+      return expression.arguments.every((argument) => this.referencesAreValid(argument));
+    }
+
+    const sheet = resolveFormulaReferenceSheet(expression, this.workbook, this.defaultSheet);
+    if (!sheet.ok) {
+      return false;
+    }
+    if (expression.kind === 'cell') {
+      return isAddressWithinBounds(expression.address, sheet.value);
+    }
+    return (
+      isAddressWithinBounds(expression.range.start, sheet.value)
+      && isAddressWithinBounds(expression.range.end, sheet.value)
+    );
   }
 
   private sourceSpan(startIndex: number): FormulaSourceSpan {
