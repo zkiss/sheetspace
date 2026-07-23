@@ -121,6 +121,8 @@ Examples:
 | `=COUNT(1, "1", TRUE)` | `1` |
 | `=COUNTA(A1:A3)` with blank, `""`, and `FALSE` | `2` |
 | `=IF(FALSE, 1/0, "safe")` | `safe` |
+| `=IF(FALSE, ABS(1, 2), 0)` | `0`; the invalid unselected call is not visited. |
+| `=IF(FALSE, UNKNOWN(), 0)` | `0`; the unknown unselected call is not visited. |
 | `=AND(TRUE, A1:A2)` with blank then `FALSE` | `FALSE` |
 | `=SQRT(-1)` | `#VALUE!` |
 
@@ -169,7 +171,7 @@ Phase 2 errors are values:
 | `#CYCLE!` | Cell belongs to, or depends on, a reference cycle. |
 | `#N/A` | Reserved for later functions; no Phase 2 operation creates it. |
 
-Invalid syntax produces `#PARSE!` before value evaluation. For a valid AST, unknown function validation produces `#NAME!`, then arity, required scalar/collection form, and conditional-range shape validation produce `#VALUE!`, all before argument values are evaluated. Thus `ABS(1/0, 2)` and a shape-invalid `SUMIF` return `#VALUE!` without evaluating their arguments. This structural pass does not resolve reference targets or evaluate values in a lazy branch.
+Invalid syntax produces `#PARSE!` before value evaluation. Other validation is node-local: only when evaluation visits a function-call node does it validate the function name, then its arity, required scalar/collection form, and conditional-range shape, before evaluating that node's argument values. An unknown visited function produces `#NAME!`; other structural failures produce `#VALUE!`. Thus `ABS(1/0, 2)` and a shape-invalid `SUMIF` return `#VALUE!` without evaluating their arguments, while an invalid or unknown function in an unselected `IF` branch produces no error.
 
 After structural validation, AST nodes, including references and function calls, are resolved when evaluation visits them; dependency extraction may inspect reference nodes without evaluating them. Binary operands and function arguments are visited left-to-right, and range cells use row-major order. The first visited error propagates. `IF` does not visit its unselected branch; `AND` and `OR` do not visit values after a decisive result. Conditional aggregates use the additional matched-position rule above. Structural cycle detection still applies to every parsed reference, including one in a lazy branch, and yields `#CYCLE!` for every cell in or transitively dependent on that cycle without preventing independent cells from evaluating.
 
