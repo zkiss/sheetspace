@@ -54,7 +54,16 @@ Formula results keep their value category when referenced. No operator silently 
 
 ### Formula syntax and raw text
 
-- Numeric literals use decimal syntax: `12`, `12.`, `.5`, `12.5`, `1e3`, and `1.5E-2` are valid. A leading sign is a unary operator, not part of the literal. Hexadecimal, `NaN`, `Infinity`, locale-specific separators, and bare `.` are invalid. A syntactically valid literal outside the finite numeric range produces `#VALUE!`; a non-formula cell becomes numeric only when the parsed value is finite.
+- Numeric literals use the decimal grammar below. It allows forms such as `01`, `12.`, `.5`, `1.e2`, `.5e2`, and `1e+2`. A leading sign is a unary operator, not part of the literal. Hexadecimal, `NaN`, `Infinity`, locale-specific separators, and bare `.` are invalid. A syntactically valid literal outside the finite numeric range produces `#VALUE!`; a non-formula cell becomes numeric only when the parsed value is finite.
+
+  ```text
+  digit    := "0" | "1" | ... | "9"
+  digits   := digit+
+  exponent := ("e" | "E") ("+" | "-")? digits
+  number   := digits ("." digits?)? exponent?
+            | "." digits exponent?
+  ```
+
 - Quoted text literals begin and end with `"`. Two consecutive quotes inside a literal represent one quote, so `"say ""hi"""` evaluates to `say "hi"`. Backslash has no escape meaning. Newlines are allowed inside quoted text.
 - Boolean literals and function names are ASCII case-insensitive. `true`, `TRUE`, and `TrUe` all evaluate to the same boolean.
 - Whitespace may appear between tokens and includes spaces, tabs, and line breaks. Whitespace inside quoted text is content.
@@ -99,7 +108,7 @@ Numeric aggregates inspect all values in their collection arguments. They includ
 | `AND`, `OR` | One or more collections | Accept booleans, ignore blank, reject numbers and text with `#VALUE!`; no boolean values produces `#VALUE!`. `AND` stops at the first `FALSE`; `OR` stops at the first `TRUE`. |
 | `NOT` | Exactly one boolean scalar | Boolean negation. |
 | `COUNTIF` | Exactly one cell/range and one scalar criterion | Count matching cells. |
-| `SUMIF` | One cell/range and one scalar criterion, plus an optional same-shaped cell/range | Sum numeric values at matching positions. When the sum range is omitted, sum matching positions from the criteria range. |
+| `SUMIF` | One cell/range and one scalar criterion, plus an optional same-shaped cell/range | Sum numeric values at matching positions. When the sum range is omitted, sum matching positions from the criteria range. Zero matches or no numeric matched values produce `0`. |
 
 Wrong argument count produces `#VALUE!`. `ABS`, `SQRT`, and `NOT` do not accept blank. A missing `IF` branch is not treated as blank.
 
@@ -117,7 +126,7 @@ Examples:
 
 ### Conditional aggregate criteria
 
-A criterion expression must evaluate to one non-error scalar. A number or boolean criterion means same-category equality. A text criterion uses this grammar:
+A criterion expression must evaluate to one non-error scalar. A blank criterion means equality with blank. A number or boolean criterion means same-category equality. A text criterion uses this grammar:
 
 ```text
 [operator] operand
@@ -140,7 +149,9 @@ Examples:
 | `=COUNTIF(A1:A2, "=""10""")` over `"10"`, `10` | `1` |
 | `=COUNTIF(A1:A2, "==open")` over `"=open"`, `"open"` | `1` |
 | `=COUNTIF(A1:A3, B1)` with `B1` containing `>=10` | Same as literal criterion `">=10"`. |
+| `=COUNTIF(A1:A3, B1)` with blank `B1` | Count blank cells in `A1:A3`. |
 | `=SUMIF(A1:A3, ">0", B1:B2)` | `#VALUE!` because shapes differ. |
+| `=SUMIF(A1:A2, ">0", B1:B2)` with no matches | `0`. |
 
 Criteria and sum inputs must be references to one cell or rectangular 2D ranges. Their dimensions must match; otherwise return `#VALUE!`. `COUNTIF` may match blank. `SUMIF` ignores blank, text, and boolean sum values at matched positions. An error in the criterion itself propagates. An error encountered in a criteria-range cell propagates; an error in a sum-range cell propagates only when its corresponding criterion matches.
 
@@ -158,6 +169,8 @@ Phase 2 errors are values:
 | `#CYCLE!` | Cell belongs to, or depends on, a reference cycle. |
 | `#N/A` | Reserved for later functions; no Phase 2 operation creates it. |
 
-Invalid syntax produces `#PARSE!` before value evaluation. Valid AST nodes, including references and function calls, are resolved when evaluation visits them; dependency extraction may inspect reference nodes without evaluating them. Within evaluation, binary operands and function arguments are visited left-to-right, and range cells use row-major order. The first visited error propagates. `IF` does not visit its unselected branch; `AND` and `OR` do not visit values after a decisive result. Conditional aggregates use the additional matched-position rule above. Structural cycle detection still applies to every parsed reference, including one in a lazy branch, and yields `#CYCLE!` for every cell in or transitively dependent on that cycle without preventing independent cells from evaluating.
+Invalid syntax produces `#PARSE!` before value evaluation. For a valid AST, unknown function validation produces `#NAME!`, then arity, required scalar/collection form, and conditional-range shape validation produce `#VALUE!`, all before argument values are evaluated. Thus `ABS(1/0, 2)` and a shape-invalid `SUMIF` return `#VALUE!` without evaluating their arguments. This structural pass does not resolve reference targets or evaluate values in a lazy branch.
 
-Display is derived and never persisted: numbers use a locale-independent shortest decimal form with no grouping and display negative zero as `0`; booleans display `TRUE` or `FALSE`; text displays its content; blank displays empty; errors display their exact token. Formula cells retain raw formula content for editing even when their displayed result is an error.
+After structural validation, AST nodes, including references and function calls, are resolved when evaluation visits them; dependency extraction may inspect reference nodes without evaluating them. Binary operands and function arguments are visited left-to-right, and range cells use row-major order. The first visited error propagates. `IF` does not visit its unselected branch; `AND` and `OR` do not visit values after a decisive result. Conditional aggregates use the additional matched-position rule above. Structural cycle detection still applies to every parsed reference, including one in a lazy branch, and yields `#CYCLE!` for every cell in or transitively dependent on that cycle without preventing independent cells from evaluating.
+
+Display is derived and never persisted: numbers use ECMAScript `Number::toString(10)` formatting (or byte-for-byte equivalent output), with negative zero normalized to `0`; booleans display `TRUE` or `FALSE`; text displays its content; blank displays empty; errors display their exact token. Formula cells retain raw formula content for editing even when their displayed result is an error.
