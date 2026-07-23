@@ -1090,9 +1090,7 @@ class FormulaParser {
     if (!this.consume('(')) {
       return { ok: false, error: '#PARSE!' };
     }
-    if (functionName.toUpperCase() !== 'SUM') {
-      return { ok: false, error: '#NAME!' };
-    }
+    const isSum = functionName.toUpperCase() === 'SUM';
 
     this.skipWhitespace();
     if (this.peek() === ')') {
@@ -1119,6 +1117,10 @@ class FormulaParser {
         return { ok: false, error: '#PARSE!' };
       }
       break;
+    }
+
+    if (!isSum) {
+      return { ok: false, error: '#NAME!' };
     }
 
     return {
@@ -1197,6 +1199,7 @@ class FormulaParser {
     if (!startAddressToken) {
       return { ok: false, error: '#PARSE!' };
     }
+    const startAddressEndIndex = this.index;
 
     const startAddress = parseA1Address(startAddressToken, sheet.value);
     if (!startAddress.ok) {
@@ -1211,7 +1214,7 @@ class FormulaParser {
           kind: 'cell',
           ...(sheetReference.sheetId === undefined ? {} : { sheetId: sheetReference.sheetId }),
           address: startAddress.value,
-          sourceSpan: this.sourceSpan(startIndex),
+          sourceSpan: this.span(startIndex, startAddressEndIndex),
           ...(sheetReference.sourceSpan === undefined ? {} : { sheetReferenceSpan: sheetReference.sourceSpan }),
         },
       };
@@ -1222,6 +1225,7 @@ class FormulaParser {
     if (!endAddressToken) {
       return { ok: false, error: '#PARSE!' };
     }
+    const endAddressEndIndex = this.index;
 
     const endAddress = parseA1Address(endAddressToken, sheet.value);
     if (!endAddress.ok) {
@@ -1234,7 +1238,7 @@ class FormulaParser {
         kind: 'range',
         ...(sheetReference.sheetId === undefined ? {} : { sheetId: sheetReference.sheetId }),
         range: normalizeRange({ start: startAddress.value, end: endAddress.value }),
-        sourceSpan: this.sourceSpan(startIndex),
+        sourceSpan: this.span(startIndex, endAddressEndIndex),
         ...(sheetReference.sourceSpan === undefined ? {} : { sheetReferenceSpan: sheetReference.sourceSpan }),
       },
     };
@@ -1265,14 +1269,18 @@ class FormulaParser {
       return {};
     }
 
-    const sheetId = this.input.slice(this.index, separatorIndex).trim();
+    let qualifierEndIndex = separatorIndex;
+    while (qualifierEndIndex > startIndex && /\s/.test(this.input[qualifierEndIndex - 1])) {
+      qualifierEndIndex -= 1;
+    }
+    const sheetId = this.input.slice(this.index, qualifierEndIndex);
     if (sheetId.length === 0 || sheetId.includes("'")) {
       return false;
     }
 
     this.index = separatorIndex + 1;
     this.skipWhitespace();
-    return { sheetId, sourceSpan: this.span(startIndex, separatorIndex) };
+    return { sheetId, sourceSpan: this.span(startIndex, qualifierEndIndex) };
   }
 
   private readQuotedSheetName(): string | undefined | false {

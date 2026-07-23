@@ -595,6 +595,29 @@ describe('formula parser', () => {
     });
   });
 
+  it('excludes surrounding whitespace from reference token spans', () => {
+    const { workbook, inputs } = formulaWorkbook();
+    const raw = '=SUM(A1 \n, sheet-2 \t! B2 \n: C3)';
+
+    expect(parseFormula(raw, workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [
+          {
+            kind: 'cell',
+            sourceSpan: { start: 5, end: 7 },
+          },
+          {
+            kind: 'range',
+            sheetId: 'sheet-2',
+            sourceSpan: { start: 11, end: 30 },
+            sheetReferenceSpan: { start: 11, end: 18 },
+          },
+        ],
+      },
+    });
+  });
+
   it('canonicalizes visible sheet names while preserving surrounding formula text', () => {
     const { workbook } = formulaWorkbook();
     const raw = "=sUm( Outputs !A1, 'Sales Q1'!A1:B2, 'Owner''s Plan'!C3 )";
@@ -637,6 +660,18 @@ describe('formula parser', () => {
       raw: '=AVERAGE(A1:A3)',
       error: '#NAME!',
     });
+  });
+
+  it('reports malformed unknown function calls as #PARSE! before name resolution', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    for (const raw of ['=AVERAGE((A1)', '=NOPE("unterminated)']) {
+      expect(parseFormula(raw, workbook, inputs)).toEqual({
+        kind: 'error',
+        raw,
+        error: '#PARSE!',
+      });
+    }
   });
 
   it('reports invalid syntax as #PARSE!', () => {
