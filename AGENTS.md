@@ -29,6 +29,7 @@ make build
 ## Working Preferences
 
 Beads define executable work. The plan is context. The active bead is scope.
+Do not create Beads for plan-only maintenance. This does not forbid updating plan documents as needed during implementation work.
 
 Never commit on `main`.
 Keep `main` refreshed to `origin/main`.
