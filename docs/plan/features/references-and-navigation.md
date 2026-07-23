@@ -15,7 +15,7 @@ References should become first-class entities. A user should be able to understa
 - Pan and zoom to bring offscreen targets into view.
 - Show hover info for referenced cells and ranges.
 - Mark broken references clearly.
-- Provide visual colored lines connecting formulas to referenced cells in physical workspace space.
+- Provide visual colored lines connecting formulas to referenced cells in physical workspace space, accounting for both viewport zoom and each sheet's visual scale.
 - Allow clicking a reference line to navigate to the source.
 - Support reference-aware refactoring where practical.
 

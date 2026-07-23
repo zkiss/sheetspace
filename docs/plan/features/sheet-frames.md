@@ -12,11 +12,21 @@ A sheet frame is a movable object on the workspace that contains one tabular wor
 - Allow each frame to be placed freely in 2D space.
 - Allow moving frames around the workspace.
 - Resize sheets from edges or corners.
-- Persist frame size and position.
+- Store a persistent uniform visual scale for each sheet separately from frame size and grid dimensions.
+- When a sheet is created, derive its initial visual scale from the inverse viewport scale so it appears at a usable screen size and retains its relative canvas scale after zooming out.
+- Provide a distinct scale handle plus numeric percentage control; keep frame resizing and visual scaling separate.
+- Persist frame size, position, and visual scale.
 - Show sheet title and lightweight controls.
 - Focus a frame for editing.
 - Manage z-order when sheets overlap.
 - Collapse, minimize, hide, or group frames.
+
+## Spatial Composition
+
+- Sheets are independently positioned peers in one workspace coordinate system.
+- Scale, overlap, and z-order support free visual composition, including miniature sheets placed over regions of larger ones.
+- Z-order determines which overlapping sheet receives interaction.
+- Flat groups add shared movement commands over independently stored sheet layouts.
 
 ## Z-Order
 
