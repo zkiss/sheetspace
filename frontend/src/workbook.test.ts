@@ -3,17 +3,22 @@ import {
   appendColumn,
   appendRow,
   cellKey,
+  classifyCellValue,
   columnIndexToLabel,
   columnLabelToIndex,
   commitCellRawContent,
   createEmptyWorkbook,
   createSheet,
+  displayFormulaValue,
   evaluateFormulaCells,
   expandRange,
   findSheetByName,
+  formulaCollectionValues,
+  formulaErrorValue,
   FormulaCalculation,
   formulaRawForDisplay,
   formulaRawForStorage,
+  formulaScalarValue,
   formulaSheetReferenceIds,
   moveSheetZOrder,
   parseA1Address,
@@ -724,18 +729,20 @@ describe('formula parser', () => {
     });
   });
 
-  it('reports unresolved sheet names and out-of-bounds references as #REF!', () => {
+  it('preserves syntactic unresolved and out-of-bounds references for visit-time evaluation', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=SUM(Missing!A1)', workbook, inputs)).toEqual({
-      kind: 'error',
-      raw: '=SUM(Missing!A1)',
-      error: '#REF!',
+    expect(parseFormula('=SUM(Missing!A1)', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [{ kind: 'cell', sheetId: 'Missing' }],
+      },
     });
-    expect(parseFormula('=SUM(K1)', workbook, inputs)).toEqual({
-      kind: 'error',
-      raw: '=SUM(K1)',
-      error: '#REF!',
+    expect(parseFormula('=SUM(K1)', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        arguments: [{ kind: 'cell', address: { columnIndex: 10, rowIndex: 0 } }],
+      },
     });
   });
 
@@ -859,7 +866,7 @@ describe('formula evaluator', () => {
     });
   });
 
-  it('uses strict trimmed decimal and integer semantics for referenced values', () => {
+  it('classifies referenced cells using shared Phase 2 scalar semantics', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '  10 ',
       A2: '-2.25',
@@ -875,9 +882,9 @@ describe('formula evaluator', () => {
 
     const results = evaluateFormulaCells(workbook)['sheet-1'];
     expect(results.A3).toMatchObject({ kind: 'number', value: 7.75, display: '7.75' });
-    expect(results.B1).toMatchObject({ kind: 'error', error: '#VALUE!', display: '#VALUE!' });
-    expect(results.B2).toMatchObject({ kind: 'error', error: '#VALUE!', display: '#VALUE!' });
-    expect(results.B3).toMatchObject({ kind: 'error', error: '#VALUE!', display: '#VALUE!' });
+    expect(results.B1).toMatchObject({ kind: 'number', value: 0, display: '0' });
+    expect(results.B2).toMatchObject({ kind: 'number', value: 1, display: '1' });
+    expect(results.B3).toMatchObject({ kind: 'number', value: 100, display: '100' });
   });
 
   it('keeps parse, name, ref, and value failures isolated to cell-level results', () => {
@@ -899,7 +906,7 @@ describe('formula evaluator', () => {
     expect(results.A1).toMatchObject({ kind: 'error', error: '#PARSE!' });
     expect(results.A2).toMatchObject({ kind: 'error', error: '#NAME!' });
     expect(results.A3).toMatchObject({ kind: 'error', error: '#REF!' });
-    expect(results.A4).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A4).toMatchObject({ kind: 'number', value: 0 });
     expect(results.A5).toMatchObject({ kind: 'number', value: 8 });
     expect(results.A6).toMatchObject({ kind: 'error', error: '#REF!' });
     expect(results.A7).toMatchObject({ kind: 'error', error: '#REF!' });
@@ -917,7 +924,90 @@ describe('formula evaluator', () => {
 
     const results = evaluateFormulaCells(workbook)['sheet-1'];
     expect(results.A2).toMatchObject({ kind: 'error', error: '#REF!' });
-    expect(results.A3).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A3).toMatchObject({ kind: 'error', error: '#REF!' });
+  });
+
+  it('resolves references when visited so an earlier argument error wins', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '=SUM(A1,)',
+      A2: '=SUM(A1, Missing!A1)',
+      A3: '=SUM(Missing!A1, A1)',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    expect(results.A2).toMatchObject({ kind: 'error', error: '#PARSE!' });
+    expect(results.A3).toMatchObject({ kind: 'error', error: '#REF!' });
+  });
+
+  it('evaluates literal and grouped formulas as typed display results', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '=12.5',
+      A2: '="say ""hi"""',
+      A3: '=TrUe',
+      A4: '=((FALSE))',
+      A5: '=""',
+      A6: '=1e999',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    expect(results.A1).toEqual({ kind: 'number', value: 12.5, display: '12.5' });
+    expect(results.A2).toEqual({ kind: 'text', value: 'say "hi"', display: 'say "hi"' });
+    expect(results.A3).toEqual({ kind: 'boolean', value: true, display: 'TRUE' });
+    expect(results.A4).toEqual({ kind: 'boolean', value: false, display: 'FALSE' });
+    expect(results.A5).toEqual({ kind: 'text', value: '', display: '' });
+    expect(results.A6).toEqual({ kind: 'error', error: '#VALUE!', display: '#VALUE!' });
+  });
+
+  it('preserves typed values through same-sheet and cross-sheet scalar references', () => {
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', {
+      A1: ' 2.5 ',
+      A2: 'TRUE',
+      A3: ' source text ',
+      A4: '   ',
+      B1: '=A1',
+      B2: '=A2',
+      B3: '=A3',
+      B4: '=A5',
+    });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=sheet-inputs!B1',
+      A2: '=sheet-inputs!B2',
+      A3: '=sheet-inputs!B3',
+      A4: '=sheet-inputs!B4',
+      A5: '=sheet-inputs!A4',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+
+    expect(results['sheet-inputs'].B1).toEqual({ kind: 'number', value: 2.5, display: '2.5' });
+    expect(results['sheet-inputs'].B2).toEqual({ kind: 'boolean', value: true, display: 'TRUE' });
+    expect(results['sheet-inputs'].B3).toEqual({
+      kind: 'text',
+      value: ' source text ',
+      display: ' source text ',
+    });
+    expect(results['sheet-inputs'].B4).toEqual({ kind: 'blank', display: '' });
+    expect(results['sheet-outputs'].A1).toEqual({ kind: 'number', value: 2.5, display: '2.5' });
+    expect(results['sheet-outputs'].A2).toEqual({ kind: 'boolean', value: true, display: 'TRUE' });
+    expect(results['sheet-outputs'].A3).toMatchObject({ kind: 'text', value: ' source text ' });
+    expect(results['sheet-outputs'].A4).toEqual({ kind: 'blank', display: '' });
+    expect(results['sheet-outputs'].A5).toEqual({ kind: 'text', value: '   ', display: '   ' });
+  });
+
+  it('rejects a range in scalar position and keeps SUM on the shared collection path', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '2',
+      A2: 'text',
+      A3: 'FALSE',
+      A5: '=Missing!A1',
+      B1: '=A1:A3',
+      B2: '=SUM(1, "2", TRUE, A1:A4)',
+      B3: '=SUM(A1:A5)',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    expect(results.B1).toEqual({ kind: 'error', error: '#VALUE!', display: '#VALUE!' });
+    expect(results.B2).toEqual({ kind: 'number', value: 3, display: '3' });
+    expect(results.B3).toEqual({ kind: 'error', error: '#REF!', display: '#REF!' });
   });
 
   it('detects direct, indirect, and cross-sheet cycles without replacing raw formulas', () => {
@@ -1058,5 +1148,33 @@ describe('incremental formula calculation', () => {
     const deletedResults = calculation.update(deleted);
     expect(deletedResults['sheet-outputs'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
     expect(deletedResults['sheet-outputs'].B1).toMatchObject({ kind: 'number', value: 4 });
+  });
+});
+
+describe('formula value helpers', () => {
+  it('classifies blank, number, boolean, and raw text cells centrally', () => {
+    expect(classifyCellValue('')).toEqual({ kind: 'blank' });
+    expect(classifyCellValue(' .5e2 ')).toEqual({ kind: 'number', value: 50 });
+    expect(classifyCellValue(' false ')).toEqual({ kind: 'boolean', value: false });
+    expect(classifyCellValue('   ')).toEqual({ kind: 'text', value: '   ' });
+    expect(classifyCellValue('Infinity')).toEqual({ kind: 'text', value: 'Infinity' });
+  });
+
+  it('provides shared scalar, collection, error, and display boundaries', () => {
+    const range = {
+      kind: 'range' as const,
+      values: [{ kind: 'number' as const, value: 1 }, { kind: 'blank' as const }],
+      rowCount: 2,
+      columnCount: 1,
+    };
+
+    expect(formulaCollectionValues(range)).toEqual(range.values);
+    expect(formulaScalarValue(range)).toEqual({ kind: 'error', error: '#VALUE!' });
+    expect(formulaErrorValue('#DIV/0!')).toEqual({ kind: 'error', error: '#DIV/0!' });
+    expect(displayFormulaValue({ kind: 'number', value: -0 })).toEqual({
+      kind: 'number',
+      value: -0,
+      display: '0',
+    });
   });
 });

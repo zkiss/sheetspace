@@ -6,6 +6,27 @@ import { openCellEditor, openSheetContextMenu } from './test/appScreen';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 
 describe('App formula integration', () => {
+  it('displays typed literal results while preserving raw formula text for editing', async () => {
+    const user = userEvent.setup();
+    const rawBoolean = '= \n TrUe ';
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: rawBoolean,
+        A2: '="literal text"',
+        A3: '=12.5',
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const booleanCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    expect(booleanCell).toHaveTextContent('TRUE');
+    expect(screen.getByRole('cell', { name: 'Inputs A2 cell' })).toHaveTextContent('literal text');
+    expect(screen.getByRole('cell', { name: 'Inputs A3 cell' })).toHaveTextContent('12.5');
+    expect(await openCellEditor(user, booleanCell)).toHaveValue(rawBoolean);
+  });
+
   it('displays mixed-case spaced multiline formulas while preserving raw edit text', async () => {
     const user = userEvent.setup();
     const rawFormula = '= \n sUm \t ( \n B1 \n : \t B2 \n ) ';
