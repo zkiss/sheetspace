@@ -55,8 +55,8 @@ Phase 2 establishes the first reference jump. Phase 5 completes the understandin
 
 ## References
 
-- [phase4.task.md](phase4.task.md)
-- [features/formula-editor.md](features/formula-editor.md)
-- [features/references-and-navigation.md](features/references-and-navigation.md)
-- [features/workspace.md](features/workspace.md)
-- [features/interaction-polish.md](features/interaction-polish.md)
+- [04-safe-structural-editing-and-refactoring.md](04-safe-structural-editing-and-refactoring.md)
+- [features/formula-editor.md](../features/formula-editor.md)
+- [features/references-and-navigation.md](../features/references-and-navigation.md)
+- [features/workspace.md](../features/workspace.md)
+- [features/interaction-polish.md](../features/interaction-polish.md)

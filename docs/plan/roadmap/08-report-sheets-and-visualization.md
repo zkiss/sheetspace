@@ -48,9 +48,8 @@ Phase 7 makes tabular work portable. Phase 8 adds a distinct output surface for 
 
 ## References
 
-- [phase7.task.md](phase7.task.md)
-- [features/report-sheets.md](features/report-sheets.md)
-- [features/references-and-navigation.md](features/references-and-navigation.md)
-- [features/persistence.md](features/persistence.md)
-- [features/import-export.md](features/import-export.md)
-
+- [07-durable-interchange.md](07-durable-interchange.md)
+- [features/report-sheets.md](../features/report-sheets.md)
+- [features/references-and-navigation.md](../features/references-and-navigation.md)
+- [features/persistence.md](../features/persistence.md)
+- [features/import-export.md](../features/import-export.md)

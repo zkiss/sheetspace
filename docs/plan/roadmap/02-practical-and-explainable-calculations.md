@@ -10,8 +10,8 @@ This phase deliberately deepens the core spreadsheet-and-navigation loop rather 
 
 ## Prerequisites
 
-- The behavior in [mvp.task.md](mvp.task.md) is complete.
-- Formula cells are stored as canonical strings, and cross-sheet qualifiers use stable sheet ids as described in [features/formulas.md](features/formulas.md).
+- The behavior in [01-mvp.md](01-mvp.md) is complete.
+- Formula cells are stored as canonical strings, and cross-sheet qualifiers use stable sheet ids as described in [features/formulas.md](../features/formulas.md).
 - Visible sheet names remain editor syntax; navigation and evaluation resolve canonical references without depending on the current name.
 
 ## Included Scope
@@ -85,9 +85,8 @@ This phase deliberately deepens the core spreadsheet-and-navigation loop rather 
 
 ## References
 
-- [PROJECT_VISION.md](PROJECT_VISION.md)
-- [mvp.task.md](mvp.task.md)
-- [features/formulas.md](features/formulas.md)
-- [features/references-and-navigation.md](features/references-and-navigation.md)
-- [features/formula-editor.md](features/formula-editor.md)
-
+- [PROJECT_VISION.md](../PROJECT_VISION.md)
+- [01-mvp.md](01-mvp.md)
+- [features/formulas.md](../features/formulas.md)
+- [features/references-and-navigation.md](../features/references-and-navigation.md)
+- [features/formula-editor.md](../features/formula-editor.md)

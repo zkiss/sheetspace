@@ -70,8 +70,8 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 
 ## References
 
-- [phase2.task.md](phase2.task.md)
-- [features/grid-editing.md](features/grid-editing.md)
-- [features/sheet-frames.md](features/sheet-frames.md)
-- [features/interaction-polish.md](features/interaction-polish.md)
-- [features/persistence.md](features/persistence.md)
+- [02-practical-and-explainable-calculations.md](02-practical-and-explainable-calculations.md)
+- [features/grid-editing.md](../features/grid-editing.md)
+- [features/sheet-frames.md](../features/sheet-frames.md)
+- [features/interaction-polish.md](../features/interaction-polish.md)
+- [features/persistence.md](../features/persistence.md)

@@ -4,7 +4,8 @@
 
 Sheetspace is a visual spreadsheet workspace: spreadsheet-like tables live in a 2D space, can be linked through formulas, navigated like code, and gradually refactored from conventional spreadsheets into clearer calculation structures.
 
-Product direction lives in `docs/plan/*.md`. Start with `docs/plan/PROJECT_VISION.md`.
+Product direction lives in `docs/plan/`. Start with `docs/plan/PROJECT_VISION.md`.
+Delivery sequence lives in `docs/plan/roadmap/`, ordered by the two-digit filename prefixes.
 
 ## Repo
 

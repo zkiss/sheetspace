@@ -6,16 +6,16 @@ Build the first usable Sheetspace iteration after the project skeleton exists.
 
 The MVP should prove the core spatial spreadsheet loop: multiple simple worksheets can be arranged on a 2D workspace, edited as grids, and evaluated with a small formula slice.
 
-Tech stack and project-shell decisions are handled by [tech-skeleton.task.md](tech-skeleton.task.md). This task defines application behavior.
+Tech stack and project-shell decisions are handled by [00-tech-skeleton.md](00-tech-skeleton.md). This task defines application behavior.
 
 ## Included Scope
 
-- Add a scoped implementation of [Spatial Workspace](features/workspace.md): provide a 2D workspace that supports multiple sheets, supports independent sheet positions, allows panning, and allows zooming.
-- Add a scoped implementation of [Sheet Frames](features/sheet-frames.md): render each sheet inside an identifiable frame, allow users to create sheets, allow frames to be moved by dragging their header bars, and support explicit z-order commands for overlapping frames.
-- Add a scoped implementation of [Grid Editing](features/grid-editing.md): display a tabular grid with row and column headers, support single-cell selection, edit cell values, commit and display text or numeric values, preserve raw formula text while editing, and display evaluated formula results when not editing.
-- Add a scoped implementation of [Formulas](features/formulas.md): treat cell content beginning with `=` as a formula, support `SUM`, support A1-style individual cell references, 2D ranges, and cross-sheet references using visible sheet names, recompute formulas after edits, compute formulas independently where possible, and display errors in cells that cannot be computed.
-- Add a scoped implementation of [Columns, Rows, And Structure](features/columns-rows-structure.md): start new sheets as empty 10-column by 20-row grids, use default row numbers, use Excel-style column labels such as `A`, `B`, `C`, `Z`, `AA`, and `AB`, and allow users to append rows and columns at the ends of a sheet.
-- Add a scoped implementation of [Persistence](features/persistence.md): persist workbook state through a real backend database using a straightforward single-instance read/write path.
+- Add a scoped implementation of [Spatial Workspace](../features/workspace.md): provide a 2D workspace that supports multiple sheets, supports independent sheet positions, allows panning, and allows zooming.
+- Add a scoped implementation of [Sheet Frames](../features/sheet-frames.md): render each sheet inside an identifiable frame, allow users to create sheets, allow frames to be moved by dragging their header bars, and support explicit z-order commands for overlapping frames.
+- Add a scoped implementation of [Grid Editing](../features/grid-editing.md): display a tabular grid with row and column headers, support single-cell selection, edit cell values, commit and display text or numeric values, preserve raw formula text while editing, and display evaluated formula results when not editing.
+- Add a scoped implementation of [Formulas](../features/formulas.md): treat cell content beginning with `=` as a formula, support `SUM`, support A1-style individual cell references, 2D ranges, and cross-sheet references using visible sheet names, recompute formulas after edits, compute formulas independently where possible, and display errors in cells that cannot be computed.
+- Add a scoped implementation of [Columns, Rows, And Structure](../features/columns-rows-structure.md): start new sheets as empty 10-column by 20-row grids, use default row numbers, use Excel-style column labels such as `A`, `B`, `C`, `Z`, `AA`, and `AB`, and allow users to append rows and columns at the ends of a sheet.
+- Add a scoped implementation of [Persistence](../features/persistence.md): persist workbook state through a real backend database using a straightforward single-instance read/write path.
 
 The feature briefs provide the full product context. For this task, implement only the behavior explicitly listed above.
 
@@ -57,12 +57,12 @@ The feature briefs provide the full product context. For this task, implement on
 
 ## References
 
-- [PROJECT_VISION.md](PROJECT_VISION.md)
-- [features/README.md](features/README.md)
-- [tech-skeleton.task.md](tech-skeleton.task.md)
-- [features/workspace.md](features/workspace.md)
-- [features/sheet-frames.md](features/sheet-frames.md)
-- [features/grid-editing.md](features/grid-editing.md)
-- [features/formulas.md](features/formulas.md)
-- [features/columns-rows-structure.md](features/columns-rows-structure.md)
-- [features/persistence.md](features/persistence.md)
+- [PROJECT_VISION.md](../PROJECT_VISION.md)
+- [features/README.md](../features/README.md)
+- [00-tech-skeleton.md](00-tech-skeleton.md)
+- [features/workspace.md](../features/workspace.md)
+- [features/sheet-frames.md](../features/sheet-frames.md)
+- [features/grid-editing.md](../features/grid-editing.md)
+- [features/formulas.md](../features/formulas.md)
+- [features/columns-rows-structure.md](../features/columns-rows-structure.md)
+- [features/persistence.md](../features/persistence.md)

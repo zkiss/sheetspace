@@ -2,7 +2,7 @@
 
 This directory splits the product vision into feature-level briefs. Each brief describes the full feature direction and product intent.
 
-Implementation task files define which slice of each feature is in scope for a given iteration.
+Numbered plans under [roadmap/](../roadmap/) define which slice of each feature is in scope for a given iteration.
 
 ## Feature Index
 

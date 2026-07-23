@@ -50,7 +50,7 @@ Earlier phases make the internal workspace useful and durable in its database. P
 
 ## References
 
-- [phase6.task.md](phase6.task.md)
-- [features/persistence.md](features/persistence.md)
-- [features/import-export.md](features/import-export.md)
-- [features/formulas.md](features/formulas.md)
+- [06-organized-and-explained-workspaces.md](06-organized-and-explained-workspaces.md)
+- [features/persistence.md](../features/persistence.md)
+- [features/import-export.md](../features/import-export.md)
+- [features/formulas.md](../features/formulas.md)

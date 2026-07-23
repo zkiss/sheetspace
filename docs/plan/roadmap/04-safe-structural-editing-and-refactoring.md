@@ -54,9 +54,8 @@ Phase 3 makes existing grids fluid to edit. Phase 4 makes their structure evolva
 
 ## References
 
-- [phase3.task.md](phase3.task.md)
-- [features/columns-rows-structure.md](features/columns-rows-structure.md)
-- [features/structure-refactoring.md](features/structure-refactoring.md)
-- [features/references-and-navigation.md](features/references-and-navigation.md)
-- [features/interaction-polish.md](features/interaction-polish.md)
-
+- [03-fluent-spreadsheet-editing.md](03-fluent-spreadsheet-editing.md)
+- [features/columns-rows-structure.md](../features/columns-rows-structure.md)
+- [features/structure-refactoring.md](../features/structure-refactoring.md)
+- [features/references-and-navigation.md](../features/references-and-navigation.md)
+- [features/interaction-polish.md](../features/interaction-polish.md)

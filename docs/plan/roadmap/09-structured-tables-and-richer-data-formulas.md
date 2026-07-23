@@ -49,9 +49,8 @@ Earlier phases support strong free-form models. Phase 9 adds an optional semanti
 
 ## References
 
-- [phase8.task.md](phase8.task.md)
-- [features/table-object-model.md](features/table-object-model.md)
-- [features/columns-rows-structure.md](features/columns-rows-structure.md)
-- [features/formulas.md](features/formulas.md)
-- [features/report-sheets.md](features/report-sheets.md)
-
+- [08-report-sheets-and-visualization.md](08-report-sheets-and-visualization.md)
+- [features/table-object-model.md](../features/table-object-model.md)
+- [features/columns-rows-structure.md](../features/columns-rows-structure.md)
+- [features/formulas.md](../features/formulas.md)
+- [features/report-sheets.md](../features/report-sheets.md)

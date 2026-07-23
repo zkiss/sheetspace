@@ -53,9 +53,9 @@ This milestone is a complete expression of the current vision, not a promise of 
 
 ## References
 
-- [phase9.task.md](phase9.task.md)
-- [PROJECT_VISION.md](PROJECT_VISION.md)
-- [features/custom-functions-and-programming.md](features/custom-functions-and-programming.md)
-- [features/formula-editor.md](features/formula-editor.md)
-- [features/formulas.md](features/formulas.md)
-- [features/table-object-model.md](features/table-object-model.md)
+- [09-structured-tables-and-richer-data-formulas.md](09-structured-tables-and-richer-data-formulas.md)
+- [PROJECT_VISION.md](../PROJECT_VISION.md)
+- [features/custom-functions-and-programming.md](../features/custom-functions-and-programming.md)
+- [features/formula-editor.md](../features/formula-editor.md)
+- [features/formulas.md](../features/formulas.md)
+- [features/table-object-model.md](../features/table-object-model.md)

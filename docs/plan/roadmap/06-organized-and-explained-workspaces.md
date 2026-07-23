@@ -50,8 +50,8 @@ Phase 5 makes calculation paths inspectable. Phase 6 adds the human context arou
 
 ## References
 
-- [phase5.task.md](phase5.task.md)
-- [features/comments-and-annotations.md](features/comments-and-annotations.md)
-- [features/grouping-and-organization.md](features/grouping-and-organization.md)
-- [features/sheet-frames.md](features/sheet-frames.md)
-- [features/workspace.md](features/workspace.md)
+- [05-formula-understanding-and-spatial-navigation.md](05-formula-understanding-and-spatial-navigation.md)
+- [features/comments-and-annotations.md](../features/comments-and-annotations.md)
+- [features/grouping-and-organization.md](../features/grouping-and-organization.md)
+- [features/sheet-frames.md](../features/sheet-frames.md)
+- [features/workspace.md](../features/workspace.md)
