@@ -8,6 +8,7 @@ Formulas make sheets more than static tables. The formula engine should grow del
 
 - Treat cell content beginning with `=` as a formula.
 - Store each cell as its raw string value, without a cell-content wrapper or persisted formula metadata.
+- Match function names and boolean literals case-insensitively while preserving raw formula text.
 - Store cross-sheet qualifiers as stable sheet ids inside canonical formula strings; translate visible sheet names to ids when edits commit and ids back to current names while editing.
 - Parse formulas into an AST.
 - Evaluate formulas against a workbook snapshot.
@@ -35,6 +36,4 @@ Formulas make sheets more than static tables. The formula engine should grow del
 
 ## Open Decisions
 
-- Should formulas be case-insensitive like Excel?
 - Should formula evaluation coerce text and numbers like Excel, or use stricter rules?
-- When should a dependency graph become necessary?

@@ -30,6 +30,7 @@ make build
 
 Beads define executable work. The plan is context. The active bead is scope.
 Do not create Beads for plan-only maintenance. This does not forbid updating plan documents as needed during implementation work.
+Question Beads are reserved for unresolved decisions that block executable implementation; they are not plan-maintenance trackers.
 
 Never commit on `main`.
 Keep `main` refreshed to `origin/main`.
