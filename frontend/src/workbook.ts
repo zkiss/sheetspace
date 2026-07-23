@@ -53,7 +53,14 @@ export type NamedRangeReference = CellRange & {
   sheetName?: string;
 };
 
-export type FormulaErrorCode = '#PARSE!' | '#REF!' | '#NAME!' | '#VALUE!' | '#CYCLE!';
+export type FormulaErrorCode =
+  | '#PARSE!'
+  | '#REF!'
+  | '#NAME!'
+  | '#VALUE!'
+  | '#DIV/0!'
+  | '#CYCLE!'
+  | '#N/A';
 
 export type FormulaSourceSpan = {
   start: number;
@@ -113,8 +120,27 @@ export type FormulaParseResult =
   | { kind: 'formula'; raw: string; expression: FormulaExpression }
   | { kind: 'error'; raw: string; error: FormulaErrorCode };
 
+export type FormulaScalarValue =
+  | { kind: 'number'; value: number }
+  | { kind: 'text'; value: string }
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'blank' }
+  | { kind: 'error'; error: FormulaErrorCode };
+
+export type FormulaRangeValue = {
+  kind: 'range';
+  values: Iterable<FormulaScalarValue>;
+  rowCount: number;
+  columnCount: number;
+};
+
+export type FormulaValue = FormulaScalarValue | FormulaRangeValue;
+
 export type FormulaDisplayResult =
   | { kind: 'number'; value: number; display: string }
+  | { kind: 'text'; value: string; display: string }
+  | { kind: 'boolean'; value: boolean; display: 'TRUE' | 'FALSE' }
+  | { kind: 'blank'; display: '' }
   | { kind: 'error'; error: FormulaErrorCode; display: FormulaErrorCode };
 
 export type FormulaEvaluationSnapshot = Record<string, Record<CellKey, FormulaDisplayResult>>;
@@ -506,14 +532,14 @@ export function parseNamedA1Range(
 
 export function parseFormula(
   raw: string,
-  workbook: Workbook,
-  defaultSheet?: Sheet,
+  _workbook: Workbook,
+  _defaultSheet?: Sheet,
 ): FormulaParseResult {
   if (!raw.startsWith('=')) {
     return { kind: 'not-formula', raw };
   }
 
-  const parser = new FormulaParser(raw.slice(1), workbook, defaultSheet);
+  const parser = new FormulaParser(raw.slice(1));
   return parser.parse(raw);
 }
 
@@ -534,7 +560,7 @@ type FormulaDependencyGraph = {
 export class FormulaCalculation {
   private workbook?: Workbook;
   private graph: FormulaDependencyGraph = { dependencies: new Map(), dependents: new Map() };
-  private results = new Map<string, FormulaDisplayResult>();
+  private results = new Map<string, FormulaScalarValue>();
   private snapshot: FormulaEvaluationSnapshot = {};
 
   update(workbook: Workbook, onEvaluate?: FormulaEvaluationObserver): FormulaEvaluationSnapshot {
@@ -627,41 +653,72 @@ function sheetCellNodeId(sheetId: string, key: CellKey): string {
   return `${sheetId}\u0000${key}`;
 }
 
-function numericDisplay(value: number): FormulaDisplayResult {
-  return { kind: 'number', value, display: String(value) };
+export function formulaErrorValue(error: FormulaErrorCode): FormulaScalarValue {
+  return { kind: 'error', error };
 }
 
-function formulaError(error: FormulaErrorCode): FormulaDisplayResult {
-  return { kind: 'error', error, display: error };
+export function formulaScalarValue(value: FormulaValue): FormulaScalarValue {
+  return value.kind === 'range' ? formulaErrorValue('#VALUE!') : value;
 }
 
-function parseStrictNumber(raw: string): number | undefined {
+export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaScalarValue> {
+  return value.kind === 'range' ? value.values : [value];
+}
+
+export function classifyCellValue(raw: string): FormulaScalarValue {
+  if (raw.length === 0) {
+    return { kind: 'blank' };
+  }
+
   const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return 0;
+  const numeric = /^-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(trimmed)
+    ? Number(trimmed)
+    : undefined;
+  if (numeric !== undefined && Number.isFinite(numeric)) {
+    return { kind: 'number', value: numeric };
   }
-
-  if (!/^-?[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) {
-    return undefined;
+  if (/^TRUE$/i.test(trimmed)) {
+    return { kind: 'boolean', value: true };
   }
+  if (/^FALSE$/i.test(trimmed)) {
+    return { kind: 'boolean', value: false };
+  }
+  return { kind: 'text', value: raw };
+}
 
-  return Number(trimmed);
+export function displayFormulaValue(value: FormulaScalarValue): FormulaDisplayResult {
+  switch (value.kind) {
+    case 'number':
+      return {
+        kind: 'number',
+        value: value.value,
+        display: Object.is(value.value, -0) ? '0' : String(value.value),
+      };
+    case 'text':
+      return { ...value, display: value.value };
+    case 'boolean':
+      return { ...value, display: value.value ? 'TRUE' : 'FALSE' };
+    case 'blank':
+      return { kind: 'blank', display: '' };
+    case 'error':
+      return { ...value, display: value.error };
+  }
 }
 
 class FormulaEvaluator {
-  private readonly results: Map<string, FormulaDisplayResult>;
+  private readonly results: Map<string, FormulaScalarValue>;
   private readonly visiting = new Set<string>();
   private readonly stack: { nodeId: string; sheet: Sheet; key: CellKey }[] = [];
 
   constructor(
     private readonly workbook: Workbook,
-    initialResults: ReadonlyMap<string, FormulaDisplayResult> = new Map(),
+    initialResults: ReadonlyMap<string, FormulaScalarValue> = new Map(),
     private readonly onEvaluate?: FormulaEvaluationObserver,
   ) {
     this.results = new Map(initialResults);
   }
 
-  formulaResults(): Map<string, FormulaDisplayResult> {
+  formulaResults(): Map<string, FormulaScalarValue> {
     return new Map(this.results);
   }
 
@@ -680,7 +737,7 @@ class FormulaEvaluator {
       for (const key of Object.keys(sheet.cells).sort()) {
         const result = this.results.get(sheetCellNodeId(sheet.id, key));
         if (result) {
-          sheetResults[key] = result;
+          sheetResults[key] = displayFormulaValue(result);
         }
       }
       snapshot[sheet.id] = sheetResults;
@@ -689,7 +746,7 @@ class FormulaEvaluator {
     return snapshot;
   }
 
-  private evaluateFormulaCell(sheet: Sheet, key: CellKey): FormulaDisplayResult {
+  private evaluateFormulaCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
     const nodeId = sheetCellNodeId(sheet.id, key);
     const cached = this.results.get(nodeId);
     if (cached) {
@@ -699,9 +756,9 @@ class FormulaEvaluator {
     if (this.visiting.has(nodeId)) {
       const cycleStart = this.stack.findIndex((entry) => entry.nodeId === nodeId);
       for (const entry of this.stack.slice(cycleStart)) {
-        this.results.set(entry.nodeId, formulaError('#CYCLE!'));
+        this.results.set(entry.nodeId, formulaErrorValue('#CYCLE!'));
       }
-      return formulaError('#CYCLE!');
+      return formulaErrorValue('#CYCLE!');
     }
 
     const cell = sheet.cells[key];
@@ -713,16 +770,14 @@ class FormulaEvaluator {
     this.visiting.add(nodeId);
     this.stack.push({ nodeId, sheet, key });
 
-    let result: FormulaDisplayResult;
+    let result: FormulaScalarValue;
     const parsed = parseFormula(cell, this.workbook, sheet);
     if (parsed.kind === 'error') {
-      result = formulaError(parsed.error);
+      result = formulaErrorValue(parsed.error);
     } else if (parsed.kind === 'formula') {
-      result = parsed.expression.kind === 'sum'
-        ? this.evaluateSum(parsed.expression, sheet)
-        : formulaError('#VALUE!');
+      result = formulaScalarValue(this.evaluateExpression(parsed.expression, sheet));
     } else {
-      result = formulaError('#PARSE!');
+      result = formulaErrorValue('#PARSE!');
     }
 
     this.stack.pop();
@@ -737,88 +792,100 @@ class FormulaEvaluator {
     return result;
   }
 
-  private evaluateSum(expression: SumFormula, currentSheet: Sheet): FormulaDisplayResult {
+  private evaluateExpression(expression: FormulaExpression, currentSheet: Sheet): FormulaValue {
+    if (expression.kind === 'number') {
+      return Number.isFinite(expression.value)
+        ? { kind: 'number', value: expression.value }
+        : formulaErrorValue('#VALUE!');
+    }
+    if (expression.kind === 'text') {
+      return { kind: 'text', value: expression.value };
+    }
+    if (expression.kind === 'boolean') {
+      return { kind: 'boolean', value: expression.value };
+    }
+    if (expression.kind === 'group') {
+      return this.evaluateExpression(expression.expression, currentSheet);
+    }
+    if (expression.kind === 'sum') {
+      return this.evaluateSum(expression, currentSheet);
+    }
+    return this.evaluateReference(expression, currentSheet);
+  }
+
+  private evaluateSum(expression: SumFormula, currentSheet: Sheet): FormulaScalarValue {
     let total = 0;
 
     for (const argument of expression.arguments) {
-      if (argument.kind !== 'cell' && argument.kind !== 'range') {
-        return formulaError('#VALUE!');
-      }
-      const cells = this.resolveArgumentCells(argument, currentSheet);
-      if (!cells.ok) {
-        return formulaError(cells.error);
-      }
-
-      for (const cell of cells.value) {
-        const value = this.evaluateReferencedCell(cell.sheet, cell.key);
-        if (!value.ok) {
-          return formulaError(value.error);
+      const argumentValue = this.evaluateExpression(argument, currentSheet);
+      for (const value of formulaCollectionValues(argumentValue)) {
+        if (value.kind === 'error') {
+          return value;
         }
-        total += value.value;
+        if (value.kind === 'number') {
+          total += value.value;
+        }
       }
     }
 
-    return numericDisplay(total);
+    return Number.isFinite(total)
+      ? { kind: 'number', value: total }
+      : formulaErrorValue('#VALUE!');
   }
 
-  private resolveArgumentCells(
-    argument: FormulaReference,
+  private evaluateReference(
+    reference: FormulaReference,
     currentSheet: Sheet,
-  ): { ok: true; value: { sheet: Sheet; key: CellKey }[] } | { ok: false; error: FormulaErrorCode } {
-    const sheet = resolveFormulaReferenceSheet(argument, this.workbook, currentSheet);
+  ): FormulaValue {
+    const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
     if (!sheet.ok) {
-      return { ok: false, error: '#REF!' };
+      return formulaErrorValue('#REF!');
     }
 
-    if (argument.kind === 'cell') {
-      if (!isAddressWithinBounds(argument.address, sheet.value)) {
-        return { ok: false, error: '#REF!' };
+    if (reference.kind === 'cell') {
+      if (!isAddressWithinBounds(reference.address, sheet.value)) {
+        return formulaErrorValue('#REF!');
       }
-      return { ok: true, value: [{ sheet: sheet.value, key: cellKey(argument.address) }] };
+      return this.evaluateReferencedCell(sheet.value, cellKey(reference.address));
     }
 
-    const range = expandRange(argument.range, sheet.value);
+    const range = expandRange(reference.range, sheet.value);
     if (!range.ok) {
-      return { ok: false, error: '#REF!' };
+      return formulaErrorValue('#REF!');
     }
 
     return {
-      ok: true,
-      value: range.value.map((address) => ({ sheet: sheet.value, key: cellKey(address) })),
+      kind: 'range',
+      values: this.evaluateRangeCells(sheet.value, range.value),
+      rowCount: reference.range.end.rowIndex - reference.range.start.rowIndex + 1,
+      columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1,
     };
   }
 
-  private evaluateReferencedCell(
+  private *evaluateRangeCells(
     sheet: Sheet,
-    key: CellKey,
-  ): { ok: true; value: number } | { ok: false; error: FormulaErrorCode } {
+    addresses: readonly CellAddress[],
+  ): IterableIterator<FormulaScalarValue> {
+    for (const address of addresses) {
+      yield this.evaluateReferencedCell(sheet, cellKey(address));
+    }
+  }
+
+  private evaluateReferencedCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
     const cell = sheet.cells[key];
-    if (!cell) {
-      return { ok: true, value: 0 };
+    if (cell === undefined) {
+      return { kind: 'blank' };
     }
 
     if (cell.startsWith('=')) {
-      const result = this.evaluateFormulaCell(sheet, key);
-      if (result.kind === 'error') {
-        return { ok: false, error: result.error };
-      }
-      return { ok: true, value: result.value };
+      return this.evaluateFormulaCell(sheet, key);
     }
 
-    const parsed = parseStrictNumber(cell);
-    if (parsed === undefined) {
-      return { ok: false, error: '#VALUE!' };
-    }
-
-    return { ok: true, value: parsed };
+    return classifyCellValue(cell);
   }
 
-  private evaluateLiteralCell(
-    sheet: Sheet,
-    key: CellKey,
-  ): FormulaDisplayResult {
-    const value = parseStrictNumber(sheet.cells[key] ?? '');
-    return value === undefined ? formulaError('#VALUE!') : numericDisplay(value);
+  private evaluateLiteralCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
+    return classifyCellValue(sheet.cells[key] ?? '');
   }
 }
 
@@ -1187,11 +1254,7 @@ class FormulaParser {
   private index = 0;
   private deferredNameError = false;
 
-  constructor(
-    private readonly input: string,
-    private readonly workbook: Workbook,
-    private readonly defaultSheet: Sheet | undefined,
-  ) {}
+  constructor(private readonly input: string) {}
 
   parse(raw: string): FormulaParseResult {
     this.skipWhitespace();
@@ -1213,10 +1276,6 @@ class FormulaParser {
     if (this.deferredNameError) {
       return { kind: 'error', raw, error: '#NAME!' };
     }
-    if (!this.referencesAreValid(expression.value)) {
-      return { kind: 'error', raw, error: '#REF!' };
-    }
-
     return {
       kind: 'formula',
       raw,
@@ -1573,30 +1632,6 @@ class FormulaParser {
 
   private isIdentifierContinuation(char: string): boolean {
     return char.length > 0 && /[A-Za-z0-9_]/.test(char);
-  }
-
-  private referencesAreValid(expression: FormulaExpression): boolean {
-    if (expression.kind === 'number' || expression.kind === 'text' || expression.kind === 'boolean') {
-      return true;
-    }
-    if (expression.kind === 'group') {
-      return this.referencesAreValid(expression.expression);
-    }
-    if (expression.kind === 'sum') {
-      return expression.arguments.every((argument) => this.referencesAreValid(argument));
-    }
-
-    const sheet = resolveFormulaReferenceSheet(expression, this.workbook, this.defaultSheet);
-    if (!sheet.ok) {
-      return false;
-    }
-    if (expression.kind === 'cell') {
-      return isAddressWithinBounds(expression.address, sheet.value);
-    }
-    return (
-      isAddressWithinBounds(expression.range.start, sheet.value)
-      && isAddressWithinBounds(expression.range.end, sheet.value)
-    );
   }
 
   private sourceSpan(startIndex: number): FormulaSourceSpan {
