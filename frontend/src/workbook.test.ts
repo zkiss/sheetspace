@@ -11,6 +11,7 @@ import {
   evaluateFormulaCells,
   expandRange,
   findSheetByName,
+  FormulaCalculation,
   formulaRawForDisplay,
   formulaRawForStorage,
   formulaSheetReferenceIds,
@@ -938,5 +939,124 @@ describe('formula evaluator', () => {
     expect(results['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-2'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(workbook.sheets[0].cells.A1).toBe('=SUM(A1)');
+  });
+});
+
+describe('incremental formula calculation', () => {
+  function sheetWithCells(id: string, name: string, cells: Sheet['cells']): Sheet {
+    return { ...sheet(id, name), cells };
+  }
+
+  it('recomputes direct and transitive diamond dependents without evaluating unrelated formulas', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '1',
+      B1: '=SUM(A1)',
+      C1: '=SUM(B1)',
+      D1: '=SUM(A1)',
+      E1: '=SUM(C1,D1)',
+      H1: '10',
+      I1: '=SUM(H1)',
+    });
+    const workbook = { version: 1 as const, sheets: [inputs] };
+    calculation.update(workbook);
+    const evaluated: string[] = [];
+
+    const nextWorkbook = commitCellRawContent(workbook, 'sheet-1', 'A1', '2');
+    const results = calculation.update(nextWorkbook, (sheetId, key) => evaluated.push(`${sheetId}:${key}`));
+
+    expect(new Set(evaluated)).toEqual(new Set([
+      'sheet-1:B1',
+      'sheet-1:C1',
+      'sheet-1:D1',
+      'sheet-1:E1',
+    ]));
+    expect(results['sheet-1'].E1).toMatchObject({ kind: 'number', value: 4 });
+    expect(results['sheet-1'].I1).toMatchObject({ kind: 'number', value: 10 });
+  });
+
+  it('invalidates range and cross-sheet dependency paths by stable sheet id', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '2', A2: '3' });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=SUM(sheet-inputs!A1:A2)',
+      A2: '=SUM(A1)',
+      B1: '=SUM(B2)',
+      B2: '9',
+    });
+    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    calculation.update(workbook);
+    const evaluated: string[] = [];
+
+    const nextWorkbook = commitCellRawContent(workbook, 'sheet-inputs', 'A2', '8');
+    const results = calculation.update(nextWorkbook, (_sheetId, key) => evaluated.push(key));
+
+    expect(new Set(evaluated)).toEqual(new Set(['A1', 'A2']));
+    expect(results['sheet-outputs'].A2).toMatchObject({ kind: 'number', value: 10 });
+    expect(results['sheet-outputs'].B1).toMatchObject({ kind: 'number', value: 9 });
+  });
+
+  it('removes stale edges when formulas change or clear', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '1',
+      B1: '10',
+      C1: '=SUM(A1)',
+      D1: '=SUM(C1)',
+    });
+    let workbook = { version: 1 as const, sheets: [inputs] };
+    calculation.update(workbook);
+
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'C1', '=SUM(B1)');
+    calculation.update(workbook);
+    const stalePathEvaluated: string[] = [];
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'A1', '2');
+    calculation.update(workbook, (_sheetId, key) => stalePathEvaluated.push(key));
+    expect(stalePathEvaluated).toEqual([]);
+
+    const replacementPathEvaluated: string[] = [];
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '20');
+    expect(calculation.update(workbook, (_sheetId, key) => replacementPathEvaluated.push(key))['sheet-1'].D1)
+      .toMatchObject({ kind: 'number', value: 20 });
+    expect(new Set(replacementPathEvaluated)).toEqual(new Set(['C1', 'D1']));
+
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'C1', '');
+    expect(calculation.update(workbook)['sheet-1'].D1).toMatchObject({ kind: 'number', value: 0 });
+    const clearedPathEvaluated: string[] = [];
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '30');
+    calculation.update(workbook, (_sheetId, key) => clearedPathEvaluated.push(key));
+    expect(clearedPathEvaluated).toEqual([]);
+  });
+
+  it('preserves cross-sheet identity through rename and reload, then isolates deleted-target errors', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '7' });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=SUM(sheet-inputs!A1)',
+      B1: '=SUM(B2)',
+      B2: '4',
+    });
+    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    calculation.update(workbook);
+    const renamed = renameSheet(workbook, 'sheet-inputs', 'Renamed Inputs');
+    expect(renamed.ok).toBe(true);
+    if (!renamed.ok) {
+      return;
+    }
+    const renamedEvaluations: string[] = [];
+    expect(calculation.update(renamed.value, (_sheetId, key) => renamedEvaluations.push(key))['sheet-outputs'].A1)
+      .toMatchObject({ kind: 'number', value: 7 });
+    expect(renamedEvaluations).toEqual([]);
+
+    const reloaded = new FormulaCalculation().update(renamed.value);
+    expect(reloaded['sheet-outputs'].A1).toMatchObject({ kind: 'number', value: 7 });
+
+    const deleted = {
+      ...renamed.value,
+      sheets: renamed.value.sheets.filter((candidate) => candidate.id !== 'sheet-inputs'),
+    };
+    const deletedResults = calculation.update(deleted);
+    expect(deletedResults['sheet-outputs'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(deletedResults['sheet-outputs'].B1).toMatchObject({ kind: 'number', value: 4 });
   });
 });
