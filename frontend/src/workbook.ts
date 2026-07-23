@@ -1042,7 +1042,7 @@ class FormulaParser {
     const startIndex = this.index;
 
     if (this.consume('(')) {
-      const expression = this.readExpression(validateSemantics);
+      const expression = this.readExpression(false);
       if (!expression.ok) {
         return expression;
       }

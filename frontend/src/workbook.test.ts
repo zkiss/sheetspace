@@ -699,6 +699,13 @@ describe('formula parser', () => {
       raw: '=SUM(NOPE())',
       error: '#NAME!',
     });
+    for (const raw of ['=(NOPE())', '=((NOPE(A1)))']) {
+      expect(parseFormula(raw, workbook, inputs)).toEqual({
+        kind: 'error',
+        raw,
+        error: '#NAME!',
+      });
+    }
   });
 
   it('reports invalid syntax as #PARSE!', () => {
