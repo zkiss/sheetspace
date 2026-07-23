@@ -33,7 +33,3 @@ Formulas make sheets more than static tables. The formula engine should grow del
 - Text basics: `CONCAT`, `LEFT`, `RIGHT`, `LEN`.
 - Logical: `AND`, `OR`, `NOT`.
 - Arithmetic and comparison operators.
-
-## Delivery Notes
-
-Exact syntax and evaluation rules belong to the roadmap phase or executable Beads that introduce them. This brief records product direction rather than serving as a live formula-language specification.
