@@ -6,7 +6,7 @@ import {
   commitCellRawContent,
   createSheet,
   createEmptyWorkbook,
-  evaluateFormulaCells,
+  FormulaCalculation,
   formulaSheetReferenceIds,
   moveSheetZOrder,
   remapWorkbookFormulaSheetId,
@@ -58,6 +58,7 @@ export function useWorkbookController({
   const resolvedApiClient = apiClient ?? workbookApi;
   const autosaveEnabled = !initialWorkbook || Boolean(apiClient);
   const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
+  const formulaCalculation = useRef(new FormulaCalculation());
   const pendingSheets = useRef(new Map<string, string>());
   const suppressedSheetIds = useRef(new Set<string>());
   const unresolvedCreateNames = useRef(new Map<string, string>());
@@ -88,7 +89,7 @@ export function useWorkbookController({
     resolvedApiClient,
     setWorkbook,
   });
-  const formulaResults = useMemo(() => evaluateFormulaCells(workbook), [workbook]);
+  const formulaResults = useMemo(() => formulaCalculation.current.update(workbook), [workbook]);
 
   function persistDeletedSheet(savedSheetId: string, revision: number | undefined) {
     return getApiMethod('deleteSheet')(savedSheetId, { revision }).catch((cause: unknown) => {
