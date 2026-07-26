@@ -235,6 +235,23 @@ describe('App cell editing integration', () => {
     expect(reopenedEditor).toHaveValue('=SUM(B1:B2)');
   });
 
+  it('displays arithmetic results while preserving raw arithmetic for editing', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: { A1: '4', B1: '3' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const cell = screen.getByRole('cell', { name: 'Inputs C1 empty cell' });
+    const editor = await openCellEditor(user, cell);
+    await user.type(editor, '=-(A1 + 2) * B1 / 3');
+    await user.keyboard('{Enter}');
+
+    expect(cell).toHaveTextContent('-6');
+    expect(await openCellEditor(user, cell)).toHaveValue('=-(A1 + 2) * B1 / 3');
+  });
+
   it('commits an active edit when selection moves within a sheet', async () => {
     const user = userEvent.setup();
     render(

@@ -122,6 +122,25 @@ describe('App formula integration', () => {
     expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('7');
   });
 
+  it('displays and edits unary-minus cross-sheet formulas without losing the qualifier', async () => {
+    const user = userEvent.setup();
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: { A1: '2' },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
+      cells: { A1: '=-sheet-inputs!A1' },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const formulaCell = within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('-2');
+    expect(await openCellEditor(user, formulaCell)).toHaveValue('=-Inputs!A1');
+  });
+
   it('keeps cross-sheet formulas bound by sheet id after target rename', async () => {
     const user = userEvent.setup();
     const inputs = {
