@@ -141,6 +141,25 @@ describe('App formula integration', () => {
     expect(await openCellEditor(user, formulaCell)).toHaveValue('=-Inputs!A1');
   });
 
+  it('displays boolean comparison results and preserves raw formula text for editing', async () => {
+    const user = userEvent.setup();
+    const rawFormula = '= A1 + 2 \n >= B1';
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: '3',
+        B1: '5',
+        C1: rawFormula,
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs C1 cell' });
+    expect(formulaCell).toHaveTextContent('TRUE');
+    expect(await openCellEditor(user, formulaCell)).toHaveValue(rawFormula);
+  });
+
   it('keeps cross-sheet formulas bound by sheet id after target rename', async () => {
     const user = userEvent.setup();
     const inputs = {

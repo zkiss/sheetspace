@@ -554,6 +554,42 @@ describe('formula parser', () => {
     });
   });
 
+  it.each(['=', '<>', '<', '<=', '>', '>='] as const)(
+    'parses comparison operator %s below arithmetic precedence',
+    (operator) => {
+      const { workbook, inputs } = formulaWorkbook();
+      const raw = `=1+2*3 ${operator} 8-1`;
+
+      expect(parseFormula(raw, workbook, inputs)).toMatchObject({
+        kind: 'formula',
+        raw,
+        expression: {
+          kind: 'binary',
+          operator,
+          sourceSpan: { start: 1, end: raw.length },
+          left: {
+            kind: 'binary',
+            operator: '+',
+            right: { kind: 'binary', operator: '*' },
+          },
+          right: { kind: 'binary', operator: '-' },
+        },
+      });
+    },
+  );
+
+  it.each(['=1<2<3', '=1<>2=TRUE', '=1>=2<=3'])(
+    'rejects chained comparison %s',
+    (raw) => {
+      const { workbook, inputs } = formulaWorkbook();
+      expect(parseFormula(raw, workbook, inputs)).toEqual({
+        kind: 'error',
+        raw,
+        error: '#PARSE!',
+      });
+    },
+  );
+
   it.each(['=1+', '=1*/2', '=+', '=1 2'])('rejects malformed arithmetic %s', (raw) => {
     const { workbook, inputs } = formulaWorkbook();
     expect(parseFormula(raw, workbook, inputs)).toEqual({ kind: 'error', raw, error: '#PARSE!' });
@@ -982,6 +1018,77 @@ describe('formula evaluator', () => {
     expect(results.B7).toMatchObject({ kind: 'number', value: 3 });
   });
 
+  it('evaluates every comparison operator with equal and unequal numeric boundaries', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '=2=2',
+      A2: '=2<>3',
+      A3: '=2<3',
+      A4: '=2<=2',
+      A5: '=3>2',
+      A6: '=3>=3',
+      A7: '=2>3',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    for (const key of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']) {
+      expect(results[key]).toEqual({ kind: 'boolean', value: true, display: 'TRUE' });
+    }
+    expect(results.A7).toEqual({ kind: 'boolean', value: false, display: 'FALSE' });
+  });
+
+  it('compares text by Unicode code point, booleans FALSE before TRUE, and blank with blank', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '="A"<"a"',
+      A2: '="\u{10000}">"\u{E000}"',
+      A3: '=FALSE<TRUE',
+      A4: '=TRUE>=TRUE',
+      A5: '=B1=B2',
+      A6: '=B1<=B2',
+      A7: '=B1<>B2',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    for (const key of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']) {
+      expect(results[key]).toMatchObject({ kind: 'boolean', value: true });
+    }
+    expect(results.A7).toMatchObject({ kind: 'boolean', value: false });
+  });
+
+  it('applies arithmetic before comparisons and compares same-sheet and cross-sheet references', () => {
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', {
+      A1: '3',
+      A2: '4',
+      B1: '=A1*2>=A2+2',
+    });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=sheet-inputs!A1<sheet-inputs!A2',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+
+    expect(results['sheet-inputs'].B1).toMatchObject({ kind: 'boolean', value: true });
+    expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'boolean', value: true });
+  });
+
+  it('returns #VALUE! for mixed categories and ranges, and propagates operand errors left to right', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '=1="1"',
+      A2: '=TRUE=1',
+      A3: '=B1=B2',
+      A4: '=B1:B2=B1:B2',
+      A5: '=Missing!A1=(1/0)',
+      A6: '=(1/0)=Missing!A1',
+      B1: '',
+      B2: 'text',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    for (const key of ['A1', 'A2', 'A3', 'A4']) {
+      expect(results[key]).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    }
+    expect(results.A5).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(results.A6).toMatchObject({ kind: 'error', error: '#DIV/0!' });
+  });
+
   it('propagates arithmetic operand errors from left to right', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '=Missing!A1 + (1/0)',
@@ -1246,6 +1353,27 @@ describe('incremental formula calculation', () => {
     expect(evaluated).toEqual(['sheet-outputs:A1']);
     expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'number', value: -14 });
     expect(results['sheet-outputs'].B1).toMatchObject({ kind: 'number', value: 11 });
+  });
+
+  it('tracks dependencies inside comparison operands', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '2' });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=sheet-inputs!A1 + 1 >= 4',
+      B1: '=10>5',
+    });
+    calculation.update({ version: 1 as const, sheets: [inputs, outputs] });
+
+    const evaluated: string[] = [];
+    const nextInputs = { ...inputs, cells: { ...inputs.cells, A1: '3' } };
+    const results = calculation.update(
+      { version: 1 as const, sheets: [nextInputs, outputs] },
+      (sheetId, key) => evaluated.push(`${sheetId}:${key}`),
+    );
+
+    expect(evaluated).toEqual(['sheet-outputs:A1']);
+    expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'boolean', value: true });
+    expect(results['sheet-outputs'].B1).toMatchObject({ kind: 'boolean', value: true });
   });
 
   it('invalidates range and cross-sheet dependency paths by stable sheet id', () => {
