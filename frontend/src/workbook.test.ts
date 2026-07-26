@@ -505,6 +505,60 @@ describe('formula parser', () => {
     });
   });
 
+  it('parses arithmetic with conventional precedence, associativity, unary operators, and spans', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('=1+2*3-4/2', workbook, inputs)).toEqual({
+      kind: 'formula',
+      raw: '=1+2*3-4/2',
+      expression: {
+        kind: 'binary',
+        operator: '-',
+        sourceSpan: { start: 1, end: 10 },
+        left: {
+          kind: 'binary',
+          operator: '+',
+          sourceSpan: { start: 1, end: 6 },
+          left: { kind: 'number', value: 1, sourceSpan: { start: 1, end: 2 } },
+          right: {
+            kind: 'binary',
+            operator: '*',
+            sourceSpan: { start: 3, end: 6 },
+            left: { kind: 'number', value: 2, sourceSpan: { start: 3, end: 4 } },
+            right: { kind: 'number', value: 3, sourceSpan: { start: 5, end: 6 } },
+          },
+        },
+        right: {
+          kind: 'binary',
+          operator: '/',
+          sourceSpan: { start: 7, end: 10 },
+          left: { kind: 'number', value: 4, sourceSpan: { start: 7, end: 8 } },
+          right: { kind: 'number', value: 2, sourceSpan: { start: 9, end: 10 } },
+        },
+      },
+    });
+
+    expect(parseFormula('=-(A1+2)', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        kind: 'unary',
+        operator: '-',
+        operand: {
+          kind: 'group',
+          expression: {
+            kind: 'binary',
+            operator: '+',
+          },
+        },
+      },
+    });
+  });
+
+  it.each(['=1+', '=1*/2', '=+', '=1 2'])('rejects malformed arithmetic %s', (raw) => {
+    const { workbook, inputs } = formulaWorkbook();
+    expect(parseFormula(raw, workbook, inputs)).toEqual({ kind: 'error', raw, error: '#PARSE!' });
+  });
+
   it('parses zero-argument SUM as an empty call', () => {
     const { workbook, inputs } = formulaWorkbook();
 
@@ -650,6 +704,36 @@ describe('formula parser', () => {
     );
   });
 
+  it('canonicalizes cross-sheet references used as arithmetic operands', () => {
+    const { workbook } = formulaWorkbook();
+
+    expect(formulaRawForStorage("=Inputs!A1+'Sales Q1'!B2*2", workbook)).toBe(
+      '=sheet-1!A1+sheet-3!B2*2',
+    );
+    expect(formulaRawForStorage('=-Inputs!A1', workbook)).toBe('=-sheet-1!A1');
+    expect(formulaRawForStorage('=A1-Inputs!A1', workbook)).toBe('=A1-sheet-1!A1');
+    expect(formulaRawForStorage('=A1--Inputs!A1', workbook)).toBe('=A1--sheet-1!A1');
+    expect(formulaRawForStorage('=Inputs!A1-Outputs!A1', workbook)).toBe(
+      '=sheet-1!A1-sheet-2!A1',
+    );
+    expect(formulaRawForStorage("=Inputs!A1-Outputs!A1-'Sales Q1'!A1", workbook)).toBe(
+      '=sheet-1!A1-sheet-2!A1-sheet-3!A1',
+    );
+
+    const uuid = '123e4567-e89b-12d3-a456-426614174000';
+    const secondUuid = '223e4567-e89b-12d3-a456-426614174001';
+    workbook.sheets.push(sheet(uuid, 'UUID inputs'));
+    workbook.sheets.push(sheet(secondUuid, 'UUID outputs'));
+    expect(formulaRawForDisplay(`=-${uuid}!A1`, workbook)).toBe("=-'UUID inputs'!A1");
+    expect(formulaRawForDisplay(`=${uuid}!A1-sheet-1!A1-sheet-2!A1`, workbook)).toBe(
+      "='UUID inputs'!A1-Inputs!A1-Outputs!A1",
+    );
+    expect(formulaRawForDisplay(`=A1-${uuid}!A1`, workbook)).toBe("=A1-'UUID inputs'!A1");
+    expect(formulaRawForDisplay(`=${uuid}!A1-${secondUuid}!A1`, workbook)).toBe(
+      "='UUID inputs'!A1-'UUID outputs'!A1",
+    );
+  });
+
   it('does not canonicalize sheet-like references inside text literals', () => {
     const { workbook } = formulaWorkbook();
     const raw = '=SUM("Inputs!A1 and ""Sales Q1!B2""", Inputs!A1)';
@@ -712,6 +796,23 @@ describe('formula parser', () => {
         error: '#NAME!',
       });
     }
+  });
+
+  it('resolves unknown function names after parsing complete arithmetic syntax', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    for (const raw of ['=NOPE()+1', '=1+NOPE()']) {
+      expect(parseFormula(raw, workbook, inputs)).toEqual({
+        kind: 'error',
+        raw,
+        error: '#NAME!',
+      });
+    }
+    expect(parseFormula('=NOPE()+', workbook, inputs)).toEqual({
+      kind: 'error',
+      raw: '=NOPE()+',
+      error: '#PARSE!',
+    });
   });
 
   it('reports invalid syntax as #PARSE!', () => {
@@ -832,6 +933,64 @@ describe('formula evaluator', () => {
       value: 25,
       display: '25',
     });
+  });
+
+  it('evaluates arithmetic precedence, grouping, associativity, unary chains, and references', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '8',
+      A2: '2',
+      B1: '=1+2*3',
+      B2: '=(1+2)*3',
+      B3: '=10-3-2',
+      B4: '=--A1 + +A2',
+      B5: '=-(A1+2)',
+    });
+    const outputs = sheetWithCells('sheet-2', 'Outputs', {
+      A1: '=sheet-1!A1/sheet-1!A2',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+
+    expect(results['sheet-1'].B1).toMatchObject({ kind: 'number', value: 7 });
+    expect(results['sheet-1'].B2).toMatchObject({ kind: 'number', value: 9 });
+    expect(results['sheet-1'].B3).toMatchObject({ kind: 'number', value: 5 });
+    expect(results['sheet-1'].B4).toMatchObject({ kind: 'number', value: 10 });
+    expect(results['sheet-1'].B5).toMatchObject({ kind: 'number', value: -10 });
+    expect(results['sheet-2'].A1).toMatchObject({ kind: 'number', value: 4 });
+  });
+
+  it('returns typed arithmetic errors and isolates unrelated cells', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: 'text',
+      A2: '',
+      A3: 'TRUE',
+      B1: '=1/0',
+      B2: '=1/-0',
+      B3: '=A1+1',
+      B4: '=A2*2',
+      B5: '=-A3',
+      B6: '=1e308*2',
+      B7: '=6/2',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    expect(results.B1).toMatchObject({ kind: 'error', error: '#DIV/0!' });
+    expect(results.B2).toMatchObject({ kind: 'error', error: '#DIV/0!' });
+    expect(results.B3).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.B4).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.B5).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.B6).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.B7).toMatchObject({ kind: 'number', value: 3 });
+  });
+
+  it('propagates arithmetic operand errors from left to right', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '=Missing!A1 + (1/0)',
+      A2: '=(1/0) + Missing!A1',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    expect(results.A1).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(results.A2).toMatchObject({ kind: 'error', error: '#DIV/0!' });
   });
 
   it('evaluates persisted sheet references by uuid after the target is renamed', () => {
@@ -1063,6 +1222,30 @@ describe('incremental formula calculation', () => {
     ]));
     expect(results['sheet-1'].E1).toMatchObject({ kind: 'number', value: 4 });
     expect(results['sheet-1'].I1).toMatchObject({ kind: 'number', value: 10 });
+  });
+
+  it('tracks dependencies nested in unary and binary arithmetic expressions', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', {
+      A1: '2',
+      B1: '10',
+    });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=-(sheet-inputs!A1 + 3) * 2',
+      B1: '=sheet-inputs!B1 + 1',
+    });
+    calculation.update({ version: 1 as const, sheets: [inputs, outputs] });
+
+    const evaluated: string[] = [];
+    const nextInputs = { ...inputs, cells: { ...inputs.cells, A1: '4' } };
+    const results = calculation.update(
+      { version: 1 as const, sheets: [nextInputs, outputs] },
+      (sheetId, key) => evaluated.push(`${sheetId}:${key}`),
+    );
+
+    expect(evaluated).toEqual(['sheet-outputs:A1']);
+    expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'number', value: -14 });
+    expect(results['sheet-outputs'].B1).toMatchObject({ kind: 'number', value: 11 });
   });
 
   it('invalidates range and cross-sheet dependency paths by stable sheet id', () => {
