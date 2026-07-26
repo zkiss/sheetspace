@@ -1302,7 +1302,7 @@ function hasA1ReferenceAfter(raw: string, separatorIndex: number): boolean {
   }
 
   const nextChar = raw[referenceStart + match[0].length];
-  return !nextChar || /\s/.test(nextChar) || /[:,)+\-*/]/.test(nextChar);
+  return !nextChar || /\s/.test(nextChar) || /[:,)+\-*/=<>]/.test(nextChar);
 }
 
 function findLastNonWhitespaceIndex(input: string): number {
@@ -1328,6 +1328,8 @@ function findSheetReferenceTokenStart(raw: string, endIndex: number): number | u
         raw.lastIndexOf('+', endIndex - 1),
         raw.lastIndexOf('*', endIndex - 1),
         raw.lastIndexOf('/', endIndex - 1),
+        raw.lastIndexOf('<', endIndex - 1),
+        raw.lastIndexOf('>', endIndex - 1),
       ) + 1;
     boundary = advancePastUnaryMinuses(raw, boundary, endIndex);
     const candidate = raw.slice(boundary, endIndex).trim();
@@ -1382,7 +1384,7 @@ function advancePastUnaryMinuses(raw: string, startIndex: number, endIndex: numb
 function parseSheetReferenceToken(token: string): { sheetName: string } | undefined {
   const trimmedToken = token.trim();
   if (!trimmedToken.startsWith("'")) {
-    return trimmedToken.length > 0 && !/[(),"'\!+*/]/.test(trimmedToken)
+    return trimmedToken.length > 0 && !/[(),"'\!+*/=<>]/.test(trimmedToken)
       ? { sheetName: trimmedToken }
       : undefined;
   }
@@ -1945,7 +1947,7 @@ class FormulaParser {
       if (char === '!') {
         return cursor;
       }
-      if (char === '(' || char === ',' || char === ')' || char === ':' || /[+*/]/.test(char)) {
+      if (char === '(' || char === ',' || char === ')' || char === ':' || /[+*/=<>]/.test(char)) {
         return -1;
       }
       if (

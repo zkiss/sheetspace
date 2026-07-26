@@ -590,6 +590,32 @@ describe('formula parser', () => {
     },
   );
 
+  it.each(['=', '<>', '<', '<=', '>', '>='] as const)(
+    'parses either canonical cross-sheet operand adjacent to comparison operator %s',
+    (operator) => {
+      const { workbook, inputs } = formulaWorkbook();
+
+      expect(parseFormula(`=A1${operator}sheet-2!B1`, workbook, inputs)).toMatchObject({
+        kind: 'formula',
+        expression: {
+          kind: 'binary',
+          operator,
+          left: { kind: 'cell' },
+          right: { kind: 'cell', sheetId: 'sheet-2' },
+        },
+      });
+      expect(parseFormula(`=sheet-2!B1${operator}A1`, workbook, inputs)).toMatchObject({
+        kind: 'formula',
+        expression: {
+          kind: 'binary',
+          operator,
+          left: { kind: 'cell', sheetId: 'sheet-2' },
+          right: { kind: 'cell' },
+        },
+      });
+    },
+  );
+
   it.each(['=1+', '=1*/2', '=+', '=1 2'])('rejects malformed arithmetic %s', (raw) => {
     const { workbook, inputs } = formulaWorkbook();
     expect(parseFormula(raw, workbook, inputs)).toEqual({ kind: 'error', raw, error: '#PARSE!' });
@@ -769,6 +795,26 @@ describe('formula parser', () => {
       "='UUID inputs'!A1-'UUID outputs'!A1",
     );
   });
+
+  it.each(['=', '<>', '<', '<=', '>', '>='] as const)(
+    'canonicalizes and displays cross-sheet references adjacent to comparison operator %s',
+    (operator) => {
+      const { workbook } = formulaWorkbook();
+
+      expect(formulaRawForStorage(`=Inputs!A1${operator}2`, workbook)).toBe(
+        `=sheet-1!A1${operator}2`,
+      );
+      expect(formulaRawForStorage(`=2${operator}Inputs!A1`, workbook)).toBe(
+        `=2${operator}sheet-1!A1`,
+      );
+      expect(formulaRawForDisplay(`=sheet-1!A1${operator}2`, workbook)).toBe(
+        `=Inputs!A1${operator}2`,
+      );
+      expect(formulaRawForDisplay(`=2${operator}sheet-1!A1`, workbook)).toBe(
+        `=2${operator}Inputs!A1`,
+      );
+    },
+  );
 
   it('does not canonicalize sheet-like references inside text literals', () => {
     const { workbook } = formulaWorkbook();
@@ -1061,12 +1107,15 @@ describe('formula evaluator', () => {
       B1: '=A1*2>=A2+2',
     });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=sheet-inputs!A1<sheet-inputs!A2',
+      A1: '=B1<sheet-inputs!A2',
+      A2: '=sheet-inputs!A1>B1',
+      B1: '2',
     });
     const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
 
     expect(results['sheet-inputs'].B1).toMatchObject({ kind: 'boolean', value: true });
     expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'boolean', value: true });
+    expect(results['sheet-outputs'].A2).toMatchObject({ kind: 'boolean', value: true });
   });
 
   it('returns #VALUE! for mixed categories and ranges, and propagates operand errors left to right', () => {
@@ -1359,7 +1408,8 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '2' });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=sheet-inputs!A1 + 1 >= 4',
+      A1: '=4<=sheet-inputs!A1 + 1',
+      A2: '=sheet-inputs!A1 + 1>=4',
       B1: '=10>5',
     });
     calculation.update({ version: 1 as const, sheets: [inputs, outputs] });
@@ -1371,8 +1421,9 @@ describe('incremental formula calculation', () => {
       (sheetId, key) => evaluated.push(`${sheetId}:${key}`),
     );
 
-    expect(evaluated).toEqual(['sheet-outputs:A1']);
+    expect(evaluated).toEqual(['sheet-outputs:A1', 'sheet-outputs:A2']);
     expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'boolean', value: true });
+    expect(results['sheet-outputs'].A2).toMatchObject({ kind: 'boolean', value: true });
     expect(results['sheet-outputs'].B1).toMatchObject({ kind: 'boolean', value: true });
   });
 
