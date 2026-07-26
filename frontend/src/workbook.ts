@@ -115,7 +115,7 @@ export type UnaryFormula = {
 
 export type BinaryFormula = {
   kind: 'binary';
-  operator: '+' | '-' | '*' | '/';
+  operator: '+' | '-' | '*' | '/' | '=' | '<>' | '<' | '<=' | '>' | '>=';
   left: FormulaExpression;
   right: FormulaExpression;
   sourceSpan: FormulaSourceSpan;
@@ -726,6 +726,72 @@ export function displayFormulaValue(value: FormulaScalarValue): FormulaDisplayRe
   }
 }
 
+function isComparisonOperator(
+  operator: BinaryFormula['operator'],
+): operator is '=' | '<>' | '<' | '<=' | '>' | '>=' {
+  return operator === '='
+    || operator === '<>'
+    || operator === '<'
+    || operator === '<='
+    || operator === '>'
+    || operator === '>=';
+}
+
+function compareFormulaScalars(
+  left: FormulaScalarValue,
+  right: FormulaScalarValue,
+): -1 | 0 | 1 | undefined {
+  if (left.kind === 'number' && right.kind === 'number') {
+    return left.value < right.value ? -1 : left.value > right.value ? 1 : 0;
+  }
+  if (left.kind === 'text' && right.kind === 'text') {
+    return compareTextByCodePoint(left.value, right.value);
+  }
+  if (left.kind === 'boolean' && right.kind === 'boolean') {
+    return left.value === right.value ? 0 : left.value ? 1 : -1;
+  }
+  if (left.kind === 'blank' && right.kind === 'blank') {
+    return 0;
+  }
+  return undefined;
+}
+
+function compareTextByCodePoint(left: string, right: string): -1 | 0 | 1 {
+  const leftCodePoints = [...left].map((value) => value.codePointAt(0) as number);
+  const rightCodePoints = [...right].map((value) => value.codePointAt(0) as number);
+  const sharedLength = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    if (leftCodePoints[index] !== rightCodePoints[index]) {
+      return leftCodePoints[index] < rightCodePoints[index] ? -1 : 1;
+    }
+  }
+  return leftCodePoints.length < rightCodePoints.length
+    ? -1
+    : leftCodePoints.length > rightCodePoints.length
+      ? 1
+      : 0;
+}
+
+function applyComparisonOperator(
+  comparison: -1 | 0 | 1,
+  operator: '=' | '<>' | '<' | '<=' | '>' | '>=',
+): boolean {
+  switch (operator) {
+    case '=':
+      return comparison === 0;
+    case '<>':
+      return comparison !== 0;
+    case '<':
+      return comparison < 0;
+    case '<=':
+      return comparison <= 0;
+    case '>':
+      return comparison > 0;
+    case '>=':
+      return comparison >= 0;
+  }
+}
+
 class FormulaEvaluator {
   private readonly results: Map<string, FormulaScalarValue>;
   private readonly visiting = new Set<string>();
@@ -860,15 +926,24 @@ class FormulaEvaluator {
     if (left.kind === 'error') {
       return left;
     }
-    if (left.kind !== 'number') {
-      return formulaErrorValue('#VALUE!');
-    }
 
     const right = formulaScalarValue(this.evaluateExpression(expression.right, currentSheet));
     if (right.kind === 'error') {
       return right;
     }
-    if (right.kind !== 'number') {
+
+    if (isComparisonOperator(expression.operator)) {
+      if (left.kind !== right.kind) {
+        return formulaErrorValue('#VALUE!');
+      }
+
+      const comparison = compareFormulaScalars(left, right);
+      return comparison === undefined
+        ? formulaErrorValue('#VALUE!')
+        : { kind: 'boolean', value: applyComparisonOperator(comparison, expression.operator) };
+    }
+
+    if (left.kind !== 'number' || right.kind !== 'number') {
       return formulaErrorValue('#VALUE!');
     }
     if (expression.operator === '/' && right.value === 0) {
@@ -1227,7 +1302,7 @@ function hasA1ReferenceAfter(raw: string, separatorIndex: number): boolean {
   }
 
   const nextChar = raw[referenceStart + match[0].length];
-  return !nextChar || /\s/.test(nextChar) || /[:,)+\-*/]/.test(nextChar);
+  return !nextChar || /\s/.test(nextChar) || /[:,)+\-*/=<>]/.test(nextChar);
 }
 
 function findLastNonWhitespaceIndex(input: string): number {
@@ -1253,6 +1328,8 @@ function findSheetReferenceTokenStart(raw: string, endIndex: number): number | u
         raw.lastIndexOf('+', endIndex - 1),
         raw.lastIndexOf('*', endIndex - 1),
         raw.lastIndexOf('/', endIndex - 1),
+        raw.lastIndexOf('<', endIndex - 1),
+        raw.lastIndexOf('>', endIndex - 1),
       ) + 1;
     boundary = advancePastUnaryMinuses(raw, boundary, endIndex);
     const candidate = raw.slice(boundary, endIndex).trim();
@@ -1307,7 +1384,7 @@ function advancePastUnaryMinuses(raw: string, startIndex: number, endIndex: numb
 function parseSheetReferenceToken(token: string): { sheetName: string } | undefined {
   const trimmedToken = token.trim();
   if (!trimmedToken.startsWith("'")) {
-    return trimmedToken.length > 0 && !/[(),"'\!+*/]/.test(trimmedToken)
+    return trimmedToken.length > 0 && !/[(),"'\!+*/=<>]/.test(trimmedToken)
       ? { sheetName: trimmedToken }
       : undefined;
   }
@@ -1416,7 +1493,51 @@ class FormulaParser {
   private readExpression(
     validateSemantics = true,
   ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
-    return this.readAdditiveExpression(validateSemantics);
+    return this.readComparisonExpression(validateSemantics);
+  }
+
+  private readComparisonExpression(
+    validateSemantics: boolean,
+  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
+    const left = this.readAdditiveExpression(validateSemantics);
+    if (!left.ok) {
+      return left;
+    }
+
+    this.skipWhitespace();
+    const operator = this.readComparisonOperator();
+    if (!operator) {
+      return left;
+    }
+
+    const right = this.readAdditiveExpression(false);
+    if (!right.ok) {
+      return right;
+    }
+
+    return {
+      ok: true,
+      value: {
+        kind: 'binary',
+        operator,
+        left: left.value,
+        right: right.value,
+        sourceSpan: {
+          start: left.value.sourceSpan.start,
+          end: right.value.sourceSpan.end,
+        },
+      },
+    };
+  }
+
+  private readComparisonOperator(): '=' | '<>' | '<' | '<=' | '>' | '>=' | undefined {
+    for (const operator of ['<>', '<=', '>=', '=', '<', '>'] as const) {
+      if (this.input.startsWith(operator, this.index)) {
+        this.index += operator.length;
+        return operator;
+      }
+    }
+    return undefined;
   }
 
   private readAdditiveExpression(
@@ -1826,7 +1947,7 @@ class FormulaParser {
       if (char === '!') {
         return cursor;
       }
-      if (char === '(' || char === ',' || char === ')' || char === ':' || /[+*/]/.test(char)) {
+      if (char === '(' || char === ',' || char === ')' || char === ':' || /[+*/=<>]/.test(char)) {
         return -1;
       }
       if (
