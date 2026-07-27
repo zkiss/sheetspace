@@ -33,13 +33,13 @@ done
 
 if [ -n "$session_id" ]; then
   printf 'Session ID: %s\n' "$session_id"
-  printf 'To view session: codex resume %s\n\n' "$session_id"
+  printf 'To view session: codex resume %s' "$session_id"
 fi
 
 wait "$codex_pid"
 status=$?
 
-printf 'Final AI response:\n'
+printf '\n\nFinal AI response:\n'
 cat "$last"
 printf '\n'
 
