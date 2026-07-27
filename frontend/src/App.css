@@ -73,11 +73,12 @@ button:hover {
 .workspace-shell {
   display: grid;
   min-height: 100vh;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .workspace-toolbar {
   display: flex;
+  grid-row: 1;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -143,8 +144,49 @@ button:hover {
   color: #a33a3a;
 }
 
+.formula-reference-inspection {
+  display: flex;
+  grid-row: 2;
+  align-items: baseline;
+  gap: 0.65rem;
+  min-width: 0;
+  border-bottom: 1px solid #d6dee3;
+  padding: 0.45rem 1rem;
+  background: #f8fafb;
+}
+
+.formula-reference-inspection-label {
+  color: #50606d;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.formula-reference-inspection code {
+  overflow: auto;
+  min-width: 0;
+  color: #17202a;
+  font: 0.85rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.formula-reference-token {
+  border-radius: 0.2rem;
+  padding: 0.05rem 0.12rem;
+  color: #11606b;
+  background: #dff1f2;
+  font-weight: 700;
+}
+
+.formula-reference-token-broken {
+  color: #a33a3a;
+  background: #fbe4e4;
+  text-decoration: wavy underline;
+}
+
 .workspace-surface {
   position: relative;
+  grid-row: 3;
   overflow: hidden;
   min-height: 0;
   background-color: #edf3f5;

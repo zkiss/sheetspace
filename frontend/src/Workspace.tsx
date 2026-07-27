@@ -11,6 +11,8 @@ import type {
   EditingCell,
   SaveStatus,
 } from './appTypes';
+import { FormulaReferenceInspection } from './FormulaReferenceInspection';
+import { inspectFormula } from './formulaInspection';
 import { useSheetFrameInteractions } from './useSheetFrameInteractions';
 import type { WorkbookCommands } from './useWorkbookController';
 import { useWorkspaceController } from './useWorkspaceController';
@@ -56,6 +58,15 @@ export function Workspace({
   sheetIdRemaps: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
+  const selectedSheet = activeCell
+    ? workbook.sheets.find((sheet) => sheet.id === activeCell.sheetId)
+    : undefined;
+  const selectedRaw = selectedSheet && activeCell
+    ? selectedSheet.cells[activeCell.cellKey]
+    : undefined;
+  const formulaInspection = selectedSheet && selectedRaw
+    ? inspectFormula(selectedRaw, workbook, selectedSheet)
+    : undefined;
   const workspaceController = useWorkspaceController({ onCreateSheet });
   const {
     handleSheetFrameDragMove,
@@ -98,6 +109,8 @@ export function Workspace({
         sheetCount={workbook.sheets.length}
         viewport={workspaceController.viewport}
       />
+
+      <FormulaReferenceInspection inspection={formulaInspection} />
 
       <WorkspaceSurface
         activeCell={activeCell}

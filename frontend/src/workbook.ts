@@ -574,6 +574,15 @@ export function parseFormula(
   return parser.parse(raw);
 }
 
+export function parseFormulaForInspection(raw: string): FormulaParseResult {
+  if (!raw.startsWith('=')) {
+    return { kind: 'not-formula', raw };
+  }
+
+  const parser = new FormulaParser(raw.slice(1));
+  return parser.parse(raw, true);
+}
+
 export function evaluateFormulaCells(workbook: Workbook): FormulaEvaluationSnapshot {
   const evaluator = new FormulaEvaluator(workbook);
   return evaluator.evaluate();
@@ -1370,7 +1379,7 @@ function replaceSheetReferenceTokens(raw: string, replacement: (sheetReference: 
     );
 }
 
-function formatSheetReferenceToken(sheetName: string): string {
+export function formatSheetReferenceToken(sheetName: string): string {
   const quoted = !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(sheetName);
   return quoted ? `'${sheetName.replace(/'/g, "''")}'` : sheetName;
 }
@@ -1599,7 +1608,7 @@ class FormulaParser {
 
   constructor(private readonly input: string) {}
 
-  parse(raw: string): FormulaParseResult {
+  parse(raw: string, preserveUnknownFunctionExpression = false): FormulaParseResult {
     this.skipWhitespace();
     const expression = this.readExpression(false);
     if (!expression.ok) {
@@ -1616,7 +1625,7 @@ class FormulaParser {
     if (!this.isAtEnd()) {
       return { kind: 'error', raw, error: '#PARSE!' };
     }
-    if (this.deferredNameError) {
+    if (this.deferredNameError && !preserveUnknownFunctionExpression) {
       return { kind: 'error', raw, error: '#NAME!' };
     }
     return {

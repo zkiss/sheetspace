@@ -6,6 +6,117 @@ import { openCellEditor, openSheetContextMenu } from './test/appScreen';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 
 describe('App formula integration', () => {
+  it('shows reference tokens for the selected formula and clears the surface for plain cells', async () => {
+    const user = userEvent.setup();
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: { A1: '3', A2: '4' },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
+      cells: {
+        A1: '=SUM(sheet-inputs!A1:A2, sheet-missing!B2)',
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('#REF!');
+    await user.click(formulaCell);
+
+    const inspection = screen.getByRole('region', { name: 'Selected formula' });
+    expect(inspection).toHaveTextContent('=SUM(Inputs!A1:A2, #REF!B2)');
+    expect(within(inspection).getByLabelText('Inputs!A1:A2, reference')).toHaveAttribute(
+      'data-navigable',
+      'true',
+    );
+    expect(within(inspection).getByLabelText('Inputs!A1:A2, reference')).toHaveAttribute(
+      'data-reference-kind',
+      'range',
+    );
+    expect(within(inspection).getByLabelText('#REF!B2, broken reference')).toHaveAttribute(
+      'data-navigable',
+      'false',
+    );
+    expect(within(inspection).getByLabelText('#REF!B2, broken reference')).toHaveAttribute(
+      'data-sheet-id',
+      'sheet-missing',
+    );
+
+    await user.click(screen.getByRole('cell', { name: 'Inputs A1 cell' }));
+    expect(screen.queryByRole('region', { name: 'Selected formula' })).not.toBeInTheDocument();
+  });
+
+  it('keeps references inspectable when an unknown function displays a name error', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: '=UNKNOWN(B1)',
+        B1: '3',
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('#NAME!');
+    await user.click(formulaCell);
+
+    expect(within(screen.getByRole('region', { name: 'Selected formula' }))
+      .getByLabelText('B1, reference')).toHaveAttribute('data-navigable', 'true');
+  });
+
+  it('updates visible reference qualifiers after rename without changing canonical identity', async () => {
+    const user = userEvent.setup();
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: { A1: '7' },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
+      cells: { A1: '=sheet-inputs!A1' },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    await user.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    expect(screen.getByRole('region', { name: 'Selected formula' })).toHaveTextContent('=Inputs!A1');
+
+    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
+    const nameInput = screen.getByLabelText(/sheet name/i);
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Renamed Inputs');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const reference = within(screen.getByRole('region', { name: 'Selected formula' }))
+      .getByLabelText("'Renamed Inputs'!A1, reference");
+    expect(reference).toHaveAttribute('data-sheet-id', 'sheet-inputs');
+  });
+
+  it('updates the inspection surface through keyboard cell selection without moving focus', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: '4',
+        B1: '=A1 * 2',
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const plainCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const formulaCell = screen.getByRole('cell', { name: 'Inputs B1 cell' });
+    await user.click(plainCell);
+    await user.keyboard('{ArrowRight}');
+
+    expect(formulaCell).toHaveFocus();
+    expect(screen.getByRole('region', { name: 'Selected formula' })).toHaveTextContent('=A1 * 2');
+  });
+
   it('displays typed literal results while preserving raw formula text for editing', async () => {
     const user = userEvent.setup();
     const rawBoolean = '= \n TrUe ';
