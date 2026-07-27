@@ -22,16 +22,16 @@ br sync --flush-only
 3. Create a feature branch from `main`.
 4. Mark the bead `in_progress`.
 5. Read the bead, relevant plan context, relevant code, and git status.
-6. Make the smallest focused change that satisfies the bead.
+6. Make the smallest focused change that satisfies the bead, following the code-quality guidance in `AGENTS.md`.
 7. Run relevant checks and record what passed or was skipped.
 8. Export bead changes and open a PR containing code, docs, and `.beads/` updates. Use the PR format below.
 9. Invoke a strict reviewer subagent with fresh context for the first review, and pass it all the relevant information it needs to perform an unbiased review: the bead id, current diff, changed files, and check results.
 10. Do not edit while review is active. If files change during review, restart that review pass.
-11. Address review feedback and return to the same reviewer for follow-up passes until the reviewer passes the work.
+11. Address review feedback. Fix avoidable in-scope quality problems in the active bead. For each broader maintainability finding, immediately create the required follow-up refactor bead, link it to the active bead, and give its id to the reviewer. Return to the same reviewer for follow-up passes until the reviewer passes the work.
 12. Update the PR with final code and bead export, keeping the PR title and description in the required format.
 13. Close the bead, export bead state, and update the PR.
 14. Merge with the required merge commit message format below.
-15. Refresh `main` after merge.
+15. Refresh `main` after merge. If review created a refactor follow-up, implement it next before picking unrelated product work.
 
 Never commit on `main`.
 
@@ -71,6 +71,7 @@ A bead is ready to close when:
 - relevant checks have run, or skipped checks and risk are recorded
 - strict reviewer subagent feedback has passed or is explicitly waived by the user
 - follow-up product work outside the active scope is captured in a new bead or given to the planner
+- every deferred broader maintainability finding is captured in a linked immediate follow-up refactor bead and presented to the reviewer
 - bead state is exported, included in the PR, and merged
 
 If reviewer subagents are unavailable, say so and do not close the bead unless the user explicitly waives review.

@@ -18,6 +18,8 @@ Read `AGENTS.md`, the active bead, relevant plan context, current diff, and impl
 
 Test evidence means sufficient tests exist for the change and the implementer reports that relevant checks passed, or explains skipped checks and risk.
 
+Apply the code-quality guidance in `AGENTS.md`. Review both the changed code and the nearby structure it extends. Treat maintainability as an explicit review dimension, not an optional polish pass.
+
 ## Look For
 
 - missed acceptance criteria
@@ -26,9 +28,18 @@ Test evidence means sufficient tests exist for the change and the implementer re
 - plan/bead inconsistencies
 - regressions
 - weak or missing tests
+- large files or modules that impede review or maintenance
+- files or modules with mixed responsibilities
+- large test files that would be clearer as behavior-themed files, including thematic splits for one class or component
+- repeated knowledge, logic, fixtures, or interaction patterns that violate DRY
+- SOLID violations, including mixed reasons to change, broad interfaces, inverted dependency direction, or designs that require scattered modification
 - unfocused refactors
 - incomplete bead or PR state
 - bead complexity that has become too broad to review confidently: too many files, too many concepts, or too many review rounds
+
+First decide whether reasonable in-scope work could have kept the changed code clean. Treat avoidable duplication, poor separation, or unnecessary file growth as required changes to the active bead; a follow-up bead does not excuse them.
+
+For each broader maintainability problem, give concrete evidence and require the follow-up bead defined in `AGENTS.md`. Do not design the refactor during review. Once the implementer presents a compliant bead, stop blocking the source bead on that code smell.
 
 ## Output
 
@@ -38,6 +49,7 @@ Then state:
 
 - what was checked
 - required changes
+- maintainability follow-up beads required or presented, with the problem each captures
 - residual risks
 - whether the bead appears ready to close
 
