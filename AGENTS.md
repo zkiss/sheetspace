@@ -39,6 +39,27 @@ Agents may create a new bead when implementation or plan review reveals product 
 Use Question Beads for unresolved decisions that block executable implementation.
 Closed beads are history. Do not modify them.
 
+## Code Quality
+
+Build the active bead's behavior cleanly. Make every reasonable in-scope effort to follow SOLID and DRY during feature work:
+
+- Keep production and test files small, cohesive, and focused on one responsibility.
+- Split large test suites by behavior theme when that improves focus, including tests for the same class or component.
+- Centralize repeated knowledge and behavior instead of copying patterns.
+- Keep interfaces focused, dependencies pointed toward the appropriate abstraction, and responsibilities separated so one module has one primary reason to change.
+
+The follow-up mechanism is not permission to introduce or leave avoidable mess. Complete straightforward cleanup that keeps the changed code coherent and stays within the active bead. When a maintainability problem remains because solving it requires broader investigation or would sidetrack the active bead, capture it in an immediate follow-up refactor bead. The follow-up depends on the source bead and is the next implementation work after it, before unrelated product work.
+
+The refactor bead must:
+
+- identify the source bead and record the observed evidence, such as a large or mixed-responsibility file, repeated pattern, or specific SOLID violation
+- require the implementer to investigate and document a coherent refactor or redesign
+- deliver the documented solution without changing functionality
+- preserve behavioral coverage and add focused tests where needed to make the refactor safe
+- use the `refactor` and `follow-up` labels
+
+Once a broader maintainability problem is captured in such a bead, that code smell is accepted for the source bead. Review and implementation should not detour into designing or performing that refactor. Avoidable poor quality in the changed code, plus correctness, security, regression, and acceptance-criteria findings, cannot be deferred under this rule.
+
 Never commit on `main`.
 Keep `main` refreshed to `origin/main`.
 
