@@ -636,6 +636,32 @@ describe('formula parser', () => {
     });
   });
 
+  it('parses common numeric and aggregate functions case-insensitively', () => {
+    const { workbook, inputs } = formulaWorkbook();
+
+    expect(parseFormula('=aVeRaGe(A1:A3)', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        kind: 'function',
+        functionName: 'AVERAGE',
+        arguments: [{ kind: 'range' }],
+      },
+    });
+    expect(parseFormula('=sqrt(ABS(B1))', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: {
+        kind: 'function',
+        functionName: 'SQRT',
+        arguments: [
+          {
+            kind: 'function',
+            functionName: 'ABS',
+          },
+        ],
+      },
+    });
+  });
+
   it.each([
     '=.',
     '=1e',
@@ -844,9 +870,9 @@ describe('formula parser', () => {
   it('reports unsupported functions as #NAME!', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=AVERAGE(A1:A3)', workbook, inputs)).toEqual({
+    expect(parseFormula('=MEDIAN(A1:A3)', workbook, inputs)).toEqual({
       kind: 'error',
-      raw: '=AVERAGE(A1:A3)',
+      raw: '=MEDIAN(A1:A3)',
       error: '#NAME!',
     });
   });
@@ -1015,6 +1041,87 @@ describe('formula evaluator', () => {
       value: 25,
       display: '25',
     });
+  });
+
+  it('evaluates common numeric and aggregate functions over scalars, references, and ranges', () => {
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', {
+      A1: '2',
+      A2: '4',
+      A3: 'text',
+      A4: 'TRUE',
+      A5: '',
+      A6: '   ',
+      B1: '=AVERAGE(A1:A6, 10)',
+      B2: '=MIN(A1:A6, -1)',
+      B3: '=MAX(A1:A6, 10)',
+      B4: '=COUNT(A1:A6, "9", FALSE, 3)',
+      B5: '=COUNTA(A1:A6, "", FALSE)',
+      B6: '=ABS(-3.5)',
+      B7: '=SQRT(ABS(-16))',
+      C1: '-11',
+      C2: '25',
+    });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=AVERAGE(sheet-inputs!A1:A2)',
+      A2: '=COUNT(sheet-inputs!A1:A6)',
+      A3: '=COUNTA(sheet-inputs!A1:A6)',
+      A4: '=MIN(sheet-inputs!A1:A6)',
+      A5: '=MAX(sheet-inputs!A1:A6)',
+      A6: '=ABS(sheet-inputs!C1)',
+      A7: '=SQRT(sheet-inputs!C2)',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+
+    expect(results['sheet-inputs'].B1).toMatchObject({ kind: 'number', value: 16 / 3 });
+    expect(results['sheet-inputs'].B2).toMatchObject({ kind: 'number', value: -1 });
+    expect(results['sheet-inputs'].B3).toMatchObject({ kind: 'number', value: 10 });
+    expect(results['sheet-inputs'].B4).toMatchObject({ kind: 'number', value: 3 });
+    expect(results['sheet-inputs'].B5).toMatchObject({ kind: 'number', value: 7 });
+    expect(results['sheet-inputs'].B6).toMatchObject({ kind: 'number', value: 3.5 });
+    expect(results['sheet-inputs'].B7).toMatchObject({ kind: 'number', value: 4 });
+    expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'number', value: 3 });
+    expect(results['sheet-outputs'].A2).toMatchObject({ kind: 'number', value: 2 });
+    expect(results['sheet-outputs'].A3).toMatchObject({ kind: 'number', value: 5 });
+    expect(results['sheet-outputs'].A4).toMatchObject({ kind: 'number', value: 2 });
+    expect(results['sheet-outputs'].A5).toMatchObject({ kind: 'number', value: 4 });
+    expect(results['sheet-outputs'].A6).toMatchObject({ kind: 'number', value: 11 });
+    expect(results['sheet-outputs'].A7).toMatchObject({ kind: 'number', value: 5 });
+  });
+
+  it('applies aggregate empty, arity, type, domain, and error rules consistently', () => {
+    const inputs = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '=AVERAGE(B1:B3)',
+      A2: '=MIN(B1:B3)',
+      A3: '=MAX(B1:B3)',
+      A4: '=COUNT()',
+      A5: '=COUNTA()',
+      A6: '=ABS()',
+      A7: '=ABS(1, 2)',
+      A8: '=ABS(B1:B2)',
+      A9: '=SQRT(-1)',
+      A10: '=SQRT("4")',
+      A11: '=AVERAGE(C1:C2)',
+      A12: '=COUNT(B1:B3)',
+      B1: 'text',
+      B2: 'TRUE',
+      B3: '',
+      C1: '=SUM(Missing!A1)',
+      C2: '1',
+    });
+    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+
+    expect(results.A1).toMatchObject({ kind: 'error', error: '#DIV/0!' });
+    expect(results.A2).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A3).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A4).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A5).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A6).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A7).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A8).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A9).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A10).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.A11).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(results.A12).toMatchObject({ kind: 'number', value: 0 });
   });
 
   it('evaluates arithmetic precedence, grouping, associativity, unary chains, and references', () => {
@@ -1205,7 +1312,7 @@ describe('formula evaluator', () => {
   it('keeps parse, name, ref, and value failures isolated to cell-level results', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '=SUM(A1,)',
-      A2: '=AVERAGE(B1)',
+      A2: '=NOPE(B1)',
       A3: '=SUM(Missing!A1)',
       A4: '=SUM(B1)',
       A5: '=SUM(C1)',
