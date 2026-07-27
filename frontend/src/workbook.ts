@@ -128,13 +128,23 @@ export type SumFormula = {
   sourceSpan: FormulaSourceSpan;
 };
 
+export type CommonFunctionName = 'AVERAGE' | 'MIN' | 'MAX' | 'COUNT' | 'COUNTA' | 'ABS' | 'SQRT';
+
+export type CommonFunctionFormula = {
+  kind: 'function';
+  functionName: CommonFunctionName;
+  arguments: FormulaExpression[];
+  sourceSpan: FormulaSourceSpan;
+};
+
 export type FormulaExpression =
   | FormulaReference
   | FormulaLiteral
   | GroupFormula
   | UnaryFormula
   | BinaryFormula
-  | SumFormula;
+  | SumFormula
+  | CommonFunctionFormula;
 
 export type FormulaParseResult =
   | { kind: 'not-formula'; raw: string }
@@ -686,6 +696,20 @@ export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaSc
   return value.kind === 'range' ? value.values : [value];
 }
 
+const commonFunctionNames = new Set<CommonFunctionName>([
+  'AVERAGE',
+  'MIN',
+  'MAX',
+  'COUNT',
+  'COUNTA',
+  'ABS',
+  'SQRT',
+]);
+
+function isCommonFunctionName(functionName: string): functionName is CommonFunctionName {
+  return commonFunctionNames.has(functionName as CommonFunctionName);
+}
+
 export function classifyCellValue(raw: string): FormulaScalarValue {
   if (raw.length === 0) {
     return { kind: 'blank' };
@@ -903,6 +927,9 @@ class FormulaEvaluator {
     if (expression.kind === 'sum') {
       return this.evaluateSum(expression, currentSheet);
     }
+    if (expression.kind === 'function') {
+      return this.evaluateCommonFunction(expression, currentSheet);
+    }
     return this.evaluateReference(expression, currentSheet);
   }
 
@@ -964,23 +991,132 @@ class FormulaEvaluator {
   }
 
   private evaluateSum(expression: SumFormula, currentSheet: Sheet): FormulaScalarValue {
-    let total = 0;
+    const numbers = this.evaluateNumericCollections(expression.arguments, currentSheet);
+    if (numbers.kind === 'error') {
+      return numbers;
+    }
 
-    for (const argument of expression.arguments) {
+    const total = numbers.values.reduce((sum, value) => sum + value, 0);
+    return Number.isFinite(total)
+      ? { kind: 'number', value: total }
+      : formulaErrorValue('#VALUE!');
+  }
+
+  private evaluateCommonFunction(
+    expression: CommonFunctionFormula,
+    currentSheet: Sheet,
+  ): FormulaScalarValue {
+    switch (expression.functionName) {
+      case 'AVERAGE':
+      case 'MIN':
+      case 'MAX':
+      case 'COUNT':
+      case 'COUNTA':
+        if (expression.arguments.length === 0) {
+          return formulaErrorValue('#VALUE!');
+        }
+        return this.evaluateAggregateFunction(expression, currentSheet);
+      case 'ABS':
+      case 'SQRT':
+        if (expression.arguments.length !== 1) {
+          return formulaErrorValue('#VALUE!');
+        }
+        return this.evaluateNumericScalarFunction(expression, currentSheet);
+    }
+  }
+
+  private evaluateAggregateFunction(
+    expression: CommonFunctionFormula,
+    currentSheet: Sheet,
+  ): FormulaScalarValue {
+    if (expression.functionName === 'COUNTA') {
+      let count = 0;
+      for (const argument of expression.arguments) {
+        const argumentValue = this.evaluateExpression(argument, currentSheet);
+        for (const value of formulaCollectionValues(argumentValue)) {
+          if (value.kind === 'error') {
+            return value;
+          }
+          if (value.kind !== 'blank') {
+            count += 1;
+          }
+        }
+      }
+      return { kind: 'number', value: count };
+    }
+
+    const numbers = this.evaluateNumericCollections(expression.arguments, currentSheet);
+    if (numbers.kind === 'error') {
+      return numbers;
+    }
+
+    switch (expression.functionName) {
+      case 'AVERAGE': {
+        if (numbers.values.length === 0) {
+          return formulaErrorValue('#DIV/0!');
+        }
+        const total = numbers.values.reduce((sum, value) => sum + value, 0);
+        const average = total / numbers.values.length;
+        return Number.isFinite(average)
+          ? { kind: 'number', value: average }
+          : formulaErrorValue('#VALUE!');
+      }
+      case 'MIN':
+        return numbers.values.length > 0
+          ? { kind: 'number', value: numbers.values.reduce((minimum, value) => Math.min(minimum, value)) }
+          : formulaErrorValue('#VALUE!');
+      case 'MAX':
+        return numbers.values.length > 0
+          ? { kind: 'number', value: numbers.values.reduce((maximum, value) => Math.max(maximum, value)) }
+          : formulaErrorValue('#VALUE!');
+      case 'COUNT':
+        return { kind: 'number', value: numbers.values.length };
+      default:
+        return formulaErrorValue('#VALUE!');
+    }
+  }
+
+  private evaluateNumericScalarFunction(
+    expression: CommonFunctionFormula,
+    currentSheet: Sheet,
+  ): FormulaScalarValue {
+    const value = formulaScalarValue(this.evaluateExpression(expression.arguments[0], currentSheet));
+    if (value.kind === 'error') {
+      return value;
+    }
+    if (value.kind !== 'number') {
+      return formulaErrorValue('#VALUE!');
+    }
+
+    const result = expression.functionName === 'ABS'
+      ? Math.abs(value.value)
+      : value.value < 0
+        ? undefined
+        : Math.sqrt(value.value);
+
+    return result !== undefined && Number.isFinite(result)
+      ? { kind: 'number', value: result }
+      : formulaErrorValue('#VALUE!');
+  }
+
+  private evaluateNumericCollections(
+    args: readonly FormulaExpression[],
+    currentSheet: Sheet,
+  ): { kind: 'numbers'; values: number[] } | { kind: 'error'; error: FormulaErrorCode } {
+    const values: number[] = [];
+    for (const argument of args) {
       const argumentValue = this.evaluateExpression(argument, currentSheet);
       for (const value of formulaCollectionValues(argumentValue)) {
         if (value.kind === 'error') {
           return value;
         }
         if (value.kind === 'number') {
-          total += value.value;
+          values.push(value.value);
         }
       }
     }
 
-    return Number.isFinite(total)
-      ? { kind: 'number', value: total }
-      : formulaErrorValue('#VALUE!');
+    return { kind: 'numbers', values };
   }
 
   private evaluateReference(
@@ -1099,7 +1235,7 @@ function expressionDependencies(
       ...expressionDependencies(expression.right, workbook, currentSheet),
     ]);
   }
-  if (expression.kind === 'sum') {
+  if (expression.kind === 'sum' || expression.kind === 'function') {
     const dependencies = new Set<string>();
     for (const argument of expression.arguments) {
       for (const dependency of expressionDependencies(argument, workbook, currentSheet)) {
@@ -1701,25 +1837,23 @@ class FormulaParser {
     if (!this.consume('(')) {
       return { ok: false, error: '#PARSE!' };
     }
-    const isSum = functionName.toUpperCase() === 'SUM';
+    const normalizedFunctionName = functionName.toUpperCase();
+    const isSum = normalizedFunctionName === 'SUM';
+    const isCommonFunction = isCommonFunctionName(normalizedFunctionName);
+    const isSupportedFunction = isSum || isCommonFunction;
 
     this.skipWhitespace();
     if (this.peek() === ')') {
       this.index += 1;
-      if (validateSemantics && !isSum) {
+      if (validateSemantics && !isSupportedFunction) {
         return { ok: false, error: '#NAME!' };
       }
-      if (!isSum) {
+      if (!isSupportedFunction) {
         this.deferredNameError = true;
       }
       return {
         ok: true,
-        value: {
-          kind: 'sum',
-          functionName: 'SUM',
-          arguments: [],
-          sourceSpan: this.sourceSpan(startIndex),
-        },
+        value: this.functionExpression(normalizedFunctionName, [], startIndex),
       };
     }
 
@@ -1745,21 +1879,38 @@ class FormulaParser {
       break;
     }
 
-    if (validateSemantics && !isSum) {
+    if (validateSemantics && !isSupportedFunction) {
       return { ok: false, error: '#NAME!' };
     }
-    if (!isSum) {
+    if (!isSupportedFunction) {
       this.deferredNameError = true;
     }
 
     return {
       ok: true,
-      value: {
+      value: this.functionExpression(normalizedFunctionName, args, startIndex),
+    };
+  }
+
+  private functionExpression(
+    functionName: string,
+    args: FormulaExpression[],
+    startIndex: number,
+  ): SumFormula | CommonFunctionFormula {
+    if (functionName === 'SUM' || !isCommonFunctionName(functionName)) {
+      return {
         kind: 'sum',
         functionName: 'SUM',
         arguments: args,
         sourceSpan: this.sourceSpan(startIndex),
-      },
+      };
+    }
+
+    return {
+      kind: 'function',
+      functionName,
+      arguments: args,
+      sourceSpan: this.sourceSpan(startIndex),
     };
   }
 

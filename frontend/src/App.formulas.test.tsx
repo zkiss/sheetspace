@@ -122,6 +122,36 @@ describe('App formula integration', () => {
     expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('7');
   });
 
+  it('displays common aggregate and numeric function results after edits', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: {
+        A1: '=AVERAGE(B1:B2)',
+        A2: '=COUNT(B1:B3)',
+        A3: '=SQRT(ABS(C1))',
+        B1: '4',
+        B2: '6',
+        B3: 'text',
+        C1: '-9',
+      },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveTextContent('5');
+    expect(screen.getByRole('cell', { name: 'Inputs A2 cell' })).toHaveTextContent('2');
+    expect(screen.getByRole('cell', { name: 'Inputs A3 cell' })).toHaveTextContent('3');
+
+    const b2 = screen.getByRole('cell', { name: 'Inputs B2 cell' });
+    const editor = await openCellEditor(user, b2);
+    await user.clear(editor);
+    await user.type(editor, '8');
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveTextContent('6');
+  });
+
   it('displays and edits unary-minus cross-sheet formulas without losing the qualifier', async () => {
     const user = userEvent.setup();
     const inputs = {
