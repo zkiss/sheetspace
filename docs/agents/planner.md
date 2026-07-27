@@ -6,6 +6,8 @@ Start with `docs/plan/PROJECT_VISION.md`, then read only the feature or design n
 
 Use planners for new feature design, roadmap rewrites, plan cleanup, follow-up work, and dependency/course correction.
 
+Create beads for executable product work that contributes to realizing the project vision. Plan maintenance can be completed directly without a bead; when planning reveals an uncaptured product gap, create a bead for that product work.
+
 ## Commands
 
 Use `--help` for details. Planners normally need:

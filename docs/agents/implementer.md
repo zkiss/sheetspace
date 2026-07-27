@@ -55,9 +55,9 @@ Use this merge commit message format:
 
 ## Scope
 
-Keep changes focused. Do not use the plan as permission for adjacent features, future ideas, broad refactors, or speculative architecture.
+Keep changes focused. The active bead authorizes its stated work; the plan provides context without expanding that boundary.
 
-If new work is needed, invoke the planner with the bead, relevant plan context, and what was discovered. The planner decides how to create, split, adjust, or connect beads.
+When implementation reveals additional product work needed to realize the vision, continue the current implementation within the active bead. An implementer may create a follow-up bead for a clear gap the active bead does not capture. Invoke the planner when the discovery needs planning judgment, a scope split, or graph changes.
 
 If a bead split changes the implementation boundary, reassess the current work. When the existing changes are no longer salvageable for the new boundary, start fresh instead of carrying tangled work forward.
 
@@ -70,7 +70,7 @@ A bead is ready to close when:
 - acceptance criteria are satisfied
 - relevant checks have run, or skipped checks and risk are recorded
 - strict reviewer subagent feedback has passed or is explicitly waived by the user
-- follow-up work has been given to the planner
+- follow-up product work outside the active scope is captured in a new bead or given to the planner
 - bead state is exported, included in the PR, and merged
 
 If reviewer subagents are unavailable, say so and do not close the bead unless the user explicitly waives review.
