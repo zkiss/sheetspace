@@ -3,29 +3,54 @@ set -u
 
 log="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.jsonl")"
 last="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.last")"
+error="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.error")"
 
 cleanup() {
-  rm -f "$log" "$last"
+  rm -f "$log" "$last" "$error"
 }
 trap cleanup EXIT INT TERM
 
 codex exec \
-  --model "gpt-5.5" \
+  --model "gpt-5.6-sol" \
   --config model_reasoning_effort=medium \
   --json \
   --output-last-message "$last" \
   --sandbox workspace-write \
   --add-dir ~/.gradle \
   --add-dir `pwd -P` \
-  "Do next bead. Subagents allowed. Caveman ultra." >"$log"
+  "Do next bead. Subagents allowed. Caveman ultra." >"$log" 2>"$error" &
+codex_pid=$!
+
+session_id=
+while [ -z "$session_id" ]; do
+  session_id="$(jq -r 'select(.type == "thread.started") | .thread_id' "$log" 2>/dev/null | tail -n 1)"
+
+  if [ -n "$session_id" ] || ! kill -0 "$codex_pid" 2>/dev/null; then
+    break
+  fi
+
+  sleep 1
+done
+
+if [ -n "$session_id" ]; then
+  printf 'Session ID: %s\n' "$session_id"
+  printf 'To view session: codex resume %s' "$session_id"
+fi
+
+wait "$codex_pid"
 status=$?
 
-session_id="$(jq -r 'select(.type == "thread.started") | .thread_id' "$log" | tail -n 1)"
-
-printf 'Session ID: %s\n\n' "$session_id"
-printf 'Final agent response:\n'
-cat "$last"
-printf '\n'
-printf 'To inspect session: codex resume %s\n' "$session_id"
+if [ "$status" -ne 0 ]; then
+  printf '\n\nCodex failed with status %s:\n' "$status" >&2
+  if [ -s "$error" ]; then
+    cat "$error" >&2
+  else
+    printf 'No error details were provided.\n' >&2
+  fi
+else
+  printf '\n\nFinal AI response:\n'
+  cat "$last"
+  printf '\n'
+fi
 
 exit "$status"
