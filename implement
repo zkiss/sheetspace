@@ -17,15 +17,30 @@ codex exec \
   --sandbox workspace-write \
   --add-dir ~/.gradle \
   --add-dir `pwd -P` \
-  "Do next bead. Subagents allowed. Caveman ultra." >"$log"
+  "Do next bead. Subagents allowed. Caveman ultra." >"$log" &
+codex_pid=$!
+
+session_id=
+while [ -z "$session_id" ]; do
+  session_id="$(jq -r 'select(.type == "thread.started") | .thread_id' "$log" 2>/dev/null | tail -n 1)"
+
+  if [ -n "$session_id" ] || ! kill -0 "$codex_pid" 2>/dev/null; then
+    break
+  fi
+
+  sleep 1
+done
+
+if [ -n "$session_id" ]; then
+  printf 'Session ID: %s\n' "$session_id"
+  printf 'To view session: codex resume %s\n\n' "$session_id"
+fi
+
+wait "$codex_pid"
 status=$?
 
-session_id="$(jq -r 'select(.type == "thread.started") | .thread_id' "$log" | tail -n 1)"
-
-printf 'Session ID: %s\n\n' "$session_id"
-printf 'Final agent response:\n'
+printf 'Final AI response:\n'
 cat "$last"
 printf '\n'
-printf 'To inspect session: codex resume %s\n' "$session_id"
 
 exit "$status"
