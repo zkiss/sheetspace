@@ -28,13 +28,19 @@ make build
 
 ## Working Preferences
 
-Beads define executable work. The plan is context. The active bead is scope.
-Do not create Beads for plan-only maintenance. This does not forbid updating plan documents as needed during implementation work.
-Question Beads are reserved for unresolved decisions that block executable implementation; they are not plan-maintenance trackers.
+Beads define executable work. The plan is context. The active bead is scope. When a bead is active, complete its stated scope and keep the work within that boundary. Scope changes require explicit direction.
+
+Use Beads for product work: behavior changes, new features, and other work that contributes to realizing the project vision. Non-product work such as agent guidance, build tooling, scripts, and plan maintenance can be completed directly without a bead.
+
+For an ad hoc task, decide whether it contributes to the project vision. Complete non-product tasks directly. If the task is product work without a bead, offer to create one before implementation and create it only with the user's agreement.
+
+Agents may create a new bead when implementation or plan review reveals product work needed to realize the vision that no open bead captures and that falls outside the active bead. The new bead records the gap while the active work remains within its original scope.
+
+Use Question Beads for unresolved decisions that block executable implementation.
+Closed beads are history. Do not modify them.
 
 Never commit on `main`.
 Keep `main` refreshed to `origin/main`.
-Closed beads are history. Do not modify them.
 
 ## Role Guides
 
