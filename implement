@@ -3,9 +3,10 @@ set -u
 
 log="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.jsonl")"
 last="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.last")"
+error="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.error")"
 
 cleanup() {
-  rm -f "$log" "$last"
+  rm -f "$log" "$last" "$error"
 }
 trap cleanup EXIT INT TERM
 
@@ -17,7 +18,7 @@ codex exec \
   --sandbox workspace-write \
   --add-dir ~/.gradle \
   --add-dir `pwd -P` \
-  "Do next bead. Subagents allowed. Caveman ultra." >"$log" &
+  "Do next bead. Subagents allowed. Caveman ultra." >"$log" 2>"$error" &
 codex_pid=$!
 
 session_id=
@@ -39,8 +40,17 @@ fi
 wait "$codex_pid"
 status=$?
 
-printf '\n\nFinal AI response:\n'
-cat "$last"
-printf '\n'
+if [ "$status" -ne 0 ]; then
+  printf '\n\nCodex failed with status %s:\n' "$status" >&2
+  if [ -s "$error" ]; then
+    cat "$error" >&2
+  else
+    printf 'No error details were provided.\n' >&2
+  fi
+else
+  printf '\n\nFinal AI response:\n'
+  cat "$last"
+  printf '\n'
+fi
 
 exit "$status"
