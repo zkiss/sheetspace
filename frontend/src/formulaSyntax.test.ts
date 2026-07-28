@@ -17,10 +17,9 @@ describe('formula syntax', () => {
       kind: 'formula',
       expression: { kind: 'function', functionName: 'AVERAGE' },
     });
-    expect(parseFormula('=unknown(A1)')).toEqual({
-      kind: 'error',
-      raw: '=unknown(A1)',
-      error: '#NAME!',
+    expect(parseFormula('=unknown(A1)')).toMatchObject({
+      kind: 'formula',
+      expression: { kind: 'function', functionName: 'UNKNOWN' },
     });
     expect(parseFormulaForInspection('=unknown(A1)')).toMatchObject({
       kind: 'formula',

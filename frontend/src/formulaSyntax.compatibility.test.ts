@@ -534,13 +534,12 @@ describe('formula parser', () => {
     });
   });
 
-  it('reports unsupported functions as #NAME!', () => {
+  it('retains unsupported functions as general call nodes for evaluator dispatch', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=MEDIAN(A1:A3)', workbook, inputs)).toEqual({
-      kind: 'error',
-      raw: '=MEDIAN(A1:A3)',
-      error: '#NAME!',
+    expect(parseFormula('=MEDIAN(A1:A3)', workbook, inputs)).toMatchObject({
+      kind: 'formula',
+      expression: { kind: 'function', functionName: 'MEDIAN' },
     });
   });
 
@@ -554,34 +553,18 @@ describe('formula parser', () => {
         error: '#PARSE!',
       });
     }
-    expect(parseFormula('=NOPE(K1)', workbook, inputs)).toEqual({
-      kind: 'error',
-      raw: '=NOPE(K1)',
-      error: '#NAME!',
-    });
-    expect(parseFormula('=SUM(NOPE())', workbook, inputs)).toEqual({
-      kind: 'error',
-      raw: '=SUM(NOPE())',
-      error: '#NAME!',
-    });
+    expect(parseFormula('=NOPE(K1)', workbook, inputs)).toMatchObject({ kind: 'formula' });
+    expect(parseFormula('=SUM(NOPE())', workbook, inputs)).toMatchObject({ kind: 'formula' });
     for (const raw of ['=(NOPE())', '=((NOPE(A1)))']) {
-      expect(parseFormula(raw, workbook, inputs)).toEqual({
-        kind: 'error',
-        raw,
-        error: '#NAME!',
-      });
+      expect(parseFormula(raw, workbook, inputs)).toMatchObject({ kind: 'formula' });
     }
   });
 
-  it('resolves unknown function names after parsing complete arithmetic syntax', () => {
+  it('parses complete arithmetic syntax before evaluator name resolution', () => {
     const { workbook, inputs } = formulaWorkbook();
 
     for (const raw of ['=NOPE()+1', '=1+NOPE()']) {
-      expect(parseFormula(raw, workbook, inputs)).toEqual({
-        kind: 'error',
-        raw,
-        error: '#NAME!',
-      });
+      expect(parseFormula(raw, workbook, inputs)).toMatchObject({ kind: 'formula' });
     }
     expect(parseFormula('=NOPE()+', workbook, inputs)).toEqual({
       kind: 'error',
