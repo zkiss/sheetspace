@@ -49,7 +49,7 @@ internal fun HttpRequestBuilder.revisionHeader(
     workbookApplication: WorkbookApplication,
     sheetId: String,
 ) {
-    val revision = workbookApplication.loadWorkbook().sheets.single { it.id == sheetId }.revision
+    val revision = workbookApplication.loadSheet(sheetId).revision
     header("If-Match", revision.toString())
 }
 

@@ -7,7 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.assertSame
 
 class WorkbookApplicationTest {
     @Test
@@ -23,7 +23,7 @@ class WorkbookApplicationTest {
         )
 
         val updated = application.updateSheet(
-            created.id,
+            created.id.value,
             created.revision,
             UpdateSheetCommand(
                 name = "Model",
@@ -31,17 +31,33 @@ class WorkbookApplicationTest {
                 zIndex = 3,
             ),
         )
-        val withRow = application.appendRow(updated.id, updated.revision)
-        val withColumn = application.appendColumn(withRow.id, withRow.revision)
-        application.deleteSheet(withColumn.id, withColumn.revision)
+        val withRow = application.appendRow(updated.id.value, updated.revision)
+        val withColumn = application.appendColumn(withRow.id.value, withRow.revision)
+        application.deleteSheet(withColumn.id.value, withColumn.revision)
 
         assertEquals("Inputs", created.name)
         assertEquals("Model", updated.name)
-        assertEquals(WorkspacePosition(30.0, 40.0), updated.position)
-        assertEquals(3, updated.zIndex)
-        assertEquals(DEFAULT_ROW_COUNT + 1, withRow.rowCount)
-        assertEquals(DEFAULT_COLUMN_COUNT + 1, withColumn.columnCount)
-        assertEquals(emptyWorkbook(), store.loadWorkbook())
+        assertEquals(WorkspacePosition(30.0, 40.0), updated.frame.position)
+        assertEquals(3, updated.frame.zIndex)
+        assertEquals(DEFAULT_ROW_COUNT + 1, withRow.tabularContent.rowCount)
+        assertEquals(DEFAULT_COLUMN_COUNT + 1, withColumn.tabularContent.columnCount)
+        assertEquals(emptyList(), store.loadWorkbook().manifest.sheetIds)
+    }
+
+    @Test
+    fun `frame and tabular application paths preserve unrelated submodels`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
+
+        val moved = application.updateSheet(
+            created.id.value,
+            created.revision,
+            UpdateSheetCommand(position = WorkspacePosition(10.0, 20.0)),
+        )
+        val edited = application.updateCell(moved.id.value, "A1", "42", moved.revision)
+
+        assertSame(created.content, moved.content)
+        assertSame(moved.frame, edited.frame)
     }
 
     @Test
@@ -49,11 +65,11 @@ class WorkbookApplicationTest {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val sheet = application.createSheet(CreateSheetCommand(name = "Inputs"))
 
-        val stored = application.updateCell(sheet.id, "A1", "= \n SuM ( B1 , B2 )", sheet.revision)
-        val cleared = application.updateCell(stored.id, "A1", "", stored.revision)
+        val stored = application.updateCell(sheet.id.value, "A1", "= \n SuM ( B1 , B2 )", sheet.revision)
+        val cleared = application.updateCell(stored.id.value, "A1", "", stored.revision)
 
-        assertEquals("= \n SuM ( B1 , B2 )", stored.cells.getValue("A1"))
-        assertFalse(cleared.cells.containsKey("A1"))
+        assertEquals("= \n SuM ( B1 , B2 )", stored.tabularContent.cells.getValue("A1"))
+        assertFalse(cleared.tabularContent.cells.containsKey("A1"))
     }
 
     @Test
@@ -75,33 +91,33 @@ class WorkbookApplicationTest {
         }
         assertApplicationError(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE) {
             application.updateSheet(
-                sheet.id,
+                sheet.id.value,
                 sheet.revision,
                 UpdateSheetCommand(frameSize = SheetFrameSize(0.0, 1.0)),
             )
         }
         assertApplicationError(WorkbookApplicationError.INVALID_SHEET_Z_INDEX) {
-            application.updateSheet(sheet.id, sheet.revision, UpdateSheetCommand(zIndex = 0))
+            application.updateSheet(sheet.id.value, sheet.revision, UpdateSheetCommand(zIndex = 0))
         }
         assertApplicationError(WorkbookApplicationError.SHEET_UPDATE_REQUIRED) {
-            application.updateSheet(sheet.id, sheet.revision, UpdateSheetCommand())
+            application.updateSheet(sheet.id.value, sheet.revision, UpdateSheetCommand())
         }
         assertApplicationError(WorkbookApplicationError.INVALID_CELL_ADDRESS) {
-            application.updateCell(sheet.id, "Z999", "outside", sheet.revision)
+            application.updateCell(sheet.id.value, "Z999", "outside", sheet.revision)
         }
 
-        assertEquals(listOf(sheet), store.loadWorkbook().sheets)
+        assertEquals(listOf(sheet), store.loadWorkbook().sheetsInOrder)
     }
 
     @Test
     fun `invalid rename wins over stale revision conflict`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
-        application.updateCell(created.id, "A1", "newer", created.revision)
+        application.updateCell(created.id.value, "A1", "newer", created.revision)
 
         assertApplicationError(WorkbookApplicationError.SHEET_NAME_REQUIRED) {
             application.updateSheet(
-                created.id,
+                created.id.value,
                 created.revision,
                 UpdateSheetCommand(name = "   "),
             )
@@ -112,21 +128,21 @@ class WorkbookApplicationTest {
     fun `stale revision is rejected without overwriting current state`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
-        val newer = application.updateCell(created.id, "A1", "newer", created.revision)
+        val newer = application.updateCell(created.id.value, "A1", "newer", created.revision)
 
         val conflict = assertFailsWith<SheetRevisionConflict> {
-            application.updateCell(created.id, "A1", "stale", created.revision)
+            application.updateCell(created.id.value, "A1", "stale", created.revision)
         }
 
         assertEquals(newer.revision, conflict.actualRevision)
-        assertEquals("newer", application.loadSheet(created.id).cells.getValue("A1"))
+        assertEquals("newer", application.loadSheet(created.id.value).tabularContent.cells.getValue("A1"))
     }
 
     @Test
     fun `concurrent creations assign distinct default z indexes atomically`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val gate = CountDownLatch(1)
-        val created = Collections.synchronizedList(mutableListOf<Sheet>())
+        val created = Collections.synchronizedList(mutableListOf<SheetDocument>())
         val workers = listOf("Inputs", "Outputs").map { name ->
             thread {
                 gate.await()
@@ -137,8 +153,8 @@ class WorkbookApplicationTest {
         gate.countDown()
         workers.forEach { it.join() }
 
-        assertEquals(setOf(1, 2), created.map { it.zIndex }.toSet())
-        assertEquals(setOf("Inputs", "Outputs"), application.loadWorkbook().sheets.map { it.name }.toSet())
+        assertEquals(setOf(1, 2), created.map { it.frame.zIndex }.toSet())
+        assertEquals(setOf("Inputs", "Outputs"), application.loadWorkbook().documents.values.map { it.name }.toSet())
     }
 
     @Test

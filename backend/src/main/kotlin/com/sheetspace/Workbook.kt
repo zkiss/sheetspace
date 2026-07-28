@@ -1,7 +1,6 @@
 package com.sheetspace
 
 import kotlinx.serialization.Serializable
-import java.util.UUID
 
 const val WORKBOOK_SCHEMA_VERSION = 1
 const val DEFAULT_COLUMN_COUNT = 10
@@ -9,6 +8,12 @@ const val DEFAULT_ROW_COUNT = 20
 const val DEFAULT_SHEET_FRAME_WIDTH = 240.0
 const val DEFAULT_SHEET_FRAME_HEIGHT = 160.0
 
+/**
+ * Compatibility response model for the current frontend contract.
+ *
+ * Removed by sheetspace-z5q.8 when the frontend adopts WorkbookManifest and
+ * SheetDocument projections.
+ */
 @Serializable
 data class Workbook(
     val version: Int = WORKBOOK_SCHEMA_VERSION,
@@ -21,6 +26,12 @@ data class WorkbookSummary(
     val sheetIds: List<String> = emptyList(),
 )
 
+/**
+ * Compatibility response model for the current flat sheet JSON contract.
+ *
+ * Production application and persistence code must use SheetDocument instead.
+ * Removed by sheetspace-z5q.8.
+ */
 @Serializable
 data class Sheet(
     val id: String,
@@ -34,100 +45,34 @@ data class Sheet(
     val cells: Map<String, String> = emptyMap(),
 )
 
-@Serializable
-data class WorkspacePosition(
-    val x: Double = 0.0,
-    val y: Double = 0.0,
-)
-
-@Serializable
-data class SheetFrameSize(
-    val width: Double = DEFAULT_SHEET_FRAME_WIDTH,
-    val height: Double = DEFAULT_SHEET_FRAME_HEIGHT,
-)
-
 fun emptyWorkbook(): Workbook = Workbook()
 
-fun createSheet(
-    name: String,
-    existingSheets: List<Sheet> = emptyList(),
-    position: WorkspacePosition = WorkspacePosition(),
-    frameSize: SheetFrameSize = SheetFrameSize(),
-    zIndex: Int? = null,
-): SheetNameResult<Sheet> {
-    return when (val validation = validateSheetName(name, existingSheets)) {
-        is SheetNameResult.Invalid -> validation
-        is SheetNameResult.Valid -> SheetNameResult.Valid(
-            Sheet(
-                id = UUID.randomUUID().toString(),
-                name = validation.value,
-                position = position,
-                frameSize = frameSize,
-                zIndex = zIndex ?: nextSheetZIndex(existingSheets),
-            ),
+internal object LegacyFlatSheetTransportAdapter {
+    fun toTransport(document: SheetDocument): Sheet {
+        val tabular = document.tabularContent
+        return Sheet(
+            id = document.id.value,
+            name = document.name,
+            revision = document.revision,
+            position = document.frame.position,
+            frameSize = document.frame.size,
+            zIndex = document.frame.zIndex,
+            columnCount = tabular.columnCount,
+            rowCount = tabular.rowCount,
+            cells = tabular.cells,
         )
     }
 }
 
-private fun nextSheetZIndex(sheets: List<Sheet>): Int {
-    return (sheets.maxOfOrNull { it.zIndex } ?: 0) + 1
-}
-
-fun validateSheetName(
-    name: String,
-    existingSheets: List<Sheet>,
-    currentSheetId: String? = null,
-): SheetNameResult<String> {
-    val trimmedName = name.trim()
-    if (trimmedName.isEmpty()) {
-        return SheetNameResult.Invalid(SheetNameError.EMPTY)
-    }
-
-    val duplicate = existingSheets.any { sheet ->
-        sheet.id != currentSheetId && sheet.name == trimmedName
-    }
-    if (duplicate) {
-        return SheetNameResult.Invalid(SheetNameError.DUPLICATE)
-    }
-
-    return SheetNameResult.Valid(trimmedName)
-}
-
-fun renameSheet(workbook: Workbook, sheetId: String, nextName: String): WorkbookResult {
-    return when (val validation = validateSheetName(nextName, workbook.sheets, sheetId)) {
-        is SheetNameResult.Invalid -> WorkbookResult.InvalidName(validation.reason)
-        is SheetNameResult.Valid -> {
-            if (workbook.sheets.none { it.id == sheetId }) {
-                WorkbookResult.UnknownSheet
-            } else {
-                WorkbookResult.Valid(
-                    workbook.copy(
-                        sheets = workbook.sheets.map { sheet ->
-                            if (sheet.id == sheetId) sheet.copy(name = validation.value) else sheet
-                        },
-                    ),
-                )
-            }
-        }
-    }
-}
-
-fun appendRow(sheet: Sheet): Sheet = sheet.copy(rowCount = sheet.rowCount + 1)
-
-fun appendColumn(sheet: Sheet): Sheet = sheet.copy(columnCount = sheet.columnCount + 1)
-
-sealed class SheetNameResult<out T> {
-    data class Valid<T>(val value: T) : SheetNameResult<T>()
-    data class Invalid(val reason: SheetNameError) : SheetNameResult<Nothing>()
-}
-
-enum class SheetNameError {
-    EMPTY,
-    DUPLICATE,
-}
-
-sealed class WorkbookResult {
-    data class Valid(val workbook: Workbook) : WorkbookResult()
-    data class InvalidName(val reason: SheetNameError) : WorkbookResult()
-    data object UnknownSheet : WorkbookResult()
+/**
+ * Compatibility adapter for GET /api/workbook.
+ *
+ * Removed by sheetspace-z5q.7 when the startup workbook bundle exposes the
+ * manifest contract directly.
+ */
+internal object LegacyWorkbookSummaryTransportAdapter {
+    fun toTransport(manifest: WorkbookManifest): WorkbookSummary = WorkbookSummary(
+        version = manifest.version,
+        sheetIds = manifest.sheetIds.map { it.value },
+    )
 }

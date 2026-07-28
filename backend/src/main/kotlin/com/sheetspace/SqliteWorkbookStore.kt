@@ -27,16 +27,16 @@ class SqliteWorkbookStore internal constructor(
         keepAliveConnection?.close()
     }
 
-    override fun loadWorkbook(): Workbook = connection { conn -> loadWorkbook(conn) }
+    override fun loadWorkbook(): WorkbookState = connection { conn -> loadWorkbook(conn) }
 
-    override fun saveWorkbook(workbook: Workbook) {
-        require(workbook.version == WORKBOOK_SCHEMA_VERSION) {
-            "Unsupported workbook version: ${workbook.version}"
+    override fun saveWorkbook(workbook: WorkbookState) {
+        require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
+            "Unsupported workbook version: ${workbook.manifest.version}"
         }
         connection { conn ->
             transaction(conn) {
                 conn.createStatement().use { it.executeUpdate("DELETE FROM sheets") }
-                workbook.sheets.forEach { sheet ->
+                workbook.sheetsInOrder.forEach { sheet ->
                     upsertSheet(conn, sheet)
                 }
             }
@@ -53,12 +53,13 @@ class SqliteWorkbookStore internal constructor(
 
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
-        transform: (Workbook) -> Workbook,
-    ): Workbook = synchronized(updateLock) {
+        transform: (WorkbookState) -> WorkbookState,
+    ): WorkbookState = synchronized(updateLock) {
         connection { conn ->
             if (expectedRevision != null) {
                 val current = loadWorkbook(conn)
-                val currentSheet = current.sheets.find { it.id == expectedRevision.sheetId }
+                val sheetId = SheetId(expectedRevision.sheetId)
+                val currentSheet = current.findSheet(sheetId)
                 val updated = transform(current)
 
                 if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {
@@ -69,7 +70,7 @@ class SqliteWorkbookStore internal constructor(
                     )
                 }
 
-                val updatedSheet = updated.sheets.find { it.id == expectedRevision.sheetId }
+                val updatedSheet = updated.findSheet(sheetId)
                 if (
                     currentSheet != null &&
                     updatedSheet != null &&
@@ -106,7 +107,7 @@ class SqliteWorkbookStore internal constructor(
             }
     }
 
-    private fun loadWorkbook(conn: Connection): Workbook {
+    private fun loadWorkbook(conn: Connection): WorkbookState {
         val sheets = conn.prepareStatement(
             """
             SELECT id, name, row_count, column_count, position_x, position_y, frame_width, frame_height, z_index, cells_json, revision
@@ -117,33 +118,39 @@ class SqliteWorkbookStore internal constructor(
             statement.executeQuery().use { rs ->
                 buildList {
                     while (rs.next()) {
-                        add(rs.toSheet())
+                        add(LegacyFlatSheetPersistenceAdapter.toDocument(rs.toLegacyFlatSheetRecord()))
                     }
                 }
             }
         }
 
-        return emptyWorkbook().copy(sheets = sheets)
+        // Current schema has no manifest row or membership order. UUID order is the
+        // compatibility behavior until sheetspace-z5q.6 normalizes persistence.
+        return WorkbookState(
+            manifest = WorkbookManifest(sheetIds = sheets.map { it.id }),
+            documents = sheets.associateBy { it.id },
+        )
     }
 
-    private fun saveChangedSheets(conn: Connection, current: Workbook, updated: Workbook) {
-        val updatedById = updated.sheets.associateBy { it.id }
-        val currentById = current.sheets.associateBy { it.id }
+    private fun saveChangedSheets(conn: Connection, current: WorkbookState, updated: WorkbookState) {
+        val updatedById = updated.documents
+        val currentById = current.documents
 
-        for (sheet in current.sheets) {
+        for (sheet in current.sheetsInOrder) {
             if (sheet.id !in updatedById) {
-                deleteSheet(conn, sheet.id)
+                deleteSheet(conn, sheet.id.value)
             }
         }
 
-        updated.sheets.forEach { sheet ->
+        updated.sheetsInOrder.forEach { sheet ->
             if (currentById[sheet.id] != sheet) {
                 upsertSheet(conn, sheet)
             }
         }
     }
 
-    private fun upsertSheet(conn: Connection, sheet: Sheet) {
+    private fun upsertSheet(conn: Connection, sheet: SheetDocument) {
+        val record = LegacyFlatSheetPersistenceAdapter.fromDocument(sheet)
         conn.prepareStatement(
             """
             INSERT INTO sheets (
@@ -163,25 +170,26 @@ class SqliteWorkbookStore internal constructor(
                 revision = sheets.revision + 1
             """.trimIndent(),
         ).use { statement ->
-            statement.setBytes(1, sheet.id.toUuidBytes())
-            statement.setString(2, sheet.name)
-            statement.setInt(3, sheet.rowCount)
-            statement.setInt(4, sheet.columnCount)
-            statement.setDouble(5, sheet.position.x)
-            statement.setDouble(6, sheet.position.y)
-            statement.setDouble(7, sheet.frameSize.width)
-            statement.setDouble(8, sheet.frameSize.height)
-            statement.setInt(9, sheet.zIndex)
-            statement.setString(10, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
+            statement.setBytes(1, record.id.toUuidBytes())
+            statement.setString(2, record.name)
+            statement.setInt(3, record.rowCount)
+            statement.setInt(4, record.columnCount)
+            statement.setDouble(5, record.positionX)
+            statement.setDouble(6, record.positionY)
+            statement.setDouble(7, record.frameWidth)
+            statement.setDouble(8, record.frameHeight)
+            statement.setInt(9, record.zIndex)
+            statement.setString(10, json.encodeToString(PersistedCells.serializer(), PersistedCells(record.cells)))
             statement.executeUpdate()
         }
     }
 
     private fun updateSheetWithExpectedRevision(
         conn: Connection,
-        sheet: Sheet,
+        sheet: SheetDocument,
         expectedRevision: Long,
     ) {
+        val record = LegacyFlatSheetPersistenceAdapter.fromDocument(sheet)
         val updatedRows = conn.prepareStatement(
             """
             UPDATE sheets SET
@@ -198,22 +206,22 @@ class SqliteWorkbookStore internal constructor(
             WHERE id = ? AND revision = ?
             """.trimIndent(),
         ).use { statement ->
-            statement.setString(1, sheet.name)
-            statement.setInt(2, sheet.rowCount)
-            statement.setInt(3, sheet.columnCount)
-            statement.setDouble(4, sheet.position.x)
-            statement.setDouble(5, sheet.position.y)
-            statement.setDouble(6, sheet.frameSize.width)
-            statement.setDouble(7, sheet.frameSize.height)
-            statement.setInt(8, sheet.zIndex)
-            statement.setString(9, json.encodeToString(PersistedCells.serializer(), PersistedCells(sheet.cells)))
-            statement.setBytes(10, sheet.id.toUuidBytes())
+            statement.setString(1, record.name)
+            statement.setInt(2, record.rowCount)
+            statement.setInt(3, record.columnCount)
+            statement.setDouble(4, record.positionX)
+            statement.setDouble(5, record.positionY)
+            statement.setDouble(6, record.frameWidth)
+            statement.setDouble(7, record.frameHeight)
+            statement.setInt(8, record.zIndex)
+            statement.setString(9, json.encodeToString(PersistedCells.serializer(), PersistedCells(record.cells)))
+            statement.setBytes(10, record.id.toUuidBytes())
             statement.setLong(11, expectedRevision)
             statement.executeUpdate()
         }
 
         if (updatedRows == 0) {
-            throw SheetRevisionConflict(sheet.id, expectedRevision, loadSheetRevision(conn, sheet.id) ?: -1)
+            throw SheetRevisionConflict(record.id, expectedRevision, loadSheetRevision(conn, record.id) ?: -1)
         }
     }
 
@@ -245,19 +253,15 @@ class SqliteWorkbookStore internal constructor(
         }
     }
 
-    private fun ResultSet.toSheet(): Sheet {
-        return Sheet(
+    private fun ResultSet.toLegacyFlatSheetRecord(): LegacyFlatSheetRecord {
+        return LegacyFlatSheetRecord(
             id = getBytes("id").toUuidString(),
             name = getString("name"),
             revision = getLong("revision"),
-            position = WorkspacePosition(
-                x = getDouble("position_x"),
-                y = getDouble("position_y"),
-            ),
-            frameSize = SheetFrameSize(
-                width = getDouble("frame_width"),
-                height = getDouble("frame_height"),
-            ),
+            positionX = getDouble("position_x"),
+            positionY = getDouble("position_y"),
+            frameWidth = getDouble("frame_width"),
+            frameHeight = getDouble("frame_height"),
             zIndex = getInt("z_index"),
             rowCount = getInt("row_count"),
             columnCount = getInt("column_count"),
@@ -312,3 +316,58 @@ private fun ByteArray.toUuidString(): String {
 private data class PersistedCells(
     val cells: Map<String, String>,
 )
+
+/**
+ * Exact shape of the pre-normalization `sheets` row.
+ *
+ * Removed by sheetspace-z5q.6 when manifest, document, frame, and tabular
+ * persistence become separate normalized concerns.
+ */
+private data class LegacyFlatSheetRecord(
+    val id: String,
+    val name: String,
+    val revision: Long,
+    val positionX: Double,
+    val positionY: Double,
+    val frameWidth: Double,
+    val frameHeight: Double,
+    val zIndex: Int,
+    val rowCount: Int,
+    val columnCount: Int,
+    val cells: Map<String, String>,
+)
+
+private object LegacyFlatSheetPersistenceAdapter {
+    fun toDocument(record: LegacyFlatSheetRecord): SheetDocument = SheetDocument(
+        id = SheetId(record.id),
+        name = record.name,
+        revision = record.revision,
+        frame = FrameState(
+            position = WorkspacePosition(record.positionX, record.positionY),
+            size = SheetFrameSize(record.frameWidth, record.frameHeight),
+            zIndex = record.zIndex,
+        ),
+        content = TabularContent(
+            rowCount = record.rowCount,
+            columnCount = record.columnCount,
+            cells = record.cells,
+        ),
+    )
+
+    fun fromDocument(document: SheetDocument): LegacyFlatSheetRecord {
+        val tabular = document.tabularContent
+        return LegacyFlatSheetRecord(
+            id = document.id.value,
+            name = document.name,
+            revision = document.revision,
+            positionX = document.frame.position.x,
+            positionY = document.frame.position.y,
+            frameWidth = document.frame.size.width,
+            frameHeight = document.frame.size.height,
+            zIndex = document.frame.zIndex,
+            rowCount = tabular.rowCount,
+            columnCount = tabular.columnCount,
+            cells = tabular.cells,
+        )
+    }
+}
