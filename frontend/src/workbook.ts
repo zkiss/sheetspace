@@ -1,7 +1,6 @@
 import {
   cellKey,
   expandRange,
-  isAddressWithinBounds,
   parseA1Address,
   parseA1Range,
   type CellAddress,
@@ -13,14 +12,19 @@ import {
   formatSheetReferenceToken,
   parseFormula as parseFormulaSyntax,
   replaceFormulaQualifiers,
-  type BinaryFormula,
-  type FormulaErrorCode,
   type FormulaExpression,
   type FormulaParseResult,
   type FormulaReference,
-  type FunctionFormula,
-  type UnaryFormula,
 } from './formulaSyntax';
+import {
+  FormulaEvaluator,
+  sheetCellNodeId,
+  type FormulaEvaluationObserver,
+} from './formulaEvaluator';
+import {
+  type FormulaEvaluationSnapshot,
+  type FormulaScalarValue,
+} from './formulaValue';
 
 export {
   cellKey,
@@ -45,6 +49,22 @@ export type {
   GroupFormula,
   UnaryFormula,
 } from './formulaSyntax';
+export { evaluateFormulaCells } from './formulaEvaluator';
+export type { FormulaEvaluationObserver } from './formulaEvaluator';
+export {
+  classifyCellValue,
+  displayFormulaValue,
+  formulaCollectionValues,
+  formulaErrorValue,
+  formulaScalarValue,
+} from './formulaValue';
+export type {
+  FormulaDisplayResult,
+  FormulaEvaluationSnapshot,
+  FormulaRangeValue,
+  FormulaScalarValue,
+  FormulaValue,
+} from './formulaValue';
 
 export const WORKBOOK_SCHEMA_VERSION = 1;
 export const DEFAULT_COLUMN_COUNT = 10;
@@ -88,33 +108,6 @@ export type NamedCellReference = CellAddress & {
 export type NamedRangeReference = CellRange & {
   sheetName?: string;
 };
-
-export type FormulaScalarValue =
-  | { kind: 'number'; value: number }
-  | { kind: 'text'; value: string }
-  | { kind: 'boolean'; value: boolean }
-  | { kind: 'blank' }
-  | { kind: 'error'; error: FormulaErrorCode };
-
-export type FormulaRangeValue = {
-  kind: 'range';
-  values: Iterable<FormulaScalarValue>;
-  rowCount: number;
-  columnCount: number;
-};
-
-export type FormulaValue = FormulaScalarValue | FormulaRangeValue;
-
-export type FormulaDisplayResult =
-  | { kind: 'number'; value: number; display: string }
-  | { kind: 'text'; value: string; display: string }
-  | { kind: 'boolean'; value: boolean; display: 'TRUE' | 'FALSE' }
-  | { kind: 'blank'; display: '' }
-  | { kind: 'error'; error: FormulaErrorCode; display: FormulaErrorCode };
-
-export type FormulaEvaluationSnapshot = Record<string, Record<CellKey, FormulaDisplayResult>>;
-
-export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
 
 export type ValidationResult =
   | { ok: true; name: string }
@@ -408,11 +401,6 @@ export function parseFormula(
   return parseFormulaSyntax(raw);
 }
 
-export function evaluateFormulaCells(workbook: Workbook): FormulaEvaluationSnapshot {
-  const evaluator = new FormulaEvaluator(workbook);
-  return evaluator.evaluate();
-}
-
 type FormulaDependencyGraph = {
   dependencies: Map<string, Set<string>>;
   dependents: Map<string, Set<string>>;
@@ -476,499 +464,13 @@ function resolveReferenceSheet(
 function resolveFormulaReferenceSheet(
   reference: Pick<FormulaReference, 'sheetId'>,
   workbook: Workbook,
-  defaultSheet: Sheet | undefined,
+  defaultSheet: Sheet,
 ): ParseResult<Sheet> {
   if (reference.sheetId) {
     const sheet = workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
     return sheet ? { ok: true, value: sheet } : { ok: false, reason: 'unknown-sheet' };
   }
-
-  if (!defaultSheet) {
-    return { ok: false, reason: 'unknown-sheet' };
-  }
   return { ok: true, value: defaultSheet };
-}
-
-function sheetCellNodeId(sheetId: string, key: CellKey): string {
-  return `${sheetId}\u0000${key}`;
-}
-
-export function formulaErrorValue(error: FormulaErrorCode): FormulaScalarValue {
-  return { kind: 'error', error };
-}
-
-export function formulaScalarValue(value: FormulaValue): FormulaScalarValue {
-  return value.kind === 'range' ? formulaErrorValue('#VALUE!') : value;
-}
-
-export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaScalarValue> {
-  return value.kind === 'range' ? value.values : [value];
-}
-
-export function classifyCellValue(raw: string): FormulaScalarValue {
-  if (raw.length === 0) {
-    return { kind: 'blank' };
-  }
-
-  const trimmed = raw.trim();
-  const numeric = /^-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(trimmed)
-    ? Number(trimmed)
-    : undefined;
-  if (numeric !== undefined && Number.isFinite(numeric)) {
-    return { kind: 'number', value: numeric };
-  }
-  if (/^TRUE$/i.test(trimmed)) {
-    return { kind: 'boolean', value: true };
-  }
-  if (/^FALSE$/i.test(trimmed)) {
-    return { kind: 'boolean', value: false };
-  }
-  return { kind: 'text', value: raw };
-}
-
-export function displayFormulaValue(value: FormulaScalarValue): FormulaDisplayResult {
-  switch (value.kind) {
-    case 'number':
-      return {
-        kind: 'number',
-        value: value.value,
-        display: Object.is(value.value, -0) ? '0' : String(value.value),
-      };
-    case 'text':
-      return { ...value, display: value.value };
-    case 'boolean':
-      return { ...value, display: value.value ? 'TRUE' : 'FALSE' };
-    case 'blank':
-      return { kind: 'blank', display: '' };
-    case 'error':
-      return { ...value, display: value.error };
-  }
-}
-
-function isComparisonOperator(
-  operator: BinaryFormula['operator'],
-): operator is '=' | '<>' | '<' | '<=' | '>' | '>=' {
-  return operator === '='
-    || operator === '<>'
-    || operator === '<'
-    || operator === '<='
-    || operator === '>'
-    || operator === '>=';
-}
-
-function compareFormulaScalars(
-  left: FormulaScalarValue,
-  right: FormulaScalarValue,
-): -1 | 0 | 1 | undefined {
-  if (left.kind === 'number' && right.kind === 'number') {
-    return left.value < right.value ? -1 : left.value > right.value ? 1 : 0;
-  }
-  if (left.kind === 'text' && right.kind === 'text') {
-    return compareTextByCodePoint(left.value, right.value);
-  }
-  if (left.kind === 'boolean' && right.kind === 'boolean') {
-    return left.value === right.value ? 0 : left.value ? 1 : -1;
-  }
-  if (left.kind === 'blank' && right.kind === 'blank') {
-    return 0;
-  }
-  return undefined;
-}
-
-function compareTextByCodePoint(left: string, right: string): -1 | 0 | 1 {
-  const leftCodePoints = [...left].map((value) => value.codePointAt(0) as number);
-  const rightCodePoints = [...right].map((value) => value.codePointAt(0) as number);
-  const sharedLength = Math.min(leftCodePoints.length, rightCodePoints.length);
-  for (let index = 0; index < sharedLength; index += 1) {
-    if (leftCodePoints[index] !== rightCodePoints[index]) {
-      return leftCodePoints[index] < rightCodePoints[index] ? -1 : 1;
-    }
-  }
-  return leftCodePoints.length < rightCodePoints.length
-    ? -1
-    : leftCodePoints.length > rightCodePoints.length
-      ? 1
-      : 0;
-}
-
-function applyComparisonOperator(
-  comparison: -1 | 0 | 1,
-  operator: '=' | '<>' | '<' | '<=' | '>' | '>=',
-): boolean {
-  switch (operator) {
-    case '=':
-      return comparison === 0;
-    case '<>':
-      return comparison !== 0;
-    case '<':
-      return comparison < 0;
-    case '<=':
-      return comparison <= 0;
-    case '>':
-      return comparison > 0;
-    case '>=':
-      return comparison >= 0;
-  }
-}
-
-class FormulaEvaluator {
-  private readonly results: Map<string, FormulaScalarValue>;
-  private readonly visiting = new Set<string>();
-  private readonly stack: { nodeId: string; sheet: Sheet; key: CellKey }[] = [];
-
-  constructor(
-    private readonly workbook: Workbook,
-    initialResults: ReadonlyMap<string, FormulaScalarValue> = new Map(),
-    private readonly onEvaluate?: FormulaEvaluationObserver,
-  ) {
-    this.results = new Map(initialResults);
-  }
-
-  formulaResults(): Map<string, FormulaScalarValue> {
-    return new Map(this.results);
-  }
-
-  evaluate(): FormulaEvaluationSnapshot {
-    for (const sheet of this.workbook.sheets) {
-      for (const key of Object.keys(sheet.cells).sort()) {
-        if (sheet.cells[key].startsWith('=')) {
-          this.evaluateFormulaCell(sheet, key);
-        }
-      }
-    }
-
-    const snapshot: FormulaEvaluationSnapshot = {};
-    for (const sheet of this.workbook.sheets) {
-      const sheetResults: Record<CellKey, FormulaDisplayResult> = {};
-      for (const key of Object.keys(sheet.cells).sort()) {
-        const result = this.results.get(sheetCellNodeId(sheet.id, key));
-        if (result) {
-          sheetResults[key] = displayFormulaValue(result);
-        }
-      }
-      snapshot[sheet.id] = sheetResults;
-    }
-
-    return snapshot;
-  }
-
-  private evaluateFormulaCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
-    const nodeId = sheetCellNodeId(sheet.id, key);
-    const cached = this.results.get(nodeId);
-    if (cached) {
-      return cached;
-    }
-
-    if (this.visiting.has(nodeId)) {
-      const cycleStart = this.stack.findIndex((entry) => entry.nodeId === nodeId);
-      for (const entry of this.stack.slice(cycleStart)) {
-        this.results.set(entry.nodeId, formulaErrorValue('#CYCLE!'));
-      }
-      return formulaErrorValue('#CYCLE!');
-    }
-
-    const cell = sheet.cells[key];
-    if (!cell?.startsWith('=')) {
-      return this.evaluateLiteralCell(sheet, key);
-    }
-
-    this.onEvaluate?.(sheet.id, key);
-    this.visiting.add(nodeId);
-    this.stack.push({ nodeId, sheet, key });
-
-    let result: FormulaScalarValue;
-    const parsed = parseFormula(cell, this.workbook, sheet);
-    if (parsed.kind === 'error') {
-      result = formulaErrorValue(parsed.error);
-    } else if (parsed.kind === 'formula') {
-      result = formulaScalarValue(this.evaluateExpression(parsed.expression, sheet));
-    } else {
-      result = formulaErrorValue('#PARSE!');
-    }
-
-    this.stack.pop();
-    this.visiting.delete(nodeId);
-
-    const cycleResult = this.results.get(nodeId);
-    if (cycleResult?.kind === 'error' && cycleResult.error === '#CYCLE!') {
-      return cycleResult;
-    }
-
-    this.results.set(nodeId, result);
-    return result;
-  }
-
-  private evaluateExpression(expression: FormulaExpression, currentSheet: Sheet): FormulaValue {
-    if (expression.kind === 'number') {
-      return Number.isFinite(expression.value)
-        ? { kind: 'number', value: expression.value }
-        : formulaErrorValue('#VALUE!');
-    }
-    if (expression.kind === 'text') {
-      return { kind: 'text', value: expression.value };
-    }
-    if (expression.kind === 'boolean') {
-      return { kind: 'boolean', value: expression.value };
-    }
-    if (expression.kind === 'group') {
-      return this.evaluateExpression(expression.expression, currentSheet);
-    }
-    if (expression.kind === 'unary') {
-      return this.evaluateUnary(expression, currentSheet);
-    }
-    if (expression.kind === 'binary') {
-      return this.evaluateBinary(expression, currentSheet);
-    }
-    if (expression.kind === 'function') {
-      return expression.functionName === 'SUM'
-        ? this.evaluateSum(expression, currentSheet)
-        : this.evaluateCommonFunction(expression, currentSheet);
-    }
-    return this.evaluateReference(expression, currentSheet);
-  }
-
-  private evaluateUnary(expression: UnaryFormula, currentSheet: Sheet): FormulaScalarValue {
-    const operand = formulaScalarValue(this.evaluateExpression(expression.operand, currentSheet));
-    if (operand.kind === 'error') {
-      return operand;
-    }
-    if (operand.kind !== 'number') {
-      return formulaErrorValue('#VALUE!');
-    }
-
-    const value = expression.operator === '-' ? -operand.value : operand.value;
-    return Number.isFinite(value)
-      ? { kind: 'number', value }
-      : formulaErrorValue('#VALUE!');
-  }
-
-  private evaluateBinary(expression: BinaryFormula, currentSheet: Sheet): FormulaScalarValue {
-    const left = formulaScalarValue(this.evaluateExpression(expression.left, currentSheet));
-    if (left.kind === 'error') {
-      return left;
-    }
-
-    const right = formulaScalarValue(this.evaluateExpression(expression.right, currentSheet));
-    if (right.kind === 'error') {
-      return right;
-    }
-
-    if (isComparisonOperator(expression.operator)) {
-      if (left.kind !== right.kind) {
-        return formulaErrorValue('#VALUE!');
-      }
-
-      const comparison = compareFormulaScalars(left, right);
-      return comparison === undefined
-        ? formulaErrorValue('#VALUE!')
-        : { kind: 'boolean', value: applyComparisonOperator(comparison, expression.operator) };
-    }
-
-    if (left.kind !== 'number' || right.kind !== 'number') {
-      return formulaErrorValue('#VALUE!');
-    }
-    if (expression.operator === '/' && right.value === 0) {
-      return formulaErrorValue('#DIV/0!');
-    }
-
-    const value =
-      expression.operator === '+'
-        ? left.value + right.value
-        : expression.operator === '-'
-          ? left.value - right.value
-          : expression.operator === '*'
-            ? left.value * right.value
-            : left.value / right.value;
-    return Number.isFinite(value)
-      ? { kind: 'number', value }
-      : formulaErrorValue('#VALUE!');
-  }
-
-  private evaluateSum(expression: FunctionFormula, currentSheet: Sheet): FormulaScalarValue {
-    const numbers = this.evaluateNumericCollections(expression.arguments, currentSheet);
-    if (numbers.kind === 'error') {
-      return numbers;
-    }
-
-    const total = numbers.values.reduce((sum, value) => sum + value, 0);
-    return Number.isFinite(total)
-      ? { kind: 'number', value: total }
-      : formulaErrorValue('#VALUE!');
-  }
-
-  private evaluateCommonFunction(
-    expression: FunctionFormula,
-    currentSheet: Sheet,
-  ): FormulaScalarValue {
-    switch (expression.functionName) {
-      case 'AVERAGE':
-      case 'MIN':
-      case 'MAX':
-      case 'COUNT':
-      case 'COUNTA':
-        if (expression.arguments.length === 0) {
-          return formulaErrorValue('#VALUE!');
-        }
-        return this.evaluateAggregateFunction(expression, currentSheet);
-      case 'ABS':
-      case 'SQRT':
-        if (expression.arguments.length !== 1) {
-          return formulaErrorValue('#VALUE!');
-        }
-        return this.evaluateNumericScalarFunction(expression, currentSheet);
-      default:
-        return formulaErrorValue('#NAME!');
-    }
-  }
-
-  private evaluateAggregateFunction(
-    expression: FunctionFormula,
-    currentSheet: Sheet,
-  ): FormulaScalarValue {
-    if (expression.functionName === 'COUNTA') {
-      let count = 0;
-      for (const argument of expression.arguments) {
-        const argumentValue = this.evaluateExpression(argument, currentSheet);
-        for (const value of formulaCollectionValues(argumentValue)) {
-          if (value.kind === 'error') {
-            return value;
-          }
-          if (value.kind !== 'blank') {
-            count += 1;
-          }
-        }
-      }
-      return { kind: 'number', value: count };
-    }
-
-    const numbers = this.evaluateNumericCollections(expression.arguments, currentSheet);
-    if (numbers.kind === 'error') {
-      return numbers;
-    }
-
-    switch (expression.functionName) {
-      case 'AVERAGE': {
-        if (numbers.values.length === 0) {
-          return formulaErrorValue('#DIV/0!');
-        }
-        const total = numbers.values.reduce((sum, value) => sum + value, 0);
-        const average = total / numbers.values.length;
-        return Number.isFinite(average)
-          ? { kind: 'number', value: average }
-          : formulaErrorValue('#VALUE!');
-      }
-      case 'MIN':
-        return numbers.values.length > 0
-          ? { kind: 'number', value: numbers.values.reduce((minimum, value) => Math.min(minimum, value)) }
-          : formulaErrorValue('#VALUE!');
-      case 'MAX':
-        return numbers.values.length > 0
-          ? { kind: 'number', value: numbers.values.reduce((maximum, value) => Math.max(maximum, value)) }
-          : formulaErrorValue('#VALUE!');
-      case 'COUNT':
-        return { kind: 'number', value: numbers.values.length };
-      default:
-        return formulaErrorValue('#VALUE!');
-    }
-  }
-
-  private evaluateNumericScalarFunction(
-    expression: FunctionFormula,
-    currentSheet: Sheet,
-  ): FormulaScalarValue {
-    const value = formulaScalarValue(this.evaluateExpression(expression.arguments[0], currentSheet));
-    if (value.kind === 'error') {
-      return value;
-    }
-    if (value.kind !== 'number') {
-      return formulaErrorValue('#VALUE!');
-    }
-
-    const result = expression.functionName === 'ABS'
-      ? Math.abs(value.value)
-      : value.value < 0
-        ? undefined
-        : Math.sqrt(value.value);
-
-    return result !== undefined && Number.isFinite(result)
-      ? { kind: 'number', value: result }
-      : formulaErrorValue('#VALUE!');
-  }
-
-  private evaluateNumericCollections(
-    args: readonly FormulaExpression[],
-    currentSheet: Sheet,
-  ): { kind: 'numbers'; values: number[] } | { kind: 'error'; error: FormulaErrorCode } {
-    const values: number[] = [];
-    for (const argument of args) {
-      const argumentValue = this.evaluateExpression(argument, currentSheet);
-      for (const value of formulaCollectionValues(argumentValue)) {
-        if (value.kind === 'error') {
-          return value;
-        }
-        if (value.kind === 'number') {
-          values.push(value.value);
-        }
-      }
-    }
-
-    return { kind: 'numbers', values };
-  }
-
-  private evaluateReference(
-    reference: FormulaReference,
-    currentSheet: Sheet,
-  ): FormulaValue {
-    const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
-    if (!sheet.ok) {
-      return formulaErrorValue('#REF!');
-    }
-
-    if (reference.kind === 'cell') {
-      if (!isAddressWithinBounds(reference.address, sheet.value)) {
-        return formulaErrorValue('#REF!');
-      }
-      return this.evaluateReferencedCell(sheet.value, cellKey(reference.address));
-    }
-
-    const range = expandRange(reference.range, sheet.value);
-    if (!range.ok) {
-      return formulaErrorValue('#REF!');
-    }
-
-    return {
-      kind: 'range',
-      values: this.evaluateRangeCells(sheet.value, range.value),
-      rowCount: reference.range.end.rowIndex - reference.range.start.rowIndex + 1,
-      columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1,
-    };
-  }
-
-  private *evaluateRangeCells(
-    sheet: Sheet,
-    addresses: readonly CellAddress[],
-  ): IterableIterator<FormulaScalarValue> {
-    for (const address of addresses) {
-      yield this.evaluateReferencedCell(sheet, cellKey(address));
-    }
-  }
-
-  private evaluateReferencedCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
-    const cell = sheet.cells[key];
-    if (cell === undefined) {
-      return { kind: 'blank' };
-    }
-
-    if (cell.startsWith('=')) {
-      return this.evaluateFormulaCell(sheet, key);
-    }
-
-    return classifyCellValue(cell);
-  }
-
-  private evaluateLiteralCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
-    return classifyCellValue(sheet.cells[key] ?? '');
-  }
 }
 
 function workbookFormulaNodes(workbook: Workbook): Set<string> {

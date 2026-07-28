@@ -84,27 +84,13 @@ export type FormulaSyntaxResult = {
   references: FormulaReference[];
 };
 
-export const SUPPORTED_FORMULA_FUNCTIONS = [
-  'SUM',
-  'AVERAGE',
-  'MIN',
-  'MAX',
-  'COUNT',
-  'COUNTA',
-  'ABS',
-  'SQRT',
-] as const;
-
-const supportedFunctions = new Set<string>(SUPPORTED_FORMULA_FUNCTIONS);
-
-/** Semantic parse: syntactically valid unknown calls produce `#NAME!`. */
+/** Syntactically valid calls retain one general function AST. */
 export function parseFormula(raw: string): FormulaParseResult {
   return parseFormulaSyntax(raw).result;
 }
 
-/** Syntax parse: unknown calls retain a general function AST for inspection. */
 export function parseFormulaForInspection(raw: string): FormulaParseResult {
-  return parseFormulaSyntax(raw, { preserveUnknownFunctions: true }).result;
+  return parseFormulaSyntax(raw).result;
 }
 
 /**
@@ -113,12 +99,12 @@ export function parseFormulaForInspection(raw: string): FormulaParseResult {
  */
 export function parseFormulaSyntax(
   raw: string,
-  options: { preserveUnknownFunctions?: boolean } = {},
+  _options: { preserveUnknownFunctions?: boolean } = {},
 ): FormulaSyntaxResult {
   if (!raw.startsWith('=')) {
     return { result: { kind: 'not-formula', raw }, references: [] };
   }
-  return new FormulaParser(raw.slice(1)).parse(raw, options.preserveUnknownFunctions ?? false);
+  return new FormulaParser(raw.slice(1)).parse(raw);
 }
 
 export function collectFormulaReferences(expression: FormulaExpression): FormulaReference[] {
@@ -186,12 +172,11 @@ type ReadResult<T> =
 
 class FormulaParser {
   private index = 0;
-  private unknownFunction = false;
   private readonly references: FormulaReference[] = [];
 
   constructor(private readonly input: string) {}
 
-  parse(raw: string, preserveUnknownFunctions: boolean): FormulaSyntaxResult {
+  parse(raw: string): FormulaSyntaxResult {
     this.skipWhitespace();
     const expression = this.readComparison();
     this.skipWhitespace();
@@ -203,9 +188,7 @@ class FormulaParser {
       ? { kind: 'error', raw, error: expression.error }
       : trailingSyntax
         ? { kind: 'error', raw, error: '#PARSE!' }
-        : this.unknownFunction && !preserveUnknownFunctions
-          ? { kind: 'error', raw, error: '#NAME!' }
-          : { kind: 'formula', raw, expression: expression.value };
+        : { kind: 'formula', raw, expression: expression.value };
     return { result, references: [...this.references] };
   }
 
@@ -397,7 +380,6 @@ class FormulaParser {
 
   private readFunction(functionName: string, start: number): ReadResult<FormulaExpression> {
     this.consume('(');
-    if (!supportedFunctions.has(functionName)) this.unknownFunction = true;
     const args: FormulaExpression[] = [];
     this.skipWhitespace();
     if (this.consume(')')) {
