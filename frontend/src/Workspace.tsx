@@ -125,6 +125,7 @@ export function Workspace({
 
       <FormulaReferenceInspection
         inspection={formulaInspection}
+        key={`${activeCell?.sheetId}:${activeCell?.cellKey}:${selectedRaw}:${formulaInspection?.raw}`}
         onNavigate={navigateReference}
       />
 

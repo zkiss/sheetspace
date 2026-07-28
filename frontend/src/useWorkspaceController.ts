@@ -66,7 +66,6 @@ export function useWorkspaceController({
   function navigateToTarget(
     workspace: HTMLElement,
     target: WorkspaceTargetRect,
-    targetKind: 'cell' | 'range',
     forceOversized = false,
   ) {
     const rect = workspace.getBoundingClientRect();
@@ -78,7 +77,6 @@ export function useWorkspaceController({
         surfaceHeight,
         surfaceWidth,
         target,
-        targetKind,
         forceOversized,
       }).viewport,
     );

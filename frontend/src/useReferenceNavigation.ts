@@ -47,7 +47,6 @@ export function useReferenceNavigation({
   navigateToTarget: (
     workspace: HTMLElement,
     target: WorkspaceTargetRect,
-    targetKind: 'cell' | 'range',
     forceOversized?: boolean,
   ) => void;
   onSelectReferenceTarget: (selection: ActiveCellSelection) => void;
@@ -105,7 +104,6 @@ export function useReferenceNavigation({
     navigateToTarget(
       workspace,
       referenceFrameRect(targetSheet),
-      reference.target.kind,
       reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet),
     );
   }

@@ -162,6 +162,31 @@ describe('formula reference navigation', () => {
       .toHaveAttribute('data-reference-selected', 'true');
   });
 
+  it('fits a large frame so its internally revealed cell remains onscreen', () => {
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 1800, y: 1200 }),
+      frameSize: { width: 900, height: 600 },
+      cells: { A1: '1' },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
+      cells: { A1: '=sheet-inputs!A1' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    setSurfaceSize(800, 600);
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!A1, reference' }));
+
+    const scale = Number(workspaceSurface().dataset.viewportScale);
+    const x = Number(workspaceSurface().dataset.viewportX);
+    const y = Number(workspaceSurface().dataset.viewportY);
+    expect(scale).toBeGreaterThanOrEqual(0.75);
+    expect(1800 * scale + x).toBeGreaterThanOrEqual(48);
+    expect(1200 * scale + y).toBeGreaterThanOrEqual(48);
+    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveFocus();
+  });
+
   it('keeps readable zoom and reveals top-left for an oversized selected range', () => {
     const inputs = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 1500, y: 900 }),
@@ -193,7 +218,7 @@ describe('formula reference navigation', () => {
     const alias = positionedSheet('sheet-other', 'sheet-deleted', { x: 300, y: 80 });
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=sheet-deleted!A1', A2: '=A1' },
+      cells: { A1: '=sheet-deleted!A1', A2: '=sheet-deleted!A1' },
     };
     render(<App initialWorkbook={workbookWithSheets([alias, outputs])} />);
     setSurfaceSize(800, 600);
