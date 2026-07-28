@@ -73,6 +73,29 @@ class WorkbookApplicationTest {
     }
 
     @Test
+    fun `cell update uses targeted store reads and batch write`() {
+        val sheet = createSheetDocument("Inputs").let {
+            (it as SheetNameResult.Valid).value
+        }
+        val targetedStore = TargetedCellStore(
+            InMemoryWorkbookStore(
+                WorkbookState(
+                    manifest = WorkbookManifest(sheetIds = listOf(sheet.id)),
+                    documents = mapOf(sheet.id to sheet),
+                ),
+            ),
+        )
+        val application = DefaultWorkbookApplication(targetedStore)
+
+        val updated = application.updateCell(sheet.id.value, "A1", "42", 0)
+
+        assertEquals("42", updated.tabularContent.cells.getValue("A1"))
+        assertEquals(1, targetedStore.targetedLoads)
+        assertEquals(1, targetedStore.batchWrites)
+        assertEquals(0, targetedStore.workbookLoads)
+    }
+
+    @Test
     fun `application rejects invalid domain commands without changing store`() {
         val store = InMemoryWorkbookStore()
         val application = DefaultWorkbookApplication(store)
@@ -185,5 +208,31 @@ class WorkbookApplicationTest {
     ) {
         val rejection = assertFailsWith<WorkbookApplicationException>(block = block)
         assertEquals(expected, rejection.error)
+    }
+}
+
+private class TargetedCellStore(
+    private val delegate: WorkbookStore,
+) : WorkbookStore by delegate {
+    var targetedLoads: Int = 0
+    var batchWrites: Int = 0
+    var workbookLoads: Int = 0
+
+    override fun loadSheet(sheetId: SheetId): SheetDocument? {
+        targetedLoads++
+        return delegate.loadSheet(sheetId)
+    }
+
+    override fun loadWorkbook(): WorkbookState {
+        workbookLoads++
+        return delegate.loadWorkbook()
+    }
+
+    override fun writeCells(
+        expectedRevision: ExpectedSheetRevision,
+        writes: List<CellWrite>,
+    ): SheetDocument {
+        batchWrites++
+        return delegate.writeCells(expectedRevision, writes)
     }
 }

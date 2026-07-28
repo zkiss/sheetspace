@@ -19,7 +19,9 @@ class SheetDocumentTest {
         assertEquals(WorkspacePosition(12.0, 24.0), sheet.frame.position)
         assertEquals(FrameState(position = WorkspacePosition(12.0, 24.0)), sheet.frame)
         assertEquals(SheetContentKind.TABULAR, sheet.content.kind)
-        assertEquals(TabularContent(), sheet.tabularContent)
+        assertEquals(DEFAULT_ROW_COUNT, sheet.tabularContent.rowCount)
+        assertEquals(DEFAULT_COLUMN_COUNT, sheet.tabularContent.columnCount)
+        assertEquals(emptyMap(), sheet.tabularContent.cells)
     }
 
     @Test

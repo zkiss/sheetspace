@@ -20,7 +20,7 @@ class SqliteWorkbookStoreTest {
     }
 
     @Test
-    fun `flat persistence adapter round trips complete sheet document state`() = withStore { store ->
+    fun `normalized persistence round trips complete sheet state and stable grid identities`() = withStore { store ->
         val sheet = document(
             id = SHEET_1,
             name = "Inputs",
@@ -40,6 +40,8 @@ class SqliteWorkbookStoreTest {
         store.saveWorkbook(workbook)
 
         assertEquals(workbook, store.loadWorkbook())
+        assertEquals(sheet.tabularContent.rows, store.loadSheet(sheet.id)!!.tabularContent.rows)
+        assertEquals(sheet.tabularContent.columns, store.loadSheet(sheet.id)!!.tabularContent.columns)
     }
 
     @Test
@@ -156,11 +158,12 @@ class SqliteWorkbookStoreTest {
         }
 
         assertEquals(1, stale.actualRevision)
-        assertEquals(emptyWorkbookState(), deleted)
+        assertEquals(emptyList(), deleted.sheetsInOrder)
+        assertEquals(1, deleted.manifest.revision)
     }
 
     @Test
-    fun `stores UUID ids as blobs and raw formula strings without artifacts`() = withStore { store ->
+    fun `stores UUID ids as blobs and raw formula strings in sparse cell rows`() = withStore { store ->
         val formula = "= \n SuM ( B1 , B2 )"
         store.saveWorkbook(
             workbookOf(
@@ -174,33 +177,38 @@ class SqliteWorkbookStoreTest {
 
         DriverManager.getConnection(store.jdbcUrl).use { connection ->
             connection.createStatement().use { statement ->
-                statement.executeQuery("SELECT id, cells_json FROM sheets").use { result ->
+                statement.executeQuery(
+                    """
+                    SELECT d.id, r.row_id, c.column_id, c.raw_content
+                    FROM sheet_documents d
+                    JOIN cells c ON c.sheet_id = d.id
+                    JOIN sheet_rows r ON r.sheet_id = c.sheet_id AND r.row_id = c.row_id
+                    """.trimIndent(),
+                ).use { result ->
                     assertTrue(result.next())
                     assertEquals(16, result.getBytes("id").size)
-                    val cellsJson = result.getString("cells_json")
-                    assertContains(cellsJson, "\"A1\"")
-                    assertContains(cellsJson, "SuM")
-                    assertFalse(cellsJson.contains("display"))
-                    assertFalse(cellsJson.contains("sheetReferences"))
+                    assertEquals(16, result.getBytes("row_id").size)
+                    assertEquals(16, result.getBytes("column_id").size)
+                    assertContains(result.getString("raw_content"), "SuM")
                 }
             }
         }
     }
 
     @Test
-    fun `schema omits obsolete display order`() = withStore { store ->
+    fun `schema separates manifest documents frames structure and cells`() = withStore { store ->
         DriverManager.getConnection(store.jdbcUrl).use { connection ->
-            val columns = buildSet {
+            val documentColumns = buildSet {
                 connection.createStatement().use { statement ->
-                    statement.executeQuery("PRAGMA table_info(sheets)").use { result ->
+                    statement.executeQuery("PRAGMA table_info(sheet_documents)").use { result ->
                         while (result.next()) add(result.getString("name"))
                     }
                 }
             }
-            assertFalse("display_order" in columns)
-            assertTrue("z_index" in columns)
-            assertTrue("frame_width" in columns)
-            assertTrue("frame_height" in columns)
+            assertEquals(setOf("id", "name", "content_kind", "revision"), documentColumns)
+            assertFalse("cells_json" in documentColumns)
+            assertFalse("row_count" in documentColumns)
+            assertFalse("column_count" in documentColumns)
         }
     }
 
@@ -211,25 +219,125 @@ class SqliteWorkbookStoreTest {
                 assertFailsWith<SQLException> {
                     statement.executeUpdate(
                         """
-                        INSERT INTO sheets (
-                            id, name, row_count, column_count, position_x, position_y,
-                            cells_json, revision, z_index, frame_width, frame_height
-                        ) VALUES (X'00', 'Invalid', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        INSERT INTO sheet_documents (id, name, content_kind, revision)
+                        VALUES (X'00', 'Invalid', 'TABULAR', 0)
                         """.trimIndent(),
                     )
                 }
                 assertFailsWith<SQLException> {
                     statement.executeUpdate(
                         """
-                        INSERT INTO sheets (
-                            id, name, row_count, column_count, position_x, position_y,
-                            cells_json, revision, z_index, frame_width, frame_height
-                        ) VALUES ('1234567890123456', 'Invalid Text', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        INSERT INTO sheet_documents (id, name, content_kind, revision)
+                        VALUES ('1234567890123456', 'Invalid Text', 'TABULAR', 0)
                         """.trimIndent(),
                     )
                 }
             }
         }
+    }
+
+    @Test
+    fun `schema enforces grid order and same-sheet cell ownership`() = withStore { store ->
+        val first = document(SHEET_1, "Inputs")
+        val second = document(SHEET_2, "Outputs")
+        store.saveWorkbook(workbookOf(first, second))
+
+        DriverManager.getConnection(store.jdbcUrl).use { connection ->
+            connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
+            val firstSheet = first.id.value.toTestUuidBytes()
+            val secondSheet = second.id.value.toTestUuidBytes()
+
+            assertFailsWith<SQLException> {
+                connection.prepareStatement(
+                    "INSERT INTO sheet_rows (sheet_id, row_id, row_order) VALUES (?, randomblob(16), 0)",
+                ).use { statement ->
+                    statement.setBytes(1, firstSheet)
+                    statement.executeUpdate()
+                }
+            }
+
+            assertFailsWith<SQLException> {
+                connection.prepareStatement(
+                    """
+                    INSERT INTO cells (sheet_id, row_id, column_id, raw_content)
+                    VALUES (
+                        ?,
+                        (SELECT row_id FROM sheet_rows WHERE sheet_id = ? AND row_order = 0),
+                        (SELECT column_id FROM sheet_columns WHERE sheet_id = ? AND column_order = 0),
+                        'cross-sheet'
+                    )
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setBytes(1, firstSheet)
+                    statement.setBytes(2, secondSheet)
+                    statement.setBytes(3, firstSheet)
+                    statement.executeUpdate()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `prepared batch cell write changes one sheet revision and leaves manifest untouched`() = withStore { store ->
+        val first = document(SHEET_1, "Inputs")
+        val second = document(SHEET_2, "Outputs")
+        store.saveWorkbook(workbookOf(first, second))
+        val firstContent = first.tabularContent
+
+        val updated = store.writeCells(
+            ExpectedSheetRevision(SHEET_1, 0),
+            listOf(
+                CellWrite(firstContent.coordinateAt("A1")!!, "raw"),
+                CellWrite(firstContent.coordinateAt("B2")!!, "=A1"),
+            ),
+        )
+
+        assertEquals(mapOf("A1" to "raw", "B2" to "=A1"), updated.tabularContent.cells)
+        assertEquals(1, updated.revision)
+        assertEquals(0, store.loadSheet(SheetId(SHEET_2))!!.revision)
+        assertEquals(0, store.loadManifest().revision)
+    }
+
+    @Test
+    fun `stale batch cell write is atomic`() = withStore { store ->
+        val sheet = document(SHEET_1, "Inputs")
+        store.saveWorkbook(workbookOf(sheet))
+        val coordinate = sheet.tabularContent.coordinateAt("A1")!!
+        store.writeCells(
+            ExpectedSheetRevision(SHEET_1, 0),
+            listOf(CellWrite(coordinate, "newer")),
+        )
+
+        assertFailsWith<SheetRevisionConflict> {
+            store.writeCells(
+                ExpectedSheetRevision(SHEET_1, 0),
+                listOf(CellWrite(coordinate, "stale")),
+            )
+        }
+
+        assertEquals("newer", store.loadSheet(SheetId(SHEET_1))!!.tabularContent.cells.getValue("A1"))
+    }
+
+    @Test
+    fun `manifest order and revision persist independently from sheet revisions`() = withStore { store ->
+        val first = document(SHEET_1, "Inputs")
+        val second = document(SHEET_2, "Outputs")
+        val manifest = WorkbookManifest(
+            revision = 9,
+            sheetIds = listOf(second.id, first.id),
+        )
+        store.saveWorkbook(
+            WorkbookState(manifest, mapOf(first.id to first, second.id to second)),
+        )
+
+        assertEquals(listOf(second.id, first.id), store.loadManifest().sheetIds)
+        assertEquals(9, store.loadManifest().revision)
+        val coordinate = first.tabularContent.coordinateAt("A1")!!
+        store.writeCells(
+            ExpectedSheetRevision(SHEET_1, 0),
+            listOf(CellWrite(coordinate, "42")),
+        )
+        assertEquals(9, store.loadManifest().revision)
     }
 
     private fun withStore(block: (SqliteWorkbookStore) -> Unit) {
@@ -257,4 +365,12 @@ class SqliteWorkbookStoreTest {
         const val SHEET_1 = "00000000-0000-0000-0000-000000000001"
         const val SHEET_2 = "00000000-0000-0000-0000-000000000002"
     }
+}
+
+private fun String.toTestUuidBytes(): ByteArray {
+    val uuid = java.util.UUID.fromString(this)
+    return java.nio.ByteBuffer.allocate(16)
+        .putLong(uuid.mostSignificantBits)
+        .putLong(uuid.leastSignificantBits)
+        .array()
 }

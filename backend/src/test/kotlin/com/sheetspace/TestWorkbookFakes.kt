@@ -5,6 +5,11 @@ class InMemoryWorkbookStore(
 ) : WorkbookStore {
     private var workbook = initialWorkbook
 
+    override fun loadManifest(): WorkbookManifest = synchronized(this) { workbook.manifest }
+
+    override fun loadSheet(sheetId: SheetId): SheetDocument? =
+        synchronized(this) { workbook.findSheet(sheetId) }
+
     override fun loadWorkbook(): WorkbookState = synchronized(this) { workbook }
 
     override fun saveWorkbook(workbook: WorkbookState) {
@@ -12,6 +17,28 @@ class InMemoryWorkbookStore(
         synchronized(this) {
             this.workbook = workbook
         }
+    }
+
+    override fun writeCells(
+        expectedRevision: ExpectedSheetRevision,
+        writes: List<CellWrite>,
+    ): SheetDocument = synchronized(this) {
+        val sheetId = SheetId(expectedRevision.sheetId)
+        val current = workbook.findSheet(sheetId)
+            ?: throw NoSuchElementException("Sheet not found: ${sheetId.value}")
+        if (current.revision != expectedRevision.revision) {
+            throw SheetRevisionConflict(sheetId.value, expectedRevision.revision, current.revision)
+        }
+        val updatedContent = writes.fold(current.tabularContent) { content, write ->
+            val address = content.addressOf(write.coordinate)
+                ?: throw IllegalArgumentException("Cell coordinate does not belong to sheet")
+            content.updateCell(address, write.content)
+        }
+        val updated = current
+            .updateTabularContent { updatedContent }
+            .copy(revision = current.revision + 1)
+        workbook = workbook.replaceSheet(updated)
+        updated
     }
 
     override fun updateWorkbook(
