@@ -673,15 +673,22 @@ describe('useWorkbookController', () => {
     expect(result.current.workbook.sheets).toEqual([savedSheet]);
   });
 
-  it('keeps frame previews local and persists only committed frame commands', () => {
+  it('keeps frame changes outside calculation and persists only committed frame commands', () => {
     const apiClient = autosaveClient();
-    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }),
+      cells: { A1: '=1' },
+    };
+    const calculate = vi.fn();
     const { result } = renderHook(() =>
       useWorkbookController({
         apiClient,
+        calculationObserver: calculate,
         initialWorkbook: workbookWithSheets([sheet]),
       }),
     );
+    const initialResults = result.current.formulaResults;
+    expect(calculate).toHaveBeenCalledTimes(1);
 
     act(() => {
       result.current.commands.previewSheetFrameLayout('sheet-inputs', { x: 30, y: 40 });
@@ -689,6 +696,8 @@ describe('useWorkbookController', () => {
 
     expect(result.current.workbook.sheets[0].position).toEqual({ x: 30, y: 40 });
     expect(apiClient.updateSheetPosition).not.toHaveBeenCalled();
+    expect(result.current.formulaResults).toBe(initialResults);
+    expect(calculate).toHaveBeenCalledTimes(1);
 
     act(() => {
       result.current.commands.moveSheetFrame('sheet-inputs', { x: 50, y: 60 });
@@ -696,10 +705,25 @@ describe('useWorkbookController', () => {
 
     expect(result.current.workbook.sheets[0].position).toEqual({ x: 50, y: 60 });
     expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-inputs', { x: 50, y: 60 }, { revision: 0 });
+    expect(result.current.formulaResults).toBe(initialResults);
+    expect(calculate).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.commands.resizeSheetFrame(
+        'sheet-inputs',
+        { x: 50, y: 60 },
+        { width: 400, height: 300 },
+      );
+      result.current.commands.changeSheetZOrder('sheet-inputs', 'top');
+    });
+
+    expect(result.current.formulaResults).toBe(initialResults);
+    expect(calculate).toHaveBeenCalledTimes(1);
   });
 
   it('updates cells through a command and derives formula display results from workbook state', () => {
     const apiClient = autosaveClient();
+    const calculate = vi.fn();
     const sheet: Sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }),
       cells: {
@@ -709,6 +733,7 @@ describe('useWorkbookController', () => {
     const { result } = renderHook(() =>
       useWorkbookController({
         apiClient,
+        calculationObserver: calculate,
         initialWorkbook: workbookWithSheets([sheet]),
       }),
     );
@@ -719,6 +744,10 @@ describe('useWorkbookController', () => {
 
     expect(result.current.workbook.sheets[0].cells.A1).toEqual('7');
     expect(result.current.formulaResults['sheet-inputs'].B1.display).toBe('7');
+    expect(calculate).toHaveBeenLastCalledWith({
+        kind: 'cells',
+        cells: [{ sheetId: 'sheet-inputs', key: 'A1' }],
+    });
     expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', '7', { revision: 0 });
   });
 

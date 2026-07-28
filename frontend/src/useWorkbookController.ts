@@ -1,4 +1,6 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CalculationImpact } from './calculationProjection';
+import { FormulaCalculation } from './formulaCalculation';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import {
   appendColumn,
@@ -6,7 +8,6 @@ import {
   commitCellRawContent,
   createSheet,
   createEmptyWorkbook,
-  FormulaCalculation,
   formulaSheetReferenceIds,
   moveSheetZOrder,
   remapWorkbookFormulaSheetId,
@@ -23,6 +24,12 @@ import {
 } from './workbook';
 import { useEditQueue } from './useEditQueue';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
+import {
+  calculationRequest,
+  mergeCalculationImpacts,
+  type CalculationRequest,
+  type SetWorkbook,
+} from './workbookCalculation';
 
 export type WorkbookCommands = {
   appendColumn: (sheetId: string) => void;
@@ -48,17 +55,61 @@ export type WorkbookController = {
   workbook: Workbook;
 };
 
+type WorkbookControllerState = {
+  workbook: Workbook;
+  calculationRequest: CalculationRequest;
+};
+
 export function useWorkbookController({
   apiClient,
+  calculationObserver,
+  calculator,
   initialWorkbook,
 }: {
   apiClient?: Partial<WorkbookApi>;
+  calculationObserver?: (impact: CalculationImpact) => void;
+  calculator?: FormulaCalculation;
   initialWorkbook?: Workbook;
 }): WorkbookController {
   const resolvedApiClient = apiClient ?? workbookApi;
   const autosaveEnabled = !initialWorkbook || Boolean(apiClient);
-  const [workbook, setWorkbook] = useState<Workbook>(() => initialWorkbook ?? createEmptyWorkbook());
-  const formulaCalculation = useRef(new FormulaCalculation());
+  const [controllerState, setControllerState] = useState<WorkbookControllerState>(() => {
+    const workbook = initialWorkbook ?? createEmptyWorkbook();
+    return {
+      workbook,
+      calculationRequest: calculationRequest(workbook, { kind: 'structure' }),
+    };
+  });
+  const { calculationRequest: pendingCalculation, workbook } = controllerState;
+  const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
+  const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
+    setControllerState((current) => {
+      const nextWorkbook = typeof update === 'function'
+        ? update(current.workbook)
+        : update;
+      if (nextWorkbook === current.workbook) {
+        return current;
+      }
+      if (impact.kind === 'none') {
+        return { ...current, workbook: nextWorkbook };
+      }
+
+      const pendingImpact: CalculationImpact =
+        appliedCalculation.current === current.calculationRequest
+          ? { kind: 'none' }
+          : current.calculationRequest.impact;
+      return {
+        workbook: nextWorkbook,
+        calculationRequest: calculationRequest(
+          nextWorkbook,
+          mergeCalculationImpacts(pendingImpact, impact),
+        ),
+      };
+    });
+  }, []);
+  const committedCalculation = useRef<FormulaCalculation | undefined>(undefined);
+  committedCalculation.current ??= calculator ?? new FormulaCalculation();
+  const calculationObserverRef = useRef(calculationObserver);
   const pendingSheets = useRef(new Map<string, string>());
   const suppressedSheetIds = useRef(new Set<string>());
   const unresolvedCreateNames = useRef(new Map<string, string>());
@@ -89,7 +140,23 @@ export function useWorkbookController({
     resolvedApiClient,
     setWorkbook,
   });
-  const formulaResults = useMemo(() => formulaCalculation.current.update(workbook), [workbook]);
+  const calculated = useMemo(
+    () => {
+      const nextCalculation = committedCalculation.current!.fork();
+      calculationObserverRef.current?.(pendingCalculation.impact);
+      const results = nextCalculation.update(
+        pendingCalculation.projection,
+        pendingCalculation.impact,
+      );
+      return { nextCalculation, results };
+    },
+    [pendingCalculation],
+  );
+  useLayoutEffect(() => {
+    committedCalculation.current = calculated.nextCalculation;
+    appliedCalculation.current = pendingCalculation;
+  }, [calculated, pendingCalculation]);
+  const formulaResults = calculated.results;
 
   function persistDeletedSheet(savedSheetId: string, revision: number | undefined) {
     return getApiMethod('deleteSheet')(savedSheetId, { revision }).catch((cause: unknown) => {
@@ -126,7 +193,7 @@ export function useWorkbookController({
       return optimisticSheet.ok
         ? { ...currentWorkbook, sheets: [...currentWorkbook.sheets, optimisticSheet.value] }
         : currentWorkbook;
-    });
+    }, { kind: 'structure' });
     enqueuePendingSheetCreate(
       pendingSheetId,
       `sheet-create:${result.name}`,
@@ -161,12 +228,12 @@ export function useWorkbookController({
                 : sheet,
             ),
           }, pendingSheetId, savedSheetId);
-        });
+        }, { kind: 'structure' });
       },
       () => {
         unresolvedCreateNames.current.delete(pendingSheetId);
-        setWorkbook((currentWorkbook) =>
-          remapWorkbookFormulaSheetId(
+        setWorkbook(
+          (currentWorkbook) => remapWorkbookFormulaSheetId(
             {
               ...currentWorkbook,
               sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== pendingSheetId),
@@ -174,6 +241,7 @@ export function useWorkbookController({
             pendingSheetId,
             '#REF',
           ),
+          { kind: 'structure' },
         );
       },
     );
@@ -191,8 +259,8 @@ export function useWorkbookController({
     if (!createWasSent) {
       unresolvedCreateNames.current.delete(sheetId);
     }
-    setWorkbook((currentWorkbook) =>
-      remapWorkbookFormulaSheetId(
+    setWorkbook(
+      (currentWorkbook) => remapWorkbookFormulaSheetId(
         {
           ...currentWorkbook,
           sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),
@@ -200,6 +268,7 @@ export function useWorkbookController({
         sheetId,
         '#REF',
       ),
+      { kind: 'structure' },
     );
   }
 
@@ -218,7 +287,7 @@ export function useWorkbookController({
     setWorkbook((currentWorkbook) => ({
       ...currentWorkbook,
       sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== localSheetId),
-    }));
+    }), { kind: 'structure' });
     enqueueEdit(`sheet-delete:${localSheetId}`, async () => {
       await waitForSheetIdle(localSheetId);
       dropSheetQueuedTasks(localSheetId);
@@ -234,7 +303,7 @@ export function useWorkbookController({
     }
 
     const renamedSheet = result.value.sheets.find((sheet) => sheet.id === localSheetId);
-    setWorkbook(result.value);
+    setWorkbook(result.value, { kind: 'none' });
     if (renamedSheet) {
       enqueueEdit(`sheet:${sheetId}:name`, () =>
         runForSavedSheet(sheetId, (savedSheetId) =>
@@ -267,7 +336,7 @@ export function useWorkbookController({
       return;
     }
 
-    setWorkbook(nextWorkbook);
+    setWorkbook(nextWorkbook, { kind: 'structure' });
     enqueueEdit(`sheet:${sheetId}:rows`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
         runRevisionedEdit(savedSheetId, (revision) => getApiMethod('appendRow')(savedSheetId, { revision })),
@@ -294,7 +363,7 @@ export function useWorkbookController({
       return;
     }
 
-    setWorkbook(nextWorkbook);
+    setWorkbook(nextWorkbook, { kind: 'structure' });
     enqueueEdit(`sheet:${sheetId}:columns`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
         runRevisionedEdit(savedSheetId, (revision) => getApiMethod('appendColumn')(savedSheetId, { revision })),
@@ -311,7 +380,10 @@ export function useWorkbookController({
     const canonicalRaw = nextSheet?.cells[cellKey] ?? '';
 
     if (nextWorkbook !== workbook) {
-      setWorkbook(nextWorkbook);
+      setWorkbook(nextWorkbook, {
+        kind: 'cells',
+        cells: [{ sheetId: localSheetId, key: cellKey }],
+      });
     }
     if (nextWorkbook !== workbook && currentRaw !== canonicalRaw) {
       enqueueEdit(
@@ -347,7 +419,7 @@ export function useWorkbookController({
             }
           : sheet,
       ),
-    }));
+    }), { kind: 'none' });
   }
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
@@ -392,7 +464,7 @@ export function useWorkbookController({
       return;
     }
 
-    setWorkbook(result.value);
+    setWorkbook(result.value, { kind: 'none' });
     for (const nextSheet of result.value.sheets) {
       const currentSheet = workbook.sheets.find((sheet) => sheet.id === nextSheet.id);
       if (currentSheet && currentSheet.zIndex !== nextSheet.zIndex) {
