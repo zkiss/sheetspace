@@ -53,7 +53,7 @@ class DefaultWorkbookApplication(
     override fun loadWorkbook(): WorkbookState = store.loadWorkbook()
 
     override fun loadSheet(sheetId: String): SheetDocument =
-        store.loadWorkbook().findSheet(SheetId(sheetId))
+        store.loadSheet(SheetId(sheetId))
             ?: reject(WorkbookApplicationError.SHEET_NOT_FOUND)
 
     override fun createSheet(command: CreateSheetCommand): SheetDocument {
@@ -136,12 +136,13 @@ class DefaultWorkbookApplication(
         address: String,
         content: String,
         expectedRevision: Long,
-    ): SheetDocument = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
-        if (!current.tabularContent.containsCell(address)) {
-            reject(WorkbookApplicationError.INVALID_CELL_ADDRESS)
-        }
-        workbook.replaceSheet(
-            current.updateTabularContent { it.updateCell(address, content) },
+    ): SheetDocument {
+        val current = loadSheet(sheetId)
+        val coordinate = current.tabularContent.coordinateAt(address)
+            ?: reject(WorkbookApplicationError.INVALID_CELL_ADDRESS)
+        return store.writeCells(
+            ExpectedSheetRevision(sheetId, expectedRevision),
+            listOf(CellWrite(coordinate, content)),
         )
     }
 
