@@ -109,11 +109,39 @@ describe('formula inspection', () => {
     expect(inspectFormula('=UNKNOWN(A1)', workbook([inputs]), inputs)?.references[0].text).toBe('A1');
   });
 
-  it('degrades safely for non-formulas and malformed formulas', () => {
+  it('degrades safely for non-formulas and keeps valid malformed-formula references inspectable', () => {
     const inputs = sheet('sheet-inputs', 'Inputs');
     const model = workbook([inputs]);
 
     expect(inspectFormula('A1', model, inputs)).toBeUndefined();
-    expect(inspectFormula('=SUM(A1,)', model, inputs)).toBeUndefined();
+    const malformed = inspectFormula('=SUM(A1,)', model, inputs);
+    expect(malformed?.raw).toBe('=SUM(A1,)');
+    expect(malformed?.references).toMatchObject([{
+      text: 'A1',
+      sourceSpan: { start: 5, end: 7 },
+      displaySpan: { start: 5, end: 7 },
+    }]);
+    expect(malformed?.parts.map((part) => part.text).join('')).toBe(malformed?.raw);
+  });
+
+  it('inspects and translates references after an earlier syntax error', () => {
+    const outputs = sheet('sheet-outputs', 'Outputs');
+    const source = sheet('sheet-source', 'Renamed Source');
+    const result = inspectFormula(
+      '=SUM(A1,) + sheet-source!B2 + #REF!C3',
+      workbook([outputs, source]),
+      outputs,
+    );
+
+    expect(result?.raw).toBe("=SUM(A1,) + 'Renamed Source'!B2 + #REF!C3");
+    expect(result?.references.map((reference) => ({
+      text: reference.text,
+      sheetId: reference.target.sheetId,
+      broken: reference.broken,
+    }))).toEqual([
+      { text: 'A1', sheetId: 'sheet-outputs', broken: false },
+      { text: "'Renamed Source'!B2", sheetId: 'sheet-source', broken: false },
+      { text: '#REF!C3', sheetId: '#REF', broken: true },
+    ]);
   });
 });

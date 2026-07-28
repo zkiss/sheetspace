@@ -1,15 +1,17 @@
 import {
-  formatSheetReferenceToken,
   isAddressWithinBounds,
-  parseFormulaForInspection,
   type CellAddress,
   type CellRange,
-  type FormulaExpression,
-  type FormulaReference,
-  type FormulaSourceSpan,
   type Sheet,
   type Workbook,
 } from './workbook';
+import {
+  collectFormulaReferences,
+  formatSheetReferenceToken,
+  parseFormulaSyntax,
+  type FormulaReference,
+  type FormulaSourceSpan,
+} from './formulaSyntax';
 
 export type FormulaReferenceTarget =
   | {
@@ -50,12 +52,14 @@ export function inspectFormula(
   workbook: Workbook,
   currentSheet: Sheet,
 ): FormulaInspection | undefined {
-  const parsed = parseFormulaForInspection(canonicalRaw);
-  if (parsed.kind !== 'formula') {
+  const parsed = parseFormulaSyntax(canonicalRaw, { preserveUnknownFunctions: true });
+  if (parsed.result.kind === 'not-formula' || parsed.references.length === 0) {
     return undefined;
   }
 
-  const formulaReferences = collectFormulaReferences(parsed.expression)
+  const formulaReferences = (parsed.result.kind === 'formula'
+    ? collectFormulaReferences(parsed.result.expression)
+    : parsed.references)
     .sort((first, second) => first.sourceSpan.start - second.sourceSpan.start);
   const replacements = qualifierReplacements(formulaReferences, workbook);
   const raw = applyQualifierReplacements(canonicalRaw, replacements);
@@ -68,33 +72,6 @@ export function inspectFormula(
     references,
     parts: inspectionParts(raw, references),
   };
-}
-
-function collectFormulaReferences(expression: FormulaExpression): FormulaReference[] {
-  switch (expression.kind) {
-    case 'cell':
-    case 'range':
-      return [expression];
-    case 'number':
-    case 'text':
-    case 'boolean':
-      return [];
-    case 'group':
-      return collectFormulaReferences(expression.expression);
-    case 'unary':
-      return collectFormulaReferences(expression.operand);
-    case 'binary':
-      return [
-        ...collectFormulaReferences(expression.left),
-        ...collectFormulaReferences(expression.right),
-      ];
-    case 'sum':
-    case 'function':
-      return expression.arguments.flatMap(collectFormulaReferences);
-  }
-
-  const exhaustiveExpression: never = expression;
-  throw new Error(`Unsupported formula expression: ${String(exhaustiveExpression)}`);
 }
 
 function qualifierReplacements(

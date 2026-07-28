@@ -353,7 +353,7 @@ describe('useWorkbookController', () => {
     });
   });
 
-  it('defers saved-sheet formula saves that reference a pending sheet until the target has a backend id', async () => {
+  it('defers malformed formula saves with a later pending-sheet reference until the target has a backend id', async () => {
     const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 0, y: 0 });
     const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', '📈 Plan', { x: 24, y: 48 });
     let resolveCreate!: (workbook: Workbook) => void;
@@ -375,10 +375,10 @@ describe('useWorkbookController', () => {
     });
     const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === '📈 Plan')!.id;
     act(() => {
-      result.current.commands.updateCellContent('sheet-outputs', 'A1', "=SUM('📈 Plan'!A1)");
+      result.current.commands.updateCellContent('sheet-outputs', 'A1', "=SUM(A1,) + '📈 Plan'!A1");
     });
 
-    expect(result.current.workbook.sheets[0].cells.A1).toBe(`=SUM(${pendingInputsId}!A1)`);
+    expect(result.current.workbook.sheets[0].cells.A1).toBe(`=SUM(A1,) + ${pendingInputsId}!A1`);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -390,7 +390,7 @@ describe('useWorkbookController', () => {
       expect(apiClient.updateCellContent).toHaveBeenCalledWith(
         'sheet-outputs',
         'A1',
-        `=SUM(${savedInputs.id}!A1)`,
+        `=SUM(A1,) + ${savedInputs.id}!A1`,
         { revision: 0 },
       ),
     );
