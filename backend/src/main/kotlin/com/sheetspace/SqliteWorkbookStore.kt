@@ -10,6 +10,7 @@ import java.util.UUID
 class SqliteWorkbookStore internal constructor(
     internal val jdbcUrl: String,
     private val keepAliveConnection: Connection? = null,
+    private val aggregateReadCheckpoint: (() -> Unit)? = null,
 ) : WorkbookStore, AutoCloseable {
     private val updateLock = Any()
 
@@ -23,12 +24,16 @@ class SqliteWorkbookStore internal constructor(
         keepAliveConnection?.close()
     }
 
-    override fun loadManifest(): WorkbookManifest = connection(::loadManifest)
+    override fun loadManifest(): WorkbookManifest =
+        connection { conn -> transaction(conn) { loadManifest(conn) } }
 
-    override fun loadSheet(sheetId: SheetId): SheetDocument? =
-        connection { conn -> loadSheet(conn, sheetId) }
+    override fun loadSheet(sheetId: SheetId): SheetDocument? {
+        if (sheetId.value.toUuidBytesOrNull() == null) return null
+        return connection { conn -> transaction(conn) { loadSheet(conn, sheetId) } }
+    }
 
-    override fun loadWorkbook(): WorkbookState = connection(::loadWorkbook)
+    override fun loadWorkbook(): WorkbookState =
+        connection { conn -> transaction(conn) { loadWorkbook(conn) } }
 
     override fun saveWorkbook(workbook: WorkbookState) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
@@ -119,6 +124,7 @@ class SqliteWorkbookStore internal constructor(
 
     private fun loadWorkbook(conn: Connection): WorkbookState {
         val manifest = loadManifest(conn)
+        aggregateReadCheckpoint?.invoke()
         val documents = manifest.sheetIds.associateWith { sheetId ->
             loadSheet(conn, sheetId) ?: error("Manifest references missing sheet: ${sheetId.value}")
         }
@@ -525,6 +531,9 @@ private fun String.toUuidBytes(): ByteArray {
         .putLong(uuid.leastSignificantBits)
         .array()
 }
+
+private fun String.toUuidBytesOrNull(): ByteArray? =
+    runCatching { toUuidBytes() }.getOrNull()
 
 private fun ByteArray.toUuidString(): String {
     require(size == 16) { "Stored id must be exactly 16 bytes" }

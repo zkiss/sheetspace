@@ -1,15 +1,19 @@
 package com.sheetspace
 
+import java.nio.file.Files
 import java.sql.DriverManager
 import java.sql.SQLException
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SqliteWorkbookStoreTest {
@@ -17,6 +21,66 @@ class SqliteWorkbookStoreTest {
     fun `loads an empty workbook from an isolated in-memory database`() = withStore { store ->
         assertEquals(emptyWorkbookState(), store.loadWorkbook())
         assertEquals(WORKBOOK_SCHEMA_VERSION, store.loadStoredSchemaVersion())
+    }
+
+    @Test
+    fun `malformed sheet id is treated as absent`() = withStore { store ->
+        assertNull(store.loadSheet(SheetId("missing")))
+    }
+
+    @Test
+    fun `aggregate read stays on one snapshot during concurrent membership change`() {
+        val database = Files.createTempFile("sheetspace-snapshot-", ".db")
+        try {
+            SqliteWorkbookStore(database).use { writer ->
+                DriverManager.getConnection(writer.jdbcUrl).use { connection ->
+                    connection.createStatement().use { statement ->
+                        statement.execute("PRAGMA journal_mode = WAL")
+                    }
+                }
+                val sheet = document(SHEET_1, "Inputs")
+                val initial = workbookOf(sheet)
+                writer.saveWorkbook(initial)
+
+                val manifestLoaded = CountDownLatch(1)
+                val mutationFinished = CountDownLatch(1)
+                SqliteWorkbookStore(
+                    jdbcUrl = writer.jdbcUrl,
+                    aggregateReadCheckpoint = {
+                        manifestLoaded.countDown()
+                        check(mutationFinished.await(5, TimeUnit.SECONDS))
+                    },
+                ).use { reader ->
+                    val loaded = AtomicReference<WorkbookState>()
+                    val failure = AtomicReference<Throwable>()
+                    val read = thread {
+                        try {
+                            loaded.set(reader.loadWorkbook())
+                        } catch (exception: Throwable) {
+                            failure.set(exception)
+                        }
+                    }
+
+                    assertTrue(manifestLoaded.await(5, TimeUnit.SECONDS))
+                    try {
+                        writer.updateWorkbook(ExpectedSheetRevision(SHEET_1, 0)) { workbook ->
+                            workbook.removeSheet(SheetId(SHEET_1))
+                        }
+                    } finally {
+                        mutationFinished.countDown()
+                    }
+                    read.join()
+
+                    assertNull(failure.get())
+                    assertEquals(initial, loaded.get())
+                    assertTrue(writer.loadWorkbook().sheetsInOrder.isEmpty())
+                }
+            }
+        } finally {
+            Files.deleteIfExists(database)
+            Files.deleteIfExists(database.resolveSibling("${database.fileName}-wal"))
+            Files.deleteIfExists(database.resolveSibling("${database.fileName}-shm"))
+        }
     }
 
     @Test
