@@ -13,6 +13,7 @@ trap cleanup EXIT INT TERM
 codex exec \
   --model "gpt-5.6-sol" \
   --config model_reasoning_effort=medium \
+  --config approval_policy=on-request \
   --json \
   --output-last-message "$last" \
   --sandbox workspace-write \
