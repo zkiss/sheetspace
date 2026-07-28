@@ -224,6 +224,24 @@ class WorkbookMutationContractRoutesTest {
         }
 
     @Test
+    fun `missing sheet wins over patch command validation after revision parsing`() =
+        testWorkbookApplication {
+            val emptyUpdate = client.patch("/api/sheets/missing") {
+                header("If-Match", "0")
+                jsonBody("""{}""")
+            }
+            val invalidZIndex = client.patch("/api/sheets/missing") {
+                header("If-Match", "0")
+                jsonBody("""{"zIndex":0}""")
+            }
+
+            assertEquals(HttpStatusCode.NotFound, emptyUpdate.status)
+            assertEquals(ErrorResponse("sheet-not-found"), emptyUpdate.decodeBody<ErrorResponse>())
+            assertEquals(HttpStatusCode.NotFound, invalidZIndex.status)
+            assertEquals(ErrorResponse("sheet-not-found"), invalidZIndex.decodeBody<ErrorResponse>())
+        }
+
+    @Test
     fun `malformed request bodies return structured 4xx errors without corrupting workbook data`() =
         testWorkbookApplication {
             val sheet = client.createSheet()

@@ -91,6 +91,7 @@ class DefaultWorkbookApplication(
         expectedRevision: Long,
         command: UpdateSheetCommand,
     ): Sheet {
+        loadSheet(sheetId)
         if (
             command.name == null &&
             command.position == null &&

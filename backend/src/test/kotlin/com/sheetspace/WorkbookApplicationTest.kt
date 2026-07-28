@@ -149,6 +149,16 @@ class WorkbookApplicationTest {
             application.loadSheet("missing")
         }
         assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
+            application.updateSheet("missing", 0, UpdateSheetCommand())
+        }
+        assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
+            application.updateSheet(
+                "missing",
+                0,
+                UpdateSheetCommand(position = WorkspacePosition(Double.NaN, 0.0)),
+            )
+        }
+        assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
             application.appendRow("missing", 0)
         }
     }

@@ -1,6 +1,7 @@
 package com.sheetspace
 
 import java.sql.DriverManager
+import java.sql.SQLException
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
@@ -49,6 +50,30 @@ class SqliteWorkbookStoreTest {
         store.saveWorkbook(Workbook(sheets = listOf(second.copy(name = "Renamed Outputs"))))
 
         assertEquals(listOf(second.copy(name = "Renamed Outputs")), store.loadWorkbook().sheets)
+    }
+
+    @Test
+    fun `non-revision updates serialize concurrent workbook transforms`() = withStore { store ->
+        val gate = CountDownLatch(1)
+        val workers = listOf(
+            Sheet(id = SHEET_1, name = "Inputs"),
+            Sheet(id = SHEET_2, name = "Outputs"),
+        ).map { sheet ->
+            thread {
+                gate.await()
+                store.updateWorkbook { workbook ->
+                    val nextZIndex = (workbook.sheets.maxOfOrNull { it.zIndex } ?: 0) + 1
+                    workbook.copy(sheets = workbook.sheets + sheet.copy(zIndex = nextZIndex))
+                }
+            }
+        }
+
+        gate.countDown()
+        workers.forEach { it.join() }
+
+        val sheets = store.loadWorkbook().sheets
+        assertEquals(setOf(SHEET_1, SHEET_2), sheets.map { it.id }.toSet())
+        assertEquals(setOf(1, 2), sheets.map { it.zIndex }.toSet())
     }
 
     @Test
@@ -102,6 +127,28 @@ class SqliteWorkbookStoreTest {
     }
 
     @Test
+    fun `revisioned deletion succeeds once and rejects stale deletion`() = withStore { store ->
+        store.saveWorkbook(Workbook(sheets = listOf(Sheet(id = SHEET_1, name = "Inputs"))))
+        store.updateWorkbook(ExpectedSheetRevision(SHEET_1, 0)) { workbook ->
+            workbook.copy(
+                sheets = workbook.sheets.map { it.copy(cells = mapOf("A1" to "newer")) },
+            )
+        }
+
+        val stale = assertFailsWith<SheetRevisionConflict> {
+            store.updateWorkbook(ExpectedSheetRevision(SHEET_1, 0)) { workbook ->
+                workbook.copy(sheets = emptyList())
+            }
+        }
+        val deleted = store.updateWorkbook(ExpectedSheetRevision(SHEET_1, 1)) { workbook ->
+            workbook.copy(sheets = emptyList())
+        }
+
+        assertEquals(1, stale.actualRevision)
+        assertEquals(emptyWorkbook(), deleted)
+    }
+
+    @Test
     fun `stores UUID ids as blobs and raw formula strings without artifacts`() = withStore { store ->
         val formula = "= \n SuM ( B1 , B2 )"
         store.saveWorkbook(
@@ -141,6 +188,34 @@ class SqliteWorkbookStoreTest {
             assertTrue("z_index" in columns)
             assertTrue("frame_width" in columns)
             assertTrue("frame_height" in columns)
+        }
+    }
+
+    @Test
+    fun `schema rejects malformed and text sheet ids`() = withStore { store ->
+        DriverManager.getConnection(store.jdbcUrl).use { connection ->
+            connection.createStatement().use { statement ->
+                assertFailsWith<SQLException> {
+                    statement.executeUpdate(
+                        """
+                        INSERT INTO sheets (
+                            id, name, row_count, column_count, position_x, position_y,
+                            cells_json, revision, z_index, frame_width, frame_height
+                        ) VALUES (X'00', 'Invalid', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        """.trimIndent(),
+                    )
+                }
+                assertFailsWith<SQLException> {
+                    statement.executeUpdate(
+                        """
+                        INSERT INTO sheets (
+                            id, name, row_count, column_count, position_x, position_y,
+                            cells_json, revision, z_index, frame_width, frame_height
+                        ) VALUES ('1234567890123456', 'Invalid Text', 20, 10, 0, 0, '{"cells":{}}', 0, 1, 240, 160)
+                        """.trimIndent(),
+                    )
+                }
+            }
         }
     }
 
