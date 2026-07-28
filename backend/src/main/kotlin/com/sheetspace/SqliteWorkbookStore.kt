@@ -10,32 +10,26 @@ import java.sql.DriverManager
 import java.sql.ResultSet
 import java.util.UUID
 
-class SheetRevisionConflict(
-    val sheetId: String,
-    val expectedRevision: Long,
-    val actualRevision: Long,
-) : RuntimeException("Sheet $sheetId revision conflict: expected $expectedRevision, actual $actualRevision")
-
-class SheetNameRejected(
-    val reason: SheetNameError,
-) : RuntimeException("Sheet name rejected: $reason")
-
-class UnknownSheetUpdate(
-    val sheetId: String,
-) : RuntimeException("Unknown sheet: $sheetId")
-
-class WorkbookRepository(dbPath: Path) {
-    private val jdbcUrl = "jdbc:sqlite:${dbPath.toAbsolutePath()}"
+class SqliteWorkbookStore internal constructor(
+    internal val jdbcUrl: String,
+    private val keepAliveConnection: Connection? = null,
+) : WorkbookStore, AutoCloseable {
     private val json = Json { ignoreUnknownKeys = false }
-    private val sheetCreationLock = Any()
+    private val updateLock = Any()
+
+    constructor(dbPath: Path) : this("jdbc:sqlite:${dbPath.toAbsolutePath()}")
 
     init {
         initialize()
     }
 
-    fun loadWorkbook(): Workbook = connection { conn -> loadWorkbook(conn) }
+    override fun close() {
+        keepAliveConnection?.close()
+    }
 
-    fun saveWorkbook(workbook: Workbook) {
+    override fun loadWorkbook(): Workbook = connection { conn -> loadWorkbook(conn) }
+
+    override fun saveWorkbook(workbook: Workbook) {
         require(workbook.version == WORKBOOK_SCHEMA_VERSION) {
             "Unsupported workbook version: ${workbook.version}"
         }
@@ -49,116 +43,6 @@ class WorkbookRepository(dbPath: Path) {
         }
     }
 
-    fun createSheet(sheet: Sheet, assignDefaultZIndex: Boolean = false): Workbook = synchronized(sheetCreationLock) {
-        updateWorkbook { workbook ->
-            when (val result = validateSheetName(sheet.name, workbook.sheets)) {
-                is SheetNameResult.Valid -> workbook.copy(
-                    sheets = workbook.sheets + sheet.copy(
-                        name = result.value,
-                        zIndex = if (assignDefaultZIndex) {
-                            (workbook.sheets.maxOfOrNull { it.zIndex } ?: 0) + 1
-                        } else {
-                            sheet.zIndex
-                        },
-                    ),
-                )
-                is SheetNameResult.Invalid -> throw SheetNameRejected(result.reason)
-            }
-        }
-    }
-
-    fun updateSheet(
-        sheetId: String,
-        expectedRevision: Long?,
-        name: String? = null,
-        position: WorkspacePosition? = null,
-        frameSize: SheetFrameSize? = null,
-        zIndex: Int? = null,
-    ): Workbook = updateWorkbook(sheetId, expectedRevision) { workbook ->
-        val renamed = if (name == null) {
-            workbook
-        } else {
-            when (val result = com.sheetspace.renameSheet(workbook, sheetId, name)) {
-                is WorkbookResult.Valid -> result.workbook
-                is WorkbookResult.InvalidName -> throw SheetNameRejected(result.reason)
-                WorkbookResult.UnknownSheet -> throw UnknownSheetUpdate(sheetId)
-            }
-        }
-
-        renamed.copy(
-            sheets = renamed.sheets.map { sheet ->
-                if (sheet.id != sheetId) {
-                    sheet
-                } else {
-                    sheet.copy(
-                        position = position ?: sheet.position,
-                        frameSize = frameSize ?: sheet.frameSize,
-                        zIndex = zIndex ?: sheet.zIndex,
-                    )
-                }
-            },
-        )
-    }
-
-    fun renameSheet(sheetId: String, nextName: String): Workbook = updateSheet(sheetId, null, name = nextName)
-
-    fun updateSheetPosition(sheetId: String, position: WorkspacePosition): Workbook =
-        updateSheet(sheetId, null, position = position)
-
-    fun updateSheetFrameSize(sheetId: String, frameSize: SheetFrameSize): Workbook =
-        updateSheet(sheetId, null, frameSize = frameSize)
-
-    fun updateSheetZIndex(sheetId: String, zIndex: Int): Workbook = updateSheet(sheetId, null, zIndex = zIndex)
-
-    fun deleteSheet(sheetId: String, expectedRevision: Long? = null): Workbook = updateWorkbook(sheetId, expectedRevision) { workbook ->
-        if (workbook.sheets.none { it.id == sheetId }) {
-            throw UnknownSheetUpdate(sheetId)
-        }
-
-        workbook.copy(sheets = workbook.sheets.filterNot { it.id == sheetId })
-    }
-
-    fun updateCell(
-        sheetId: String,
-        cellAddress: String,
-        content: String,
-        expectedRevision: Long? = null,
-    ): Workbook =
-        updateWorkbook(sheetId, expectedRevision) { workbook ->
-            workbook.copy(
-                sheets = workbook.sheets.map { sheet ->
-                    if (sheet.id != sheetId) {
-                        sheet
-                    } else {
-                        val nextCells = if (content.isEmpty()) {
-                            sheet.cells - cellAddress
-                        } else {
-                            sheet.cells + (cellAddress to content)
-                        }
-                        sheet.copy(cells = nextCells)
-                    }
-                },
-            )
-        }
-
-    fun appendRow(sheetId: String, expectedRevision: Long? = null): Workbook =
-        updateWorkbook(sheetId, expectedRevision) { workbook ->
-            workbook.copy(
-                sheets = workbook.sheets.map { sheet ->
-                    if (sheet.id == sheetId) com.sheetspace.appendRow(sheet) else sheet
-                },
-            )
-        }
-
-    fun appendColumn(sheetId: String, expectedRevision: Long? = null): Workbook =
-        updateWorkbook(sheetId, expectedRevision) { workbook ->
-            workbook.copy(
-                sheets = workbook.sheets.map { sheet ->
-                    if (sheet.id == sheetId) com.sheetspace.appendColumn(sheet) else sheet
-                },
-            )
-        }
-
     private fun initialize() {
         Flyway.configure()
             .dataSource(jdbcUrl, null, null)
@@ -167,40 +51,49 @@ class WorkbookRepository(dbPath: Path) {
             .migrate()
     }
 
-    private fun updateWorkbook(
-        lockedSheetId: String? = null,
-        expectedRevision: Long? = null,
+    override fun updateWorkbook(
+        expectedRevision: ExpectedSheetRevision?,
         transform: (Workbook) -> Workbook,
-    ): Workbook = connection { conn ->
-        if (lockedSheetId != null && expectedRevision != null) {
-            val current = loadWorkbook(conn)
-            val currentSheet = current.sheets.find { it.id == lockedSheetId }
-            val updated = transform(current)
+    ): Workbook = synchronized(updateLock) {
+        connection { conn ->
+            if (expectedRevision != null) {
+                val current = loadWorkbook(conn)
+                val currentSheet = current.sheets.find { it.id == expectedRevision.sheetId }
+                val updated = transform(current)
 
-            if (currentSheet != null && currentSheet.revision != expectedRevision) {
-                throw SheetRevisionConflict(lockedSheetId, expectedRevision, currentSheet.revision)
+                if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {
+                    throw SheetRevisionConflict(
+                        expectedRevision.sheetId,
+                        expectedRevision.revision,
+                        currentSheet.revision,
+                    )
+                }
+
+                val updatedSheet = updated.sheets.find { it.id == expectedRevision.sheetId }
+                if (
+                    currentSheet != null &&
+                    updatedSheet != null &&
+                    currentSheet != updatedSheet
+                ) {
+                    updateSheetWithExpectedRevision(conn, updatedSheet, expectedRevision.revision)
+                }
+                if (currentSheet != null && updatedSheet == null) {
+                    deleteSheetWithExpectedRevision(
+                        conn,
+                        expectedRevision.sheetId,
+                        expectedRevision.revision,
+                    )
+                }
+
+                return@connection loadWorkbook(conn)
             }
 
-            val updatedSheet = updated.sheets.find { it.id == lockedSheetId }
-            if (
-                currentSheet != null &&
-                updatedSheet != null &&
-                currentSheet != updatedSheet
-            ) {
-                updateSheetWithExpectedRevision(conn, updatedSheet, expectedRevision)
+            transaction(conn) {
+                val current = loadWorkbook(conn)
+                val updated = transform(current)
+                saveChangedSheets(conn, current, updated)
+                loadWorkbook(conn)
             }
-            if (currentSheet != null && updatedSheet == null) {
-                deleteSheetWithExpectedRevision(conn, lockedSheetId, expectedRevision)
-            }
-
-            return@connection loadWorkbook(conn)
-        }
-
-        transaction(conn) {
-            val current = loadWorkbook(conn)
-            val updated = transform(current)
-            saveChangedSheets(conn, current, updated)
-            loadWorkbook(conn)
         }
     }
 
@@ -390,6 +283,13 @@ class WorkbookRepository(dbPath: Path) {
         DriverManager.getConnection(jdbcUrl).use { conn ->
             conn.createStatement().use { it.execute("PRAGMA busy_timeout = 5000") }
             return block(conn)
+        }
+    }
+
+    companion object {
+        internal fun inMemory(): SqliteWorkbookStore {
+            val jdbcUrl = "jdbc:sqlite:file:sheetspace-${UUID.randomUUID()}?mode=memory&cache=shared"
+            return SqliteWorkbookStore(jdbcUrl, DriverManager.getConnection(jdbcUrl))
         }
     }
 }
