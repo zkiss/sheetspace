@@ -2,11 +2,13 @@ import { useEffect, useRef } from 'react';
 import {
   cellKey,
   columnIndexToLabel,
+  parseA1Address,
   type CellAddress,
   type CellRange,
   type FormulaEvaluationSnapshot,
   type Sheet,
 } from './workbook';
+import { GRID_CELL_HEIGHT, GRID_CELL_WIDTH } from './gridGeometry';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
 import { SheetGridCell } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
@@ -102,37 +104,30 @@ export function SheetGrid({
   }, [activeCellKey, editingCell, keyboardFocusCellKey]);
 
   useEffect(() => {
-    if (!selectedRange) {
+    if (!navigationHighlightRange && !navigationHighlightCellKey) {
       return;
     }
 
-    const start = cellRefs.current.get(cellKey(selectedRange.start));
-    const end = cellRefs.current.get(cellKey(selectedRange.end));
+    const parsedCell = navigationHighlightCellKey
+      ? parseA1Address(navigationHighlightCellKey, sheet)
+      : undefined;
+    const range = navigationHighlightRange
+      ?? (parsedCell?.ok
+        ? { start: parsedCell.value, end: parsedCell.value }
+        : undefined);
+    if (!range) {
+      return;
+    }
+
+    const start = cellRefs.current.get(cellKey(range.start));
     const scrollContainer = start?.closest<HTMLElement>('.sheet-frame-body');
-    if (!start || !end || !scrollContainer) {
+    if (!start || !scrollContainer) {
       return;
     }
 
-    start.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-    const startRect = start.getBoundingClientRect();
-    const endRect = end.getBoundingClientRect();
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const columnHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-column-header');
-    const rowHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-row-header');
-    const visibleTop = containerRect.top + (columnHeader?.getBoundingClientRect().height ?? 0);
-    const visibleLeft = containerRect.left + (rowHeader?.getBoundingClientRect().width ?? 0);
-    const visibleWidth = containerRect.right - visibleLeft;
-    const visibleHeight = containerRect.bottom - visibleTop;
-    const rangeWidth = endRect.right - startRect.left;
-    const rangeHeight = endRect.bottom - startRect.top;
-
-    if (rangeWidth <= visibleWidth && endRect.right > containerRect.right) {
-      scrollContainer.scrollLeft += endRect.right - containerRect.right;
-    }
-    if (rangeHeight <= visibleHeight && endRect.bottom > containerRect.bottom) {
-      scrollContainer.scrollTop += endRect.bottom - containerRect.bottom;
-    }
-  }, [selectedRange]);
+    scrollContainer.scrollLeft = Math.round(range.start.columnIndex * GRID_CELL_WIDTH);
+    scrollContainer.scrollTop = Math.round(range.start.rowIndex * GRID_CELL_HEIGHT);
+  }, [navigationHighlightCellKey, navigationHighlightRange, sheet]);
 
   return (
     <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">

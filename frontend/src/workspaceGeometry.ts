@@ -48,12 +48,14 @@ export function viewportForTarget({
   surfaceWidth,
   target,
   targetKind,
+  forceOversized = false,
 }: {
   currentViewport: WorkspaceViewport;
   surfaceHeight: number;
   surfaceWidth: number;
   target: WorkspaceTargetRect;
   targetKind: 'cell' | 'range';
+  forceOversized?: boolean;
 }): { oversized: boolean; viewport: WorkspaceViewport } {
   if (surfaceWidth <= 0 || surfaceHeight <= 0) {
     return { oversized: false, viewport: currentViewport };
@@ -64,7 +66,8 @@ export function viewportForTarget({
   const availableWidth = Math.max(1, surfaceWidth - NAVIGATION_PADDING * 2);
   const availableHeight = Math.max(1, surfaceHeight - NAVIGATION_PADDING * 2);
   const fitScale = Math.min(availableWidth / targetWidth, availableHeight / targetHeight);
-  const oversized = targetKind === 'range' && fitScale < MIN_READABLE_CELL_SCALE;
+  const oversized = forceOversized
+    || targetKind === 'range' && fitScale < MIN_READABLE_CELL_SCALE;
   const scale = oversized
     ? Math.max(currentViewport.scale, MIN_READABLE_CELL_SCALE)
     : targetKind === 'range' && fitScale < currentViewport.scale

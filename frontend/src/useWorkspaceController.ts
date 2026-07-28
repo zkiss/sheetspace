@@ -67,6 +67,7 @@ export function useWorkspaceController({
     workspace: HTMLElement,
     target: WorkspaceTargetRect,
     targetKind: 'cell' | 'range',
+    forceOversized = false,
   ) {
     const rect = workspace.getBoundingClientRect();
     const surfaceWidth = workspace.clientWidth || rect.width;
@@ -78,6 +79,7 @@ export function useWorkspaceController({
         surfaceWidth,
         target,
         targetKind,
+        forceOversized,
       }).viewport,
     );
   }

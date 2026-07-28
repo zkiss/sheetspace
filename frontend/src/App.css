@@ -332,6 +332,10 @@ button:hover {
     0 8px 24px rgb(23 32 42 / 12%);
 }
 
+.sheet-frame-navigation-reveal {
+  z-index: 10000 !important;
+}
+
 .sheet-frame-header {
   display: flex;
   align-items: center;

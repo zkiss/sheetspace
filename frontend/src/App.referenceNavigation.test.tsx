@@ -74,7 +74,10 @@ describe('formula reference navigation', () => {
     modifierClick(screen.getByRole('button', { name: "'Sales 2026'!A1, reference" }), 'meta');
 
     expect(screen.getByRole('cell', { name: 'Sales 2026 A1 cell' })).toHaveFocus();
-    expect(screen.getByRole('article', { name: 'Sheet Sales 2026' })).toHaveAttribute('data-z-index', '2');
+    expect(screen.getByRole('article', { name: 'Sheet Sales 2026' }))
+      .toHaveAttribute('data-navigation-reveal', 'true');
+    expect(screen.getByRole('article', { name: 'Sheet Sales 2026' }))
+      .toHaveAttribute('data-z-index', '2');
     expect(screen.getByRole('article', { name: 'Sheet Outputs' })).toHaveAttribute('data-z-index', '9');
   });
 
@@ -105,27 +108,57 @@ describe('formula reference navigation', () => {
       .not.toHaveAttribute('data-navigation-highlight');
   });
 
-  it('pans to an offscreen target and fits a readable range', () => {
+  it('pans the actual frame onscreen and internally scrolls to an offscreen cell', () => {
     const inputs = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 1800, y: 1200 }),
-      cells: { A1: '1' },
+      cells: { J20: '1' },
     };
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=SUM(sheet-inputs!A1:J20)' },
+      cells: { A1: '=sheet-inputs!J20' },
     };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     setSurfaceSize(800, 600);
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!A1:J20, reference' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!J20, reference' }));
 
-    expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThanOrEqual(0.75);
-    expect(Number(workspaceSurface().dataset.viewportScale)).toBeLessThan(1);
-    expect(Number(workspaceSurface().dataset.viewportX)).toBeLessThan(0);
-    expect(Number(workspaceSurface().dataset.viewportY)).toBeLessThan(0);
-    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveFocus();
-    expect(screen.getByRole('cell', { name: 'Inputs J20 empty cell' }))
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-scale', '1');
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '-1288');
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-y', '-808');
+    expect(screen.getByRole('cell', { name: 'Inputs J20 cell' })).toHaveFocus();
+    const body = within(screen.getByRole('article', { name: 'Sheet Inputs' }))
+      .getByTestId('sheet-frame-body');
+    expect(body.scrollLeft).toBe(684);
+    expect(body.scrollTop).toBe(502);
+  });
+
+  it('zooms a large frame only when its full target range stays readable', () => {
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 1800, y: 1200 }),
+      frameSize: { width: 900, height: 600 },
+      cells: { A1: '1' },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
+      cells: { A1: '=SUM(sheet-inputs!A1:B2)' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    setSurfaceSize(800, 600);
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!A1:B2, reference' }));
+
+    const scale = Number(workspaceSurface().dataset.viewportScale);
+    const x = Number(workspaceSurface().dataset.viewportX);
+    const y = Number(workspaceSurface().dataset.viewportY);
+    expect(scale).toBeGreaterThanOrEqual(0.75);
+    expect(scale).toBeLessThan(1);
+    expect(1800 * scale + x).toBeGreaterThanOrEqual(48);
+    expect(2700 * scale + x).toBeLessThanOrEqual(752);
+    expect(1200 * scale + y).toBeGreaterThanOrEqual(48);
+    expect(1800 * scale + y).toBeLessThanOrEqual(552);
+    expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' }))
       .toHaveAttribute('data-reference-selected', 'true');
   });
 
@@ -138,25 +171,29 @@ describe('formula reference navigation', () => {
     };
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=SUM(sheet-inputs!A1:O40)' },
+      cells: { A1: '=SUM(sheet-inputs!J20:O40)' },
     };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     setSurfaceSize(800, 600);
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!A1:O40, reference' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!J20:O40, reference' }));
 
     expect(workspaceSurface()).toHaveAttribute('data-viewport-scale', '1');
-    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveFocus();
+    expect(screen.getByRole('cell', { name: 'Inputs J20 empty cell' })).toHaveFocus();
     expect(screen.getByRole('cell', { name: 'Inputs O40 empty cell' }))
       .toHaveAttribute('data-reference-selected', 'true');
+    const body = within(screen.getByRole('article', { name: 'Sheet Inputs' }))
+      .getByTestId('sheet-frame-body');
+    expect(body.scrollLeft).toBe(684);
+    expect(body.scrollTop).toBe(502);
   });
 
   it('never follows a broken qualifier to a similarly named sheet and reports feedback', () => {
     const alias = positionedSheet('sheet-other', 'sheet-deleted', { x: 300, y: 80 });
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=sheet-deleted!A1' },
+      cells: { A1: '=sheet-deleted!A1', A2: '=A1' },
     };
     render(<App initialWorkbook={workbookWithSheets([alias, outputs])} />);
     setSurfaceSize(800, 600);
@@ -169,6 +206,9 @@ describe('formula reference navigation', () => {
     expect(screen.getByText(/cannot navigate: .* broken target/i)).toBeInTheDocument();
     expect(screen.getByRole('article', { name: 'Sheet sheet-deleted' }))
       .not.toHaveAttribute('data-active-sheet');
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A2 cell' }));
+    expect(screen.queryByText(/cannot navigate:/i)).not.toBeInTheDocument();
   });
 
   it('uses instant viewport movement when reduced motion is preferred', () => {

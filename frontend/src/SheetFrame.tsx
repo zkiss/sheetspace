@@ -25,6 +25,7 @@ export function SheetFrame({
   editingCell,
   formulaResults,
   isActiveSheet,
+  isNavigationReveal,
   keyboardFocusCellKey,
   navigationHighlightCellKey,
   navigationHighlightRange,
@@ -52,6 +53,7 @@ export function SheetFrame({
   editingCell: EditingCell | null;
   formulaResults: FormulaEvaluationSnapshot;
   isActiveSheet: boolean;
+  isNavigationReveal: boolean;
   keyboardFocusCellKey: string | null;
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
@@ -80,8 +82,11 @@ export function SheetFrame({
   return (
     <article
       aria-label={`Sheet ${sheet.name}`}
-      className={`sheet-frame${isActiveSheet ? ' sheet-frame-active' : ''}`}
+      className={`sheet-frame${isActiveSheet ? ' sheet-frame-active' : ''}${
+        isNavigationReveal ? ' sheet-frame-navigation-reveal' : ''
+      }`}
       data-active-sheet={isActiveSheet ? 'true' : undefined}
+      data-navigation-reveal={isNavigationReveal ? 'true' : undefined}
       data-column-count={sheet.columnCount}
       data-frame-height={frameSize.height}
       data-frame-width={frameSize.width}

@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import type {
   FormulaInspection,
   FormulaInspectionReference,
@@ -12,6 +12,13 @@ export function FormulaReferenceInspection({
   onNavigate: (reference: FormulaInspectionReference) => void;
 }) {
   const [feedback, setFeedback] = useState('');
+  const inspectionKey = inspection
+    ? `${inspection.raw}:${inspection.references.map(
+      (reference) => `${reference.sourceSpan.start}:${reference.target.sheetId}`,
+    ).join(',')}`
+    : '';
+
+  useEffect(() => setFeedback(''), [inspectionKey]);
 
   if (!inspection) {
     return null;

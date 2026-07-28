@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { cellKey, type CellRange, type Sheet, type Workbook } from './workbook';
 import type { ActiveCellSelection } from './appTypes';
 import type { FormulaInspectionReference } from './formulaInspection';
-import type { WorkspaceTargetRect } from './workspaceGeometry';
+import { rangeFitsSheetViewport } from './gridGeometry';
+import {
+  clampSheetFrameSize,
+  type WorkspaceTargetRect,
+} from './workspaceGeometry';
 
-const GRID_CELL_WIDTH = 76;
-const GRID_CELL_HEIGHT = 26.4;
-const GRID_ROW_HEADER_WIDTH = 40;
-const GRID_COLUMN_HEADER_HEIGHT = 26.4;
-const SHEET_HEADER_HEIGHT = 42;
 const NAVIGATION_HIGHLIGHT_MS = 1200;
 const NAVIGATION_TRANSITION_MS = 180;
 
@@ -30,14 +29,13 @@ function normalizedRange(reference: FormulaInspectionReference): CellRange {
   return { start: reference.target.address, end: reference.target.address };
 }
 
-function referenceWorldRect(sheet: Sheet, range: CellRange): WorkspaceTargetRect {
+function referenceFrameRect(sheet: Sheet): WorkspaceTargetRect {
+  const frameSize = clampSheetFrameSize(sheet.frameSize);
   return {
-    left: sheet.position.x + GRID_ROW_HEADER_WIDTH + range.start.columnIndex * GRID_CELL_WIDTH,
-    top: sheet.position.y + SHEET_HEADER_HEIGHT + GRID_COLUMN_HEADER_HEIGHT
-      + range.start.rowIndex * GRID_CELL_HEIGHT,
-    right: sheet.position.x + GRID_ROW_HEADER_WIDTH + (range.end.columnIndex + 1) * GRID_CELL_WIDTH,
-    bottom: sheet.position.y + SHEET_HEADER_HEIGHT + GRID_COLUMN_HEADER_HEIGHT
-      + (range.end.rowIndex + 1) * GRID_CELL_HEIGHT,
+    left: sheet.position.x,
+    top: sheet.position.y,
+    right: sheet.position.x + frameSize.width,
+    bottom: sheet.position.y + frameSize.height,
   };
 }
 
@@ -50,6 +48,7 @@ export function useReferenceNavigation({
     workspace: HTMLElement,
     target: WorkspaceTargetRect,
     targetKind: 'cell' | 'range',
+    forceOversized?: boolean,
   ) => void;
   onSelectReferenceTarget: (selection: ActiveCellSelection) => void;
   workbook: Workbook;
@@ -105,8 +104,9 @@ export function useReferenceNavigation({
     setNavigationMotion(!reduceMotion);
     navigateToTarget(
       workspace,
-      referenceWorldRect(targetSheet, range),
+      referenceFrameRect(targetSheet),
       reference.target.kind,
+      reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet),
     );
   }
 

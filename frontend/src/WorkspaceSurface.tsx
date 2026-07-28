@@ -141,6 +141,7 @@ export function WorkspaceSurface({
               editingCell={sheetEditingCell}
               formulaResults={formulaResults}
               isActiveSheet={activeCell?.sheetId === sheet.id}
+              isNavigationReveal={navigationHighlight?.sheetId === sheet.id}
               navigationHighlightCellKey={
                 navigationHighlight?.sheetId === sheet.id
                   ? navigationHighlight.cellKey
