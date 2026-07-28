@@ -1,7 +1,8 @@
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { workbookApi, type WorkbookApi } from './workbookApi';
 import type { StartupLoadState } from './appTypes';
 import type { Workbook } from './workbook';
+import type { SetWorkbook } from './workbookCalculation';
 
 export function useStartupWorkbookLoad({
   initialWorkbook,
@@ -12,7 +13,7 @@ export function useStartupWorkbookLoad({
   initialWorkbook?: Workbook;
   markSaved: () => void;
   resolvedApiClient: Partial<WorkbookApi>;
-  setWorkbook: Dispatch<SetStateAction<Workbook>>;
+  setWorkbook: SetWorkbook;
 }) {
   const [startupLoad, setStartupLoad] = useState<StartupLoadState>(
     initialWorkbook ? { status: 'loaded' } : { status: 'loading' },
@@ -33,7 +34,7 @@ export function useStartupWorkbookLoad({
           return;
         }
 
-        setWorkbook(loadedWorkbook);
+        setWorkbook(loadedWorkbook, { kind: 'structure' });
         setStartupLoad({ status: 'loaded' });
         markSaved();
       })

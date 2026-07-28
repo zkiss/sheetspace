@@ -1,6 +1,4 @@
 import {
-  cellKey,
-  expandRange,
   parseA1Address,
   parseA1Range,
   type CellAddress,
@@ -12,19 +10,8 @@ import {
   formatSheetReferenceToken,
   parseFormula as parseFormulaSyntax,
   replaceFormulaQualifiers,
-  type FormulaExpression,
   type FormulaParseResult,
-  type FormulaReference,
 } from './formulaSyntax';
-import {
-  FormulaEvaluator,
-  sheetCellNodeId,
-  type FormulaEvaluationObserver,
-} from './formulaEvaluator';
-import {
-  type FormulaEvaluationSnapshot,
-  type FormulaScalarValue,
-} from './formulaValue';
 
 export {
   cellKey,
@@ -401,51 +388,6 @@ export function parseFormula(
   return parseFormulaSyntax(raw);
 }
 
-type FormulaDependencyGraph = {
-  dependencies: Map<string, Set<string>>;
-  dependents: Map<string, Set<string>>;
-};
-
-/**
- * Keeps derived formula results and dependency edges between workbook revisions.
- * Canonical workbook cells remain the only persisted source of graph data.
- */
-export class FormulaCalculation {
-  private workbook?: Workbook;
-  private graph: FormulaDependencyGraph = { dependencies: new Map(), dependents: new Map() };
-  private results = new Map<string, FormulaScalarValue>();
-  private snapshot: FormulaEvaluationSnapshot = {};
-
-  update(workbook: Workbook, onEvaluate?: FormulaEvaluationObserver): FormulaEvaluationSnapshot {
-    const nextGraph = buildFormulaDependencyGraph(workbook);
-    const formulaNodes = workbookFormulaNodes(workbook);
-    let impacted: Set<string>;
-
-    if (!this.workbook || workbookStructureChanged(this.workbook, workbook)) {
-      impacted = new Set(formulaNodes);
-    } else {
-      const changedCells = changedWorkbookCells(this.workbook, workbook);
-      impacted = dependentClosure(changedCells, this.graph.dependents, nextGraph.dependents);
-    }
-
-    if (this.workbook && impacted.size === 0) {
-      this.workbook = workbook;
-      this.graph = nextGraph;
-      return this.snapshot;
-    }
-
-    const reusableResults = new Map(
-      [...this.results].filter(([nodeId]) => formulaNodes.has(nodeId) && !impacted.has(nodeId)),
-    );
-    const evaluator = new FormulaEvaluator(workbook, reusableResults, onEvaluate);
-    this.snapshot = evaluator.evaluate();
-    this.results = evaluator.formulaResults();
-    this.workbook = workbook;
-    this.graph = nextGraph;
-    return this.snapshot;
-  }
-}
-
 function resolveReferenceSheet(
   sheetName: string | undefined,
   workbook: Workbook,
@@ -459,158 +401,6 @@ function resolveReferenceSheet(
   }
 
   return findSheetByName(workbook, sheetName);
-}
-
-function resolveFormulaReferenceSheet(
-  reference: Pick<FormulaReference, 'sheetId'>,
-  workbook: Workbook,
-  defaultSheet: Sheet,
-): ParseResult<Sheet> {
-  if (reference.sheetId) {
-    const sheet = workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
-    return sheet ? { ok: true, value: sheet } : { ok: false, reason: 'unknown-sheet' };
-  }
-  return { ok: true, value: defaultSheet };
-}
-
-function workbookFormulaNodes(workbook: Workbook): Set<string> {
-  const nodes = new Set<string>();
-  for (const sheet of workbook.sheets) {
-    for (const [key, raw] of Object.entries(sheet.cells)) {
-      if (raw.startsWith('=')) {
-        nodes.add(sheetCellNodeId(sheet.id, key));
-      }
-    }
-  }
-  return nodes;
-}
-
-function buildFormulaDependencyGraph(workbook: Workbook): FormulaDependencyGraph {
-  const graph: FormulaDependencyGraph = {
-    dependencies: new Map(),
-    dependents: new Map(),
-  };
-
-  for (const sheet of workbook.sheets) {
-    for (const [key, raw] of Object.entries(sheet.cells)) {
-      if (!raw.startsWith('=')) {
-        continue;
-      }
-      const formulaNode = sheetCellNodeId(sheet.id, key);
-      const parsed = parseFormula(raw, workbook, sheet);
-      const dependencies = parsed.kind === 'formula'
-        ? expressionDependencies(parsed.expression, workbook, sheet)
-        : new Set<string>();
-      graph.dependencies.set(formulaNode, dependencies);
-      for (const dependency of dependencies) {
-        const dependents = graph.dependents.get(dependency) ?? new Set<string>();
-        dependents.add(formulaNode);
-        graph.dependents.set(dependency, dependents);
-      }
-    }
-  }
-
-  return graph;
-}
-
-function expressionDependencies(
-  expression: FormulaExpression,
-  workbook: Workbook,
-  currentSheet: Sheet,
-): Set<string> {
-  if (expression.kind === 'number' || expression.kind === 'text' || expression.kind === 'boolean') {
-    return new Set();
-  }
-  if (expression.kind === 'group') {
-    return expressionDependencies(expression.expression, workbook, currentSheet);
-  }
-  if (expression.kind === 'unary') {
-    return expressionDependencies(expression.operand, workbook, currentSheet);
-  }
-  if (expression.kind === 'binary') {
-    return new Set([
-      ...expressionDependencies(expression.left, workbook, currentSheet),
-      ...expressionDependencies(expression.right, workbook, currentSheet),
-    ]);
-  }
-  if (expression.kind === 'function') {
-    const dependencies = new Set<string>();
-    for (const argument of expression.arguments) {
-      for (const dependency of expressionDependencies(argument, workbook, currentSheet)) {
-        dependencies.add(dependency);
-      }
-    }
-    return dependencies;
-  }
-
-  const targetSheet = resolveFormulaReferenceSheet(expression, workbook, currentSheet);
-  if (!targetSheet.ok) {
-    return new Set();
-  }
-  if (expression.kind === 'cell') {
-    return new Set([sheetCellNodeId(targetSheet.value.id, cellKey(expression.address))]);
-  }
-
-  const addresses = expandRange(expression.range, targetSheet.value);
-  return addresses.ok
-    ? new Set(addresses.value.map((address) => sheetCellNodeId(targetSheet.value.id, cellKey(address))))
-    : new Set();
-}
-
-function workbookStructureChanged(previous: Workbook, next: Workbook): boolean {
-  if (previous.sheets.length !== next.sheets.length) {
-    return true;
-  }
-  const previousSheets = new Map(previous.sheets.map((sheet) => [sheet.id, sheet]));
-  return next.sheets.some((sheet) => {
-    const previousSheet = previousSheets.get(sheet.id);
-    return (
-      !previousSheet
-      || previousSheet.columnCount !== sheet.columnCount
-      || previousSheet.rowCount !== sheet.rowCount
-    );
-  });
-}
-
-function changedWorkbookCells(previous: Workbook, next: Workbook): Set<string> {
-  const changed = new Set<string>();
-  const previousSheets = new Map(previous.sheets.map((sheet) => [sheet.id, sheet]));
-  for (const sheet of next.sheets) {
-    const previousSheet = previousSheets.get(sheet.id);
-    const keys = new Set([
-      ...Object.keys(previousSheet?.cells ?? {}),
-      ...Object.keys(sheet.cells),
-    ]);
-    for (const key of keys) {
-      if (previousSheet?.cells[key] !== sheet.cells[key]) {
-        changed.add(sheetCellNodeId(sheet.id, key));
-      }
-    }
-  }
-  return changed;
-}
-
-function dependentClosure(
-  changedCells: ReadonlySet<string>,
-  previousDependents: ReadonlyMap<string, Set<string>>,
-  nextDependents: ReadonlyMap<string, Set<string>>,
-): Set<string> {
-  const impacted = new Set(changedCells);
-  const pending = [...changedCells];
-  while (pending.length > 0) {
-    const nodeId = pending.pop()!;
-    const dependents = new Set([
-      ...(previousDependents.get(nodeId) ?? []),
-      ...(nextDependents.get(nodeId) ?? []),
-    ]);
-    for (const dependent of dependents) {
-      if (!impacted.has(dependent)) {
-        impacted.add(dependent);
-        pending.push(dependent);
-      }
-    }
-  }
-  return impacted;
 }
 
 export function formulaRawForStorage(raw: string, workbook: Workbook): string {

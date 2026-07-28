@@ -26,12 +26,17 @@ import {
   type FormulaScalarValue,
   type FormulaValue,
 } from './formulaValue';
-import type { Sheet, Workbook } from './workbook';
+import type {
+  CalculationProjection,
+  CalculationSheet,
+} from './calculationProjection';
 
 export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
 
-export function evaluateFormulaCells(workbook: Workbook): FormulaEvaluationSnapshot {
-  return new FormulaEvaluator(workbook).evaluate();
+export function evaluateFormulaCells<T extends CalculationProjection>(
+  projection: T,
+): FormulaEvaluationSnapshot {
+  return new FormulaEvaluator(projection).evaluate();
 }
 
 export function sheetCellNodeId(sheetId: string, key: CellKey): string {
@@ -41,10 +46,10 @@ export function sheetCellNodeId(sheetId: string, key: CellKey): string {
 export class FormulaEvaluator {
   private readonly results: Map<string, FormulaScalarValue>;
   private readonly visiting = new Set<string>();
-  private readonly stack: { nodeId: string; sheet: Sheet; key: CellKey }[] = [];
+  private readonly stack: { nodeId: string; sheet: CalculationSheet; key: CellKey }[] = [];
 
   constructor(
-    private readonly workbook: Workbook,
+    private readonly workbook: CalculationProjection,
     initialResults: ReadonlyMap<string, FormulaScalarValue> = new Map(),
     private readonly onEvaluate?: FormulaEvaluationObserver,
     private readonly functions: FormulaFunctionRegistry = builtInFormulaFunctions,
@@ -79,7 +84,7 @@ export class FormulaEvaluator {
     return snapshot;
   }
 
-  private evaluateFormulaCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
+  private evaluateFormulaCell(sheet: CalculationSheet, key: CellKey): FormulaScalarValue {
     const nodeId = sheetCellNodeId(sheet.id, key);
     const cached = this.results.get(nodeId);
     if (cached) {
@@ -125,7 +130,7 @@ export class FormulaEvaluator {
     return result;
   }
 
-  private evaluateExpression(expression: FormulaExpression, currentSheet: Sheet): FormulaValue {
+  private evaluateExpression(expression: FormulaExpression, currentSheet: CalculationSheet): FormulaValue {
     if (expression.kind === 'number') {
       return Number.isFinite(expression.value)
         ? { kind: 'number', value: expression.value }
@@ -156,7 +161,7 @@ export class FormulaEvaluator {
     return this.evaluateReference(expression, currentSheet);
   }
 
-  private evaluateUnary(expression: UnaryFormula, currentSheet: Sheet): FormulaScalarValue {
+  private evaluateUnary(expression: UnaryFormula, currentSheet: CalculationSheet): FormulaScalarValue {
     const operand = formulaScalarValue(this.evaluateExpression(expression.operand, currentSheet));
     if (operand.kind === 'error') {
       return operand;
@@ -171,7 +176,7 @@ export class FormulaEvaluator {
       : formulaErrorValue('#VALUE!');
   }
 
-  private evaluateBinary(expression: BinaryFormula, currentSheet: Sheet): FormulaScalarValue {
+  private evaluateBinary(expression: BinaryFormula, currentSheet: CalculationSheet): FormulaScalarValue {
     const left = formulaScalarValue(this.evaluateExpression(expression.left, currentSheet));
     if (left.kind === 'error') {
       return left;
@@ -212,7 +217,7 @@ export class FormulaEvaluator {
       : formulaErrorValue('#VALUE!');
   }
 
-  private evaluateReference(reference: FormulaReference, currentSheet: Sheet): FormulaValue {
+  private evaluateReference(reference: FormulaReference, currentSheet: CalculationSheet): FormulaValue {
     const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
     if (!sheet) {
       return formulaErrorValue('#REF!');
@@ -238,7 +243,7 @@ export class FormulaEvaluator {
   }
 
   private *evaluateRangeCells(
-    sheet: Sheet,
+    sheet: CalculationSheet,
     addresses: readonly CellAddress[],
   ): IterableIterator<FormulaScalarValue> {
     for (const address of addresses) {
@@ -246,7 +251,7 @@ export class FormulaEvaluator {
     }
   }
 
-  private evaluateReferencedCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
+  private evaluateReferencedCell(sheet: CalculationSheet, key: CellKey): FormulaScalarValue {
     const cell = sheet.cells[key];
     if (cell === undefined) {
       return { kind: 'blank' };
@@ -256,16 +261,16 @@ export class FormulaEvaluator {
       : classifyCellValue(cell);
   }
 
-  private evaluateLiteralCell(sheet: Sheet, key: CellKey): FormulaScalarValue {
+  private evaluateLiteralCell(sheet: CalculationSheet, key: CellKey): FormulaScalarValue {
     return classifyCellValue(sheet.cells[key] ?? '');
   }
 }
 
 function resolveFormulaReferenceSheet(
   reference: Pick<FormulaReference, 'sheetId'>,
-  workbook: Workbook,
-  defaultSheet: Sheet,
-): Sheet | undefined {
+  workbook: CalculationProjection,
+  defaultSheet: CalculationSheet,
+): CalculationSheet | undefined {
   if (reference.sheetId) {
     return workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
   }

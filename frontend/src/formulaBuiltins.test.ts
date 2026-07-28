@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { calculationProjection } from './calculationProjection';
 import { FormulaEvaluator } from './formulaEvaluator';
 import type { FormulaFunctionRegistry, LazyFormulaFunction } from './formulaFunctions';
 import { formulaScalarValue } from './formulaValue';
@@ -179,7 +180,7 @@ describe('formula built-ins and function dispatch', () => {
     });
 
     expect(new FormulaEvaluator(
-      { version: 1 as const, sheets: [inputs] },
+      calculationProjection({ sheets: [inputs] }),
       new Map(),
       undefined,
       functions,

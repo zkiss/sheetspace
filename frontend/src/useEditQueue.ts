@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   WorkbookApiError,
   workbookApi,
@@ -14,6 +14,7 @@ import {
   type Sheet,
   type Workbook,
 } from './workbook';
+import type { SetWorkbook } from './workbookCalculation';
 
 type SaveResult = Workbook | Sheet | SheetRevisionResponse | RowAppendResponse | ColumnAppendResponse | void;
 type SheetCreateResult = Sheet | Workbook;
@@ -60,7 +61,7 @@ export function useEditQueue({
 }: {
   autosaveEnabled: boolean;
   resolvedApiClient: Partial<WorkbookApi>;
-  setWorkbook: Dispatch<SetStateAction<Workbook>>;
+  setWorkbook: SetWorkbook;
   workbook: Workbook;
 }) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
@@ -112,7 +113,7 @@ export function useEditQueue({
             const savedSheet = savedResult.sheets.find((candidate) => candidate.id === sheet.id);
             return savedSheet ? { ...sheet, revision: Math.max(sheet.revision, savedSheet.revision) } : sheet;
           }),
-        }));
+        }), { kind: 'none' });
         return;
       }
 
@@ -123,11 +124,14 @@ export function useEditQueue({
           sheets: currentWorkbook.sheets.map((sheet) =>
             sheet.id === savedResult.id ? { ...savedResult, ...sheet, revision: savedResult.revision } : sheet,
           ),
-        }));
+        }), { kind: 'none' });
         return;
       }
 
       knownSheetRevisions.current.set(savedResult.sheetId, savedResult.revision);
+      const impact = 'rowCount' in savedResult || 'columnCount' in savedResult
+        ? { kind: 'structure' } as const
+        : { kind: 'none' } as const;
       setWorkbook((currentWorkbook) => ({
         ...currentWorkbook,
         sheets: currentWorkbook.sheets.map((sheet) => {
@@ -142,7 +146,7 @@ export function useEditQueue({
             ...('columnCount' in savedResult ? { columnCount: savedResult.columnCount } : {}),
           };
         }),
-      }));
+      }), impact);
     },
     [setWorkbook],
   );
@@ -166,16 +170,17 @@ export function useEditQueue({
               ...savedResult.sheets.filter((sheet) => !currentSheetIds.has(sheet.id)),
             ],
           };
-        });
+        }, { kind: 'structure' });
         return;
       }
 
       if ('name' in savedResult && 'cells' in savedResult) {
         knownSheetRevisions.current.set(savedResult.id, savedResult.revision);
-        setWorkbook((currentWorkbook) =>
-          currentWorkbook.sheets.some((sheet) => sheet.id === savedResult.id)
+        setWorkbook(
+          (currentWorkbook) => currentWorkbook.sheets.some((sheet) => sheet.id === savedResult.id)
             ? currentWorkbook
             : { ...currentWorkbook, sheets: [...currentWorkbook.sheets, savedResult] },
+          { kind: 'structure' },
         );
       }
     },
@@ -517,7 +522,7 @@ export function useEditQueue({
             setWorkbook((currentWorkbook) => ({
               ...currentWorkbook,
               sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),
-            }));
+            }), { kind: 'structure' });
             return undefined;
           }
           throw reloadCause;

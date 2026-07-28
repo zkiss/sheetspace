@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { deferred } from './test/apiClients';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
@@ -16,11 +16,15 @@ function renderQueue({
 } = {}) {
   return renderHook(() => {
     const [workbook, setWorkbook] = useState(initialWorkbook);
+    const updateWorkbook = useCallback(
+      (update: Parameters<typeof setWorkbook>[0]) => setWorkbook(update),
+      [],
+    );
     return {
       queue: useEditQueue({
         autosaveEnabled: true,
         resolvedApiClient: apiClient,
-        setWorkbook,
+        setWorkbook: updateWorkbook,
         workbook,
       }),
       workbook,
