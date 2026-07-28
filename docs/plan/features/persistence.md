@@ -8,7 +8,9 @@ User data should be durable. Persistence should save and reload Sheetspace's int
 
 - Save and reload a workspace.
 - Preserve sheet names, ids, cells, row metadata, column metadata, frame positions, frame sizes, per-sheet visual scales, and viewport state.
-- Persist cells as address-to-string maps. Cross-sheet formula strings embed canonical sheet ids directly.
+- Persist raw cell strings against stable internal row and column identities. A1 addresses remain a
+  user-facing view over ordered rows and columns. Cross-sheet formula strings embed canonical sheet
+  ids directly.
 - Version saved data for migrations.
 - Keep persistence focused on durable application state.
 
