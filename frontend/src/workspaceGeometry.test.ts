@@ -5,6 +5,7 @@ import {
   getViewportCenter,
   getWorkspacePoint,
   resizeSheetFrame,
+  viewportForTarget,
 } from './workspaceGeometry';
 
 function workspaceElement({
@@ -68,6 +69,62 @@ describe('workspaceGeometry', () => {
     ).toEqual({
       frameSize: { width: 180, height: 120 },
       position: { x: 180, y: 120 },
+    });
+  });
+
+  it('pans an offscreen navigation target into the padded viewport', () => {
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 1200, top: 900, right: 1276, bottom: 927 },
+    })).toEqual({
+      oversized: false,
+      viewport: { x: -524, y: -375, scale: 1 },
+    });
+  });
+
+  it('fits a large cell-target frame when readable and top-aligns it when oversized', () => {
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 1800, top: 1200, right: 2700, bottom: 1800 },
+    })).toEqual({
+      oversized: false,
+      viewport: { x: -1360, y: -873, scale: 0.7822222222222223 },
+    });
+
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 1800, top: 1200, right: 3000, bottom: 2200 },
+    })).toEqual({
+      oversized: true,
+      viewport: { x: -1752, y: -1152, scale: 1 },
+    });
+  });
+
+  it('fits readable ranges but preserves readable scale for oversized ranges', () => {
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 100, top: 100, right: 860, bottom: 628 },
+    })).toEqual({
+      oversized: false,
+      viewport: { x: -45, y: -37, scale: 0.9263157894736842 },
+    });
+
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 100, top: 100, right: 1240, bottom: 1156 },
+    })).toEqual({
+      oversized: true,
+      viewport: { x: -52, y: -52, scale: 1 },
     });
   });
 });

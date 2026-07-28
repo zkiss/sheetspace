@@ -1,4 +1,4 @@
-import type { SheetFrameSize, WorkspacePosition } from './workbook';
+import type { CellRange, SheetFrameSize, WorkspacePosition } from './workbook';
 
 export type PendingSheetCreation = {
   position: WorkspacePosition;
@@ -19,6 +19,7 @@ export type PendingSheetMenu = {
 export type ActiveCellSelection = {
   sheetId: string;
   cellKey: string;
+  range?: CellRange;
 };
 
 export type EditingCell = ActiveCellSelection & {

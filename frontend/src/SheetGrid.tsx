@@ -2,9 +2,13 @@ import { useEffect, useRef } from 'react';
 import {
   cellKey,
   columnIndexToLabel,
+  parseA1Address,
+  type CellAddress,
+  type CellRange,
   type FormulaEvaluationSnapshot,
   type Sheet,
 } from './workbook';
+import { GRID_CELL_HEIGHT, GRID_CELL_WIDTH } from './gridGeometry';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
 import { SheetGridCell } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
@@ -41,6 +45,8 @@ export function SheetGrid({
   activeCellKey,
   editingCell,
   keyboardFocusCellKey,
+  navigationHighlightCellKey,
+  navigationHighlightRange,
   onCancelEdit,
   onClearCell,
   onCommitEdit,
@@ -51,10 +57,13 @@ export function SheetGrid({
   onStartEdit,
   formulaResults,
   sheet,
+  selectedRange,
 }: {
   activeCellKey: string | null;
   editingCell: EditingCell | null;
   keyboardFocusCellKey: string | null;
+  navigationHighlightCellKey: string | null;
+  navigationHighlightRange?: CellRange;
   onCancelEdit: () => void;
   onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
@@ -65,6 +74,7 @@ export function SheetGrid({
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   sheet: Sheet;
+  selectedRange?: CellRange;
 }) {
   const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
   const columns: ColumnHeader[] = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
@@ -93,6 +103,32 @@ export function SheetGrid({
     }
   }, [activeCellKey, editingCell, keyboardFocusCellKey]);
 
+  useEffect(() => {
+    if (!navigationHighlightRange && !navigationHighlightCellKey) {
+      return;
+    }
+
+    const parsedCell = navigationHighlightCellKey
+      ? parseA1Address(navigationHighlightCellKey, sheet)
+      : undefined;
+    const range = navigationHighlightRange
+      ?? (parsedCell?.ok
+        ? { start: parsedCell.value, end: parsedCell.value }
+        : undefined);
+    if (!range) {
+      return;
+    }
+
+    const start = cellRefs.current.get(cellKey(range.start));
+    const scrollContainer = start?.closest<HTMLElement>('.sheet-frame-body');
+    if (!start || !scrollContainer) {
+      return;
+    }
+
+    scrollContainer.scrollLeft = Math.round(range.start.columnIndex * GRID_CELL_WIDTH);
+    scrollContainer.scrollTop = Math.round(range.start.rowIndex * GRID_CELL_HEIGHT);
+  }, [navigationHighlightCellKey, navigationHighlightRange, sheet]);
+
   return (
     <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
       <SheetGridHeaders columns={columns} />
@@ -107,6 +143,10 @@ export function SheetGrid({
               const key = cellKey(address);
               const isActive = activeCellKey === key;
               const isEditing = editingCell?.cellKey === key;
+              const isRangeSelected = isAddressInRange(address, selectedRange);
+              const isNavigationTarget = navigationHighlightRange
+                ? isAddressInRange(address, navigationHighlightRange)
+                : navigationHighlightCellKey === key;
 
               return (
                 <SheetGridCell
@@ -115,6 +155,8 @@ export function SheetGrid({
                   editingCell={editingCell}
                   isActive={isActive}
                   isEditing={isEditing}
+                  isNavigationTarget={isNavigationTarget}
+                  isRangeSelected={isRangeSelected}
                   key={key}
                   onCancelEdit={onCancelEdit}
                   onClearCell={onClearCell}
@@ -133,5 +175,15 @@ export function SheetGrid({
         ))}
       </tbody>
     </table>
+  );
+}
+
+function isAddressInRange(address: CellAddress, range?: CellRange) {
+  return Boolean(
+    range
+      && address.columnIndex >= range.start.columnIndex
+      && address.columnIndex <= range.end.columnIndex
+      && address.rowIndex >= range.start.rowIndex
+      && address.rowIndex <= range.end.rowIndex,
   );
 }
