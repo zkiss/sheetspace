@@ -5,6 +5,8 @@ import {
   clampWorkspaceZoom,
   getViewportCenter,
   getWorkspacePoint,
+  viewportForTarget,
+  type WorkspaceTargetRect,
   WORKSPACE_ZOOM_STEP,
 } from './workspaceGeometry';
 
@@ -59,6 +61,25 @@ export function useWorkspaceController({
 
   function resetViewport() {
     setViewport({ x: 0, y: 0, scale: 1 });
+  }
+
+  function navigateToTarget(
+    workspace: HTMLElement,
+    target: WorkspaceTargetRect,
+    targetKind: 'cell' | 'range',
+  ) {
+    const rect = workspace.getBoundingClientRect();
+    const surfaceWidth = workspace.clientWidth || rect.width;
+    const surfaceHeight = workspace.clientHeight || rect.height;
+    setViewport((currentViewport) =>
+      viewportForTarget({
+        currentViewport,
+        surfaceHeight,
+        surfaceWidth,
+        target,
+        targetKind,
+      }).viewport,
+    );
   }
 
   function createSheetAtViewportCenter(workspace: HTMLElement) {
@@ -143,6 +164,7 @@ export function useWorkspaceController({
     handleWorkspacePointerMove,
     handleWorkspaceWheel,
     isPanningWorkspace,
+    navigateToTarget,
     openSheetMenu,
     panWorkspace,
     pendingSheetMenu,

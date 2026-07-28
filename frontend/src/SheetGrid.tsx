@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import {
   cellKey,
   columnIndexToLabel,
+  type CellAddress,
+  type CellRange,
   type FormulaEvaluationSnapshot,
   type Sheet,
 } from './workbook';
@@ -41,6 +43,8 @@ export function SheetGrid({
   activeCellKey,
   editingCell,
   keyboardFocusCellKey,
+  navigationHighlightCellKey,
+  navigationHighlightRange,
   onCancelEdit,
   onClearCell,
   onCommitEdit,
@@ -51,10 +55,13 @@ export function SheetGrid({
   onStartEdit,
   formulaResults,
   sheet,
+  selectedRange,
 }: {
   activeCellKey: string | null;
   editingCell: EditingCell | null;
   keyboardFocusCellKey: string | null;
+  navigationHighlightCellKey: string | null;
+  navigationHighlightRange?: CellRange;
   onCancelEdit: () => void;
   onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
@@ -65,6 +72,7 @@ export function SheetGrid({
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   sheet: Sheet;
+  selectedRange?: CellRange;
 }) {
   const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
   const columns: ColumnHeader[] = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
@@ -93,6 +101,39 @@ export function SheetGrid({
     }
   }, [activeCellKey, editingCell, keyboardFocusCellKey]);
 
+  useEffect(() => {
+    if (!selectedRange) {
+      return;
+    }
+
+    const start = cellRefs.current.get(cellKey(selectedRange.start));
+    const end = cellRefs.current.get(cellKey(selectedRange.end));
+    const scrollContainer = start?.closest<HTMLElement>('.sheet-frame-body');
+    if (!start || !end || !scrollContainer) {
+      return;
+    }
+
+    start.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    const startRect = start.getBoundingClientRect();
+    const endRect = end.getBoundingClientRect();
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const columnHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-column-header');
+    const rowHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-row-header');
+    const visibleTop = containerRect.top + (columnHeader?.getBoundingClientRect().height ?? 0);
+    const visibleLeft = containerRect.left + (rowHeader?.getBoundingClientRect().width ?? 0);
+    const visibleWidth = containerRect.right - visibleLeft;
+    const visibleHeight = containerRect.bottom - visibleTop;
+    const rangeWidth = endRect.right - startRect.left;
+    const rangeHeight = endRect.bottom - startRect.top;
+
+    if (rangeWidth <= visibleWidth && endRect.right > containerRect.right) {
+      scrollContainer.scrollLeft += endRect.right - containerRect.right;
+    }
+    if (rangeHeight <= visibleHeight && endRect.bottom > containerRect.bottom) {
+      scrollContainer.scrollTop += endRect.bottom - containerRect.bottom;
+    }
+  }, [selectedRange]);
+
   return (
     <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
       <SheetGridHeaders columns={columns} />
@@ -107,6 +148,10 @@ export function SheetGrid({
               const key = cellKey(address);
               const isActive = activeCellKey === key;
               const isEditing = editingCell?.cellKey === key;
+              const isRangeSelected = isAddressInRange(address, selectedRange);
+              const isNavigationTarget = navigationHighlightRange
+                ? isAddressInRange(address, navigationHighlightRange)
+                : navigationHighlightCellKey === key;
 
               return (
                 <SheetGridCell
@@ -115,6 +160,8 @@ export function SheetGrid({
                   editingCell={editingCell}
                   isActive={isActive}
                   isEditing={isEditing}
+                  isNavigationTarget={isNavigationTarget}
+                  isRangeSelected={isRangeSelected}
                   key={key}
                   onCancelEdit={onCancelEdit}
                   onClearCell={onClearCell}
@@ -133,5 +180,15 @@ export function SheetGrid({
         ))}
       </tbody>
     </table>
+  );
+}
+
+function isAddressInRange(address: CellAddress, range?: CellRange) {
+  return Boolean(
+    range
+      && address.columnIndex >= range.start.columnIndex
+      && address.columnIndex <= range.end.columnIndex
+      && address.rowIndex >= range.start.rowIndex
+      && address.rowIndex <= range.end.rowIndex,
   );
 }

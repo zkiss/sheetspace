@@ -13,6 +13,7 @@ import type {
 } from './appTypes';
 import { FormulaReferenceInspection } from './FormulaReferenceInspection';
 import { inspectFormula } from './formulaInspection';
+import { useReferenceNavigation } from './useReferenceNavigation';
 import { useSheetFrameInteractions } from './useSheetFrameInteractions';
 import type { WorkbookCommands } from './useWorkbookController';
 import { useWorkspaceController } from './useWorkspaceController';
@@ -34,6 +35,7 @@ export function Workspace({
   onNavigateCell,
   onOpenRenameDialog,
   onSelectCell,
+  onSelectReferenceTarget,
   onStartEdit,
   saveStatus,
   sheetIdRemaps,
@@ -53,6 +55,7 @@ export function Workspace({
   onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: Sheet) => void;
   onSelectCell: (selection: ActiveCellSelection) => void;
+  onSelectReferenceTarget: (selection: ActiveCellSelection) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   saveStatus: SaveStatus;
   sheetIdRemaps: Readonly<Record<string, string>>;
@@ -68,6 +71,16 @@ export function Workspace({
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
     : undefined;
   const workspaceController = useWorkspaceController({ onCreateSheet });
+  const {
+    navigateReference,
+    navigationHighlight,
+    navigationMotion,
+    workspaceSurfaceRef,
+  } = useReferenceNavigation({
+    navigateToTarget: workspaceController.navigateToTarget,
+    onSelectReferenceTarget,
+    workbook,
+  });
   const {
     handleSheetFrameDragMove,
     handleSheetFrameDragStart,
@@ -110,7 +123,10 @@ export function Workspace({
         viewport={workspaceController.viewport}
       />
 
-      <FormulaReferenceInspection inspection={formulaInspection} />
+      <FormulaReferenceInspection
+        inspection={formulaInspection}
+        onNavigate={navigateReference}
+      />
 
       <WorkspaceSurface
         activeCell={activeCell}
@@ -118,6 +134,8 @@ export function Workspace({
         formulaResults={formulaResults}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
         keyboardFocusTarget={keyboardFocusTarget}
+        navigationHighlight={navigationHighlight}
+        navigationMotion={navigationMotion}
         onAppendColumn={(sheetId) => {
           workspaceController.closeSheetMenu();
           commands.appendColumn(sheetId);
@@ -162,6 +180,7 @@ export function Workspace({
         sheetIdRemaps={sheetIdRemaps}
         sheets={workbook.sheets}
         viewport={workspaceController.viewport}
+        workspaceSurfaceRef={workspaceSurfaceRef}
       />
     </>
   );

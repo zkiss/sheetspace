@@ -131,6 +131,13 @@ export function useCellEditing({
     setActiveCell(selection);
   }
 
+  function selectReferenceTarget(selection: ActiveCellSelection) {
+    tabRunOriginColumn.current = null;
+    setEditingCell(null);
+    setActiveCell(selection);
+    setKeyboardFocusTarget(selection);
+  }
+
   function navigateCell(sheet: Sheet, currentCellKey: string, direction: CellNavigationDirection) {
     const parsedAddress = parseA1Address(currentCellKey, sheet);
     if (!parsedAddress.ok) {
@@ -210,6 +217,7 @@ export function useCellEditing({
     keyboardFocusTarget,
     navigateCell,
     selectCell,
+    selectReferenceTarget,
     startEditingCell,
     updateEditingCellValue,
   };

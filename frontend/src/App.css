@@ -171,17 +171,36 @@ button:hover {
 }
 
 .formula-reference-token {
+  display: inline;
+  border: 0;
   border-radius: 0.2rem;
   padding: 0.05rem 0.12rem;
   color: #11606b;
   background: #dff1f2;
+  cursor: pointer;
+  font: inherit;
   font-weight: 700;
+}
+
+.formula-reference-token:focus-visible {
+  outline: 2px solid #2f747e;
+  outline-offset: 1px;
 }
 
 .formula-reference-token-broken {
   color: #a33a3a;
   background: #fbe4e4;
+  cursor: not-allowed;
   text-decoration: wavy underline;
+}
+
+.formula-reference-feedback:empty {
+  display: none;
+}
+
+.formula-reference-feedback {
+  color: #a33a3a;
+  font-size: 0.78rem;
 }
 
 .workspace-surface {
@@ -206,6 +225,10 @@ button:hover {
   position: absolute;
   inset: 0;
   transform-origin: 0 0;
+}
+
+.workspace-plane-navigating {
+  transition: transform 180ms ease-out;
 }
 
 .empty-workspace {
@@ -439,6 +462,43 @@ button:hover {
   z-index: 1;
   background: #e8f4f2;
   box-shadow: inset 0 0 0 2px #2f747e;
+}
+
+.sheet-grid-cell-range-selected {
+  position: relative;
+  z-index: 1;
+  background: #e8f4f2;
+  box-shadow: inset 0 0 0 1px #2f747e;
+}
+
+.sheet-grid-cell-navigation-target {
+  animation: navigation-target-pulse 1.2s ease-out;
+  background: #ccebe6;
+  box-shadow: inset 0 0 0 2px #168b7b;
+}
+
+@keyframes navigation-target-pulse {
+  from {
+    background: #90d8cd;
+    box-shadow:
+      inset 0 0 0 3px #087b6c,
+      0 0 0 4px rgb(22 139 123 / 30%);
+  }
+
+  to {
+    background: #ccebe6;
+    box-shadow: inset 0 0 0 2px #168b7b;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-plane-navigating {
+    transition: none;
+  }
+
+  .sheet-grid-cell-navigation-target {
+    animation: none;
+  }
 }
 
 .sheet-grid-cell-editing {

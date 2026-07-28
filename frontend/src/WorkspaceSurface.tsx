@@ -1,4 +1,4 @@
-import type { MouseEvent, PointerEvent, WheelEvent } from 'react';
+import type { MouseEvent, PointerEvent, RefObject, WheelEvent } from 'react';
 import type { FormulaEvaluationSnapshot, Sheet, SheetZOrderDirection } from './workbook';
 import type {
   ActiveCellSelection,
@@ -17,6 +17,8 @@ export function WorkspaceSurface({
   formulaResults,
   isPanningWorkspace,
   keyboardFocusTarget,
+  navigationHighlight,
+  navigationMotion,
   onAppendColumn,
   onAppendRow,
   onCancelEdit,
@@ -49,12 +51,15 @@ export function WorkspaceSurface({
   sheetIdRemaps,
   sheets,
   viewport,
+  workspaceSurfaceRef,
 }: {
   activeCell: ActiveCellSelection | null;
   editingCell: EditingCell | null;
   formulaResults: FormulaEvaluationSnapshot;
   isPanningWorkspace: boolean;
   keyboardFocusTarget: ActiveCellSelection | null;
+  navigationHighlight: ActiveCellSelection | null;
+  navigationMotion: boolean;
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
   onCancelEdit: () => void;
@@ -87,6 +92,7 @@ export function WorkspaceSurface({
   sheetIdRemaps: Readonly<Record<string, string>>;
   sheets: Sheet[];
   viewport: WorkspaceViewport;
+  workspaceSurfaceRef: RefObject<HTMLElement>;
 }) {
   const menuSheet = pendingSheetMenu
     ? sheets.find((candidate) => candidate.id === (sheetIdRemaps[pendingSheetMenu.sheetId] ?? pendingSheetMenu.sheetId))
@@ -109,13 +115,15 @@ export function WorkspaceSurface({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onWheel={onWheel}
+      ref={workspaceSurfaceRef}
     >
       {sheets.length === 0 ? (
         <p className="empty-workspace">Right-click the workspace or use New sheet to create a sheet.</p>
       ) : null}
 
       <div
-        className="workspace-plane"
+        className={`workspace-plane${navigationMotion ? ' workspace-plane-navigating' : ''}`}
+        data-navigation-motion={navigationMotion ? 'smooth' : 'instant'}
         data-testid="workspace-plane"
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
@@ -125,6 +133,7 @@ export function WorkspaceSurface({
           const activeCellKey = activeCell?.sheetId === sheet.id ? activeCell.cellKey : null;
           const sheetEditingCell = editingCell?.sheetId === sheet.id ? editingCell : null;
           const keyboardFocusCellKey = keyboardFocusTarget?.sheetId === sheet.id ? keyboardFocusTarget.cellKey : null;
+          const selectedRange = activeCell?.sheetId === sheet.id ? activeCell.range : undefined;
 
           return (
             <SheetFrame
@@ -132,6 +141,14 @@ export function WorkspaceSurface({
               editingCell={sheetEditingCell}
               formulaResults={formulaResults}
               isActiveSheet={activeCell?.sheetId === sheet.id}
+              navigationHighlightCellKey={
+                navigationHighlight?.sheetId === sheet.id
+                  ? navigationHighlight.cellKey
+                  : null
+              }
+              navigationHighlightRange={navigationHighlight?.sheetId === sheet.id
+                ? navigationHighlight.range
+                : undefined}
               key={sheet.id}
               keyboardFocusCellKey={keyboardFocusCellKey}
               onCancelEdit={onCancelEdit}
@@ -152,6 +169,7 @@ export function WorkspaceSurface({
               onSheetFrameDragStop={onSheetFrameDragStop}
               onStartEdit={onStartEdit}
               sheet={sheet}
+              selectedRange={selectedRange}
             />
           );
         })}

@@ -5,6 +5,7 @@ import {
   getViewportCenter,
   getWorkspacePoint,
   resizeSheetFrame,
+  viewportForTarget,
 } from './workspaceGeometry';
 
 function workspaceElement({
@@ -68,6 +69,43 @@ describe('workspaceGeometry', () => {
     ).toEqual({
       frameSize: { width: 180, height: 120 },
       position: { x: 180, y: 120 },
+    });
+  });
+
+  it('pans an offscreen navigation target into the padded viewport', () => {
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 1200, top: 900, right: 1276, bottom: 927 },
+      targetKind: 'cell',
+    })).toEqual({
+      oversized: false,
+      viewport: { x: -524, y: -375, scale: 1 },
+    });
+  });
+
+  it('fits readable ranges but preserves readable scale for oversized ranges', () => {
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 100, top: 100, right: 860, bottom: 628 },
+      targetKind: 'range',
+    })).toEqual({
+      oversized: false,
+      viewport: { x: -45, y: -37, scale: 0.9263157894736842 },
+    });
+
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 },
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 100, top: 100, right: 1240, bottom: 1156 },
+      targetKind: 'range',
+    })).toEqual({
+      oversized: true,
+      viewport: { x: -52, y: -52, scale: 1 },
     });
   });
 });

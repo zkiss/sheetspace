@@ -1,5 +1,5 @@
 import type { MouseEvent, PointerEvent } from 'react';
-import type { FormulaEvaluationSnapshot, Sheet } from './workbook';
+import type { CellRange, FormulaEvaluationSnapshot, Sheet } from './workbook';
 import type {
   ActiveCellSelection,
   CellNavigationDirection,
@@ -26,6 +26,8 @@ export function SheetFrame({
   formulaResults,
   isActiveSheet,
   keyboardFocusCellKey,
+  navigationHighlightCellKey,
+  navigationHighlightRange,
   onCancelEdit,
   onClearCell,
   onCommitEdit,
@@ -44,12 +46,15 @@ export function SheetFrame({
   onSheetFrameDragStop,
   onStartEdit,
   sheet,
+  selectedRange,
 }: {
   activeCellKey: string | null;
   editingCell: EditingCell | null;
   formulaResults: FormulaEvaluationSnapshot;
   isActiveSheet: boolean;
   keyboardFocusCellKey: string | null;
+  navigationHighlightCellKey: string | null;
+  navigationHighlightRange?: CellRange;
   onCancelEdit: () => void;
   onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
@@ -68,6 +73,7 @@ export function SheetFrame({
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   sheet: Sheet;
+  selectedRange?: CellRange;
 }) {
   const frameSize = clampSheetFrameSize(sheet.frameSize);
 
@@ -123,6 +129,8 @@ export function SheetFrame({
           activeCellKey={activeCellKey}
           editingCell={editingCell}
           keyboardFocusCellKey={keyboardFocusCellKey}
+          navigationHighlightCellKey={navigationHighlightCellKey}
+          navigationHighlightRange={navigationHighlightRange}
           onCancelEdit={onCancelEdit}
           onClearCell={onClearCell}
           onCommitEdit={onCommitEdit}
@@ -133,6 +141,7 @@ export function SheetFrame({
           onStartEdit={onStartEdit}
           formulaResults={formulaResults}
           sheet={sheet}
+          selectedRange={selectedRange}
         />
       </div>
     </article>

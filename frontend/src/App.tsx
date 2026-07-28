@@ -49,6 +49,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     keyboardFocusTarget,
     navigateCell,
     selectCell,
+    selectReferenceTarget,
     startEditingCell,
     updateEditingCellValue,
   } = useCellEditing({
@@ -136,6 +137,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onNavigateCell={navigateCell}
         onOpenRenameDialog={openRenameDialog}
         onSelectCell={selectCell}
+        onSelectReferenceTarget={selectReferenceTarget}
         onStartEdit={startEditingCell}
         saveStatus={saveStatus}
         sheetIdRemaps={sheetIdRemaps}

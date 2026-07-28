@@ -21,6 +21,8 @@ export function SheetGridCell({
   editingCell,
   isActive,
   isEditing,
+  isNavigationTarget = false,
+  isRangeSelected = false,
   onCancelEdit,
   onClearCell,
   onCommitEdit,
@@ -37,6 +39,8 @@ export function SheetGridCell({
   editingCell: EditingCell | null;
   isActive: boolean;
   isEditing: boolean;
+  isNavigationTarget?: boolean;
+  isRangeSelected?: boolean;
   onCancelEdit: () => void;
   onClearCell: (selection: ActiveCellSelection) => void;
   onCommitEdit: (editToCommit?: EditingCell) => void;
@@ -80,16 +84,25 @@ export function SheetGridCell({
   return (
     <td
       aria-label={`${sheet.name} ${cellKey}${sheet.cells[cellKey] ? '' : ' empty'} cell`}
+      aria-selected={isActive || isRangeSelected ? 'true' : undefined}
       className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
+        isRangeSelected ? ' sheet-grid-cell-range-selected' : ''
+      }${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
         isEditing ? ' sheet-grid-cell-editing' : ''
       }`}
       data-active-cell={isActive ? 'true' : undefined}
       data-cell-key={cellKey}
       data-editing-cell={isEditing ? 'true' : undefined}
+      data-navigation-highlight={isNavigationTarget ? 'true' : undefined}
+      data-reference-selected={isRangeSelected ? 'true' : undefined}
       data-testid="sheet-grid-cell"
       onClick={() => onSelectCell({ sheetId: sheet.id, cellKey })}
       onDoubleClick={() => onStartEdit({ sheetId: sheet.id, cellKey })}
-      onFocus={() => onSelectCell({ sheetId: sheet.id, cellKey })}
+      onFocus={() => {
+        if (!isActive) {
+          onSelectCell({ sheetId: sheet.id, cellKey });
+        }
+      }}
       onKeyDown={handleCellKeyDown}
       ref={(cellElement) => registerCell(cellKey, cellElement)}
       tabIndex={0}
