@@ -1,14 +1,14 @@
 package com.sheetspace
 
 class InMemoryWorkbookStore(
-    initialWorkbook: Workbook = emptyWorkbook(),
+    initialWorkbook: WorkbookState = emptyWorkbookState(),
 ) : WorkbookStore {
     private var workbook = initialWorkbook
 
-    override fun loadWorkbook(): Workbook = synchronized(this) { workbook }
+    override fun loadWorkbook(): WorkbookState = synchronized(this) { workbook }
 
-    override fun saveWorkbook(workbook: Workbook) {
-        require(workbook.version == WORKBOOK_SCHEMA_VERSION)
+    override fun saveWorkbook(workbook: WorkbookState) {
+        require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
         synchronized(this) {
             this.workbook = workbook
         }
@@ -16,8 +16,8 @@ class InMemoryWorkbookStore(
 
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
-        transform: (Workbook) -> Workbook,
-    ): Workbook = synchronized(this) {
+        transform: (WorkbookState) -> WorkbookState,
+    ): WorkbookState = synchronized(this) {
         val current = workbook
         val updated = transform(current)
         workbook = if (expectedRevision == null) {
@@ -29,27 +29,20 @@ class InMemoryWorkbookStore(
     }
 
     private fun applyRevision(
-        current: Workbook,
-        updated: Workbook,
+        current: WorkbookState,
+        updated: WorkbookState,
         expected: ExpectedSheetRevision,
-    ): Workbook {
-        val currentSheet = current.sheets.find { it.id == expected.sheetId }
+    ): WorkbookState {
+        val sheetId = SheetId(expected.sheetId)
+        val currentSheet = current.findSheet(sheetId)
         if (currentSheet != null && currentSheet.revision != expected.revision) {
             throw SheetRevisionConflict(expected.sheetId, expected.revision, currentSheet.revision)
         }
-        val updatedSheet = updated.sheets.find { it.id == expected.sheetId }
+        val updatedSheet = updated.findSheet(sheetId)
         if (currentSheet == null || updatedSheet == null || currentSheet == updatedSheet) {
             return updated
         }
-        return updated.copy(
-            sheets = updated.sheets.map { sheet ->
-                if (sheet.id == expected.sheetId) {
-                    sheet.copy(revision = currentSheet.revision + 1)
-                } else {
-                    sheet
-                }
-            },
-        )
+        return updated.replaceSheet(updatedSheet.copy(revision = currentSheet.revision + 1))
     }
 }
 

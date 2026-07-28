@@ -12,12 +12,12 @@ class SheetRevisionConflict(
 ) : RuntimeException("Sheet $sheetId revision conflict: expected $expectedRevision, actual $actualRevision")
 
 interface WorkbookStore {
-    fun loadWorkbook(): Workbook
+    fun loadWorkbook(): WorkbookState
 
-    fun saveWorkbook(workbook: Workbook)
+    fun saveWorkbook(workbook: WorkbookState)
 
     fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision? = null,
-        transform: (Workbook) -> Workbook,
-    ): Workbook
+        transform: (WorkbookState) -> WorkbookState,
+    ): WorkbookState
 }

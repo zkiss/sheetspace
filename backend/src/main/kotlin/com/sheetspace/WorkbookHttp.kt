@@ -74,8 +74,11 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
         }
 
         get("/api/workbook") {
-            val workbook = workbookApplication.loadWorkbook()
-            call.respond(WorkbookSummary(version = workbook.version, sheetIds = workbook.sheets.map { it.id }))
+            call.respond(
+                LegacyWorkbookSummaryTransportAdapter.toTransport(
+                    workbookApplication.loadWorkbook().manifest,
+                ),
+            )
         }
 
         get("/api/sheets/{sheetId}") {
@@ -84,7 +87,9 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                 "sheet-id-required",
             )
             call.respondApplicationResult {
-                call.respond(workbookApplication.loadSheet(sheetId))
+                call.respond(
+                    LegacyFlatSheetTransportAdapter.toTransport(workbookApplication.loadSheet(sheetId)),
+                )
             }
         }
 
@@ -99,7 +104,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                         zIndex = request.zIndex,
                     ),
                 )
-                call.respond(HttpStatusCode.Created, sheet)
+                call.respond(HttpStatusCode.Created, LegacyFlatSheetTransportAdapter.toTransport(sheet))
             }
         }
 
@@ -121,7 +126,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                         zIndex = request.zIndex,
                     ),
                 )
-                call.respond(SheetRevisionResponse(sheet.id, sheet.revision))
+                call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
             }
         }
 
@@ -151,7 +156,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             val expectedRevision = call.expectedSheetRevision() ?: return@put
             call.respondApplicationResult {
                 val sheet = workbookApplication.updateCell(sheetId, cellAddress, content, expectedRevision)
-                call.respond(SheetRevisionResponse(sheet.id, sheet.revision))
+                call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
             }
         }
 
@@ -164,7 +169,13 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             call.respondApplicationResult {
                 val sheet = workbookApplication.appendRow(sheetId, expectedRevision)
-                call.respond(RowAppendResponse(sheet.id, sheet.revision, sheet.rowCount))
+                call.respond(
+                    RowAppendResponse(
+                        sheet.id.value,
+                        sheet.revision,
+                        sheet.tabularContent.rowCount,
+                    ),
+                )
             }
         }
 
@@ -177,7 +188,13 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             call.respondApplicationResult {
                 val sheet = workbookApplication.appendColumn(sheetId, expectedRevision)
-                call.respond(ColumnAppendResponse(sheet.id, sheet.revision, sheet.columnCount))
+                call.respond(
+                    ColumnAppendResponse(
+                        sheet.id.value,
+                        sheet.revision,
+                        sheet.tabularContent.columnCount,
+                    ),
+                )
             }
         }
 

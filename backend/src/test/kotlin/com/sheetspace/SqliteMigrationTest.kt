@@ -57,7 +57,7 @@ class SqliteMigrationTest {
         keeper.createStatement().use { it.executeUpdate(insertSql) }
 
         SqliteWorkbookStore(jdbcUrl, keeper).use { store ->
-            assertEquals(emptyWorkbook(), store.loadWorkbook())
+            assertEquals(emptyWorkbookState(), store.loadWorkbook())
         }
     }
 

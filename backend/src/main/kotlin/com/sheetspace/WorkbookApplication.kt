@@ -30,49 +30,41 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
-    fun loadWorkbook(): Workbook
+    fun loadWorkbook(): WorkbookState
 
-    fun loadSheet(sheetId: String): Sheet
+    fun loadSheet(sheetId: String): SheetDocument
 
-    fun createSheet(command: CreateSheetCommand): Sheet
+    fun createSheet(command: CreateSheetCommand): SheetDocument
 
-    fun updateSheet(sheetId: String, expectedRevision: Long, command: UpdateSheetCommand): Sheet
+    fun updateSheet(sheetId: String, expectedRevision: Long, command: UpdateSheetCommand): SheetDocument
 
     fun deleteSheet(sheetId: String, expectedRevision: Long)
 
-    fun updateCell(sheetId: String, address: String, content: String, expectedRevision: Long): Sheet
+    fun updateCell(sheetId: String, address: String, content: String, expectedRevision: Long): SheetDocument
 
-    fun appendRow(sheetId: String, expectedRevision: Long): Sheet
+    fun appendRow(sheetId: String, expectedRevision: Long): SheetDocument
 
-    fun appendColumn(sheetId: String, expectedRevision: Long): Sheet
+    fun appendColumn(sheetId: String, expectedRevision: Long): SheetDocument
 }
 
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
 ) : WorkbookApplication {
-    override fun loadWorkbook(): Workbook = store.loadWorkbook()
+    override fun loadWorkbook(): WorkbookState = store.loadWorkbook()
 
-    override fun loadSheet(sheetId: String): Sheet =
-        store.loadWorkbook().sheets.find { it.id == sheetId }
+    override fun loadSheet(sheetId: String): SheetDocument =
+        store.loadWorkbook().findSheet(SheetId(sheetId))
             ?: reject(WorkbookApplicationError.SHEET_NOT_FOUND)
 
-    override fun createSheet(command: CreateSheetCommand): Sheet {
-        if (!command.position.isValidWorkspacePosition()) {
-            reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
-        }
-        if (!command.frameSize.isValidSheetFrameSize()) {
-            reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
-        }
-        if (!command.zIndex.isValidSheetZIndex()) {
-            reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
-        }
+    override fun createSheet(command: CreateSheetCommand): SheetDocument {
+        validateFrameCommand(command.position, command.frameSize, command.zIndex)
 
-        lateinit var createdSheet: Sheet
+        lateinit var createdSheet: SheetDocument
         val updated = store.updateWorkbook { workbook ->
             createdSheet = when (
-                val result = com.sheetspace.createSheet(
+                val result = createSheetDocument(
                     name = command.name,
-                    existingSheets = workbook.sheets,
+                    existingSheets = workbook.documents.values,
                     position = command.position,
                     frameSize = command.frameSize,
                     zIndex = command.zIndex,
@@ -81,16 +73,16 @@ class DefaultWorkbookApplication(
                 is SheetNameResult.Valid -> result.value
                 is SheetNameResult.Invalid -> reject(result.reason.applicationError)
             }
-            workbook.copy(sheets = workbook.sheets + createdSheet)
+            workbook.addSheet(createdSheet)
         }
-        return updated.sheets.single { it.id == createdSheet.id }
+        return updated.documents.getValue(createdSheet.id)
     }
 
     override fun updateSheet(
         sheetId: String,
         expectedRevision: Long,
         command: UpdateSheetCommand,
-    ): Sheet {
+    ): SheetDocument {
         loadSheet(sheetId)
         if (
             command.name == null &&
@@ -100,48 +92,42 @@ class DefaultWorkbookApplication(
         ) {
             reject(WorkbookApplicationError.SHEET_UPDATE_REQUIRED)
         }
-        if (command.position?.isValidWorkspacePosition() == false) {
-            reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
-        }
-        if (command.frameSize?.isValidSheetFrameSize() == false) {
-            reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
-        }
-        if (!command.zIndex.isValidSheetZIndex()) {
-            reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
-        }
+        validateOptionalFrameCommand(command.position, command.frameSize, command.zIndex)
 
         return updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
             val renamed = if (command.name == null) {
-                workbook
+                current
             } else {
-                when (val result = com.sheetspace.renameSheet(workbook, sheetId, command.name)) {
-                    is WorkbookResult.Valid -> result.workbook
-                    is WorkbookResult.InvalidName -> reject(result.reason.applicationError)
-                    WorkbookResult.UnknownSheet -> reject(WorkbookApplicationError.SHEET_NOT_FOUND)
+                when (
+                    val result = validateSheetName(
+                        command.name,
+                        workbook.documents.values,
+                        current.id,
+                    )
+                ) {
+                    is SheetNameResult.Valid -> current.rename(result.value)
+                    is SheetNameResult.Invalid -> reject(result.reason.applicationError)
                 }
             }
-            renamed.copy(
-                sheets = renamed.sheets.map { sheet ->
-                    if (sheet.id != sheetId) {
-                        sheet
-                    } else {
-                        sheet.copy(
-                            position = command.position ?: current.position,
-                            frameSize = command.frameSize ?: current.frameSize,
-                            zIndex = command.zIndex ?: current.zIndex,
-                        )
-                    }
+            workbook.replaceSheet(
+                renamed.updateFrame { frame ->
+                    frame.update(
+                        position = command.position,
+                        size = command.frameSize,
+                        zIndex = command.zIndex,
+                    )
                 },
             )
         }
     }
 
     override fun deleteSheet(sheetId: String, expectedRevision: Long) {
+        val id = SheetId(sheetId)
         store.updateWorkbook(ExpectedSheetRevision(sheetId, expectedRevision)) { workbook ->
-            if (workbook.sheets.none { it.id == sheetId }) {
+            if (workbook.findSheet(id) == null) {
                 reject(WorkbookApplicationError.SHEET_NOT_FOUND)
             }
-            workbook.copy(sheets = workbook.sheets.filterNot { it.id == sheetId })
+            workbook.removeSheet(id)
         }
     }
 
@@ -150,44 +136,59 @@ class DefaultWorkbookApplication(
         address: String,
         content: String,
         expectedRevision: Long,
-    ): Sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
-        if (!current.containsCell(address)) {
+    ): SheetDocument = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+        if (!current.tabularContent.containsCell(address)) {
             reject(WorkbookApplicationError.INVALID_CELL_ADDRESS)
         }
-        val nextCells = if (content.isEmpty()) {
-            current.cells - address
-        } else {
-            current.cells + (address to content)
-        }
-        workbook.replaceSheet(current.copy(cells = nextCells))
+        workbook.replaceSheet(
+            current.updateTabularContent { it.updateCell(address, content) },
+        )
     }
 
-    override fun appendRow(sheetId: String, expectedRevision: Long): Sheet =
+    override fun appendRow(sheetId: String, expectedRevision: Long): SheetDocument =
         updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
-            workbook.replaceSheet(com.sheetspace.appendRow(current))
+            workbook.replaceSheet(current.updateTabularContent(TabularContent::appendRow))
         }
 
-    override fun appendColumn(sheetId: String, expectedRevision: Long): Sheet =
+    override fun appendColumn(sheetId: String, expectedRevision: Long): SheetDocument =
         updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
-            workbook.replaceSheet(com.sheetspace.appendColumn(current))
+            workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
 
     private fun updateExistingSheet(
         sheetId: String,
         expectedRevision: Long,
-        transform: (Workbook, Sheet) -> Workbook,
-    ): Sheet {
+        transform: (WorkbookState, SheetDocument) -> WorkbookState,
+    ): SheetDocument {
+        val id = SheetId(sheetId)
         val updated = store.updateWorkbook(ExpectedSheetRevision(sheetId, expectedRevision)) { workbook ->
-            val current = workbook.sheets.find { it.id == sheetId }
+            val current = workbook.findSheet(id)
                 ?: reject(WorkbookApplicationError.SHEET_NOT_FOUND)
             transform(workbook, current)
         }
-        return updated.sheets.single { it.id == sheetId }
+        return updated.documents.getValue(id)
     }
 }
 
-private fun Workbook.replaceSheet(updated: Sheet): Workbook =
-    copy(sheets = sheets.map { if (it.id == updated.id) updated else it })
+private fun validateFrameCommand(
+    position: WorkspacePosition,
+    frameSize: SheetFrameSize,
+    zIndex: Int?,
+) {
+    if (!position.isValid()) reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
+    if (!frameSize.isValid()) reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
+    if (zIndex != null && zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
+}
+
+private fun validateOptionalFrameCommand(
+    position: WorkspacePosition?,
+    frameSize: SheetFrameSize?,
+    zIndex: Int?,
+) {
+    if (position?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
+    if (frameSize?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
+    if (zIndex != null && zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
+}
 
 private val SheetNameError.applicationError: WorkbookApplicationError
     get() = when (this) {
