@@ -1,3 +1,51 @@
+import {
+  cellKey,
+  expandRange,
+  isAddressWithinBounds,
+  parseA1Address,
+  parseA1Range,
+  type CellAddress,
+  type CellKey,
+  type CellRange,
+} from './cellAddress';
+import {
+  formulaSheetReferences,
+  formatSheetReferenceToken,
+  parseFormula as parseFormulaSyntax,
+  replaceFormulaQualifiers,
+  type BinaryFormula,
+  type FormulaErrorCode,
+  type FormulaExpression,
+  type FormulaParseResult,
+  type FormulaReference,
+  type FunctionFormula,
+  type UnaryFormula,
+} from './formulaSyntax';
+
+export {
+  cellKey,
+  columnIndexToLabel,
+  columnLabelToIndex,
+  expandRange,
+  isAddressWithinBounds,
+  parseA1Address,
+  parseA1Range,
+} from './cellAddress';
+export type { CellAddress, CellKey, CellRange } from './cellAddress';
+export { formatSheetReferenceToken } from './formulaSyntax';
+export type {
+  BinaryFormula,
+  FormulaErrorCode,
+  FormulaExpression,
+  FormulaLiteral,
+  FormulaParseResult,
+  FormulaReference,
+  FormulaSourceSpan,
+  FunctionFormula,
+  GroupFormula,
+  UnaryFormula,
+} from './formulaSyntax';
+
 export const WORKBOOK_SCHEMA_VERSION = 1;
 export const DEFAULT_COLUMN_COUNT = 10;
 export const DEFAULT_ROW_COUNT = 20;
@@ -33,18 +81,6 @@ export type SheetFrameSize = {
   height: number;
 };
 
-export type CellKey = string;
-
-export type CellAddress = {
-  columnIndex: number;
-  rowIndex: number;
-};
-
-export type CellRange = {
-  start: CellAddress;
-  end: CellAddress;
-};
-
 export type NamedCellReference = CellAddress & {
   sheetName?: string;
 };
@@ -52,104 +88,6 @@ export type NamedCellReference = CellAddress & {
 export type NamedRangeReference = CellRange & {
   sheetName?: string;
 };
-
-export type FormulaErrorCode =
-  | '#PARSE!'
-  | '#REF!'
-  | '#NAME!'
-  | '#VALUE!'
-  | '#DIV/0!'
-  | '#CYCLE!'
-  | '#N/A';
-
-export type FormulaSourceSpan = {
-  start: number;
-  end: number;
-};
-
-export type FormulaReference =
-  | {
-      kind: 'cell';
-      sheetId?: string;
-      address: CellAddress;
-      sourceSpan: FormulaSourceSpan;
-      sheetReferenceSpan?: FormulaSourceSpan;
-    }
-  | {
-      kind: 'range';
-      sheetId?: string;
-      range: CellRange;
-      sourceSpan: FormulaSourceSpan;
-      sheetReferenceSpan?: FormulaSourceSpan;
-    };
-
-export type FormulaLiteral =
-  | {
-      kind: 'number';
-      value: number;
-      sourceSpan: FormulaSourceSpan;
-    }
-  | {
-      kind: 'text';
-      value: string;
-      sourceSpan: FormulaSourceSpan;
-    }
-  | {
-      kind: 'boolean';
-      value: boolean;
-      sourceSpan: FormulaSourceSpan;
-    };
-
-export type GroupFormula = {
-  kind: 'group';
-  expression: FormulaExpression;
-  sourceSpan: FormulaSourceSpan;
-};
-
-export type UnaryFormula = {
-  kind: 'unary';
-  operator: '+' | '-';
-  operand: FormulaExpression;
-  sourceSpan: FormulaSourceSpan;
-};
-
-export type BinaryFormula = {
-  kind: 'binary';
-  operator: '+' | '-' | '*' | '/' | '=' | '<>' | '<' | '<=' | '>' | '>=';
-  left: FormulaExpression;
-  right: FormulaExpression;
-  sourceSpan: FormulaSourceSpan;
-};
-
-export type SumFormula = {
-  kind: 'sum';
-  functionName: 'SUM';
-  arguments: FormulaExpression[];
-  sourceSpan: FormulaSourceSpan;
-};
-
-export type CommonFunctionName = 'AVERAGE' | 'MIN' | 'MAX' | 'COUNT' | 'COUNTA' | 'ABS' | 'SQRT';
-
-export type CommonFunctionFormula = {
-  kind: 'function';
-  functionName: CommonFunctionName;
-  arguments: FormulaExpression[];
-  sourceSpan: FormulaSourceSpan;
-};
-
-export type FormulaExpression =
-  | FormulaReference
-  | FormulaLiteral
-  | GroupFormula
-  | UnaryFormula
-  | BinaryFormula
-  | SumFormula
-  | CommonFunctionFormula;
-
-export type FormulaParseResult =
-  | { kind: 'not-formula'; raw: string }
-  | { kind: 'formula'; raw: string; expression: FormulaExpression }
-  | { kind: 'error'; raw: string; error: FormulaErrorCode };
 
 export type FormulaScalarValue =
   | { kind: 'number'; value: number }
@@ -404,105 +342,6 @@ export function appendColumn(sheet: Sheet): Sheet {
   };
 }
 
-export function columnIndexToLabel(columnIndex: number): string {
-  if (!Number.isInteger(columnIndex) || columnIndex < 0) {
-    throw new RangeError('Column index must be a non-negative integer.');
-  }
-
-  let remaining = columnIndex + 1;
-  let label = '';
-  while (remaining > 0) {
-    const letterOffset = (remaining - 1) % 26;
-    label = String.fromCharCode(65 + letterOffset) + label;
-    remaining = Math.floor((remaining - 1) / 26);
-  }
-
-  return label;
-}
-
-export function columnLabelToIndex(columnLabel: string): ParseResult<number> {
-  if (!/^[A-Za-z]+$/.test(columnLabel)) {
-    return { ok: false, reason: 'invalid-format' };
-  }
-
-  let index = 0;
-  for (const letter of columnLabel.toUpperCase()) {
-    index = index * 26 + (letter.charCodeAt(0) - 64);
-  }
-
-  return { ok: true, value: index - 1 };
-}
-
-export function cellKey(address: CellAddress): CellKey {
-  return `${columnIndexToLabel(address.columnIndex)}${address.rowIndex + 1}`;
-}
-
-export function parseA1Address(input: string, bounds?: Pick<Sheet, 'columnCount' | 'rowCount'>): ParseResult<CellAddress> {
-  const match = /^([A-Za-z]+)([1-9][0-9]*)$/.exec(input.trim());
-  if (!match) {
-    return { ok: false, reason: 'invalid-format' };
-  }
-
-  const columnIndex = columnLabelToIndex(match[1]);
-  if (!columnIndex.ok) {
-    return columnIndex;
-  }
-
-  const rowIndex = Number.parseInt(match[2], 10) - 1;
-  const address = { columnIndex: columnIndex.value, rowIndex };
-
-  if (bounds && !isAddressWithinBounds(address, bounds)) {
-    return { ok: false, reason: 'out-of-bounds' };
-  }
-
-  return { ok: true, value: address };
-}
-
-export function parseA1Range(input: string, bounds?: Pick<Sheet, 'columnCount' | 'rowCount'>): ParseResult<CellRange> {
-  const parts = input.split(':');
-  if (parts.length !== 2) {
-    return { ok: false, reason: 'invalid-format' };
-  }
-
-  const start = parseA1Address(parts[0], bounds);
-  if (!start.ok) {
-    return start;
-  }
-
-  const end = parseA1Address(parts[1], bounds);
-  if (!end.ok) {
-    return end;
-  }
-
-  return {
-    ok: true,
-    value: normalizeRange({ start: start.value, end: end.value }),
-  };
-}
-
-export function expandRange(range: CellRange, bounds: Pick<Sheet, 'columnCount' | 'rowCount'>): ParseResult<CellAddress[]> {
-  const normalized = normalizeRange(range);
-  if (
-    !isAddressWithinBounds(normalized.start, bounds) ||
-    !isAddressWithinBounds(normalized.end, bounds)
-  ) {
-    return { ok: false, reason: 'out-of-bounds' };
-  }
-
-  const addresses: CellAddress[] = [];
-  for (let rowIndex = normalized.start.rowIndex; rowIndex <= normalized.end.rowIndex; rowIndex += 1) {
-    for (
-      let columnIndex = normalized.start.columnIndex;
-      columnIndex <= normalized.end.columnIndex;
-      columnIndex += 1
-    ) {
-      addresses.push({ columnIndex, rowIndex });
-    }
-  }
-
-  return { ok: true, value: addresses };
-}
-
 export function parseNamedA1Address(
   input: string,
   workbook: Workbook,
@@ -566,21 +405,7 @@ export function parseFormula(
   _workbook: Workbook,
   _defaultSheet?: Sheet,
 ): FormulaParseResult {
-  if (!raw.startsWith('=')) {
-    return { kind: 'not-formula', raw };
-  }
-
-  const parser = new FormulaParser(raw.slice(1));
-  return parser.parse(raw);
-}
-
-export function parseFormulaForInspection(raw: string): FormulaParseResult {
-  if (!raw.startsWith('=')) {
-    return { kind: 'not-formula', raw };
-  }
-
-  const parser = new FormulaParser(raw.slice(1));
-  return parser.parse(raw, true);
+  return parseFormulaSyntax(raw);
 }
 
 export function evaluateFormulaCells(workbook: Workbook): FormulaEvaluationSnapshot {
@@ -633,31 +458,6 @@ export class FormulaCalculation {
   }
 }
 
-export function isAddressWithinBounds(
-  address: CellAddress,
-  bounds: Pick<Sheet, 'columnCount' | 'rowCount'>,
-): boolean {
-  return (
-    address.columnIndex >= 0 &&
-    address.rowIndex >= 0 &&
-    address.columnIndex < bounds.columnCount &&
-    address.rowIndex < bounds.rowCount
-  );
-}
-
-function normalizeRange(range: CellRange): CellRange {
-  return {
-    start: {
-      columnIndex: Math.min(range.start.columnIndex, range.end.columnIndex),
-      rowIndex: Math.min(range.start.rowIndex, range.end.rowIndex),
-    },
-    end: {
-      columnIndex: Math.max(range.start.columnIndex, range.end.columnIndex),
-      rowIndex: Math.max(range.start.rowIndex, range.end.rowIndex),
-    },
-  };
-}
-
 function resolveReferenceSheet(
   sheetName: string | undefined,
   workbook: Workbook,
@@ -703,20 +503,6 @@ export function formulaScalarValue(value: FormulaValue): FormulaScalarValue {
 
 export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaScalarValue> {
   return value.kind === 'range' ? value.values : [value];
-}
-
-const commonFunctionNames = new Set<CommonFunctionName>([
-  'AVERAGE',
-  'MIN',
-  'MAX',
-  'COUNT',
-  'COUNTA',
-  'ABS',
-  'SQRT',
-]);
-
-function isCommonFunctionName(functionName: string): functionName is CommonFunctionName {
-  return commonFunctionNames.has(functionName as CommonFunctionName);
 }
 
 export function classifyCellValue(raw: string): FormulaScalarValue {
@@ -933,11 +719,10 @@ class FormulaEvaluator {
     if (expression.kind === 'binary') {
       return this.evaluateBinary(expression, currentSheet);
     }
-    if (expression.kind === 'sum') {
-      return this.evaluateSum(expression, currentSheet);
-    }
     if (expression.kind === 'function') {
-      return this.evaluateCommonFunction(expression, currentSheet);
+      return expression.functionName === 'SUM'
+        ? this.evaluateSum(expression, currentSheet)
+        : this.evaluateCommonFunction(expression, currentSheet);
     }
     return this.evaluateReference(expression, currentSheet);
   }
@@ -999,7 +784,7 @@ class FormulaEvaluator {
       : formulaErrorValue('#VALUE!');
   }
 
-  private evaluateSum(expression: SumFormula, currentSheet: Sheet): FormulaScalarValue {
+  private evaluateSum(expression: FunctionFormula, currentSheet: Sheet): FormulaScalarValue {
     const numbers = this.evaluateNumericCollections(expression.arguments, currentSheet);
     if (numbers.kind === 'error') {
       return numbers;
@@ -1012,7 +797,7 @@ class FormulaEvaluator {
   }
 
   private evaluateCommonFunction(
-    expression: CommonFunctionFormula,
+    expression: FunctionFormula,
     currentSheet: Sheet,
   ): FormulaScalarValue {
     switch (expression.functionName) {
@@ -1031,11 +816,13 @@ class FormulaEvaluator {
           return formulaErrorValue('#VALUE!');
         }
         return this.evaluateNumericScalarFunction(expression, currentSheet);
+      default:
+        return formulaErrorValue('#NAME!');
     }
   }
 
   private evaluateAggregateFunction(
-    expression: CommonFunctionFormula,
+    expression: FunctionFormula,
     currentSheet: Sheet,
   ): FormulaScalarValue {
     if (expression.functionName === 'COUNTA') {
@@ -1086,7 +873,7 @@ class FormulaEvaluator {
   }
 
   private evaluateNumericScalarFunction(
-    expression: CommonFunctionFormula,
+    expression: FunctionFormula,
     currentSheet: Sheet,
   ): FormulaScalarValue {
     const value = formulaScalarValue(this.evaluateExpression(expression.arguments[0], currentSheet));
@@ -1244,7 +1031,7 @@ function expressionDependencies(
       ...expressionDependencies(expression.right, workbook, currentSheet),
     ]);
   }
-  if (expression.kind === 'sum' || expression.kind === 'function') {
+  if (expression.kind === 'function') {
     const dependencies = new Set<string>();
     for (const argument of expression.arguments) {
       for (const dependency of expressionDependencies(argument, workbook, currentSheet)) {
@@ -1325,7 +1112,7 @@ function dependentClosure(
 }
 
 export function formulaRawForStorage(raw: string, workbook: Workbook): string {
-  return replaceSheetReferenceTokens(raw, (sheetReference) => {
+  return replaceFormulaQualifiers(raw, (sheetReference) => {
     if (sheetReference === '#REF') {
       return sheetReference;
     }
@@ -1336,20 +1123,18 @@ export function formulaRawForStorage(raw: string, workbook: Workbook): string {
 }
 
 export function formulaRawForDisplay(raw: string, workbook: Workbook): string {
-  return replaceSheetReferenceTokens(raw, (sheetId) => {
+  return replaceFormulaQualifiers(raw, (sheetId) => {
     const sheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
     return sheet ? formatSheetReferenceToken(sheet.name) : '#REF';
   });
 }
 
 export function formulaSheetReferenceIds(raw: string): string[] {
-  return findSheetReferenceTokens(raw)
-    .map((token) => token.sheetName)
-    .filter((sheetId) => sheetId !== '#REF');
+  return formulaSheetReferences(raw).filter((sheetId) => sheetId !== '#REF');
 }
 
 export function remapFormulaSheetIds(raw: string, remaps: ReadonlyMap<string, string>): string {
-  return replaceSheetReferenceTokens(raw, (sheetId) => remaps.get(sheetId) ?? sheetId);
+  return replaceFormulaQualifiers(raw, (sheetId) => remaps.get(sheetId) ?? sheetId);
 }
 
 export function remapWorkbookFormulaSheetId(workbook: Workbook, fromSheetId: string, toSheetId: string): Workbook {
@@ -1368,201 +1153,6 @@ export function remapWorkbookFormulaSheetId(workbook: Workbook, fromSheetId: str
     return sheetChanged ? { ...sheet, cells } : sheet;
   });
   return changed ? { ...workbook, sheets } : workbook;
-}
-
-function replaceSheetReferenceTokens(raw: string, replacement: (sheetReference: string) => string): string {
-  return findSheetReferenceTokens(raw)
-    .sort((first, second) => second.startIndex - first.startIndex)
-    .reduce(
-      (result, token) => result.slice(0, token.startIndex) + replacement(token.sheetName) + result.slice(token.endIndex),
-      raw,
-    );
-}
-
-export function formatSheetReferenceToken(sheetName: string): string {
-  const quoted = !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(sheetName);
-  return quoted ? `'${sheetName.replace(/'/g, "''")}'` : sheetName;
-}
-
-function findSheetReferenceTokens(raw: string): { startIndex: number; endIndex: number; sheetName: string }[] {
-  if (!raw.startsWith('=')) {
-    return [];
-  }
-
-  const tokens: { startIndex: number; endIndex: number; sheetName: string }[] = [];
-  for (let separatorIndex = 0; separatorIndex < raw.length; separatorIndex += 1) {
-    if (raw[separatorIndex] === '"') {
-      separatorIndex = findTextLiteralEnd(raw, separatorIndex);
-      continue;
-    }
-    if (raw[separatorIndex] !== '!' || !hasA1ReferenceAfter(raw, separatorIndex)) {
-      continue;
-    }
-
-    const rawBeforeSeparator = raw.slice(0, separatorIndex);
-    const lastNonWhitespaceIndex = findLastNonWhitespaceIndex(rawBeforeSeparator);
-    const endIndex = lastNonWhitespaceIndex + 1;
-    const startIndex = findSheetReferenceTokenStart(raw, endIndex);
-    if (startIndex === undefined) {
-      continue;
-    }
-
-    const parsed = parseSheetReferenceToken(raw.slice(startIndex, endIndex));
-    if (parsed) {
-      tokens.push({ startIndex, endIndex, sheetName: parsed.sheetName });
-    }
-  }
-
-  return tokens;
-}
-
-function findTextLiteralEnd(raw: string, openingQuoteIndex: number): number {
-  let cursor = openingQuoteIndex + 1;
-  while (cursor < raw.length) {
-    if (raw[cursor] !== '"') {
-      cursor += 1;
-      continue;
-    }
-    if (raw[cursor + 1] === '"') {
-      cursor += 2;
-      continue;
-    }
-    return cursor;
-  }
-  return raw.length;
-}
-
-function hasA1ReferenceAfter(raw: string, separatorIndex: number): boolean {
-  let referenceStart = separatorIndex + 1;
-  while (referenceStart < raw.length && /\s/.test(raw[referenceStart])) {
-    referenceStart += 1;
-  }
-  if (referenceStart >= raw.length) {
-    return false;
-  }
-
-  const match = /^[A-Za-z]+[1-9][0-9]*/.exec(raw.slice(referenceStart));
-  if (!match) {
-    return false;
-  }
-
-  const nextChar = raw[referenceStart + match[0].length];
-  return !nextChar || /\s/.test(nextChar) || /[:,)+\-*/=<>]/.test(nextChar);
-}
-
-function findLastNonWhitespaceIndex(input: string): number {
-  for (let index = input.length - 1; index >= 0; index -= 1) {
-    if (!/\s/.test(input[index])) {
-      return index;
-    }
-  }
-
-  return -1;
-}
-
-function findSheetReferenceTokenStart(raw: string, endIndex: number): number | undefined {
-  if (endIndex <= 0) {
-    return undefined;
-  }
-  if (raw[endIndex - 1] !== "'") {
-    let boundary =
-      Math.max(
-        raw.lastIndexOf('=', endIndex - 1),
-        raw.lastIndexOf('(', endIndex - 1),
-        raw.lastIndexOf(',', endIndex - 1),
-        raw.lastIndexOf('+', endIndex - 1),
-        raw.lastIndexOf('*', endIndex - 1),
-        raw.lastIndexOf('/', endIndex - 1),
-        raw.lastIndexOf('<', endIndex - 1),
-        raw.lastIndexOf('>', endIndex - 1),
-      ) + 1;
-    boundary = advancePastUnaryMinuses(raw, boundary, endIndex);
-    const candidate = raw.slice(boundary, endIndex).trim();
-    if (!isUuidLikeSheetId(candidate)) {
-      for (let index = boundary; index < endIndex; index += 1) {
-        if (raw[index] === '-' && isCompletedScalarToken(raw.slice(boundary, index).trim())) {
-          boundary = advancePastUnaryMinuses(raw, index + 1, endIndex);
-          if (isUuidLikeSheetId(raw.slice(boundary, endIndex).trim())) {
-            break;
-          }
-        }
-      }
-    }
-    for (let index = boundary; index < endIndex; index += 1) {
-      if (!/\s/.test(raw[index])) {
-        return index;
-      }
-    }
-    return undefined;
-  }
-
-  let cursor = endIndex - 2;
-  while (cursor >= 0) {
-    if (raw[cursor] !== "'") {
-      cursor -= 1;
-      continue;
-    }
-    if (cursor > 0 && raw[cursor - 1] === "'") {
-      cursor -= 2;
-      continue;
-    }
-    return cursor;
-  }
-
-  return undefined;
-}
-
-function advancePastUnaryMinuses(raw: string, startIndex: number, endIndex: number): number {
-  let index = startIndex;
-  while (index < endIndex) {
-    while (index < endIndex && /\s/.test(raw[index])) {
-      index += 1;
-    }
-    if (raw[index] !== '-') {
-      return index;
-    }
-    index += 1;
-  }
-  return index;
-}
-
-function parseSheetReferenceToken(token: string): { sheetName: string } | undefined {
-  const trimmedToken = token.trim();
-  if (!trimmedToken.startsWith("'")) {
-    return trimmedToken.length > 0 && !/[(),"'\!+*/=<>]/.test(trimmedToken)
-      ? { sheetName: trimmedToken }
-      : undefined;
-  }
-  if (!trimmedToken.endsWith("'") || trimmedToken.length < 3) {
-    return undefined;
-  }
-
-  const inner = trimmedToken.slice(1, -1);
-  for (let cursor = 0; cursor < inner.length; cursor += 1) {
-    if (inner[cursor] !== "'") {
-      continue;
-    }
-    if (inner[cursor + 1] !== "'") {
-      return undefined;
-    }
-    cursor += 1;
-  }
-
-  return { sheetName: inner.replace(/''/g, "'") };
-}
-
-function isUuidLikeSheetId(candidate: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate);
-}
-
-function isCompletedScalarToken(candidate: string): boolean {
-  return (
-    /^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(candidate)
-    || /^(?:TRUE|FALSE)$/i.test(candidate)
-    || /^[A-Za-z]+[1-9][0-9]*$/.test(candidate)
-    || /!\s*[A-Za-z]+[1-9][0-9]*(?:\s*:\s*[A-Za-z]+[1-9][0-9]*)?$/.test(candidate)
-    || candidate.endsWith(')')
-  );
 }
 
 function splitSheetReference(
@@ -1600,586 +1190,4 @@ function splitSheetReference(
       reference: trimmedInput.slice(separatorIndex + 1),
     },
   };
-}
-
-class FormulaParser {
-  private index = 0;
-  private deferredNameError = false;
-
-  constructor(private readonly input: string) {}
-
-  parse(raw: string, preserveUnknownFunctionExpression = false): FormulaParseResult {
-    this.skipWhitespace();
-    const expression = this.readExpression(false);
-    if (!expression.ok) {
-      if (expression.error === '#NAME!') {
-        this.skipWhitespace();
-        if (!this.isAtEnd()) {
-          return { kind: 'error', raw, error: '#PARSE!' };
-        }
-      }
-      return { kind: 'error', raw, error: expression.error };
-    }
-
-    this.skipWhitespace();
-    if (!this.isAtEnd()) {
-      return { kind: 'error', raw, error: '#PARSE!' };
-    }
-    if (this.deferredNameError && !preserveUnknownFunctionExpression) {
-      return { kind: 'error', raw, error: '#NAME!' };
-    }
-    return {
-      kind: 'formula',
-      raw,
-      expression: expression.value,
-    };
-  }
-
-  private readExpression(
-    validateSemantics = true,
-  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
-    return this.readComparisonExpression(validateSemantics);
-  }
-
-  private readComparisonExpression(
-    validateSemantics: boolean,
-  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
-    const left = this.readAdditiveExpression(validateSemantics);
-    if (!left.ok) {
-      return left;
-    }
-
-    this.skipWhitespace();
-    const operator = this.readComparisonOperator();
-    if (!operator) {
-      return left;
-    }
-
-    const right = this.readAdditiveExpression(false);
-    if (!right.ok) {
-      return right;
-    }
-
-    return {
-      ok: true,
-      value: {
-        kind: 'binary',
-        operator,
-        left: left.value,
-        right: right.value,
-        sourceSpan: {
-          start: left.value.sourceSpan.start,
-          end: right.value.sourceSpan.end,
-        },
-      },
-    };
-  }
-
-  private readComparisonOperator(): '=' | '<>' | '<' | '<=' | '>' | '>=' | undefined {
-    for (const operator of ['<>', '<=', '>=', '=', '<', '>'] as const) {
-      if (this.input.startsWith(operator, this.index)) {
-        this.index += operator.length;
-        return operator;
-      }
-    }
-    return undefined;
-  }
-
-  private readAdditiveExpression(
-    validateSemantics: boolean,
-  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
-    let left = this.readMultiplicativeExpression(validateSemantics);
-    if (!left.ok) {
-      return left;
-    }
-
-    while (true) {
-      this.skipWhitespace();
-      const operator = this.peek();
-      if (operator !== '+' && operator !== '-') {
-        return left;
-      }
-      this.index += 1;
-      const right = this.readMultiplicativeExpression(false);
-      if (!right.ok) {
-        return right;
-      }
-      left = {
-        ok: true,
-        value: {
-          kind: 'binary',
-          operator,
-          left: left.value,
-          right: right.value,
-          sourceSpan: {
-            start: left.value.sourceSpan.start,
-            end: right.value.sourceSpan.end,
-          },
-        },
-      };
-    }
-  }
-
-  private readMultiplicativeExpression(
-    validateSemantics: boolean,
-  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
-    let left = this.readUnaryExpression(validateSemantics);
-    if (!left.ok) {
-      return left;
-    }
-
-    while (true) {
-      this.skipWhitespace();
-      const operator = this.peek();
-      if (operator !== '*' && operator !== '/') {
-        return left;
-      }
-      this.index += 1;
-      const right = this.readUnaryExpression(false);
-      if (!right.ok) {
-        return right;
-      }
-      left = {
-        ok: true,
-        value: {
-          kind: 'binary',
-          operator,
-          left: left.value,
-          right: right.value,
-          sourceSpan: {
-            start: left.value.sourceSpan.start,
-            end: right.value.sourceSpan.end,
-          },
-        },
-      };
-    }
-  }
-
-  private readUnaryExpression(
-    validateSemantics: boolean,
-  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
-    this.skipWhitespace();
-    const startIndex = this.index;
-    const operator = this.peek();
-    if (operator === '+' || operator === '-') {
-      this.index += 1;
-      const operand = this.readUnaryExpression(false);
-      if (!operand.ok) {
-        return operand;
-      }
-      return {
-        ok: true,
-        value: {
-          kind: 'unary',
-          operator,
-          operand: operand.value,
-          sourceSpan: {
-            start: startIndex + 1,
-            end: operand.value.sourceSpan.end,
-          },
-        },
-      };
-    }
-
-    if (this.consume('(')) {
-      const expression = this.readExpression(false);
-      if (!expression.ok) {
-        return expression;
-      }
-      this.skipWhitespace();
-      if (!this.consume(')')) {
-        return { ok: false, error: '#PARSE!' };
-      }
-      return {
-        ok: true,
-        value: {
-          kind: 'group',
-          expression: expression.value,
-          sourceSpan: this.sourceSpan(startIndex),
-        },
-      };
-    }
-
-    if (this.peek() === '"') {
-      return this.readTextLiteral();
-    }
-
-    if (this.findUnquotedSheetSeparator() !== -1) {
-      return this.readReferenceArgument();
-    }
-
-    const number = this.readNumberLiteral();
-    if (number) {
-      return { ok: true, value: number };
-    }
-
-    const identifierStart = this.index;
-    const identifier = this.readIdentifier();
-    if (identifier) {
-      const normalized = identifier.toUpperCase();
-      if ((normalized === 'TRUE' || normalized === 'FALSE') && !this.isIdentifierContinuation(this.peek())) {
-        return {
-          ok: true,
-          value: {
-            kind: 'boolean',
-            value: normalized === 'TRUE',
-            sourceSpan: this.sourceSpan(identifierStart),
-          },
-        };
-      }
-
-      this.skipWhitespace();
-      if (this.peek() === '(') {
-        return this.readFunctionCall(identifier, identifierStart, validateSemantics);
-      }
-      this.index = identifierStart;
-    }
-
-    return this.readReferenceArgument();
-  }
-
-  private readFunctionCall(
-    functionName: string,
-    startIndex: number,
-    validateSemantics: boolean,
-  ): { ok: true; value: FormulaExpression } | { ok: false; error: FormulaErrorCode } {
-    if (!this.consume('(')) {
-      return { ok: false, error: '#PARSE!' };
-    }
-    const normalizedFunctionName = functionName.toUpperCase();
-    const isSum = normalizedFunctionName === 'SUM';
-    const isCommonFunction = isCommonFunctionName(normalizedFunctionName);
-    const isSupportedFunction = isSum || isCommonFunction;
-
-    this.skipWhitespace();
-    if (this.peek() === ')') {
-      this.index += 1;
-      if (validateSemantics && !isSupportedFunction) {
-        return { ok: false, error: '#NAME!' };
-      }
-      if (!isSupportedFunction) {
-        this.deferredNameError = true;
-      }
-      return {
-        ok: true,
-        value: this.functionExpression(normalizedFunctionName, [], startIndex),
-      };
-    }
-
-    const args: FormulaExpression[] = [];
-    while (true) {
-      const arg = this.readExpression(false);
-      if (!arg.ok) {
-        return arg;
-      }
-      args.push(arg.value);
-
-      this.skipWhitespace();
-      if (this.consume(',')) {
-        this.skipWhitespace();
-        if (this.peek() === ')' || this.isAtEnd()) {
-          return { ok: false, error: '#PARSE!' };
-        }
-        continue;
-      }
-      if (!this.consume(')')) {
-        return { ok: false, error: '#PARSE!' };
-      }
-      break;
-    }
-
-    if (validateSemantics && !isSupportedFunction) {
-      return { ok: false, error: '#NAME!' };
-    }
-    if (!isSupportedFunction) {
-      this.deferredNameError = true;
-    }
-
-    return {
-      ok: true,
-      value: this.functionExpression(normalizedFunctionName, args, startIndex),
-    };
-  }
-
-  private functionExpression(
-    functionName: string,
-    args: FormulaExpression[],
-    startIndex: number,
-  ): SumFormula | CommonFunctionFormula {
-    if (functionName === 'SUM' || !isCommonFunctionName(functionName)) {
-      return {
-        kind: 'sum',
-        functionName: 'SUM',
-        arguments: args,
-        sourceSpan: this.sourceSpan(startIndex),
-      };
-    }
-
-    return {
-      kind: 'function',
-      functionName,
-      arguments: args,
-      sourceSpan: this.sourceSpan(startIndex),
-    };
-  }
-
-  private readNumberLiteral(): FormulaLiteral | undefined {
-    const startIndex = this.index;
-    const match = /^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?/.exec(
-      this.input.slice(this.index),
-    );
-    if (!match) {
-      return undefined;
-    }
-
-    this.index += match[0].length;
-    return {
-      kind: 'number',
-      value: Number(match[0]),
-      sourceSpan: this.sourceSpan(startIndex),
-    };
-  }
-
-  private readTextLiteral(): { ok: true; value: FormulaLiteral } | { ok: false; error: FormulaErrorCode } {
-    const startIndex = this.index;
-    this.index += 1;
-    let value = '';
-
-    while (!this.isAtEnd()) {
-      const char = this.peek();
-      if (char !== '"') {
-        value += char;
-        this.index += 1;
-        continue;
-      }
-      if (this.input[this.index + 1] === '"') {
-        value += '"';
-        this.index += 2;
-        continue;
-      }
-
-      this.index += 1;
-      return {
-        ok: true,
-        value: {
-          kind: 'text',
-          value,
-          sourceSpan: this.sourceSpan(startIndex),
-        },
-      };
-    }
-
-    return { ok: false, error: '#PARSE!' };
-  }
-
-  private readReferenceArgument(): { ok: true; value: FormulaReference } | { ok: false; error: FormulaErrorCode } {
-    const startIndex = this.index;
-    const sheetReference = this.readOptionalSheetReference();
-    if (sheetReference === false) {
-      return { ok: false, error: '#PARSE!' };
-    }
-
-    const startAddressToken = this.readA1AddressToken();
-    if (!startAddressToken) {
-      return { ok: false, error: '#PARSE!' };
-    }
-    const startAddressEndIndex = this.index;
-
-    const syntaxBounds = { columnCount: Number.MAX_SAFE_INTEGER, rowCount: Number.MAX_SAFE_INTEGER };
-    const startAddress = parseA1Address(startAddressToken, syntaxBounds);
-    if (!startAddress.ok) {
-      return { ok: false, error: startAddress.reason === 'out-of-bounds' ? '#REF!' : '#PARSE!' };
-    }
-
-    this.skipWhitespace();
-    if (!this.consume(':')) {
-      return {
-        ok: true,
-        value: {
-          kind: 'cell',
-          ...(sheetReference.sheetId === undefined ? {} : { sheetId: sheetReference.sheetId }),
-          address: startAddress.value,
-          sourceSpan: this.span(startIndex, startAddressEndIndex),
-          ...(sheetReference.sourceSpan === undefined ? {} : { sheetReferenceSpan: sheetReference.sourceSpan }),
-        },
-      };
-    }
-
-    this.skipWhitespace();
-    const endAddressToken = this.readA1AddressToken();
-    if (!endAddressToken) {
-      return { ok: false, error: '#PARSE!' };
-    }
-    const endAddressEndIndex = this.index;
-
-    const endAddress = parseA1Address(endAddressToken, syntaxBounds);
-    if (!endAddress.ok) {
-      return { ok: false, error: endAddress.reason === 'out-of-bounds' ? '#REF!' : '#PARSE!' };
-    }
-
-    return {
-      ok: true,
-      value: {
-        kind: 'range',
-        ...(sheetReference.sheetId === undefined ? {} : { sheetId: sheetReference.sheetId }),
-        range: normalizeRange({ start: startAddress.value, end: endAddress.value }),
-        sourceSpan: this.span(startIndex, endAddressEndIndex),
-        ...(sheetReference.sourceSpan === undefined ? {} : { sheetReferenceSpan: sheetReference.sourceSpan }),
-      },
-    };
-  }
-
-  private readOptionalSheetReference(): { sheetId?: string; sourceSpan?: FormulaSourceSpan } | false {
-    const startIndex = this.index;
-    const quotedSheetName = this.readQuotedSheetName();
-    if (quotedSheetName === false) {
-      return false;
-    }
-    if (quotedSheetName !== undefined) {
-      const qualifierEndIndex = this.index;
-      this.skipWhitespace();
-      if (!this.consume('!')) {
-        return false;
-      }
-      this.skipWhitespace();
-      return {
-        sheetId: quotedSheetName,
-        sourceSpan: this.span(startIndex, qualifierEndIndex),
-      };
-    }
-
-    this.index = startIndex;
-    const separatorIndex = this.findUnquotedSheetSeparator();
-    if (separatorIndex === -1) {
-      return {};
-    }
-
-    let qualifierEndIndex = separatorIndex;
-    while (qualifierEndIndex > startIndex && /\s/.test(this.input[qualifierEndIndex - 1])) {
-      qualifierEndIndex -= 1;
-    }
-    const sheetId = this.input.slice(this.index, qualifierEndIndex);
-    if (sheetId.length === 0 || sheetId.includes("'")) {
-      return false;
-    }
-
-    this.index = separatorIndex + 1;
-    this.skipWhitespace();
-    return { sheetId, sourceSpan: this.span(startIndex, qualifierEndIndex) };
-  }
-
-  private readQuotedSheetName(): string | undefined | false {
-    if (this.peek() !== "'") {
-      return undefined;
-    }
-
-    this.index += 1;
-    let sheetName = '';
-    while (!this.isAtEnd()) {
-      const char = this.peek();
-      if (char !== "'") {
-        sheetName += char;
-        this.index += 1;
-        continue;
-      }
-
-      if (this.input[this.index + 1] === "'") {
-        sheetName += "'";
-        this.index += 2;
-        continue;
-      }
-
-      this.index += 1;
-      return sheetName.length > 0 ? sheetName : false;
-    }
-
-    return false;
-  }
-
-  private findUnquotedSheetSeparator(): number {
-    const separatorIndex = this.input.indexOf('!', this.index);
-    const possibleSheetId = separatorIndex === -1
-      ? ''
-      : this.input.slice(this.index, separatorIndex).trim();
-    let cursor = this.index;
-    while (cursor < this.input.length) {
-      const char = this.input[cursor];
-      if (char === '!') {
-        return cursor;
-      }
-      if (char === '(' || char === ',' || char === ')' || char === ':' || /[+*/=<>]/.test(char)) {
-        return -1;
-      }
-      if (
-        char === '-'
-        && !isUuidLikeSheetId(possibleSheetId)
-        && isCompletedScalarToken(this.input.slice(this.index, cursor).trim())
-      ) {
-        return -1;
-      }
-      cursor += 1;
-    }
-
-    return -1;
-  }
-
-  private readA1AddressToken(): string | undefined {
-    const match = /^[A-Za-z]+[1-9][0-9]*/.exec(this.input.slice(this.index));
-    if (!match) {
-      return undefined;
-    }
-
-    this.index += match[0].length;
-    const nextChar = this.peek();
-    if (nextChar && /[A-Za-z0-9]/.test(nextChar)) {
-      return undefined;
-    }
-
-    return match[0];
-  }
-
-  private readIdentifier(): string | undefined {
-    const match = /^[A-Za-z][A-Za-z0-9_]*/.exec(this.input.slice(this.index));
-    if (!match) {
-      return undefined;
-    }
-
-    this.index += match[0].length;
-    return match[0];
-  }
-
-  private isIdentifierContinuation(char: string): boolean {
-    return char.length > 0 && /[A-Za-z0-9_]/.test(char);
-  }
-
-  private sourceSpan(startIndex: number): FormulaSourceSpan {
-    return this.span(startIndex, this.index);
-  }
-
-  private span(startIndex: number, endIndex: number): FormulaSourceSpan {
-    return { start: startIndex + 1, end: endIndex + 1 };
-  }
-
-  private skipWhitespace(): void {
-    while (!this.isAtEnd() && /\s/.test(this.peek())) {
-      this.index += 1;
-    }
-  }
-
-  private consume(char: string): boolean {
-    if (this.peek() !== char) {
-      return false;
-    }
-
-    this.index += 1;
-    return true;
-  }
-
-  private peek(): string {
-    return this.input[this.index] ?? '';
-  }
-
-  private isAtEnd(): boolean {
-    return this.index >= this.input.length;
-  }
 }
