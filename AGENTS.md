@@ -39,6 +39,56 @@ Agents may create a new bead when implementation or plan review reveals product 
 Use Question Beads for unresolved decisions that block executable implementation.
 Closed beads are history. Do not modify them.
 
+## Deliverables and Ratchet
+
+A deliverable is the active bead. When no bead is active, the deliverable is the outcome requested
+by the user.
+
+Use one transient Ratchet ledger for each deliverable. Ratchet records execution state; Beads and
+plan documents remain the durable sources of product scope and direction. Git commits are the
+proof of work.
+
+Start Ratchet from a clean worktree with `ratchet init`. The deliverable owner splits the work into
+as many tasks as make it understandable and reviewable. A small deliverable may need one task; a
+large deliverable may use phases or several focused tasks. Ratchet tasks do not need to map
+one-to-one to beads.
+
+Drive each task through this loop:
+
+1. Make the task change and commit it.
+2. Record the commit with `ratchet advance`.
+3. Run the relevant deterministic checks and record their combined result with `ratchet gate`.
+4. Give a reviewer the task id. The reviewer inspects the recorded commit and records the result
+   with `ratchet review`.
+5. If a gate or review fails, read its Ratchet event, fix the work, commit, and advance again. A new
+   advance makes earlier gate and review results stale, so run both again.
+6. Use `ratchet complete` only when the current commit has passing gate and review results and no
+   open questions.
+
+Ratchet writes require a completely clean worktree. Put concise orientation in event summaries and
+actionable evidence in details:
+
+- advances describe the implementation or fix and refer to the failed event they address
+- failed gates include the commands run and useful error output
+- passed gates include the checks that passed and any explicitly accepted omissions or risks
+- failed reviews contain actionable findings with file and line references where possible
+- passed reviews state what was checked and any residual risk
+
+Use `ratchet question` for a blocker local to the current deliverable and `ratchet answer` when it is
+resolved. Use a Question Bead when the decision is durable product state or should block other
+deliverables; the Ratchet question may point to that bead.
+
+Ratchet is the handoff record. Pass another agent the task id and the next action rather than
+repeating history in the prompt. The receiving agent starts with `ratchet status`, uses
+`ratchet log <task-id>` for summaries, and opens only the needed event with
+`ratchet show <task-id> <sequence> --details`.
+
+Work is done when `ratchet status` reports `CLEAN`. For a bead, this includes a final delivery task
+completed after the PR is merged, the bead is closed, and `main` is refreshed from `origin/main`.
+Create that delivery task when the ledger is initialized so its starting commit is an ancestor of
+the eventual merge commit. After reporting the clean result, discard the transient `.ratchet`
+ledger before starting the next deliverable.
+
 ## Code Quality
 
 Build the active bead's behavior cleanly. Make every reasonable in-scope effort to follow SOLID and DRY during feature work:
