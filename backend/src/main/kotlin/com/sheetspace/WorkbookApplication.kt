@@ -23,9 +23,6 @@ enum class WorkbookApplicationError {
     INVALID_SHEET_FRAME_SIZE,
     INVALID_SHEET_Z_INDEX,
     INVALID_CELL_ADDRESS,
-    INVALID_ACTION_ID,
-    INVALID_CHANGE_SET,
-    UNSUPPORTED_CHANGE_SET_VERSION,
 }
 
 class WorkbookApplicationException(
@@ -38,8 +35,6 @@ interface WorkbookApplication {
     fun loadWorkbookBundle(): WorkbookState
 
     fun loadSheet(sheetId: String): SheetDocument
-
-    fun applyChangeSet(changeSet: DurableChangeSet): AppliedChangeSet
 
     fun createSheet(command: CreateSheetCommand): SheetDocument
 
@@ -57,7 +52,6 @@ interface WorkbookApplication {
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
 ) : WorkbookApplication {
-    private val changeSets = WorkbookChangeSetApplication(store)
     override fun loadManifest(): WorkbookManifest = store.loadManifest()
 
     override fun loadWorkbookBundle(): WorkbookState = store.loadWorkbookBundle()
@@ -65,9 +59,6 @@ class DefaultWorkbookApplication(
     override fun loadSheet(sheetId: String): SheetDocument =
         store.loadSheet(SheetId(sheetId))
             ?: reject(WorkbookApplicationError.SHEET_NOT_FOUND)
-
-    override fun applyChangeSet(changeSet: DurableChangeSet): AppliedChangeSet =
-        changeSets.apply(changeSet)
 
     override fun createSheet(command: CreateSheetCommand): SheetDocument {
         validateFrameCommand(command.position, command.frameSize, command.zIndex)
@@ -204,7 +195,7 @@ private fun validateOptionalFrameCommand(
     if (zIndex != null && zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
 }
 
-internal val SheetNameError.applicationError: WorkbookApplicationError
+private val SheetNameError.applicationError: WorkbookApplicationError
     get() = when (this) {
         SheetNameError.EMPTY -> WorkbookApplicationError.SHEET_NAME_REQUIRED
         SheetNameError.DUPLICATE -> WorkbookApplicationError.SHEET_NAME_DUPLICATE

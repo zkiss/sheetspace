@@ -1,9 +1,7 @@
 package com.sheetspace
 
 import java.util.UUID
-import kotlinx.serialization.Serializable
 
-@Serializable
 @JvmInline
 value class SheetId(val value: String) {
     companion object {

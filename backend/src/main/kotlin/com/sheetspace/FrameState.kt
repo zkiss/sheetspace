@@ -19,7 +19,6 @@ data class SheetFrameSize(
         width.isFinite() && height.isFinite() && width > 0.0 && height > 0.0
 }
 
-@Serializable
 data class FrameState(
     val position: WorkspacePosition = WorkspacePosition(),
     val size: SheetFrameSize = SheetFrameSize(),

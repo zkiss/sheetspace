@@ -31,6 +31,11 @@ Phase 3 makes existing grids fluid to edit. Phase 4 makes their structure evolva
 - Rewrite formulas inside and outside the extracted region when safe.
 - Report references that cannot be rewritten safely before committing the operation.
 - Make extraction one undoable operation.
+- Deliver extraction through a dedicated backend extraction endpoint designed with the approved
+  copy/move and formula-rewrite workflow. It must validate the concrete extraction request and all
+  touched revisions, then commit sheet creation, cell movement, and accepted rewrites in one
+  transaction. Do not introduce a general client-defined mutation language in advance of this
+  feature.
 
 ### Structural comparison
 
