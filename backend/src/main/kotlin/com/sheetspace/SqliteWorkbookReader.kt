@@ -6,7 +6,7 @@ import java.sql.Connection
 internal class SqliteWorkbookReader(
     private val connection: Connection,
     private val aggregateReadCheckpoint: (() -> Unit)? = null,
-    private val sheetReadObserver: ((SheetId) -> Unit)? = null,
+    private val sheetReadObserver: ((SheetReadEvent) -> Unit)? = null,
 ) {
     fun loadWorkbookBundle(): WorkbookState {
         val manifest = loadManifest()
@@ -55,6 +55,7 @@ internal class SqliteWorkbookReader(
             statement.setBytes(1, sheetId.value.toUuidBytes())
             statement.executeQuery().use { rs ->
                 if (!rs.next()) return null
+                observeRead(SheetReadPart.DOCUMENT, sheetId, rs.getBytes("id"))
                 SheetRecord(
                     id = SheetId(rs.getBytes("id").toUuidString()),
                     name = rs.getString("name"),
@@ -73,7 +74,6 @@ internal class SqliteWorkbookReader(
                 )
             }
         }
-        sheetReadObserver?.invoke(document.id)
         return SheetDocument(
             id = document.id,
             name = document.name,
@@ -105,36 +105,43 @@ internal class SqliteWorkbookReader(
 
     private fun loadRows(sheetId: SheetId): List<RowId> =
         connection.prepareStatement(
-            "SELECT row_id FROM sheet_rows WHERE sheet_id = ? ORDER BY row_order",
+            "SELECT sheet_id, row_id FROM sheet_rows WHERE sheet_id = ? ORDER BY row_order",
         ).use { statement ->
             statement.setBytes(1, sheetId.value.toUuidBytes())
             statement.executeQuery().use { rs ->
                 buildList {
-                    while (rs.next()) add(RowId(rs.getBytes("row_id").toUuidString()))
+                    while (rs.next()) {
+                        observeRead(SheetReadPart.ROW, sheetId, rs.getBytes("sheet_id"))
+                        add(RowId(rs.getBytes("row_id").toUuidString()))
+                    }
                 }
             }
         }
 
     private fun loadColumns(sheetId: SheetId): List<ColumnId> =
         connection.prepareStatement(
-            "SELECT column_id FROM sheet_columns WHERE sheet_id = ? ORDER BY column_order",
+            "SELECT sheet_id, column_id FROM sheet_columns WHERE sheet_id = ? ORDER BY column_order",
         ).use { statement ->
             statement.setBytes(1, sheetId.value.toUuidBytes())
             statement.executeQuery().use { rs ->
                 buildList {
-                    while (rs.next()) add(ColumnId(rs.getBytes("column_id").toUuidString()))
+                    while (rs.next()) {
+                        observeRead(SheetReadPart.COLUMN, sheetId, rs.getBytes("sheet_id"))
+                        add(ColumnId(rs.getBytes("column_id").toUuidString()))
+                    }
                 }
             }
         }
 
     private fun loadCells(sheetId: SheetId): Map<CellCoordinate, String> =
         connection.prepareStatement(
-            "SELECT row_id, column_id, raw_content FROM cells WHERE sheet_id = ?",
+            "SELECT sheet_id, row_id, column_id, raw_content FROM cells WHERE sheet_id = ?",
         ).use { statement ->
             statement.setBytes(1, sheetId.value.toUuidBytes())
             statement.executeQuery().use { rs ->
                 buildMap {
                     while (rs.next()) {
+                        observeRead(SheetReadPart.CELL, sheetId, rs.getBytes("sheet_id"))
                         put(
                             CellCoordinate(
                                 RowId(rs.getBytes("row_id").toUuidString()),
@@ -146,7 +153,26 @@ internal class SqliteWorkbookReader(
                 }
             }
         }
+
+    private fun observeRead(part: SheetReadPart, requestedSheetId: SheetId, returnedSheetId: ByteArray) {
+        sheetReadObserver?.invoke(
+            SheetReadEvent(part, requestedSheetId, SheetId(returnedSheetId.toUuidString())),
+        )
+    }
 }
+
+internal enum class SheetReadPart {
+    DOCUMENT,
+    ROW,
+    COLUMN,
+    CELL,
+}
+
+internal data class SheetReadEvent(
+    val part: SheetReadPart,
+    val requestedSheetId: SheetId,
+    val returnedSheetId: SheetId,
+)
 
 private data class SheetRecord(
     val id: SheetId,

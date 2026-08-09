@@ -18,25 +18,48 @@ class SqliteWorkbookStoreAggregateTest {
     }
 
     @Test
-    fun `targeted and medium bundle reads decode each requested sheet exactly once`() {
-        val decodedSheetIds = mutableListOf<SheetId>()
-        SqliteWorkbookStore.inMemory(decodedSheetIds::add).use { store ->
-            val documents = (1..25).map { index ->
-                testDocument(
-                    id = "00000000-0000-4000-8000-${index.toString().padStart(12, '0')}",
-                    name = "Sheet $index",
-                    tabular = TabularContent(cells = mapOf("A1" to index.toString())),
-                )
-            }
+    fun `targeted read queries and decodes only the requested sheet aggregate`() {
+        val readEvents = mutableListOf<SheetReadEvent>()
+        SqliteWorkbookStore.inMemory(readEvents::add).use { store ->
+            val documents = mediumDocuments(6)
+            store.saveWorkbook(testWorkbookOf(*documents.toTypedArray()))
+            val target = documents[3]
+
+            readEvents.clear()
+            assertEquals(target, store.loadSheet(target.id))
+
+            assertEquals(
+                mapOf(
+                    SheetReadPart.DOCUMENT to 1,
+                    SheetReadPart.ROW to DEFAULT_ROW_COUNT,
+                    SheetReadPart.COLUMN to DEFAULT_COLUMN_COUNT,
+                    SheetReadPart.CELL to DEFAULT_ROW_COUNT * DEFAULT_COLUMN_COUNT,
+                ),
+                readEvents.groupingBy { it.part }.eachCount(),
+            )
+            assertTrue(readEvents.all { it.requestedSheetId == target.id })
+            assertTrue(readEvents.all { it.returnedSheetId == target.id })
+        }
+    }
+
+    @Test
+    fun `medium bundle decodes populated sheet data once in linear work`() {
+        val readEvents = mutableListOf<SheetReadEvent>()
+        SqliteWorkbookStore.inMemory(readEvents::add).use { store ->
+            val documents = mediumDocuments(25)
             store.saveWorkbook(testWorkbookOf(*documents.toTypedArray()))
 
-            decodedSheetIds.clear()
-            assertEquals(documents[12], store.loadSheet(documents[12].id))
-            assertEquals(listOf(documents[12].id), decodedSheetIds)
-
-            decodedSheetIds.clear()
+            readEvents.clear()
             assertEquals(documents, store.loadWorkbookBundle().sheetsInOrder)
-            assertEquals(documents.map { it.id }, decodedSheetIds)
+
+            val eventsPerSheet = 1 + DEFAULT_ROW_COUNT + DEFAULT_COLUMN_COUNT +
+                DEFAULT_ROW_COUNT * DEFAULT_COLUMN_COUNT
+            assertEquals(documents.size * eventsPerSheet, readEvents.size)
+            assertEquals(
+                documents.associate { it.id to eventsPerSheet },
+                readEvents.groupingBy { it.requestedSheetId }.eachCount(),
+            )
+            assertTrue(readEvents.all { it.requestedSheetId == it.returnedSheetId })
         }
     }
 
@@ -153,5 +176,20 @@ class SqliteWorkbookStoreAggregateTest {
             listOf(CellWrite(coordinate, "42")),
         )
         assertEquals(9, store.loadManifest().revision)
+    }
+}
+
+private fun mediumDocuments(count: Int): List<SheetDocument> {
+    val populatedCells = (1..DEFAULT_ROW_COUNT).flatMap { row ->
+        (0 until DEFAULT_COLUMN_COUNT).map { column ->
+            "${'A' + column}$row" to "$row:$column"
+        }
+    }.toMap()
+    return (1..count).map { index ->
+        testDocument(
+            id = "00000000-0000-4000-8000-${index.toString().padStart(12, '0')}",
+            name = "Sheet $index",
+            tabular = TabularContent(cells = populatedCells),
+        )
     }
 }

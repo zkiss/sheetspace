@@ -17,7 +17,7 @@ class SqliteWorkbookStore internal constructor(
     internal val jdbcUrl: String,
     keepAliveConnection: Connection? = null,
     private val aggregateReadCheckpoint: (() -> Unit)? = null,
-    private val sheetReadObserver: ((SheetId) -> Unit)? = null,
+    private val sheetReadObserver: ((SheetReadEvent) -> Unit)? = null,
 ) : WorkbookStore, AutoCloseable {
     private val database = SqliteDatabase(jdbcUrl, keepAliveConnection)
     private val updateLock = Any()
@@ -97,7 +97,7 @@ class SqliteWorkbookStore internal constructor(
     }
 
     companion object {
-        internal fun inMemory(sheetReadObserver: ((SheetId) -> Unit)? = null): SqliteWorkbookStore {
+        internal fun inMemory(sheetReadObserver: ((SheetReadEvent) -> Unit)? = null): SqliteWorkbookStore {
             val jdbcUrl = "jdbc:sqlite:file:sheetspace-${UUID.randomUUID()}?mode=memory&cache=shared"
             return SqliteWorkbookStore(
                 jdbcUrl,

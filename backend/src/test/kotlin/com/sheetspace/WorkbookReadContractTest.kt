@@ -61,9 +61,9 @@ private fun fixtureWorkbook(): WorkbookState {
             rows = inputRows,
             columns = inputColumns,
             cellContents = mapOf(
-                CellCoordinate(inputRows[1], inputColumns[1]) to "5",
-                CellCoordinate(inputRows[0], inputColumns[1]) to "10",
                 CellCoordinate(inputRows[0], inputColumns[0]) to "Region",
+                CellCoordinate(inputRows[0], inputColumns[1]) to "10",
+                CellCoordinate(inputRows[1], inputColumns[1]) to "5",
             ),
         ),
     )

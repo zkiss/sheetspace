@@ -60,8 +60,6 @@ internal object WorkbookReadTransportAdapter {
 
     fun sheetDocument(document: SheetDocument): SheetDocumentResponse {
         val tabular = document.tabularContent
-        val rowOrder = tabular.rows.withIndex().associate { (index, id) -> id to index }
-        val columnOrder = tabular.columns.withIndex().associate { (index, id) -> id to index }
         return SheetDocumentResponse(
             id = document.id.value,
             revision = document.revision,
@@ -75,20 +73,13 @@ internal object WorkbookReadTransportAdapter {
                 kind = "tabular",
                 rows = tabular.rows.map { it.value },
                 columns = tabular.columns.map { it.value },
-                cells = tabular.cellContents.entries
-                    .sortedWith(
-                        compareBy(
-                            { rowOrder.getValue(it.key.rowId) },
-                            { columnOrder.getValue(it.key.columnId) },
-                        ),
+                cells = tabular.cellContents.map { (coordinate, content) ->
+                    CellContentResponse(
+                        rowId = coordinate.rowId.value,
+                        columnId = coordinate.columnId.value,
+                        content = content,
                     )
-                    .map { (coordinate, content) ->
-                        CellContentResponse(
-                            rowId = coordinate.rowId.value,
-                            columnId = coordinate.columnId.value,
-                            content = content,
-                        )
-                    },
+                },
             ),
         )
     }
