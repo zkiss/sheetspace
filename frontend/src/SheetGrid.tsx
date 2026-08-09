@@ -3,10 +3,11 @@ import {
   cellKey,
   columnIndexToLabel,
   parseA1Address,
+  sheetBounds,
   type CellAddress,
   type CellRange,
   type FormulaEvaluationSnapshot,
-  type Sheet,
+  type SheetTabularProjection,
 } from './workbook';
 import { GRID_CELL_HEIGHT, GRID_CELL_WIDTH } from './gridGeometry';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
@@ -69,19 +70,19 @@ export function SheetGrid({
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
+  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
   onSelectCell: (selection: ActiveCellSelection) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
-  sheet: Sheet;
+  sheet: SheetTabularProjection;
   selectedRange?: CellRange;
 }) {
   const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
-  const columns: ColumnHeader[] = Array.from({ length: sheet.columnCount }, (_, columnIndex) => ({
+  const columns: ColumnHeader[] = sheet.columns.map((_, columnIndex) => ({
     index: columnIndex,
     label: columnIndexToLabel(columnIndex),
   }));
-  const rows = Array.from({ length: sheet.rowCount }, (_, rowIndex) => rowIndex);
+  const rows = sheet.rows.map((_, rowIndex) => rowIndex);
 
   function registerCell(key: string, cellElement: HTMLTableCellElement | null) {
     if (cellElement) {
@@ -109,7 +110,7 @@ export function SheetGrid({
     }
 
     const parsedCell = navigationHighlightCellKey
-      ? parseA1Address(navigationHighlightCellKey, sheet)
+      ? parseA1Address(navigationHighlightCellKey, sheetBounds(sheet))
       : undefined;
     const range = navigationHighlightRange
       ?? (parsedCell?.ok

@@ -5,17 +5,25 @@ import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import {
   appendColumn,
   appendRow,
+  cellIdentityAt,
+  cellIdentityKey,
+  cellRawContent,
   commitCellRawContent,
   createSheet,
   createEmptyWorkbook,
+  findSheetById,
   formulaSheetReferenceIds,
   moveSheetZOrder,
   remapWorkbookFormulaSheetId,
   renameSheet,
+  sheetsInOrder,
+  tabularCellsByA1,
   validateSheetName,
   type CellKey,
   type FormulaEvaluationSnapshot,
   type MutationResult,
+  type SheetDocument,
+  type TabularContent,
   type SheetFrameSize,
   type SheetZOrderDirection,
   type Workbook,
@@ -59,6 +67,40 @@ type WorkbookControllerState = {
   workbook: Workbook;
   calculationRequest: CalculationRequest;
 };
+
+function removeSheetDocument(workbook: Workbook, sheetId: string): Workbook {
+  if (!findSheetById(workbook, sheetId)) return workbook;
+  const documents = { ...workbook.documents };
+  delete documents[sheetId];
+  return {
+    ...workbook,
+    manifest: {
+      ...workbook.manifest,
+      sheetIds: workbook.manifest.sheetIds.filter((id) => id !== sheetId),
+    },
+    documents,
+  };
+}
+
+function rebasePendingContent(pending: SheetDocument, saved: SheetDocument): TabularContent {
+  const content: TabularContent = {
+    kind: 'tabular',
+    rows: [
+      ...saved.content.rows,
+      ...pending.content.rows.slice(saved.content.rows.length),
+    ],
+    columns: [
+      ...saved.content.columns,
+      ...pending.content.columns.slice(saved.content.columns.length),
+    ],
+    cells: {},
+  };
+  for (const [key, raw] of Object.entries(tabularCellsByA1(pending.content))) {
+    const identity = cellIdentityAt(content, key);
+    if (identity) content.cells[cellIdentityKey(identity)] = raw;
+  }
+  return content;
+}
 
 export function useWorkbookController({
   apiClient,
@@ -169,7 +211,7 @@ export function useWorkbookController({
   }
 
   function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
-    const result = validateSheetName(name, workbook.sheets);
+    const result = validateSheetName(name, sheetsInOrder(workbook));
 
     if (!result.ok) {
       return result;
@@ -186,12 +228,19 @@ export function useWorkbookController({
       const optimisticSheet = createSheet({
         id: pendingSheetId,
         name: result.name,
-        existingSheets: currentWorkbook.sheets,
+        existingSheets: sheetsInOrder(currentWorkbook),
         position,
       });
 
       return optimisticSheet.ok
-        ? { ...currentWorkbook, sheets: [...currentWorkbook.sheets, optimisticSheet.value] }
+        ? {
+            ...currentWorkbook,
+            manifest: {
+              ...currentWorkbook.manifest,
+              sheetIds: [...currentWorkbook.manifest.sheetIds, pendingSheetId],
+            },
+            documents: { ...currentWorkbook.documents, [pendingSheetId]: optimisticSheet.value },
+          }
         : currentWorkbook;
     }, { kind: 'structure' });
     enqueuePendingSheetCreate(
@@ -205,8 +254,8 @@ export function useWorkbookController({
           pendingSheets.current.delete(pendingSheetId);
         }),
       (savedResult) =>
-        'sheets' in savedResult
-          ? savedResult.sheets.find((sheet) => sheet.name === result.name)?.id
+        'manifest' in savedResult
+          ? sheetsInOrder(savedResult).find((sheet) => sheet.name === result.name)?.id
           : savedResult.name === result.name
             ? savedResult.id
             : undefined,
@@ -220,13 +269,24 @@ export function useWorkbookController({
 
         unresolvedCreateNames.current.delete(pendingSheetId);
         setWorkbook((currentWorkbook) => {
+          const optimistic = findSheetById(currentWorkbook, pendingSheetId);
+          if (!optimistic) return currentWorkbook;
+          const rebasedContent = rebasePendingContent(optimistic, savedSheet);
+          const documents = { ...currentWorkbook.documents };
+          delete documents[pendingSheetId];
+          documents[savedSheetId] = {
+            ...savedSheet,
+            name: optimistic.name,
+            frame: optimistic.frame,
+            content: rebasedContent,
+          };
           return remapWorkbookFormulaSheetId({
             ...currentWorkbook,
-            sheets: currentWorkbook.sheets.map((sheet) =>
-              sheet.id === pendingSheetId
-                ? { ...savedSheet, ...sheet, id: savedSheetId, revision: savedSheet.revision }
-                : sheet,
-            ),
+            manifest: {
+              ...currentWorkbook.manifest,
+              sheetIds: currentWorkbook.manifest.sheetIds.map((id) => id === pendingSheetId ? savedSheetId : id),
+            },
+            documents,
           }, pendingSheetId, savedSheetId);
         }, { kind: 'structure' });
       },
@@ -234,10 +294,7 @@ export function useWorkbookController({
         unresolvedCreateNames.current.delete(pendingSheetId);
         setWorkbook(
           (currentWorkbook) => remapWorkbookFormulaSheetId(
-            {
-              ...currentWorkbook,
-              sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== pendingSheetId),
-            },
+            removeSheetDocument(currentWorkbook, pendingSheetId),
             pendingSheetId,
             '#REF',
           ),
@@ -261,10 +318,7 @@ export function useWorkbookController({
     }
     setWorkbook(
       (currentWorkbook) => remapWorkbookFormulaSheetId(
-        {
-          ...currentWorkbook,
-          sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),
-        },
+        removeSheetDocument(currentWorkbook, sheetId),
         sheetId,
         '#REF',
       ),
@@ -279,15 +333,12 @@ export function useWorkbookController({
     }
 
     const localSheetId = resolveSheetId(sheetId);
-    if (workbook.sheets.every((sheet) => sheet.id !== localSheetId)) {
+    if (!findSheetById(workbook, localSheetId)) {
       return;
     }
 
     dropSheetQueuedTasks(localSheetId);
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== localSheetId),
-    }), { kind: 'structure' });
+    setWorkbook((currentWorkbook) => removeSheetDocument(currentWorkbook, localSheetId), { kind: 'structure' });
     enqueueEdit(`sheet-delete:${localSheetId}`, async () => {
       await waitForSheetIdle(localSheetId);
       dropSheetQueuedTasks(localSheetId);
@@ -302,7 +353,7 @@ export function useWorkbookController({
       return result;
     }
 
-    const renamedSheet = result.value.sheets.find((sheet) => sheet.id === localSheetId);
+    const renamedSheet = findSheetById(result.value, localSheetId);
     setWorkbook(result.value, { kind: 'none' });
     if (renamedSheet) {
       enqueueEdit(`sheet:${sheetId}:name`, () =>
@@ -322,14 +373,14 @@ export function useWorkbookController({
     let changed = false;
     const nextWorkbook = {
       ...workbook,
-      sheets: workbook.sheets.map((sheet) => {
+      documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => {
         if (sheet.id !== localSheetId) {
-          return sheet;
+          return [id, sheet];
         }
 
         changed = true;
-        return appendRow(sheet);
-      }),
+        return [id, appendRow(sheet)];
+      })),
     };
 
     if (!changed) {
@@ -349,14 +400,14 @@ export function useWorkbookController({
     let changed = false;
     const nextWorkbook = {
       ...workbook,
-      sheets: workbook.sheets.map((sheet) => {
+      documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => {
         if (sheet.id !== localSheetId) {
-          return sheet;
+          return [id, sheet];
         }
 
         changed = true;
-        return appendColumn(sheet);
-      }),
+        return [id, appendColumn(sheet)];
+      })),
     };
 
     if (!changed) {
@@ -373,11 +424,11 @@ export function useWorkbookController({
 
   function updateCellContent(sheetId: string, cellKey: CellKey, raw: string) {
     const localSheetId = resolveSheetId(sheetId);
-    const currentSheet = workbook.sheets.find((sheet) => sheet.id === localSheetId);
-    const currentRaw = currentSheet?.cells[cellKey] ?? '';
+    const currentSheet = findSheetById(workbook, localSheetId);
+    const currentRaw = currentSheet ? cellRawContent(currentSheet, cellKey) ?? '' : '';
     const nextWorkbook = commitCellRawContent(workbook, localSheetId, cellKey, raw);
-    const nextSheet = nextWorkbook.sheets.find((sheet) => sheet.id === localSheetId);
-    const canonicalRaw = nextSheet?.cells[cellKey] ?? '';
+    const nextSheet = findSheetById(nextWorkbook, localSheetId);
+    const canonicalRaw = nextSheet ? cellRawContent(nextSheet, cellKey) ?? '' : '';
 
     if (nextWorkbook !== workbook) {
       setWorkbook(nextWorkbook, {
@@ -410,15 +461,19 @@ export function useWorkbookController({
     const localSheetId = resolveSheetId(sheetId);
     setWorkbook((currentWorkbook) => ({
       ...currentWorkbook,
-      sheets: currentWorkbook.sheets.map((sheet) =>
-        sheet.id === localSheetId
-          ? {
-              ...sheet,
-              position,
-              frameSize: frameSize ?? sheet.frameSize,
-            }
-          : sheet,
-      ),
+      documents: findSheetById(currentWorkbook, localSheetId)
+        ? {
+            ...currentWorkbook.documents,
+            [localSheetId]: {
+              ...currentWorkbook.documents[localSheetId],
+              frame: {
+                ...currentWorkbook.documents[localSheetId].frame,
+                position,
+                size: frameSize ?? currentWorkbook.documents[localSheetId].frame.size,
+              },
+            },
+          }
+        : currentWorkbook.documents,
     }), { kind: 'none' });
   }
 
@@ -435,7 +490,7 @@ export function useWorkbookController({
 
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
     const localSheetId = resolveSheetId(sheetId);
-    const currentSheet = workbook.sheets.find((sheet) => sheet.id === localSheetId);
+    const currentSheet = findSheetById(workbook, localSheetId);
     previewSheetFrameLayout(sheetId, position, frameSize);
     enqueueEdit(`sheet:${sheetId}:frame-size`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
@@ -446,7 +501,7 @@ export function useWorkbookController({
     undefined, sheetId);
     if (
       currentSheet &&
-      (position.x !== currentSheet.position.x || position.y !== currentSheet.position.y)
+      (position.x !== currentSheet.frame.position.x || position.y !== currentSheet.frame.position.y)
     ) {
       enqueueEdit(`sheet:${sheetId}:position`, () =>
         runForSavedSheet(sheetId, (savedSheetId) =>
@@ -465,13 +520,13 @@ export function useWorkbookController({
     }
 
     setWorkbook(result.value, { kind: 'none' });
-    for (const nextSheet of result.value.sheets) {
-      const currentSheet = workbook.sheets.find((sheet) => sheet.id === nextSheet.id);
-      if (currentSheet && currentSheet.zIndex !== nextSheet.zIndex) {
+    for (const nextSheet of sheetsInOrder(result.value)) {
+      const currentSheet = findSheetById(workbook, nextSheet.id);
+      if (currentSheet && currentSheet.frame.zIndex !== nextSheet.frame.zIndex) {
         enqueueEdit(`sheet:${nextSheet.id}:z-index`, () =>
           runForSavedSheet(nextSheet.id, (savedSheetId) =>
             runRevisionedEdit(savedSheetId, (revision) =>
-              getApiMethod('updateSheetZIndex')(savedSheetId, nextSheet.zIndex, { revision }),
+              getApiMethod('updateSheetZIndex')(savedSheetId, nextSheet.frame.zIndex, { revision }),
             ),
           ),
         undefined, nextSheet.id);

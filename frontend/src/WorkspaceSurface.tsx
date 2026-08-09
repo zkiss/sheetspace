@@ -1,5 +1,12 @@
 import type { MouseEvent, PointerEvent, RefObject, WheelEvent } from 'react';
-import type { FormulaEvaluationSnapshot, Sheet, SheetZOrderDirection } from './workbook';
+import {
+  frameProjection,
+  tabularProjection,
+  type FormulaEvaluationSnapshot,
+  type SheetDocument,
+  type SheetTabularProjection,
+  type SheetZOrderDirection,
+} from './workbook';
 import type {
   ActiveCellSelection,
   CellNavigationDirection,
@@ -70,8 +77,8 @@ export function WorkspaceSurface({
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
   onDeleteSheet: (sheetId: string) => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
-  onOpenRenameDialog: (sheet: Sheet) => void;
+  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
+  onOpenRenameDialog: (sheet: SheetDocument) => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
   onPointerDown: (event: PointerEvent<HTMLElement>) => void;
@@ -90,7 +97,7 @@ export function WorkspaceSurface({
   onWheel: (event: WheelEvent<HTMLElement>) => void;
   pendingSheetMenu: PendingSheetMenu | null;
   sheetIdRemaps: Readonly<Record<string, string>>;
-  sheets: Sheet[];
+  sheets: SheetDocument[];
   viewport: WorkspaceViewport;
   workspaceSurfaceRef: RefObject<HTMLElement>;
 }) {
@@ -139,6 +146,7 @@ export function WorkspaceSurface({
             <SheetFrame
               activeCellKey={activeCellKey}
               editingCell={sheetEditingCell}
+              frame={frameProjection(sheet)}
               formulaResults={formulaResults}
               isActiveSheet={activeCell?.sheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.sheetId === sheet.id}
@@ -169,7 +177,7 @@ export function WorkspaceSurface({
               onSheetFrameDragStart={onSheetFrameDragStart}
               onSheetFrameDragStop={onSheetFrameDragStop}
               onStartEdit={onStartEdit}
-              sheet={sheet}
+              tabular={tabularProjection(sheet)}
               selectedRange={selectedRange}
             />
           );

@@ -19,12 +19,12 @@ class SheetLifecycleRoutesTest {
             }
 
             assertEquals(HttpStatusCode.Created, response.status)
-            val created = response.decodeBody<Sheet>()
+            val created = response.decodeBody<SheetDocumentResponse>()
             UUID.fromString(created.id)
             val workbook = client.loadWorkbook()
-            assertEquals(listOf(created), workbook.sheets)
+            assertEquals(listOf(created.toTestSheet()), workbook.sheets)
             assertEquals("Inputs", created.name)
-            assertEquals(WorkspacePosition(24.0, 48.0), created.position)
+            assertEquals(WorkspacePosition(24.0, 48.0), created.frame.position)
         }
 
     @Test
@@ -36,7 +36,7 @@ class SheetLifecycleRoutesTest {
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
             assertEquals(ErrorResponse(error = "invalid-request"), response.decodeBody<ErrorResponse>())
-            assertEquals(emptyWorkbook(), client.loadWorkbook())
+            assertEquals(TestWorkbook(), client.loadWorkbook())
         }
 
     @Test
@@ -49,7 +49,7 @@ class SheetLifecycleRoutesTest {
             }
 
             assertEquals(HttpStatusCode.NoContent, response.status)
-            assertEquals(emptyWorkbook(), client.loadWorkbook())
+            assertEquals(TestWorkbook(), client.loadWorkbook())
         }
 
     @Test

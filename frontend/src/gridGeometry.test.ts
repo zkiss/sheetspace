@@ -19,7 +19,10 @@ describe('gridGeometry', () => {
   it('uses a resized frame viewport when deciding whether a range can be fully shown', () => {
     const sheet = {
       ...positionedSheet('sheet-data', 'Data', { x: 0, y: 0 }),
-      frameSize: { width: 900, height: 600 },
+      frame: {
+        ...positionedSheet('sheet-data', 'Data', { x: 0, y: 0 }).frame,
+        size: { width: 900, height: 600 },
+      },
     };
 
     expect(rangeFitsSheetViewport({

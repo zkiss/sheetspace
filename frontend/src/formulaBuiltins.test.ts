@@ -4,25 +4,13 @@ import { FormulaEvaluator } from './formulaEvaluator';
 import type { FormulaFunctionRegistry, LazyFormulaFunction } from './formulaFunctions';
 import { formulaScalarValue } from './formulaValue';
 import {
-  createSheet,
   evaluateFormulaCells,
-  type Sheet,
 } from './workbook';
-
-function sheet(id: string, name: string): Sheet {
-  const result = createSheet({ id, name });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-  return result.value;
-}
+import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('formula built-ins and function dispatch', () => {
-  function sheetWithCells(id: string, name: string, cells: Sheet['cells']): Sheet {
-    return {
-      ...sheet(id, name),
-      cells,
-    };
+  function sheetWithCells(id: string, name: string, cells: Record<string, string>) {
+    return sheetDocument({ id, name, cells });
   }
 
   it('evaluates same-sheet SUM references, ranges, variable arguments, and empty cells', () => {
@@ -33,14 +21,14 @@ describe('formula built-ins and function dispatch', () => {
       B2: '=SUM(A1:A2, B1, C1)',
       B3: '=SUM()',
     });
-    const workbook = { version: 1 as const, sheets: [inputs] };
+    const workbook = workbookWithSheets([inputs]);
 
-    expect(evaluateFormulaCells(workbook)['sheet-1'].B2).toEqual({
+    expect(evaluateFormulaCells(calculationProjection(workbook))['sheet-1'].B2).toEqual({
       kind: 'number',
       value: -0.5,
       display: '-0.5',
     });
-    expect(evaluateFormulaCells(workbook)['sheet-1'].B3).toEqual({
+    expect(evaluateFormulaCells(calculationProjection(workbook))['sheet-1'].B3).toEqual({
       kind: 'number',
       value: 0,
       display: '0',
@@ -60,9 +48,9 @@ describe('formula built-ins and function dispatch', () => {
     const outputs = sheetWithCells('sheet-3', 'Outputs', {
       A1: '=SUM(sheet-1!A1:B2, sheet-2!A1)',
     });
-    const workbook = { version: 1 as const, sheets: [inputs, sales, outputs] };
+    const workbook = workbookWithSheets([inputs, sales, outputs]);
 
-    expect(evaluateFormulaCells(workbook)['sheet-3'].A1).toMatchObject({
+    expect(evaluateFormulaCells(calculationProjection(workbook))['sheet-3'].A1).toMatchObject({
       kind: 'number',
       value: 25,
       display: '25',
@@ -96,7 +84,7 @@ describe('formula built-ins and function dispatch', () => {
       A6: '=ABS(sheet-inputs!C1)',
       A7: '=SQRT(sheet-inputs!C2)',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
 
     expect(results['sheet-inputs'].B1).toMatchObject({ kind: 'number', value: 16 / 3 });
     expect(results['sheet-inputs'].B2).toMatchObject({ kind: 'number', value: -1 });
@@ -134,7 +122,7 @@ describe('formula built-ins and function dispatch', () => {
       C1: '=SUM(Missing!A1)',
       C2: '1',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     expect(results.A1).toMatchObject({ kind: 'error', error: '#DIV/0!' });
     expect(results.A2).toMatchObject({ kind: 'error', error: '#VALUE!' });
@@ -157,7 +145,7 @@ describe('formula built-ins and function dispatch', () => {
       A3: '=NOPE(1/0)',
       A4: '=SUM(1/0, Missing!A1)',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     expect(results.A1).toMatchObject({ kind: 'error', error: '#VALUE!' });
     expect(results.A2).toMatchObject({ kind: 'error', error: '#VALUE!' });
@@ -180,7 +168,7 @@ describe('formula built-ins and function dispatch', () => {
     });
 
     expect(new FormulaEvaluator(
-      calculationProjection({ sheets: [inputs] }),
+      calculationProjection(workbookWithSheets([inputs])),
       new Map(),
       undefined,
       functions,
@@ -194,9 +182,9 @@ describe('formula built-ins and function dispatch', () => {
       A2: '=SUM(A1:B1)',
       A3: '=SUM(B1, A1)',
     });
-    const workbook = { version: 1 as const, sheets: [inputs] };
+    const workbook = workbookWithSheets([inputs]);
 
-    const results = evaluateFormulaCells(workbook)['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbook))['sheet-1'];
     expect(results.A2).toMatchObject({ kind: 'error', error: '#REF!' });
     expect(results.A3).toMatchObject({ kind: 'error', error: '#REF!' });
   });
@@ -207,7 +195,7 @@ describe('formula built-ins and function dispatch', () => {
       A2: '=SUM(A1, Missing!A1)',
       A3: '=SUM(Missing!A1, A1)',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     expect(results.A2).toMatchObject({ kind: 'error', error: '#PARSE!' });
     expect(results.A3).toMatchObject({ kind: 'error', error: '#REF!' });
@@ -223,7 +211,7 @@ describe('formula built-ins and function dispatch', () => {
       B2: '=SUM(1, "2", TRUE, A1:A4)',
       B3: '=SUM(A1:A5)',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     expect(results.B1).toEqual({ kind: 'error', error: '#VALUE!', display: '#VALUE!' });
     expect(results.B2).toEqual({ kind: 'number', value: 3, display: '3' });

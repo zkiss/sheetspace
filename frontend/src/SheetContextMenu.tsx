@@ -1,4 +1,4 @@
-import type { Sheet, SheetZOrderDirection } from './workbook';
+import type { SheetDocument, SheetZOrderDirection } from './workbook';
 import type { PendingSheetMenu } from './appTypes';
 
 export function SheetContextMenu({
@@ -15,8 +15,8 @@ export function SheetContextMenu({
   onAppendRow: (sheetId: string) => void;
   onChangeZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
   onDelete: (sheetId: string) => void;
-  onRename: (sheet: Sheet) => void;
-  sheet: Sheet;
+  onRename: (sheet: SheetDocument) => void;
+  sheet: SheetDocument;
 }) {
   return (
     <div

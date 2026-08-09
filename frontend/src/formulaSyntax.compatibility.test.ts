@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createSheet,
   formulaRawForDisplay,
   formulaRawForStorage,
   formulaSheetReferenceIds,
-  type Sheet,
+  type SheetDocument,
+  type Workbook,
 } from './workbook';
 import { parseFormula as parseFormulaSyntax } from './formulaSyntax';
+import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function parseFormula(raw: string, _workbook?: unknown, _sheet?: unknown) {
   return parseFormulaSyntax(raw);
 }
 
-function sheet(id: string, name: string): Sheet {
-  const result = createSheet({ id, name });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-  return result.value;
+function sheet(id: string, name: string): SheetDocument {
+  return sheetDocument({ id, name });
+}
+
+function appendSheet(workbook: Workbook, document: SheetDocument) {
+  workbook.manifest.sheetIds.push(document.id);
+  workbook.documents[document.id] = document;
 }
 
 describe('formula parser', () => {
@@ -29,10 +31,7 @@ describe('formula parser', () => {
     const ownerPlan = sheet('sheet-5', "Owner's Plan");
 
     return {
-      workbook: {
-        version: 1 as const,
-        sheets: [inputs, outputs, sales, planned, ownerPlan],
-      },
+      workbook: workbookWithSheets([inputs, outputs, sales, planned, ownerPlan]),
       inputs,
       outputs,
       sales,
@@ -398,7 +397,7 @@ describe('formula parser', () => {
 
   it('parses spans for quoted and digit-leading canonical sheet qualifiers', () => {
     const { workbook, inputs } = formulaWorkbook();
-    workbook.sheets.push(sheet('123e4567-e89b-12d3-a456-426614174000', 'UUID inputs'));
+    appendSheet(workbook, sheet('123e4567-e89b-12d3-a456-426614174000', 'UUID inputs'));
 
     expect(
       parseFormula(
@@ -477,8 +476,8 @@ describe('formula parser', () => {
 
     const uuid = '123e4567-e89b-12d3-a456-426614174000';
     const secondUuid = '223e4567-e89b-12d3-a456-426614174001';
-    workbook.sheets.push(sheet(uuid, 'UUID inputs'));
-    workbook.sheets.push(sheet(secondUuid, 'UUID outputs'));
+    appendSheet(workbook, sheet(uuid, 'UUID inputs'));
+    appendSheet(workbook, sheet(secondUuid, 'UUID outputs'));
     expect(formulaRawForDisplay(`=-${uuid}!A1`, workbook)).toBe("=-'UUID inputs'!A1");
     expect(formulaRawForDisplay(`=${uuid}!A1-sheet-1!A1-sheet-2!A1`, workbook)).toBe(
       "='UUID inputs'!A1-Inputs!A1-Outputs!A1",
@@ -628,14 +627,14 @@ describe('formula parser', () => {
   it('renders formula edit text from current sheet names without changing stored ids', () => {
     const inputs = sheet('sheet-1', 'Renamed Inputs');
     const outputs = sheet('sheet-2', 'Outputs');
-    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    const workbook = workbookWithSheets([inputs, outputs]);
     const cell = '=SUM(sheet-1!A1)';
 
     expect(formulaRawForDisplay(cell, workbook)).toBe("=SUM('Renamed Inputs'!A1)");
   });
 
   it('renders unknown canonical ids as #REF qualifiers', () => {
-    const workbook = { version: 1 as const, sheets: [sheet('sheet-2', 'Outputs')] };
+    const workbook = workbookWithSheets([sheet('sheet-2', 'Outputs')]);
 
     expect(formulaRawForDisplay('=SUM(sheet-deleted!A1)', workbook)).toBe('=SUM(#REF!A1)');
   });

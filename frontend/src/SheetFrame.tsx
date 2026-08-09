@@ -1,5 +1,5 @@
 import type { MouseEvent, PointerEvent } from 'react';
-import type { CellRange, FormulaEvaluationSnapshot, Sheet } from './workbook';
+import type { CellRange, FormulaEvaluationSnapshot, SheetFrameProjection, SheetTabularProjection } from './workbook';
 import type {
   ActiveCellSelection,
   CellNavigationDirection,
@@ -46,7 +46,8 @@ export function SheetFrame({
   onSheetFrameDragStart,
   onSheetFrameDragStop,
   onStartEdit,
-  sheet,
+  frame,
+  tabular,
   selectedRange,
 }: {
   activeCellKey: string | null;
@@ -62,7 +63,7 @@ export function SheetFrame({
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
+  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -74,46 +75,47 @@ export function SheetFrame({
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
-  sheet: Sheet;
+  frame: SheetFrameProjection;
+  tabular: SheetTabularProjection;
   selectedRange?: CellRange;
 }) {
-  const frameSize = clampSheetFrameSize(sheet.frameSize);
+  const frameSize = clampSheetFrameSize(frame.size);
 
   return (
     <article
-      aria-label={`Sheet ${sheet.name}`}
+      aria-label={`Sheet ${frame.name}`}
       className={`sheet-frame${isActiveSheet ? ' sheet-frame-active' : ''}${
         isNavigationReveal ? ' sheet-frame-navigation-reveal' : ''
       }`}
       data-active-sheet={isActiveSheet ? 'true' : undefined}
       data-navigation-reveal={isNavigationReveal ? 'true' : undefined}
-      data-column-count={sheet.columnCount}
+      data-column-count={tabular.columns.length}
       data-frame-height={frameSize.height}
       data-frame-width={frameSize.width}
-      data-row-count={sheet.rowCount}
-      data-position-x={sheet.position.x}
-      data-position-y={sheet.position.y}
-      data-sheet-id={sheet.id}
+      data-row-count={tabular.rows.length}
+      data-position-x={frame.position.x}
+      data-position-y={frame.position.y}
+      data-sheet-id={frame.id}
       data-testid="sheet-frame"
-      data-z-index={sheet.zIndex}
-      onContextMenu={(event) => onOpenSheetMenu(sheet.id, event)}
+      data-z-index={frame.zIndex}
+      onContextMenu={(event) => onOpenSheetMenu(frame.id, event)}
       style={{
-        left: sheet.position.x,
-        top: sheet.position.y,
-        zIndex: sheet.zIndex,
+        left: frame.position.x,
+        top: frame.position.y,
+        zIndex: frame.zIndex,
         width: frameSize.width,
         height: frameSize.height,
       }}
     >
       {SHEET_FRAME_RESIZE_HANDLES.map(([handle, direction]) => (
         <div
-          aria-label={`Resize sheet ${sheet.name} from ${handle}`}
+          aria-label={`Resize sheet ${frame.name} from ${handle}`}
           className={`sheet-frame-resize-handle sheet-frame-resize-handle-${handle}`}
           data-resize-handle={handle}
           data-testid="sheet-frame-resize-handle"
           key={handle}
           onPointerCancel={onResizeCancel}
-          onPointerDown={(event) => onResizeStart(sheet.id, direction, event)}
+          onPointerDown={(event) => onResizeStart(frame.id, direction, event)}
           onPointerMove={onResizeMove}
           onPointerUp={onResizeStop}
           role="separator"
@@ -123,11 +125,11 @@ export function SheetFrame({
         className="sheet-frame-header"
         data-testid="sheet-frame-header"
         onPointerCancel={onSheetFrameDragCancel}
-        onPointerDown={(event) => onSheetFrameDragStart(sheet.id, event)}
+        onPointerDown={(event) => onSheetFrameDragStart(frame.id, event)}
         onPointerMove={onSheetFrameDragMove}
         onPointerUp={onSheetFrameDragStop}
       >
-        <h2>{sheet.name}</h2>
+        <h2>{frame.name}</h2>
       </header>
       <div className="sheet-frame-body" data-testid="sheet-frame-body">
         <SheetGrid
@@ -145,7 +147,7 @@ export function SheetFrame({
           onSelectCell={onSelectCell}
           onStartEdit={onStartEdit}
           formulaResults={formulaResults}
-          sheet={sheet}
+          sheet={tabular}
           selectedRange={selectedRange}
         />
       </div>

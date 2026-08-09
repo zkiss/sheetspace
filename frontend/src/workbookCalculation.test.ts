@@ -1,21 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { createSheet, type Sheet, type Workbook } from './workbook';
+import type { SheetDocument, Workbook } from './workbook';
 import {
   calculationProjection,
   calculationRequest,
   mergeCalculationImpacts,
 } from './workbookCalculation';
+import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
-function sheetWithCells(cells: Sheet['cells'] = {}): Sheet {
-  const created = createSheet({ id: 'sheet-1', name: 'Inputs' });
-  if (!created.ok) {
-    throw new Error('Failed to create test sheet');
-  }
-  return { ...created.value, cells };
+function sheetWithCells(cells: Record<string, string> = {}): SheetDocument {
+  return sheetDocument({ id: 'sheet-1', name: 'Inputs', cells });
 }
 
-function workbook(sheet: Sheet): Workbook {
-  return { version: 1, sheets: [sheet] };
+function workbook(sheet: SheetDocument): Workbook {
+  return workbookWithSheets([sheet]);
 }
 
 describe('workbook calculation boundary', () => {

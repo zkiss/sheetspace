@@ -1,12 +1,20 @@
-import type { CellKey, Sheet, SheetFrameSize, Workbook, WorkspacePosition } from './workbook';
-import { cellKey } from './cellAddress';
+import {
+  WORKBOOK_SCHEMA_VERSION,
+  cellIdentityKey,
+  type CellKey,
+  type SheetDocument,
+  type SheetFrameSize,
+  type Workbook,
+  type WorkbookManifest,
+  type WorkspacePosition,
+} from './workbook';
 
 type ApiErrorBody = {
   error?: string;
 };
 
 export type WorkbookManifestResponse = {
-  version: Workbook['version'];
+  version: number;
   revision: number;
   sheetIds: string[];
 };
@@ -120,16 +128,16 @@ function encodePathSegment(value: string): string {
 
 export const workbookApi = {
   loadWorkbook(): Promise<Workbook> {
-    return requestJson<WorkbookBundleResponse>('/api/workbook/bundle').then(toLegacyWorkbook);
+    return requestJson<WorkbookBundleResponse>('/api/workbook/bundle').then(decodeWorkbookBundle);
   },
 
-  loadSheet(sheetId: string): Promise<Sheet> {
-    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}`).then(toLegacySheet);
+  loadSheet(sheetId: string): Promise<SheetDocument> {
+    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}`).then(decodeSheetDocument);
   },
 
   createSheet(
-    sheet: Pick<Sheet, 'name' | 'position'> & Partial<Pick<Sheet, 'frameSize' | 'zIndex'>>,
-  ): Promise<Sheet> {
+    sheet: { name: string; position: WorkspacePosition; frameSize?: SheetFrameSize; zIndex?: number },
+  ): Promise<SheetDocument> {
     const requestBody = {
       name: sheet.name,
       position: sheet.position,
@@ -137,10 +145,10 @@ export const workbookApi = {
       ...(sheet.zIndex === undefined ? {} : { zIndex: sheet.zIndex }),
     };
 
-    return requestJson<Sheet>('/api/sheets', {
+    return requestJson<SheetDocumentResponse>('/api/sheets', {
       method: 'POST',
       body: JSON.stringify(requestBody),
-    });
+    }).then(decodeSheetDocument);
   },
 
   deleteSheet(sheetId: string, options: RevisionedMutationOptions = {}): Promise<void> {
@@ -224,7 +232,7 @@ function revisionHeaders(options: RevisionedMutationOptions): HeadersInit {
   return options.revision === undefined ? {} : { 'If-Match': String(options.revision) };
 }
 
-function toLegacyWorkbook(bundle: WorkbookBundleResponse): Workbook {
+export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
   const documents = new Map<string, SheetDocumentResponse>();
   for (const document of bundle.documents) {
     if (documents.has(document.id)) invalidReadContract(`duplicate sheet document ${document.id}`);
@@ -238,21 +246,30 @@ function toLegacyWorkbook(bundle: WorkbookBundleResponse): Workbook {
     invalidReadContract('manifest membership does not match sheet documents');
   }
 
-  return {
-    version: bundle.manifest.version,
-    sheets: bundle.manifest.sheetIds.map((sheetId) => {
+  if (bundle.manifest.version !== WORKBOOK_SCHEMA_VERSION) {
+    invalidReadContract(`unsupported workbook version ${bundle.manifest.version}`);
+  }
+  const manifest: WorkbookManifest = {
+    version: WORKBOOK_SCHEMA_VERSION,
+    revision: bundle.manifest.revision,
+    sheetIds: [...bundle.manifest.sheetIds],
+  };
+  const decodedDocuments = bundle.manifest.sheetIds.map((sheetId) => {
       const document = documents.get(sheetId);
       if (!document) invalidReadContract(`missing sheet document ${sheetId}`);
-      return toLegacySheet(document);
-    }),
+      return decodeSheetDocument(document);
+    });
+  return {
+    manifest,
+    documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
   };
 }
 
-function toLegacySheet(document: SheetDocumentResponse): Sheet {
+export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocument {
   if (document.content.kind !== 'tabular') invalidReadContract(`unsupported sheet content ${document.content.kind}`);
   const rowIndices = uniqueIndices(document.content.rows, 'row');
   const columnIndices = uniqueIndices(document.content.columns, 'column');
-  const cells: Record<CellKey, string> = {};
+  const cells: Record<string, string> = {};
 
   for (const cell of document.content.cells) {
     const rowIndex = rowIndices.get(cell.rowId);
@@ -260,23 +277,28 @@ function toLegacySheet(document: SheetDocumentResponse): Sheet {
     if (rowIndex === undefined || columnIndex === undefined) {
       invalidReadContract(`cell coordinate does not belong to sheet ${document.id}`);
     }
-    const address = cellKey({ rowIndex, columnIndex });
-    if (Object.prototype.hasOwnProperty.call(cells, address)) {
-      invalidReadContract(`duplicate cell coordinate ${address}`);
+    const identityKey = cellIdentityKey({ rowId: cell.rowId, columnId: cell.columnId });
+    if (Object.prototype.hasOwnProperty.call(cells, identityKey)) {
+      invalidReadContract(`duplicate cell coordinate ${cell.rowId}/${cell.columnId}`);
     }
-    cells[address] = cell.content;
+    cells[identityKey] = cell.content;
   }
 
   return {
     id: document.id,
     name: document.name,
     revision: document.revision,
-    position: document.frame.position,
-    frameSize: document.frame.size,
-    zIndex: document.frame.zIndex,
-    columnCount: document.content.columns.length,
-    rowCount: document.content.rows.length,
-    cells,
+    frame: {
+      position: { ...document.frame.position },
+      size: { ...document.frame.size },
+      zIndex: document.frame.zIndex,
+    },
+    content: {
+      kind: 'tabular',
+      rows: [...document.content.rows],
+      columns: [...document.content.columns],
+      cells,
+    },
   };
 }
 

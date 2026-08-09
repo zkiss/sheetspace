@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSheet } from './workbook';
+import { createSheet, tabularProjection } from './workbook';
 import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from './SheetGridCell';
 import type { EditingCell } from './appTypes';
 
@@ -14,7 +14,7 @@ function testSheet() {
     throw new Error('Failed to create test sheet');
   }
 
-  return result.value;
+  return tabularProjection(result.value);
 }
 
 function renderCell(overrides: Partial<Parameters<typeof SheetGridCell>[0]> = {}) {

@@ -1,24 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createSheet,
+  cellRawContent,
   evaluateFormulaCells,
-  type Sheet,
 } from './workbook';
-
-function sheet(id: string, name: string): Sheet {
-  const result = createSheet({ id, name });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-  return result.value;
-}
+import { calculationProjection } from './calculationProjection';
+import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('formula references, errors, and cycles', () => {
-  function sheetWithCells(id: string, name: string, cells: Sheet['cells']): Sheet {
-    return {
-      ...sheet(id, name),
-      cells,
-    };
+  function sheetWithCells(id: string, name: string, cells: Record<string, string>) {
+    return sheetDocument({ id, name, cells });
   }
 
   it('evaluates persisted sheet references by uuid after the target is renamed', () => {
@@ -28,9 +18,9 @@ describe('formula references, errors, and cycles', () => {
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
       A1: '=SUM(sheet-1!A1)',
     });
-    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    const workbook = workbookWithSheets([inputs, outputs]);
 
-    expect(evaluateFormulaCells(workbook)['sheet-2'].A1).toMatchObject({
+    expect(evaluateFormulaCells(calculationProjection(workbook))['sheet-2'].A1).toMatchObject({
       kind: 'number',
       value: 7,
       display: '7',
@@ -44,9 +34,9 @@ describe('formula references, errors, and cycles', () => {
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
       A1: '=SUM(sheet-deleted!A1)',
     });
-    const workbook = { version: 1 as const, sheets: [replacementInputs, outputs] };
+    const workbook = workbookWithSheets([replacementInputs, outputs]);
 
-    expect(evaluateFormulaCells(workbook)['sheet-2'].A1).toMatchObject({
+    expect(evaluateFormulaCells(calculationProjection(workbook))['sheet-2'].A1).toMatchObject({
       kind: 'error',
       error: '#REF!',
       display: '#REF!',
@@ -65,9 +55,9 @@ describe('formula references, errors, and cycles', () => {
       C2: '1.',
       C3: '1e2',
     });
-    const workbook = { version: 1 as const, sheets: [inputs] };
+    const workbook = workbookWithSheets([inputs]);
 
-    const results = evaluateFormulaCells(workbook)['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbook))['sheet-1'];
     expect(results.A3).toMatchObject({ kind: 'number', value: 7.75, display: '7.75' });
     expect(results.B1).toMatchObject({ kind: 'number', value: 0, display: '0' });
     expect(results.B2).toMatchObject({ kind: 'number', value: 1, display: '1' });
@@ -87,9 +77,9 @@ describe('formula references, errors, and cycles', () => {
       B1: 'text',
       C1: '8',
     });
-    const workbook = { version: 1 as const, sheets: [inputs] };
+    const workbook = workbookWithSheets([inputs]);
 
-    const results = evaluateFormulaCells(workbook)['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbook))['sheet-1'];
     expect(results.A1).toMatchObject({ kind: 'error', error: '#PARSE!' });
     expect(results.A2).toMatchObject({ kind: 'error', error: '#NAME!' });
     expect(results.A3).toMatchObject({ kind: 'error', error: '#REF!' });
@@ -110,14 +100,14 @@ describe('formula references, errors, and cycles', () => {
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
       B1: '=SUM(sheet-1!B1)',
     });
-    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    const workbook = workbookWithSheets([inputs, outputs]);
 
-    const results = evaluateFormulaCells(workbook);
+    const results = evaluateFormulaCells(calculationProjection(workbook));
     expect(results['sheet-1'].A1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-1'].A2).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-1'].A3).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-2'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
-    expect(workbook.sheets[0].cells.A1).toBe('=SUM(A1)');
+    expect(cellRawContent(inputs, 'A1')).toBe('=SUM(A1)');
   });
 });

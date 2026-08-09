@@ -1,10 +1,12 @@
 import { MouseEvent } from 'react';
 import type {
   FormulaEvaluationSnapshot,
-  Sheet,
+  SheetDocument,
+  SheetTabularProjection,
   Workbook,
   WorkspacePosition,
 } from './workbook';
+import { cellRawContent, findSheetById, sheetsInOrder } from './workbook';
 import type {
   ActiveCellSelection,
   CellNavigationDirection,
@@ -52,8 +54,8 @@ export function Workspace({
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onCreateSheet: (position: WorkspacePosition, label: string) => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
-  onOpenRenameDialog: (sheet: Sheet) => void;
+  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
+  onOpenRenameDialog: (sheet: SheetDocument) => void;
   onSelectCell: (selection: ActiveCellSelection) => void;
   onSelectReferenceTarget: (selection: ActiveCellSelection) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
@@ -61,11 +63,10 @@ export function Workspace({
   sheetIdRemaps: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
-  const selectedSheet = activeCell
-    ? workbook.sheets.find((sheet) => sheet.id === activeCell.sheetId)
-    : undefined;
+  const sheets = sheetsInOrder(workbook);
+  const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedRaw = selectedSheet && activeCell
-    ? selectedSheet.cells[activeCell.cellKey]
+    ? cellRawContent(selectedSheet, activeCell.cellKey)
     : undefined;
   const formulaInspection = selectedSheet && selectedRaw
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
@@ -106,7 +107,7 @@ export function Workspace({
     workspaceController.createSheetAtViewportCenter(workspace);
   }
 
-  function handleOpenRenameDialog(sheet: Sheet) {
+  function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
     onOpenRenameDialog(sheet);
   }
@@ -119,7 +120,7 @@ export function Workspace({
         onResetViewport={workspaceController.resetViewport}
         onZoomWorkspace={workspaceController.zoomWorkspace}
         saveStatus={saveStatus}
-        sheetCount={workbook.sheets.length}
+        sheetCount={sheets.length}
         viewport={workspaceController.viewport}
       />
 
@@ -179,7 +180,7 @@ export function Workspace({
         onWheel={workspaceController.handleWorkspaceWheel}
         pendingSheetMenu={workspaceController.pendingSheetMenu}
         sheetIdRemaps={sheetIdRemaps}
-        sheets={workbook.sheets}
+        sheets={sheets}
         viewport={workspaceController.viewport}
         workspaceSurfaceRef={workspaceSurfaceRef}
       />

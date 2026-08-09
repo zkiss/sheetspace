@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { inspectFormula } from './formulaInspection';
-import { createSheet, type Sheet, type Workbook } from './workbook';
+import { cellAddressOf } from './workbook';
+import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
-function sheet(id: string, name: string, cells: Record<string, string> = {}): Sheet {
-  const result = createSheet({ id, name });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-  return { ...result.value, cells };
-}
-
-function workbook(sheets: Sheet[]): Workbook {
-  return { version: 1, sheets };
-}
+const sheet = (id: string, name: string, cells: Record<string, string> = {}) =>
+  sheetDocument({ id, name, cells });
+const workbook = workbookWithSheets;
 
 describe('formula inspection', () => {
   it('preserves raw formula spelling and exposes repeated same-sheet cells and ranges', () => {
@@ -27,23 +20,39 @@ describe('formula inspection', () => {
       {
         kind: 'cell',
         sheetId: 'sheet-inputs',
-        address: { columnIndex: 0, rowIndex: 0 },
+        identity: { rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1' },
       },
       {
         kind: 'range',
         sheetId: 'sheet-inputs',
         range: {
-          start: { columnIndex: 0, rowIndex: 0 },
-          end: { columnIndex: 1, rowIndex: 1 },
+          start: { rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1' },
+          end: { rowId: 'sheet-inputs:row:2', columnId: 'sheet-inputs:column:2' },
         },
       },
       {
         kind: 'cell',
         sheetId: 'sheet-inputs',
-        address: { columnIndex: 0, rowIndex: 0 },
+        identity: { rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1' },
       },
     ]);
     expect(result?.references.every((reference) => reference.navigable)).toBe(true);
+  });
+
+  it('keeps navigation identity stable when row order changes', () => {
+    const inputs = sheet('sheet-inputs', 'Inputs');
+    const target = inspectFormula('=A1', workbook([inputs]), inputs)?.references[0].target;
+    const reordered = {
+      ...inputs,
+      content: {
+        ...inputs.content,
+        rows: [inputs.content.rows[1], inputs.content.rows[0], ...inputs.content.rows.slice(2)],
+      },
+    };
+
+    expect(target?.kind).toBe('cell');
+    if (target?.kind !== 'cell' || !target.identity) return;
+    expect(cellAddressOf(reordered.content, target.identity)).toEqual({ rowIndex: 1, columnIndex: 0 });
   });
 
   it('renders current quoted sheet names while retaining canonical ids and translated spans', () => {

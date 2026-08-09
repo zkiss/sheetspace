@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from './test/appScreen';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('App startup', () => {
   it('loads the current workbook before showing the editable workspace', async () => {
@@ -27,8 +27,10 @@ describe('App startup', () => {
   it('restores persisted workbook state on startup and recomputes formulas from raw cells', async () => {
     const user = userEvent.setup();
     const rawFormula = '= \n SuM ( B1 , B2 )';
-    const inputs = {
-      ...positionedSheet('sheet-inputs', 'Renamed Inputs', { x: 72, y: 144 }),
+    const inputs = sheetDocument({
+      id: 'sheet-inputs',
+      name: 'Renamed Inputs',
+      position: { x: 72, y: 144 },
       rowCount: 22,
       columnCount: 12,
       cells: {
@@ -37,15 +39,17 @@ describe('App startup', () => {
         B1: '10',
         B2: '5',
       },
-    };
-    const outputs = {
-      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }),
+    });
+    const outputs = sheetDocument({
+      id: 'sheet-outputs',
+      name: 'Outputs',
+      position: { x: 420, y: 260 },
       rowCount: 3,
       columnCount: 3,
       cells: {
         A1: '=SUM(sheet-inputs!B1:B2)',
       },
-    };
+    });
     const apiClient = {
       loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([inputs, outputs])),
     };

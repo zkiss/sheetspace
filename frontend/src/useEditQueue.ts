@@ -9,15 +9,17 @@ import {
 } from './workbookApi';
 import type { SaveStatus } from './appTypes';
 import {
+  findSheetById,
   formulaSheetReferenceIds,
   remapFormulaSheetIds,
-  type Sheet,
+  sheetsInOrder,
+  type SheetDocument,
   type Workbook,
 } from './workbook';
 import type { SetWorkbook } from './workbookCalculation';
 
-type SaveResult = Workbook | Sheet | SheetRevisionResponse | RowAppendResponse | ColumnAppendResponse | void;
-type SheetCreateResult = Sheet | Workbook;
+type SaveResult = Workbook | SheetDocument | SheetRevisionResponse | RowAppendResponse | ColumnAppendResponse | void;
+type SheetCreateResult = SheetDocument | Workbook;
 
 type EditQueueTask = {
   key: string;
@@ -103,50 +105,47 @@ export function useEditQueue({
         return;
       }
 
-      if ('sheets' in savedResult) {
-        for (const sheet of savedResult.sheets) {
+      if ('manifest' in savedResult) {
+        for (const sheet of sheetsInOrder(savedResult)) {
           knownSheetRevisions.current.set(sheet.id, sheet.revision);
         }
-        setWorkbook((currentWorkbook) => ({
-          ...currentWorkbook,
-          sheets: currentWorkbook.sheets.map((sheet) => {
-            const savedSheet = savedResult.sheets.find((candidate) => candidate.id === sheet.id);
-            return savedSheet ? { ...sheet, revision: Math.max(sheet.revision, savedSheet.revision) } : sheet;
-          }),
-        }), { kind: 'none' });
+        setWorkbook((currentWorkbook) => {
+          const documents = { ...currentWorkbook.documents };
+          for (const sheet of sheetsInOrder(savedResult)) {
+            const current = documents[sheet.id];
+            if (current) documents[sheet.id] = { ...current, revision: Math.max(current.revision, sheet.revision) };
+          }
+          return { ...currentWorkbook, documents };
+        }, { kind: 'none' });
         return;
       }
 
-      if ('name' in savedResult && 'cells' in savedResult) {
+      if ('content' in savedResult) {
         knownSheetRevisions.current.set(savedResult.id, savedResult.revision);
-        setWorkbook((currentWorkbook) => ({
-          ...currentWorkbook,
-          sheets: currentWorkbook.sheets.map((sheet) =>
-            sheet.id === savedResult.id ? { ...savedResult, ...sheet, revision: savedResult.revision } : sheet,
-          ),
-        }), { kind: 'none' });
+        setWorkbook((currentWorkbook) => {
+          const current = findSheetById(currentWorkbook, savedResult.id);
+          return current ? {
+            ...currentWorkbook,
+            documents: {
+              ...currentWorkbook.documents,
+              [savedResult.id]: { ...savedResult, ...current, revision: savedResult.revision },
+            },
+          } : currentWorkbook;
+        }, { kind: 'none' });
         return;
       }
 
       knownSheetRevisions.current.set(savedResult.sheetId, savedResult.revision);
-      const impact = 'rowCount' in savedResult || 'columnCount' in savedResult
-        ? { kind: 'structure' } as const
-        : { kind: 'none' } as const;
-      setWorkbook((currentWorkbook) => ({
-        ...currentWorkbook,
-        sheets: currentWorkbook.sheets.map((sheet) => {
-          if (sheet.id !== savedResult.sheetId) {
-            return sheet;
-          }
-
-          return {
-            ...sheet,
-            revision: Math.max(sheet.revision, savedResult.revision),
-            ...('rowCount' in savedResult ? { rowCount: savedResult.rowCount } : {}),
-            ...('columnCount' in savedResult ? { columnCount: savedResult.columnCount } : {}),
-          };
-        }),
-      }), impact);
+      setWorkbook((currentWorkbook) => {
+        const current = findSheetById(currentWorkbook, savedResult.sheetId);
+        return current ? {
+          ...currentWorkbook,
+          documents: {
+            ...currentWorkbook.documents,
+            [current.id]: { ...current, revision: Math.max(current.revision, savedResult.revision) },
+          },
+        } : currentWorkbook;
+      }, { kind: 'none' });
     },
     [setWorkbook],
   );
@@ -157,29 +156,39 @@ export function useEditQueue({
         return;
       }
 
-      if ('sheets' in savedResult) {
+      if ('manifest' in savedResult) {
         setWorkbook((currentWorkbook) => {
-          const currentSheetIds = new Set(currentWorkbook.sheets.map((sheet) => sheet.id));
+          const documents = { ...currentWorkbook.documents };
+          const sheetIds = [...currentWorkbook.manifest.sheetIds];
+          for (const savedSheet of sheetsInOrder(savedResult)) {
+            const current = documents[savedSheet.id];
+            documents[savedSheet.id] = current
+              ? { ...current, revision: Math.max(current.revision, savedSheet.revision) }
+              : savedSheet;
+            if (!sheetIds.includes(savedSheet.id)) sheetIds.push(savedSheet.id);
+          }
           return {
             ...currentWorkbook,
-            sheets: [
-              ...currentWorkbook.sheets.map((sheet) => {
-                const savedSheet = savedResult.sheets.find((candidate) => candidate.id === sheet.id);
-                return savedSheet ? { ...sheet, revision: Math.max(sheet.revision, savedSheet.revision) } : sheet;
-              }),
-              ...savedResult.sheets.filter((sheet) => !currentSheetIds.has(sheet.id)),
-            ],
+            manifest: { ...currentWorkbook.manifest, sheetIds },
+            documents,
           };
         }, { kind: 'structure' });
         return;
       }
 
-      if ('name' in savedResult && 'cells' in savedResult) {
+      if ('content' in savedResult) {
         knownSheetRevisions.current.set(savedResult.id, savedResult.revision);
         setWorkbook(
-          (currentWorkbook) => currentWorkbook.sheets.some((sheet) => sheet.id === savedResult.id)
+          (currentWorkbook) => findSheetById(currentWorkbook, savedResult.id)
             ? currentWorkbook
-            : { ...currentWorkbook, sheets: [...currentWorkbook.sheets, savedResult] },
+            : {
+                ...currentWorkbook,
+                manifest: {
+                  ...currentWorkbook.manifest,
+                  sheetIds: [...currentWorkbook.manifest.sheetIds, savedResult.id],
+                },
+                documents: { ...currentWorkbook.documents, [savedResult.id]: savedResult },
+              },
           { kind: 'structure' },
         );
       }
@@ -353,7 +362,7 @@ export function useEditQueue({
       createKey: string,
       run: () => Promise<SheetCreateResult>,
       getCreatedSheetId: (savedResult: SheetCreateResult) => string | undefined,
-      reconcile: (savedSheet: Sheet, savedSheetId: string, deleted: boolean) => void | Promise<void>,
+      reconcile: (savedSheet: SheetDocument, savedSheetId: string, deleted: boolean) => void | Promise<void>,
       onFailure: () => void,
     ) => {
       enqueueEdit(
@@ -379,8 +388,9 @@ export function useEditQueue({
           }
 
           const savedSheetId = getCreatedSheetId(savedResult);
-          const savedSheet =
-            'sheets' in savedResult ? savedResult.sheets.find((sheet) => sheet.id === savedSheetId) : savedResult;
+          const savedSheet = 'manifest' in savedResult
+            ? savedResult.documents[savedSheetId ?? '']
+            : savedResult;
           if (!savedSheetId) {
             const cause = new Error('Created sheet was missing from the saved workbook.');
             pendingCreate.reject(new PendingSheetCreateFailedError());
@@ -483,7 +493,7 @@ export function useEditQueue({
   const currentSheetRevision = useCallback(
     (sheetId: string) => {
       const savedSheetId = resolveSheetId(sheetId);
-      const localRevision = workbook.sheets.find((sheet) => sheet.id === savedSheetId)?.revision;
+      const localRevision = findSheetById(workbook, savedSheetId)?.revision;
       const knownRevision = knownSheetRevisions.current.get(savedSheetId);
 
       if (localRevision === undefined) {
@@ -495,7 +505,7 @@ export function useEditQueue({
 
       return Math.max(localRevision, knownRevision);
     },
-    [resolveSheetId, workbook.sheets],
+    [resolveSheetId, workbook.documents],
   );
 
   const runRevisionedEdit = useCallback(
@@ -508,7 +518,7 @@ export function useEditQueue({
           throw cause;
         }
 
-        let latestSheet: Sheet;
+        let latestSheet: SheetDocument;
         try {
           latestSheet = await loadSheet(sheetId);
         } catch (reloadCause: unknown) {
@@ -519,10 +529,18 @@ export function useEditQueue({
           ) {
             dropSheetQueuedTasks(sheetId);
             knownSheetRevisions.current.delete(sheetId);
-            setWorkbook((currentWorkbook) => ({
-              ...currentWorkbook,
-              sheets: currentWorkbook.sheets.filter((sheet) => sheet.id !== sheetId),
-            }), { kind: 'structure' });
+            setWorkbook((currentWorkbook) => {
+              const documents = { ...currentWorkbook.documents };
+              delete documents[sheetId];
+              return {
+                ...currentWorkbook,
+                manifest: {
+                  ...currentWorkbook.manifest,
+                  sheetIds: currentWorkbook.manifest.sheetIds.filter((id) => id !== sheetId),
+                },
+                documents,
+              };
+            }, { kind: 'structure' });
             return undefined;
           }
           throw reloadCause;

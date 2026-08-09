@@ -104,7 +104,10 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                         zIndex = request.zIndex,
                     ),
                 )
-                call.respond(HttpStatusCode.Created, LegacyFlatSheetTransportAdapter.toTransport(sheet))
+                call.respond(
+                    HttpStatusCode.Created,
+                    WorkbookReadTransportAdapter.sheetDocument(sheet),
+                )
             }
         }
 

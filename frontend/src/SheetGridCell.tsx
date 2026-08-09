@@ -1,5 +1,5 @@
 import { KeyboardEvent } from 'react';
-import type { Sheet } from './workbook';
+import { cellRawContent, type SheetTabularProjection } from './workbook';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
 import { gridCellKeyboardAction } from './sheetGridModel';
 
@@ -46,11 +46,11 @@ export function SheetGridCell({
   onCommitEdit: (editToCommit?: EditingCell) => void;
   onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: Sheet, cellKey: string, direction: CellNavigationDirection) => void;
+  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
   onSelectCell: (selection: ActiveCellSelection) => void;
   onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
   registerCell: (cellKey: string, element: HTMLTableCellElement | null) => void;
-  sheet: Sheet;
+  sheet: SheetTabularProjection;
 }) {
   function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
     const action = gridCellKeyboardAction({
@@ -83,7 +83,7 @@ export function SheetGridCell({
 
   return (
     <td
-      aria-label={`${sheet.name} ${cellKey}${sheet.cells[cellKey] ? '' : ' empty'} cell`}
+      aria-label={`${sheet.name} ${cellKey}${cellRawContent(sheet, cellKey) ? '' : ' empty'} cell`}
       aria-selected={isActive || isRangeSelected ? 'true' : undefined}
       className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
         isRangeSelected ? ' sheet-grid-cell-range-selected' : ''

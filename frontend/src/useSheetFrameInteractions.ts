@@ -1,6 +1,6 @@
 import { PointerEvent, useRef } from 'react';
 import type { SheetFrameDrag, SheetFrameResize, SheetFrameResizeDirection } from './appTypes';
-import type { Workbook } from './workbook';
+import { findSheetById, type Workbook } from './workbook';
 import type { WorkbookCommands } from './useWorkbookController';
 import { resizeSheetFrame } from './workspaceGeometry';
 
@@ -24,7 +24,7 @@ export function useSheetFrameInteractions({
       return;
     }
 
-    const sheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
+    const sheet = findSheetById(workbook, sheetId);
     if (!sheet) {
       return;
     }
@@ -34,7 +34,7 @@ export function useSheetFrameInteractions({
       sheetId,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      startPosition: sheet.position,
+      startPosition: sheet.frame.position,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
@@ -85,7 +85,7 @@ export function useSheetFrameInteractions({
       return;
     }
 
-    const sheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
+    const sheet = findSheetById(workbook, sheetId);
     if (!sheet) {
       return;
     }
@@ -95,8 +95,8 @@ export function useSheetFrameInteractions({
       sheetId,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      startPosition: sheet.position,
-      startFrameSize: sheet.frameSize,
+      startPosition: sheet.frame.position,
+      startFrameSize: sheet.frame.size,
       direction,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);

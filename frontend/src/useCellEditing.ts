@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   cellKey,
+  cellRawContent,
+  findSheetById,
   formulaRawForDisplay,
   parseA1Address,
+  sheetBounds,
+  sheetsInOrder,
   type CellAddress,
-  type Sheet,
+  type SheetDocument,
+  type SheetTabularProjection,
   type Workbook,
 } from './workbook';
 import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
@@ -23,13 +28,13 @@ function remapSelectionSheetId<T extends ActiveCellSelection>(
 }
 
 function clampedCellAddress(
-  sheet: Sheet,
+  sheet: SheetDocument | SheetTabularProjection,
   address: CellAddress,
   delta: { columnIndex: number; rowIndex: number },
 ): CellAddress {
   return {
-    columnIndex: Math.min(sheet.columnCount - 1, Math.max(0, address.columnIndex + delta.columnIndex)),
-    rowIndex: Math.min(sheet.rowCount - 1, Math.max(0, address.rowIndex + delta.rowIndex)),
+    columnIndex: Math.min(sheetBounds(sheet).columnCount - 1, Math.max(0, address.columnIndex + delta.columnIndex)),
+    rowIndex: Math.min(sheetBounds(sheet).rowCount - 1, Math.max(0, address.rowIndex + delta.rowIndex)),
   };
 }
 
@@ -56,7 +61,7 @@ export function useCellEditing({
   }, [sheetIdRemaps]);
 
   useEffect(() => {
-    const sheetIds = new Set(workbook.sheets.map((sheet) => sheet.id));
+    const sheetIds = new Set(sheetsInOrder(workbook).map((sheet) => sheet.id));
     setActiveCell((currentActiveCell) =>
       currentActiveCell && !sheetIds.has(currentActiveCell.sheetId) ? null : currentActiveCell,
     );
@@ -66,20 +71,20 @@ export function useCellEditing({
     setEditingCell((currentEditingCell) =>
       currentEditingCell && !sheetIds.has(currentEditingCell.sheetId) ? null : currentEditingCell,
     );
-  }, [workbook.sheets]);
+  }, [workbook.manifest.sheetIds]);
 
   function commitActiveEdit(editToCommit = editingCell) {
     if (!editToCommit) {
       return;
     }
 
-    const currentSheet = workbook.sheets.find((sheet) => sheet.id === editToCommit.sheetId);
+    const currentSheet = findSheetById(workbook, editToCommit.sheetId);
     if (!currentSheet) {
       setEditingCell(null);
       return;
     }
 
-    const currentCell = currentSheet.cells[editToCommit.cellKey];
+    const currentCell = cellRawContent(currentSheet, editToCommit.cellKey);
     const currentRaw = currentCell ?? '';
     const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook) : currentRaw;
     if (
@@ -92,8 +97,8 @@ export function useCellEditing({
   }
 
   function startEditingCell(selection: ActiveCellSelection, initialValue?: string) {
-    const sheet = workbook.sheets.find((candidate) => candidate.id === selection.sheetId);
-    const cell = sheet?.cells[selection.cellKey];
+    const sheet = findSheetById(workbook, selection.sheetId);
+    const cell = sheet && cellRawContent(sheet, selection.cellKey);
     const value = initialValue ?? (cell ? formulaRawForDisplay(cell, workbook) : '');
 
     setActiveCell(selection);
@@ -115,8 +120,8 @@ export function useCellEditing({
     setKeyboardFocusTarget(selection);
     setEditingCell(null);
 
-    const sheet = workbook.sheets.find((candidate) => candidate.id === selection.sheetId);
-    if (!sheet?.cells[selection.cellKey]) {
+    const sheet = findSheetById(workbook, selection.sheetId);
+    if (!sheet || !cellRawContent(sheet, selection.cellKey)) {
       return;
     }
 
@@ -138,8 +143,8 @@ export function useCellEditing({
     setKeyboardFocusTarget(selection);
   }
 
-  function navigateCell(sheet: Sheet, currentCellKey: string, direction: CellNavigationDirection) {
-    const parsedAddress = parseA1Address(currentCellKey, sheet);
+  function navigateCell(sheet: SheetTabularProjection, currentCellKey: string, direction: CellNavigationDirection) {
+    const parsedAddress = parseA1Address(currentCellKey, sheetBounds(sheet));
     if (!parsedAddress.ok) {
       return;
     }
@@ -159,13 +164,13 @@ export function useCellEditing({
   }
 
   function commitEditAndNavigate(editToCommit: EditingCell, direction: 'tab' | 'enter') {
-    const sheet = workbook.sheets.find((candidate) => candidate.id === editToCommit.sheetId);
+    const sheet = findSheetById(workbook, editToCommit.sheetId);
     if (!sheet) {
       commitActiveEdit(editToCommit);
       return;
     }
 
-    const parsedAddress = parseA1Address(editToCommit.cellKey, sheet);
+    const parsedAddress = parseA1Address(editToCommit.cellKey, sheetBounds(sheet));
     if (!parsedAddress.ok) {
       commitActiveEdit(editToCommit);
       return;

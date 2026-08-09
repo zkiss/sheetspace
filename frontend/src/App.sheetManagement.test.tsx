@@ -10,7 +10,7 @@ import {
 } from './test/appScreen';
 import { autosaveClient, deferred, deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
 import { workspaceRect } from './test/domGeometry';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 import type { Workbook } from './workbook';
 
 function renderEmptyPersistedWorkbook() {
@@ -169,16 +169,16 @@ describe('App sheet management integration', () => {
 
   it('appends a row at the end of one sheet and preserves existing cell content', async () => {
     const user = userEvent.setup();
-    const inputs = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 }),
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
       rowCount: 2,
       columnCount: 2,
-    };
-    const outputs = {
-      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }),
+    });
+    const outputs = sheetDocument({
+      id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 260 },
       rowCount: 2,
       columnCount: 2,
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
 
@@ -201,16 +201,16 @@ describe('App sheet management integration', () => {
 
   it('appends a column at the end of one sheet and updates labels beyond Z', async () => {
     const user = userEvent.setup();
-    const wide = {
-      ...positionedSheet('sheet-wide', 'Wide Sheet', { x: 48, y: 96 }),
+    const wide = sheetDocument({
+      id: 'sheet-wide', name: 'Wide Sheet', position: { x: 48, y: 96 },
       rowCount: 2,
       columnCount: 26,
-    };
-    const compact = {
-      ...positionedSheet('sheet-compact', 'Compact', { x: 420, y: 260 }),
+    });
+    const compact = sheetDocument({
+      id: 'sheet-compact', name: 'Compact', position: { x: 420, y: 260 },
       rowCount: 2,
       columnCount: 2,
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([wide, compact])} />);
 

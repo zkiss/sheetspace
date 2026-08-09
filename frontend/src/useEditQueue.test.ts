@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { deferred } from './test/apiClients';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-import type { Sheet, Workbook } from './workbook';
+import { sheetsInOrder, type SheetDocument, type Workbook } from './workbook';
 import { WorkbookApiError, type WorkbookApi } from './workbookApi';
 import { useEditQueue } from './useEditQueue';
 
@@ -55,7 +55,7 @@ describe('useEditQueue', () => {
   });
 
   it('rekeys pending sheet queues so post-create edits replace older queued work', async () => {
-    const createSave = deferred<Sheet>();
+    const createSave = deferred<SheetDocument>();
     const firstCellSave = deferred<Workbook>();
     const latestCellSave = deferred<Workbook>();
     const savedSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
@@ -235,7 +235,7 @@ describe('useEditQueue', () => {
     expect(save).toHaveBeenNthCalledWith(1, 3);
     expect(apiClient.loadSheet).toHaveBeenCalledWith('sheet-inputs');
     expect(save).toHaveBeenNthCalledWith(2, 7);
-    await waitFor(() => expect(result.current.workbook.sheets[0].revision).toBe(8));
+    await waitFor(() => expect(sheetsInOrder(result.current.workbook)[0].revision).toBe(8));
   });
 
   it('removes a sheet when conflict recovery cannot reload it', async () => {
@@ -257,7 +257,7 @@ describe('useEditQueue', () => {
       );
     });
 
-    await waitFor(() => expect(result.current.workbook.sheets).toEqual([]));
+    await waitFor(() => expect(sheetsInOrder(result.current.workbook)).toEqual([]));
     expect(apiClient.loadSheet).toHaveBeenCalledWith('sheet-inputs');
     expect(save).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));
@@ -292,7 +292,7 @@ describe('useEditQueue', () => {
       );
     });
 
-    await waitFor(() => expect(result.current.workbook.sheets).toEqual([]));
+    await waitFor(() => expect(sheetsInOrder(result.current.workbook)).toEqual([]));
     expect(firstSave).toHaveBeenCalledTimes(1);
     expect(queuedSave).not.toHaveBeenCalled();
     await waitFor(() => expect(result.current.queue.saveStatus).toBe('saved'));

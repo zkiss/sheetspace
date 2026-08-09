@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { testRect } from './test/domGeometry';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function modifierClick(reference: HTMLElement, modifier: 'ctrl' | 'meta' = 'ctrl') {
   fireEvent.click(reference, modifier === 'ctrl' ? { ctrlKey: true } : { metaKey: true });
@@ -188,12 +188,12 @@ describe('formula reference navigation', () => {
   });
 
   it('keeps readable zoom and reveals top-left for an oversized selected range', () => {
-    const inputs = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 1500, y: 900 }),
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 1500, y: 900 },
       columnCount: 15,
       rowCount: 40,
       cells: { A1: '1' },
-    };
+    });
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
       cells: { A1: '=SUM(sheet-inputs!J20:O40)' },

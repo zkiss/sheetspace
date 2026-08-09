@@ -77,8 +77,8 @@ class WorkbookMutationContractRoutesTest {
             val createOutputs = client.post("/api/sheets") {
                 jsonBody("""{"name":"Outputs","position":{"x":420.0,"y":260.0}}""")
             }
-            val inputsId = createInputs.decodeBody<Sheet>().id
-            val outputsId = createOutputs.decodeBody<Sheet>().id
+            val inputsId = createInputs.decodeBody<SheetDocumentResponse>().id
+            val outputsId = createOutputs.decodeBody<SheetDocumentResponse>().id
             val renameAndMoveInputs = client.patch("/api/sheets/$inputsId") {
                 revisionHeader(workbookApplication, inputsId)
                 jsonBody(
@@ -165,7 +165,7 @@ class WorkbookMutationContractRoutesTest {
             assertEquals(HttpStatusCode.BadRequest, invalidCell.status)
             assertEquals(HttpStatusCode.BadRequest, invalidFrameSize.status)
             assertEquals(HttpStatusCode.NotFound, missingSheet.status)
-            assertEquals(sheet, client.loadWorkbook().sheets.single())
+            assertEquals(sheet.toTestSheet(), client.loadWorkbook().sheets.single())
         }
 
     @Test
@@ -262,6 +262,6 @@ class WorkbookMutationContractRoutesTest {
             assertFalse(malformedBody.contains("ok"))
             assertEquals(HttpStatusCode.BadRequest, missingField.status)
             assertEquals(ErrorResponse(error = "invalid-request"), missingField.decodeBody<ErrorResponse>())
-            assertEquals(sheet, client.loadWorkbook().sheets.single())
+            assertEquals(sheet.toTestSheet(), client.loadWorkbook().sheets.single())
         }
 }
