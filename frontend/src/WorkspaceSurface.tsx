@@ -1,20 +1,22 @@
 import type { MouseEvent, PointerEvent, RefObject, WheelEvent } from 'react';
 import {
+  addressRangeOf,
   frameProjection,
   tabularProjection,
   type FormulaEvaluationSnapshot,
   type SheetDocument,
-  type SheetTabularProjection,
   type SheetZOrderDirection,
 } from './workbook';
 import type {
-  ActiveCellSelection,
+  CellTarget,
   CellNavigationDirection,
-  EditingCell,
+  CellEditSession,
   PendingSheetMenu,
+  ReferenceNavigationTarget,
   SheetFrameResizeDirection,
   WorkspaceViewport,
 } from './appTypes';
+import { cellKeyForTarget } from './cellInteraction';
 import { SheetContextMenu } from './SheetContextMenu';
 import { SheetFrame } from './SheetFrame';
 
@@ -26,6 +28,7 @@ export function WorkspaceSurface({
   keyboardFocusTarget,
   navigationHighlight,
   navigationMotion,
+  referenceSelection,
   onAppendColumn,
   onAppendRow,
   onCancelEdit,
@@ -60,24 +63,25 @@ export function WorkspaceSurface({
   viewport,
   workspaceSurfaceRef,
 }: {
-  activeCell: ActiveCellSelection | null;
-  editingCell: EditingCell | null;
+  activeCell: CellTarget | null;
+  editingCell: CellEditSession | null;
   formulaResults: FormulaEvaluationSnapshot;
   isPanningWorkspace: boolean;
-  keyboardFocusTarget: ActiveCellSelection | null;
-  navigationHighlight: ActiveCellSelection | null;
+  keyboardFocusTarget: CellTarget | null;
+  navigationHighlight: ReferenceNavigationTarget | null;
   navigationMotion: boolean;
+  referenceSelection: ReferenceNavigationTarget | null;
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
   onCancelEdit: () => void;
-  onClearCell: (selection: ActiveCellSelection) => void;
+  onClearCell: (target: CellTarget) => void;
   onChangeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
-  onCommitEdit: (editToCommit?: EditingCell) => void;
-  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
+  onCommitEdit: (session?: CellEditSession) => void;
+  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
   onDeleteSheet: (sheetId: string) => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
+  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
@@ -88,12 +92,12 @@ export function WorkspaceSurface({
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
   onResizeStart: (sheetId: string, direction: SheetFrameResizeDirection, event: PointerEvent<HTMLElement>) => void;
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
-  onSelectCell: (selection: ActiveCellSelection) => void;
+  onSelectCell: (target: CellTarget) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
-  onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
+  onStartEdit: (target: CellTarget, initialValue?: string) => void;
   onWheel: (event: WheelEvent<HTMLElement>) => void;
   pendingSheetMenu: PendingSheetMenu | null;
   sheetIdRemaps: Readonly<Record<string, string>>;
@@ -137,10 +141,19 @@ export function WorkspaceSurface({
         }}
       >
         {sheets.map((sheet) => {
-          const activeCellKey = activeCell?.sheetId === sheet.id ? activeCell.cellKey : null;
-          const sheetEditingCell = editingCell?.sheetId === sheet.id ? editingCell : null;
-          const keyboardFocusCellKey = keyboardFocusTarget?.sheetId === sheet.id ? keyboardFocusTarget.cellKey : null;
-          const selectedRange = activeCell?.sheetId === sheet.id ? activeCell.range : undefined;
+          const activeCellKey = cellKeyForTarget(sheet, activeCell);
+          const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
+          const keyboardFocusCellKey = cellKeyForTarget(sheet, keyboardFocusTarget);
+          const selectedRange = referenceSelection?.kind === 'range' && referenceSelection.sheetId === sheet.id
+            ? addressRangeOf(sheet.content, referenceSelection.range)
+            : undefined;
+          const highlightTarget = navigationHighlight?.kind === 'cell'
+            ? navigationHighlight.target
+            : null;
+          const navigationHighlightRange = navigationHighlight?.kind === 'range'
+            && navigationHighlight.sheetId === sheet.id
+            ? addressRangeOf(sheet.content, navigationHighlight.range)
+            : undefined;
 
           return (
             <SheetFrame
@@ -149,15 +162,11 @@ export function WorkspaceSurface({
               frame={frameProjection(sheet)}
               formulaResults={formulaResults}
               isActiveSheet={activeCell?.sheetId === sheet.id}
-              isNavigationReveal={navigationHighlight?.sheetId === sheet.id}
-              navigationHighlightCellKey={
-                navigationHighlight?.sheetId === sheet.id
-                  ? navigationHighlight.cellKey
-                  : null
-              }
-              navigationHighlightRange={navigationHighlight?.sheetId === sheet.id
-                ? navigationHighlight.range
-                : undefined}
+              isNavigationReveal={navigationHighlight?.kind === 'cell'
+                ? navigationHighlight.target.sheetId === sheet.id
+                : navigationHighlight?.sheetId === sheet.id}
+              navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
+              navigationHighlightRange={navigationHighlightRange}
               key={sheet.id}
               keyboardFocusCellKey={keyboardFocusCellKey}
               onCancelEdit={onCancelEdit}

@@ -1,9 +1,9 @@
 import type { MouseEvent, PointerEvent } from 'react';
 import type { CellRange, FormulaEvaluationSnapshot, SheetFrameProjection, SheetTabularProjection } from './workbook';
 import type {
-  ActiveCellSelection,
+  CellTarget,
   CellNavigationDirection,
-  EditingCell,
+  CellEditSession,
   SheetFrameResizeDirection,
 } from './appTypes';
 import { SheetGrid } from './SheetGrid';
@@ -51,7 +51,7 @@ export function SheetFrame({
   selectedRange,
 }: {
   activeCellKey: string | null;
-  editingCell: EditingCell | null;
+  editingCell: CellEditSession | null;
   formulaResults: FormulaEvaluationSnapshot;
   isActiveSheet: boolean;
   isNavigationReveal: boolean;
@@ -59,22 +59,22 @@ export function SheetFrame({
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
   onCancelEdit: () => void;
-  onClearCell: (selection: ActiveCellSelection) => void;
-  onCommitEdit: (editToCommit?: EditingCell) => void;
-  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
+  onClearCell: (target: CellTarget) => void;
+  onCommitEdit: (session?: CellEditSession) => void;
+  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
+  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
   onResizeStart: (sheetId: string, direction: SheetFrameResizeDirection, event: PointerEvent<HTMLElement>) => void;
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
-  onSelectCell: (selection: ActiveCellSelection) => void;
+  onSelectCell: (target: CellTarget) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
-  onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
+  onStartEdit: (target: CellTarget, initialValue?: string) => void;
   frame: SheetFrameProjection;
   tabular: SheetTabularProjection;
   selectedRange?: CellRange;

@@ -49,7 +49,12 @@ export function SheetContextMenu({
       <button type="button" role="menuitem" onClick={() => onRename(sheet)}>
         Rename
       </button>
-      <button type="button" data-sheet-menu-action="delete" role="menuitem" onClick={() => onDelete(sheet.id)}>
+      <button
+        type="button"
+        role="menuitem"
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={() => onDelete(sheet.id)}
+      >
         Delete
       </button>
     </div>

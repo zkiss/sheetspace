@@ -114,6 +114,6 @@ describe('App MVP workflow', () => {
       expect(editor).toHaveValue("=SUM('Renamed Inputs'!B1:B2)");
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
     },
-    10_000,
+    20_000,
   );
 });

@@ -1,46 +1,53 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createEmptyWorkbook } from './workbook';
+import { cellTargetAt } from './cellInteraction';
 import { workbookWithSheets, positionedSheet } from './test/workbookFactories';
 import { useCellEditing } from './useCellEditing';
 
 describe('useCellEditing', () => {
-  it('remaps local selection state when a pending sheet receives its backend id', () => {
+  it('remaps stable local interaction targets when a pending sheet receives its backend id', () => {
     const commands = { updateCellContent: vi.fn() };
-    const workbook = createEmptyWorkbook();
+    const pending = positionedSheet('pending:sheet', 'Inputs', { x: 0, y: 0 });
+    const target = cellTargetAt(pending, 'B3')!;
+    const saved = positionedSheet('backend-sheet', 'Inputs', { x: 0, y: 0 });
     const { rerender, result } = renderHook(
-      ({ sheetIdRemaps }: { sheetIdRemaps?: Readonly<Record<string, string>> }) =>
-        useCellEditing({ commands, sheetIdRemaps, workbook }),
-      { initialProps: {} },
+      ({ sheetIdRemaps, workbook }) => useCellEditing({ commands, sheetIdRemaps, workbook }),
+      {
+        initialProps: {
+          sheetIdRemaps: {} as Readonly<Record<string, string>>,
+          workbook: workbookWithSheets([pending]),
+        },
+      },
     );
 
     act(() => {
-      result.current.clearCellContent({ sheetId: 'pending-sheet', cellKey: 'B3' });
-      result.current.startEditingCell({ sheetId: 'pending-sheet', cellKey: 'B3' }, 'draft value');
+      result.current.clearCellContent(target);
+      result.current.startEditingCell(target, 'draft value');
     });
 
-    rerender({ sheetIdRemaps: { 'pending-sheet': 'backend-sheet' } });
-
-    expect(result.current.activeCell).toEqual({ sheetId: 'backend-sheet', cellKey: 'B3' });
-    expect(result.current.keyboardFocusTarget).toEqual({ sheetId: 'backend-sheet', cellKey: 'B3' });
-    expect(result.current.editingCell).toEqual({
-      sheetId: 'backend-sheet',
-      cellKey: 'B3',
-      value: 'draft value',
+    rerender({
+      sheetIdRemaps: { 'pending:sheet': 'backend-sheet' },
+      workbook: workbookWithSheets([saved]),
     });
+
+    const remappedTarget = cellTargetAt(saved, 'B3')!;
+    expect(result.current.activeCell).toEqual(remappedTarget);
+    expect(result.current.keyboardFocusTarget).toEqual(remappedTarget);
+    expect(result.current.editingCell).toEqual({ target: remappedTarget, draft: 'draft value' });
   });
 
-  it('clears local selection state when deleted sheet disappears from workbook', () => {
+  it('clears local interaction state when deleted sheet disappears from workbook', () => {
     const commands = { updateCellContent: vi.fn() };
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const target = cellTargetAt(sheet, 'A1')!;
     const { rerender, result } = renderHook(
       ({ workbook }) => useCellEditing({ commands, workbook }),
       { initialProps: { workbook: workbookWithSheets([sheet]) } },
     );
 
     act(() => {
-      result.current.selectCell({ sheetId: 'sheet-inputs', cellKey: 'A1' });
-      result.current.startEditingCell({ sheetId: 'sheet-inputs', cellKey: 'A1' }, 'draft value');
+      result.current.selectCell(target);
+      result.current.startEditingCell(target, 'draft value');
     });
 
     rerender({ workbook: workbookWithSheets([]) });

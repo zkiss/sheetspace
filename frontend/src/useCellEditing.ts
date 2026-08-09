@@ -1,41 +1,45 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import {
-  cellKey,
+  cellAddressOf,
   cellRawContent,
   findSheetById,
   formulaRawForDisplay,
-  parseA1Address,
-  sheetBounds,
   sheetsInOrder,
-  type CellAddress,
   type SheetDocument,
   type SheetTabularProjection,
   type Workbook,
 } from './workbook';
-import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
+import type {
+  CellEditSession,
+  CellNavigationDirection,
+  CellTarget,
+  ReferenceNavigationTarget,
+} from './appTypes';
+import {
+  cellInteractionReducer,
+  cellKeyForTarget,
+  EMPTY_CELL_INTERACTION_STATE,
+  pendingCellIdentityRemaps,
+} from './cellInteraction';
 import type { WorkbookCommands } from './useWorkbookController';
 
 const EMPTY_SHEET_ID_REMAPS: Readonly<Record<string, string>> = {};
 
-function remapSelectionSheetId<T extends ActiveCellSelection>(
-  selection: T | null,
-  sheetIdRemaps: Readonly<Record<string, string>>,
-): T | null {
-  const remappedSheetId = selection && sheetIdRemaps[selection.sheetId];
-  return selection && remappedSheetId && remappedSheetId !== selection.sheetId
-    ? { ...selection, sheetId: remappedSheetId }
-    : selection;
-}
-
-function clampedCellAddress(
+function adjacentTarget(
   sheet: SheetDocument | SheetTabularProjection,
-  address: CellAddress,
+  target: CellTarget,
   delta: { columnIndex: number; rowIndex: number },
-): CellAddress {
-  return {
-    columnIndex: Math.min(sheetBounds(sheet).columnCount - 1, Math.max(0, address.columnIndex + delta.columnIndex)),
-    rowIndex: Math.min(sheetBounds(sheet).rowCount - 1, Math.max(0, address.rowIndex + delta.rowIndex)),
-  };
+): CellTarget | undefined {
+  const content = 'content' in sheet ? sheet.content : sheet;
+  const address = cellAddressOf(content, target.cell);
+  if (!address) return undefined;
+  const rowIndex = Math.min(content.rows.length - 1, Math.max(0, address.rowIndex + delta.rowIndex));
+  const columnIndex = Math.min(content.columns.length - 1, Math.max(0, address.columnIndex + delta.columnIndex));
+  const rowId = content.rows[rowIndex];
+  const columnId = content.columns[columnIndex];
+  return rowId === undefined || columnId === undefined
+    ? undefined
+    : { sheetId: sheet.id, cell: { rowId, columnId } };
 }
 
 export function useCellEditing({
@@ -47,183 +51,132 @@ export function useCellEditing({
   sheetIdRemaps?: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
-  const [activeCell, setActiveCell] = useState<ActiveCellSelection | null>(null);
-  const [keyboardFocusTarget, setKeyboardFocusTarget] = useState<ActiveCellSelection | null>(null);
-  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
-  const tabRunOriginColumn = useRef<number | null>(null);
+  const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
+  const previousWorkbook = useRef(workbook);
 
   useEffect(() => {
-    setActiveCell((currentActiveCell) => remapSelectionSheetId(currentActiveCell, sheetIdRemaps));
-    setKeyboardFocusTarget((currentFocusTarget) =>
-      remapSelectionSheetId(currentFocusTarget, sheetIdRemaps),
-    );
-    setEditingCell((currentEditingCell) => remapSelectionSheetId(currentEditingCell, sheetIdRemaps));
-  }, [sheetIdRemaps]);
+    dispatch({
+      type: 'remap-sheets',
+      remaps: sheetIdRemaps,
+      identityRemaps: pendingCellIdentityRemaps(previousWorkbook.current, workbook, sheetIdRemaps),
+    });
+    previousWorkbook.current = workbook;
+  }, [sheetIdRemaps, workbook]);
 
   useEffect(() => {
-    const sheetIds = new Set(sheetsInOrder(workbook).map((sheet) => sheet.id));
-    setActiveCell((currentActiveCell) =>
-      currentActiveCell && !sheetIds.has(currentActiveCell.sheetId) ? null : currentActiveCell,
-    );
-    setKeyboardFocusTarget((currentFocusTarget) =>
-      currentFocusTarget && !sheetIds.has(currentFocusTarget.sheetId) ? null : currentFocusTarget,
-    );
-    setEditingCell((currentEditingCell) =>
-      currentEditingCell && !sheetIds.has(currentEditingCell.sheetId) ? null : currentEditingCell,
-    );
+    dispatch({
+      type: 'prune-sheets',
+      sheetIds: new Set(sheetsInOrder(workbook).map((sheet) => sheet.id)),
+    });
   }, [workbook.manifest.sheetIds]);
 
-  function commitActiveEdit(editToCommit = editingCell) {
-    if (!editToCommit) {
-      return;
-    }
+  function commitSession(session: CellEditSession | null) {
+    if (!session) return;
+    const sheet = findSheetById(workbook, session.target.sheetId);
+    const key = sheet && cellKeyForTarget(sheet, session.target);
+    if (!sheet || !key) return;
 
-    const currentSheet = findSheetById(workbook, editToCommit.sheetId);
-    if (!currentSheet) {
-      setEditingCell(null);
-      return;
-    }
-
-    const currentCell = cellRawContent(currentSheet, editToCommit.cellKey);
+    const currentCell = cellRawContent(sheet, key);
     const currentRaw = currentCell ?? '';
     const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook) : currentRaw;
     if (
-      currentEditValue !== editToCommit.value ||
-      (currentCell && currentRaw.length === 0 && editToCommit.value.length === 0)
+      currentEditValue !== session.draft
+      || (currentCell && currentRaw.length === 0 && session.draft.length === 0)
     ) {
-      commands.updateCellContent(editToCommit.sheetId, editToCommit.cellKey, editToCommit.value);
+      commands.updateCellContent(session.target.sheetId, key, session.draft);
     }
-    setEditingCell(null);
   }
 
-  function startEditingCell(selection: ActiveCellSelection, initialValue?: string) {
-    const sheet = findSheetById(workbook, selection.sheetId);
-    const cell = sheet && cellRawContent(sheet, selection.cellKey);
-    const value = initialValue ?? (cell ? formulaRawForDisplay(cell, workbook) : '');
+  function commitActiveEdit(session = state.editing) {
+    commitSession(session);
+    dispatch({ type: 'commit' });
+  }
 
-    setActiveCell(selection);
-    setEditingCell({
-      ...selection,
-      value,
+  function startEditingCell(target: CellTarget, initialValue?: string) {
+    const sheet = findSheetById(workbook, target.sheetId);
+    const key = sheet && cellKeyForTarget(sheet, target);
+    if (!sheet || !key) return;
+    const raw = cellRawContent(sheet, key);
+    dispatch({
+      type: 'start-edit',
+      session: {
+        target,
+        draft: initialValue ?? (raw ? formulaRawForDisplay(raw, workbook) : ''),
+      },
     });
   }
 
-  function cancelActiveEdit() {
-    if (editingCell) {
-      setKeyboardFocusTarget({ sheetId: editingCell.sheetId, cellKey: editingCell.cellKey });
+  function clearCellContent(target: CellTarget) {
+    dispatch({ type: 'clear', target });
+    const sheet = findSheetById(workbook, target.sheetId);
+    const key = sheet && cellKeyForTarget(sheet, target);
+    if (sheet && key && cellRawContent(sheet, key)) {
+      commands.updateCellContent(target.sheetId, key, '');
     }
-    setEditingCell(null);
   }
 
-  function clearCellContent(selection: ActiveCellSelection) {
-    setActiveCell(selection);
-    setKeyboardFocusTarget(selection);
-    setEditingCell(null);
-
-    const sheet = findSheetById(workbook, selection.sheetId);
-    if (!sheet || !cellRawContent(sheet, selection.cellKey)) {
-      return;
-    }
-
-    commands.updateCellContent(selection.sheetId, selection.cellKey, '');
-  }
-
-  function selectCell(selection: ActiveCellSelection) {
-    if (selection.sheetId !== activeCell?.sheetId || selection.cellKey !== activeCell.cellKey) {
-      tabRunOriginColumn.current = null;
-    }
-    setKeyboardFocusTarget(null);
-    setActiveCell(selection);
-  }
-
-  function selectReferenceTarget(selection: ActiveCellSelection) {
-    tabRunOriginColumn.current = null;
-    setEditingCell(null);
-    setActiveCell(selection);
-    setKeyboardFocusTarget(selection);
-  }
-
-  function navigateCell(sheet: SheetTabularProjection, currentCellKey: string, direction: CellNavigationDirection) {
-    const parsedAddress = parseA1Address(currentCellKey, sheetBounds(sheet));
-    if (!parsedAddress.ok) {
-      return;
-    }
-
-    const directionDelta = {
+  function navigateCell(target: CellTarget, direction: CellNavigationDirection) {
+    const sheet = findSheetById(workbook, target.sheetId);
+    if (!sheet) return;
+    const delta = {
       left: { columnIndex: -1, rowIndex: 0 },
       right: { columnIndex: 1, rowIndex: 0 },
       up: { columnIndex: 0, rowIndex: -1 },
       down: { columnIndex: 0, rowIndex: 1 },
     } satisfies Record<CellNavigationDirection, { columnIndex: number; rowIndex: number }>;
-    const nextAddress = clampedCellAddress(sheet, parsedAddress.value, directionDelta[direction]);
-
-    tabRunOriginColumn.current = null;
-    const nextSelection = { sheetId: sheet.id, cellKey: cellKey(nextAddress) };
-    setActiveCell(nextSelection);
-    setKeyboardFocusTarget(nextSelection);
+    const next = adjacentTarget(sheet, target, delta[direction]);
+    if (next) dispatch({ type: 'navigate', target: next });
   }
 
-  function commitEditAndNavigate(editToCommit: EditingCell, direction: 'tab' | 'enter') {
-    const sheet = findSheetById(workbook, editToCommit.sheetId);
-    if (!sheet) {
-      commitActiveEdit(editToCommit);
+  function commitEditAndNavigate(session: CellEditSession, direction: 'tab' | 'enter') {
+    const sheet = findSheetById(workbook, session.target.sheetId);
+    const address = sheet && cellAddressOf(sheet.content, session.target.cell);
+    if (!sheet || !address) {
+      commitActiveEdit(session);
       return;
     }
-
-    const parsedAddress = parseA1Address(editToCommit.cellKey, sheetBounds(sheet));
-    if (!parsedAddress.ok) {
-      commitActiveEdit(editToCommit);
-      return;
-    }
-
-    commitActiveEdit(editToCommit);
+    commitSession(session);
 
     if (direction === 'tab') {
-      if (tabRunOriginColumn.current === null) {
-        tabRunOriginColumn.current = parsedAddress.value.columnIndex;
+      const next = adjacentTarget(sheet, session.target, { columnIndex: 1, rowIndex: 0 });
+      if (next) {
+        dispatch({
+          type: 'commit-tab',
+          target: next,
+          originColumnId: state.tabRunOriginColumnId ?? session.target.cell.columnId,
+        });
       }
-
-      const nextAddress = clampedCellAddress(sheet, parsedAddress.value, { columnIndex: 1, rowIndex: 0 });
-      const nextSelection = { sheetId: sheet.id, cellKey: cellKey(nextAddress) };
-      setActiveCell(nextSelection);
-      setKeyboardFocusTarget(nextSelection);
       return;
     }
 
-    const originColumn = tabRunOriginColumn.current ?? parsedAddress.value.columnIndex;
-    const nextAddress = clampedCellAddress(
-      sheet,
-      {
-        columnIndex: originColumn,
-        rowIndex: parsedAddress.value.rowIndex,
-      },
-      { columnIndex: 0, rowIndex: 1 },
-    );
-
-    tabRunOriginColumn.current = null;
-    const nextSelection = { sheetId: sheet.id, cellKey: cellKey(nextAddress) };
-    setActiveCell(nextSelection);
-    setKeyboardFocusTarget(nextSelection);
-  }
-
-  function updateEditingCellValue(value: string) {
-    setEditingCell((currentEditingCell) =>
-      currentEditingCell ? { ...currentEditingCell, value } : currentEditingCell,
-    );
+    const originColumnId = state.tabRunOriginColumnId ?? session.target.cell.columnId;
+    const originColumnIndex = sheet.content.columns.indexOf(originColumnId);
+    const originTarget = originColumnIndex < 0
+      ? session.target
+      : {
+          sheetId: sheet.id,
+          cell: {
+            rowId: session.target.cell.rowId,
+            columnId: sheet.content.columns[originColumnIndex],
+          },
+        };
+    const next = adjacentTarget(sheet, originTarget, { columnIndex: 0, rowIndex: 1 });
+    if (next) dispatch({ type: 'commit-enter', target: next });
   }
 
   return {
-    activeCell,
-    cancelActiveEdit,
+    activeCell: state.selection,
+    cancelActiveEdit: () => dispatch({ type: 'cancel' }),
     clearCellContent,
     commitActiveEdit,
     commitEditAndNavigate,
-    editingCell,
-    keyboardFocusTarget,
+    editingCell: state.editing,
+    keyboardFocusTarget: state.focusRequest,
     navigateCell,
-    selectCell,
-    selectReferenceTarget,
+    referenceSelection: state.referenceSelection,
+    selectCell: (target: CellTarget) => dispatch({ type: 'select', target }),
+    selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,
-    updateEditingCellValue,
+    updateEditingCellValue: (draft: string) => dispatch({ type: 'update-draft', draft }),
   };
 }

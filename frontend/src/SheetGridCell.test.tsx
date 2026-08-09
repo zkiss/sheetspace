@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSheet, tabularProjection } from './workbook';
 import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from './SheetGridCell';
-import type { EditingCell } from './appTypes';
+import type { CellEditSession } from './appTypes';
+import { cellTargetAt } from './cellInteraction';
 
 afterEach(() => {
   cleanup();
@@ -57,23 +58,24 @@ describe('SheetGridCell', () => {
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
 
     fireEvent.click(cell);
-    expect(props.onSelectCell).toHaveBeenCalledWith({ sheetId: 'sheet-inputs', cellKey: 'A1' });
+    const target = cellTargetAt(props.sheet, 'A1');
+    expect(props.onSelectCell).toHaveBeenCalledWith(target);
 
     fireEvent.doubleClick(cell);
-    expect(props.onStartEdit).toHaveBeenCalledWith({ sheetId: 'sheet-inputs', cellKey: 'A1' });
+    expect(props.onStartEdit).toHaveBeenCalledWith(target);
 
     fireEvent.keyDown(cell, { key: 'ArrowRight' });
-    expect(props.onNavigateCell).toHaveBeenCalledWith(props.sheet, 'A1', 'right');
+    expect(props.onNavigateCell).toHaveBeenCalledWith(target, 'right');
 
     fireEvent.keyDown(cell, { key: 'Backspace' });
-    expect(props.onClearCell).toHaveBeenCalledWith({ sheetId: 'sheet-inputs', cellKey: 'A1' });
+    expect(props.onClearCell).toHaveBeenCalledWith(target);
   });
 
   it('renders the editor and commits or cancels editor keyboard actions', () => {
-    const editingCell: EditingCell = {
-      sheetId: 'sheet-inputs',
-      cellKey: 'A1',
-      value: 'Draft',
+    const sheet = testSheet();
+    const editingCell: CellEditSession = {
+      target: cellTargetAt(sheet, 'A1')!,
+      draft: 'Draft',
     };
     const props = renderCell({ editingCell, isEditing: true });
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
@@ -81,9 +83,12 @@ describe('SheetGridCell', () => {
     fireEvent.change(editor, { target: { value: 'Updated' } });
     expect(props.onEditValueChange).toHaveBeenCalledWith('Updated');
 
+    fireEvent.blur(editor, { target: { value: 'Updated' } });
+    expect(props.onCommitEdit).toHaveBeenCalledWith({ ...editingCell, draft: 'Updated' });
+
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(props.onCommitEditAndNavigate).toHaveBeenCalledWith(
-      editingCell,
+      { ...editingCell, draft: 'Updated' },
       'enter',
     );
 
@@ -92,10 +97,10 @@ describe('SheetGridCell', () => {
   });
 
   it('anchors multiline editor sizing to the cell with documented maximum dimensions', () => {
-    const editingCell: EditingCell = {
-      sheetId: 'sheet-inputs',
-      cellKey: 'A1',
-      value: '=SUM(\n  B1,\n  B2,\n  B3,\n  B4,\n  B5,\n  B6,\n  B7,\n  B8,\n  B9\n)',
+    const sheet = testSheet();
+    const editingCell: CellEditSession = {
+      target: cellTargetAt(sheet, 'A1')!,
+      draft: '=SUM(\n  B1,\n  B2,\n  B3,\n  B4,\n  B5,\n  B6,\n  B7,\n  B8,\n  B9\n)',
     };
 
     renderCell({ editingCell, isEditing: true });
