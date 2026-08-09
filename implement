@@ -1,6 +1,10 @@
 #!/bin/sh
 set -u
 
+script_dir="$(CDPATH= cd "$(dirname "$0")" && pwd -P)" || exit 1
+repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)" || exit 1
+gradle_root="${GRADLE_USER_HOME:-$HOME/.gradle}"
+
 log="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.jsonl")"
 last="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.last")"
 error="$(mktemp "${TMPDIR:-/tmp}/codex-implement.XXXXXX.error")"
@@ -10,16 +14,26 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-codex exec \
+set -- exec \
   --model "gpt-5.6-sol" \
   --config model_reasoning_effort=medium \
-  --config approval_policy=on-request \
+  --config 'approval_policy="never"' \
+  --config 'default_permissions="sheetspace-implement"' \
+  --config 'permissions.sheetspace-implement.filesystem={":root"="deny",":minimal"="read",":tmpdir"="write",":slash_tmp"="write","~/.gitconfig"="read","~/.ssh/config"="read","~/.ssh/known_hosts"="read",":workspace_roots"={"."="write",".agents"="read",".codex"="read"}}' \
+  --config 'permissions.sheetspace-implement.network.enabled=true' \
   --json \
   --output-last-message "$last" \
-  --sandbox workspace-write \
-  --add-dir ~/.gradle \
-  --add-dir `pwd -P` \
-  "Do next bead. Subagents allowed. Caveman ultra." >"$log" 2>"$error" &
+  --add-dir "$gradle_root" \
+  --cd "$repo_root"
+
+if [ -n "${SSH_AUTH_SOCK:-}" ]; then
+  set -- "$@" \
+    --config "permissions.sheetspace-implement.network.unix_sockets={\"$SSH_AUTH_SOCK\"=\"allow\"}"
+fi
+
+set -- "$@" "Do next bead. Subagents allowed. Caveman ultra."
+
+codex "$@" >"$log" 2>"$error" &
 codex_pid=$!
 
 session_id=
