@@ -42,6 +42,10 @@ application {
     mainClass.set("com.sheetspace.MainKt")
 }
 
+sourceSets.test {
+    resources.srcDir(file("../test-fixtures"))
+}
+
 tasks.test {
     useJUnitPlatform()
     finalizedBy(tasks.jacocoTestReport)

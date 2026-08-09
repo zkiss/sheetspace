@@ -27,7 +27,7 @@ class SqliteWorkbookStoreRevisionTest {
         gate.countDown()
         workers.forEach { it.join() }
 
-        val sheets = store.loadWorkbook().sheetsInOrder
+        val sheets = store.loadWorkbookBundle().sheetsInOrder
         assertEquals(setOf(TEST_SHEET_1, TEST_SHEET_2), sheets.map { it.id.value }.toSet())
         assertEquals(setOf(1, 2), sheets.map { it.frame.zIndex }.toSet())
     }
@@ -55,7 +55,7 @@ class SqliteWorkbookStoreRevisionTest {
         assertEquals(1, conflict.actualRevision)
         assertEquals(
             "newer value",
-            store.loadWorkbook().sheetsInOrder.single().tabularContent.cells.getValue("A1"),
+            store.loadWorkbookBundle().sheetsInOrder.single().tabularContent.cells.getValue("A1"),
         )
     }
 
@@ -85,7 +85,7 @@ class SqliteWorkbookStoreRevisionTest {
         workers.forEach { it.join() }
 
         assertEquals(listOf("conflict", "saved"), outcomes.sorted())
-        assertEquals(1, store.loadWorkbook().sheetsInOrder.single().revision)
+        assertEquals(1, store.loadWorkbookBundle().sheetsInOrder.single().revision)
     }
 
     @Test

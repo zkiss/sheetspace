@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 class SqliteWorkbookStoreSchemaTest {
     @Test
     fun `loads an empty workbook from an isolated in-memory database`() = withSqliteStore { store ->
-        assertEquals(emptyWorkbookState(), store.loadWorkbook())
+        assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
         assertEquals(WORKBOOK_SCHEMA_VERSION, store.loadStoredSchemaVersion())
     }
 

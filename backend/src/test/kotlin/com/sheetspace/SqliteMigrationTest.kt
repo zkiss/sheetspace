@@ -9,7 +9,7 @@ class SqliteMigrationTest {
     @Test
     fun `fresh database uses one normalized reset baseline`() {
         SqliteWorkbookStore.inMemory().use { store ->
-            assertEquals(emptyWorkbookState(), store.loadWorkbook())
+            assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
             assertEquals(WORKBOOK_SCHEMA_VERSION, store.loadStoredSchemaVersion())
 
             DriverManager.getConnection(store.jdbcUrl).use { connection ->

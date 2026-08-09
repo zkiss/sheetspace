@@ -18,6 +18,52 @@ class SqliteWorkbookStoreAggregateTest {
     }
 
     @Test
+    fun `targeted read queries and decodes only the requested sheet aggregate`() {
+        val readEvents = mutableListOf<SheetReadEvent>()
+        SqliteWorkbookStore.inMemory(readEvents::add).use { store ->
+            val documents = mediumDocuments(6)
+            store.saveWorkbook(testWorkbookOf(*documents.toTypedArray()))
+            val target = documents[3]
+
+            readEvents.clear()
+            assertEquals(target, store.loadSheet(target.id))
+
+            assertEquals(
+                mapOf(
+                    SheetReadPart.DOCUMENT to 1,
+                    SheetReadPart.ROW to DEFAULT_ROW_COUNT,
+                    SheetReadPart.COLUMN to DEFAULT_COLUMN_COUNT,
+                    SheetReadPart.CELL to DEFAULT_ROW_COUNT * DEFAULT_COLUMN_COUNT,
+                ),
+                readEvents.groupingBy { it.part }.eachCount(),
+            )
+            assertTrue(readEvents.all { it.requestedSheetId == target.id })
+            assertTrue(readEvents.all { it.returnedSheetId == target.id })
+        }
+    }
+
+    @Test
+    fun `medium bundle decodes populated sheet data once in linear work`() {
+        val readEvents = mutableListOf<SheetReadEvent>()
+        SqliteWorkbookStore.inMemory(readEvents::add).use { store ->
+            val documents = mediumDocuments(25)
+            store.saveWorkbook(testWorkbookOf(*documents.toTypedArray()))
+
+            readEvents.clear()
+            assertEquals(documents, store.loadWorkbookBundle().sheetsInOrder)
+
+            val eventsPerSheet = 1 + DEFAULT_ROW_COUNT + DEFAULT_COLUMN_COUNT +
+                DEFAULT_ROW_COUNT * DEFAULT_COLUMN_COUNT
+            assertEquals(documents.size * eventsPerSheet, readEvents.size)
+            assertEquals(
+                documents.associate { it.id to eventsPerSheet },
+                readEvents.groupingBy { it.requestedSheetId }.eachCount(),
+            )
+            assertTrue(readEvents.all { it.requestedSheetId == it.returnedSheetId })
+        }
+    }
+
+    @Test
     fun `aggregate read stays on one snapshot during concurrent membership change`() {
         val database = Files.createTempFile("sheetspace-snapshot-", ".db")
         try {
@@ -44,7 +90,7 @@ class SqliteWorkbookStoreAggregateTest {
                     val failure = AtomicReference<Throwable>()
                     val read = thread {
                         try {
-                            loaded.set(reader.loadWorkbook())
+                            loaded.set(reader.loadWorkbookBundle())
                         } catch (exception: Throwable) {
                             failure.set(exception)
                         }
@@ -62,7 +108,7 @@ class SqliteWorkbookStoreAggregateTest {
 
                     assertNull(failure.get())
                     assertEquals(initial, loaded.get())
-                    assertTrue(writer.loadWorkbook().sheetsInOrder.isEmpty())
+                    assertTrue(writer.loadWorkbookBundle().sheetsInOrder.isEmpty())
                 }
             }
         } finally {
@@ -93,7 +139,7 @@ class SqliteWorkbookStoreAggregateTest {
 
             store.saveWorkbook(workbook)
 
-            assertEquals(workbook, store.loadWorkbook())
+            assertEquals(workbook, store.loadWorkbookBundle())
             assertEquals(sheet.tabularContent.rows, store.loadSheet(sheet.id)!!.tabularContent.rows)
             assertEquals(sheet.tabularContent.columns, store.loadSheet(sheet.id)!!.tabularContent.columns)
         }
@@ -107,7 +153,7 @@ class SqliteWorkbookStoreAggregateTest {
         val renamed = second.rename("Renamed Outputs")
         store.saveWorkbook(testWorkbookOf(renamed))
 
-        assertEquals(listOf(renamed), store.loadWorkbook().sheetsInOrder)
+        assertEquals(listOf(renamed), store.loadWorkbookBundle().sheetsInOrder)
     }
 
     @Test
@@ -130,5 +176,20 @@ class SqliteWorkbookStoreAggregateTest {
             listOf(CellWrite(coordinate, "42")),
         )
         assertEquals(9, store.loadManifest().revision)
+    }
+}
+
+private fun mediumDocuments(count: Int): List<SheetDocument> {
+    val populatedCells = (1..DEFAULT_ROW_COUNT).flatMap { row ->
+        (0 until DEFAULT_COLUMN_COUNT).map { column ->
+            "${'A' + column}$row" to "$row:$column"
+        }
+    }.toMap()
+    return (1..count).map { index ->
+        testDocument(
+            id = "00000000-0000-4000-8000-${index.toString().padStart(12, '0')}",
+            name = "Sheet $index",
+            tabular = TabularContent(cells = populatedCells),
+        )
     }
 }

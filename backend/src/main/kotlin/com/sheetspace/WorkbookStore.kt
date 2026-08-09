@@ -21,7 +21,7 @@ interface WorkbookStore {
 
     fun loadSheet(sheetId: SheetId): SheetDocument?
 
-    fun loadWorkbook(): WorkbookState
+    fun loadWorkbookBundle(): WorkbookState
 
     fun saveWorkbook(workbook: WorkbookState)
 

@@ -30,7 +30,9 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
-    fun loadWorkbook(): WorkbookState
+    fun loadManifest(): WorkbookManifest
+
+    fun loadWorkbookBundle(): WorkbookState
 
     fun loadSheet(sheetId: String): SheetDocument
 
@@ -50,7 +52,9 @@ interface WorkbookApplication {
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
 ) : WorkbookApplication {
-    override fun loadWorkbook(): WorkbookState = store.loadWorkbook()
+    override fun loadManifest(): WorkbookManifest = store.loadManifest()
+
+    override fun loadWorkbookBundle(): WorkbookState = store.loadWorkbookBundle()
 
     override fun loadSheet(sheetId: String): SheetDocument =
         store.loadSheet(SheetId(sheetId))

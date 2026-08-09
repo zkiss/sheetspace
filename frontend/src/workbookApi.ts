@@ -1,12 +1,42 @@
 import type { CellKey, Sheet, SheetFrameSize, Workbook, WorkspacePosition } from './workbook';
+import { cellKey } from './cellAddress';
 
 type ApiErrorBody = {
   error?: string;
 };
 
-type WorkbookSummary = {
+export type WorkbookManifestResponse = {
   version: Workbook['version'];
+  revision: number;
   sheetIds: string[];
+};
+
+export type CellContentResponse = {
+  rowId: string;
+  columnId: string;
+  content: string;
+};
+
+export type SheetDocumentResponse = {
+  id: string;
+  revision: number;
+  name: string;
+  frame: {
+    position: WorkspacePosition;
+    size: SheetFrameSize;
+    zIndex: number;
+  };
+  content: {
+    kind: 'tabular';
+    rows: string[];
+    columns: string[];
+    cells: CellContentResponse[];
+  };
+};
+
+export type WorkbookBundleResponse = {
+  manifest: WorkbookManifestResponse;
+  documents: SheetDocumentResponse[];
 };
 
 export type SheetRevisionResponse = {
@@ -90,16 +120,11 @@ function encodePathSegment(value: string): string {
 
 export const workbookApi = {
   loadWorkbook(): Promise<Workbook> {
-    return requestJson<WorkbookSummary>('/api/workbook').then(async (summary) => ({
-      version: summary.version,
-      sheets: await Promise.all(
-        summary.sheetIds.map((sheetId) => requestJson<Sheet>(`/api/sheets/${encodePathSegment(sheetId)}`)),
-      ),
-    }));
+    return requestJson<WorkbookBundleResponse>('/api/workbook/bundle').then(toLegacyWorkbook);
   },
 
   loadSheet(sheetId: string): Promise<Sheet> {
-    return requestJson<Sheet>(`/api/sheets/${encodePathSegment(sheetId)}`);
+    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}`).then(toLegacySheet);
   },
 
   createSheet(
@@ -197,4 +222,70 @@ export type WorkbookApi = typeof workbookApi;
 
 function revisionHeaders(options: RevisionedMutationOptions): HeadersInit {
   return options.revision === undefined ? {} : { 'If-Match': String(options.revision) };
+}
+
+function toLegacyWorkbook(bundle: WorkbookBundleResponse): Workbook {
+  const documents = new Map<string, SheetDocumentResponse>();
+  for (const document of bundle.documents) {
+    if (documents.has(document.id)) invalidReadContract(`duplicate sheet document ${document.id}`);
+    documents.set(document.id, document);
+  }
+
+  if (new Set(bundle.manifest.sheetIds).size !== bundle.manifest.sheetIds.length) {
+    invalidReadContract('duplicate manifest sheet id');
+  }
+  if (documents.size !== bundle.manifest.sheetIds.length) {
+    invalidReadContract('manifest membership does not match sheet documents');
+  }
+
+  return {
+    version: bundle.manifest.version,
+    sheets: bundle.manifest.sheetIds.map((sheetId) => {
+      const document = documents.get(sheetId);
+      if (!document) invalidReadContract(`missing sheet document ${sheetId}`);
+      return toLegacySheet(document);
+    }),
+  };
+}
+
+function toLegacySheet(document: SheetDocumentResponse): Sheet {
+  if (document.content.kind !== 'tabular') invalidReadContract(`unsupported sheet content ${document.content.kind}`);
+  const rowIndices = uniqueIndices(document.content.rows, 'row');
+  const columnIndices = uniqueIndices(document.content.columns, 'column');
+  const cells: Record<CellKey, string> = {};
+
+  for (const cell of document.content.cells) {
+    const rowIndex = rowIndices.get(cell.rowId);
+    const columnIndex = columnIndices.get(cell.columnId);
+    if (rowIndex === undefined || columnIndex === undefined) {
+      invalidReadContract(`cell coordinate does not belong to sheet ${document.id}`);
+    }
+    const address = cellKey({ rowIndex, columnIndex });
+    if (Object.prototype.hasOwnProperty.call(cells, address)) {
+      invalidReadContract(`duplicate cell coordinate ${address}`);
+    }
+    cells[address] = cell.content;
+  }
+
+  return {
+    id: document.id,
+    name: document.name,
+    revision: document.revision,
+    position: document.frame.position,
+    frameSize: document.frame.size,
+    zIndex: document.frame.zIndex,
+    columnCount: document.content.columns.length,
+    rowCount: document.content.rows.length,
+    cells,
+  };
+}
+
+function uniqueIndices(ids: string[], label: string): Map<string, number> {
+  const indices = new Map(ids.map((id, index) => [id, index]));
+  if (indices.size !== ids.length) invalidReadContract(`duplicate ${label} id`);
+  return indices;
+}
+
+function invalidReadContract(detail: string): never {
+  throw new WorkbookApiError(`Invalid workbook read contract: ${detail}.`, undefined, 'invalid-workbook-read-contract');
 }

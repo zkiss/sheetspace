@@ -20,12 +20,6 @@ data class Workbook(
     val sheets: List<Sheet> = emptyList(),
 )
 
-@Serializable
-data class WorkbookSummary(
-    val version: Int = WORKBOOK_SCHEMA_VERSION,
-    val sheetIds: List<String> = emptyList(),
-)
-
 /**
  * Compatibility response model for the current flat sheet JSON contract.
  *
@@ -62,17 +56,4 @@ internal object LegacyFlatSheetTransportAdapter {
             cells = tabular.cells,
         )
     }
-}
-
-/**
- * Compatibility adapter for GET /api/workbook.
- *
- * Removed by sheetspace-z5q.7 when the startup workbook bundle exposes the
- * manifest contract directly.
- */
-internal object LegacyWorkbookSummaryTransportAdapter {
-    fun toTransport(manifest: WorkbookManifest): WorkbookSummary = WorkbookSummary(
-        version = manifest.version,
-        sheetIds = manifest.sheetIds.map { it.value },
-    )
 }
