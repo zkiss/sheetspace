@@ -1,20 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { createSheet, type FormulaEvaluationSnapshot } from './workbook';
+import { tabularProjection, type FormulaEvaluationSnapshot } from './workbook';
 import { getSheetCellDisplayText, gridCellKeyboardAction } from './sheetGridModel';
+import { sheetDocument } from './test/workbookFactories';
 
 function testSheet() {
-  const result = createSheet({ id: 'sheet-inputs', name: 'Inputs' });
-  if (!result.ok) {
-    throw new Error('Failed to create test sheet');
-  }
-
-  return {
-    ...result.value,
+  return tabularProjection(sheetDocument({
+    id: 'sheet-inputs',
+    name: 'Inputs',
     cells: {
       A1: 'Raw value',
       B1: '=SUM(A1)',
     },
-  };
+  }));
 }
 
 describe('sheet grid model', () => {

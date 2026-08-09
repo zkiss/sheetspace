@@ -1,55 +1,43 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import workbookReadContract from '../../test-fixtures/workbook-read-contract.json';
-import { workbookApi, WorkbookApiError, type WorkbookBundleResponse } from './workbookApi';
-import type { Workbook } from './workbook';
+import { cellIdentityKey, cellRawContent, sheetsInOrder, type SheetDocument } from './workbook';
+import {
+  decodeSheetDocument,
+  decodeWorkbookBundle,
+  workbookApi,
+  WorkbookApiError,
+  type SheetDocumentResponse,
+  type WorkbookBundleResponse,
+} from './workbookApi';
 
 const contractFixture = workbookReadContract as WorkbookBundleResponse;
-const fixtureWorkbook: Workbook = {
-  version: 1,
-  sheets: [
-    {
-      id: '00000000-0000-0000-0000-000000000002',
-      name: 'Outputs',
-      revision: 4,
-      position: { x: 420, y: 260 },
-      frameSize: { width: 300, height: 180 },
-      zIndex: 2,
-      columnCount: 1,
-      rowCount: 1,
-      cells: { A1: '=SUM(00000000-0000-0000-0000-000000000001!A1:B2)' },
-    },
-    {
-      id: '00000000-0000-0000-0000-000000000001',
-      name: 'Inputs',
-      revision: 3,
-      position: { x: 12.5, y: -8.25 },
-      frameSize: { width: 360, height: 240 },
-      zIndex: 1,
-      columnCount: 2,
-      rowCount: 2,
-      cells: { A1: 'Region', B1: '10', B2: '5' },
-    },
-  ],
-};
+const inputsResponse = contractFixture.documents[1];
+const outputsResponse = contractFixture.documents[0];
 
-const workbook: Workbook = {
-  version: 1,
-  sheets: [
-    {
-      id: 'sheet-1',
-      name: 'Inputs',
-      revision: 0,
-      position: { x: 12, y: 24 },
-      frameSize: { width: 240, height: 160 },
-      zIndex: 1,
-      columnCount: 10,
-      rowCount: 20,
-      cells: {
-        A1: '42',
-      },
+function expectedDocument(response: SheetDocumentResponse): SheetDocument {
+  return {
+    id: response.id,
+    name: response.name,
+    revision: response.revision,
+    frame: {
+      position: { ...response.frame.position },
+      size: { ...response.frame.size },
+      zIndex: response.frame.zIndex,
     },
-  ],
-};
+    content: {
+      kind: 'tabular',
+      rows: [...response.content.rows],
+      columns: [...response.content.columns],
+      cells: Object.fromEntries(response.content.cells.map((cell) => [
+        cellIdentityKey({ rowId: cell.rowId, columnId: cell.columnId }),
+        cell.content,
+      ])),
+    },
+  };
+}
+
+const inputsDocument = expectedDocument(inputsResponse);
+const outputsDocument = expectedDocument(outputsResponse);
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(body), {
@@ -65,81 +53,125 @@ function mockFetch(body: unknown, init?: ResponseInit) {
   return fetchMock;
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+afterEach(() => vi.unstubAllGlobals());
 
-describe('workbookApi', () => {
-  it('loads the current workbook', async () => {
+describe('workbook API read decoding', () => {
+  it('loads manifest and stable sheet documents in manifest order', async () => {
     const fetchMock = mockFetch(contractFixture);
+    const workbook = await workbookApi.loadWorkbook();
 
-    await expect(workbookApi.loadWorkbook()).resolves.toEqual(fixtureWorkbook);
-
+    expect(workbook).toEqual({
+      manifest: {
+        version: 1,
+        revision: 7,
+        sheetIds: [outputsDocument.id, inputsDocument.id],
+      },
+      documents: {
+        [outputsDocument.id]: outputsDocument,
+        [inputsDocument.id]: inputsDocument,
+      },
+    });
+    expect(sheetsInOrder(workbook).map((sheet) => sheet.name)).toEqual(['Outputs', 'Inputs']);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith('/api/workbook/bundle', { headers: {} });
   });
 
-  it('loads one sheet by id', async () => {
-    const fetchMock = mockFetch(contractFixture.documents[1]);
+  it('preserves row, column, and cell identity while projecting A1 from order', () => {
+    const document = decodeSheetDocument(inputsResponse);
 
-    await expect(workbookApi.loadSheet('sheet 1')).resolves.toEqual(fixtureWorkbook.sheets[1]);
+    expect(document.content.rows).toEqual(inputsResponse.content.rows);
+    expect(document.content.columns).toEqual(inputsResponse.content.columns);
+    expect(Object.keys(document.content.cells)).toContain(cellIdentityKey({
+      rowId: inputsResponse.content.rows[1],
+      columnId: inputsResponse.content.columns[1],
+    }));
+    expect(cellRawContent(document, 'A1')).toBe('Region');
+    expect(cellRawContent(document, 'B2')).toBe('5');
+  });
 
+  it('loads one stable sheet document by encoded id', async () => {
+    const fetchMock = mockFetch(inputsResponse);
+    await expect(workbookApi.loadSheet('sheet 1')).resolves.toEqual(inputsDocument);
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', { headers: {} });
   });
 
-  it('loads a medium workbook with one request and linear document projection', async () => {
+  it('loads a medium bundle with one request and complete membership', async () => {
     const documents = Array.from({ length: 30 }, (_, index) => ({
-      ...contractFixture.documents[0],
+      ...outputsResponse,
       id: `sheet-${index}`,
       name: `Sheet ${index}`,
     }));
-    const fetchMock = mockFetch({
-      manifest: {
-        ...contractFixture.manifest,
-        sheetIds: documents.map((document) => document.id),
-      },
+    mockFetch({
+      manifest: { ...contractFixture.manifest, sheetIds: documents.map((document) => document.id) },
       documents,
     });
 
-    await expect(workbookApi.loadWorkbook()).resolves.toMatchObject({
-      sheets: documents.map((document) => ({ id: document.id, name: document.name })),
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const workbook = await workbookApi.loadWorkbook();
+    expect(workbook.manifest.sheetIds).toEqual(documents.map((document) => document.id));
+    expect(Object.keys(workbook.documents)).toHaveLength(30);
   });
 
-  it('rejects bundle membership mismatches', async () => {
-    mockFetch({ ...contractFixture, documents: contractFixture.documents.slice(0, 1) });
-
-    await expect(workbookApi.loadWorkbook()).rejects.toMatchObject({
-      code: 'invalid-workbook-read-contract',
-    });
+  it.each([
+    ['duplicate manifest id', {
+      ...contractFixture,
+      manifest: { ...contractFixture.manifest, sheetIds: [inputsResponse.id, inputsResponse.id] },
+    }],
+    ['duplicate document id', {
+      ...contractFixture,
+      documents: [inputsResponse, inputsResponse],
+      manifest: { ...contractFixture.manifest, sheetIds: [inputsResponse.id, outputsResponse.id] },
+    }],
+    ['missing document', { ...contractFixture, documents: contractFixture.documents.slice(0, 1) }],
+    ['unsupported version', {
+      ...contractFixture,
+      manifest: { ...contractFixture.manifest, version: 2 },
+    }],
+  ])('rejects %s bundle contracts', (_label, payload) => {
+    expect(() => decodeWorkbookBundle(payload as WorkbookBundleResponse)).toThrowError(
+      expect.objectContaining({ code: 'invalid-workbook-read-contract' }),
+    );
   });
 
-  it('creates sheets through the backend mutation endpoint', async () => {
-    const fetchMock = mockFetch(workbook.sheets[0]);
-
-    await expect(
-      workbookApi.createSheet({ name: 'Inputs', position: { x: 12, y: 24 } }),
-    ).resolves.toEqual(workbook.sheets[0]);
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
-      method: 'POST',
-      body: JSON.stringify({ name: 'Inputs', position: { x: 12, y: 24 } }),
-      headers: { 'Content-Type': 'application/json' },
-    });
+  it.each([
+    ['duplicate row id', {
+      ...inputsResponse,
+      content: { ...inputsResponse.content, rows: [inputsResponse.content.rows[0], inputsResponse.content.rows[0]] },
+    }],
+    ['duplicate column id', {
+      ...inputsResponse,
+      content: { ...inputsResponse.content, columns: [inputsResponse.content.columns[0], inputsResponse.content.columns[0]] },
+    }],
+    ['dangling cell identity', {
+      ...inputsResponse,
+      content: {
+        ...inputsResponse.content,
+        cells: [{ rowId: 'missing-row', columnId: inputsResponse.content.columns[0], content: 'x' }],
+      },
+    }],
+    ['duplicate cell identity', {
+      ...inputsResponse,
+      content: {
+        ...inputsResponse.content,
+        cells: [inputsResponse.content.cells[0], inputsResponse.content.cells[0]],
+      },
+    }],
+  ])('rejects %s sheet contracts', (_label, payload) => {
+    expect(() => decodeSheetDocument(payload as SheetDocumentResponse)).toThrowError(
+      expect.objectContaining({ code: 'invalid-workbook-read-contract' }),
+    );
   });
+});
 
-  it('keeps local-only sheet fields out of the sheet creation request body', async () => {
-    const fetchMock = mockFetch(workbook.sheets[0]);
+describe('workbook API mutations', () => {
+  it('creates sheets from focused frame input and decodes returned stable document', async () => {
+    const fetchMock = mockFetch(inputsResponse);
 
-    await workbookApi.createSheet({
-      id: 'pending:local-only-id',
-      name: workbook.sheets[0].name,
-      position: workbook.sheets[0].position,
-      frameSize: workbook.sheets[0].frameSize,
-      zIndex: workbook.sheets[0].zIndex,
-    } as Parameters<typeof workbookApi.createSheet>[0]);
-
+    await expect(workbookApi.createSheet({
+      name: 'Inputs',
+      position: { x: 12, y: 24 },
+      frameSize: { width: 240, height: 160 },
+      zIndex: 1,
+    })).resolves.toEqual(inputsDocument);
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
       method: 'POST',
       body: JSON.stringify({
@@ -152,107 +184,74 @@ describe('workbookApi', () => {
     });
   });
 
-  it('exposes sheet rename position frame size and z-order update calls', async () => {
-    const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 1 });
+  it('keeps local-only identity and content out of creation requests', async () => {
+    const fetchMock = mockFetch(inputsResponse);
+    await workbookApi.createSheet({
+      id: 'pending:local-only-id',
+      name: 'Inputs',
+      position: { x: 12, y: 24 },
+      content: inputsDocument.content,
+    } as Parameters<typeof workbookApi.createSheet>[0]);
 
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Inputs', position: { x: 12, y: 24 } }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
+  it('exposes sheet metadata and frame update calls', async () => {
+    const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 1 });
     await workbookApi.renameSheet('sheet-1', 'Renamed');
     await workbookApi.updateSheetPosition('sheet-1', { x: 48, y: 96 });
     await workbookApi.updateSheetFrameSize('sheet-1', { width: 320, height: 220 });
     await workbookApi.updateSheetZIndex('sheet-1', 3);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet-1', {
-      method: 'PATCH',
-      body: JSON.stringify({ name: 'Renamed' }),
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH', body: JSON.stringify({ name: 'Renamed' }), headers: { 'Content-Type': 'application/json' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet-1', {
-      method: 'PATCH',
-      body: JSON.stringify({ position: { x: 48, y: 96 } }),
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH', body: JSON.stringify({ position: { x: 48, y: 96 } }), headers: { 'Content-Type': 'application/json' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sheets/sheet-1', {
-      method: 'PATCH',
-      body: JSON.stringify({ frameSize: { width: 320, height: 220 } }),
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH', body: JSON.stringify({ frameSize: { width: 320, height: 220 } }), headers: { 'Content-Type': 'application/json' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/sheets/sheet-1', {
-      method: 'PATCH',
-      body: JSON.stringify({ zIndex: 3 }),
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH', body: JSON.stringify({ zIndex: 3 }), headers: { 'Content-Type': 'application/json' },
     });
   });
 
-  it('deletes sheets through the backend mutation endpoint', async () => {
+  it('deletes sheets with encoded ids and revision tokens', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
-
     await workbookApi.deleteSheet('sheet 1', { revision: 3 });
-
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', {
-      method: 'DELETE',
-      headers: { 'If-Match': '3' },
+      method: 'DELETE', headers: { 'If-Match': '3' },
     });
   });
 
-  it('exposes cell content, row append, and column append update calls', async () => {
+  it('sends A1 cell content and structure mutations with revision tokens', async () => {
     const fetchMock = mockFetch({ sheetId: 'sheet 1', revision: 1, rowCount: 21, columnCount: 11 });
-
-    await workbookApi.updateCellContent('sheet 1', 'A1', '=SUM(B1:B2)');
-    await workbookApi.appendRow('sheet 1');
+    await workbookApi.updateCellContent('sheet 1', 'A1', '=SUM(B1:B2)', { revision: 7 });
+    await workbookApi.appendRow('sheet 1', { revision: 8 });
     await workbookApi.appendColumn('sheet 1');
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet%201/cells/A1', {
-      method: 'PUT',
-      body: JSON.stringify('=SUM(B1:B2)'),
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', body: JSON.stringify('=SUM(B1:B2)'),
+      headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet%201/rows', {
-      method: 'POST',
-      headers: {},
+      method: 'POST', headers: { 'If-Match': '8' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sheets/sheet%201/columns', {
-      method: 'POST',
-      headers: {},
+      method: 'POST', headers: {},
     });
   });
 
-  it('sends sheet revisions as optimistic lock tokens for revisioned mutations', async () => {
-    const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 1, rowCount: 21 });
-
-    await workbookApi.updateCellContent('sheet-1', 'A1', 'Value', { revision: 7 });
-    await workbookApi.appendRow('sheet-1', { revision: 8 });
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet-1/cells/A1', {
-      method: 'PUT',
-      body: JSON.stringify('Value'),
-      headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet-1/rows', {
-      method: 'POST',
-      headers: { 'If-Match': '8' },
-    });
-  });
-
-  it('sends canonical formula strings without reference metadata', async () => {
-    const fetchMock = mockFetch({ sheetId: 'sheet-2', revision: 1 });
-
-    await workbookApi.updateCellContent('sheet-2', 'A1', '=SUM(sheet-1!A1)', { revision: 7 });
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet-2/cells/A1', {
-      method: 'PUT',
-      body: JSON.stringify('=SUM(sheet-1!A1)'),
-      headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
-    });
-  });
-
-  it('throws testable API errors for failed backend responses', async () => {
-    mockFetch({ ok: false, error: 'sheet-not-found' }, { status: 404 });
-
+  it('throws testable API errors for failed responses', async () => {
+    mockFetch({ error: 'sheet-not-found' }, { status: 404 });
     await expect(workbookApi.appendRow('missing')).rejects.toMatchObject({
-      name: 'WorkbookApiError',
-      message: 'sheet-not-found',
-      status: 404,
-      code: 'sheet-not-found',
+      name: 'WorkbookApiError', message: 'sheet-not-found', status: 404, code: 'sheet-not-found',
     } satisfies Partial<WorkbookApiError>);
   });
 });

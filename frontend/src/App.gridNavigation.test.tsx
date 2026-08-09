@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { testRect } from './test/domGeometry';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('App grid rendering and navigation', () => {
   it('renders new sheets as default 10-column by 20-row grids without stored cells', () => {
@@ -14,18 +14,20 @@ describe('App grid rendering and navigation', () => {
     const frame = screen.getByTestId('sheet-frame');
     expect(frame).toHaveAttribute('data-column-count', '10');
     expect(frame).toHaveAttribute('data-row-count', '20');
-    expect(sheet.cells).toEqual({});
+    expect(sheet.content.cells).toEqual({});
     expect(within(frame).getAllByRole('columnheader')).toHaveLength(11);
     expect(within(frame).getAllByRole('rowheader')).toHaveLength(20);
     expect(within(frame).getAllByTestId('sheet-grid-cell')).toHaveLength(200);
   });
 
   it('renders spreadsheet row numbers and Excel-style column labels beyond Z', () => {
-    const sheet = {
-      ...positionedSheet('sheet-wide', 'Wide Sheet', { x: 0, y: 0 }),
+    const sheet = sheetDocument({
+      id: 'sheet-wide',
+      name: 'Wide Sheet',
+      position: { x: 0, y: 0 },
       columnCount: 28,
       rowCount: 3,
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 
@@ -59,11 +61,13 @@ describe('App grid rendering and navigation', () => {
 
   it('renders multiple sheet grids independently inside their frames', () => {
     const first = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
-    const second = {
-      ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 }),
+    const second = sheetDocument({
+      id: 'sheet-outputs',
+      name: 'Outputs',
+      position: { x: 420, y: 260 },
       columnCount: 2,
       rowCount: 2,
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([first, second])} />);
 
@@ -173,11 +177,13 @@ describe('App grid rendering and navigation', () => {
 
   it('moves selected cells with arrow keys and clamps at sheet bounds', async () => {
     const user = userEvent.setup();
-    const sheet = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+    const sheet = sheetDocument({
+      id: 'sheet-inputs',
+      name: 'Inputs',
+      position: { x: 120, y: 80 },
       rowCount: 2,
       columnCount: 2,
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 
@@ -289,11 +295,13 @@ describe('App grid rendering and navigation', () => {
       render(
         <App
           initialWorkbook={workbookWithSheets([
-            {
-              ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+            sheetDocument({
+              id: 'sheet-inputs',
+              name: 'Inputs',
+              position: { x: 120, y: 80 },
               rowCount: 2,
               columnCount: 2,
-            },
+            }),
           ])}
         />,
       );

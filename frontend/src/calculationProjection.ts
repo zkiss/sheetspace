@@ -1,4 +1,10 @@
 import type { CellKey } from './cellAddress';
+import {
+  sheetsInOrder,
+  sheetBounds,
+  tabularCellsByA1,
+  type Workbook,
+} from './workbook';
 
 export type CalculationSheet = {
   readonly id: string;
@@ -25,14 +31,13 @@ export type CalculationImpact =
   | { readonly kind: 'structure' };
 
 export function calculationProjection(
-  source: { readonly sheets: readonly CalculationSheet[] },
+  source: Workbook,
 ): CalculationProjection {
   return {
-    sheets: source.sheets.map((sheet) => ({
+    sheets: sheetsInOrder(source).map((sheet) => ({
       id: sheet.id,
-      rowCount: sheet.rowCount,
-      columnCount: sheet.columnCount,
-      cells: sheet.cells,
+      ...sheetBounds(sheet),
+      cells: tabularCellsByA1(sheet.content),
     })),
   };
 }

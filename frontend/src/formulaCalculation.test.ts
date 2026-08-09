@@ -5,21 +5,13 @@ import {
   appendColumn,
   appendRow,
   commitCellRawContent,
-  createSheet,
+  findSheetById,
   renameSheet,
-  type Sheet,
 } from './workbook';
+import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
-function sheet(id: string, name: string): Sheet {
-  const result = createSheet({ id, name });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-  return result.value;
-}
-
-function sheetWithCells(id: string, name: string, cells: Sheet['cells']): Sheet {
-  return { ...sheet(id, name), cells };
+function sheetWithCells(id: string, name: string, cells: Record<string, string>) {
+  return sheetDocument({ id, name, cells });
 }
 
 describe('incremental formula calculation', () => {
@@ -34,7 +26,7 @@ describe('incremental formula calculation', () => {
       H1: '10',
       I1: '=SUM(H1)',
     });
-    const workbook = { version: 1 as const, sheets: [inputs] };
+    const workbook = workbookWithSheets([inputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
     const evaluated: string[] = [];
 
@@ -57,10 +49,9 @@ describe('incremental formula calculation', () => {
 
   it('returns the cached snapshot without evaluation when calculation has no impact', () => {
     const calculation = new FormulaCalculation();
-    const workbook = {
-      version: 1 as const,
-      sheets: [sheetWithCells('sheet-1', 'Inputs', { A1: '=SUM(1)' })],
-    };
+    const workbook = workbookWithSheets([
+      sheetWithCells('sheet-1', 'Inputs', { A1: '=SUM(1)' }),
+    ]);
     const initial = calculation.update(calculationProjection(workbook), { kind: 'structure' });
     const evaluated: string[] = [];
 
@@ -76,10 +67,9 @@ describe('incremental formula calculation', () => {
 
   it('initializes a fresh calculation even when the first reported impact is none', () => {
     const calculation = new FormulaCalculation();
-    const workbook = {
-      version: 1 as const,
-      sheets: [sheetWithCells('sheet-1', 'Inputs', { A1: '=SUM(2)' })],
-    };
+    const workbook = workbookWithSheets([
+      sheetWithCells('sheet-1', 'Inputs', { A1: '=SUM(2)' }),
+    ]);
 
     expect(calculation.update(
       calculationProjection(workbook),
@@ -95,19 +85,25 @@ describe('incremental formula calculation', () => {
       C1: '10',
       D1: '=C1',
     });
-    calculation.update(calculationProjection({ sheets: [inputs] }), { kind: 'structure' });
+    calculation.update(calculationProjection(workbookWithSheets([inputs])), { kind: 'structure' });
 
     const abandoned = calculation.fork();
-    const abandonedInputs = { ...inputs, cells: { ...inputs.cells, A1: '2' } };
+    const abandonedInputs = findSheetById(
+      commitCellRawContent(workbookWithSheets([inputs]), inputs.id, 'A1', '2'),
+      inputs.id,
+    )!;
     expect(abandoned.update(
-      calculationProjection({ sheets: [abandonedInputs] }),
+      calculationProjection(workbookWithSheets([abandonedInputs])),
       { kind: 'cells', cells: [{ sheetId: 'sheet-1', key: 'A1' }] },
     )['sheet-1'].B1).toMatchObject({ kind: 'number', value: 2 });
 
     const chosen = calculation.fork();
-    const chosenInputs = { ...inputs, cells: { ...inputs.cells, C1: '20' } };
+    const chosenInputs = findSheetById(
+      commitCellRawContent(workbookWithSheets([inputs]), inputs.id, 'C1', '20'),
+      inputs.id,
+    )!;
     const chosenResults = chosen.update(
-      calculationProjection({ sheets: [chosenInputs] }),
+      calculationProjection(workbookWithSheets([chosenInputs])),
       { kind: 'cells', cells: [{ sheetId: 'sheet-1', key: 'C1' }] },
     );
 
@@ -125,12 +121,15 @@ describe('incremental formula calculation', () => {
       A1: '=-(sheet-inputs!A1 + 3) * 2',
       B1: '=sheet-inputs!B1 + 1',
     });
-    calculation.update(calculationProjection({ sheets: [inputs, outputs] }), { kind: 'structure' });
+    calculation.update(calculationProjection(workbookWithSheets([inputs, outputs])), { kind: 'structure' });
 
     const evaluated: string[] = [];
-    const nextInputs = { ...inputs, cells: { ...inputs.cells, A1: '4' } };
+    const nextInputs = findSheetById(
+      commitCellRawContent(workbookWithSheets([inputs]), inputs.id, 'A1', '4'),
+      inputs.id,
+    )!;
     const results = calculation.update(
-      calculationProjection({ sheets: [nextInputs, outputs] }),
+      calculationProjection(workbookWithSheets([nextInputs, outputs])),
       { kind: 'cells', cells: [{ sheetId: 'sheet-inputs', key: 'A1' }] },
       (sheetId, key) => evaluated.push(`${sheetId}:${key}`),
     );
@@ -148,12 +147,15 @@ describe('incremental formula calculation', () => {
       A2: '=sheet-inputs!A1 + 1>=4',
       B1: '=10>5',
     });
-    calculation.update(calculationProjection({ sheets: [inputs, outputs] }), { kind: 'structure' });
+    calculation.update(calculationProjection(workbookWithSheets([inputs, outputs])), { kind: 'structure' });
 
     const evaluated: string[] = [];
-    const nextInputs = { ...inputs, cells: { ...inputs.cells, A1: '3' } };
+    const nextInputs = findSheetById(
+      commitCellRawContent(workbookWithSheets([inputs]), inputs.id, 'A1', '3'),
+      inputs.id,
+    )!;
     const results = calculation.update(
-      calculationProjection({ sheets: [nextInputs, outputs] }),
+      calculationProjection(workbookWithSheets([nextInputs, outputs])),
       { kind: 'cells', cells: [{ sheetId: 'sheet-inputs', key: 'A1' }] },
       (sheetId, key) => evaluated.push(`${sheetId}:${key}`),
     );
@@ -171,7 +173,7 @@ describe('incremental formula calculation', () => {
       B1: '2',
       C1: '=FUTURE_LAZY(A1, B1)',
     });
-    const workbook = { version: 1 as const, sheets: [inputs] };
+    const workbook = workbookWithSheets([inputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
     const evaluated: string[] = [];
 
@@ -195,7 +197,7 @@ describe('incremental formula calculation', () => {
       B1: '=SUM(B2)',
       B2: '9',
     });
-    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    const workbook = workbookWithSheets([inputs, outputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
     const evaluated: string[] = [];
 
@@ -219,7 +221,7 @@ describe('incremental formula calculation', () => {
       C1: '=SUM(A1)',
       D1: '=SUM(C1)',
     });
-    let workbook = { version: 1 as const, sheets: [inputs] };
+    let workbook = workbookWithSheets([inputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
 
     workbook = commitCellRawContent(workbook, 'sheet-1', 'C1', '=SUM(B1)');
@@ -262,25 +264,27 @@ describe('incremental formula calculation', () => {
 
   it('recalculates formulas when ordered grid structure changes', () => {
     const calculation = new FormulaCalculation();
-    const inputs = {
-      ...sheetWithCells('sheet-1', 'Inputs', {
+    const inputs = sheetDocument({
+      id: 'sheet-1',
+      name: 'Inputs',
+      cells: {
         A1: '=SUM(A2)',
         B1: '=SUM(C1)',
-      }),
+      },
       rowCount: 1,
       columnCount: 2,
-    };
-    let workbook = { version: 1 as const, sheets: [inputs] };
+    });
+    let workbook = workbookWithSheets([inputs]);
     const initial = calculation.update(calculationProjection(workbook), { kind: 'structure' });
     expect(initial['sheet-1'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
     expect(initial['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#REF!' });
 
-    workbook = { ...workbook, sheets: [appendRow(workbook.sheets[0])] };
+    workbook = workbookWithSheets([appendRow(findSheetById(workbook, inputs.id)!)]);
     const afterRow = calculation.update(calculationProjection(workbook), { kind: 'structure' });
     expect(afterRow['sheet-1'].A1).toMatchObject({ kind: 'number', value: 0 });
     expect(afterRow['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#REF!' });
 
-    workbook = { ...workbook, sheets: [appendColumn(workbook.sheets[0])] };
+    workbook = workbookWithSheets([appendColumn(findSheetById(workbook, inputs.id)!)]);
     const afterColumn = calculation.update(calculationProjection(workbook), { kind: 'structure' });
     expect(afterColumn['sheet-1'].B1).toMatchObject({ kind: 'number', value: 0 });
   });
@@ -293,7 +297,7 @@ describe('incremental formula calculation', () => {
       B1: '=SUM(B2)',
       B2: '4',
     });
-    const workbook = { version: 1 as const, sheets: [inputs, outputs] };
+    const workbook = workbookWithSheets([inputs, outputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
     const renamed = renameSheet(workbook, 'sheet-inputs', 'Renamed Inputs');
     expect(renamed.ok).toBe(true);
@@ -314,9 +318,11 @@ describe('incremental formula calculation', () => {
     );
     expect(reloaded['sheet-outputs'].A1).toMatchObject({ kind: 'number', value: 7 });
 
+    const { ['sheet-inputs']: _deleted, ...documents } = renamed.value.documents;
     const deleted = {
       ...renamed.value,
-      sheets: renamed.value.sheets.filter((candidate) => candidate.id !== 'sheet-inputs'),
+      manifest: { ...renamed.value.manifest, sheetIds: ['sheet-outputs'] },
+      documents,
     };
     const deletedResults = calculation.update(
       calculationProjection(deleted),

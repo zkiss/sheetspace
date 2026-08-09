@@ -4,8 +4,11 @@ import {
   appendRow,
   commitCellRawContent,
   createSheet,
+  findSheetById,
   renameSheet,
-  type Sheet,
+  sheetsInOrder,
+  type SheetDocument,
+  type SheetFrameSize,
   type Workbook,
   type WorkspacePosition,
 } from '../workbook';
@@ -19,7 +22,6 @@ export function deferred<T>() {
     resolve = promiseResolve;
     reject = promiseReject;
   });
-
   return { promise, resolve, reject };
 }
 
@@ -42,96 +44,86 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
 
 export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWithSheets([])) {
   let persistedWorkbook = initialWorkbook;
-  let nextSheetId = initialWorkbook.sheets.length + 1;
+  let nextSheetId = sheetsInOrder(initialWorkbook).length + 1;
 
-  const updateSheet = (sheetId: string, update: (sheet: Sheet) => Sheet) => {
+  const updateSheet = (sheetId: string, update: (sheet: SheetDocument) => SheetDocument) => {
+    const sheet = findSheetById(persistedWorkbook, sheetId);
+    if (!sheet) throw new Error('sheet-not-found');
     persistedWorkbook = {
       ...persistedWorkbook,
-      sheets: persistedWorkbook.sheets.map((sheet) => (sheet.id === sheetId ? update(sheet) : sheet)),
+      documents: { ...persistedWorkbook.documents, [sheetId]: update(sheet) },
     };
-
     return persistedWorkbook;
   };
 
   return {
     loadWorkbook: vi.fn().mockImplementation(async () => persistedWorkbook),
     loadSheet: vi.fn().mockImplementation(async (sheetId: string) => {
-      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
-      if (!sheet) {
-        throw new Error('sheet-not-found');
-      }
+      const sheet = findSheetById(persistedWorkbook, sheetId);
+      if (!sheet) throw new Error('sheet-not-found');
       return sheet;
     }),
     createSheet: vi.fn().mockImplementation(async (sheet: Parameters<WorkbookApi['createSheet']>[0]) => {
       const result = createSheet({
         id: deterministicSheetId(nextSheetId++),
         name: sheet.name,
-        existingSheets: persistedWorkbook.sheets,
+        existingSheets: sheetsInOrder(persistedWorkbook),
         position: sheet.position,
+        frameSize: sheet.frameSize,
         zIndex: sheet.zIndex,
       });
-      if (result.ok) {
-        persistedWorkbook = workbookWithSheets([...persistedWorkbook.sheets, result.value]);
-        return result.value;
-      }
-
-      throw new Error('invalid-sheet');
+      if (!result.ok) throw new Error('invalid-sheet');
+      persistedWorkbook = workbookWithSheets([...sheetsInOrder(persistedWorkbook), result.value]);
+      return result.value;
     }),
     deleteSheet: vi.fn().mockImplementation(async (sheetId: string) => {
-      const existingSheet = persistedWorkbook.sheets.find((sheet) => sheet.id === sheetId);
-      if (!existingSheet) {
-        throw new Error('sheet-not-found');
-      }
-
-      persistedWorkbook = workbookWithSheets(persistedWorkbook.sheets.filter((sheet) => sheet.id !== sheetId));
+      if (!findSheetById(persistedWorkbook, sheetId)) throw new Error('sheet-not-found');
+      const { [sheetId]: _deleted, ...documents } = persistedWorkbook.documents;
+      persistedWorkbook = {
+        manifest: {
+          ...persistedWorkbook.manifest,
+          sheetIds: persistedWorkbook.manifest.sheetIds.filter((id) => id !== sheetId),
+        },
+        documents,
+      };
     }),
     renameSheet: vi.fn().mockImplementation(async (sheetId: string, name: string) => {
       const result = renameSheet(persistedWorkbook, sheetId, name);
-      if (result.ok) {
-        persistedWorkbook = result.value;
-      }
-
-      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
-      return { sheetId, revision: sheet?.revision ?? 0 };
+      if (result.ok) persistedWorkbook = result.value;
+      return revisionResponse(persistedWorkbook, sheetId);
     }),
     updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string, position: WorkspacePosition) =>
       revisionResponse(updateSheet(sheetId, (sheet) => ({
         ...sheet,
-        position,
-      })), sheetId),
-    ),
-    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string, frameSize: Sheet['frameSize']) =>
+        frame: { ...sheet.frame, position },
+      })), sheetId)),
+    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string, frameSize: SheetFrameSize) =>
       revisionResponse(updateSheet(sheetId, (sheet) => ({
         ...sheet,
-        frameSize,
-      })), sheetId),
-    ),
+        frame: { ...sheet.frame, size: frameSize },
+      })), sheetId)),
     updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string, zIndex: number) =>
       revisionResponse(updateSheet(sheetId, (sheet) => ({
         ...sheet,
-        zIndex,
-      })), sheetId),
-    ),
+        frame: { ...sheet.frame, zIndex },
+      })), sheetId)),
     updateCellContent: vi.fn().mockImplementation(async (sheetId: string, cellKey: string, raw: string) => {
       persistedWorkbook = commitCellRawContent(persistedWorkbook, sheetId, cellKey, raw);
       return revisionResponse(persistedWorkbook, sheetId);
     }),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
-      updateSheet(sheetId, appendRow);
-      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
-      return { sheetId, revision: sheet?.revision ?? 0, rowCount: sheet?.rowCount ?? 0 };
+      const sheet = findSheetById(updateSheet(sheetId, appendRow), sheetId);
+      return { ...revisionResponse(persistedWorkbook, sheetId), rowCount: sheet?.content.rows.length ?? 0 };
     }),
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => {
-      updateSheet(sheetId, appendColumn);
-      const sheet = persistedWorkbook.sheets.find((candidate) => candidate.id === sheetId);
-      return { sheetId, revision: sheet?.revision ?? 0, columnCount: sheet?.columnCount ?? 0 };
+      const sheet = findSheetById(updateSheet(sheetId, appendColumn), sheetId);
+      return { ...revisionResponse(persistedWorkbook, sheetId), columnCount: sheet?.content.columns.length ?? 0 };
     }),
   } satisfies WorkbookApi;
 }
 
 function revisionResponse(workbook: Workbook, sheetId: string) {
-  const sheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
-  return { sheetId, revision: sheet?.revision ?? 0 };
+  return { sheetId, revision: findSheetById(workbook, sheetId)?.revision ?? 0 };
 }
 
 export function deterministicSheetId(index: number) {

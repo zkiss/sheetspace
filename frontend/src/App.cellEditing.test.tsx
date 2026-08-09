@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from './test/appScreen';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('App cell editing integration', () => {
   it('commits an active edit when keyboard focus moves to another cell', async () => {
@@ -115,12 +115,12 @@ describe('App cell editing integration', () => {
     ['Delete', '{Delete}'],
   ])('clears a selected cell with %s without entering edit mode', async (_label, keyCommand) => {
     const user = userEvent.setup();
-    const sheet = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+    const sheet = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 120, y: 80 },
       cells: {
         A1: 'Remove me',
       },
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 

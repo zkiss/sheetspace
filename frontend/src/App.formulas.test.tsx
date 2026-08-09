@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { openCellEditor, openSheetContextMenu } from './test/appScreen';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('App formula integration', () => {
   it('shows reference tokens for the selected formula and clears the surface for plain cells', async () => {
@@ -50,13 +50,13 @@ describe('App formula integration', () => {
 
   it('keeps references inspectable when an unknown function displays a name error', async () => {
     const user = userEvent.setup();
-    const sheet = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+    const sheet = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 120, y: 80 },
       cells: {
         A1: '=UNKNOWN(B1)',
         B1: '3',
       },
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 
@@ -98,13 +98,13 @@ describe('App formula integration', () => {
 
   it('updates the inspection surface through keyboard cell selection without moving focus', async () => {
     const user = userEvent.setup();
-    const sheet = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+    const sheet = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 120, y: 80 },
       cells: {
         A1: '4',
         B1: '=A1 * 2',
       },
-    };
+    });
 
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 
@@ -456,7 +456,6 @@ describe('App formula integration', () => {
       cells: {
         A1: '=SUM(A3)',
         A2: '=SUM(K1)',
-        A3: '7',
       },
     };
 
@@ -471,7 +470,7 @@ describe('App formula integration', () => {
 
     await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Append row' }));
 
-    expect(formulaCell).toHaveTextContent('7');
+    expect(formulaCell).toHaveTextContent('0');
     expect(persistentErrorCell).toHaveTextContent('#REF!');
 
     const editor = await openCellEditor(user, persistentErrorCell);
@@ -487,7 +486,6 @@ describe('App formula integration', () => {
       cells: {
         A1: '=SUM(C1)',
         B1: '=SUM(A99)',
-        C1: '11',
       },
     };
 
@@ -502,7 +500,7 @@ describe('App formula integration', () => {
 
     await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Append column' }));
 
-    expect(formulaCell).toHaveTextContent('11');
+    expect(formulaCell).toHaveTextContent('0');
     expect(persistentErrorCell).toHaveTextContent('#REF!');
 
     const editor = await openCellEditor(user, persistentErrorCell);

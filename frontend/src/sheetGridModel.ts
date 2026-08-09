@@ -1,4 +1,4 @@
-import type { FormulaEvaluationSnapshot, Sheet } from './workbook';
+import { cellRawContent, type FormulaEvaluationSnapshot, type SheetTabularProjection } from './workbook';
 import type { CellNavigationDirection } from './appTypes';
 
 export type ColumnHeader = {
@@ -19,9 +19,9 @@ export function getSheetCellDisplayText({
 }: {
   cellKey: string;
   formulaResults: FormulaEvaluationSnapshot;
-  sheet: Sheet;
+  sheet: SheetTabularProjection;
 }) {
-  return formulaResults[sheet.id]?.[cellKey]?.display ?? sheet.cells[cellKey] ?? '';
+  return formulaResults[sheet.id]?.[cellKey]?.display ?? cellRawContent(sheet, cellKey) ?? '';
 }
 
 export function gridCellKeyboardAction({

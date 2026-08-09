@@ -2,25 +2,10 @@ import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PointerEvent } from 'react';
 import type { SheetFrameResizeDirection } from './appTypes';
-import { createSheet, type Workbook, type WorkspacePosition } from './workbook';
+import type { Workbook } from './workbook';
 import type { WorkbookCommands } from './useWorkbookController';
 import { useSheetFrameInteractions } from './useSheetFrameInteractions';
-
-function workbookWithSheets(sheets: Workbook['sheets']): Workbook {
-  return {
-    version: 1,
-    sheets,
-  };
-}
-
-function positionedSheet(id: string, name: string, position: WorkspacePosition) {
-  const result = createSheet({ id, name, position });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-
-  return result.value;
-}
+import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 
 function commands() {
   return {

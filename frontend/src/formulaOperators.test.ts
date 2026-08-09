@@ -1,24 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createSheet,
   evaluateFormulaCells,
-  type Sheet,
 } from './workbook';
-
-function sheet(id: string, name: string): Sheet {
-  const result = createSheet({ id, name });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-  return result.value;
-}
+import { calculationProjection } from './calculationProjection';
+import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('formula operators and scalar values', () => {
-  function sheetWithCells(id: string, name: string, cells: Sheet['cells']): Sheet {
-    return {
-      ...sheet(id, name),
-      cells,
-    };
+  function sheetWithCells(id: string, name: string, cells: Record<string, string>) {
+    return sheetDocument({ id, name, cells });
   }
 
   it('evaluates arithmetic precedence, grouping, associativity, unary chains, and references', () => {
@@ -34,7 +23,7 @@ describe('formula operators and scalar values', () => {
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
       A1: '=sheet-1!A1/sheet-1!A2',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
 
     expect(results['sheet-1'].B1).toMatchObject({ kind: 'number', value: 7 });
     expect(results['sheet-1'].B2).toMatchObject({ kind: 'number', value: 9 });
@@ -57,7 +46,7 @@ describe('formula operators and scalar values', () => {
       B6: '=1e308*2',
       B7: '=6/2',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     expect(results.B1).toMatchObject({ kind: 'error', error: '#DIV/0!' });
     expect(results.B2).toMatchObject({ kind: 'error', error: '#DIV/0!' });
@@ -78,7 +67,7 @@ describe('formula operators and scalar values', () => {
       A6: '=3>=3',
       A7: '=2>3',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     for (const key of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']) {
       expect(results[key]).toEqual({ kind: 'boolean', value: true, display: 'TRUE' });
@@ -96,7 +85,7 @@ describe('formula operators and scalar values', () => {
       A6: '=B1<=B2',
       A7: '=B1<>B2',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     for (const key of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']) {
       expect(results[key]).toMatchObject({ kind: 'boolean', value: true });
@@ -115,7 +104,7 @@ describe('formula operators and scalar values', () => {
       A2: '=sheet-inputs!A1>B1',
       B1: '2',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
 
     expect(results['sheet-inputs'].B1).toMatchObject({ kind: 'boolean', value: true });
     expect(results['sheet-outputs'].A1).toMatchObject({ kind: 'boolean', value: true });
@@ -133,7 +122,7 @@ describe('formula operators and scalar values', () => {
       B1: '',
       B2: 'text',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     for (const key of ['A1', 'A2', 'A3', 'A4']) {
       expect(results[key]).toMatchObject({ kind: 'error', error: '#VALUE!' });
@@ -147,7 +136,7 @@ describe('formula operators and scalar values', () => {
       A1: '=Missing!A1 + (1/0)',
       A2: '=(1/0) + Missing!A1',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     expect(results.A1).toMatchObject({ kind: 'error', error: '#REF!' });
     expect(results.A2).toMatchObject({ kind: 'error', error: '#DIV/0!' });
@@ -162,7 +151,7 @@ describe('formula operators and scalar values', () => {
       A5: '=""',
       A6: '=1e999',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs] })['sheet-1'];
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
     expect(results.A1).toEqual({ kind: 'number', value: 12.5, display: '12.5' });
     expect(results.A2).toEqual({ kind: 'text', value: 'say "hi"', display: 'say "hi"' });
@@ -190,7 +179,7 @@ describe('formula operators and scalar values', () => {
       A4: '=sheet-inputs!B4',
       A5: '=sheet-inputs!A4',
     });
-    const results = evaluateFormulaCells({ version: 1 as const, sheets: [inputs, outputs] });
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
 
     expect(results['sheet-inputs'].B1).toEqual({ kind: 'number', value: 2.5, display: '2.5' });
     expect(results['sheet-inputs'].B2).toEqual({ kind: 'boolean', value: true, display: 'TRUE' });

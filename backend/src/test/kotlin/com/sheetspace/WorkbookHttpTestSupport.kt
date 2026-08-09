@@ -29,7 +29,24 @@ internal fun testWorkbookApplication(
     block(workbookApplication)
 }
 
-internal suspend fun HttpClient.createSheet(): Sheet {
+internal data class TestWorkbook(
+    val version: Int = WORKBOOK_SCHEMA_VERSION,
+    val sheets: List<TestSheet> = emptyList(),
+)
+
+internal data class TestSheet(
+    val id: String,
+    val name: String,
+    val revision: Long,
+    val position: WorkspacePosition,
+    val frameSize: SheetFrameSize,
+    val zIndex: Int,
+    val columnCount: Int,
+    val rowCount: Int,
+    val cells: Map<String, String>,
+)
+
+internal suspend fun HttpClient.createSheet(): SheetDocumentResponse {
     val response = post("/api/sheets") {
         jsonBody("""{"name":"Inputs","position":{"x":0.0,"y":0.0}}""")
     }
@@ -37,28 +54,30 @@ internal suspend fun HttpClient.createSheet(): Sheet {
     return response.decodeBody()
 }
 
-internal suspend fun HttpClient.loadWorkbook(): Workbook {
+internal suspend fun HttpClient.loadWorkbook(): TestWorkbook {
     val bundle = get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>()
-    return Workbook(
+    return TestWorkbook(
         version = bundle.manifest.version,
-        sheets = bundle.documents.map { document ->
-            val rows = document.content.rows.withIndex().associate { (index, id) -> id to index }
-            val columns = document.content.columns.withIndex().associate { (index, id) -> id to index }
-            Sheet(
-                id = document.id,
-                name = document.name,
-                revision = document.revision,
-                position = document.frame.position,
-                frameSize = document.frame.size,
-                zIndex = document.frame.zIndex,
-                rowCount = rows.size,
-                columnCount = columns.size,
-                cells = document.content.cells.associate { cell ->
-                    val columnIndex = columns.getValue(cell.columnId)
-                    val rowIndex = rows.getValue(cell.rowId)
-                    testColumnLabel(columnIndex + 1) + (rowIndex + 1) to cell.content
-                },
-            )
+        sheets = bundle.documents.map(SheetDocumentResponse::toTestSheet),
+    )
+}
+
+internal fun SheetDocumentResponse.toTestSheet(): TestSheet {
+    val rows = content.rows.withIndex().associate { (index, id) -> id to index }
+    val columns = content.columns.withIndex().associate { (index, id) -> id to index }
+    return TestSheet(
+        id = id,
+        name = name,
+        revision = revision,
+        position = frame.position,
+        frameSize = frame.size,
+        zIndex = frame.zIndex,
+        rowCount = rows.size,
+        columnCount = columns.size,
+        cells = content.cells.associate { cell ->
+            val columnIndex = columns.getValue(cell.columnId)
+            val rowIndex = rows.getValue(cell.rowId)
+            testColumnLabel(columnIndex + 1) + (rowIndex + 1) to cell.content
         },
     )
 }

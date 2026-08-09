@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import './App.css';
 import type { WorkbookApi } from './workbookApi';
-import type { Sheet, Workbook, WorkspacePosition } from './workbook';
+import type { SheetDocument, Workbook, WorkspacePosition } from './workbook';
 import {
   type PendingSheetCreation,
   type PendingSheetRename,
@@ -64,7 +64,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     setError('');
   }
 
-  function openRenameDialog(sheet: Sheet) {
+  function openRenameDialog(sheet: SheetDocument) {
     setPendingRename({ sheetId: sheet.id, currentName: sheet.name });
     setSheetName(sheet.name);
     setError('');

@@ -1,47 +1,42 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createSheet, type Sheet, type Workbook, type WorkspacePosition } from './workbook';
-import { WorkbookApiError, type WorkbookApi } from './workbookApi';
+import {
+  cellRawContent,
+  findSheetById,
+  sheetBounds,
+  sheetsInOrder,
+  type SheetDocument,
+  type Workbook,
+} from './workbook';
+import { WorkbookApiError } from './workbookApi';
 import { useWorkbookController } from './useWorkbookController';
+import { autosaveClient } from './test/apiClients';
+import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
-function workbookWithSheets(sheets: Workbook['sheets']): Workbook {
-  return {
-    version: 1,
-    sheets,
-  };
-}
-
-function positionedSheet(id: string, name: string, position: WorkspacePosition) {
-  const result = createSheet({ id, name, position });
-  if (!result.ok) {
-    throw new Error(`Failed to create test sheet ${name}`);
-  }
-
-  return result.value;
-}
-
-function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
-  return {
-    loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    loadSheet: vi.fn(),
-    createSheet: vi.fn().mockResolvedValue(workbookWithSheets([])),
-    deleteSheet: vi.fn().mockResolvedValue(undefined),
-    renameSheet: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    updateCellContent: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0 })),
-    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0 })),
-    ...overrides,
-  } satisfies Partial<WorkbookApi>;
+function documentWithCells(
+  document: SheetDocument,
+  cells: Record<string, string>,
+  revision = document.revision,
+): SheetDocument {
+  const bounds = sheetBounds(document);
+  return sheetDocument({
+    id: document.id,
+    name: document.name,
+    position: document.frame.position,
+    frameSize: document.frame.size,
+    zIndex: document.frame.zIndex,
+    revision,
+    rowCount: bounds.rowCount,
+    columnCount: bounds.columnCount,
+    cells,
+  });
 }
 
 describe('useWorkbookController', () => {
   it('creates sheets through a command and hides persistence details behind autosave', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
     const apiClient = autosaveClient({
-      createSheet: vi.fn().mockResolvedValue(workbookWithSheets([savedSheet])),
+      createSheet: vi.fn().mockResolvedValue(savedSheet),
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -55,26 +50,26 @@ describe('useWorkbookController', () => {
       expect(created.ok).toBe(true);
     });
 
-    expect(result.current.workbook.sheets).toHaveLength(1);
-    expect(result.current.workbook.sheets[0].id).toMatch(/^pending:[0-9a-f-]+$/);
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(1);
+    expect(sheetsInOrder(result.current.workbook)[0].id).toMatch(/^pending:[0-9a-f-]+$/);
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledWith({
       name: 'Inputs',
       position: { x: 24, y: 48 },
     }));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.workbook.sheets).toHaveLength(1);
-    expect(result.current.workbook.sheets[0]).toMatchObject({
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(1);
+    expect(sheetsInOrder(result.current.workbook)[0]).toMatchObject({
       id: '00000000-0000-4000-8000-000000000001',
       name: 'Inputs',
-      position: { x: 24, y: 48 },
+      frame: { position: { x: 24, y: 48 } },
     });
   });
 
   it('preserves optimistic edits to existing sheets when a created sheet response arrives', async () => {
     const existingSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
     const savedCreatedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Outputs', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -90,26 +85,26 @@ describe('useWorkbookController', () => {
     act(() => {
       result.current.commands.createSheet('Outputs', { x: 24, y: 48 });
     });
-    await waitFor(() => expect(result.current.workbook.sheets).toHaveLength(2));
+    await waitFor(() => expect(sheetsInOrder(result.current.workbook)).toHaveLength(2));
     act(() => {
       result.current.commands.updateCellContent('sheet-inputs', 'A1', 'Local value');
     });
 
     await act(async () => {
-      resolveCreate(workbookWithSheets([existingSheet, savedCreatedSheet]));
+      resolveCreate(savedCreatedSheet);
       await createSheetSave;
     });
 
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.workbook.sheets).toHaveLength(2);
-    expect(result.current.workbook.sheets[0].cells.A1).toEqual('Local value');
-    expect(result.current.workbook.sheets[1].id).toBe('00000000-0000-4000-8000-000000000001');
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(2);
+    expect(cellRawContent(sheetsInOrder(result.current.workbook)[0], 'A1')).toEqual('Local value');
+    expect(sheetsInOrder(result.current.workbook)[1].id).toBe('00000000-0000-4000-8000-000000000001');
   });
 
   it('rejects a duplicate sheet create while the first request is pending', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -132,7 +127,7 @@ describe('useWorkbookController', () => {
 
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
     await act(async () => {
-      resolveCreate(workbookWithSheets([savedSheet]));
+      resolveCreate(savedSheet);
       await createSheetSave;
     });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
@@ -140,7 +135,7 @@ describe('useWorkbookController', () => {
 
   it('creates unique local pending ids for concurrent optimistic sheets', () => {
     const apiClient = autosaveClient({
-      createSheet: vi.fn().mockReturnValue(new Promise<Workbook>(() => undefined)),
+      createSheet: vi.fn().mockReturnValue(new Promise<SheetDocument>(() => undefined)),
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -154,7 +149,7 @@ describe('useWorkbookController', () => {
       result.current.commands.createSheet('Outputs', { x: 96, y: 144 });
     });
 
-    const sheetIds = result.current.workbook.sheets.map((sheet) => sheet.id);
+    const sheetIds = sheetsInOrder(result.current.workbook).map((sheet) => sheet.id);
     expect(sheetIds).toHaveLength(2);
     expect(new Set(sheetIds).size).toBe(2);
     expect(sheetIds).toEqual([expect.stringMatching(/^pending:[0-9a-f-]+$/), expect.stringMatching(/^pending:[0-9a-f-]+$/)]);
@@ -163,16 +158,18 @@ describe('useWorkbookController', () => {
 
   it('remaps concurrent creates without duplicating durable sheets when responses resolve out of order', async () => {
     const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    const savedOutputs = {
-      ...positionedSheet('00000000-0000-4000-8000-000000000002', 'Outputs', { x: 96, y: 144 }),
+    const savedOutputs = sheetDocument({
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Outputs',
+      position: { x: 96, y: 144 },
       zIndex: 2,
-    };
-    let resolveInputs!: (workbook: Workbook) => void;
-    let resolveOutputs!: (workbook: Workbook) => void;
-    const inputsSave = new Promise<Workbook>((resolve) => {
+    });
+    let resolveInputs!: (sheet: SheetDocument) => void;
+    let resolveOutputs!: (sheet: SheetDocument) => void;
+    const inputsSave = new Promise<SheetDocument>((resolve) => {
       resolveInputs = resolve;
     });
-    const outputsSave = new Promise<Workbook>((resolve) => {
+    const outputsSave = new Promise<SheetDocument>((resolve) => {
       resolveOutputs = resolve;
     });
     const apiClient = autosaveClient({
@@ -194,33 +191,35 @@ describe('useWorkbookController', () => {
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
 
     await act(async () => {
-      resolveOutputs(workbookWithSheets([savedInputs, savedOutputs]));
+      resolveOutputs(savedOutputs);
       await outputsSave;
     });
-    expect(result.current.workbook.sheets.map((sheet) => sheet.name)).toEqual(['Inputs', 'Outputs']);
-    expect(result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')?.id).toMatch(/^pending:/);
-    expect(result.current.workbook.sheets.find((sheet) => sheet.name === 'Outputs')?.id).toBe(savedOutputs.id);
+    expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.name)).toEqual(['Inputs', 'Outputs']);
+    expect(sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === 'Inputs')?.id).toMatch(/^pending:/);
+    expect(sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === 'Outputs')?.id).toBe(savedOutputs.id);
 
     await act(async () => {
-      resolveInputs(workbookWithSheets([savedInputs, savedOutputs]));
+      resolveInputs(savedInputs);
       await inputsSave;
     });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.workbook.sheets).toEqual([savedInputs, savedOutputs]);
+    expect(sheetsInOrder(result.current.workbook)).toEqual([savedInputs, savedOutputs]);
   });
 
   it('does not append a durable duplicate when a concurrent pending sheet was renamed locally', async () => {
     const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    const savedOutputs = {
-      ...positionedSheet('00000000-0000-4000-8000-000000000002', 'Outputs', { x: 96, y: 144 }),
+    const savedOutputs = sheetDocument({
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Outputs',
+      position: { x: 96, y: 144 },
       zIndex: 2,
-    };
-    let resolveInputs!: (workbook: Workbook) => void;
-    let resolveOutputs!: (workbook: Workbook) => void;
-    const inputsSave = new Promise<Workbook>((resolve) => {
+    });
+    let resolveInputs!: (sheet: SheetDocument) => void;
+    let resolveOutputs!: (sheet: SheetDocument) => void;
+    const inputsSave = new Promise<SheetDocument>((resolve) => {
       resolveInputs = resolve;
     });
-    const outputsSave = new Promise<Workbook>((resolve) => {
+    const outputsSave = new Promise<SheetDocument>((resolve) => {
       resolveOutputs = resolve;
     });
     const apiClient = autosaveClient({
@@ -240,38 +239,40 @@ describe('useWorkbookController', () => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
       result.current.commands.createSheet('Outputs', { x: 96, y: 144 });
     });
-    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    const pendingInputsId = sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === 'Inputs')!.id;
     act(() => {
       result.current.commands.renameSheet(pendingInputsId, 'Data');
     });
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
 
     await act(async () => {
-      resolveOutputs(workbookWithSheets([savedInputs, savedOutputs]));
+      resolveOutputs(savedOutputs);
       await outputsSave;
     });
-    expect(result.current.workbook.sheets.map((sheet) => sheet.name)).toEqual(['Data', 'Outputs']);
+    expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.name)).toEqual(['Data', 'Outputs']);
 
     await act(async () => {
-      resolveInputs(workbookWithSheets([savedInputs, savedOutputs]));
+      resolveInputs(savedInputs);
       await inputsSave;
     });
     await waitFor(() => expect(apiClient.renameSheet).toHaveBeenCalledWith(savedInputs.id, 'Data', { revision: 0 }));
-    expect(result.current.workbook.sheets.map((sheet) => sheet.id)).toEqual([savedInputs.id, savedOutputs.id]);
+    expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.id)).toEqual([savedInputs.id, savedOutputs.id]);
   });
 
   it('does not append a tombstoned concurrent create while compensating deletion is pending', async () => {
     const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    const savedOutputs = {
-      ...positionedSheet('00000000-0000-4000-8000-000000000002', 'Outputs', { x: 96, y: 144 }),
+    const savedOutputs = sheetDocument({
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Outputs',
+      position: { x: 96, y: 144 },
       zIndex: 2,
-    };
-    let resolveInputs!: (workbook: Workbook) => void;
-    let resolveOutputs!: (workbook: Workbook) => void;
-    const inputsSave = new Promise<Workbook>((resolve) => {
+    });
+    let resolveInputs!: (sheet: SheetDocument) => void;
+    let resolveOutputs!: (sheet: SheetDocument) => void;
+    const inputsSave = new Promise<SheetDocument>((resolve) => {
       resolveInputs = resolve;
     });
-    const outputsSave = new Promise<Workbook>((resolve) => {
+    const outputsSave = new Promise<SheetDocument>((resolve) => {
       resolveOutputs = resolve;
     });
     const deleteSave = new Promise<Workbook>(() => undefined);
@@ -293,29 +294,29 @@ describe('useWorkbookController', () => {
       result.current.commands.createSheet('Outputs', { x: 96, y: 144 });
     });
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
-    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    const pendingInputsId = sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === 'Inputs')!.id;
     act(() => {
       result.current.commands.deletePendingSheet(pendingInputsId);
     });
 
     await act(async () => {
-      resolveOutputs(workbookWithSheets([savedInputs, savedOutputs]));
+      resolveOutputs(savedOutputs);
       await outputsSave;
     });
-    expect(result.current.workbook.sheets).toEqual([savedOutputs]);
+    expect(sheetsInOrder(result.current.workbook)).toEqual([savedOutputs]);
 
     await act(async () => {
-      resolveInputs(workbookWithSheets([savedInputs, savedOutputs]));
+      resolveInputs(savedInputs);
       await inputsSave;
     });
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedInputs.id, { revision: 0 }));
-    expect(result.current.workbook.sheets).toEqual([savedOutputs]);
+    expect(sheetsInOrder(result.current.workbook)).toEqual([savedOutputs]);
   });
 
   it('queues pending sheet mutations until create resolves and sends them with the backend id', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -331,14 +332,14 @@ describe('useWorkbookController', () => {
     act(() => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
-    const pendingSheetId = result.current.workbook.sheets[0].id;
+    const pendingSheetId = sheetsInOrder(result.current.workbook)[0].id;
     act(() => {
       result.current.commands.updateCellContent(pendingSheetId, 'A1', 'Local value');
     });
 
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
     await act(async () => {
-      resolveCreate(workbookWithSheets([savedSheet]));
+      resolveCreate(savedSheet);
       await createSheetSave;
     });
 
@@ -347,17 +348,15 @@ describe('useWorkbookController', () => {
         revision: 0,
       }),
     );
-    expect(result.current.workbook.sheets[0]).toMatchObject({
-      id: savedSheet.id,
-      cells: { A1: 'Local value' },
-    });
+    expect(sheetsInOrder(result.current.workbook)[0].id).toBe(savedSheet.id);
+    expect(cellRawContent(sheetsInOrder(result.current.workbook)[0], 'A1')).toBe('Local value');
   });
 
   it('defers malformed formula saves with a later pending-sheet reference until the target has a backend id', async () => {
     const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 0, y: 0 });
     const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', '📈 Plan', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -373,16 +372,16 @@ describe('useWorkbookController', () => {
     act(() => {
       result.current.commands.createSheet('📈 Plan', { x: 24, y: 48 });
     });
-    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === '📈 Plan')!.id;
+    const pendingInputsId = sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === '📈 Plan')!.id;
     act(() => {
       result.current.commands.updateCellContent('sheet-outputs', 'A1', "=SUM(A1,) + '📈 Plan'!A1");
     });
 
-    expect(result.current.workbook.sheets[0].cells.A1).toBe(`=SUM(A1,) + ${pendingInputsId}!A1`);
+    expect(cellRawContent(sheetsInOrder(result.current.workbook)[0], 'A1')).toBe(`=SUM(A1,) + ${pendingInputsId}!A1`);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveCreate(workbookWithSheets([outputs, savedInputs]));
+      resolveCreate(savedInputs);
       await createSheetSave;
     });
 
@@ -399,8 +398,8 @@ describe('useWorkbookController', () => {
   it('saves formulas that reference a deleted pending sheet as broken references', async () => {
     const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 0, y: 0 });
     const savedInputs = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -417,7 +416,7 @@ describe('useWorkbookController', () => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
-    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    const pendingInputsId = sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === 'Inputs')!.id;
     act(() => {
       result.current.commands.updateCellContent('sheet-outputs', 'A1', '=SUM(Inputs!A1)');
       result.current.commands.deletePendingSheet(pendingInputsId);
@@ -431,7 +430,7 @@ describe('useWorkbookController', () => {
     expect(result.current.formulaResults['sheet-outputs'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
 
     await act(async () => {
-      resolveCreate(workbookWithSheets([outputs, savedInputs]));
+      resolveCreate(savedInputs);
       await createSheetSave;
     });
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedInputs.id, { revision: 0 }));
@@ -440,7 +439,7 @@ describe('useWorkbookController', () => {
   it('saves formulas that reference a failed pending sheet as broken references', async () => {
     const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 0, y: 0 });
     let rejectCreate!: (cause: unknown) => void;
-    const createSheetSave = new Promise<Workbook>((_, reject) => {
+    const createSheetSave = new Promise<SheetDocument>((_, reject) => {
       rejectCreate = reject;
     });
     const apiClient = autosaveClient({
@@ -457,12 +456,12 @@ describe('useWorkbookController', () => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
-    const pendingInputsId = result.current.workbook.sheets.find((sheet) => sheet.name === 'Inputs')!.id;
+    const pendingInputsId = sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === 'Inputs')!.id;
     act(() => {
       result.current.commands.updateCellContent('sheet-outputs', 'A1', '=SUM(Inputs!A1)');
     });
 
-    expect(result.current.workbook.sheets[0].cells.A1).toBe(`=SUM(${pendingInputsId}!A1)`);
+    expect(cellRawContent(sheetsInOrder(result.current.workbook)[0], 'A1')).toBe(`=SUM(${pendingInputsId}!A1)`);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -475,15 +474,15 @@ describe('useWorkbookController', () => {
         revision: 0,
       }),
     );
-    expect(result.current.workbook.sheets).toHaveLength(1);
-    expect(result.current.workbook.sheets[0].cells.A1).toBe('=SUM(#REF!A1)');
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(1);
+    expect(cellRawContent(sheetsInOrder(result.current.workbook)[0], 'A1')).toBe('=SUM(#REF!A1)');
     expect(result.current.formulaResults['sheet-outputs'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
   });
 
   it('preserves pending frame layout changes while saving them with the backend id', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -499,30 +498,30 @@ describe('useWorkbookController', () => {
     act(() => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
-    const pendingSheetId = result.current.workbook.sheets[0].id;
+    const pendingSheetId = sheetsInOrder(result.current.workbook)[0].id;
     act(() => {
       result.current.commands.moveSheetFrame(pendingSheetId, { x: 96, y: 144 });
     });
 
     expect(apiClient.updateSheetPosition).not.toHaveBeenCalled();
     await act(async () => {
-      resolveCreate(workbookWithSheets([savedSheet]));
+      resolveCreate(savedSheet);
       await createSheetSave;
     });
 
     await waitFor(() =>
       expect(apiClient.updateSheetPosition).toHaveBeenCalledWith(savedSheet.id, { x: 96, y: 144 }, { revision: 0 }),
     );
-    expect(result.current.workbook.sheets[0]).toMatchObject({
+    expect(sheetsInOrder(result.current.workbook)[0]).toMatchObject({
       id: savedSheet.id,
-      position: { x: 96, y: 144 },
+      frame: { position: { x: 96, y: 144 } },
     });
   });
 
   it('drops a pending sheet and its queued work when deleted before create resolves', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -538,25 +537,25 @@ describe('useWorkbookController', () => {
     act(() => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
-    const pendingSheetId = result.current.workbook.sheets[0].id;
+    const pendingSheetId = sheetsInOrder(result.current.workbook)[0].id;
     act(() => {
       result.current.commands.updateCellContent(pendingSheetId, 'A1', 'obsolete');
       result.current.commands.deletePendingSheet(pendingSheetId);
     });
 
     await act(async () => {
-      resolveCreate(workbookWithSheets([savedSheet]));
+      resolveCreate(savedSheet);
       await createSheetSave;
     });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.workbook.sheets).toHaveLength(0);
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
   });
 
   it('does not resurrect a deleted pending sheet or send stale work after an in-flight create resolves', async () => {
     const savedSheet = positionedSheet('00000000-0000-4000-8000-000000000001', 'Inputs', { x: 24, y: 48 });
-    let resolveCreate!: (workbook: Workbook) => void;
-    const createSheetSave = new Promise<Workbook>((resolve) => {
+    let resolveCreate!: (sheet: SheetDocument) => void;
+    const createSheetSave = new Promise<SheetDocument>((resolve) => {
       resolveCreate = resolve;
     });
     const apiClient = autosaveClient({
@@ -573,19 +572,19 @@ describe('useWorkbookController', () => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
-    const pendingSheetId = result.current.workbook.sheets[0].id;
+    const pendingSheetId = sheetsInOrder(result.current.workbook)[0].id;
     act(() => {
       result.current.commands.updateCellContent(pendingSheetId, 'A1', 'obsolete');
       result.current.commands.deletePendingSheet(pendingSheetId);
     });
 
     await act(async () => {
-      resolveCreate(workbookWithSheets([savedSheet]));
+      resolveCreate(savedSheet);
       await createSheetSave;
     });
 
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.workbook.sheets).toHaveLength(0);
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
     expect(apiClient.deleteSheet).toHaveBeenCalledWith(savedSheet.id, { revision: 0 });
   });
@@ -605,14 +604,14 @@ describe('useWorkbookController', () => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
 
-    expect(result.current.workbook.sheets).toHaveLength(1);
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(1);
     await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
-    expect(result.current.workbook.sheets).toHaveLength(0);
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
   });
 
   it('drops queued pending mutations after create fails', async () => {
     let rejectCreate!: (cause: unknown) => void;
-    const createSheetSave = new Promise<Workbook>((_, reject) => {
+    const createSheetSave = new Promise<SheetDocument>((_, reject) => {
       rejectCreate = reject;
     });
     const apiClient = autosaveClient({
@@ -628,7 +627,7 @@ describe('useWorkbookController', () => {
     act(() => {
       result.current.commands.createSheet('Inputs', { x: 24, y: 48 });
     });
-    const pendingSheetId = result.current.workbook.sheets[0].id;
+    const pendingSheetId = sheetsInOrder(result.current.workbook)[0].id;
     act(() => {
       result.current.commands.updateCellContent(pendingSheetId, 'A1', 'first');
     });
@@ -642,7 +641,7 @@ describe('useWorkbookController', () => {
     });
 
     await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
-    expect(result.current.workbook.sheets).toHaveLength(0);
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
     expect(apiClient.updateCellContent).not.toHaveBeenCalled();
   });
 
@@ -651,7 +650,7 @@ describe('useWorkbookController', () => {
     const apiClient = autosaveClient({
       createSheet: vi.fn()
         .mockRejectedValueOnce(new Error('backend unavailable'))
-        .mockResolvedValueOnce(workbookWithSheets([savedSheet])),
+        .mockResolvedValueOnce(savedSheet),
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -670,15 +669,17 @@ describe('useWorkbookController', () => {
     });
 
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.workbook.sheets).toEqual([savedSheet]);
+    expect(sheetsInOrder(result.current.workbook)).toEqual([savedSheet]);
   });
 
   it('keeps frame changes outside calculation and persists only committed frame commands', () => {
     const apiClient = autosaveClient();
-    const sheet = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }),
+    const sheet = sheetDocument({
+      id: 'sheet-inputs',
+      name: 'Inputs',
+      position: { x: 10, y: 20 },
       cells: { A1: '=1' },
-    };
+    });
     const calculate = vi.fn();
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -688,14 +689,16 @@ describe('useWorkbookController', () => {
       }),
     );
     const initialResults = result.current.formulaResults;
+    const initialContent = findSheetById(result.current.workbook, 'sheet-inputs')!.content;
     expect(calculate).toHaveBeenCalledTimes(1);
 
     act(() => {
       result.current.commands.previewSheetFrameLayout('sheet-inputs', { x: 30, y: 40 });
     });
 
-    expect(result.current.workbook.sheets[0].position).toEqual({ x: 30, y: 40 });
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')?.frame.position).toEqual({ x: 30, y: 40 });
     expect(apiClient.updateSheetPosition).not.toHaveBeenCalled();
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')!.content).toBe(initialContent);
     expect(result.current.formulaResults).toBe(initialResults);
     expect(calculate).toHaveBeenCalledTimes(1);
 
@@ -703,9 +706,11 @@ describe('useWorkbookController', () => {
       result.current.commands.moveSheetFrame('sheet-inputs', { x: 50, y: 60 });
     });
 
-    expect(result.current.workbook.sheets[0].position).toEqual({ x: 50, y: 60 });
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')?.frame.position).toEqual({ x: 50, y: 60 });
     expect(apiClient.updateSheetPosition).toHaveBeenCalledWith('sheet-inputs', { x: 50, y: 60 }, { revision: 0 });
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')!.content).toBe(initialContent);
     expect(result.current.formulaResults).toBe(initialResults);
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')!.content).toBe(initialContent);
     expect(calculate).toHaveBeenCalledTimes(1);
 
     act(() => {
@@ -724,12 +729,11 @@ describe('useWorkbookController', () => {
   it('updates cells through a command and derives formula display results from workbook state', () => {
     const apiClient = autosaveClient();
     const calculate = vi.fn();
-    const sheet: Sheet = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }),
-      cells: {
-        B1: '=SUM(A1)',
-      },
-    };
+    const sheet = sheetDocument({
+      id: 'sheet-inputs',
+      name: 'Inputs',
+      cells: { B1: '=SUM(A1)' },
+    });
     const { result } = renderHook(() =>
       useWorkbookController({
         apiClient,
@@ -742,7 +746,7 @@ describe('useWorkbookController', () => {
       result.current.commands.updateCellContent('sheet-inputs', 'A1', '7');
     });
 
-    expect(result.current.workbook.sheets[0].cells.A1).toEqual('7');
+    expect(cellRawContent(findSheetById(result.current.workbook, 'sheet-inputs')!, 'A1')).toEqual('7');
     expect(result.current.formulaResults['sheet-inputs'].B1.display).toBe('7');
     expect(calculate).toHaveBeenLastCalledWith({
         kind: 'cells',
@@ -753,8 +757,8 @@ describe('useWorkbookController', () => {
 
   it('keeps local committed cell edits while retrying a conflicting revisioned autosave', async () => {
     const initialSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
-    const staleServerSheet: Sheet = { ...initialSheet, revision: 4, cells: { A1: 'server value' } };
-    const savedServerSheet: Sheet = { ...staleServerSheet, revision: 5, cells: { A1: 'Local value' } };
+    const staleServerSheet = documentWithCells(initialSheet, { A1: 'server value' }, 4);
+    const savedServerSheet = documentWithCells(initialSheet, { A1: 'Local value' }, 5);
     const apiClient = autosaveClient({
       loadSheet: vi.fn().mockResolvedValue(staleServerSheet),
       updateCellContent: vi
@@ -781,7 +785,7 @@ describe('useWorkbookController', () => {
     expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Local value', {
       revision: 4,
     });
-    expect(result.current.workbook.sheets[0].cells.A1).toEqual('Local value');
+    expect(cellRawContent(findSheetById(result.current.workbook, 'sheet-inputs')!, 'A1')).toEqual('Local value');
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
 
@@ -802,7 +806,7 @@ describe('useWorkbookController', () => {
       result.current.commands.deleteSheet('sheet-inputs');
     });
 
-    expect(result.current.workbook.sheets.map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
+    expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 4 }));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
@@ -834,12 +838,12 @@ describe('useWorkbookController', () => {
       result.current.commands.deleteSheet('sheet-inputs');
     });
 
-    expect(result.current.workbook.sheets).toHaveLength(0);
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
     expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
     expect(apiClient.deleteSheet).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveRunningSave(workbookWithSheets([{ ...initialSheet, revision: 1, cells: { A1: 'first' } }]));
+      resolveRunningSave(workbookWithSheets([documentWithCells(initialSheet, { A1: 'first' }, 1)]));
       await runningSave;
     });
 
@@ -886,7 +890,7 @@ describe('useWorkbookController', () => {
       result.current.commands.deleteSheet('sheet-inputs');
     });
 
-    expect(result.current.workbook.sheets.map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
+    expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
     expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 0 }));
 
@@ -897,7 +901,7 @@ describe('useWorkbookController', () => {
     expect(result.current.saveStatus).toBe('saving');
 
     await act(async () => {
-      resolveFirstOutputSave(workbookWithSheets([{ ...outputs, revision: 1, cells: { A1: 'first' } }]));
+      resolveFirstOutputSave(workbookWithSheets([documentWithCells(outputs, { A1: 'first' }, 1)]));
       await firstOutputSave;
     });
     await waitFor(() =>
@@ -905,12 +909,20 @@ describe('useWorkbookController', () => {
     );
 
     await act(async () => {
-      resolveLatestOutputSave(workbookWithSheets([{ ...outputs, revision: 2, cells: { A1: 'latest' } }]));
+      resolveLatestOutputSave(workbookWithSheets([documentWithCells(outputs, { A1: 'latest' }, 2)]));
       await latestOutputSave;
     });
 
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(result.current.workbook.sheets).toEqual([{ ...outputs, revision: 2, cells: { A1: 'latest' } }]);
+    expect(sheetsInOrder(result.current.workbook)).toEqual([
+      sheetDocument({
+        id: outputs.id,
+        name: outputs.name,
+        position: outputs.frame.position,
+        revision: 2,
+        cells: { A1: 'latest' },
+      }),
+    ]);
   });
 
   it('renames sheets through autosave with the current revision token', () => {
@@ -928,7 +940,7 @@ describe('useWorkbookController', () => {
       expect(renamed.ok).toBe(true);
     });
 
-    expect(result.current.workbook.sheets[0].name).toBe('Renamed Inputs');
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')?.name).toBe('Renamed Inputs');
     expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-inputs', 'Renamed Inputs', { revision: 4 });
   });
 
@@ -949,8 +961,10 @@ describe('useWorkbookController', () => {
       result.current.commands.appendColumn('sheet-inputs');
     });
 
-    expect(result.current.workbook.sheets[0].rowCount).toBe(21);
-    expect(result.current.workbook.sheets[0].columnCount).toBe(11);
+    expect(sheetBounds(findSheetById(result.current.workbook, 'sheet-inputs')!)).toEqual({
+      rowCount: 21,
+      columnCount: 11,
+    });
     expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-inputs', { revision: 5 });
     expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs', { revision: 5 });
   });
@@ -969,9 +983,11 @@ describe('useWorkbookController', () => {
       result.current.commands.resizeSheetFrame('sheet-inputs', { x: 180, y: 80 }, { width: 180, height: 160 });
     });
 
-    expect(result.current.workbook.sheets[0]).toMatchObject({
-      frameSize: { width: 180, height: 160 },
-      position: { x: 180, y: 80 },
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')).toMatchObject({
+      frame: {
+        size: { width: 180, height: 160 },
+        position: { x: 180, y: 80 },
+      },
     });
     expect(apiClient.updateSheetFrameSize).toHaveBeenCalledWith(
       'sheet-inputs',
@@ -983,8 +999,12 @@ describe('useWorkbookController', () => {
 
   it('persists z-order changes for every sheet whose z-index changes', () => {
     const apiClient = autosaveClient();
-    const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 7, zIndex: 1 };
-    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 20 }), revision: 8, zIndex: 2 };
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 10, y: 20 }, revision: 7, zIndex: 1,
+    });
+    const outputs = sheetDocument({
+      id: 'sheet-outputs', name: 'Outputs', position: { x: 300, y: 20 }, revision: 8, zIndex: 2,
+    });
     const { result } = renderHook(() =>
       useWorkbookController({
         apiClient,
@@ -996,8 +1016,8 @@ describe('useWorkbookController', () => {
       result.current.commands.changeSheetZOrder('sheet-inputs', 'up');
     });
 
-    expect(result.current.workbook.sheets.find((sheet) => sheet.id === 'sheet-inputs')?.zIndex).toBe(2);
-    expect(result.current.workbook.sheets.find((sheet) => sheet.id === 'sheet-outputs')?.zIndex).toBe(1);
+    expect(findSheetById(result.current.workbook, 'sheet-inputs')?.frame.zIndex).toBe(2);
+    expect(findSheetById(result.current.workbook, 'sheet-outputs')?.frame.zIndex).toBe(1);
     expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-inputs', 2, { revision: 7 });
     expect(apiClient.updateSheetZIndex).toHaveBeenCalledWith('sheet-outputs', 1, { revision: 8 });
   });

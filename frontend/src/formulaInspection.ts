@@ -1,8 +1,10 @@
 import {
-  isAddressWithinBounds,
-  type CellAddress,
-  type CellRange,
-  type Sheet,
+  cellIdentityAt,
+  findSheetById,
+  stableRangeAt,
+  type SheetDocument,
+  type StableCellIdentity,
+  type StableCellRange,
   type Workbook,
 } from './workbook';
 import {
@@ -17,12 +19,12 @@ export type FormulaReferenceTarget =
   | {
       kind: 'cell';
       sheetId: string;
-      address: CellAddress;
+      identity?: StableCellIdentity;
     }
   | {
       kind: 'range';
       sheetId: string;
-      range: CellRange;
+      range?: StableCellRange;
     };
 
 export type FormulaInspectionReference = {
@@ -50,7 +52,7 @@ type QualifierReplacement = FormulaSourceSpan & { text: string };
 export function inspectFormula(
   canonicalRaw: string,
   workbook: Workbook,
-  currentSheet: Sheet,
+  currentSheet: SheetDocument,
 ): FormulaInspection | undefined {
   const parsed = parseFormulaSyntax(canonicalRaw, { preserveUnknownFunctions: true });
   if (parsed.result.kind === 'not-formula' || parsed.references.length === 0) {
@@ -83,7 +85,7 @@ function qualifierReplacements(
       return [];
     }
 
-    const sheet = workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
+    const sheet = findSheetById(workbook, reference.sheetId);
     return [{
       ...reference.sheetReferenceSpan,
       text: sheet ? formatSheetReferenceToken(sheet.name) : '#REF',
@@ -109,18 +111,23 @@ function inspectionReference(
   displayRaw: string,
   replacements: readonly QualifierReplacement[],
   workbook: Workbook,
-  currentSheet: Sheet,
+  currentSheet: SheetDocument,
 ): FormulaInspectionReference {
   const sheetId = reference.sheetId ?? currentSheet.id;
-  const targetSheet = workbook.sheets.find((candidate) => candidate.id === sheetId);
+  const targetSheet = findSheetById(workbook, sheetId);
   const displaySpan = translatedSpan(reference.sourceSpan, replacements);
   const target: FormulaReferenceTarget = reference.kind === 'cell'
-    ? { kind: 'cell', sheetId, address: reference.address }
-    : { kind: 'range', sheetId, range: reference.range };
-  const broken = !targetSheet || (reference.kind === 'cell'
-    ? !isAddressWithinBounds(reference.address, targetSheet)
-    : !isAddressWithinBounds(reference.range.start, targetSheet)
-      || !isAddressWithinBounds(reference.range.end, targetSheet));
+    ? {
+        kind: 'cell',
+        sheetId,
+        identity: targetSheet ? cellIdentityAt(targetSheet.content, reference.address) : undefined,
+      }
+    : {
+        kind: 'range',
+        sheetId,
+        range: targetSheet ? stableRangeAt(targetSheet.content, reference.range) : undefined,
+      };
+  const broken = !targetSheet || (target.kind === 'cell' ? !target.identity : !target.range);
 
   return {
     kind: 'reference',

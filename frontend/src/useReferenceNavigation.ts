@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { cellKey, type CellRange, type Sheet, type Workbook } from './workbook';
+import {
+  addressRangeOf,
+  cellAddressOf,
+  cellKey,
+  findSheetById,
+  type CellRange,
+  type SheetDocument,
+  type Workbook,
+} from './workbook';
 import type { ActiveCellSelection } from './appTypes';
 import type { FormulaInspectionReference } from './formulaInspection';
 import { rangeFitsSheetViewport } from './gridGeometry';
@@ -11,9 +19,12 @@ import {
 const NAVIGATION_HIGHLIGHT_MS = 1200;
 const NAVIGATION_TRANSITION_MS = 180;
 
-function normalizedRange(reference: FormulaInspectionReference): CellRange {
+function normalizedRange(reference: FormulaInspectionReference, sheet: SheetDocument): CellRange | undefined {
   if (reference.target.kind === 'range') {
-    const { start, end } = reference.target.range;
+    if (!reference.target.range) return undefined;
+    const resolved = addressRangeOf(sheet.content, reference.target.range);
+    if (!resolved) return undefined;
+    const { start, end } = resolved;
     return {
       start: {
         columnIndex: Math.min(start.columnIndex, end.columnIndex),
@@ -26,16 +37,19 @@ function normalizedRange(reference: FormulaInspectionReference): CellRange {
     };
   }
 
-  return { start: reference.target.address, end: reference.target.address };
+  const address = reference.target.identity
+    ? cellAddressOf(sheet.content, reference.target.identity)
+    : undefined;
+  return address ? { start: address, end: address } : undefined;
 }
 
-function referenceFrameRect(sheet: Sheet): WorkspaceTargetRect {
-  const frameSize = clampSheetFrameSize(sheet.frameSize);
+function referenceFrameRect(sheet: SheetDocument): WorkspaceTargetRect {
+  const frameSize = clampSheetFrameSize(sheet.frame.size);
   return {
-    left: sheet.position.x,
-    top: sheet.position.y,
-    right: sheet.position.x + frameSize.width,
-    bottom: sheet.position.y + frameSize.height,
+    left: sheet.frame.position.x,
+    top: sheet.frame.position.y,
+    right: sheet.frame.position.x + frameSize.width,
+    bottom: sheet.frame.position.y + frameSize.height,
   };
 }
 
@@ -82,15 +96,14 @@ export function useReferenceNavigation({
   }, [navigationMotion]);
 
   function navigateReference(reference: FormulaInspectionReference) {
-    const targetSheet = workbook.sheets.find(
-      (sheet) => sheet.id === reference.target.sheetId,
-    );
+    const targetSheet = findSheetById(workbook, reference.target.sheetId);
     const workspace = workspaceSurfaceRef.current;
     if (!targetSheet || !workspace || !reference.navigable) {
       return;
     }
 
-    const range = normalizedRange(reference);
+    const range = normalizedRange(reference, targetSheet);
+    if (!range) return;
     const selection: ActiveCellSelection = {
       sheetId: targetSheet.id,
       cellKey: cellKey(range.start),
