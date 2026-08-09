@@ -120,6 +120,8 @@ export type MultiSheetDurableChangeSet = {
 
 export type DurableChangeSet = SheetScopedDurableChangeSet | MultiSheetDurableChangeSet;
 
+export type DurableChangeSetRequest = DurableChangeSet & { version: 1 };
+
 export type AppliedUserAction = {
   nextWorkbook: Workbook;
   changeSet: DurableChangeSet | null;

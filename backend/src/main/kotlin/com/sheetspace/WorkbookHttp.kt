@@ -65,7 +65,7 @@ data class ErrorResponse(val error: String)
 
 fun Application.configureHttp(workbookApplication: WorkbookApplication) {
     install(ContentNegotiation) {
-        json()
+        json(Json { explicitNulls = false })
     }
 
     routing {
@@ -89,6 +89,15 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             call.respondApplicationResult {
                 call.respond(
                     WorkbookReadTransportAdapter.sheetDocument(workbookApplication.loadSheet(sheetId)),
+                )
+            }
+        }
+
+        post("/api/change-sets") {
+            val request = call.receiveRequest<ChangeSetRequest>() ?: return@post
+            call.respondApplicationResult {
+                call.respond(
+                    workbookApplication.applyChangeSet(WorkbookChangeSetTransportAdapter.request(request)),
                 )
             }
         }
@@ -225,6 +234,23 @@ private suspend fun ApplicationCall.respondApplicationResult(response: suspend (
         response()
     } catch (conflict: SheetRevisionConflict) {
         respondError(HttpStatusCode.Conflict, "sheet-revision-conflict")
+    } catch (conflict: ChangeSetRevisionConflict) {
+        respond(
+            HttpStatusCode.Conflict,
+            RevisionConflictResponse(
+                error = "revision-conflict",
+                conflicts = conflict.conflicts.map {
+                    RevisionConflictItemResponse(
+                        it.aggregate,
+                        it.sheetId,
+                        it.expectedRevision,
+                        it.actualRevision,
+                    )
+                },
+            ),
+        )
+    } catch (_: ActionIdReuseConflict) {
+        respondError(HttpStatusCode.Conflict, "action-id-reused")
     } catch (rejection: WorkbookApplicationException) {
         respondApplicationError(rejection.error)
     }
@@ -241,6 +267,10 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
             HttpStatusCode.BadRequest to "invalid-sheet-frame-size"
         WorkbookApplicationError.INVALID_SHEET_Z_INDEX -> HttpStatusCode.BadRequest to "invalid-sheet-z-index"
         WorkbookApplicationError.INVALID_CELL_ADDRESS -> HttpStatusCode.BadRequest to "invalid-cell-address"
+        WorkbookApplicationError.INVALID_ACTION_ID -> HttpStatusCode.BadRequest to "invalid-action-id"
+        WorkbookApplicationError.INVALID_CHANGE_SET -> HttpStatusCode.BadRequest to "invalid-change-set"
+        WorkbookApplicationError.UNSUPPORTED_CHANGE_SET_VERSION ->
+            HttpStatusCode.BadRequest to "unsupported-change-set-version"
     }
     respondError(status, code)
 }

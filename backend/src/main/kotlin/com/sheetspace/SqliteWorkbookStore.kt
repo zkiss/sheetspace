@@ -4,6 +4,8 @@ import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
 import java.util.UUID
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /**
  * SQLite [WorkbookStore] adapter.
@@ -37,6 +39,38 @@ class SqliteWorkbookStore internal constructor(
 
     override fun loadWorkbookBundle(): WorkbookState = database.transaction { conn ->
         SqliteWorkbookReader(conn, aggregateReadCheckpoint, sheetReadObserver).loadWorkbookBundle()
+    }
+
+    override fun applyChangeSet(
+        changeSet: DurableChangeSet,
+        transform: (WorkbookState) -> ChangeSetMutation,
+    ): AppliedChangeSet = synchronized(updateLock) {
+        database.immediateTransaction { conn ->
+            val fingerprint = changeSet.fingerprint()
+            conn.prepareStatement("SELECT request_fingerprint, result_json FROM action_receipts WHERE action_id = ?").use { statement ->
+                statement.setString(1, changeSet.clientActionId)
+                statement.executeQuery().use { result ->
+                    if (result.next()) {
+                        if (result.getString(1) != fingerprint) throw ActionIdReuseConflict(changeSet.clientActionId)
+                        return@immediateTransaction receiptJson.decodeFromString<AppliedChangeSet>(result.getString(2))
+                    }
+                }
+            }
+
+            val reader = SqliteWorkbookReader(conn)
+            val current = reader.loadWorkbookBundle()
+            val (updated, result) = applyChangeSetToWorkbook(current, changeSet, transform)
+            SqliteWorkbookWriter(conn, reader).persistChanges(current, updated)
+            conn.prepareStatement(
+                "INSERT INTO action_receipts (action_id, request_fingerprint, result_json) VALUES (?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, changeSet.clientActionId)
+                statement.setString(2, fingerprint)
+                statement.setString(3, receiptJson.encodeToString(result))
+                statement.executeUpdate()
+            }
+            result
+        }
     }
 
     override fun saveWorkbook(workbook: WorkbookState) {
@@ -97,6 +131,7 @@ class SqliteWorkbookStore internal constructor(
     }
 
     companion object {
+        private val receiptJson = Json
         internal fun inMemory(sheetReadObserver: ((SheetReadEvent) -> Unit)? = null): SqliteWorkbookStore {
             val jdbcUrl = "jdbc:sqlite:file:sheetspace-${UUID.randomUUID()}?mode=memory&cache=shared"
             return SqliteWorkbookStore(

@@ -4,6 +4,7 @@ class InMemoryWorkbookStore(
     initialWorkbook: WorkbookState = emptyWorkbookState(),
 ) : WorkbookStore {
     private var workbook = initialWorkbook
+    private val receipts = mutableMapOf<String, Pair<String, AppliedChangeSet>>()
 
     override fun loadManifest(): WorkbookManifest = synchronized(this) { workbook.manifest }
 
@@ -11,6 +12,21 @@ class InMemoryWorkbookStore(
         synchronized(this) { workbook.findSheet(sheetId) }
 
     override fun loadWorkbookBundle(): WorkbookState = synchronized(this) { workbook }
+
+    override fun applyChangeSet(
+        changeSet: DurableChangeSet,
+        transform: (WorkbookState) -> ChangeSetMutation,
+    ): AppliedChangeSet = synchronized(this) {
+        val fingerprint = changeSet.fingerprint()
+        receipts[changeSet.clientActionId]?.let { (storedFingerprint, result) ->
+            if (storedFingerprint != fingerprint) throw ActionIdReuseConflict(changeSet.clientActionId)
+            return@synchronized result
+        }
+        val (updated, result) = applyChangeSetToWorkbook(workbook, changeSet, transform)
+        workbook = updated
+        receipts[changeSet.clientActionId] = fingerprint to result
+        result
+    }
 
     override fun saveWorkbook(workbook: WorkbookState) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
