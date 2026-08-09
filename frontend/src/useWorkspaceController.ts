@@ -3,6 +3,7 @@ import type { PendingSheetMenu, WorkspaceViewport } from './appTypes';
 import type { WorkspacePosition } from './workbook';
 import {
   surfacePointFromClient,
+  surfaceDeltaFromClient,
   surfaceSize,
   viewportForTarget,
   workspacePointAtViewportCenter,
@@ -109,14 +110,16 @@ export function useWorkspaceController({
       return;
     }
 
-    const deltaX = event.clientX - panDrag.current.clientX;
-    const deltaY = event.clientY - panDrag.current.clientY;
+    const delta = surfaceDeltaFromClient(
+      { x: panDrag.current.clientX, y: panDrag.current.clientY },
+      { x: event.clientX, y: event.clientY },
+    );
     panDrag.current = {
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
     };
-    panWorkspace(deltaX, deltaY);
+    panWorkspace(delta.x, delta.y);
   }
 
   function stopWorkspacePan(event: PointerEvent<HTMLElement>) {

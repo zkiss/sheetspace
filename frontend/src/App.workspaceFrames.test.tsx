@@ -229,6 +229,29 @@ describe('App workspace and sheet frame integration', () => {
     expect(apiClient.updateSheetFrameLayout).not.toHaveBeenCalled();
   });
 
+  it('closes an open sheet menu when resize interaction takes ownership', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    openSheetContextMenu(frame);
+    const rightHandle = resizeHandle(frame, 'right');
+    fireEvent(rightHandle, new MouseEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientX: 360,
+      clientY: 120,
+    }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(workspaceSurface()).not.toHaveClass('workspace-surface-panning');
+  });
+
   it('autosaves committed frame resize from a resize handle', async () => {
     const apiClient = autosaveClient();
     render(

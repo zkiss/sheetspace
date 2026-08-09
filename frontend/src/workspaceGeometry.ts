@@ -51,6 +51,16 @@ export function workspaceDeltaFromClient(
   };
 }
 
+export function surfaceDeltaFromClient(
+  startClientPoint: WorkspacePosition,
+  currentClientPoint: WorkspacePosition,
+): WorkspacePosition {
+  return {
+    x: currentClientPoint.x - startClientPoint.x,
+    y: currentClientPoint.y - startClientPoint.y,
+  };
+}
+
 export function clampWorkspaceZoom(scale: number) {
   return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, scale));
 }

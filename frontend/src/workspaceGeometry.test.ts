@@ -4,6 +4,7 @@ import {
   clampWorkspaceZoom,
   resizeSheetFrame,
   surfacePointFromClient,
+  surfaceDeltaFromClient,
   surfaceSize,
   viewportForTarget,
   workspaceDeltaFromClient,
@@ -60,6 +61,8 @@ describe('workspaceGeometry', () => {
     expect(workspacePointAtViewportCenter(element, viewport)).toEqual({ x: 210, y: 220 });
     expect(workspaceDeltaFromClient({ x: 100, y: 120 }, { x: 140, y: 150 }, 2))
       .toEqual({ x: 20, y: 15 });
+    expect(surfaceDeltaFromClient({ x: 100, y: 120 }, { x: 140, y: 150 }))
+      .toEqual({ x: 40, y: 30 });
   });
 
   it('zooms around a surface point while preserving its workspace location', () => {

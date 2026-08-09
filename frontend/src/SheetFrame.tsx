@@ -123,7 +123,10 @@ export function SheetFrame({
           data-testid="sheet-frame-resize-handle"
           key={handle}
           onPointerCancel={onResizeCancel}
-          onPointerDown={(event) => onResizeStart(frame.id, direction, event)}
+          onPointerDown={(event) => {
+            onSheetFrameInteraction();
+            onResizeStart(frame.id, direction, event);
+          }}
           onPointerMove={onResizeMove}
           onPointerUp={onResizeStop}
           role="separator"

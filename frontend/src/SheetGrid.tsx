@@ -10,10 +10,9 @@ import {
   type SheetTabularProjection,
 } from './workbook';
 import {
-  GRID_CELL_HEIGHT,
-  GRID_CELL_WIDTH,
   GRID_COLUMN_HEADER_HEIGHT,
   GRID_ROW_HEADER_WIDTH,
+  sheetContentOffsetForCell,
 } from './gridGeometry';
 import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
 import { cellKeyForTarget } from './cellInteraction';
@@ -137,8 +136,9 @@ export function SheetGrid({
       return;
     }
 
-    scrollContainer.scrollLeft = Math.round(range.start.columnIndex * GRID_CELL_WIDTH);
-    scrollContainer.scrollTop = Math.round(range.start.rowIndex * GRID_CELL_HEIGHT);
+    const contentOffset = sheetContentOffsetForCell(range.start);
+    scrollContainer.scrollLeft = contentOffset.x;
+    scrollContainer.scrollTop = contentOffset.y;
   }, [navigationHighlightCellKey, navigationHighlightRange, scrollContainerRef, sheet]);
 
   return (
