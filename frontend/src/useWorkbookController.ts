@@ -207,10 +207,6 @@ export function useWorkbookController({
     return result.value;
   }
 
-  function clientActionId(): string {
-    return crypto.randomUUID();
-  }
-
   function persistDeletedSheet(savedSheetId: string, revision: number | undefined) {
     return getApiMethod('deleteSheet')(savedSheetId, { revision }).catch((cause: unknown) => {
       if (cause instanceof WorkbookApiError && cause.status === 404 && cause.code === 'sheet-not-found') {
@@ -221,9 +217,9 @@ export function useWorkbookController({
     });
   }
 
-  // Temporary legacy persistence adapter: each typed change set is projected onto
-  // current per-operation HTTP calls and edit queues below. sheetspace-z5q.12
-  // migrates saved-sheet calls; sheetspace-z5q.13 removes lifecycle/queue code.
+  // Pure actions own optimistic state transitions and calculation impact. The focused
+  // persistence calls below remain until sheetspace-z5q.11 through z5q.13 separate
+  // saved-sheet autosave from the pending-sheet lifecycle.
 
   function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
     const sourceWorkbook = optimisticWorkbook.current;
@@ -248,7 +244,6 @@ export function useWorkbookController({
     });
     if (!optimisticSheet.ok || !applyAction({
       kind: 'create-sheet',
-      clientActionId: clientActionId(),
       sheet: optimisticSheet.value,
     })) {
       pendingSheets.current.delete(pendingSheetId);
@@ -332,7 +327,7 @@ export function useWorkbookController({
     if (!createWasSent) {
       unresolvedCreateNames.current.delete(sheetId);
     }
-    const applied = applyAction({ kind: 'delete-sheet', clientActionId: clientActionId(), sheetId });
+    const applied = applyAction({ kind: 'delete-sheet', sheetId });
     if (applied) {
       setWorkbook(
         (currentWorkbook) => remapWorkbookFormulaSheetId(currentWorkbook, sheetId, '#REF'),
@@ -353,7 +348,7 @@ export function useWorkbookController({
     }
 
     dropSheetQueuedTasks(localSheetId);
-    const applied = applyAction({ kind: 'delete-sheet', clientActionId: clientActionId(), sheetId: localSheetId });
+    const applied = applyAction({ kind: 'delete-sheet', sheetId: localSheetId });
     if (!applied) return;
     enqueueEdit(`sheet-delete:${localSheetId}`, async () => {
       await waitForSheetIdle(localSheetId);
@@ -368,7 +363,7 @@ export function useWorkbookController({
     const validation = validateSheetName(name, sheetsInOrder(sourceWorkbook), localSheetId);
     if (!findSheetById(sourceWorkbook, localSheetId)) return { ok: false, reason: 'unknown-sheet' };
     if (!validation.ok) return validation;
-    const applied = applyAction({ kind: 'rename-sheet', clientActionId: clientActionId(), sheetId: localSheetId, name });
+    const applied = applyAction({ kind: 'rename-sheet', sheetId: localSheetId, name });
     if (!applied) return { ok: false, reason: 'unknown-sheet' };
     const renamedSheet = findSheetById(applied.nextWorkbook, localSheetId);
     if (renamedSheet) {
@@ -387,7 +382,7 @@ export function useWorkbookController({
   function appendSheetRow(sheetId: string) {
     const localSheetId = resolveSheetId(sheetId);
     const applied = applyAction({
-      kind: 'append-row', clientActionId: clientActionId(), sheetId: localSheetId,
+      kind: 'append-row', sheetId: localSheetId,
       rowId: `pending-row:${crypto.randomUUID()}`,
     });
     if (!applied) return;
@@ -401,7 +396,7 @@ export function useWorkbookController({
   function appendSheetColumn(sheetId: string) {
     const localSheetId = resolveSheetId(sheetId);
     const applied = applyAction({
-      kind: 'append-column', clientActionId: clientActionId(), sheetId: localSheetId,
+      kind: 'append-column', sheetId: localSheetId,
       columnId: `pending-column:${crypto.randomUUID()}`,
     });
     if (!applied) return;
@@ -418,9 +413,9 @@ export function useWorkbookController({
     const cell = currentSheet && cellIdentityAt(currentSheet.content, cellKey);
     if (!currentSheet || !cell) return;
     const applied = applyAction({
-      kind: 'set-cell-content', clientActionId: clientActionId(), sheetId: localSheetId, cell, raw,
+      kind: 'set-cell-content', sheetId: localSheetId, cell, raw,
     });
-    if (!applied?.changeSet) return;
+    if (!applied?.changed) return;
     const nextWorkbook = applied.nextWorkbook;
     const nextSheet = findSheetById(nextWorkbook, localSheetId);
     const canonicalRaw = nextSheet ? cellRawContent(nextSheet, cellKey) ?? '' : '';
@@ -466,7 +461,7 @@ export function useWorkbookController({
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
     const localSheetId = resolveSheetId(sheetId);
-    if (!applyAction({ kind: 'move-sheet-frame', clientActionId: clientActionId(), sheetId: localSheetId, position })) return;
+    if (!applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position })) return;
     enqueueEdit(`sheet:${sheetId}:position`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
         runRevisionedEdit(savedSheetId, (revision) =>
@@ -480,7 +475,7 @@ export function useWorkbookController({
     const localSheetId = resolveSheetId(sheetId);
     const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     if (!applyAction({
-      kind: 'resize-sheet-frame', clientActionId: clientActionId(), sheetId: localSheetId, position, size: frameSize,
+      kind: 'resize-sheet-frame', sheetId: localSheetId, position, size: frameSize,
     })) return;
     enqueueEdit(`sheet:${sheetId}:frame-size`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
@@ -506,7 +501,7 @@ export function useWorkbookController({
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
     const sourceWorkbook = optimisticWorkbook.current;
     const applied = applyAction({
-      kind: 'change-sheet-z-order', clientActionId: clientActionId(), sheetId: resolveSheetId(sheetId), direction,
+      kind: 'change-sheet-z-order', sheetId: resolveSheetId(sheetId), direction,
     });
     if (!applied) return;
     for (const nextSheet of sheetsInOrder(applied.nextWorkbook)) {

@@ -36,12 +36,11 @@ class SqliteMigrationTest {
                             "sheet_rows",
                             "sheet_columns",
                             "cells",
-                            "action_receipts",
                         ),
                     ),
                 )
                 assertEquals(
-                    2,
+                    1,
                     connection.createStatement().use { statement ->
                         statement.executeQuery("SELECT COUNT(*) FROM flyway_schema_history").use { result ->
                             result.next()

@@ -12,186 +12,167 @@ describe('applyUserAction', () => {
     {
       label: 'cell content',
       action: {
-        kind: 'set-cell-content', clientActionId: 'action-cell', sheetId: 'alpha',
-        cell: cellIdentityAt(alpha.content, 'A1')!, raw: '=Beta!A1',
+        kind: 'set-cell-content', sheetId: 'alpha', cell: cellIdentityAt(alpha.content, 'A1')!, raw: '=Beta!A1',
       } satisfies UserAction,
-      operationKinds: ['set-cell-content'], scope: 'sheet', impact: 'cells',
+      impact: 'cells',
     },
     {
       label: 'row append',
-      action: { kind: 'append-row', clientActionId: 'action-row', sheetId: 'alpha', rowId: 'new-row' } satisfies UserAction,
-      operationKinds: ['append-row'], scope: 'sheet', impact: 'structure',
+      action: { kind: 'append-row', sheetId: 'alpha', rowId: 'new-row' } satisfies UserAction,
+      impact: 'structure',
     },
     {
       label: 'column append',
-      action: { kind: 'append-column', clientActionId: 'action-column', sheetId: 'alpha', columnId: 'new-column' } satisfies UserAction,
-      operationKinds: ['append-column'], scope: 'sheet', impact: 'structure',
+      action: { kind: 'append-column', sheetId: 'alpha', columnId: 'new-column' } satisfies UserAction,
+      impact: 'structure',
     },
     {
       label: 'metadata rename',
-      action: { kind: 'rename-sheet', clientActionId: 'action-rename', sheetId: 'alpha', name: ' Renamed ' } satisfies UserAction,
-      operationKinds: ['rename-sheet'], scope: 'sheet', impact: 'none',
+      action: { kind: 'rename-sheet', sheetId: 'alpha', name: ' Renamed ' } satisfies UserAction,
+      impact: 'none',
     },
     {
       label: 'frame move',
-      action: { kind: 'move-sheet-frame', clientActionId: 'action-move', sheetId: 'alpha', position: { x: 10, y: 20 } } satisfies UserAction,
-      operationKinds: ['set-sheet-frame'], scope: 'sheet', impact: 'none',
+      action: { kind: 'move-sheet-frame', sheetId: 'alpha', position: { x: 10, y: 20 } } satisfies UserAction,
+      impact: 'none',
     },
     {
       label: 'frame resize',
       action: {
-        kind: 'resize-sheet-frame', clientActionId: 'action-resize', sheetId: 'alpha',
+        kind: 'resize-sheet-frame', sheetId: 'alpha',
         position: { x: -5, y: 6 }, size: { width: 300, height: 220 },
       } satisfies UserAction,
-      operationKinds: ['set-sheet-frame'], scope: 'sheet', impact: 'none',
+      impact: 'none',
     },
     {
       label: 'z-order',
-      action: { kind: 'change-sheet-z-order', clientActionId: 'action-z', sheetId: 'alpha', direction: 'top' } satisfies UserAction,
-      operationKinds: ['set-sheet-z-index', 'set-sheet-z-index'], scope: 'multi-sheet', impact: 'none',
+      action: { kind: 'change-sheet-z-order', sheetId: 'alpha', direction: 'top' } satisfies UserAction,
+      impact: 'none',
     },
     {
       label: 'lifecycle delete',
-      action: { kind: 'delete-sheet', clientActionId: 'action-delete', sheetId: 'alpha' } satisfies UserAction,
-      operationKinds: ['delete-sheet'], scope: 'multi-sheet', impact: 'structure',
+      action: { kind: 'delete-sheet', sheetId: 'alpha' } satisfies UserAction,
+      impact: 'structure',
     },
-  ])('$label returns concrete operations and calculation impact', ({ action, operationKinds, scope, impact }) => {
+  ])('$label returns changed optimistic state and calculation impact', ({ action, impact }) => {
     const result = applyUserAction(workbook, action);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.changeSet).toMatchObject({ clientActionId: action.clientActionId, scope });
-    if (!result.value.changeSet) throw new Error('Expected durable change set');
-    expect(result.value.changeSet.operations.map((operation) => operation.kind)).toEqual(operationKinds);
+    expect(result.value.changed).toBe(true);
+    expect(result.value.nextWorkbook).not.toBe(workbook);
     expect(result.value.calculationImpact.kind).toBe(impact);
   });
 
-  it('creates one deterministic lifecycle change with explicit ids', () => {
+  it('creates one deterministic optimistic sheet transition', () => {
     const sheet = sheetDocument({ id: 'pending:new', name: 'New', revision: 0, position: { x: 40, y: 50 }, zIndex: 3 });
-    const action = { kind: 'create-sheet', clientActionId: 'action-create', sheet } satisfies UserAction;
+    const action = { kind: 'create-sheet', sheet } satisfies UserAction;
     const first = applyUserAction(workbook, action);
-    const second = applyUserAction(workbook, action);
 
-    expect(first).toEqual(second);
+    expect(first).toEqual(applyUserAction(workbook, action));
     expect(first).toMatchObject({
       ok: true,
       value: {
         nextWorkbook: { manifest: { sheetIds: ['alpha', 'beta', 'pending:new'] } },
-        changeSet: {
-          scope: 'multi-sheet', clientActionId: 'action-create', expectedManifestRevision: 3,
-          expectedSheetRevisions: [], operations: [{
-            kind: 'create-sheet', creationKey: 'action-create', name: 'New', frame: sheet.frame,
-          }],
-        },
+        changed: true,
         calculationImpact: { kind: 'structure' },
       },
     });
   });
 
-  it('records stable cell identity, canonical formula, revision, and exact calculation target', () => {
+  it('stores a canonical formula and reports its exact calculation target', () => {
     const cell = cellIdentityAt(alpha.content, 'B2')!;
     const result = applyUserAction(workbook, {
-      kind: 'set-cell-content', clientActionId: 'action-cell', sheetId: 'alpha', cell, raw: '=Beta!A1',
+      kind: 'set-cell-content', sheetId: 'alpha', cell, raw: '=Beta!A1',
     });
 
     expect(result).toMatchObject({
       ok: true,
       value: {
-        changeSet: {
-          scope: 'sheet', expectedRevision: { sheetId: 'alpha', revision: 4 },
-          operations: [{ kind: 'set-cell-content', cell, raw: '=beta!A1' }],
-        },
+        changed: true,
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'B2' }] },
       },
     });
     if (result.ok) expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=beta!A1');
   });
 
-  it('makes resize one operation containing position and size', () => {
+  it('applies resize position and size in one state transition', () => {
     const result = applyUserAction(workbook, {
-      kind: 'resize-sheet-frame', clientActionId: 'action-resize', sheetId: 'alpha',
+      kind: 'resize-sheet-frame', sheetId: 'alpha',
       position: { x: 12, y: 34 }, size: { width: 500, height: 400 },
     });
+
     expect(result).toMatchObject({
       ok: true,
       value: {
-        changeSet: {
-          scope: 'sheet', expectedRevision: { sheetId: 'alpha', revision: 4 },
-          operations: [{
-            kind: 'set-sheet-frame',
-            frame: { position: { x: 12, y: 34 }, size: { width: 500, height: 400 }, zIndex: 1 },
-          }],
+        nextWorkbook: {
+          documents: {
+            alpha: {
+              frame: { position: { x: 12, y: 34 }, size: { width: 500, height: 400 }, zIndex: 1 },
+            },
+          },
         },
+        changed: true,
         calculationImpact: { kind: 'none' },
       },
     });
   });
 
-  it('captures every touched revision for a multi-sheet z-order action', () => {
+  it('updates every affected sheet in one z-order state transition', () => {
     const result = applyUserAction(workbook, {
-      kind: 'change-sheet-z-order', clientActionId: 'action-z', sheetId: 'alpha', direction: 'top',
+      kind: 'change-sheet-z-order', sheetId: 'alpha', direction: 'top',
     });
+
     expect(result).toMatchObject({
       ok: true,
       value: {
-        changeSet: {
-          scope: 'multi-sheet',
-          expectedSheetRevisions: [{ sheetId: 'alpha', revision: 4 }, { sheetId: 'beta', revision: 7 }],
+        nextWorkbook: {
+          documents: {
+            alpha: { frame: { zIndex: 2 } },
+            beta: { frame: { zIndex: 1 } },
+          },
         },
+        changed: true,
       },
     });
-    if (result.ok && result.value.changeSet?.scope === 'multi-sheet') {
-      expect(result.value.changeSet.expectedManifestRevision).toBeUndefined();
-    }
   });
 
   it.each([
     {
       label: 'row append',
-      action: { kind: 'append-row', clientActionId: 'row', sheetId: 'alpha', rowId: 'new-row' } satisfies UserAction,
-      expectedRevision: 4,
+      action: { kind: 'append-row', sheetId: 'alpha', rowId: 'new-row' } satisfies UserAction,
       assertState: (next: Workbook) => expect(next.documents.alpha.content.rows.slice(-1)[0]).toBe('new-row'),
     },
     {
       label: 'column append',
-      action: { kind: 'append-column', clientActionId: 'column', sheetId: 'alpha', columnId: 'new-column' } satisfies UserAction,
-      expectedRevision: 4,
+      action: { kind: 'append-column', sheetId: 'alpha', columnId: 'new-column' } satisfies UserAction,
       assertState: (next: Workbook) => expect(next.documents.alpha.content.columns.slice(-1)[0]).toBe('new-column'),
     },
     {
       label: 'rename',
-      action: { kind: 'rename-sheet', clientActionId: 'rename', sheetId: 'alpha', name: 'Renamed' } satisfies UserAction,
-      expectedRevision: 4,
+      action: { kind: 'rename-sheet', sheetId: 'alpha', name: 'Renamed' } satisfies UserAction,
       assertState: (next: Workbook) => expect(next.documents.alpha.name).toBe('Renamed'),
     },
     {
       label: 'move',
-      action: { kind: 'move-sheet-frame', clientActionId: 'move', sheetId: 'alpha', position: { x: 8, y: 9 } } satisfies UserAction,
-      expectedRevision: 4,
+      action: { kind: 'move-sheet-frame', sheetId: 'alpha', position: { x: 8, y: 9 } } satisfies UserAction,
       assertState: (next: Workbook) => expect(next.documents.alpha.frame.position).toEqual({ x: 8, y: 9 }),
     },
-  ])('$label deterministically changes state with sheet-scoped revision', ({ action, expectedRevision, assertState }) => {
+  ])('$label deterministically changes current state', ({ action, assertState }) => {
     const first = applyUserAction(workbook, action);
-    const second = applyUserAction(workbook, action);
-    expect(first).toEqual(second);
-    expect(first).toMatchObject({
-      ok: true,
-      value: { changeSet: { scope: 'sheet', sheetId: 'alpha', expectedRevision: { sheetId: 'alpha', revision: expectedRevision } } },
-    });
+    expect(first).toEqual(applyUserAction(workbook, action));
     if (first.ok) assertState(first.value.nextWorkbook);
   });
 
-  it('deletes deterministically with manifest and touched-sheet revisions', () => {
-    const action = { kind: 'delete-sheet', clientActionId: 'delete', sheetId: 'alpha' } satisfies UserAction;
+  it('deletes deterministically', () => {
+    const action = { kind: 'delete-sheet', sheetId: 'alpha' } satisfies UserAction;
     const first = applyUserAction(workbook, action);
+
     expect(first).toEqual(applyUserAction(workbook, action));
     expect(first).toMatchObject({
       ok: true,
       value: {
         nextWorkbook: { manifest: { sheetIds: ['beta'] } },
-        changeSet: {
-          scope: 'multi-sheet', expectedManifestRevision: 3,
-          expectedSheetRevisions: [{ sheetId: 'alpha', revision: 4 }],
-        },
+        changed: true,
         calculationImpact: { kind: 'structure' },
       },
     });
@@ -201,24 +182,24 @@ describe('applyUserAction', () => {
   it.each([
     ['same canonical cell value', workbookWithSheets([sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'same' } })]), 'same'],
     ['already empty cell', workbook, ''],
-  ])('treats $label as no durable or calculation work', (_label, source, raw) => {
+  ])('treats $label as no state or calculation work', (_label, source, raw) => {
     const sheet = source.documents.alpha;
     const result = applyUserAction(source, {
-      kind: 'set-cell-content', clientActionId: 'noop', sheetId: 'alpha', cell: cellIdentityAt(sheet.content, 'A1')!, raw,
+      kind: 'set-cell-content', sheetId: 'alpha', cell: cellIdentityAt(sheet.content, 'A1')!, raw,
     });
     expect(result).toEqual({
       ok: true,
-      value: { nextWorkbook: source, changeSet: null, calculationImpact: { kind: 'none' } },
+      value: { nextWorkbook: source, changed: false, calculationImpact: { kind: 'none' } },
     });
   });
 
   it.each([
-    ['unknown sheet', { kind: 'delete-sheet', clientActionId: 'bad', sheetId: 'missing' } satisfies UserAction, 'unknown-sheet'],
-    ['invalid cell', { kind: 'set-cell-content', clientActionId: 'bad', sheetId: 'alpha', cell: { rowId: 'missing', columnId: 'missing' }, raw: 'x' } satisfies UserAction, 'invalid-cell'],
-    ['duplicate row id', { kind: 'append-row', clientActionId: 'bad', sheetId: 'alpha', rowId: alpha.content.rows[0] } satisfies UserAction, 'duplicate-row-id'],
-    ['duplicate column id', { kind: 'append-column', clientActionId: 'bad', sheetId: 'alpha', columnId: alpha.content.columns[0] } satisfies UserAction, 'duplicate-column-id'],
-    ['empty name', { kind: 'rename-sheet', clientActionId: 'bad', sheetId: 'alpha', name: ' ' } satisfies UserAction, 'empty-sheet-name'],
-    ['duplicate name', { kind: 'rename-sheet', clientActionId: 'bad', sheetId: 'alpha', name: 'Beta' } satisfies UserAction, 'duplicate-sheet-name'],
+    ['unknown sheet', { kind: 'delete-sheet', sheetId: 'missing' } satisfies UserAction, 'unknown-sheet'],
+    ['invalid cell', { kind: 'set-cell-content', sheetId: 'alpha', cell: { rowId: 'missing', columnId: 'missing' }, raw: 'x' } satisfies UserAction, 'invalid-cell'],
+    ['duplicate row id', { kind: 'append-row', sheetId: 'alpha', rowId: alpha.content.rows[0] } satisfies UserAction, 'duplicate-row-id'],
+    ['duplicate column id', { kind: 'append-column', sheetId: 'alpha', columnId: alpha.content.columns[0] } satisfies UserAction, 'duplicate-column-id'],
+    ['empty name', { kind: 'rename-sheet', sheetId: 'alpha', name: ' ' } satisfies UserAction, 'empty-sheet-name'],
+    ['duplicate name', { kind: 'rename-sheet', sheetId: 'alpha', name: 'Beta' } satisfies UserAction, 'duplicate-sheet-name'],
   ])('rejects $label without mutating input', (_label, action, reason) => {
     const before: Workbook = structuredClone(workbook);
     expect(applyUserAction(workbook, action)).toEqual({ ok: false, reason });

@@ -20,111 +20,58 @@ import {
   type WorkspacePosition,
 } from './workbook';
 
-export type ClientActionId = string;
-
 // Inverse actions are intentionally absent: current behavior has no undo path.
 // Phase 3 will add inverse data only for actions that its undo contract supports.
 export type UserAction =
   | {
       kind: 'create-sheet';
-      clientActionId: ClientActionId;
       sheet: SheetDocument;
     }
   | {
       kind: 'delete-sheet';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
     }
   | {
       kind: 'rename-sheet';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
       name: string;
     }
   | {
       kind: 'set-cell-content';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
       cell: StableCellIdentity;
       raw: string;
     }
   | {
       kind: 'append-row';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
       rowId: RowId;
     }
   | {
       kind: 'append-column';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
       columnId: ColumnId;
     }
   | {
       kind: 'move-sheet-frame';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
       position: WorkspacePosition;
     }
   | {
       kind: 'resize-sheet-frame';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
       position: WorkspacePosition;
       size: SheetFrameSize;
     }
   | {
       kind: 'change-sheet-z-order';
-      clientActionId: ClientActionId;
       sheetId: SheetId;
       direction: SheetZOrderDirection;
     };
 
-export type SheetDurableOperation =
-  | { kind: 'rename-sheet'; name: string }
-  | { kind: 'set-cell-content'; cell: StableCellIdentity; raw: string }
-  | { kind: 'append-row' }
-  | { kind: 'append-column' }
-  | { kind: 'set-sheet-frame'; frame: FrameState };
-
-export type MultiSheetDurableOperation =
-  | {
-      kind: 'create-sheet';
-      creationKey: ClientActionId;
-      name: string;
-      frame: FrameState;
-    }
-  | { kind: 'delete-sheet'; sheetId: SheetId }
-  | { kind: 'set-sheet-z-index'; sheetId: SheetId; zIndex: number };
-
-export type SheetRevisionExpectation = {
-  sheetId: SheetId;
-  revision: number;
-};
-
-export type SheetScopedDurableChangeSet = {
-  scope: 'sheet';
-  clientActionId: ClientActionId;
-  sheetId: SheetId;
-  expectedRevision: SheetRevisionExpectation;
-  operations: readonly SheetDurableOperation[];
-};
-
-export type MultiSheetDurableChangeSet = {
-  scope: 'multi-sheet';
-  clientActionId: ClientActionId;
-  expectedManifestRevision?: number;
-  expectedSheetRevisions: readonly SheetRevisionExpectation[];
-  operations: readonly MultiSheetDurableOperation[];
-};
-
-export type DurableChangeSet = SheetScopedDurableChangeSet | MultiSheetDurableChangeSet;
-
-export type DurableChangeSetRequest = DurableChangeSet & { version: 1 };
-
 export type AppliedUserAction = {
   nextWorkbook: Workbook;
-  changeSet: DurableChangeSet | null;
+  changed: boolean;
   calculationImpact: CalculationImpact;
 };
 
@@ -179,18 +126,7 @@ function applyCreateSheet(workbook: Workbook, action: Extract<UserAction, { kind
     manifest: { ...workbook.manifest, sheetIds: [...workbook.manifest.sheetIds, sheet.id] },
     documents: { ...workbook.documents, [sheet.id]: sheet },
   };
-  return success(nextWorkbook, {
-    scope: 'multi-sheet',
-    clientActionId: action.clientActionId,
-    expectedManifestRevision: workbook.manifest.revision,
-    expectedSheetRevisions: [],
-    operations: [{
-      kind: 'create-sheet',
-      creationKey: action.clientActionId,
-      name: sheet.name,
-      frame: sheet.frame,
-    }],
-  }, { kind: 'structure' });
+  return success(nextWorkbook, { kind: 'structure' });
 }
 
 function applyDeleteSheet(workbook: Workbook, action: Extract<UserAction, { kind: 'delete-sheet' }>): UserActionResult {
@@ -202,12 +138,6 @@ function applyDeleteSheet(workbook: Workbook, action: Extract<UserAction, { kind
     ...workbook,
     manifest: { ...workbook.manifest, sheetIds: workbook.manifest.sheetIds.filter((id) => id !== action.sheetId) },
     documents,
-  }, {
-    scope: 'multi-sheet',
-    clientActionId: action.clientActionId,
-    expectedManifestRevision: workbook.manifest.revision,
-    expectedSheetRevisions: [expectedRevision(sheet)],
-    operations: [{ kind: 'delete-sheet', sheetId: sheet.id }],
   }, { kind: 'structure' });
 }
 
@@ -218,7 +148,7 @@ function applyRenameSheet(workbook: Workbook, action: Extract<UserAction, { kind
   if (!validation.ok) return { ok: false, reason: validation.reason === 'empty' ? 'empty-sheet-name' : 'duplicate-sheet-name' };
   if (validation.name === sheet.name) return noChange(workbook);
   const nextSheet = { ...sheet, name: validation.name };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'rename-sheet', name: validation.name }], { kind: 'none' });
+  return sheetSuccess(workbook, nextSheet, { kind: 'none' });
 }
 
 function applySetCellContent(workbook: Workbook, action: Extract<UserAction, { kind: 'set-cell-content' }>): UserActionResult {
@@ -235,7 +165,7 @@ function applySetCellContent(workbook: Workbook, action: Extract<UserAction, { k
   const cells = { ...sheet.content.cells };
   if (action.raw.length === 0) delete cells[identityKey]; else cells[identityKey] = raw;
   const nextSheet = { ...sheet, content: { ...sheet.content, cells } };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'set-cell-content', cell: action.cell, raw }], {
+  return sheetSuccess(workbook, nextSheet, {
     kind: 'cells',
     cells: [{ sheetId: sheet.id, key: cellKey(address) }],
   });
@@ -246,7 +176,7 @@ function applyAppendRow(workbook: Workbook, action: Extract<UserAction, { kind: 
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (sheet.content.rows.includes(action.rowId)) return { ok: false, reason: 'duplicate-row-id' };
   const nextSheet = { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, action.rowId] } };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'append-row' }], { kind: 'structure' });
+  return sheetSuccess(workbook, nextSheet, { kind: 'structure' });
 }
 
 function applyAppendColumn(workbook: Workbook, action: Extract<UserAction, { kind: 'append-column' }>): UserActionResult {
@@ -254,7 +184,7 @@ function applyAppendColumn(workbook: Workbook, action: Extract<UserAction, { kin
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (sheet.content.columns.includes(action.columnId)) return { ok: false, reason: 'duplicate-column-id' };
   const nextSheet = { ...sheet, content: { ...sheet.content, columns: [...sheet.content.columns, action.columnId] } };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'append-column' }], { kind: 'structure' });
+  return sheetSuccess(workbook, nextSheet, { kind: 'structure' });
 }
 
 function applyFrameChange(
@@ -266,46 +196,31 @@ function applyFrameChange(
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   const frame = change(sheet);
   const nextSheet = { ...sheet, frame };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'set-sheet-frame', frame }], { kind: 'none' });
+  return sheetSuccess(workbook, nextSheet, { kind: 'none' });
 }
 
 function applyZOrderChange(workbook: Workbook, action: Extract<UserAction, { kind: 'change-sheet-z-order' }>): UserActionResult {
   const moved = moveSheetZOrder(workbook, action.sheetId, action.direction);
   if (!moved.ok) return { ok: false, reason: 'unknown-sheet' };
-  const changedSheets = sheetsInOrder(moved.value).filter((sheet) => sheet.frame.zIndex !== workbook.documents[sheet.id]?.frame.zIndex);
-  if (changedSheets.length === 0) return noChange(workbook);
-  return success(moved.value, {
-    scope: 'multi-sheet',
-    clientActionId: action.clientActionId,
-    expectedSheetRevisions: changedSheets.map((sheet) => expectedRevision(workbook.documents[sheet.id])),
-    operations: changedSheets.map((sheet) => ({ kind: 'set-sheet-z-index' as const, sheetId: sheet.id, zIndex: sheet.frame.zIndex })),
-  }, { kind: 'none' });
+  const changed = sheetsInOrder(moved.value).some(
+    (sheet) => sheet.frame.zIndex !== workbook.documents[sheet.id]?.frame.zIndex,
+  );
+  if (!changed) return noChange(workbook);
+  return success(moved.value, { kind: 'none' });
 }
 
 function sheetSuccess(
   workbook: Workbook,
   nextSheet: SheetDocument,
-  clientActionId: ClientActionId,
-  operations: readonly SheetDurableOperation[],
   calculationImpact: CalculationImpact,
 ): UserActionResult {
-  return success({ ...workbook, documents: { ...workbook.documents, [nextSheet.id]: nextSheet } }, {
-    scope: 'sheet',
-    clientActionId,
-    sheetId: nextSheet.id,
-    expectedRevision: expectedRevision(workbook.documents[nextSheet.id]),
-    operations,
-  }, calculationImpact);
+  return success({ ...workbook, documents: { ...workbook.documents, [nextSheet.id]: nextSheet } }, calculationImpact);
 }
 
-function expectedRevision(sheet: SheetDocument): SheetRevisionExpectation {
-  return { sheetId: sheet.id, revision: sheet.revision };
-}
-
-function success(nextWorkbook: Workbook, changeSet: DurableChangeSet, calculationImpact: CalculationImpact): UserActionResult {
-  return { ok: true, value: { nextWorkbook, changeSet, calculationImpact } };
+function success(nextWorkbook: Workbook, calculationImpact: CalculationImpact): UserActionResult {
+  return { ok: true, value: { nextWorkbook, changed: true, calculationImpact } };
 }
 
 function noChange(workbook: Workbook): UserActionResult {
-  return { ok: true, value: { nextWorkbook: workbook, changeSet: null, calculationImpact: { kind: 'none' } } };
+  return { ok: true, value: { nextWorkbook: workbook, changed: false, calculationImpact: { kind: 'none' } } };
 }
