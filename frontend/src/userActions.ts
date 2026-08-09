@@ -80,14 +80,21 @@ export type UserAction =
       direction: SheetZOrderDirection;
     };
 
-export type DurableOperation =
-  | { kind: 'create-sheet'; sheet: SheetDocument }
+export type SheetDurableOperation =
+  | { kind: 'rename-sheet'; name: string }
+  | { kind: 'set-cell-content'; cell: StableCellIdentity; raw: string }
+  | { kind: 'append-row' }
+  | { kind: 'append-column' }
+  | { kind: 'set-sheet-frame'; frame: FrameState };
+
+export type MultiSheetDurableOperation =
+  | {
+      kind: 'create-sheet';
+      creationKey: ClientActionId;
+      name: string;
+      frame: FrameState;
+    }
   | { kind: 'delete-sheet'; sheetId: SheetId }
-  | { kind: 'rename-sheet'; sheetId: SheetId; name: string }
-  | { kind: 'set-cell-content'; sheetId: SheetId; cell: StableCellIdentity; raw: string }
-  | { kind: 'append-row'; sheetId: SheetId; rowId: RowId }
-  | { kind: 'append-column'; sheetId: SheetId; columnId: ColumnId }
-  | { kind: 'set-sheet-frame'; sheetId: SheetId; frame: FrameState }
   | { kind: 'set-sheet-z-index'; sheetId: SheetId; zIndex: number };
 
 export type SheetRevisionExpectation = {
@@ -98,23 +105,24 @@ export type SheetRevisionExpectation = {
 export type SheetScopedDurableChangeSet = {
   scope: 'sheet';
   clientActionId: ClientActionId;
+  sheetId: SheetId;
   expectedRevision: SheetRevisionExpectation;
-  operations: readonly DurableOperation[];
+  operations: readonly SheetDurableOperation[];
 };
 
 export type MultiSheetDurableChangeSet = {
   scope: 'multi-sheet';
   clientActionId: ClientActionId;
-  expectedManifestRevision: number;
+  expectedManifestRevision?: number;
   expectedSheetRevisions: readonly SheetRevisionExpectation[];
-  operations: readonly DurableOperation[];
+  operations: readonly MultiSheetDurableOperation[];
 };
 
 export type DurableChangeSet = SheetScopedDurableChangeSet | MultiSheetDurableChangeSet;
 
 export type AppliedUserAction = {
   nextWorkbook: Workbook;
-  changeSet: DurableChangeSet;
+  changeSet: DurableChangeSet | null;
   calculationImpact: CalculationImpact;
 };
 
@@ -174,7 +182,12 @@ function applyCreateSheet(workbook: Workbook, action: Extract<UserAction, { kind
     clientActionId: action.clientActionId,
     expectedManifestRevision: workbook.manifest.revision,
     expectedSheetRevisions: [],
-    operations: [{ kind: 'create-sheet', sheet }],
+    operations: [{
+      kind: 'create-sheet',
+      creationKey: action.clientActionId,
+      name: sheet.name,
+      frame: sheet.frame,
+    }],
   }, { kind: 'structure' });
 }
 
@@ -201,8 +214,9 @@ function applyRenameSheet(workbook: Workbook, action: Extract<UserAction, { kind
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   const validation = validateSheetName(action.name, sheetsInOrder(workbook), sheet.id);
   if (!validation.ok) return { ok: false, reason: validation.reason === 'empty' ? 'empty-sheet-name' : 'duplicate-sheet-name' };
-  const nextSheet = validation.name === sheet.name ? sheet : { ...sheet, name: validation.name };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'rename-sheet', sheetId: sheet.id, name: validation.name }], { kind: 'none' });
+  if (validation.name === sheet.name) return noChange(workbook);
+  const nextSheet = { ...sheet, name: validation.name };
+  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'rename-sheet', name: validation.name }], { kind: 'none' });
 }
 
 function applySetCellContent(workbook: Workbook, action: Extract<UserAction, { kind: 'set-cell-content' }>): UserActionResult {
@@ -212,10 +226,14 @@ function applySetCellContent(workbook: Workbook, action: Extract<UserAction, { k
   if (!address) return { ok: false, reason: 'invalid-cell' };
   const identityKey = cellIdentityKey(action.cell);
   const raw = formulaRawForStorage(action.raw, workbook);
+  const currentRaw = sheet.content.cells[identityKey];
+  if ((action.raw.length === 0 && currentRaw === undefined) || (action.raw.length > 0 && currentRaw === raw)) {
+    return noChange(workbook);
+  }
   const cells = { ...sheet.content.cells };
   if (action.raw.length === 0) delete cells[identityKey]; else cells[identityKey] = raw;
   const nextSheet = { ...sheet, content: { ...sheet.content, cells } };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'set-cell-content', sheetId: sheet.id, cell: action.cell, raw }], {
+  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'set-cell-content', cell: action.cell, raw }], {
     kind: 'cells',
     cells: [{ sheetId: sheet.id, key: cellKey(address) }],
   });
@@ -226,7 +244,7 @@ function applyAppendRow(workbook: Workbook, action: Extract<UserAction, { kind: 
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (sheet.content.rows.includes(action.rowId)) return { ok: false, reason: 'duplicate-row-id' };
   const nextSheet = { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, action.rowId] } };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'append-row', sheetId: sheet.id, rowId: action.rowId }], { kind: 'structure' });
+  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'append-row' }], { kind: 'structure' });
 }
 
 function applyAppendColumn(workbook: Workbook, action: Extract<UserAction, { kind: 'append-column' }>): UserActionResult {
@@ -234,7 +252,7 @@ function applyAppendColumn(workbook: Workbook, action: Extract<UserAction, { kin
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (sheet.content.columns.includes(action.columnId)) return { ok: false, reason: 'duplicate-column-id' };
   const nextSheet = { ...sheet, content: { ...sheet.content, columns: [...sheet.content.columns, action.columnId] } };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'append-column', sheetId: sheet.id, columnId: action.columnId }], { kind: 'structure' });
+  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'append-column' }], { kind: 'structure' });
 }
 
 function applyFrameChange(
@@ -244,18 +262,19 @@ function applyFrameChange(
 ): UserActionResult {
   const sheet = findSheetById(workbook, action.sheetId);
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
-  const nextSheet = { ...sheet, frame: change(sheet) };
-  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'set-sheet-frame', sheetId: sheet.id, frame: nextSheet.frame }], { kind: 'none' });
+  const frame = change(sheet);
+  const nextSheet = { ...sheet, frame };
+  return sheetSuccess(workbook, nextSheet, action.clientActionId, [{ kind: 'set-sheet-frame', frame }], { kind: 'none' });
 }
 
 function applyZOrderChange(workbook: Workbook, action: Extract<UserAction, { kind: 'change-sheet-z-order' }>): UserActionResult {
   const moved = moveSheetZOrder(workbook, action.sheetId, action.direction);
   if (!moved.ok) return { ok: false, reason: 'unknown-sheet' };
   const changedSheets = sheetsInOrder(moved.value).filter((sheet) => sheet.frame.zIndex !== workbook.documents[sheet.id]?.frame.zIndex);
+  if (changedSheets.length === 0) return noChange(workbook);
   return success(moved.value, {
     scope: 'multi-sheet',
     clientActionId: action.clientActionId,
-    expectedManifestRevision: workbook.manifest.revision,
     expectedSheetRevisions: changedSheets.map((sheet) => expectedRevision(workbook.documents[sheet.id])),
     operations: changedSheets.map((sheet) => ({ kind: 'set-sheet-z-index' as const, sheetId: sheet.id, zIndex: sheet.frame.zIndex })),
   }, { kind: 'none' });
@@ -265,12 +284,13 @@ function sheetSuccess(
   workbook: Workbook,
   nextSheet: SheetDocument,
   clientActionId: ClientActionId,
-  operations: readonly DurableOperation[],
+  operations: readonly SheetDurableOperation[],
   calculationImpact: CalculationImpact,
 ): UserActionResult {
   return success({ ...workbook, documents: { ...workbook.documents, [nextSheet.id]: nextSheet } }, {
     scope: 'sheet',
     clientActionId,
+    sheetId: nextSheet.id,
     expectedRevision: expectedRevision(workbook.documents[nextSheet.id]),
     operations,
   }, calculationImpact);
@@ -282,4 +302,8 @@ function expectedRevision(sheet: SheetDocument): SheetRevisionExpectation {
 
 function success(nextWorkbook: Workbook, changeSet: DurableChangeSet, calculationImpact: CalculationImpact): UserActionResult {
   return { ok: true, value: { nextWorkbook, changeSet, calculationImpact } };
+}
+
+function noChange(workbook: Workbook): UserActionResult {
+  return { ok: true, value: { nextWorkbook: workbook, changeSet: null, calculationImpact: { kind: 'none' } } };
 }

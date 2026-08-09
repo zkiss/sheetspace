@@ -221,8 +221,8 @@ export function useWorkbookController({
   }
 
   // Temporary legacy persistence adapter: each typed change set is projected onto
-  // current per-operation HTTP calls and edit queues below. sheetspace-z5q.10
-  // removes the HTTP projection; sheetspace-z5q.11 removes this queue adapter.
+  // current per-operation HTTP calls and edit queues below. sheetspace-z5q.12
+  // migrates saved-sheet calls; sheetspace-z5q.13 removes lifecycle/queue code.
 
   function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
     const result = validateSheetName(name, sheetsInOrder(workbook));

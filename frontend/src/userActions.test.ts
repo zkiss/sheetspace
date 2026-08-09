@@ -60,6 +60,7 @@ describe('applyUserAction', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.changeSet).toMatchObject({ clientActionId: action.clientActionId, scope });
+    if (!result.value.changeSet) throw new Error('Expected durable change set');
     expect(result.value.changeSet.operations.map((operation) => operation.kind)).toEqual(operationKinds);
     expect(result.value.calculationImpact.kind).toBe(impact);
   });
@@ -77,7 +78,9 @@ describe('applyUserAction', () => {
         nextWorkbook: { manifest: { sheetIds: ['alpha', 'beta', 'pending:new'] } },
         changeSet: {
           scope: 'multi-sheet', clientActionId: 'action-create', expectedManifestRevision: 3,
-          expectedSheetRevisions: [], operations: [{ kind: 'create-sheet', sheet }],
+          expectedSheetRevisions: [], operations: [{
+            kind: 'create-sheet', creationKey: 'action-create', name: 'New', frame: sheet.frame,
+          }],
         },
         calculationImpact: { kind: 'structure' },
       },
@@ -95,7 +98,7 @@ describe('applyUserAction', () => {
       value: {
         changeSet: {
           scope: 'sheet', expectedRevision: { sheetId: 'alpha', revision: 4 },
-          operations: [{ kind: 'set-cell-content', sheetId: 'alpha', cell, raw: '=beta!A1' }],
+          operations: [{ kind: 'set-cell-content', cell, raw: '=beta!A1' }],
         },
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'B2' }] },
       },
@@ -114,7 +117,7 @@ describe('applyUserAction', () => {
         changeSet: {
           scope: 'sheet', expectedRevision: { sheetId: 'alpha', revision: 4 },
           operations: [{
-            kind: 'set-sheet-frame', sheetId: 'alpha',
+            kind: 'set-sheet-frame',
             frame: { position: { x: 12, y: 34 }, size: { width: 500, height: 400 }, zIndex: 1 },
           }],
         },
@@ -131,10 +134,81 @@ describe('applyUserAction', () => {
       ok: true,
       value: {
         changeSet: {
-          scope: 'multi-sheet', expectedManifestRevision: 3,
+          scope: 'multi-sheet',
           expectedSheetRevisions: [{ sheetId: 'alpha', revision: 4 }, { sheetId: 'beta', revision: 7 }],
         },
       },
+    });
+    if (result.ok && result.value.changeSet?.scope === 'multi-sheet') {
+      expect(result.value.changeSet.expectedManifestRevision).toBeUndefined();
+    }
+  });
+
+  it.each([
+    {
+      label: 'row append',
+      action: { kind: 'append-row', clientActionId: 'row', sheetId: 'alpha', rowId: 'new-row' } satisfies UserAction,
+      expectedRevision: 4,
+      assertState: (next: Workbook) => expect(next.documents.alpha.content.rows.slice(-1)[0]).toBe('new-row'),
+    },
+    {
+      label: 'column append',
+      action: { kind: 'append-column', clientActionId: 'column', sheetId: 'alpha', columnId: 'new-column' } satisfies UserAction,
+      expectedRevision: 4,
+      assertState: (next: Workbook) => expect(next.documents.alpha.content.columns.slice(-1)[0]).toBe('new-column'),
+    },
+    {
+      label: 'rename',
+      action: { kind: 'rename-sheet', clientActionId: 'rename', sheetId: 'alpha', name: 'Renamed' } satisfies UserAction,
+      expectedRevision: 4,
+      assertState: (next: Workbook) => expect(next.documents.alpha.name).toBe('Renamed'),
+    },
+    {
+      label: 'move',
+      action: { kind: 'move-sheet-frame', clientActionId: 'move', sheetId: 'alpha', position: { x: 8, y: 9 } } satisfies UserAction,
+      expectedRevision: 4,
+      assertState: (next: Workbook) => expect(next.documents.alpha.frame.position).toEqual({ x: 8, y: 9 }),
+    },
+  ])('$label deterministically changes state with sheet-scoped revision', ({ action, expectedRevision, assertState }) => {
+    const first = applyUserAction(workbook, action);
+    const second = applyUserAction(workbook, action);
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({
+      ok: true,
+      value: { changeSet: { scope: 'sheet', sheetId: 'alpha', expectedRevision: { sheetId: 'alpha', revision: expectedRevision } } },
+    });
+    if (first.ok) assertState(first.value.nextWorkbook);
+  });
+
+  it('deletes deterministically with manifest and touched-sheet revisions', () => {
+    const action = { kind: 'delete-sheet', clientActionId: 'delete', sheetId: 'alpha' } satisfies UserAction;
+    const first = applyUserAction(workbook, action);
+    expect(first).toEqual(applyUserAction(workbook, action));
+    expect(first).toMatchObject({
+      ok: true,
+      value: {
+        nextWorkbook: { manifest: { sheetIds: ['beta'] } },
+        changeSet: {
+          scope: 'multi-sheet', expectedManifestRevision: 3,
+          expectedSheetRevisions: [{ sheetId: 'alpha', revision: 4 }],
+        },
+        calculationImpact: { kind: 'structure' },
+      },
+    });
+    if (first.ok) expect(first.value.nextWorkbook.documents.alpha).toBeUndefined();
+  });
+
+  it.each([
+    ['same canonical cell value', workbookWithSheets([sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'same' } })]), 'same'],
+    ['already empty cell', workbook, ''],
+  ])('treats $label as no durable or calculation work', (_label, source, raw) => {
+    const sheet = source.documents.alpha;
+    const result = applyUserAction(source, {
+      kind: 'set-cell-content', clientActionId: 'noop', sheetId: 'alpha', cell: cellIdentityAt(sheet.content, 'A1')!, raw,
+    });
+    expect(result).toEqual({
+      ok: true,
+      value: { nextWorkbook: source, changeSet: null, calculationImpact: { kind: 'none' } },
     });
   });
 
