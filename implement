@@ -19,7 +19,7 @@ set -- exec \
   --config model_reasoning_effort=medium \
   --config 'approval_policy="never"' \
   --config 'default_permissions="sheetspace-implement"' \
-  --config 'permissions.sheetspace-implement.filesystem={":root"="deny",":minimal"="read",":tmpdir"="write",":slash_tmp"="write","~/.gitconfig"="read","~/.ssh/config"="read","~/.ssh/known_hosts"="read",":workspace_roots"={"."="write",".agents"="read",".codex"="read"}}' \
+  --config 'permissions.sheetspace-implement.filesystem={":root"="read",":tmpdir"="write",":slash_tmp"="write",":workspace_roots"={"."="write",".agents"="read",".codex"="read"}}' \
   --config 'permissions.sheetspace-implement.network.enabled=true' \
   --json \
   --output-last-message "$last" \
