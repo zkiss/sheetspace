@@ -6,7 +6,6 @@ import {
   sheetBounds,
   sheetsInOrder,
   type SheetDocument,
-  type Workbook,
 } from './workbook';
 import { WorkbookApiError } from './workbookApi';
 import { useWorkbookController } from './useWorkbookController';
@@ -226,7 +225,7 @@ describe('useWorkbookController', () => {
       createSheet: vi.fn().mockImplementation(({ name }: { name: string }) =>
         name === 'Inputs' ? inputsSave : outputsSave,
       ),
-      renameSheet: vi.fn().mockResolvedValue(workbookWithSheets([{ ...savedInputs, name: 'Data' }, savedOutputs])),
+      renameSheet: vi.fn().mockResolvedValue({ sheetId: savedInputs.id, revision: 1 }),
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -275,7 +274,7 @@ describe('useWorkbookController', () => {
     const outputsSave = new Promise<SheetDocument>((resolve) => {
       resolveOutputs = resolve;
     });
-    const deleteSave = new Promise<Workbook>(() => undefined);
+    const deleteSave = new Promise<void>(() => undefined);
     const apiClient = autosaveClient({
       createSheet: vi.fn().mockImplementation(({ name }: { name: string }) =>
         name === 'Inputs' ? inputsSave : outputsSave,
@@ -825,7 +824,7 @@ describe('useWorkbookController', () => {
     const deletedSheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 4 };
     const remainingSheet = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 20 }), revision: 6 };
     const apiClient = autosaveClient({
-      deleteSheet: vi.fn().mockResolvedValue(workbookWithSheets([remainingSheet])),
+      deleteSheet: vi.fn().mockResolvedValue(undefined),
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -845,12 +844,12 @@ describe('useWorkbookController', () => {
 
   it('drops queued saved-sheet mutations and waits for running saves before deleting', async () => {
     const initialSheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 0 };
-    let resolveRunningSave!: (workbook: Workbook) => void;
-    const runningSave = new Promise<Workbook>((resolve) => {
+    let resolveRunningSave!: (response: { sheetId: string; revision: number }) => void;
+    const runningSave = new Promise<{ sheetId: string; revision: number }>((resolve) => {
       resolveRunningSave = resolve;
     });
-    let resolveDeleteSave!: (workbook: Workbook) => void;
-    const deleteSave = new Promise<Workbook>((resolve) => {
+    let resolveDeleteSave!: () => void;
+    const deleteSave = new Promise<void>((resolve) => {
       resolveDeleteSave = resolve;
     });
     const apiClient = autosaveClient({
@@ -875,7 +874,7 @@ describe('useWorkbookController', () => {
     expect(apiClient.deleteSheet).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveRunningSave(workbookWithSheets([documentWithCells(initialSheet, { A1: 'first' }, 1)]));
+      resolveRunningSave({ sheetId: initialSheet.id, revision: 1 });
       await runningSave;
     });
 
@@ -883,7 +882,7 @@ describe('useWorkbookController', () => {
     expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveDeleteSave(workbookWithSheets([]));
+      resolveDeleteSave();
       await deleteSave;
     });
 
@@ -893,16 +892,16 @@ describe('useWorkbookController', () => {
   it('preserves unrelated queued mutations when deleting a saved sheet', async () => {
     const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 0 };
     const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 0 }), revision: 0 };
-    let resolveFirstOutputSave!: (workbook: Workbook) => void;
-    const firstOutputSave = new Promise<Workbook>((resolve) => {
+    let resolveFirstOutputSave!: (response: { sheetId: string; revision: number }) => void;
+    const firstOutputSave = new Promise<{ sheetId: string; revision: number }>((resolve) => {
       resolveFirstOutputSave = resolve;
     });
-    let resolveLatestOutputSave!: (workbook: Workbook) => void;
-    const latestOutputSave = new Promise<Workbook>((resolve) => {
+    let resolveLatestOutputSave!: (response: { sheetId: string; revision: number }) => void;
+    const latestOutputSave = new Promise<{ sheetId: string; revision: number }>((resolve) => {
       resolveLatestOutputSave = resolve;
     });
-    let resolveDeleteSave!: (workbook: Workbook) => void;
-    const deleteSave = new Promise<Workbook>((resolve) => {
+    let resolveDeleteSave!: () => void;
+    const deleteSave = new Promise<void>((resolve) => {
       resolveDeleteSave = resolve;
     });
     const apiClient = autosaveClient({
@@ -927,13 +926,13 @@ describe('useWorkbookController', () => {
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 0 }));
 
     await act(async () => {
-      resolveDeleteSave(workbookWithSheets([outputs]));
+      resolveDeleteSave();
       await deleteSave;
     });
     expect(result.current.saveStatus).toBe('saving');
 
     await act(async () => {
-      resolveFirstOutputSave(workbookWithSheets([documentWithCells(outputs, { A1: 'first' }, 1)]));
+      resolveFirstOutputSave({ sheetId: outputs.id, revision: 1 });
       await firstOutputSave;
     });
     await waitFor(() =>
@@ -941,7 +940,7 @@ describe('useWorkbookController', () => {
     );
 
     await act(async () => {
-      resolveLatestOutputSave(workbookWithSheets([documentWithCells(outputs, { A1: 'latest' }, 2)]));
+      resolveLatestOutputSave({ sheetId: outputs.id, revision: 2 });
       await latestOutputSave;
     });
 

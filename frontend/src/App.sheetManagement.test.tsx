@@ -11,7 +11,7 @@ import {
 import { autosaveClient, deferred, deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
 import { workspaceRect } from './test/domGeometry';
 import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
-import type { Workbook } from './workbook';
+import type { SheetDocument } from './workbook';
 
 function renderEmptyPersistedWorkbook() {
   render(<App initialWorkbook={workbookWithSheets([])} apiClient={persistedWorkbookClient()} />);
@@ -368,7 +368,7 @@ describe('App sheet management integration', () => {
 
   it('deletes pending sheets from their context menu without waiting for create persistence', async () => {
     const user = userEvent.setup();
-    const createSave = deferred<Workbook>();
+    const createSave = deferred<SheetDocument>();
     const apiClient = autosaveClient({
       createSheet: vi.fn().mockReturnValue(createSave.promise),
     });
