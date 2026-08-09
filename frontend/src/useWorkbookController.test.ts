@@ -755,6 +755,38 @@ describe('useWorkbookController', () => {
     expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', '7', { revision: 0 });
   });
 
+  it('uses one current transition for batched change-then-restore cell actions', async () => {
+    const apiClient = autosaveClient();
+    const calculate = vi.fn();
+    const sheet = sheetDocument({
+      id: 'sheet-inputs',
+      name: 'Inputs',
+      cells: { B1: '=SUM(A1)' },
+    });
+    const { result } = renderHook(() =>
+      useWorkbookController({
+        apiClient,
+        calculationObserver: calculate,
+        initialWorkbook: workbookWithSheets([sheet]),
+      }),
+    );
+
+    act(() => {
+      result.current.commands.updateCellContent('sheet-inputs', 'A1', '7');
+      result.current.commands.updateCellContent('sheet-inputs', 'A1', '');
+    });
+
+    expect(cellRawContent(findSheetById(result.current.workbook, 'sheet-inputs')!, 'A1')).toBeUndefined();
+    expect(result.current.formulaResults['sheet-inputs'].B1.display).toBe('0');
+    expect(calculate).toHaveBeenLastCalledWith({
+      kind: 'cells',
+      cells: [{ sheetId: 'sheet-inputs', key: 'A1' }],
+    });
+    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', '7', { revision: 0 });
+    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', '', { revision: 0 });
+  });
+
   it('keeps local committed cell edits while retrying a conflicting revisioned autosave', async () => {
     const initialSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
     const staleServerSheet = documentWithCells(initialSheet, { A1: 'server value' }, 4);
