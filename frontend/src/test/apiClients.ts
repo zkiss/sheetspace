@@ -33,8 +33,10 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     deleteSheet: vi.fn().mockResolvedValue(undefined),
     renameSheet: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
     updateSheetPosition: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetFrameLayout: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    updateSheetZOrder: vi.fn().mockImplementation(async (updates: Array<{ sheetId: string }>) => ({
+      sheets: updates.map(({ sheetId }) => ({ sheetId, revision: 0 })),
+    })),
     updateCellContent: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0 })),
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0 })),
@@ -97,16 +99,23 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         ...sheet,
         frame: { ...sheet.frame, position },
       })), sheetId)),
-    updateSheetFrameSize: vi.fn().mockImplementation(async (sheetId: string, frameSize: SheetFrameSize) =>
+    updateSheetFrameLayout: vi.fn().mockImplementation(async (
+      sheetId: string,
+      position: WorkspacePosition,
+      frameSize: SheetFrameSize,
+    ) =>
       revisionResponse(updateSheet(sheetId, (sheet) => ({
         ...sheet,
-        frame: { ...sheet.frame, size: frameSize },
+        frame: { ...sheet.frame, position, size: frameSize },
       })), sheetId)),
-    updateSheetZIndex: vi.fn().mockImplementation(async (sheetId: string, zIndex: number) =>
-      revisionResponse(updateSheet(sheetId, (sheet) => ({
-        ...sheet,
-        frame: { ...sheet.frame, zIndex },
-      })), sheetId)),
+    updateSheetZOrder: vi.fn().mockImplementation(async (
+      updates: Array<{ sheetId: string; zIndex: number }>,
+    ) => {
+      for (const { sheetId, zIndex } of updates) {
+        updateSheet(sheetId, (sheet) => ({ ...sheet, frame: { ...sheet.frame, zIndex } }));
+      }
+      return { sheets: updates.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
+    }),
     updateCellContent: vi.fn().mockImplementation(async (sheetId: string, cellKey: string, raw: string) => {
       persistedWorkbook = commitCellRawContent(persistedWorkbook, sheetId, cellKey, raw);
       return revisionResponse(persistedWorkbook, sheetId);

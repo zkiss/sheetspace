@@ -159,14 +159,22 @@ export function usePendingSheetPersistence({
     sheetId,
     target,
     request,
+    coalesceKey,
   }: {
     sheetId: string;
     target: SavedSheetSaveTarget;
     request: (savedSheetId: string, revision: number | undefined) => Promise<T>;
+    coalesceKey?: string;
   }) => {
+    const savedSheetId = sheetIdAliases.current.get(sheetId) ?? sheetId;
+    if (!pendingSheetCreates.current.has(sheetId)) {
+      savedAutosave.enqueueRevisionedEdit({ sheetId: savedSheetId, target, request, coalesceKey });
+      return;
+    }
     savedAutosave.enqueueEdit({
       sheetId,
       target,
+      coalesceKey,
       run: () => runForSavedSheet(sheetId, (savedSheetId) =>
         savedAutosave.runRevisionedEdit({
           sheetId: savedSheetId,
@@ -204,6 +212,39 @@ export function usePendingSheetPersistence({
     });
   }, [runForSavedSheet, savedAutosave]);
 
+  const enqueueRevisionedZOrder = useCallback((updates: Array<{ sheetId: string; zIndex: number }>) => {
+    if (updates.length === 0) return;
+    if (updates.every((update) => !pendingSheetCreates.current.has(update.sheetId))) {
+      savedAutosave.enqueueRevisionedZOrder({
+        updates: updates.map((update) => ({
+          ...update,
+          sheetId: sheetIdAliases.current.get(update.sheetId) ?? update.sheetId,
+        })),
+        request: (revisionedUpdates) => getApiMethod('updateSheetZOrder')(revisionedUpdates),
+      });
+      return;
+    }
+    const affectedSheetIds = new Set(updates.map((update) => update.sheetId));
+    savedAutosave.enqueueZOrderEdit({
+      affectedSheetIds,
+      run: async () => {
+        const savedUpdates = await Promise.all(
+          updates.map((update) => runForSavedSheet(update.sheetId, async (savedSheetId) => ({
+            sheetId: savedSheetId,
+            zIndex: update.zIndex,
+          }))),
+        );
+        savedUpdates.forEach((update) => affectedSheetIds.add(update.sheetId));
+        return savedAutosave.runRevisionedZOrder({
+          updates: savedUpdates,
+          request: (revisionedUpdates) => getApiMethod('updateSheetZOrder')(revisionedUpdates),
+        });
+      },
+      ignoreFailure: (cause) =>
+        cause instanceof PendingSheetDeletedError || cause instanceof PendingSheetCreateFailedError,
+    });
+  }, [getApiMethod, runForSavedSheet, savedAutosave]);
+
   const resolveFormulaRawForSave = useCallback(async (raw: string) => {
     const sheetIds = [...new Set(formulaSheetReferenceIds(raw))];
     const remaps = new Map(
@@ -235,6 +276,7 @@ export function usePendingSheetPersistence({
     enqueuePendingSheetCreate,
     enqueueRevisionedDelete,
     enqueueRevisionedEdit,
+    enqueueRevisionedZOrder,
     getApiMethod,
     markSaved: savedAutosave.markSaved,
     registerPendingSheet,

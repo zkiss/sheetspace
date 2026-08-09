@@ -6,6 +6,8 @@ import {
   WorkbookApiError,
   workbookApi,
   type SheetRevisionResponse,
+  type SheetZOrderUpdate,
+  type UpdateSheetZOrderResponse,
   type WorkbookApi,
 } from './workbookApi';
 
@@ -16,19 +18,24 @@ export type SavedSheetSaveTarget =
   | { kind: 'rows' }
   | { kind: 'columns' }
   | { kind: 'cell-content'; cellKey: CellKey }
-  | { kind: 'position' }
-  | { kind: 'frame-size' }
+  | { kind: 'frame' }
   | { kind: 'z-index' };
 
+const zOrderQueueOwner = Symbol('z-order-queue');
+type QueueOwner = string | typeof zOrderQueueOwner;
+
 type SavedSheetTask = {
+  affectedSheetIds: ReadonlySet<string>;
+  coalesceKey: string | null;
   execute: () => Promise<void>;
   ignoreFailure: (cause: unknown) => boolean;
+  superseded: boolean;
 };
 
 type SavedSheetQueue = {
   running: SavedSheetTask | null;
-  queued: SavedSheetTask | null;
-  sheetId: string;
+  queued: SavedSheetTask[];
+  sheetId: QueueOwner;
   target: SavedSheetSaveTarget;
 };
 
@@ -46,7 +53,7 @@ function sheetHasWork(queues: SheetQueues | undefined): boolean {
   if (!queues) return false;
   for (const targetQueues of queues.values()) {
     for (const queue of targetQueues.values()) {
-      if (queue.running || queue.queued) return true;
+      if (queue.running || queue.queued.length > 0) return true;
     }
   }
   return false;
@@ -57,7 +64,7 @@ function sheetHasPreDeleteWork(queues: SheetQueues | undefined): boolean {
   for (const [kind, targetQueues] of queues) {
     if (kind === 'delete') continue;
     for (const queue of targetQueues.values()) {
-      if (queue.running || queue.queued) return true;
+      if (queue.running || queue.queued.length > 0) return true;
     }
   }
   return false;
@@ -89,8 +96,8 @@ export function useSavedSheetAutosave({
   workbook: Workbook;
 }) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
-  const editQueues = useRef(new Map<string, SheetQueues>());
-  const failedTargets = useRef(new Map<string, FailedTargets>());
+  const editQueues = useRef(new Map<QueueOwner, SheetQueues>());
+  const failedTargets = useRef(new Map<QueueOwner, FailedTargets>());
   const knownSheetRevisions = useRef(new Map<string, number>());
   const sheetIdleWaiters = useRef(new Map<string, Array<() => void>>());
 
@@ -118,7 +125,7 @@ export function useSavedSheetAutosave({
     setSaveStatus(hasPendingEdits() ? 'saving' : 'saved');
   }, [hasFailures, hasPendingEdits]);
 
-  const getQueue = useCallback((sheetId: string, target: SavedSheetSaveTarget) => {
+  const getQueue = useCallback((sheetId: QueueOwner, target: SavedSheetSaveTarget) => {
     const sheetQueues = editQueues.current.get(sheetId) ?? new Map();
     editQueues.current.set(sheetId, sheetQueues);
     const targetQueues = sheetQueues.get(target.kind) ?? new Map();
@@ -126,7 +133,7 @@ export function useSavedSheetAutosave({
     const detail = targetDetail(target);
     let queue = targetQueues.get(detail);
     if (!queue) {
-      queue = { running: null, queued: null, sheetId, target };
+      queue = { running: null, queued: [], sheetId, target };
       targetQueues.set(detail, queue);
     }
     return queue;
@@ -142,7 +149,7 @@ export function useSavedSheetAutosave({
     if (sheetQueues?.size === 0) editQueues.current.delete(queue.sheetId);
   }, []);
 
-  const clearFailure = useCallback((sheetId: string, target: SavedSheetSaveTarget) => {
+  const clearFailure = useCallback((sheetId: QueueOwner, target: SavedSheetSaveTarget) => {
     const sheetFailures = failedTargets.current.get(sheetId);
     const details = sheetFailures?.get(target.kind);
     details?.delete(targetDetail(target));
@@ -150,7 +157,7 @@ export function useSavedSheetAutosave({
     if (sheetFailures?.size === 0) failedTargets.current.delete(sheetId);
   }, []);
 
-  const recordFailure = useCallback((sheetId: string, target: SavedSheetSaveTarget) => {
+  const recordFailure = useCallback((sheetId: QueueOwner, target: SavedSheetSaveTarget) => {
     const sheetFailures = failedTargets.current.get(sheetId) ?? new Map();
     failedTargets.current.set(sheetId, sheetFailures);
     const details = sheetFailures.get(target.kind) ?? new Set();
@@ -158,8 +165,18 @@ export function useSavedSheetAutosave({
     details.add(targetDetail(target));
   }, []);
 
-  const notifySheetIdle = useCallback((sheetId: string) => {
+  const notifySheetIdle = useCallback((sheetId: QueueOwner) => {
+    if (typeof sheetId !== 'string') return;
     if (sheetHasPreDeleteWork(editQueues.current.get(sheetId))) return;
+    const zOrderQueues = editQueues.current.get(zOrderQueueOwner);
+    if (zOrderQueues) {
+      for (const targetQueues of zOrderQueues.values()) {
+        for (const queue of targetQueues.values()) {
+          if (queue.running?.affectedSheetIds.has(sheetId)) return;
+          if (queue.queued.some((task) => task.affectedSheetIds.has(sheetId))) return;
+        }
+      }
+    }
     const waiters = sheetIdleWaiters.current.get(sheetId);
     if (!waiters) return;
     sheetIdleWaiters.current.delete(sheetId);
@@ -173,18 +190,19 @@ export function useSavedSheetAutosave({
     queue.running = task;
     task.execute()
       .catch((cause: unknown) => {
-        if (!task.ignoreFailure(cause) && !queue.queued) recordFailure(queue.sheetId, queue.target);
+        if (!task.ignoreFailure(cause) && !task.superseded) recordFailure(queue.sheetId, queue.target);
       })
       .finally(() => {
-        const nextTask = queue.queued;
+        const nextTask = queue.queued.shift();
         queue.running = null;
-        queue.queued = null;
         if (nextTask) {
           start(queue, nextTask);
+          for (const sheetId of task.affectedSheetIds) notifySheetIdle(sheetId);
           refreshSaveStatus();
           return;
         }
         removeQueue(queue);
+        for (const sheetId of task.affectedSheetIds) notifySheetIdle(sheetId);
         notifySheetIdle(queue.sheetId);
         refreshSaveStatus();
       });
@@ -195,25 +213,42 @@ export function useSavedSheetAutosave({
     target,
     run,
     reconcile,
+    coalesceKey = null,
+    coalesce = true,
+    affectedSheetIds,
     ignoreFailure = () => false,
   }: {
-    sheetId: string;
+    sheetId: QueueOwner;
     target: SavedSheetSaveTarget;
     run: () => Promise<T>;
     reconcile?: (savedResult: T) => void;
+    coalesceKey?: string | null;
+    coalesce?: boolean;
+    affectedSheetIds?: ReadonlySet<string>;
     ignoreFailure?: (cause: unknown) => boolean;
   }) => {
     if (!autosaveEnabled) return;
     const queue = getQueue(sheetId, target);
     clearFailure(sheetId, target);
     const task: SavedSheetTask = {
+      affectedSheetIds: affectedSheetIds ?? new Set(typeof sheetId === 'string' ? [sheetId] : []),
+      coalesceKey,
       execute: () => run().then((savedResult) => {
         reconcile?.(savedResult);
       }),
       ignoreFailure,
+      superseded: false,
     };
     if (queue.running) {
-      queue.queued = task;
+      if (coalesce && queue.running.coalesceKey === coalesceKey) {
+        queue.running.superseded = true;
+      }
+      const lastQueued = queue.queued.at(-1);
+      if (coalesce && lastQueued?.coalesceKey === coalesceKey) {
+        queue.queued[queue.queued.length - 1] = task;
+      } else {
+        queue.queued.push(task);
+      }
       refreshSaveStatus();
       return;
     }
@@ -236,7 +271,7 @@ export function useSavedSheetAutosave({
     if (sheetQueues) {
       for (const targetQueues of sheetQueues.values()) {
         for (const queue of targetQueues.values()) {
-          queue.queued = null;
+          queue.queued = [];
           if (!queue.running) removeQueue(queue);
         }
       }
@@ -247,7 +282,12 @@ export function useSavedSheetAutosave({
   }, [notifySheetIdle, refreshSaveStatus, removeQueue]);
 
   const waitForSheetIdle = useCallback((sheetId: string) => {
-    if (!sheetHasPreDeleteWork(editQueues.current.get(sheetId))) return Promise.resolve();
+    const zOrderQueues = editQueues.current.get(zOrderQueueOwner);
+    const hasZOrderWork = zOrderQueues && [...zOrderQueues.values()].some((targetQueues) =>
+      [...targetQueues.values()].some((queue) =>
+        queue.running?.affectedSheetIds.has(sheetId) ||
+        queue.queued.some((task) => task.affectedSheetIds.has(sheetId))));
+    if (!sheetHasPreDeleteWork(editQueues.current.get(sheetId)) && !hasZOrderWork) return Promise.resolve();
     return new Promise<void>((resolve) => {
       const waiters = sheetIdleWaiters.current.get(sheetId) ?? [];
       waiters.push(resolve);
@@ -363,17 +403,109 @@ export function useSavedSheetAutosave({
     });
   }, [currentSheetRevision, dropSheetQueuedTasks, recordRevision, recordSheetDocumentRevision, resolvedApiClient, setWorkbook]);
 
+  const runRevisionedZOrder = useCallback(async ({
+    updates,
+    request,
+  }: {
+    updates: Array<{ sheetId: string; zIndex: number }>;
+    request: (updates: SheetZOrderUpdate[]) => Promise<UpdateSheetZOrderResponse>;
+  }): Promise<UpdateSheetZOrderResponse> => {
+    const revisionedUpdates = (): SheetZOrderUpdate[] => updates.map((update) => {
+      const expectedRevision = currentSheetRevision(update.sheetId);
+      if (expectedRevision === undefined) {
+        throw new Error(`Missing revision for saved sheet ${update.sheetId}.`);
+      }
+      return { ...update, expectedRevision };
+    });
+    const recordResponse = (response: UpdateSheetZOrderResponse) => {
+      response.sheets.forEach(recordSheetRevision);
+      return response;
+    };
+
+    try {
+      return recordResponse(await request(revisionedUpdates()));
+    } catch (cause: unknown) {
+      if (!(cause instanceof WorkbookApiError) || cause.status !== 409 || cause.code !== 'sheet-revision-conflict') {
+        throw cause;
+      }
+      const loadSheet = resolvedApiClient.loadSheet ?? workbookApi.loadSheet;
+      const latestSheets = await Promise.all(updates.map((update) => loadSheet(update.sheetId)));
+      latestSheets.forEach(recordSheetDocumentRevision);
+      return recordResponse(await request(revisionedUpdates()));
+    }
+  }, [currentSheetRevision, recordSheetDocumentRevision, recordSheetRevision, resolvedApiClient]);
+
+  const enqueueRevisionedEdit = useCallback(<T extends SheetRevisionResponse>({
+    sheetId,
+    target,
+    request,
+    coalesceKey,
+  }: {
+    sheetId: string;
+    target: SavedSheetSaveTarget;
+    request: (sheetId: string, revision: number | undefined) => Promise<T>;
+    coalesceKey?: string;
+  }) => {
+    enqueueEdit({
+      sheetId,
+      target,
+      coalesceKey,
+      run: () => runRevisionedEdit({
+        sheetId,
+        request: (revision) => request(sheetId, revision),
+        revisionOf: (response) => response.revision,
+      }),
+    });
+  }, [enqueueEdit, runRevisionedEdit]);
+
+  const enqueueZOrderEdit = useCallback(({
+    affectedSheetIds,
+    run,
+    ignoreFailure = () => false,
+  }: {
+    affectedSheetIds: ReadonlySet<string>;
+    run: () => Promise<unknown>;
+    ignoreFailure?: (cause: unknown) => boolean;
+  }) => {
+    enqueueEdit({
+      sheetId: zOrderQueueOwner,
+      target: { kind: 'z-index' },
+      affectedSheetIds,
+      run,
+      ignoreFailure,
+      coalesce: false,
+    });
+  }, [enqueueEdit]);
+
+  const enqueueRevisionedZOrder = useCallback(({
+    updates,
+    request,
+  }: {
+    updates: Array<{ sheetId: string; zIndex: number }>;
+    request: (updates: SheetZOrderUpdate[]) => Promise<UpdateSheetZOrderResponse>;
+  }) => {
+    if (updates.length === 0) return;
+    enqueueZOrderEdit({
+      affectedSheetIds: new Set(updates.map((update) => update.sheetId)),
+      run: () => runRevisionedZOrder({ updates, request }),
+    });
+  }, [enqueueZOrderEdit, runRevisionedZOrder]);
+
   const markSaved = useCallback(() => setSaveStatus('saved'), []);
 
   return {
     dropSheetQueuedTasks,
     clearTargetFailures,
     enqueueEdit,
+    enqueueRevisionedEdit,
+    enqueueRevisionedZOrder,
+    enqueueZOrderEdit,
     markSaved,
     recordSheetDocumentRevision,
     recordSheetRevision,
     remapSheetQueues,
     runRevisionedEdit,
+    runRevisionedZOrder,
     saveStatus,
     waitForSheetIdle,
   };

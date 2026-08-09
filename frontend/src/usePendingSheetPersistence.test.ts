@@ -99,4 +99,63 @@ describe('usePendingSheetPersistence', () => {
     latestCellSave.resolve({ sheetId: savedSheet.id, revision: 2 });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
+
+  it('orders pending and saved z-order commands through the same workbook queue', async () => {
+    const createSave = deferred<ReturnType<typeof positionedSheet>>();
+    const firstZOrderSave = deferred<{ sheets: Array<{ sheetId: string; revision: number }> }>();
+    const savedPending = positionedSheet('sheet-pending', 'Pending', { x: 600, y: 0 });
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 0 });
+    const updateSheetZOrder = vi.fn()
+      .mockReturnValueOnce(firstZOrderSave.promise)
+      .mockResolvedValueOnce({
+        sheets: [
+          { sheetId: outputs.id, revision: 1 },
+          { sheetId: inputs.id, revision: 2 },
+        ],
+      });
+    const { result } = renderPersistence({
+      apiClient: { updateSheetZOrder },
+      initialWorkbook: workbookWithSheets([inputs, outputs]),
+    });
+
+    act(() => {
+      result.current.registerPendingSheet('pending:sheet');
+      result.current.enqueuePendingSheetCreate(
+        'pending:sheet',
+        'Pending',
+        () => createSave.promise,
+        vi.fn(),
+        vi.fn(),
+      );
+      result.current.enqueueRevisionedZOrder([
+        { sheetId: 'pending:sheet', zIndex: 2 },
+        { sheetId: inputs.id, zIndex: 1 },
+      ]);
+      result.current.enqueueRevisionedZOrder([
+        { sheetId: outputs.id, zIndex: 1 },
+        { sheetId: inputs.id, zIndex: 2 },
+      ]);
+    });
+    expect(updateSheetZOrder).not.toHaveBeenCalled();
+
+    createSave.resolve(savedPending);
+    await waitFor(() => expect(updateSheetZOrder).toHaveBeenNthCalledWith(1, [
+      { sheetId: savedPending.id, expectedRevision: 0, zIndex: 2 },
+      { sheetId: inputs.id, expectedRevision: 0, zIndex: 1 },
+    ]));
+    expect(updateSheetZOrder).toHaveBeenCalledTimes(1);
+
+    firstZOrderSave.resolve({
+      sheets: [
+        { sheetId: savedPending.id, revision: 1 },
+        { sheetId: inputs.id, revision: 1 },
+      ],
+    });
+    await waitFor(() => expect(updateSheetZOrder).toHaveBeenNthCalledWith(2, [
+      { sheetId: outputs.id, expectedRevision: 0, zIndex: 1 },
+      { sheetId: inputs.id, expectedRevision: 1, zIndex: 2 },
+    ]));
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  });
 });

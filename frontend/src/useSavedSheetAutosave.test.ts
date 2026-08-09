@@ -122,6 +122,56 @@ describe('useSavedSheetAutosave', () => {
     await waitFor(() => expect(result.current.autosave.saveStatus).toBe('saved'));
   });
 
+  it('keeps a failed resize sticky when a queued move cannot supersede its size', async () => {
+    const resize = deferred<SheetRevisionResponse>();
+    const move = deferred<SheetRevisionResponse>();
+    const moveRun = vi.fn().mockReturnValue(move.promise);
+    const { result } = renderAutosave();
+
+    act(() => {
+      result.current.autosave.enqueueEdit({
+        sheetId: 'sheet-inputs',
+        target: { kind: 'frame' },
+        coalesceKey: 'layout',
+        run: () => resize.promise,
+      });
+      result.current.autosave.enqueueEdit({
+        sheetId: 'sheet-inputs',
+        target: { kind: 'frame' },
+        coalesceKey: 'position',
+        run: moveRun,
+      });
+    });
+
+    resize.reject(new Error('resize failed'));
+    await waitFor(() => expect(moveRun).toHaveBeenCalledTimes(1));
+    move.resolve({ sheetId: 'sheet-inputs', revision: 1 });
+    await waitFor(() => expect(result.current.autosave.saveStatus).toBe('failed'));
+  });
+
+  it('keeps a failed z-order command sticky while later partial commands continue', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    const secondRun = vi.fn().mockReturnValue(second.promise);
+    const { result } = renderAutosave();
+
+    act(() => {
+      result.current.autosave.enqueueZOrderEdit({
+        affectedSheetIds: new Set(['sheet-a', 'sheet-b']),
+        run: () => first.promise,
+      });
+      result.current.autosave.enqueueZOrderEdit({
+        affectedSheetIds: new Set(['sheet-b', 'sheet-c']),
+        run: secondRun,
+      });
+    });
+
+    first.reject(new Error('z-order failed'));
+    await waitFor(() => expect(secondRun).toHaveBeenCalledTimes(1));
+    second.resolve(undefined);
+    await waitFor(() => expect(result.current.autosave.saveStatus).toBe('failed'));
+  });
+
   it('reports standalone failure and clears that target failure when retried', async () => {
     const failed = deferred<SheetRevisionResponse>();
     const retry = deferred<SheetRevisionResponse>();
@@ -144,7 +194,7 @@ describe('useSavedSheetAutosave', () => {
     const cellSave = deferred<SheetRevisionResponse>();
     const positionSave = deferred<SheetRevisionResponse>();
     const cellRun = vi.fn().mockReturnValue(cellSave.promise);
-    const positionRun = vi.fn().mockReturnValue(positionSave.promise);
+    const frameRun = vi.fn().mockReturnValue(positionSave.promise);
     const { result } = renderAutosave();
 
     act(() => {
@@ -152,10 +202,10 @@ describe('useSavedSheetAutosave', () => {
         target: { kind: 'cell-content', cellKey: 'A1' },
         run: cellRun,
       });
-      enqueueRevisioned(result.current.autosave, { target: { kind: 'position' }, run: positionRun });
+      enqueueRevisioned(result.current.autosave, { target: { kind: 'frame' }, run: frameRun });
     });
     expect(cellRun).toHaveBeenCalledTimes(1);
-    expect(positionRun).toHaveBeenCalledTimes(1);
+    expect(frameRun).toHaveBeenCalledTimes(1);
 
     positionSave.resolve({ sheetId: 'sheet-inputs', revision: 1 });
     await waitFor(() => expect(result.current.autosave.saveStatus).toBe('saving'));
@@ -176,7 +226,7 @@ describe('useSavedSheetAutosave', () => {
           run: () => failedSave.promise,
         });
         enqueueRevisioned(result.current.autosave, {
-          target: { kind: 'position' },
+          target: { kind: 'frame' },
           run: () => successfulSave.promise,
         });
       });
@@ -245,6 +295,50 @@ describe('useSavedSheetAutosave', () => {
     expect(sheetsInOrder(result.current.workbook).map(({ id, revision }) => ({ id, revision }))).toEqual([
       { id: inputs.id, revision: 8 },
       { id: outputs.id, revision: 6 },
+    ]);
+  });
+
+  it('reloads affected z-order sheets and retries one atomic command with current revisions', async () => {
+    const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 3 };
+    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 0 }), revision: 5 };
+    const loadSheet = vi.fn().mockImplementation(async (sheetId: string) => (
+      sheetId === inputs.id ? { ...inputs, revision: 7 } : { ...outputs, revision: 9 }
+    ));
+    const request = vi.fn()
+      .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'))
+      .mockResolvedValueOnce({
+        sheets: [
+          { sheetId: inputs.id, revision: 8 },
+          { sheetId: outputs.id, revision: 10 },
+        ],
+      });
+    const { result } = renderAutosave({
+      apiClient: { loadSheet },
+      initialWorkbook: workbookWithSheets([inputs, outputs]),
+    });
+
+    await act(async () => {
+      await result.current.autosave.runRevisionedZOrder({
+        updates: [
+          { sheetId: inputs.id, zIndex: 2 },
+          { sheetId: outputs.id, zIndex: 1 },
+        ],
+        request,
+      });
+    });
+
+    expect(request).toHaveBeenNthCalledWith(1, [
+      { sheetId: inputs.id, expectedRevision: 3, zIndex: 2 },
+      { sheetId: outputs.id, expectedRevision: 5, zIndex: 1 },
+    ]);
+    expect(request).toHaveBeenNthCalledWith(2, [
+      { sheetId: inputs.id, expectedRevision: 7, zIndex: 2 },
+      { sheetId: outputs.id, expectedRevision: 9, zIndex: 1 },
+    ]);
+    expect(loadSheet).toHaveBeenCalledTimes(2);
+    expect(sheetsInOrder(result.current.workbook).map(({ id, revision }) => ({ id, revision }))).toEqual([
+      { id: inputs.id, revision: 8 },
+      { id: outputs.id, revision: 10 },
     ]);
   });
 

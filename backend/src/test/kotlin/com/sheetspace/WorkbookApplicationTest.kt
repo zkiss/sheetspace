@@ -28,17 +28,19 @@ class WorkbookApplicationTest {
             UpdateSheetCommand(
                 name = "Model",
                 position = WorkspacePosition(30.0, 40.0),
-                zIndex = 3,
             ),
         )
-        val withRow = application.appendRow(updated.id.value, updated.revision)
+        val reordered = application.updateSheetZOrder(
+            listOf(SheetZOrderUpdate(updated.id.value, updated.revision, 3)),
+        ).single()
+        val withRow = application.appendRow(reordered.id.value, reordered.revision)
         val withColumn = application.appendColumn(withRow.id.value, withRow.revision)
         application.deleteSheet(withColumn.id.value, withColumn.revision)
 
         assertEquals("Inputs", created.name)
         assertEquals("Model", updated.name)
         assertEquals(WorkspacePosition(30.0, 40.0), updated.frame.position)
-        assertEquals(3, updated.frame.zIndex)
+        assertEquals(3, reordered.frame.zIndex)
         assertEquals(DEFAULT_ROW_COUNT + 1, withRow.tabularContent.rowCount)
         assertEquals(DEFAULT_COLUMN_COUNT + 1, withColumn.tabularContent.columnCount)
         assertEquals(emptyList(), store.loadWorkbookBundle().manifest.sheetIds)
@@ -119,14 +121,14 @@ class WorkbookApplicationTest {
                 UpdateSheetCommand(frameSize = SheetFrameSize(0.0, 1.0)),
             )
         }
-        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_Z_INDEX) {
-            application.updateSheet(sheet.id.value, sheet.revision, UpdateSheetCommand(zIndex = 0))
-        }
         assertApplicationError(WorkbookApplicationError.SHEET_UPDATE_REQUIRED) {
             application.updateSheet(sheet.id.value, sheet.revision, UpdateSheetCommand())
         }
         assertApplicationError(WorkbookApplicationError.INVALID_CELL_ADDRESS) {
             application.updateCell(sheet.id.value, "Z999", "outside", sheet.revision)
+        }
+        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_Z_INDEX) {
+            application.updateSheetZOrder(listOf(SheetZOrderUpdate(sheet.id.value, sheet.revision, 0)))
         }
 
         assertEquals(listOf(sheet), store.loadWorkbookBundle().sheetsInOrder)

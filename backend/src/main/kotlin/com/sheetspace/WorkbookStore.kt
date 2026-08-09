@@ -16,6 +16,11 @@ data class CellWrite(
     val content: String,
 )
 
+data class SheetZOrderWrite(
+    val expectedRevision: ExpectedSheetRevision,
+    val zIndex: Int,
+)
+
 interface WorkbookStore {
     fun loadManifest(): WorkbookManifest
 
@@ -29,6 +34,8 @@ interface WorkbookStore {
         expectedRevision: ExpectedSheetRevision,
         writes: List<CellWrite>,
     ): SheetDocument
+
+    fun updateSheetZOrder(writes: List<SheetZOrderWrite>): List<SheetDocument>
 
     fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision? = null,

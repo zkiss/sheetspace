@@ -67,6 +67,39 @@ class SqliteWorkbookStore internal constructor(
         }
     }
 
+    override fun updateSheetZOrder(writes: List<SheetZOrderWrite>): List<SheetDocument> {
+        require(writes.isNotEmpty()) { "At least one z-order write is required" }
+        require(writes.map { it.expectedRevision.sheetId }.distinct().size == writes.size) {
+            "Z-order writes must target distinct sheets"
+        }
+        return synchronized(updateLock) {
+            database.transaction { conn ->
+                val reader = SqliteWorkbookReader(conn)
+                val writer = SqliteWorkbookWriter(conn, reader)
+                val current = reader.loadWorkbookBundle()
+                val currentSheets = writes.associateWith { write ->
+                    val expected = write.expectedRevision
+                    val sheet = current.findSheet(SheetId(expected.sheetId))
+                        ?: throw NoSuchElementException("Sheet not found: ${expected.sheetId}")
+                    if (sheet.revision != expected.revision) {
+                        throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
+                    }
+                    sheet
+                }
+                val updated = writes.fold(current) { workbook, write ->
+                    workbook.replaceSheet(
+                        currentSheets.getValue(write).updateFrame { frame -> frame.update(zIndex = write.zIndex) },
+                    )
+                }
+                writer.persistChanges(current, updated)
+                writes.map { write ->
+                    reader.loadSheet(SheetId(write.expectedRevision.sheetId))
+                        ?: error("Updated sheet disappeared: ${write.expectedRevision.sheetId}")
+                }
+            }
+        }
+    }
+
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
         transform: (WorkbookState) -> WorkbookState,

@@ -37,7 +37,6 @@ data class UpdateSheetRequest(
     val name: String? = null,
     val position: WorkspacePosition? = null,
     val frameSize: SheetFrameSize? = null,
-    val zIndex: Int? = null,
 )
 
 @Serializable
@@ -45,6 +44,19 @@ data class SheetRevisionResponse(
     val sheetId: String,
     val revision: Long,
 )
+
+@Serializable
+data class SheetZOrderUpdateRequest(
+    val sheetId: String,
+    val expectedRevision: Long,
+    val zIndex: Int,
+)
+
+@Serializable
+data class UpdateSheetZOrderRequest(val updates: List<SheetZOrderUpdateRequest>)
+
+@Serializable
+data class UpdateSheetZOrderResponse(val sheets: List<SheetRevisionResponse>)
 
 @Serializable
 data class RowAppendResponse(
@@ -126,10 +138,25 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                         name = request.name,
                         position = request.position,
                         frameSize = request.frameSize,
-                        zIndex = request.zIndex,
                     ),
                 )
                 call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
+            }
+        }
+
+        patch("/api/workbook/sheet-z-order") {
+            val request = call.receiveRequest<UpdateSheetZOrderRequest>() ?: return@patch
+            call.respondApplicationResult {
+                val sheets = workbookApplication.updateSheetZOrder(
+                    request.updates.map { update ->
+                        SheetZOrderUpdate(update.sheetId, update.expectedRevision, update.zIndex)
+                    },
+                )
+                call.respond(
+                    UpdateSheetZOrderResponse(
+                        sheets.map { sheet -> SheetRevisionResponse(sheet.id.value, sheet.revision) },
+                    ),
+                )
             }
         }
 
@@ -240,6 +267,10 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE ->
             HttpStatusCode.BadRequest to "invalid-sheet-frame-size"
         WorkbookApplicationError.INVALID_SHEET_Z_INDEX -> HttpStatusCode.BadRequest to "invalid-sheet-z-index"
+        WorkbookApplicationError.SHEET_Z_ORDER_UPDATE_REQUIRED ->
+            HttpStatusCode.BadRequest to "sheet-z-order-update-required"
+        WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE ->
+            HttpStatusCode.BadRequest to "duplicate-sheet-z-order-update"
         WorkbookApplicationError.INVALID_CELL_ADDRESS -> HttpStatusCode.BadRequest to "invalid-cell-address"
     }
     respondError(status, code)

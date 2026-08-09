@@ -204,8 +204,11 @@ describe('workbook API mutations', () => {
     const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 1 });
     await workbookApi.renameSheet('sheet-1', 'Renamed');
     await workbookApi.updateSheetPosition('sheet-1', { x: 48, y: 96 });
-    await workbookApi.updateSheetFrameSize('sheet-1', { width: 320, height: 220 });
-    await workbookApi.updateSheetZIndex('sheet-1', 3);
+    await workbookApi.updateSheetFrameLayout('sheet-1', { x: 48, y: 96 }, { width: 320, height: 220 });
+    await workbookApi.updateSheetZOrder([
+      { sheetId: 'sheet-1', expectedRevision: 2, zIndex: 3 },
+      { sheetId: 'sheet-2', expectedRevision: 4, zIndex: 1 },
+    ]);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet-1', {
       method: 'PATCH', body: JSON.stringify({ name: 'Renamed' }), headers: { 'Content-Type': 'application/json' },
@@ -214,10 +217,17 @@ describe('workbook API mutations', () => {
       method: 'PATCH', body: JSON.stringify({ position: { x: 48, y: 96 } }), headers: { 'Content-Type': 'application/json' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sheets/sheet-1', {
-      method: 'PATCH', body: JSON.stringify({ frameSize: { width: 320, height: 220 } }), headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
+      body: JSON.stringify({ position: { x: 48, y: 96 }, frameSize: { width: 320, height: 220 } }),
+      headers: { 'Content-Type': 'application/json' },
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/sheets/sheet-1', {
-      method: 'PATCH', body: JSON.stringify({ zIndex: 3 }), headers: { 'Content-Type': 'application/json' },
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/workbook/sheet-z-order', {
+      method: 'PATCH',
+      body: JSON.stringify({ updates: [
+        { sheetId: 'sheet-1', expectedRevision: 2, zIndex: 3 },
+        { sheetId: 'sheet-2', expectedRevision: 4, zIndex: 1 },
+      ] }),
+      headers: { 'Content-Type': 'application/json' },
     });
   });
 

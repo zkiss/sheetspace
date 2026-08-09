@@ -135,22 +135,6 @@ class SheetLifecycleRoutesTest {
         }
 
     @Test
-    fun `sheet update endpoint persists z-order without requiring rename`() =
-        testWorkbookApplication { workbookApplication ->
-            val sheetId = client.createSheet().id
-
-            val response = client.patch("/api/sheets/$sheetId") {
-                revisionHeader(workbookApplication, sheetId)
-                jsonBody("""{"zIndex":3}""")
-            }
-
-            assertEquals(HttpStatusCode.OK, response.status)
-            val sheet = client.loadWorkbook().sheets.single()
-            assertEquals("Inputs", sheet.name)
-            assertEquals(3, sheet.zIndex)
-        }
-
-    @Test
     fun `row and column append endpoints persist updated dimensions`() =
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
