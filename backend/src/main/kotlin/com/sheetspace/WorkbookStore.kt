@@ -23,6 +23,11 @@ interface WorkbookStore {
 
     fun loadWorkbookBundle(): WorkbookState
 
+    fun applyChangeSet(
+        changeSet: DurableChangeSet,
+        transform: (WorkbookState) -> ChangeSetMutation,
+    ): AppliedChangeSet
+
     fun saveWorkbook(workbook: WorkbookState)
 
     fun writeCells(

@@ -35,6 +35,18 @@ internal class SqliteDatabase(
         }
     }
 
+    fun <T> immediateTransaction(block: (Connection) -> T): T = connection { conn ->
+        conn.createStatement().use { it.execute("BEGIN IMMEDIATE") }
+        try {
+            val result = block(conn)
+            conn.createStatement().use { it.execute("COMMIT") }
+            result
+        } catch (exception: Exception) {
+            conn.createStatement().use { it.execute("ROLLBACK") }
+            throw exception
+        }
+    }
+
     fun <T> connection(block: (Connection) -> T): T =
         DriverManager.getConnection(jdbcUrl).use { conn ->
             conn.createStatement().use {
