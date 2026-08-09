@@ -38,11 +38,40 @@ internal suspend fun HttpClient.createSheet(): Sheet {
 }
 
 internal suspend fun HttpClient.loadWorkbook(): Workbook {
-    val summary = get("/api/workbook").decodeBody<WorkbookSummary>()
+    val bundle = get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>()
     return Workbook(
-        version = summary.version,
-        sheets = summary.sheetIds.map { sheetId -> get("/api/sheets/$sheetId").decodeBody<Sheet>() },
+        version = bundle.manifest.version,
+        sheets = bundle.documents.map { document ->
+            val rows = document.content.rows.withIndex().associate { (index, id) -> id to index }
+            val columns = document.content.columns.withIndex().associate { (index, id) -> id to index }
+            Sheet(
+                id = document.id,
+                name = document.name,
+                revision = document.revision,
+                position = document.frame.position,
+                frameSize = document.frame.size,
+                zIndex = document.frame.zIndex,
+                rowCount = rows.size,
+                columnCount = columns.size,
+                cells = document.content.cells.associate { cell ->
+                    val columnIndex = columns.getValue(cell.columnId)
+                    val rowIndex = rows.getValue(cell.rowId)
+                    testColumnLabel(columnIndex + 1) + (rowIndex + 1) to cell.content
+                },
+            )
+        },
     )
+}
+
+private fun testColumnLabel(oneBasedIndex: Int): String {
+    var index = oneBasedIndex
+    return buildString {
+        while (index > 0) {
+            index--
+            append('A' + index % 26)
+            index /= 26
+        }
+    }.reversed()
 }
 
 internal fun HttpRequestBuilder.revisionHeader(

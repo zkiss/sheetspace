@@ -10,7 +10,7 @@ class InMemoryWorkbookStore(
     override fun loadSheet(sheetId: SheetId): SheetDocument? =
         synchronized(this) { workbook.findSheet(sheetId) }
 
-    override fun loadWorkbook(): WorkbookState = synchronized(this) { workbook }
+    override fun loadWorkbookBundle(): WorkbookState = synchronized(this) { workbook }
 
     override fun saveWorkbook(workbook: WorkbookState) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)

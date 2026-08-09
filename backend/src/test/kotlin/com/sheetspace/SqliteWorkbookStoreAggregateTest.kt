@@ -18,6 +18,29 @@ class SqliteWorkbookStoreAggregateTest {
     }
 
     @Test
+    fun `targeted and medium bundle reads decode each requested sheet exactly once`() {
+        val decodedSheetIds = mutableListOf<SheetId>()
+        SqliteWorkbookStore.inMemory(decodedSheetIds::add).use { store ->
+            val documents = (1..25).map { index ->
+                testDocument(
+                    id = "00000000-0000-4000-8000-${index.toString().padStart(12, '0')}",
+                    name = "Sheet $index",
+                    tabular = TabularContent(cells = mapOf("A1" to index.toString())),
+                )
+            }
+            store.saveWorkbook(testWorkbookOf(*documents.toTypedArray()))
+
+            decodedSheetIds.clear()
+            assertEquals(documents[12], store.loadSheet(documents[12].id))
+            assertEquals(listOf(documents[12].id), decodedSheetIds)
+
+            decodedSheetIds.clear()
+            assertEquals(documents, store.loadWorkbookBundle().sheetsInOrder)
+            assertEquals(documents.map { it.id }, decodedSheetIds)
+        }
+    }
+
+    @Test
     fun `aggregate read stays on one snapshot during concurrent membership change`() {
         val database = Files.createTempFile("sheetspace-snapshot-", ".db")
         try {
@@ -44,7 +67,7 @@ class SqliteWorkbookStoreAggregateTest {
                     val failure = AtomicReference<Throwable>()
                     val read = thread {
                         try {
-                            loaded.set(reader.loadWorkbook())
+                            loaded.set(reader.loadWorkbookBundle())
                         } catch (exception: Throwable) {
                             failure.set(exception)
                         }
@@ -62,7 +85,7 @@ class SqliteWorkbookStoreAggregateTest {
 
                     assertNull(failure.get())
                     assertEquals(initial, loaded.get())
-                    assertTrue(writer.loadWorkbook().sheetsInOrder.isEmpty())
+                    assertTrue(writer.loadWorkbookBundle().sheetsInOrder.isEmpty())
                 }
             }
         } finally {
@@ -93,7 +116,7 @@ class SqliteWorkbookStoreAggregateTest {
 
             store.saveWorkbook(workbook)
 
-            assertEquals(workbook, store.loadWorkbook())
+            assertEquals(workbook, store.loadWorkbookBundle())
             assertEquals(sheet.tabularContent.rows, store.loadSheet(sheet.id)!!.tabularContent.rows)
             assertEquals(sheet.tabularContent.columns, store.loadSheet(sheet.id)!!.tabularContent.columns)
         }
@@ -107,7 +130,7 @@ class SqliteWorkbookStoreAggregateTest {
         val renamed = second.rename("Renamed Outputs")
         store.saveWorkbook(testWorkbookOf(renamed))
 
-        assertEquals(listOf(renamed), store.loadWorkbook().sheetsInOrder)
+        assertEquals(listOf(renamed), store.loadWorkbookBundle().sheetsInOrder)
     }
 
     @Test

@@ -74,11 +74,11 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
         }
 
         get("/api/workbook") {
-            call.respond(
-                LegacyWorkbookSummaryTransportAdapter.toTransport(
-                    workbookApplication.loadWorkbook().manifest,
-                ),
-            )
+            call.respond(WorkbookReadTransportAdapter.manifest(workbookApplication.loadManifest()))
+        }
+
+        get("/api/workbook/bundle") {
+            call.respond(WorkbookReadTransportAdapter.bundle(workbookApplication.loadWorkbookBundle()))
         }
 
         get("/api/sheets/{sheetId}") {
@@ -88,7 +88,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             )
             call.respondApplicationResult {
                 call.respond(
-                    LegacyFlatSheetTransportAdapter.toTransport(workbookApplication.loadSheet(sheetId)),
+                    WorkbookReadTransportAdapter.sheetDocument(workbookApplication.loadSheet(sheetId)),
                 )
             }
         }

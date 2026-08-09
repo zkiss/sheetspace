@@ -6,8 +6,9 @@ import java.sql.Connection
 internal class SqliteWorkbookReader(
     private val connection: Connection,
     private val aggregateReadCheckpoint: (() -> Unit)? = null,
+    private val sheetReadObserver: ((SheetId) -> Unit)? = null,
 ) {
-    fun loadWorkbook(): WorkbookState {
+    fun loadWorkbookBundle(): WorkbookState {
         val manifest = loadManifest()
         aggregateReadCheckpoint?.invoke()
         val documents = manifest.sheetIds.associateWith { sheetId ->
@@ -72,6 +73,7 @@ internal class SqliteWorkbookReader(
                 )
             }
         }
+        sheetReadObserver?.invoke(document.id)
         return SheetDocument(
             id = document.id,
             name = document.name,

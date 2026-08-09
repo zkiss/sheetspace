@@ -41,7 +41,7 @@ class WorkbookApplicationTest {
         assertEquals(3, updated.frame.zIndex)
         assertEquals(DEFAULT_ROW_COUNT + 1, withRow.tabularContent.rowCount)
         assertEquals(DEFAULT_COLUMN_COUNT + 1, withColumn.tabularContent.columnCount)
-        assertEquals(emptyList(), store.loadWorkbook().manifest.sheetIds)
+        assertEquals(emptyList(), store.loadWorkbookBundle().manifest.sheetIds)
     }
 
     @Test
@@ -129,7 +129,7 @@ class WorkbookApplicationTest {
             application.updateCell(sheet.id.value, "Z999", "outside", sheet.revision)
         }
 
-        assertEquals(listOf(sheet), store.loadWorkbook().sheetsInOrder)
+        assertEquals(listOf(sheet), store.loadWorkbookBundle().sheetsInOrder)
     }
 
     @Test
@@ -177,7 +177,10 @@ class WorkbookApplicationTest {
         workers.forEach { it.join() }
 
         assertEquals(setOf(1, 2), created.map { it.frame.zIndex }.toSet())
-        assertEquals(setOf("Inputs", "Outputs"), application.loadWorkbook().documents.values.map { it.name }.toSet())
+        assertEquals(
+            setOf("Inputs", "Outputs"),
+            application.loadWorkbookBundle().documents.values.map { it.name }.toSet(),
+        )
     }
 
     @Test
@@ -223,9 +226,9 @@ private class TargetedCellStore(
         return delegate.loadSheet(sheetId)
     }
 
-    override fun loadWorkbook(): WorkbookState {
+    override fun loadWorkbookBundle(): WorkbookState {
         workbookLoads++
-        return delegate.loadWorkbook()
+        return delegate.loadWorkbookBundle()
     }
 
     override fun writeCells(

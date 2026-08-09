@@ -1,6 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { workbookApi, WorkbookApiError } from './workbookApi';
+import workbookReadContract from '../../test-fixtures/workbook-read-contract.json';
+import { workbookApi, WorkbookApiError, type WorkbookBundleResponse } from './workbookApi';
 import type { Workbook } from './workbook';
+
+const contractFixture = workbookReadContract as WorkbookBundleResponse;
+const fixtureWorkbook: Workbook = {
+  version: 1,
+  sheets: [
+    {
+      id: '00000000-0000-0000-0000-000000000002',
+      name: 'Outputs',
+      revision: 4,
+      position: { x: 420, y: 260 },
+      frameSize: { width: 300, height: 180 },
+      zIndex: 2,
+      columnCount: 1,
+      rowCount: 1,
+      cells: { A1: '=SUM(00000000-0000-0000-0000-000000000001!A1:B2)' },
+    },
+    {
+      id: '00000000-0000-0000-0000-000000000001',
+      name: 'Inputs',
+      revision: 3,
+      position: { x: 12.5, y: -8.25 },
+      frameSize: { width: 360, height: 240 },
+      zIndex: 1,
+      columnCount: 2,
+      rowCount: 2,
+      cells: { A1: 'Region', B1: '10', B2: '5' },
+    },
+  ],
+};
 
 const workbook: Workbook = {
   version: 1,
@@ -41,24 +71,48 @@ afterEach(() => {
 
 describe('workbookApi', () => {
   it('loads the current workbook', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ version: 1, sheetIds: ['sheet-1'] }))
-      .mockResolvedValueOnce(jsonResponse(workbook.sheets[0]));
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mockFetch(contractFixture);
 
-    await expect(workbookApi.loadWorkbook()).resolves.toEqual(workbook);
+    await expect(workbookApi.loadWorkbook()).resolves.toEqual(fixtureWorkbook);
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/workbook', { headers: {} });
-    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet-1', { headers: {} });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/workbook/bundle', { headers: {} });
   });
 
   it('loads one sheet by id', async () => {
-    const fetchMock = mockFetch(workbook.sheets[0]);
+    const fetchMock = mockFetch(contractFixture.documents[1]);
 
-    await expect(workbookApi.loadSheet('sheet 1')).resolves.toEqual(workbook.sheets[0]);
+    await expect(workbookApi.loadSheet('sheet 1')).resolves.toEqual(fixtureWorkbook.sheets[1]);
 
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', { headers: {} });
+  });
+
+  it('loads a medium workbook with one request and linear document projection', async () => {
+    const documents = Array.from({ length: 30 }, (_, index) => ({
+      ...contractFixture.documents[0],
+      id: `sheet-${index}`,
+      name: `Sheet ${index}`,
+    }));
+    const fetchMock = mockFetch({
+      manifest: {
+        ...contractFixture.manifest,
+        sheetIds: documents.map((document) => document.id),
+      },
+      documents,
+    });
+
+    await expect(workbookApi.loadWorkbook()).resolves.toMatchObject({
+      sheets: documents.map((document) => ({ id: document.id, name: document.name })),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects bundle membership mismatches', async () => {
+    mockFetch({ ...contractFixture, documents: contractFixture.documents.slice(0, 1) });
+
+    await expect(workbookApi.loadWorkbook()).rejects.toMatchObject({
+      code: 'invalid-workbook-read-contract',
+    });
   });
 
   it('creates sheets through the backend mutation endpoint', async () => {
