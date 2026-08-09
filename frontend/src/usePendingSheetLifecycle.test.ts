@@ -45,6 +45,7 @@ function renderLifecycle({
         setWorkbook: updateWorkbook,
         workbook,
       }),
+      applyAction,
       workbook,
     };
   });
@@ -70,6 +71,48 @@ describe('usePendingSheetLifecycle', () => {
     createSave.resolve(savedSheet);
     await waitFor(() => expect(sheetsInOrder(result.current.workbook)[0].id).toBe(savedSheet.id));
     expect(result.current.sheetIdRemaps).toEqual({ [pendingId]: savedSheet.id });
+  });
+
+  it('cancels creation before the request starts without persisting a pending id', async () => {
+    const uuid = '00000000-0000-4000-8000-000000000001';
+    const uuidSpy = vi.spyOn(crypto, 'randomUUID').mockReturnValue(uuid);
+    const createSheet = vi.fn();
+    const { result } = renderLifecycle({ apiClient: { createSheet } });
+
+    act(() => {
+      result.current.createPendingSheet('Inputs', { x: 0, y: 0 });
+      result.current.deletePendingSheet(`pending:${uuid}`);
+    });
+
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(createSheet).not.toHaveBeenCalled();
+    expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
+    uuidSpy.mockRestore();
+  });
+
+  it('reserves the original create name until the request settles', async () => {
+    const createSave = deferred<ReturnType<typeof positionedSheet>>();
+    const savedSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const createSheet = vi.fn().mockReturnValue(createSave.promise);
+    const { result } = renderLifecycle({ apiClient: { createSheet } });
+
+    act(() => {
+      result.current.createPendingSheet('Inputs', { x: 0, y: 0 });
+    });
+    const pendingId = sheetsInOrder(result.current.workbook)[0].id;
+    act(() => {
+      result.current.applyAction({ kind: 'rename-sheet', sheetId: pendingId, name: 'Data' });
+    });
+    act(() => {
+      expect(result.current.createPendingSheet('Inputs', { x: 300, y: 0 })).toEqual({
+        ok: false,
+        reason: 'duplicate',
+      });
+    });
+    await waitFor(() => expect(createSheet).toHaveBeenCalledTimes(1));
+
+    createSave.resolve(savedSheet);
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
 
   it('rewrites parser-derived pending qualifiers before a dependent save', async () => {
@@ -111,5 +154,62 @@ describe('usePendingSheetLifecycle', () => {
     createSave.resolve(savedSheet);
     await waitFor(() => expect(persistDeletedSheet).toHaveBeenCalledWith(savedSheet.id, savedSheet.revision));
     expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
+  });
+
+  it('orders deferred pending and saved z-order commands without sending pending ids', async () => {
+    const createSave = deferred<ReturnType<typeof positionedSheet>>();
+    const firstZOrderSave = deferred<{ sheets: Array<{ sheetId: string; revision: number }> }>();
+    const pendingSaved = positionedSheet('sheet-pending', 'Pending', { x: 600, y: 0 });
+    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 0 });
+    const updateSheetZOrder = vi.fn()
+      .mockReturnValueOnce(firstZOrderSave.promise)
+      .mockResolvedValueOnce({
+        sheets: [
+          { sheetId: outputs.id, revision: 1 },
+          { sheetId: inputs.id, revision: 2 },
+        ],
+      });
+    const { result } = renderLifecycle({
+      apiClient: {
+        createSheet: vi.fn().mockReturnValue(createSave.promise),
+        updateSheetZOrder,
+      },
+      initialWorkbook: workbookWithSheets([inputs, outputs]),
+    });
+
+    act(() => {
+      result.current.createPendingSheet('Pending', { x: 600, y: 0 });
+    });
+    const pendingId = sheetsInOrder(result.current.workbook).find((sheet) => sheet.name === 'Pending')!.id;
+    act(() => {
+      result.current.enqueueRevisionedZOrder([
+        { sheetId: pendingId, zIndex: 2 },
+        { sheetId: inputs.id, zIndex: 1 },
+      ]);
+      result.current.enqueueRevisionedZOrder([
+        { sheetId: outputs.id, zIndex: 1 },
+        { sheetId: inputs.id, zIndex: 2 },
+      ]);
+    });
+    expect(updateSheetZOrder).not.toHaveBeenCalled();
+
+    createSave.resolve(pendingSaved);
+    await waitFor(() => expect(updateSheetZOrder).toHaveBeenNthCalledWith(1, [
+      { sheetId: pendingSaved.id, expectedRevision: 0, zIndex: 2 },
+      { sheetId: inputs.id, expectedRevision: 0, zIndex: 1 },
+    ]));
+    expect(JSON.stringify(updateSheetZOrder.mock.calls[0])).not.toContain('pending:');
+
+    firstZOrderSave.resolve({
+      sheets: [
+        { sheetId: pendingSaved.id, revision: 1 },
+        { sheetId: inputs.id, revision: 1 },
+      ],
+    });
+    await waitFor(() => expect(updateSheetZOrder).toHaveBeenNthCalledWith(2, [
+      { sheetId: outputs.id, expectedRevision: 0, zIndex: 1 },
+      { sheetId: inputs.id, expectedRevision: 1, zIndex: 2 },
+    ]));
   });
 });
