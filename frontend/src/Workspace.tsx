@@ -1,4 +1,3 @@
-import { MouseEvent } from 'react';
 import type {
   FormulaEvaluationSnapshot,
   SheetDocument,
@@ -80,7 +79,6 @@ export function Workspace({
     navigateReference,
     navigationHighlight,
     navigationMotion,
-    workspaceSurfaceRef,
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
     onSelectReferenceTarget,
@@ -88,6 +86,9 @@ export function Workspace({
     workbook,
   });
   const {
+    cancelSheetFrameDrag,
+    cancelSheetFrameResize,
+    frameLayoutPreview,
     handleSheetFrameDragMove,
     handleSheetFrameDragStart,
     handleSheetFrameResizeMove,
@@ -100,18 +101,6 @@ export function Workspace({
     workbook,
   });
 
-  function handleToolbarCreate(event: MouseEvent<HTMLButtonElement>) {
-    const workspace = event.currentTarget
-      .closest('.workspace-shell')
-      ?.querySelector<HTMLElement>('[data-testid="workspace-surface"]');
-
-    if (!workspace) {
-      return;
-    }
-
-    workspaceController.createSheetAtViewportCenter(workspace);
-  }
-
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
     onOpenRenameDialog(sheet);
@@ -120,7 +109,7 @@ export function Workspace({
   return (
     <>
       <WorkspaceToolbar
-        onCreateSheet={handleToolbarCreate}
+        onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onPanWorkspace={workspaceController.panWorkspace}
         onResetViewport={workspaceController.resetViewport}
         onZoomWorkspace={workspaceController.zoomWorkspace}
@@ -139,6 +128,7 @@ export function Workspace({
         activeCell={activeCell}
         editingCell={editingCell}
         formulaResults={formulaResults}
+        frameLayoutPreview={frameLayoutPreview}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
         keyboardFocusTarget={keyboardFocusTarget}
         navigationHighlight={navigationHighlight}
@@ -174,12 +164,13 @@ export function Workspace({
         onPointerDown={workspaceController.handleWorkspacePointerDown}
         onPointerMove={workspaceController.handleWorkspacePointerMove}
         onPointerUp={workspaceController.stopWorkspacePan}
-        onResizeCancel={stopSheetFrameResize}
+        onResizeCancel={cancelSheetFrameResize}
         onResizeMove={handleSheetFrameResizeMove}
         onResizeStart={handleSheetFrameResizeStart}
         onResizeStop={stopSheetFrameResize}
         onSelectCell={onSelectCell}
-        onSheetFrameDragCancel={stopSheetFrameDrag}
+        onSheetFrameDragCancel={cancelSheetFrameDrag}
+        onSheetFrameInteraction={workspaceController.closeSheetMenu}
         onSheetFrameDragMove={handleSheetFrameDragMove}
         onSheetFrameDragStart={handleSheetFrameDragStart}
         onSheetFrameDragStop={stopSheetFrameDrag}
@@ -189,7 +180,7 @@ export function Workspace({
         sheetIdRemaps={sheetIdRemaps}
         sheets={sheets}
         viewport={workspaceController.viewport}
-        workspaceSurfaceRef={workspaceSurfaceRef}
+        workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
       />
     </>
   );

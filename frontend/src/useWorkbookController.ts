@@ -37,7 +37,6 @@ export type WorkbookCommands = {
   deletePendingSheet: (sheetId: string) => void;
   deleteSheet: (sheetId: string) => void;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
-  previewSheetFrameLayout: (sheetId: string, position: WorkspacePosition, frameSize?: SheetFrameSize) => void;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
@@ -276,26 +275,6 @@ export function useWorkbookController({
     });
   }
 
-  function previewSheetFrameLayout(sheetId: string, position: WorkspacePosition, frameSize?: SheetFrameSize) {
-    const localSheetId = resolveSheetId(sheetId);
-    setWorkbook((currentWorkbook) => ({
-      ...currentWorkbook,
-      documents: findSheetById(currentWorkbook, localSheetId)
-        ? {
-            ...currentWorkbook.documents,
-            [localSheetId]: {
-              ...currentWorkbook.documents[localSheetId],
-              frame: {
-                ...currentWorkbook.documents[localSheetId].frame,
-                position,
-                size: frameSize ?? currentWorkbook.documents[localSheetId].frame.size,
-              },
-            },
-          }
-        : currentWorkbook.documents,
-    }), { kind: 'none' });
-  }
-
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
     const localSheetId = resolveSheetId(sheetId);
     if (!applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position })) return;
@@ -347,7 +326,6 @@ export function useWorkbookController({
       deletePendingSheet,
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,
-      previewSheetFrameLayout,
       renameSheet: renameSheetCommand,
       resizeSheetFrame,
       updateCellContent,

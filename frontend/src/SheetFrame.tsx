@@ -1,4 +1,4 @@
-import type { MouseEvent, PointerEvent } from 'react';
+import { useRef, type MouseEvent, type PointerEvent } from 'react';
 import type { CellRange, FormulaEvaluationSnapshot, SheetFrameProjection, SheetTabularProjection } from './workbook';
 import type {
   CellTarget,
@@ -42,6 +42,7 @@ export function SheetFrame({
   onResizeStop,
   onSelectCell,
   onSheetFrameDragCancel,
+  onSheetFrameInteraction,
   onSheetFrameDragMove,
   onSheetFrameDragStart,
   onSheetFrameDragStop,
@@ -71,6 +72,7 @@ export function SheetFrame({
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
   onSelectCell: (target: CellTarget) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
+  onSheetFrameInteraction: () => void;
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
@@ -80,6 +82,7 @@ export function SheetFrame({
   selectedRange?: CellRange;
 }) {
   const frameSize = clampSheetFrameSize(frame.size);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   return (
     <article
@@ -99,6 +102,11 @@ export function SheetFrame({
       data-testid="sheet-frame"
       data-z-index={frame.zIndex}
       onContextMenu={(event) => onOpenSheetMenu(frame.id, event)}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        onSheetFrameInteraction();
+      }}
+      onWheel={(event) => event.stopPropagation()}
       style={{
         left: frame.position.x,
         top: frame.position.y,
@@ -131,7 +139,7 @@ export function SheetFrame({
       >
         <h2>{frame.name}</h2>
       </header>
-      <div className="sheet-frame-body" data-testid="sheet-frame-body">
+      <div className="sheet-frame-body" data-testid="sheet-frame-body" ref={bodyRef}>
         <SheetGrid
           activeCellKey={activeCellKey}
           editingCell={editingCell}
@@ -148,6 +156,7 @@ export function SheetFrame({
           onStartEdit={onStartEdit}
           formulaResults={formulaResults}
           sheet={tabular}
+          scrollContainerRef={bodyRef}
           selectedRange={selectedRange}
         />
       </div>

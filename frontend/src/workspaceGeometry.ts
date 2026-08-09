@@ -1,5 +1,4 @@
-import type { MouseEvent, PointerEvent, WheelEvent } from 'react';
-import type { SheetFrameSize, WorkspacePosition } from './workbook';
+import type { SheetFrameSize, SheetFrameProjection, WorkspacePosition } from './workbook';
 import type { SheetFrameResize, WorkspaceViewport } from './appTypes';
 
 export const MIN_SHEET_FRAME_WIDTH = 180;
@@ -18,28 +17,88 @@ export type WorkspaceTargetRect = {
   bottom: number;
 };
 
-export function getWorkspacePoint(
-  event: Pick<MouseEvent<HTMLElement> | PointerEvent<HTMLElement> | WheelEvent<HTMLElement>, 'clientX' | 'clientY'>,
+export function workspacePointFromClient(
+  clientPoint: WorkspacePosition,
   element: HTMLElement,
   viewport: WorkspaceViewport,
 ): WorkspacePosition {
-  const rect = element.getBoundingClientRect();
+  return workspacePointFromSurface(surfacePointFromClient(clientPoint, element), viewport);
+}
 
+export function workspacePointAtViewportCenter(element: HTMLElement, viewport: WorkspaceViewport): WorkspacePosition {
+  const size = surfaceSize(element);
+  return workspacePointFromSurface({ x: size.width / 2, y: size.height / 2 }, viewport);
+}
+
+export function workspacePointFromSurface(
+  surfacePoint: WorkspacePosition,
+  viewport: WorkspaceViewport,
+): WorkspacePosition {
   return {
-    x: Math.round((event.clientX - rect.left - viewport.x) / viewport.scale),
-    y: Math.round((event.clientY - rect.top - viewport.y) / viewport.scale),
+    x: Math.round((surfacePoint.x - viewport.x) / viewport.scale),
+    y: Math.round((surfacePoint.y - viewport.y) / viewport.scale),
   };
 }
 
-export function getViewportCenter(element: HTMLElement, viewport: WorkspaceViewport): WorkspacePosition {
+export function workspaceDeltaFromClient(
+  startClientPoint: WorkspacePosition,
+  currentClientPoint: WorkspacePosition,
+  viewportScale: number,
+): WorkspacePosition {
   return {
-    x: Math.round((element.clientWidth / 2 - viewport.x) / viewport.scale),
-    y: Math.round((element.clientHeight / 2 - viewport.y) / viewport.scale),
+    x: (currentClientPoint.x - startClientPoint.x) / viewportScale,
+    y: (currentClientPoint.y - startClientPoint.y) / viewportScale,
   };
 }
 
 export function clampWorkspaceZoom(scale: number) {
   return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, scale));
+}
+
+export function zoomViewportAt(
+  currentViewport: WorkspaceViewport,
+  nextScale: number,
+  surfaceOrigin: WorkspacePosition = { x: 0, y: 0 },
+): WorkspaceViewport {
+  const scale = clampWorkspaceZoom(nextScale);
+  const workspaceOrigin = {
+    x: (surfaceOrigin.x - currentViewport.x) / currentViewport.scale,
+    y: (surfaceOrigin.y - currentViewport.y) / currentViewport.scale,
+  };
+
+  return {
+    x: Math.round(surfaceOrigin.x - workspaceOrigin.x * scale),
+    y: Math.round(surfaceOrigin.y - workspaceOrigin.y * scale),
+    scale,
+  };
+}
+
+export function surfacePointFromClient(
+  clientPoint: WorkspacePosition,
+  element: HTMLElement,
+): WorkspacePosition {
+  const rect = element.getBoundingClientRect();
+  return { x: clientPoint.x - rect.left, y: clientPoint.y - rect.top };
+}
+
+export function surfaceSize(element: HTMLElement): SheetFrameSize {
+  const rect = element.getBoundingClientRect();
+  return {
+    width: element.clientWidth || rect.width,
+    height: element.clientHeight || rect.height,
+  };
+}
+
+export function workspaceRectForFrame(
+  frame: Pick<SheetFrameProjection, 'position' | 'size'>,
+): WorkspaceTargetRect {
+  const size = clampSheetFrameSize(frame.size);
+  return {
+    left: frame.position.x,
+    top: frame.position.y,
+    right: frame.position.x + size.width,
+    bottom: frame.position.y + size.height,
+  };
 }
 
 export function viewportForTarget({

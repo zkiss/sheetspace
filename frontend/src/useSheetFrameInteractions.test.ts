@@ -10,9 +10,8 @@ import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 function commands() {
   return {
     moveSheetFrame: vi.fn(),
-    previewSheetFrameLayout: vi.fn(),
     resizeSheetFrame: vi.fn(),
-  } satisfies Pick<WorkbookCommands, 'moveSheetFrame' | 'previewSheetFrameLayout' | 'resizeSheetFrame'>;
+  } satisfies Pick<WorkbookCommands, 'moveSheetFrame' | 'resizeSheetFrame'>;
 }
 
 function pointerEvent({
@@ -76,10 +75,18 @@ describe('useSheetFrameInteractions', () => {
         pointerEvent({ clientX: 100, clientY: 120 }),
       );
       result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150 }));
+    });
+
+    expect(result.current.frameLayoutPreview).toMatchObject({
+      sheetId: 'sheet-inputs', position: { x: 30, y: 35 },
+    });
+    expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
+
+    act(() => {
       result.current.stopSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150 }));
     });
 
-    expect(testCommands.previewSheetFrameLayout).toHaveBeenCalledWith('sheet-inputs', { x: 30, y: 35 });
+    expect(result.current.frameLayoutPreview).toBeNull();
     expect(testCommands.moveSheetFrame).toHaveBeenCalledTimes(1);
     expect(testCommands.moveSheetFrame).toHaveBeenCalledWith('sheet-inputs', { x: 30, y: 35 });
   });
@@ -96,11 +103,12 @@ describe('useSheetFrameInteractions', () => {
       for (let clientX = 101; clientX <= 110; clientX += 1) {
         result.current.handleSheetFrameDragMove(pointerEvent({ clientX, clientY: 120 }));
       }
-
-      result.current.stopSheetFrameDrag(pointerEvent({ clientX: 110, clientY: 120 }));
     });
 
-    expect(testCommands.previewSheetFrameLayout).toHaveBeenLastCalledWith('sheet-inputs', { x: 15, y: 20 });
+    expect(result.current.frameLayoutPreview).toMatchObject({ position: { x: 15, y: 20 } });
+    act(() => {
+      result.current.stopSheetFrameDrag(pointerEvent({ clientX: 110, clientY: 120 }));
+    });
     expect(testCommands.moveSheetFrame).toHaveBeenCalledWith('sheet-inputs', { x: 15, y: 20 });
   });
 
@@ -118,20 +126,19 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
   });
 
-  it('ignores drag starts from form controls inside the header', () => {
-    const target = document.createElement('button');
+  it('ignores non-primary drag starts', () => {
     const { commands: testCommands, result } = renderInteractions();
 
     act(() => {
       result.current.handleSheetFrameDragStart(
         'sheet-inputs',
-        pointerEvent({ clientX: 100, clientY: 120, target }),
+        pointerEvent({ button: 2, clientX: 100, clientY: 120 }),
       );
       result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150 }));
       result.current.stopSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150 }));
     });
 
-    expect(testCommands.previewSheetFrameLayout).not.toHaveBeenCalled();
+    expect(result.current.frameLayoutPreview).toBeNull();
     expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
   });
 
@@ -146,14 +153,20 @@ describe('useSheetFrameInteractions', () => {
         pointerEvent({ clientX: 100, clientY: 120 }),
       );
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 160, clientY: 160 }));
+    });
+
+    expect(result.current.frameLayoutPreview).toEqual({
+      sheetId: 'sheet-inputs',
+      position: { x: 10, y: 20 },
+      size: { width: 270, height: 180 },
+    });
+    expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
+
+    act(() => {
       result.current.stopSheetFrameResize(pointerEvent({ clientX: 160, clientY: 160 }));
     });
 
-    expect(testCommands.previewSheetFrameLayout).toHaveBeenCalledWith(
-      'sheet-inputs',
-      { x: 10, y: 20 },
-      { width: 270, height: 180 },
-    );
+    expect(result.current.frameLayoutPreview).toBeNull();
     expect(testCommands.resizeSheetFrame).toHaveBeenCalledTimes(1);
     expect(testCommands.resizeSheetFrame).toHaveBeenCalledWith(
       'sheet-inputs',
@@ -176,5 +189,42 @@ describe('useSheetFrameInteractions', () => {
     });
 
     expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
+  });
+
+  it('discards drag and resize previews on pointer cancel without committing', () => {
+    const { commands: testCommands, result } = renderInteractions();
+
+    act(() => {
+      result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 120 }));
+      result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150 }));
+    });
+    expect(result.current.frameLayoutPreview).not.toBeNull();
+    act(() => result.current.cancelSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150 })));
+    expect(result.current.frameLayoutPreview).toBeNull();
+    expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.handleSheetFrameResizeStart(
+        'sheet-inputs',
+        { horizontal: 1, vertical: 1 },
+        pointerEvent({ clientX: 100, clientY: 120 }),
+      );
+      result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 140, clientY: 150 }));
+    });
+    expect(result.current.frameLayoutPreview).not.toBeNull();
+    act(() => result.current.cancelSheetFrameResize(pointerEvent({ clientX: 140, clientY: 150 })));
+    expect(result.current.frameLayoutPreview).toBeNull();
+    expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
+  });
+
+  it('keeps active gesture ownership with its starting pointer', () => {
+    const { commands: testCommands, result } = renderInteractions();
+    act(() => {
+      result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 120 }));
+      result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150, pointerId: 2 }));
+      result.current.stopSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150, pointerId: 2 }));
+    });
+    expect(result.current.frameLayoutPreview).toBeNull();
+    expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
   });
 });

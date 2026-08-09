@@ -1,26 +1,30 @@
-import { PointerEvent, useRef } from 'react';
+import { PointerEvent, useRef, useState } from 'react';
 import type { SheetFrameDrag, SheetFrameResize, SheetFrameResizeDirection } from './appTypes';
-import { findSheetById, type Workbook } from './workbook';
+import { findSheetById, type SheetFrameSize, type Workbook, type WorkspacePosition } from './workbook';
 import type { WorkbookCommands } from './useWorkbookController';
-import { resizeSheetFrame } from './workspaceGeometry';
+import { resizeSheetFrame, workspaceDeltaFromClient } from './workspaceGeometry';
+
+export type SheetFrameLayoutPreview = {
+  sheetId: string;
+  position: WorkspacePosition;
+  size: SheetFrameSize;
+};
 
 export function useSheetFrameInteractions({
   commands,
   viewportScale,
   workbook,
 }: {
-  commands: Pick<WorkbookCommands, 'moveSheetFrame' | 'previewSheetFrameLayout' | 'resizeSheetFrame'>;
+  commands: Pick<WorkbookCommands, 'moveSheetFrame' | 'resizeSheetFrame'>;
   viewportScale: number;
   workbook: Workbook;
 }) {
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
   const sheetFrameResize = useRef<SheetFrameResize | null>(null);
+  const [frameLayoutPreview, setFrameLayoutPreview] = useState<SheetFrameLayoutPreview | null>(null);
 
   function handleSheetFrameDragStart(sheetId: string, event: PointerEvent<HTMLElement>) {
-    if (
-      (event.button !== 0 && event.button !== undefined) ||
-      (event.target as HTMLElement).closest('button, input, textarea, select')
-    ) {
+    if (event.button !== 0 && event.button !== undefined) {
       return;
     }
 
@@ -45,17 +49,22 @@ export function useSheetFrameInteractions({
       return;
     }
 
-    const nextPosition = {
-      x: Math.round(
-        sheetFrameDrag.current.startPosition.x +
-          (event.clientX - sheetFrameDrag.current.startClientX) / viewportScale,
-      ),
-      y: Math.round(
-        sheetFrameDrag.current.startPosition.y +
-          (event.clientY - sheetFrameDrag.current.startClientY) / viewportScale,
-      ),
-    };
-    commands.previewSheetFrameLayout(sheetFrameDrag.current.sheetId, nextPosition);
+    const drag = sheetFrameDrag.current;
+    const delta = workspaceDeltaFromClient(
+      { x: drag.startClientX, y: drag.startClientY },
+      { x: event.clientX, y: event.clientY },
+      viewportScale,
+    );
+    const sheet = findSheetById(workbook, drag.sheetId);
+    if (!sheet) return;
+    setFrameLayoutPreview({
+      sheetId: drag.sheetId,
+      position: {
+        x: Math.round(drag.startPosition.x + delta.x),
+        y: Math.round(drag.startPosition.y + delta.y),
+      },
+      size: sheet.frame.size,
+    });
   }
 
   function stopSheetFrameDrag(event: PointerEvent<HTMLElement>) {
@@ -64,15 +73,28 @@ export function useSheetFrameInteractions({
     }
 
     const finishedDrag = sheetFrameDrag.current;
+    const delta = workspaceDeltaFromClient(
+      { x: finishedDrag.startClientX, y: finishedDrag.startClientY },
+      { x: event.clientX, y: event.clientY },
+      viewportScale,
+    );
     const position = {
-      x: Math.round(finishedDrag.startPosition.x + (event.clientX - finishedDrag.startClientX) / viewportScale),
-      y: Math.round(finishedDrag.startPosition.y + (event.clientY - finishedDrag.startClientY) / viewportScale),
+      x: Math.round(finishedDrag.startPosition.x + delta.x),
+      y: Math.round(finishedDrag.startPosition.y + delta.y),
     };
     if (position.x !== finishedDrag.startPosition.x || position.y !== finishedDrag.startPosition.y) {
       commands.moveSheetFrame(finishedDrag.sheetId, position);
     }
 
     sheetFrameDrag.current = null;
+    setFrameLayoutPreview(null);
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }
+
+  function cancelSheetFrameDrag(event: PointerEvent<HTMLElement>) {
+    if (!sheetFrameDrag.current || sheetFrameDrag.current.pointerId !== event.pointerId) return;
+    sheetFrameDrag.current = null;
+    setFrameLayoutPreview(null);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
@@ -110,11 +132,16 @@ export function useSheetFrameInteractions({
     }
 
     const resize = sheetFrameResize.current;
-    const nextLayout = resizeSheetFrame(resize, {
-      x: (event.clientX - resize.startClientX) / viewportScale,
-      y: (event.clientY - resize.startClientY) / viewportScale,
+    const nextLayout = resizeSheetFrame(resize, workspaceDeltaFromClient(
+      { x: resize.startClientX, y: resize.startClientY },
+      { x: event.clientX, y: event.clientY },
+      viewportScale,
+    ));
+    setFrameLayoutPreview({
+      sheetId: resize.sheetId,
+      position: nextLayout.position,
+      size: nextLayout.frameSize,
     });
-    commands.previewSheetFrameLayout(resize.sheetId, nextLayout.position, nextLayout.frameSize);
   }
 
   function stopSheetFrameResize(event: PointerEvent<HTMLElement>) {
@@ -123,10 +150,11 @@ export function useSheetFrameInteractions({
     }
 
     const resize = sheetFrameResize.current;
-    const nextLayout = resizeSheetFrame(resize, {
-      x: (event.clientX - resize.startClientX) / viewportScale,
-      y: (event.clientY - resize.startClientY) / viewportScale,
-    });
+    const nextLayout = resizeSheetFrame(resize, workspaceDeltaFromClient(
+      { x: resize.startClientX, y: resize.startClientY },
+      { x: event.clientX, y: event.clientY },
+      viewportScale,
+    ));
 
     if (
       nextLayout.position.x !== resize.startPosition.x ||
@@ -138,10 +166,21 @@ export function useSheetFrameInteractions({
     }
 
     sheetFrameResize.current = null;
+    setFrameLayoutPreview(null);
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }
+
+  function cancelSheetFrameResize(event: PointerEvent<HTMLElement>) {
+    if (!sheetFrameResize.current || sheetFrameResize.current.pointerId !== event.pointerId) return;
+    sheetFrameResize.current = null;
+    setFrameLayoutPreview(null);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
   return {
+    cancelSheetFrameDrag,
+    cancelSheetFrameResize,
+    frameLayoutPreview,
     handleSheetFrameDragMove,
     handleSheetFrameDragStart,
     handleSheetFrameResizeMove,

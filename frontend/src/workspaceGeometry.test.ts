@@ -2,10 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   clampSheetFrameSize,
   clampWorkspaceZoom,
-  getViewportCenter,
-  getWorkspacePoint,
   resizeSheetFrame,
+  surfacePointFromClient,
+  surfaceSize,
   viewportForTarget,
+  workspaceDeltaFromClient,
+  workspacePointAtViewportCenter,
+  workspacePointFromClient,
+  workspacePointFromSurface,
+  workspaceRectForFrame,
+  zoomViewportAt,
 } from './workspaceGeometry';
 
 function workspaceElement({
@@ -47,13 +53,35 @@ describe('workspaceGeometry', () => {
     const element = workspaceElement({ clientWidth: 1000, clientHeight: 800, left: 20, top: 40 });
     const viewport = { x: 80, y: -40, scale: 2 };
 
-    expect(getWorkspacePoint({ clientX: 320, clientY: 260 }, element, viewport)).toEqual({ x: 110, y: 130 });
-    expect(getViewportCenter(element, viewport)).toEqual({ x: 210, y: 220 });
+    expect(surfacePointFromClient({ x: 320, y: 260 }, element)).toEqual({ x: 300, y: 220 });
+    expect(surfaceSize(element)).toEqual({ width: 1000, height: 800 });
+    expect(workspacePointFromSurface({ x: 300, y: 220 }, viewport)).toEqual({ x: 110, y: 130 });
+    expect(workspacePointFromClient({ x: 320, y: 260 }, element, viewport)).toEqual({ x: 110, y: 130 });
+    expect(workspacePointAtViewportCenter(element, viewport)).toEqual({ x: 210, y: 220 });
+    expect(workspaceDeltaFromClient({ x: 100, y: 120 }, { x: 140, y: 150 }, 2))
+      .toEqual({ x: 20, y: 15 });
+  });
+
+  it('zooms around a surface point while preserving its workspace location', () => {
+    expect(zoomViewportAt(
+      { x: 80, y: -40, scale: 1 },
+      1.5,
+      { x: 100, y: 100 },
+    )).toEqual({ x: 70, y: -110, scale: 1.5 });
+    expect(zoomViewportAt({ x: 0, y: 0, scale: 1 }, 10))
+      .toEqual({ x: 0, y: 0, scale: 2 });
   });
 
   it('clamps sheet frame sizes to practical minimum dimensions', () => {
     expect(clampSheetFrameSize({ width: 10, height: 20 })).toEqual({ width: 180, height: 120 });
     expect(clampSheetFrameSize({ width: 320, height: 220 })).toEqual({ width: 320, height: 220 });
+  });
+
+  it('projects a clamped frame into workspace coordinates', () => {
+    expect(workspaceRectForFrame({
+      position: { x: 120, y: 80 },
+      size: { width: 10, height: 20 },
+    })).toEqual({ left: 120, top: 80, right: 300, bottom: 200 });
   });
 
   it('anchors left and top resize handles while enforcing minimum frame size', () => {

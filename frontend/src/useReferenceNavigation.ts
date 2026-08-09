@@ -13,8 +13,7 @@ import { pendingCellIdentityRemaps, remapReferenceNavigationTarget } from './cel
 import type { FormulaInspectionReference } from './formulaInspection';
 import { rangeFitsSheetViewport } from './gridGeometry';
 import {
-  clampSheetFrameSize,
-  type WorkspaceTargetRect,
+  workspaceRectForFrame,
 } from './workspaceGeometry';
 
 const NAVIGATION_HIGHLIGHT_MS = 1200;
@@ -44,16 +43,6 @@ function normalizedRange(reference: FormulaInspectionReference, sheet: SheetDocu
   return address ? { start: address, end: address } : undefined;
 }
 
-function referenceFrameRect(sheet: SheetDocument): WorkspaceTargetRect {
-  const frameSize = clampSheetFrameSize(sheet.frame.size);
-  return {
-    left: sheet.frame.position.x,
-    top: sheet.frame.position.y,
-    right: sheet.frame.position.x + frameSize.width,
-    bottom: sheet.frame.position.y + frameSize.height,
-  };
-}
-
 export function useReferenceNavigation({
   navigateToTarget,
   onSelectReferenceTarget,
@@ -61,15 +50,13 @@ export function useReferenceNavigation({
   workbook,
 }: {
   navigateToTarget: (
-    workspace: HTMLElement,
-    target: WorkspaceTargetRect,
+    target: ReturnType<typeof workspaceRectForFrame>,
     forceOversized?: boolean,
   ) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   sheetIdRemaps: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
-  const workspaceSurfaceRef = useRef<HTMLElement>(null);
   const previousWorkbook = useRef(workbook);
   const [navigationHighlight, setNavigationHighlight] =
     useState<ReferenceNavigationTarget | null>(null);
@@ -108,8 +95,7 @@ export function useReferenceNavigation({
 
   function navigateReference(reference: FormulaInspectionReference) {
     const targetSheet = findSheetById(workbook, reference.target.sheetId);
-    const workspace = workspaceSurfaceRef.current;
-    if (!targetSheet || !workspace || !reference.navigable) {
+    if (!targetSheet || !reference.navigable) {
       return;
     }
 
@@ -126,8 +112,7 @@ export function useReferenceNavigation({
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     setNavigationMotion(!reduceMotion);
     navigateToTarget(
-      workspace,
-      referenceFrameRect(targetSheet),
+      workspaceRectForFrame(targetSheet.frame),
       reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet),
     );
   }
@@ -136,6 +121,5 @@ export function useReferenceNavigation({
     navigateReference,
     navigationHighlight,
     navigationMotion,
-    workspaceSurfaceRef,
   };
 }

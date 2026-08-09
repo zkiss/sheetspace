@@ -22,6 +22,8 @@ export function SheetContextMenu({
     <div
       aria-label={`${sheet.name} sheet menu`}
       className="sheet-context-menu"
+      onPointerDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
       role="menu"
       style={{
         left: menu.x,
