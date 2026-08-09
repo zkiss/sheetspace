@@ -48,6 +48,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     editingCell,
     keyboardFocusTarget,
     navigateCell,
+    referenceSelection,
     selectCell,
     selectReferenceTarget,
     startEditingCell,
@@ -139,6 +140,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onSelectCell={selectCell}
         onSelectReferenceTarget={selectReferenceTarget}
         onStartEdit={startEditingCell}
+        referenceSelection={referenceSelection}
         saveStatus={saveStatus}
         sheetIdRemaps={sheetIdRemaps}
         workbook={workbook}

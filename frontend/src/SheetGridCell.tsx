@@ -1,6 +1,7 @@
 import { KeyboardEvent } from 'react';
 import { cellRawContent, type SheetTabularProjection } from './workbook';
-import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
+import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
+import { cellTargetAt } from './cellInteraction';
 import { gridCellKeyboardAction } from './sheetGridModel';
 
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
@@ -36,23 +37,25 @@ export function SheetGridCell({
 }: {
   cellKey: string;
   displayText: string;
-  editingCell: EditingCell | null;
+  editingCell: CellEditSession | null;
   isActive: boolean;
   isEditing: boolean;
   isNavigationTarget?: boolean;
   isRangeSelected?: boolean;
   onCancelEdit: () => void;
-  onClearCell: (selection: ActiveCellSelection) => void;
-  onCommitEdit: (editToCommit?: EditingCell) => void;
-  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
+  onClearCell: (target: CellTarget) => void;
+  onCommitEdit: (session?: CellEditSession) => void;
+  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
-  onSelectCell: (selection: ActiveCellSelection) => void;
-  onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
+  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
+  onSelectCell: (target: CellTarget) => void;
+  onStartEdit: (target: CellTarget, initialValue?: string) => void;
   registerCell: (cellKey: string, element: HTMLTableCellElement | null) => void;
   sheet: SheetTabularProjection;
 }) {
   function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
+    const target = cellTargetAt(sheet, cellKey);
+    if (!target) return;
     const action = gridCellKeyboardAction({
       altKey: event.altKey,
       ctrlKey: event.ctrlKey,
@@ -69,16 +72,16 @@ export function SheetGridCell({
     event.preventDefault();
 
     if (action.kind === 'navigate') {
-      onNavigateCell(sheet, cellKey, action.direction);
+      onNavigateCell(target, action.direction);
       return;
     }
 
     if (action.kind === 'clear-cell') {
-      onClearCell({ sheetId: sheet.id, cellKey });
+      onClearCell(target);
       return;
     }
 
-    onStartEdit({ sheetId: sheet.id, cellKey }, action.initialValue);
+    onStartEdit(target, action.initialValue);
   }
 
   return (
@@ -96,11 +99,18 @@ export function SheetGridCell({
       data-navigation-highlight={isNavigationTarget ? 'true' : undefined}
       data-reference-selected={isRangeSelected ? 'true' : undefined}
       data-testid="sheet-grid-cell"
-      onClick={() => onSelectCell({ sheetId: sheet.id, cellKey })}
-      onDoubleClick={() => onStartEdit({ sheetId: sheet.id, cellKey })}
+      onClick={() => {
+        const target = cellTargetAt(sheet, cellKey);
+        if (target) onSelectCell(target);
+      }}
+      onDoubleClick={() => {
+        const target = cellTargetAt(sheet, cellKey);
+        if (target) onStartEdit(target);
+      }}
       onFocus={() => {
         if (!isActive) {
-          onSelectCell({ sheetId: sheet.id, cellKey });
+          const target = cellTargetAt(sheet, cellKey);
+          if (target) onSelectCell(target);
         }
       }}
       onKeyDown={handleCellKeyDown}
@@ -110,6 +120,7 @@ export function SheetGridCell({
       {isEditing && editingCell ? (
         <SheetGridCellEditor
           editingCell={editingCell}
+          cellKey={cellKey}
           onCancelEdit={onCancelEdit}
           onCommitEdit={onCommitEdit}
           onCommitEditAndNavigate={onCommitEditAndNavigate}
@@ -124,6 +135,7 @@ export function SheetGridCell({
 }
 
 export function SheetGridCellEditor({
+  cellKey,
   editingCell,
   onCancelEdit,
   onCommitEdit,
@@ -131,46 +143,39 @@ export function SheetGridCellEditor({
   onEditValueChange,
   sheetName,
 }: {
-  editingCell: EditingCell;
+  cellKey: string;
+  editingCell: CellEditSession;
   onCancelEdit: () => void;
-  onCommitEdit: (editToCommit?: EditingCell) => void;
-  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
+  onCommitEdit: (session?: CellEditSession) => void;
+  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
   sheetName: string;
 }) {
-  const editorSizing = cellEditorSizing(editingCell.value);
+  const editorSizing = cellEditorSizing(editingCell.draft);
 
   return (
     <textarea
-      aria-label={`${sheetName} ${editingCell.cellKey} editor`}
+      aria-label={`${sheetName} ${cellKey} editor`}
       autoFocus
       className="sheet-grid-cell-editor"
       data-max-height={CELL_EDITOR_MAX_HEIGHT}
       data-max-width={CELL_EDITOR_MAX_WIDTH}
       data-multiline-editor={editorSizing.multiline ? 'true' : undefined}
       data-visible-lines={editorSizing.visibleLineCount}
-      onBlur={(event) => {
-        const relatedTarget = event.relatedTarget as HTMLElement | null;
-        if (relatedTarget?.dataset.sheetMenuAction === 'delete') {
-          onCancelEdit();
-          return;
-        }
-
-        onCommitEdit({ ...editingCell, value: event.currentTarget.value });
-      }}
+      onBlur={(event) => onCommitEdit({ ...editingCell, draft: event.currentTarget.value })}
       onChange={(event) => onEditValueChange(event.target.value)}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
           event.stopPropagation();
-          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'enter');
+          onCommitEditAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'enter');
         }
 
         if (event.key === 'Tab' && !event.shiftKey) {
           event.preventDefault();
           event.stopPropagation();
-          onCommitEditAndNavigate({ ...editingCell, value: event.currentTarget.value }, 'tab');
+          onCommitEditAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'tab');
         }
 
         if (event.key === 'Escape') {
@@ -187,7 +192,7 @@ export function SheetGridCellEditor({
         overflow: 'auto',
         width: editorSizing.width,
       }}
-      value={editingCell.value}
+      value={editingCell.draft}
     />
   );
 }

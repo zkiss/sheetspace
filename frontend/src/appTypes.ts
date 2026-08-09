@@ -1,4 +1,4 @@
-import type { CellRange, SheetFrameSize, WorkspacePosition } from './workbook';
+import type { SheetFrameSize, StableCellIdentity, StableCellRange, WorkspacePosition } from './workbook';
 
 export type PendingSheetCreation = {
   position: WorkspacePosition;
@@ -16,14 +16,18 @@ export type PendingSheetMenu = {
   y: number;
 };
 
-export type ActiveCellSelection = {
+export type CellTarget = {
   sheetId: string;
-  cellKey: string;
-  range?: CellRange;
+  cell: StableCellIdentity;
 };
 
-export type EditingCell = ActiveCellSelection & {
-  value: string;
+export type ReferenceNavigationTarget =
+  | { kind: 'cell'; target: CellTarget }
+  | { kind: 'range'; sheetId: string; range: StableCellRange };
+
+export type CellEditSession = {
+  target: CellTarget;
+  draft: string;
 };
 
 export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';

@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import {
   addressRangeOf,
   cellAddressOf,
-  cellKey,
   findSheetById,
+  stableRangeAt,
   type CellRange,
   type SheetDocument,
   type Workbook,
 } from './workbook';
-import type { ActiveCellSelection } from './appTypes';
+import type { ReferenceNavigationTarget } from './appTypes';
+import { pendingCellIdentityRemaps, remapReferenceNavigationTarget } from './cellInteraction';
 import type { FormulaInspectionReference } from './formulaInspection';
 import { rangeFitsSheetViewport } from './gridGeometry';
 import {
@@ -56,6 +57,7 @@ function referenceFrameRect(sheet: SheetDocument): WorkspaceTargetRect {
 export function useReferenceNavigation({
   navigateToTarget,
   onSelectReferenceTarget,
+  sheetIdRemaps,
   workbook,
 }: {
   navigateToTarget: (
@@ -63,13 +65,22 @@ export function useReferenceNavigation({
     target: WorkspaceTargetRect,
     forceOversized?: boolean,
   ) => void;
-  onSelectReferenceTarget: (selection: ActiveCellSelection) => void;
+  onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
+  sheetIdRemaps: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
   const workspaceSurfaceRef = useRef<HTMLElement>(null);
+  const previousWorkbook = useRef(workbook);
   const [navigationHighlight, setNavigationHighlight] =
-    useState<ActiveCellSelection | null>(null);
+    useState<ReferenceNavigationTarget | null>(null);
   const [navigationMotion, setNavigationMotion] = useState(false);
+
+  useEffect(() => {
+    const identityRemaps = pendingCellIdentityRemaps(previousWorkbook.current, workbook, sheetIdRemaps);
+    setNavigationHighlight((current) =>
+      remapReferenceNavigationTarget(current, sheetIdRemaps, identityRemaps));
+    previousWorkbook.current = workbook;
+  }, [sheetIdRemaps, workbook]);
 
   useEffect(() => {
     if (!navigationHighlight) {
@@ -104,13 +115,13 @@ export function useReferenceNavigation({
 
     const range = normalizedRange(reference, targetSheet);
     if (!range) return;
-    const selection: ActiveCellSelection = {
-      sheetId: targetSheet.id,
-      cellKey: cellKey(range.start),
-      ...(reference.target.kind === 'range' ? { range } : {}),
-    };
-    onSelectReferenceTarget(selection);
-    setNavigationHighlight(selection);
+    const stableRange = stableRangeAt(targetSheet.content, range);
+    if (!stableRange) return;
+    const target: ReferenceNavigationTarget = reference.target.kind === 'range'
+      ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
+      : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
+    onSelectReferenceTarget(target);
+    setNavigationHighlight(target);
 
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     setNavigationMotion(!reduceMotion);

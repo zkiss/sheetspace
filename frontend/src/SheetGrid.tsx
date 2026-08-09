@@ -10,7 +10,8 @@ import {
   type SheetTabularProjection,
 } from './workbook';
 import { GRID_CELL_HEIGHT, GRID_CELL_WIDTH } from './gridGeometry';
-import type { ActiveCellSelection, CellNavigationDirection, EditingCell } from './appTypes';
+import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
+import { cellKeyForTarget } from './cellInteraction';
 import { SheetGridCell } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
 import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
@@ -61,18 +62,18 @@ export function SheetGrid({
   selectedRange,
 }: {
   activeCellKey: string | null;
-  editingCell: EditingCell | null;
+  editingCell: CellEditSession | null;
   keyboardFocusCellKey: string | null;
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
   onCancelEdit: () => void;
-  onClearCell: (selection: ActiveCellSelection) => void;
-  onCommitEdit: (editToCommit?: EditingCell) => void;
-  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
+  onClearCell: (target: CellTarget) => void;
+  onCommitEdit: (session?: CellEditSession) => void;
+  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
-  onSelectCell: (selection: ActiveCellSelection) => void;
-  onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
+  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
+  onSelectCell: (target: CellTarget) => void;
+  onStartEdit: (target: CellTarget, initialValue?: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   sheet: SheetTabularProjection;
   selectedRange?: CellRange;
@@ -143,7 +144,7 @@ export function SheetGrid({
               const address = { columnIndex: column.index, rowIndex };
               const key = cellKey(address);
               const isActive = activeCellKey === key;
-              const isEditing = editingCell?.cellKey === key;
+              const isEditing = cellKeyForTarget(sheet, editingCell?.target ?? null) === key;
               const isRangeSelected = isAddressInRange(address, selectedRange);
               const isNavigationTarget = navigationHighlightRange
                 ? isAddressInRange(address, navigationHighlightRange)

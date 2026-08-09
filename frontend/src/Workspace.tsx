@@ -2,17 +2,18 @@ import { MouseEvent } from 'react';
 import type {
   FormulaEvaluationSnapshot,
   SheetDocument,
-  SheetTabularProjection,
   Workbook,
   WorkspacePosition,
 } from './workbook';
 import { cellRawContent, findSheetById, sheetsInOrder } from './workbook';
 import type {
-  ActiveCellSelection,
+  CellTarget,
   CellNavigationDirection,
-  EditingCell,
+  CellEditSession,
+  ReferenceNavigationTarget,
   SaveStatus,
 } from './appTypes';
+import { cellKeyForTarget } from './cellInteraction';
 import { FormulaReferenceInspection } from './FormulaReferenceInspection';
 import { inspectFormula } from './formulaInspection';
 import { useReferenceNavigation } from './useReferenceNavigation';
@@ -39,34 +40,37 @@ export function Workspace({
   onSelectCell,
   onSelectReferenceTarget,
   onStartEdit,
+  referenceSelection,
   saveStatus,
   sheetIdRemaps,
   workbook,
 }: {
-  activeCell: ActiveCellSelection | null;
+  activeCell: CellTarget | null;
   commands: WorkbookCommands;
-  editingCell: EditingCell | null;
+  editingCell: CellEditSession | null;
   formulaResults: FormulaEvaluationSnapshot;
-  keyboardFocusTarget: ActiveCellSelection | null;
+  keyboardFocusTarget: CellTarget | null;
   onCancelEdit: () => void;
-  onClearCell: (selection: ActiveCellSelection) => void;
-  onCommitEdit: (editToCommit?: EditingCell) => void;
-  onCommitEditAndNavigate: (editToCommit: EditingCell, direction: 'tab' | 'enter') => void;
+  onClearCell: (target: CellTarget) => void;
+  onCommitEdit: (session?: CellEditSession) => void;
+  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
   onCreateSheet: (position: WorkspacePosition, label: string) => void;
   onEditValueChange: (value: string) => void;
-  onNavigateCell: (sheet: SheetTabularProjection, cellKey: string, direction: CellNavigationDirection) => void;
+  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
-  onSelectCell: (selection: ActiveCellSelection) => void;
-  onSelectReferenceTarget: (selection: ActiveCellSelection) => void;
-  onStartEdit: (selection: ActiveCellSelection, initialValue?: string) => void;
+  onSelectCell: (target: CellTarget) => void;
+  onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
+  onStartEdit: (target: CellTarget, initialValue?: string) => void;
+  referenceSelection: ReferenceNavigationTarget | null;
   saveStatus: SaveStatus;
   sheetIdRemaps: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
-  const selectedRaw = selectedSheet && activeCell
-    ? cellRawContent(selectedSheet, activeCell.cellKey)
+  const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
+  const selectedRaw = selectedSheet && selectedCellKey
+    ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
   const formulaInspection = selectedSheet && selectedRaw
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
@@ -80,6 +84,7 @@ export function Workspace({
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
     onSelectReferenceTarget,
+    sheetIdRemaps,
     workbook,
   });
   const {
@@ -126,7 +131,7 @@ export function Workspace({
 
       <FormulaReferenceInspection
         inspection={formulaInspection}
-        key={`${activeCell?.sheetId}:${activeCell?.cellKey}:${selectedRaw}:${formulaInspection?.raw}`}
+        key={`${activeCell?.sheetId}:${selectedCellKey}:${selectedRaw}:${formulaInspection?.raw}`}
         onNavigate={navigateReference}
       />
 
@@ -138,6 +143,7 @@ export function Workspace({
         keyboardFocusTarget={keyboardFocusTarget}
         navigationHighlight={navigationHighlight}
         navigationMotion={navigationMotion}
+        referenceSelection={referenceSelection}
         onAppendColumn={(sheetId) => {
           workspaceController.closeSheetMenu();
           commands.appendColumn(sheetId);
@@ -157,6 +163,7 @@ export function Workspace({
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         onDeleteSheet={(sheetId) => {
           workspaceController.closeSheetMenu();
+          if (editingCell?.target.sheetId === sheetId) onCancelEdit();
           commands.deleteSheet(sheetId);
         }}
         onEditValueChange={onEditValueChange}
