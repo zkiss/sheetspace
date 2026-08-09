@@ -38,7 +38,6 @@ type PendingSheetCreate = {
   promise: Promise<string>;
   reject: (cause: unknown) => void;
   resolve: (savedSheetId: string) => void;
-  started: boolean;
 };
 
 type ApplyAction = (action: UserAction) => AppliedUserAction | undefined;
@@ -109,7 +108,7 @@ export function usePendingSheetLifecycle({
   const zOrderSubmission = useRef(Promise.resolve());
   const deferredZOrderCount = useRef(0);
   const pendingSheetCreates = useRef(new Map<PendingSheetId, PendingSheetCreate>());
-  const reservedCreateNames = useRef(new Set<string>());
+  const reservedCreateNames = useRef(new Map<string, PendingSheetId>());
   const sheetIdAliases = useRef(new Map<PendingSheetId, string>());
   const savedAutosave = useSavedSheetAutosave({
     autosaveEnabled,
@@ -134,6 +133,12 @@ export function usePendingSheetLifecycle({
     );
   }, []);
 
+  const releaseCreateName = useCallback((name: string, pendingSheetId: PendingSheetId) => {
+    if (reservedCreateNames.current.get(name) === pendingSheetId) {
+      reservedCreateNames.current.delete(name);
+    }
+  }, []);
+
   const registerPendingSheet = useCallback((pendingSheetId: PendingSheetId, name: string) => {
     let resolve!: (savedSheetId: string) => void;
     let reject!: (cause: unknown) => void;
@@ -149,7 +154,6 @@ export function usePendingSheetLifecycle({
       promise,
       reject,
       resolve,
-      started: false,
     });
   }, []);
 
@@ -169,20 +173,19 @@ export function usePendingSheetLifecycle({
       const pendingCreate = pendingSheetCreates.current.get(pendingSheetId);
       if (!pendingCreate || pendingCreate.deleted) {
         pendingSheetCreates.current.delete(pendingSheetId);
-        if (pendingCreate) reservedCreateNames.current.delete(pendingCreate.name);
+        if (pendingCreate) releaseCreateName(pendingCreate.name, pendingSheetId);
         activeCreates.current -= 1;
         refreshPendingSaveStatus();
         return;
       }
 
-      pendingCreate.started = true;
       let savedSheet: SheetDocument;
       try {
         savedSheet = await run();
       } catch {
         pendingCreate.reject(new PendingSheetCreateFailedError());
         pendingSheetCreates.current.delete(pendingSheetId);
-        reservedCreateNames.current.delete(pendingCreate.name);
+        releaseCreateName(pendingCreate.name, pendingSheetId);
         onFailure();
         failedCreateNames.current.add(sheetName);
         activeCreates.current -= 1;
@@ -206,11 +209,11 @@ export function usePendingSheetLifecycle({
         failedCreateNames.current.add(sheetName);
       }
       pendingSheetCreates.current.delete(pendingSheetId);
-      reservedCreateNames.current.delete(pendingCreate.name);
+      releaseCreateName(pendingCreate.name, pendingSheetId);
       activeCreates.current -= 1;
       refreshPendingSaveStatus();
     })();
-  }, [autosaveEnabled, refreshPendingSaveStatus, savedAutosave]);
+  }, [autosaveEnabled, refreshPendingSaveStatus, releaseCreateName, savedAutosave]);
 
   const cancelPendingSheet = useCallback((pendingSheetId: PendingSheetId) => {
     const pendingCreate = pendingSheetCreates.current.get(pendingSheetId);
@@ -219,7 +222,6 @@ export function usePendingSheetLifecycle({
     pendingCreate.deleted = true;
     pendingCreate.reject(new PendingSheetDeletedError());
     pendingCreate.afterSaved = [];
-    return pendingCreate.started;
   }, []);
 
   const createPendingSheet = useCallback((name: string, position: WorkspacePosition): ValidationResult => {
@@ -229,7 +231,7 @@ export function usePendingSheetLifecycle({
     if (reservedCreateNames.current.has(result.name)) return { ok: false, reason: 'duplicate' };
 
     const pendingSheetId: PendingSheetId = `pending:${crypto.randomUUID()}`;
-    reservedCreateNames.current.add(result.name);
+    reservedCreateNames.current.set(result.name, pendingSheetId);
     registerPendingSheet(pendingSheetId, result.name);
     const optimisticSheet = createSheet({
       id: pendingSheetId,
@@ -238,7 +240,7 @@ export function usePendingSheetLifecycle({
       position,
     });
     if (!optimisticSheet.ok || !applyAction({ kind: 'create-sheet', sheet: optimisticSheet.value })) {
-      reservedCreateNames.current.delete(result.name);
+      releaseCreateName(result.name, pendingSheetId);
       cancelPendingSheet(pendingSheetId);
       return {
         ok: false,
@@ -286,12 +288,13 @@ export function usePendingSheetLifecycle({
       ),
     );
     return result;
-  }, [applyAction, cancelPendingSheet, currentWorkbook, enqueuePendingSheetCreate, getApiMethod, persistDeletedSheet, registerPendingSheet, setWorkbook]);
+  }, [applyAction, cancelPendingSheet, currentWorkbook, enqueuePendingSheetCreate, getApiMethod, persistDeletedSheet, registerPendingSheet, releaseCreateName, setWorkbook]);
 
   const deletePendingSheet = useCallback((sheetId: string) => {
     if (!isPendingSheetId(sheetId) || !pendingSheetCreates.current.has(sheetId)) return false;
-    const createWasSent = cancelPendingSheet(sheetId);
-    if (!createWasSent) reservedCreateNames.current.delete(pendingSheetCreates.current.get(sheetId)?.name ?? '');
+    const pendingCreate = pendingSheetCreates.current.get(sheetId)!;
+    releaseCreateName(pendingCreate.name, sheetId);
+    cancelPendingSheet(sheetId);
     const applied = applyAction({ kind: 'delete-sheet', sheetId });
     if (applied) {
       setWorkbook(
@@ -300,7 +303,7 @@ export function usePendingSheetLifecycle({
       );
     }
     return true;
-  }, [applyAction, cancelPendingSheet, setWorkbook]);
+  }, [applyAction, cancelPendingSheet, releaseCreateName, setWorkbook]);
 
   const runForSavedSheet = useCallback(async <T,>(
     sheetId: string,

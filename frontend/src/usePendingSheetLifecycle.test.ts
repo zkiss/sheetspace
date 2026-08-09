@@ -90,6 +90,65 @@ describe('usePendingSheetLifecycle', () => {
     uuidSpy.mockRestore();
   });
 
+  it('keeps a replacement name reservation when the cancelled create later cleans up', async () => {
+    const firstUuid = '00000000-0000-4000-8000-000000000001';
+    const secondUuid = '00000000-0000-4000-8000-000000000002';
+    const uuidSpy = vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce(firstUuid)
+      .mockReturnValueOnce(secondUuid);
+    const replacementSave = deferred<ReturnType<typeof positionedSheet>>();
+    const savedSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const createSheet = vi.fn().mockReturnValue(replacementSave.promise);
+    const { result } = renderLifecycle({ apiClient: { createSheet } });
+
+    act(() => {
+      result.current.createPendingSheet('Inputs', { x: 0, y: 0 });
+      result.current.deletePendingSheet(`pending:${firstUuid}`);
+      expect(result.current.createPendingSheet('Inputs', { x: 300, y: 0 })).toEqual({
+        ok: true,
+        name: 'Inputs',
+      });
+    });
+    await waitFor(() => expect(createSheet).toHaveBeenCalledTimes(1));
+    act(() => {
+      expect(result.current.createPendingSheet('Inputs', { x: 600, y: 0 })).toEqual({
+        ok: false,
+        reason: 'duplicate',
+      });
+    });
+
+    replacementSave.resolve(savedSheet);
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    uuidSpy.mockRestore();
+  });
+
+  it('releases the original name immediately when deleting an in-flight create', async () => {
+    const firstCreate = deferred<ReturnType<typeof positionedSheet>>();
+    const replacementCreate = deferred<ReturnType<typeof positionedSheet>>();
+    const createSheet = vi.fn()
+      .mockReturnValueOnce(firstCreate.promise)
+      .mockReturnValueOnce(replacementCreate.promise);
+    const { result } = renderLifecycle({ apiClient: { createSheet } });
+
+    act(() => {
+      result.current.createPendingSheet('Inputs', { x: 0, y: 0 });
+    });
+    const pendingId = sheetsInOrder(result.current.workbook)[0].id;
+    await waitFor(() => expect(createSheet).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.deletePendingSheet(pendingId);
+      expect(result.current.createPendingSheet('Inputs', { x: 300, y: 0 })).toEqual({
+        ok: true,
+        name: 'Inputs',
+      });
+    });
+    await waitFor(() => expect(createSheet).toHaveBeenCalledTimes(2));
+
+    firstCreate.resolve(positionedSheet('sheet-obsolete', 'Inputs', { x: 0, y: 0 }));
+    replacementCreate.resolve(positionedSheet('sheet-inputs', 'Inputs', { x: 300, y: 0 }));
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  });
+
   it('reserves the original create name until the request settles', async () => {
     const createSave = deferred<ReturnType<typeof positionedSheet>>();
     const savedSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
