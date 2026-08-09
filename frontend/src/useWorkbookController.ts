@@ -4,21 +4,15 @@ import { FormulaCalculation } from './formulaCalculation';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import {
   cellIdentityAt,
-  cellIdentityKey,
   cellRawContent,
-  createSheet,
   createEmptyWorkbook,
   findSheetById,
   formulaSheetReferenceIds,
-  remapWorkbookFormulaSheetId,
   sheetsInOrder,
-  tabularCellsByA1,
   validateSheetName,
   type CellKey,
   type FormulaEvaluationSnapshot,
   type MutationResult,
-  type SheetDocument,
-  type TabularContent,
   type SheetFrameSize,
   type SheetZOrderDirection,
   type Workbook,
@@ -26,7 +20,7 @@ import {
   type ValidationResult,
 } from './workbook';
 import { applyUserAction, type AppliedUserAction, type UserAction } from './userActions';
-import { usePendingSheetPersistence } from './usePendingSheetPersistence';
+import { usePendingSheetLifecycle } from './usePendingSheetLifecycle';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 import {
   calculationRequest,
@@ -53,8 +47,8 @@ export type WorkbookController = {
   commands: WorkbookCommands;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
-  saveStatus: ReturnType<typeof usePendingSheetPersistence>['saveStatus'];
-  sheetIdRemaps: ReturnType<typeof usePendingSheetPersistence>['sheetIdRemaps'];
+  saveStatus: ReturnType<typeof usePendingSheetLifecycle>['saveStatus'];
+  sheetIdRemaps: ReturnType<typeof usePendingSheetLifecycle>['sheetIdRemaps'];
   startupLoad: ReturnType<typeof useStartupWorkbookLoad>['startupLoad'];
   workbook: Workbook;
 };
@@ -63,40 +57,6 @@ type WorkbookControllerState = {
   workbook: Workbook;
   calculationRequest: CalculationRequest;
 };
-
-function removeSheetDocument(workbook: Workbook, sheetId: string): Workbook {
-  if (!findSheetById(workbook, sheetId)) return workbook;
-  const documents = { ...workbook.documents };
-  delete documents[sheetId];
-  return {
-    ...workbook,
-    manifest: {
-      ...workbook.manifest,
-      sheetIds: workbook.manifest.sheetIds.filter((id) => id !== sheetId),
-    },
-    documents,
-  };
-}
-
-function rebasePendingContent(pending: SheetDocument, saved: SheetDocument): TabularContent {
-  const content: TabularContent = {
-    kind: 'tabular',
-    rows: [
-      ...saved.content.rows,
-      ...pending.content.rows.slice(saved.content.rows.length),
-    ],
-    columns: [
-      ...saved.content.columns,
-      ...pending.content.columns.slice(saved.content.columns.length),
-    ],
-    cells: {},
-  };
-  for (const [key, raw] of Object.entries(tabularCellsByA1(pending.content))) {
-    const identity = cellIdentityAt(content, key);
-    if (identity) content.cells[cellIdentityKey(identity)] = raw;
-  }
-  return content;
-}
 
 export function useWorkbookController({
   apiClient,
@@ -151,26 +111,26 @@ export function useWorkbookController({
   const committedCalculation = useRef<FormulaCalculation | undefined>(undefined);
   committedCalculation.current ??= calculator ?? new FormulaCalculation();
   const calculationObserverRef = useRef(calculationObserver);
-  const pendingSheets = useRef(new Map<string, string>());
-  const suppressedSheetIds = useRef(new Set<string>());
-  const unresolvedCreateNames = useRef(new Map<string, string>());
   const {
-    cancelPendingSheet,
+    createPendingSheet,
+    deletePendingSheet,
     dropSheetQueuedTasks,
-    enqueuePendingSheetCreate,
     enqueueRevisionedDelete,
     enqueueRevisionedEdit,
     enqueueRevisionedZOrder,
     getApiMethod,
     markSaved,
-    registerPendingSheet,
+    isPendingSheet,
     resolveSheetId,
     resolveFormulaRawForSave,
     saveStatus,
     sheetIdRemaps,
     waitForSheetIdle,
-  } = usePendingSheetPersistence({
+  } = usePendingSheetLifecycle({
+    applyAction,
     autosaveEnabled,
+    currentWorkbook: () => optimisticWorkbook.current,
+    persistDeletedSheet,
     resolvedApiClient,
     setWorkbook,
     workbook,
@@ -217,121 +177,8 @@ export function useWorkbookController({
     });
   }
 
-  // Pure actions own optimistic state transitions and calculation impact. The focused
-  // persistence calls below remain until sheetspace-z5q.11 through z5q.13 separate
-  // saved-sheet autosave from the pending-sheet lifecycle.
-
-  function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
-    const sourceWorkbook = optimisticWorkbook.current;
-    const result = validateSheetName(name, sheetsInOrder(sourceWorkbook));
-
-    if (!result.ok) {
-      return result;
-    }
-    if ([...pendingSheets.current.values()].includes(result.name)) {
-      return { ok: false, reason: 'duplicate' };
-    }
-
-    const pendingSheetId = `pending:${crypto.randomUUID()}`;
-    pendingSheets.current.set(pendingSheetId, result.name);
-    unresolvedCreateNames.current.set(pendingSheetId, result.name);
-    registerPendingSheet(pendingSheetId);
-    const optimisticSheet = createSheet({
-      id: pendingSheetId,
-      name: result.name,
-      existingSheets: sheetsInOrder(sourceWorkbook),
-      position,
-    });
-    if (!optimisticSheet.ok || !applyAction({
-      kind: 'create-sheet',
-      sheet: optimisticSheet.value,
-    })) {
-      pendingSheets.current.delete(pendingSheetId);
-      unresolvedCreateNames.current.delete(pendingSheetId);
-      cancelPendingSheet(pendingSheetId);
-      return {
-        ok: false,
-        reason: !optimisticSheet.ok && optimisticSheet.reason === 'empty' ? 'empty' : 'duplicate',
-      };
-    }
-    enqueuePendingSheetCreate(
-      pendingSheetId,
-      result.name,
-      () =>
-        getApiMethod('createSheet')({
-          name: result.name,
-          position,
-        }).finally(() => {
-          pendingSheets.current.delete(pendingSheetId);
-        }),
-      async (savedSheet, savedSheetId, deleted) => {
-        if (deleted) {
-          suppressedSheetIds.current.add(savedSheetId);
-          unresolvedCreateNames.current.delete(pendingSheetId);
-          await persistDeletedSheet(savedSheetId, savedSheet.revision);
-          return;
-        }
-
-        unresolvedCreateNames.current.delete(pendingSheetId);
-        setWorkbook((currentWorkbook) => {
-          const optimistic = findSheetById(currentWorkbook, pendingSheetId);
-          if (!optimistic) return currentWorkbook;
-          const rebasedContent = rebasePendingContent(optimistic, savedSheet);
-          const documents = { ...currentWorkbook.documents };
-          delete documents[pendingSheetId];
-          documents[savedSheetId] = {
-            ...savedSheet,
-            name: optimistic.name,
-            frame: optimistic.frame,
-            content: rebasedContent,
-          };
-          return remapWorkbookFormulaSheetId({
-            ...currentWorkbook,
-            manifest: {
-              ...currentWorkbook.manifest,
-              sheetIds: currentWorkbook.manifest.sheetIds.map((id) => id === pendingSheetId ? savedSheetId : id),
-            },
-            documents,
-          }, pendingSheetId, savedSheetId);
-        }, { kind: 'structure' });
-      },
-      () => {
-        unresolvedCreateNames.current.delete(pendingSheetId);
-        setWorkbook(
-          (currentWorkbook) => remapWorkbookFormulaSheetId(
-            removeSheetDocument(currentWorkbook, pendingSheetId),
-            pendingSheetId,
-            '#REF',
-          ),
-          { kind: 'structure' },
-        );
-      },
-    );
-
-    return result;
-  }
-
-  function deletePendingSheet(sheetId: string) {
-    if (!pendingSheets.current.has(sheetId)) {
-      return;
-    }
-
-    pendingSheets.current.delete(sheetId);
-    const createWasSent = cancelPendingSheet(sheetId);
-    if (!createWasSent) {
-      unresolvedCreateNames.current.delete(sheetId);
-    }
-    const applied = applyAction({ kind: 'delete-sheet', sheetId });
-    if (applied) {
-      setWorkbook(
-        (currentWorkbook) => remapWorkbookFormulaSheetId(currentWorkbook, sheetId, '#REF'),
-        { kind: 'structure' },
-      );
-    }
-  }
-
   function deleteSheetCommand(sheetId: string) {
-    if (pendingSheets.current.has(sheetId)) {
+    if (isPendingSheet(sheetId)) {
       deletePendingSheet(sheetId);
       return;
     }
@@ -496,7 +343,7 @@ export function useWorkbookController({
       appendColumn: appendSheetColumn,
       appendRow: appendSheetRow,
       changeSheetZOrder,
-      createSheet: createSheetCommand,
+      createSheet: createPendingSheet,
       deletePendingSheet,
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,

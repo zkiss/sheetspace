@@ -12,7 +12,6 @@ import {
 } from './workbookApi';
 
 export type SavedSheetSaveTarget =
-  | { kind: 'create'; name: string }
   | { kind: 'delete' }
   | { kind: 'rename' }
   | { kind: 'rows' }
@@ -45,7 +44,6 @@ type FailedTargets = Map<SavedSheetSaveTarget['kind'], Set<string | null>>;
 
 function targetDetail(target: SavedSheetSaveTarget): string | null {
   if (target.kind === 'cell-content') return target.cellKey;
-  if (target.kind === 'create') return target.name;
   return null;
 }
 
@@ -256,16 +254,6 @@ export function useSavedSheetAutosave({
     refreshSaveStatus();
   }, [autosaveEnabled, clearFailure, getQueue, refreshSaveStatus, startEditTask]);
 
-  const clearTargetFailures = useCallback((target: SavedSheetSaveTarget) => {
-    for (const [sheetId, sheetFailures] of failedTargets.current) {
-      const details = sheetFailures.get(target.kind);
-      details?.delete(targetDetail(target));
-      if (details?.size === 0) sheetFailures.delete(target.kind);
-      if (sheetFailures.size === 0) failedTargets.current.delete(sheetId);
-    }
-    refreshSaveStatus();
-  }, [refreshSaveStatus]);
-
   const dropSheetQueuedTasks = useCallback((sheetId: string) => {
     const sheetQueues = editQueues.current.get(sheetId);
     if (sheetQueues) {
@@ -293,42 +281,6 @@ export function useSavedSheetAutosave({
       waiters.push(resolve);
       sheetIdleWaiters.current.set(sheetId, waiters);
     });
-  }, []);
-
-  const remapSheetQueues = useCallback((fromSheetId: string, toSheetId: string) => {
-    if (fromSheetId === toSheetId) return;
-    const source = editQueues.current.get(fromSheetId);
-    if (source) {
-      const destination = editQueues.current.get(toSheetId) ?? new Map();
-      editQueues.current.set(toSheetId, destination);
-      for (const [kind, sourceTargets] of source) {
-        const destinationTargets = destination.get(kind) ?? new Map();
-        destination.set(kind, destinationTargets);
-        for (const [detail, queue] of sourceTargets) {
-          queue.sheetId = toSheetId;
-          destinationTargets.set(detail, queue);
-        }
-      }
-      editQueues.current.delete(fromSheetId);
-    }
-    const failures = failedTargets.current.get(fromSheetId);
-    if (failures) {
-      failedTargets.current.set(toSheetId, failures);
-      failedTargets.current.delete(fromSheetId);
-    }
-    const revision = knownSheetRevisions.current.get(fromSheetId);
-    if (revision !== undefined) {
-      knownSheetRevisions.current.set(toSheetId, revision);
-      knownSheetRevisions.current.delete(fromSheetId);
-    }
-    const waiters = sheetIdleWaiters.current.get(fromSheetId);
-    if (waiters) {
-      sheetIdleWaiters.current.set(toSheetId, [
-        ...(sheetIdleWaiters.current.get(toSheetId) ?? []),
-        ...waiters,
-      ]);
-      sheetIdleWaiters.current.delete(fromSheetId);
-    }
   }, []);
 
   const recordRevision = useCallback((sheetId: string, revision: number) => {
@@ -495,7 +447,6 @@ export function useSavedSheetAutosave({
 
   return {
     dropSheetQueuedTasks,
-    clearTargetFailures,
     enqueueEdit,
     enqueueRevisionedEdit,
     enqueueRevisionedZOrder,
@@ -503,7 +454,6 @@ export function useSavedSheetAutosave({
     markSaved,
     recordSheetDocumentRevision,
     recordSheetRevision,
-    remapSheetQueues,
     runRevisionedEdit,
     runRevisionedZOrder,
     saveStatus,
