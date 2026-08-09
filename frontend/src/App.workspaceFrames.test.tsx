@@ -195,8 +195,9 @@ describe('App workspace and sheet frame integration', () => {
     fireEvent(rightHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 440, clientY: 120 }));
     fireEvent(rightHandle, new MouseEvent('pointerup', { bubbles: true, clientX: 440, clientY: 120 }));
 
-    expect(apiClient.updateSheetFrameSize).toHaveBeenCalledWith(
+    expect(apiClient.updateSheetFrameLayout).toHaveBeenCalledWith(
       'sheet-inputs',
+      { x: 120, y: 80 },
       { width: 320, height: 160 },
       { revision: 6 },
     );

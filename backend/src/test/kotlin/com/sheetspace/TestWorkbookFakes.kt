@@ -41,6 +41,29 @@ class InMemoryWorkbookStore(
         updated
     }
 
+    override fun updateSheetZOrder(writes: List<SheetZOrderWrite>): List<SheetDocument> = synchronized(this) {
+        require(writes.isNotEmpty())
+        require(writes.map { it.expectedRevision.sheetId }.distinct().size == writes.size)
+        val current = workbook
+        val currentSheets = writes.associateWith { write ->
+            val expected = write.expectedRevision
+            val sheet = current.findSheet(SheetId(expected.sheetId))
+                ?: throw NoSuchElementException("Sheet not found: ${expected.sheetId}")
+            if (sheet.revision != expected.revision) {
+                throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
+            }
+            sheet
+        }
+        workbook = writes.fold(current) { updated, write ->
+            val sheet = currentSheets.getValue(write)
+            updated.replaceSheet(
+                sheet.updateFrame { frame -> frame.update(zIndex = write.zIndex) }
+                    .copy(revision = sheet.revision + 1),
+            )
+        }
+        writes.map { workbook.documents.getValue(SheetId(it.expectedRevision.sheetId)) }
+    }
+
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
         transform: (WorkbookState) -> WorkbookState,

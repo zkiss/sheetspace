@@ -157,7 +157,9 @@ class WorkbookMutationContractRoutesTest {
             }
             val invalidFrameSize = client.patch("/api/sheets/${sheet.id}") {
                 revisionHeader(workbookApplication, sheet.id)
-                jsonBody("""{"frameSize":{"width":0.0,"height":160.0}}""")
+                jsonBody(
+                    """{"position":{"x":999.0,"y":888.0},"frameSize":{"width":0.0,"height":160.0}}""",
+                )
             }
             val missingSheet = client.post("/api/sheets/missing/rows")
 
@@ -230,15 +232,15 @@ class WorkbookMutationContractRoutesTest {
                 header("If-Match", "0")
                 jsonBody("""{}""")
             }
-            val invalidZIndex = client.patch("/api/sheets/missing") {
+            val invalidUpdate = client.patch("/api/sheets/missing") {
                 header("If-Match", "0")
-                jsonBody("""{"zIndex":0}""")
+                jsonBody("""{"position":{"x":"bad","y":0}}""")
             }
 
             assertEquals(HttpStatusCode.NotFound, emptyUpdate.status)
             assertEquals(ErrorResponse("sheet-not-found"), emptyUpdate.decodeBody<ErrorResponse>())
-            assertEquals(HttpStatusCode.NotFound, invalidZIndex.status)
-            assertEquals(ErrorResponse("sheet-not-found"), invalidZIndex.decodeBody<ErrorResponse>())
+            assertEquals(HttpStatusCode.BadRequest, invalidUpdate.status)
+            assertEquals(ErrorResponse("invalid-request"), invalidUpdate.decodeBody<ErrorResponse>())
         }
 
     @Test

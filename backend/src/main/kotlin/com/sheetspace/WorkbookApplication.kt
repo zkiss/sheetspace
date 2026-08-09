@@ -11,7 +11,12 @@ data class UpdateSheetCommand(
     val name: String? = null,
     val position: WorkspacePosition? = null,
     val frameSize: SheetFrameSize? = null,
-    val zIndex: Int? = null,
+)
+
+data class SheetZOrderUpdate(
+    val sheetId: String,
+    val expectedRevision: Long,
+    val zIndex: Int,
 )
 
 enum class WorkbookApplicationError {
@@ -22,6 +27,8 @@ enum class WorkbookApplicationError {
     INVALID_SHEET_POSITION,
     INVALID_SHEET_FRAME_SIZE,
     INVALID_SHEET_Z_INDEX,
+    SHEET_Z_ORDER_UPDATE_REQUIRED,
+    DUPLICATE_SHEET_Z_ORDER_UPDATE,
     INVALID_CELL_ADDRESS,
 }
 
@@ -39,6 +46,8 @@ interface WorkbookApplication {
     fun createSheet(command: CreateSheetCommand): SheetDocument
 
     fun updateSheet(sheetId: String, expectedRevision: Long, command: UpdateSheetCommand): SheetDocument
+
+    fun updateSheetZOrder(updates: List<SheetZOrderUpdate>): List<SheetDocument>
 
     fun deleteSheet(sheetId: String, expectedRevision: Long)
 
@@ -91,12 +100,11 @@ class DefaultWorkbookApplication(
         if (
             command.name == null &&
             command.position == null &&
-            command.frameSize == null &&
-            command.zIndex == null
+            command.frameSize == null
         ) {
             reject(WorkbookApplicationError.SHEET_UPDATE_REQUIRED)
         }
-        validateOptionalFrameCommand(command.position, command.frameSize, command.zIndex)
+        validateOptionalFrameCommand(command.position, command.frameSize)
 
         return updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
             val renamed = if (command.name == null) {
@@ -118,11 +126,29 @@ class DefaultWorkbookApplication(
                     frame.update(
                         position = command.position,
                         size = command.frameSize,
-                        zIndex = command.zIndex,
                     )
                 },
             )
         }
+    }
+
+    override fun updateSheetZOrder(updates: List<SheetZOrderUpdate>): List<SheetDocument> {
+        if (updates.isEmpty()) reject(WorkbookApplicationError.SHEET_Z_ORDER_UPDATE_REQUIRED)
+        if (updates.map(SheetZOrderUpdate::sheetId).distinct().size != updates.size) {
+            reject(WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE)
+        }
+        updates.forEach { update ->
+            loadSheet(update.sheetId)
+            if (update.zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
+        }
+        return store.updateSheetZOrder(
+            updates.map { update ->
+                SheetZOrderWrite(
+                    expectedRevision = ExpectedSheetRevision(update.sheetId, update.expectedRevision),
+                    zIndex = update.zIndex,
+                )
+            },
+        )
     }
 
     override fun deleteSheet(sheetId: String, expectedRevision: Long) {
@@ -188,11 +214,9 @@ private fun validateFrameCommand(
 private fun validateOptionalFrameCommand(
     position: WorkspacePosition?,
     frameSize: SheetFrameSize?,
-    zIndex: Int?,
 ) {
     if (position?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
     if (frameSize?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
-    if (zIndex != null && zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
 }
 
 private val SheetNameError.applicationError: WorkbookApplicationError

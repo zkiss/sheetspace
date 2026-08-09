@@ -160,6 +160,7 @@ export function useWorkbookController({
     enqueuePendingSheetCreate,
     enqueueRevisionedDelete,
     enqueueRevisionedEdit,
+    enqueueRevisionedZOrder,
     getApiMethod,
     markSaved,
     registerPendingSheet,
@@ -453,7 +454,8 @@ export function useWorkbookController({
     if (!applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position })) return;
     enqueueRevisionedEdit({
       sheetId,
-      target: { kind: 'position' },
+      target: { kind: 'frame' },
+      coalesceKey: 'position',
       request: (savedSheetId, revision) =>
         getApiMethod('updateSheetPosition')(savedSheetId, position, { revision }),
     });
@@ -461,27 +463,16 @@ export function useWorkbookController({
 
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
     const localSheetId = resolveSheetId(sheetId);
-    const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     if (!applyAction({
       kind: 'resize-sheet-frame', sheetId: localSheetId, position, size: frameSize,
     })) return;
     enqueueRevisionedEdit({
       sheetId,
-      target: { kind: 'frame-size' },
+      target: { kind: 'frame' },
+      coalesceKey: 'layout',
       request: (savedSheetId, revision) =>
-        getApiMethod('updateSheetFrameSize')(savedSheetId, frameSize, { revision }),
+        getApiMethod('updateSheetFrameLayout')(savedSheetId, position, frameSize, { revision }),
     });
-    if (
-      currentSheet &&
-      (position.x !== currentSheet.frame.position.x || position.y !== currentSheet.frame.position.y)
-    ) {
-      enqueueRevisionedEdit({
-        sheetId,
-        target: { kind: 'position' },
-        request: (savedSheetId, revision) =>
-          getApiMethod('updateSheetPosition')(savedSheetId, position, { revision }),
-      });
-    }
   }
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
@@ -490,17 +481,14 @@ export function useWorkbookController({
       kind: 'change-sheet-z-order', sheetId: resolveSheetId(sheetId), direction,
     });
     if (!applied) return;
+    const updates = [];
     for (const nextSheet of sheetsInOrder(applied.nextWorkbook)) {
       const currentSheet = findSheetById(sourceWorkbook, nextSheet.id);
       if (currentSheet && currentSheet.frame.zIndex !== nextSheet.frame.zIndex) {
-        enqueueRevisionedEdit({
-          sheetId: nextSheet.id,
-          target: { kind: 'z-index' },
-          request: (savedSheetId, revision) =>
-            getApiMethod('updateSheetZIndex')(savedSheetId, nextSheet.frame.zIndex, { revision }),
-        });
+        updates.push({ sheetId: nextSheet.id, zIndex: nextSheet.frame.zIndex });
       }
     }
+    enqueueRevisionedZOrder(updates);
   }
 
   return {

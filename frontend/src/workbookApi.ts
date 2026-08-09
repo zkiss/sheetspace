@@ -60,6 +60,16 @@ export type ColumnAppendResponse = SheetRevisionResponse & {
   columnCount: number;
 };
 
+export type SheetZOrderUpdate = {
+  sheetId: string;
+  expectedRevision: number;
+  zIndex: number;
+};
+
+export type UpdateSheetZOrderResponse = {
+  sheets: SheetRevisionResponse[];
+};
+
 export type RevisionedMutationOptions = {
   revision?: number;
 };
@@ -178,23 +188,23 @@ export const workbookApi = {
     });
   },
 
-  updateSheetFrameSize(
+  updateSheetFrameLayout(
     sheetId: string,
+    position: WorkspacePosition,
     frameSize: SheetFrameSize,
     options: RevisionedMutationOptions = {},
   ): Promise<SheetRevisionResponse> {
     return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ frameSize }),
+      body: JSON.stringify({ position, frameSize }),
       headers: revisionHeaders(options),
     });
   },
 
-  updateSheetZIndex(sheetId: string, zIndex: number, options: RevisionedMutationOptions = {}): Promise<SheetRevisionResponse> {
-    return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}`, {
+  updateSheetZOrder(updates: SheetZOrderUpdate[]): Promise<UpdateSheetZOrderResponse> {
+    return requestJson<UpdateSheetZOrderResponse>('/api/workbook/sheet-z-order', {
       method: 'PATCH',
-      body: JSON.stringify({ zIndex }),
-      headers: revisionHeaders(options),
+      body: JSON.stringify({ updates }),
     });
   },
 
