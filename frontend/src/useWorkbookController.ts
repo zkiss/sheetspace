@@ -119,12 +119,15 @@ export function useWorkbookController({
     };
   });
   const { calculationRequest: pendingCalculation, workbook } = controllerState;
+  const optimisticWorkbook = useRef(workbook);
+  optimisticWorkbook.current = workbook;
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
   const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
     setControllerState((current) => {
       const nextWorkbook = typeof update === 'function'
         ? update(current.workbook)
         : update;
+      optimisticWorkbook.current = nextWorkbook;
       if (nextWorkbook === current.workbook) {
         return current;
       }
@@ -197,12 +200,10 @@ export function useWorkbookController({
   const formulaResults = calculated.results;
 
   function applyAction(action: UserAction): AppliedUserAction | undefined {
-    const result = applyUserAction(workbook, action);
+    const result = applyUserAction(optimisticWorkbook.current, action);
     if (!result.ok) return undefined;
-    setWorkbook((currentWorkbook) => {
-      const currentResult = applyUserAction(currentWorkbook, action);
-      return currentResult.ok ? currentResult.value.nextWorkbook : currentWorkbook;
-    }, result.value.calculationImpact);
+    optimisticWorkbook.current = result.value.nextWorkbook;
+    setWorkbook(result.value.nextWorkbook, result.value.calculationImpact);
     return result.value;
   }
 
@@ -225,7 +226,8 @@ export function useWorkbookController({
   // migrates saved-sheet calls; sheetspace-z5q.13 removes lifecycle/queue code.
 
   function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
-    const result = validateSheetName(name, sheetsInOrder(workbook));
+    const sourceWorkbook = optimisticWorkbook.current;
+    const result = validateSheetName(name, sheetsInOrder(sourceWorkbook));
 
     if (!result.ok) {
       return result;
@@ -241,7 +243,7 @@ export function useWorkbookController({
     const optimisticSheet = createSheet({
       id: pendingSheetId,
       name: result.name,
-      existingSheets: sheetsInOrder(workbook),
+      existingSheets: sheetsInOrder(sourceWorkbook),
       position,
     });
     if (!optimisticSheet.ok || !applyAction({
@@ -346,7 +348,7 @@ export function useWorkbookController({
     }
 
     const localSheetId = resolveSheetId(sheetId);
-    if (!findSheetById(workbook, localSheetId)) {
+    if (!findSheetById(optimisticWorkbook.current, localSheetId)) {
       return;
     }
 
@@ -362,8 +364,9 @@ export function useWorkbookController({
 
   function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> {
     const localSheetId = resolveSheetId(sheetId);
-    const validation = validateSheetName(name, sheetsInOrder(workbook), localSheetId);
-    if (!findSheetById(workbook, localSheetId)) return { ok: false, reason: 'unknown-sheet' };
+    const sourceWorkbook = optimisticWorkbook.current;
+    const validation = validateSheetName(name, sheetsInOrder(sourceWorkbook), localSheetId);
+    if (!findSheetById(sourceWorkbook, localSheetId)) return { ok: false, reason: 'unknown-sheet' };
     if (!validation.ok) return validation;
     const applied = applyAction({ kind: 'rename-sheet', clientActionId: clientActionId(), sheetId: localSheetId, name });
     if (!applied) return { ok: false, reason: 'unknown-sheet' };
@@ -411,20 +414,18 @@ export function useWorkbookController({
 
   function updateCellContent(sheetId: string, cellKey: CellKey, raw: string) {
     const localSheetId = resolveSheetId(sheetId);
-    const currentSheet = findSheetById(workbook, localSheetId);
+    const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     const cell = currentSheet && cellIdentityAt(currentSheet.content, cellKey);
     if (!currentSheet || !cell) return;
-    const currentRaw = cellRawContent(currentSheet, cellKey) ?? '';
     const applied = applyAction({
       kind: 'set-cell-content', clientActionId: clientActionId(), sheetId: localSheetId, cell, raw,
     });
-    if (!applied) return;
+    if (!applied?.changeSet) return;
     const nextWorkbook = applied.nextWorkbook;
     const nextSheet = findSheetById(nextWorkbook, localSheetId);
     const canonicalRaw = nextSheet ? cellRawContent(nextSheet, cellKey) ?? '' : '';
 
-    if (nextWorkbook !== workbook && currentRaw !== canonicalRaw) {
-      enqueueEdit(
+    enqueueEdit(
         `cell:${sheetId}:${cellKey}`,
         () => {
           const saveCellContent = (savedSheetId: string, resolvedRaw = canonicalRaw) =>
@@ -441,7 +442,6 @@ export function useWorkbookController({
         undefined,
         sheetId,
       );
-    }
   }
 
   function previewSheetFrameLayout(sheetId: string, position: WorkspacePosition, frameSize?: SheetFrameSize) {
@@ -478,7 +478,7 @@ export function useWorkbookController({
 
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
     const localSheetId = resolveSheetId(sheetId);
-    const currentSheet = findSheetById(workbook, localSheetId);
+    const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     if (!applyAction({
       kind: 'resize-sheet-frame', clientActionId: clientActionId(), sheetId: localSheetId, position, size: frameSize,
     })) return;
@@ -504,12 +504,13 @@ export function useWorkbookController({
   }
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
+    const sourceWorkbook = optimisticWorkbook.current;
     const applied = applyAction({
       kind: 'change-sheet-z-order', clientActionId: clientActionId(), sheetId: resolveSheetId(sheetId), direction,
     });
     if (!applied) return;
     for (const nextSheet of sheetsInOrder(applied.nextWorkbook)) {
-      const currentSheet = findSheetById(workbook, nextSheet.id);
+      const currentSheet = findSheetById(sourceWorkbook, nextSheet.id);
       if (currentSheet && currentSheet.frame.zIndex !== nextSheet.frame.zIndex) {
         enqueueEdit(`sheet:${nextSheet.id}:z-index`, () =>
           runForSavedSheet(nextSheet.id, (savedSheetId) =>
