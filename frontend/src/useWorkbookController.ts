@@ -3,19 +3,14 @@ import type { CalculationImpact } from './calculationProjection';
 import { FormulaCalculation } from './formulaCalculation';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import {
-  appendColumn,
-  appendRow,
   cellIdentityAt,
   cellIdentityKey,
   cellRawContent,
-  commitCellRawContent,
   createSheet,
   createEmptyWorkbook,
   findSheetById,
   formulaSheetReferenceIds,
-  moveSheetZOrder,
   remapWorkbookFormulaSheetId,
-  renameSheet,
   sheetsInOrder,
   tabularCellsByA1,
   validateSheetName,
@@ -30,6 +25,7 @@ import {
   type WorkspacePosition,
   type ValidationResult,
 } from './workbook';
+import { applyUserAction, type AppliedUserAction, type UserAction } from './userActions';
 import { useEditQueue } from './useEditQueue';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 import {
@@ -200,6 +196,20 @@ export function useWorkbookController({
   }, [calculated, pendingCalculation]);
   const formulaResults = calculated.results;
 
+  function applyAction(action: UserAction): AppliedUserAction | undefined {
+    const result = applyUserAction(workbook, action);
+    if (!result.ok) return undefined;
+    setWorkbook((currentWorkbook) => {
+      const currentResult = applyUserAction(currentWorkbook, action);
+      return currentResult.ok ? currentResult.value.nextWorkbook : currentWorkbook;
+    }, result.value.calculationImpact);
+    return result.value;
+  }
+
+  function clientActionId(): string {
+    return crypto.randomUUID();
+  }
+
   function persistDeletedSheet(savedSheetId: string, revision: number | undefined) {
     return getApiMethod('deleteSheet')(savedSheetId, { revision }).catch((cause: unknown) => {
       if (cause instanceof WorkbookApiError && cause.status === 404 && cause.code === 'sheet-not-found') {
@@ -209,6 +219,10 @@ export function useWorkbookController({
       throw cause;
     });
   }
+
+  // Temporary legacy persistence adapter: each typed change set is projected onto
+  // current per-operation HTTP calls and edit queues below. sheetspace-z5q.10
+  // removes the HTTP projection; sheetspace-z5q.11 removes this queue adapter.
 
   function createSheetCommand(name: string, position: WorkspacePosition): ValidationResult {
     const result = validateSheetName(name, sheetsInOrder(workbook));
@@ -224,25 +238,25 @@ export function useWorkbookController({
     pendingSheets.current.set(pendingSheetId, result.name);
     unresolvedCreateNames.current.set(pendingSheetId, result.name);
     registerPendingSheet(pendingSheetId);
-    setWorkbook((currentWorkbook) => {
-      const optimisticSheet = createSheet({
-        id: pendingSheetId,
-        name: result.name,
-        existingSheets: sheetsInOrder(currentWorkbook),
-        position,
-      });
-
-      return optimisticSheet.ok
-        ? {
-            ...currentWorkbook,
-            manifest: {
-              ...currentWorkbook.manifest,
-              sheetIds: [...currentWorkbook.manifest.sheetIds, pendingSheetId],
-            },
-            documents: { ...currentWorkbook.documents, [pendingSheetId]: optimisticSheet.value },
-          }
-        : currentWorkbook;
-    }, { kind: 'structure' });
+    const optimisticSheet = createSheet({
+      id: pendingSheetId,
+      name: result.name,
+      existingSheets: sheetsInOrder(workbook),
+      position,
+    });
+    if (!optimisticSheet.ok || !applyAction({
+      kind: 'create-sheet',
+      clientActionId: clientActionId(),
+      sheet: optimisticSheet.value,
+    })) {
+      pendingSheets.current.delete(pendingSheetId);
+      unresolvedCreateNames.current.delete(pendingSheetId);
+      cancelPendingSheet(pendingSheetId);
+      return {
+        ok: false,
+        reason: !optimisticSheet.ok && optimisticSheet.reason === 'empty' ? 'empty' : 'duplicate',
+      };
+    }
     enqueuePendingSheetCreate(
       pendingSheetId,
       `sheet-create:${result.name}`,
@@ -316,14 +330,13 @@ export function useWorkbookController({
     if (!createWasSent) {
       unresolvedCreateNames.current.delete(sheetId);
     }
-    setWorkbook(
-      (currentWorkbook) => remapWorkbookFormulaSheetId(
-        removeSheetDocument(currentWorkbook, sheetId),
-        sheetId,
-        '#REF',
-      ),
-      { kind: 'structure' },
-    );
+    const applied = applyAction({ kind: 'delete-sheet', clientActionId: clientActionId(), sheetId });
+    if (applied) {
+      setWorkbook(
+        (currentWorkbook) => remapWorkbookFormulaSheetId(currentWorkbook, sheetId, '#REF'),
+        { kind: 'structure' },
+      );
+    }
   }
 
   function deleteSheetCommand(sheetId: string) {
@@ -338,7 +351,8 @@ export function useWorkbookController({
     }
 
     dropSheetQueuedTasks(localSheetId);
-    setWorkbook((currentWorkbook) => removeSheetDocument(currentWorkbook, localSheetId), { kind: 'structure' });
+    const applied = applyAction({ kind: 'delete-sheet', clientActionId: clientActionId(), sheetId: localSheetId });
+    if (!applied) return;
     enqueueEdit(`sheet-delete:${localSheetId}`, async () => {
       await waitForSheetIdle(localSheetId);
       dropSheetQueuedTasks(localSheetId);
@@ -348,13 +362,12 @@ export function useWorkbookController({
 
   function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> {
     const localSheetId = resolveSheetId(sheetId);
-    const result = renameSheet(workbook, localSheetId, name);
-    if (!result.ok) {
-      return result;
-    }
-
-    const renamedSheet = findSheetById(result.value, localSheetId);
-    setWorkbook(result.value, { kind: 'none' });
+    const validation = validateSheetName(name, sheetsInOrder(workbook), localSheetId);
+    if (!findSheetById(workbook, localSheetId)) return { ok: false, reason: 'unknown-sheet' };
+    if (!validation.ok) return validation;
+    const applied = applyAction({ kind: 'rename-sheet', clientActionId: clientActionId(), sheetId: localSheetId, name });
+    if (!applied) return { ok: false, reason: 'unknown-sheet' };
+    const renamedSheet = findSheetById(applied.nextWorkbook, localSheetId);
     if (renamedSheet) {
       enqueueEdit(`sheet:${sheetId}:name`, () =>
         runForSavedSheet(sheetId, (savedSheetId) =>
@@ -365,29 +378,16 @@ export function useWorkbookController({
       undefined, sheetId);
     }
 
-    return result;
+    return { ok: true, value: applied.nextWorkbook };
   }
 
   function appendSheetRow(sheetId: string) {
     const localSheetId = resolveSheetId(sheetId);
-    let changed = false;
-    const nextWorkbook = {
-      ...workbook,
-      documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => {
-        if (sheet.id !== localSheetId) {
-          return [id, sheet];
-        }
-
-        changed = true;
-        return [id, appendRow(sheet)];
-      })),
-    };
-
-    if (!changed) {
-      return;
-    }
-
-    setWorkbook(nextWorkbook, { kind: 'structure' });
+    const applied = applyAction({
+      kind: 'append-row', clientActionId: clientActionId(), sheetId: localSheetId,
+      rowId: `pending-row:${crypto.randomUUID()}`,
+    });
+    if (!applied) return;
     enqueueEdit(`sheet:${sheetId}:rows`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
         runRevisionedEdit(savedSheetId, (revision) => getApiMethod('appendRow')(savedSheetId, { revision })),
@@ -397,24 +397,11 @@ export function useWorkbookController({
 
   function appendSheetColumn(sheetId: string) {
     const localSheetId = resolveSheetId(sheetId);
-    let changed = false;
-    const nextWorkbook = {
-      ...workbook,
-      documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => {
-        if (sheet.id !== localSheetId) {
-          return [id, sheet];
-        }
-
-        changed = true;
-        return [id, appendColumn(sheet)];
-      })),
-    };
-
-    if (!changed) {
-      return;
-    }
-
-    setWorkbook(nextWorkbook, { kind: 'structure' });
+    const applied = applyAction({
+      kind: 'append-column', clientActionId: clientActionId(), sheetId: localSheetId,
+      columnId: `pending-column:${crypto.randomUUID()}`,
+    });
+    if (!applied) return;
     enqueueEdit(`sheet:${sheetId}:columns`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
         runRevisionedEdit(savedSheetId, (revision) => getApiMethod('appendColumn')(savedSheetId, { revision })),
@@ -425,17 +412,17 @@ export function useWorkbookController({
   function updateCellContent(sheetId: string, cellKey: CellKey, raw: string) {
     const localSheetId = resolveSheetId(sheetId);
     const currentSheet = findSheetById(workbook, localSheetId);
-    const currentRaw = currentSheet ? cellRawContent(currentSheet, cellKey) ?? '' : '';
-    const nextWorkbook = commitCellRawContent(workbook, localSheetId, cellKey, raw);
+    const cell = currentSheet && cellIdentityAt(currentSheet.content, cellKey);
+    if (!currentSheet || !cell) return;
+    const currentRaw = cellRawContent(currentSheet, cellKey) ?? '';
+    const applied = applyAction({
+      kind: 'set-cell-content', clientActionId: clientActionId(), sheetId: localSheetId, cell, raw,
+    });
+    if (!applied) return;
+    const nextWorkbook = applied.nextWorkbook;
     const nextSheet = findSheetById(nextWorkbook, localSheetId);
     const canonicalRaw = nextSheet ? cellRawContent(nextSheet, cellKey) ?? '' : '';
 
-    if (nextWorkbook !== workbook) {
-      setWorkbook(nextWorkbook, {
-        kind: 'cells',
-        cells: [{ sheetId: localSheetId, key: cellKey }],
-      });
-    }
     if (nextWorkbook !== workbook && currentRaw !== canonicalRaw) {
       enqueueEdit(
         `cell:${sheetId}:${cellKey}`,
@@ -478,7 +465,8 @@ export function useWorkbookController({
   }
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
-    previewSheetFrameLayout(sheetId, position);
+    const localSheetId = resolveSheetId(sheetId);
+    if (!applyAction({ kind: 'move-sheet-frame', clientActionId: clientActionId(), sheetId: localSheetId, position })) return;
     enqueueEdit(`sheet:${sheetId}:position`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
         runRevisionedEdit(savedSheetId, (revision) =>
@@ -491,7 +479,9 @@ export function useWorkbookController({
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
     const localSheetId = resolveSheetId(sheetId);
     const currentSheet = findSheetById(workbook, localSheetId);
-    previewSheetFrameLayout(sheetId, position, frameSize);
+    if (!applyAction({
+      kind: 'resize-sheet-frame', clientActionId: clientActionId(), sheetId: localSheetId, position, size: frameSize,
+    })) return;
     enqueueEdit(`sheet:${sheetId}:frame-size`, () =>
       runForSavedSheet(sheetId, (savedSheetId) =>
         runRevisionedEdit(savedSheetId, (revision) =>
@@ -514,13 +504,11 @@ export function useWorkbookController({
   }
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
-    const result = moveSheetZOrder(workbook, resolveSheetId(sheetId), direction);
-    if (!result.ok) {
-      return;
-    }
-
-    setWorkbook(result.value, { kind: 'none' });
-    for (const nextSheet of sheetsInOrder(result.value)) {
+    const applied = applyAction({
+      kind: 'change-sheet-z-order', clientActionId: clientActionId(), sheetId: resolveSheetId(sheetId), direction,
+    });
+    if (!applied) return;
+    for (const nextSheet of sheetsInOrder(applied.nextWorkbook)) {
       const currentSheet = findSheetById(workbook, nextSheet.id);
       if (currentSheet && currentSheet.frame.zIndex !== nextSheet.frame.zIndex) {
         enqueueEdit(`sheet:${nextSheet.id}:z-index`, () =>
