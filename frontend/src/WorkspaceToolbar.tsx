@@ -1,4 +1,3 @@
-import { MouseEvent } from 'react';
 import type { SaveStatus, WorkspaceViewport } from './appTypes';
 import { WORKSPACE_PAN_STEP, WORKSPACE_ZOOM_STEP } from './workspaceGeometry';
 
@@ -23,7 +22,7 @@ export function WorkspaceToolbar({
   sheetCount,
   viewport,
 }: {
-  onCreateSheet: (event: MouseEvent<HTMLButtonElement>) => void;
+  onCreateSheet: () => void;
   onPanWorkspace: (deltaX: number, deltaY: number) => void;
   onResetViewport: () => void;
   onZoomWorkspace: (scale: number) => void;

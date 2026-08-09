@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import {
   cellKey,
   columnIndexToLabel,
@@ -9,30 +9,30 @@ import {
   type FormulaEvaluationSnapshot,
   type SheetTabularProjection,
 } from './workbook';
-import { GRID_CELL_HEIGHT, GRID_CELL_WIDTH } from './gridGeometry';
+import {
+  GRID_COLUMN_HEADER_HEIGHT,
+  GRID_ROW_HEADER_WIDTH,
+  sheetContentOffsetForCell,
+} from './gridGeometry';
 import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
 import { cellKeyForTarget } from './cellInteraction';
 import { SheetGridCell } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
 import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
 
-function ensureCellVisibleOutsideStickyHeaders(cell: HTMLTableCellElement) {
-  const scrollContainer = cell.closest<HTMLElement>('.sheet-frame-body');
-
+function ensureCellVisibleOutsideStickyHeaders(
+  cell: HTMLTableCellElement,
+  scrollContainer: HTMLElement,
+  columnHeader: HTMLTableCellElement | null,
+  rowHeader: HTMLTableCellElement | null,
+) {
   cell.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-
-  if (!scrollContainer) {
-    return;
-  }
-
-  const columnHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-column-header');
-  const rowHeader = scrollContainer.querySelector<HTMLElement>('.sheet-grid-row-header');
   const cellRect = cell.getBoundingClientRect();
   const scrollContainerRect = scrollContainer.getBoundingClientRect();
-  const columnHeaderHeight = columnHeader?.getBoundingClientRect().height ?? 0;
-  const rowHeaderWidth = rowHeader?.getBoundingClientRect().width ?? 0;
-  const visibleTop = scrollContainerRect.top + columnHeaderHeight;
-  const visibleLeft = scrollContainerRect.left + rowHeaderWidth;
+  const visibleTop = scrollContainerRect.top
+    + (columnHeader?.getBoundingClientRect().height ?? GRID_COLUMN_HEADER_HEIGHT);
+  const visibleLeft = scrollContainerRect.left
+    + (rowHeader?.getBoundingClientRect().width ?? GRID_ROW_HEADER_WIDTH);
 
   if (cellRect.top < visibleTop) {
     scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop - (visibleTop - cellRect.top));
@@ -58,6 +58,7 @@ export function SheetGrid({
   onSelectCell,
   onStartEdit,
   formulaResults,
+  scrollContainerRef,
   sheet,
   selectedRange,
 }: {
@@ -75,10 +76,13 @@ export function SheetGrid({
   onSelectCell: (target: CellTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
+  scrollContainerRef: RefObject<HTMLElement>;
   sheet: SheetTabularProjection;
   selectedRange?: CellRange;
 }) {
   const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
+  const columnHeaderRef = useRef<HTMLTableCellElement>(null);
+  const rowHeaderRef = useRef<HTMLTableCellElement>(null);
   const columns: ColumnHeader[] = sheet.columns.map((_, columnIndex) => ({
     index: columnIndex,
     label: columnIndexToLabel(columnIndex),
@@ -100,10 +104,15 @@ export function SheetGrid({
 
     const cell = cellRefs.current.get(activeCellKey);
     cell?.focus();
-    if (cell) {
-      ensureCellVisibleOutsideStickyHeaders(cell);
+    if (cell && scrollContainerRef.current) {
+      ensureCellVisibleOutsideStickyHeaders(
+        cell,
+        scrollContainerRef.current,
+        columnHeaderRef.current,
+        rowHeaderRef.current,
+      );
     }
-  }, [activeCellKey, editingCell, keyboardFocusCellKey]);
+  }, [activeCellKey, editingCell, keyboardFocusCellKey, scrollContainerRef]);
 
   useEffect(() => {
     if (!navigationHighlightRange && !navigationHighlightCellKey) {
@@ -122,22 +131,27 @@ export function SheetGrid({
     }
 
     const start = cellRefs.current.get(cellKey(range.start));
-    const scrollContainer = start?.closest<HTMLElement>('.sheet-frame-body');
+    const scrollContainer = scrollContainerRef.current;
     if (!start || !scrollContainer) {
       return;
     }
 
-    scrollContainer.scrollLeft = Math.round(range.start.columnIndex * GRID_CELL_WIDTH);
-    scrollContainer.scrollTop = Math.round(range.start.rowIndex * GRID_CELL_HEIGHT);
-  }, [navigationHighlightCellKey, navigationHighlightRange, sheet]);
+    const contentOffset = sheetContentOffsetForCell(range.start);
+    scrollContainer.scrollLeft = contentOffset.x;
+    scrollContainer.scrollTop = contentOffset.y;
+  }, [navigationHighlightCellKey, navigationHighlightRange, scrollContainerRef, sheet]);
 
   return (
     <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
-      <SheetGridHeaders columns={columns} />
+      <SheetGridHeaders columnHeaderRef={columnHeaderRef} columns={columns} />
       <tbody>
         {rows.map((rowIndex) => (
           <tr key={rowIndex}>
-            <th className="sheet-grid-row-header" scope="row">
+            <th
+              className="sheet-grid-row-header"
+              ref={rowIndex === 0 ? rowHeaderRef : undefined}
+              scope="row"
+            >
               {rowIndex + 1}
             </th>
             {columns.map((column) => {

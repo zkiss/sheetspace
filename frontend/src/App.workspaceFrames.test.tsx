@@ -119,6 +119,33 @@ describe('App workspace and sheet frame integration', () => {
     expect(frame).toHaveAttribute('data-position-y', '114');
   });
 
+  it('keeps drag preview transient and discards it on pointer cancel', () => {
+    const apiClient = autosaveClient();
+    render(
+      <App
+        apiClient={apiClient}
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const header = within(frame).getByTestId('sheet-frame-header');
+    fireEvent(header, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
+    fireEvent(header, new MouseEvent('pointermove', { bubbles: true, clientX: 148, clientY: 154 }));
+
+    expect(frame).toHaveStyle({ left: '168px', top: '114px' });
+    expect(apiClient.updateSheetPosition).not.toHaveBeenCalled();
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '0');
+    expect(workspaceSurface()).toHaveAttribute('data-viewport-y', '0');
+
+    fireEvent(header, new MouseEvent('pointercancel', { bubbles: true, clientX: 148, clientY: 154 }));
+
+    expect(frame).toHaveStyle({ left: '120px', top: '80px' });
+    expect(apiClient.updateSheetPosition).not.toHaveBeenCalled();
+  });
+
   it('keeps other sheet positions unchanged when one frame header is dragged', () => {
     const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
     const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 });
@@ -175,6 +202,54 @@ describe('App workspace and sheet frame integration', () => {
     expect(frame).toHaveStyle({ left: '120px', top: '80px', width: '320px', height: '160px' });
     expect(frame).toHaveAttribute('data-frame-width', '320');
     expect(frame).toHaveAttribute('data-frame-height', '160');
+  });
+
+  it('keeps resize preview transient and discards it on pointer cancel', () => {
+    const apiClient = autosaveClient();
+    render(
+      <App
+        apiClient={apiClient}
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByTestId('sheet-frame');
+    const rightHandle = resizeHandle(frame, 'right');
+    fireEvent(rightHandle, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 360, clientY: 120 }));
+    fireEvent(rightHandle, new MouseEvent('pointermove', { bubbles: true, clientX: 440, clientY: 120 }));
+
+    expect(frame).toHaveStyle({ width: '320px', height: '160px' });
+    expect(apiClient.updateSheetFrameLayout).not.toHaveBeenCalled();
+
+    fireEvent(rightHandle, new MouseEvent('pointercancel', { bubbles: true, clientX: 440, clientY: 120 }));
+
+    expect(frame).toHaveStyle({ width: '240px', height: '160px' });
+    expect(apiClient.updateSheetFrameLayout).not.toHaveBeenCalled();
+  });
+
+  it('closes an open sheet menu when resize interaction takes ownership', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    openSheetContextMenu(frame);
+    const rightHandle = resizeHandle(frame, 'right');
+    fireEvent(rightHandle, new MouseEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientX: 360,
+      clientY: 120,
+    }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(workspaceSurface()).not.toHaveClass('workspace-surface-panning');
   });
 
   it('autosaves committed frame resize from a resize handle', async () => {

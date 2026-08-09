@@ -671,7 +671,7 @@ describe('useWorkbookController', () => {
     expect(sheetsInOrder(result.current.workbook)).toEqual([savedSheet]);
   });
 
-  it('keeps frame changes outside calculation and persists only committed frame commands', () => {
+  it('keeps committed frame changes outside calculation', () => {
     const apiClient = autosaveClient();
     const sheet = sheetDocument({
       id: 'sheet-inputs',
@@ -689,16 +689,6 @@ describe('useWorkbookController', () => {
     );
     const initialResults = result.current.formulaResults;
     const initialContent = findSheetById(result.current.workbook, 'sheet-inputs')!.content;
-    expect(calculate).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      result.current.commands.previewSheetFrameLayout('sheet-inputs', { x: 30, y: 40 });
-    });
-
-    expect(findSheetById(result.current.workbook, 'sheet-inputs')?.frame.position).toEqual({ x: 30, y: 40 });
-    expect(apiClient.updateSheetPosition).not.toHaveBeenCalled();
-    expect(findSheetById(result.current.workbook, 'sheet-inputs')!.content).toBe(initialContent);
-    expect(result.current.formulaResults).toBe(initialResults);
     expect(calculate).toHaveBeenCalledTimes(1);
 
     act(() => {

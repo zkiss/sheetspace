@@ -2,12 +2,15 @@ import { MouseEvent, PointerEvent, useRef, useState, WheelEvent } from 'react';
 import type { PendingSheetMenu, WorkspaceViewport } from './appTypes';
 import type { WorkspacePosition } from './workbook';
 import {
-  clampWorkspaceZoom,
-  getViewportCenter,
-  getWorkspacePoint,
+  surfacePointFromClient,
+  surfaceDeltaFromClient,
+  surfaceSize,
   viewportForTarget,
+  workspacePointAtViewportCenter,
+  workspacePointFromClient,
   type WorkspaceTargetRect,
   WORKSPACE_ZOOM_STEP,
+  zoomViewportAt,
 } from './workspaceGeometry';
 
 export function useWorkspaceController({
@@ -18,6 +21,7 @@ export function useWorkspaceController({
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
   const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
+  const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
 
   function closeSheetMenu() {
@@ -43,20 +47,7 @@ export function useWorkspaceController({
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
-    setViewport((currentViewport) => {
-      const scale = clampWorkspaceZoom(nextScale);
-      const zoomOrigin = origin ?? { x: 0, y: 0 };
-      const workspaceOrigin = {
-        x: (zoomOrigin.x - currentViewport.x) / currentViewport.scale,
-        y: (zoomOrigin.y - currentViewport.y) / currentViewport.scale,
-      };
-
-      return {
-        x: Math.round(zoomOrigin.x - workspaceOrigin.x * scale),
-        y: Math.round(zoomOrigin.y - workspaceOrigin.y * scale),
-        scale,
-      };
-    });
+    setViewport((currentViewport) => zoomViewportAt(currentViewport, nextScale, origin));
   }
 
   function resetViewport() {
@@ -64,13 +55,12 @@ export function useWorkspaceController({
   }
 
   function navigateToTarget(
-    workspace: HTMLElement,
     target: WorkspaceTargetRect,
     forceOversized = false,
   ) {
-    const rect = workspace.getBoundingClientRect();
-    const surfaceWidth = workspace.clientWidth || rect.width;
-    const surfaceHeight = workspace.clientHeight || rect.height;
+    const workspace = workspaceSurfaceRef.current;
+    if (!workspace) return;
+    const { height: surfaceHeight, width: surfaceWidth } = surfaceSize(workspace);
     setViewport((currentViewport) =>
       viewportForTarget({
         currentViewport,
@@ -82,28 +72,27 @@ export function useWorkspaceController({
     );
   }
 
-  function createSheetAtViewportCenter(workspace: HTMLElement) {
+  function createSheetAtViewportCenter() {
+    const workspace = workspaceSurfaceRef.current;
+    if (!workspace) return;
     closeSheetMenu();
-    onCreateSheet(getViewportCenter(workspace, viewport), 'Create sheet at viewport center');
+    onCreateSheet(workspacePointAtViewportCenter(workspace, viewport), 'Create sheet at viewport center');
   }
 
   function handleWorkspaceContextMenu(event: MouseEvent<HTMLElement>) {
     event.preventDefault();
     closeSheetMenu();
-    onCreateSheet(getWorkspacePoint(event, event.currentTarget, viewport), 'Create sheet here');
+    onCreateSheet(workspacePointFromClient(
+      { x: event.clientX, y: event.clientY },
+      event.currentTarget,
+      viewport,
+    ), 'Create sheet here');
   }
 
   function handleWorkspacePointerDown(event: PointerEvent<HTMLElement>) {
-    if ((event.target as HTMLElement).closest('.sheet-context-menu')) {
-      return;
-    }
-
     closeSheetMenu();
 
-    if (
-      (event.button !== 0 && event.button !== undefined) ||
-      (event.target as HTMLElement).closest('[data-testid="sheet-frame"]')
-    ) {
+    if (event.button !== 0 && event.button !== undefined) {
       return;
     }
 
@@ -121,14 +110,16 @@ export function useWorkspaceController({
       return;
     }
 
-    const deltaX = event.clientX - panDrag.current.clientX;
-    const deltaY = event.clientY - panDrag.current.clientY;
+    const delta = surfaceDeltaFromClient(
+      { x: panDrag.current.clientX, y: panDrag.current.clientY },
+      { x: event.clientX, y: event.clientY },
+    );
     panDrag.current = {
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
     };
-    panWorkspace(deltaX, deltaY);
+    panWorkspace(delta.x, delta.y);
   }
 
   function stopWorkspacePan(event: PointerEvent<HTMLElement>) {
@@ -142,16 +133,11 @@ export function useWorkspaceController({
   }
 
   function handleWorkspaceWheel(event: WheelEvent<HTMLElement>) {
-    if ((event.target as HTMLElement).closest('[data-testid="sheet-frame"]')) {
-      return;
-    }
-
     event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const origin = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
+    const origin = surfacePointFromClient(
+      { x: event.clientX, y: event.clientY },
+      event.currentTarget,
+    );
     const delta = event.deltaY < 0 ? WORKSPACE_ZOOM_STEP : -WORKSPACE_ZOOM_STEP;
     zoomWorkspace(viewport.scale + delta, origin);
   }
@@ -171,6 +157,7 @@ export function useWorkspaceController({
     resetViewport,
     stopWorkspacePan,
     viewport,
+    workspaceSurfaceRef,
     zoomWorkspace,
   };
 }

@@ -19,11 +19,13 @@ import type {
 import { cellKeyForTarget } from './cellInteraction';
 import { SheetContextMenu } from './SheetContextMenu';
 import { SheetFrame } from './SheetFrame';
+import type { SheetFrameLayoutPreview } from './useSheetFrameInteractions';
 
 export function WorkspaceSurface({
   activeCell,
   editingCell,
   formulaResults,
+  frameLayoutPreview,
   isPanningWorkspace,
   keyboardFocusTarget,
   navigationHighlight,
@@ -52,6 +54,7 @@ export function WorkspaceSurface({
   onResizeStop,
   onSelectCell,
   onSheetFrameDragCancel,
+  onSheetFrameInteraction,
   onSheetFrameDragMove,
   onSheetFrameDragStart,
   onSheetFrameDragStop,
@@ -66,6 +69,7 @@ export function WorkspaceSurface({
   activeCell: CellTarget | null;
   editingCell: CellEditSession | null;
   formulaResults: FormulaEvaluationSnapshot;
+  frameLayoutPreview: SheetFrameLayoutPreview | null;
   isPanningWorkspace: boolean;
   keyboardFocusTarget: CellTarget | null;
   navigationHighlight: ReferenceNavigationTarget | null;
@@ -94,6 +98,7 @@ export function WorkspaceSurface({
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
   onSelectCell: (target: CellTarget) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
+  onSheetFrameInteraction: () => void;
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
@@ -141,6 +146,14 @@ export function WorkspaceSurface({
         }}
       >
         {sheets.map((sheet) => {
+          const projectedFrame = frameProjection(sheet);
+          const frame = frameLayoutPreview?.sheetId === sheet.id
+            ? {
+                ...projectedFrame,
+                position: frameLayoutPreview.position,
+                size: frameLayoutPreview.size,
+              }
+            : projectedFrame;
           const activeCellKey = cellKeyForTarget(sheet, activeCell);
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const keyboardFocusCellKey = cellKeyForTarget(sheet, keyboardFocusTarget);
@@ -159,7 +172,7 @@ export function WorkspaceSurface({
             <SheetFrame
               activeCellKey={activeCellKey}
               editingCell={sheetEditingCell}
-              frame={frameProjection(sheet)}
+              frame={frame}
               formulaResults={formulaResults}
               isActiveSheet={activeCell?.sheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
@@ -182,6 +195,7 @@ export function WorkspaceSurface({
               onResizeStop={onResizeStop}
               onSelectCell={onSelectCell}
               onSheetFrameDragCancel={onSheetFrameDragCancel}
+              onSheetFrameInteraction={onSheetFrameInteraction}
               onSheetFrameDragMove={onSheetFrameDragMove}
               onSheetFrameDragStart={onSheetFrameDragStart}
               onSheetFrameDragStop={onSheetFrameDragStop}

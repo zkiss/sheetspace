@@ -32,7 +32,8 @@ describe('useWorkspaceController', () => {
 
     act(() => result.current.panWorkspace(100, 50));
     act(() => {
-      result.current.createSheetAtViewportCenter(workspaceElement(1000, 800));
+      result.current.workspaceSurfaceRef.current = workspaceElement(1000, 800);
+      result.current.createSheetAtViewportCenter();
     });
 
     expect(onCreateSheet).toHaveBeenCalledWith({ x: 400, y: 350 }, 'Create sheet at viewport center');
