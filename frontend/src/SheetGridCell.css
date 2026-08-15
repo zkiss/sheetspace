@@ -1,4 +1,9 @@
 .sheet-grid-cell {
+  width: var(--grid-cell-width);
+  min-width: var(--grid-cell-width);
+  height: var(--grid-cell-height);
+  border: 1px solid #d9e1e6;
+  padding: 0 0.35rem;
   overflow: hidden;
   background: #ffffff;
   line-height: var(--grid-cell-height);
@@ -53,7 +58,7 @@
   }
 }
 
-.sheet-grid-cell-editing {
+.sheet-grid-cell.sheet-grid-cell-editing {
   position: relative;
   z-index: 50;
   overflow: visible;

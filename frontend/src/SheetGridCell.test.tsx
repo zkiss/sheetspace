@@ -83,6 +83,7 @@ describe('SheetGridCell', () => {
     };
     const props = renderCell({ editingCell, isEditing: true });
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
+    expect(editor.style.height).toContain('1.65rem');
 
     fireEvent.change(editor, { target: { value: 'Updated' } });
     expect(props.editorInteraction.updateValue).toHaveBeenCalledWith('Updated');
@@ -110,6 +111,7 @@ describe('SheetGridCell', () => {
     renderCell({ editingCell, isEditing: true });
 
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     expect(editor).toHaveAttribute('data-multiline-editor', 'true');
     expect(editor).toHaveAttribute('data-max-width', CELL_EDITOR_MAX_WIDTH);
     expect(editor).toHaveAttribute('data-max-height', CELL_EDITOR_MAX_HEIGHT);
@@ -119,5 +121,6 @@ describe('SheetGridCell', () => {
       maxWidth: CELL_EDITOR_MAX_WIDTH,
       overflow: 'auto',
     });
+    expect(cell).toHaveClass('sheet-grid-cell', 'sheet-grid-cell-editing');
   });
 });

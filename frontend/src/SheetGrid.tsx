@@ -25,6 +25,7 @@ import {
 } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
 import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
+import { cssRemFromPixels } from './styleTokens';
 import './SheetGrid.css';
 
 function ensureCellVisibleOutsideStickyHeaders(
@@ -142,9 +143,9 @@ export function SheetGrid({
       className="sheet-grid"
       data-testid="sheet-grid"
       style={{
-        '--grid-cell-height': `${GRID_CELL_HEIGHT}px`,
-        '--grid-cell-width': `${GRID_CELL_WIDTH}px`,
-        '--grid-row-header-width': `${GRID_ROW_HEADER_WIDTH}px`,
+        '--grid-cell-height': cssRemFromPixels(GRID_CELL_HEIGHT),
+        '--grid-cell-width': cssRemFromPixels(GRID_CELL_WIDTH),
+        '--grid-row-header-width': cssRemFromPixels(GRID_ROW_HEADER_WIDTH),
       } as CSSProperties}
     >
       <SheetGridHeaders columnHeaderRef={columnHeaderRef} columns={columns} />
