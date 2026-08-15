@@ -1,7 +1,9 @@
 import { useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import type { SheetFrameProjection } from './workbook';
 import type { SheetFrameResizeDirection } from './appTypes';
+import { FLOATING_OVERLAY_Z_INDEX } from './styleTokens';
 import { clampSheetFrameSize } from './workspaceGeometry';
+import './SheetFrame.css';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
   ['top', { horizontal: 0, vertical: -1 }],
@@ -78,7 +80,7 @@ export function SheetFrame({
       style={{
         left: frame.position.x,
         top: frame.position.y,
-        zIndex: frame.zIndex,
+        zIndex: isNavigationReveal ? FLOATING_OVERLAY_Z_INDEX : frame.zIndex,
         width: frameSize.width,
         height: frameSize.height,
       }}

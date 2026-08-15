@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react';
 import type { PendingSheetCreation, PendingSheetRename } from './appTypes';
+import './SheetDialogs.css';
 
 export function SheetDialog({
   error,

@@ -1,5 +1,6 @@
 import type { SaveStatus, WorkspaceViewport } from './appTypes';
 import { WORKSPACE_PAN_STEP, WORKSPACE_ZOOM_STEP } from './workspaceGeometry';
+import './WorkspaceToolbar.css';
 
 function saveStatusText(status: SaveStatus) {
   if (status === 'saving') {

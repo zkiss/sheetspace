@@ -1,3 +1,5 @@
+import './StartupScreen.css';
+
 export function StartupLoadingScreen() {
   return (
     <main className="startup-screen" aria-busy="true">

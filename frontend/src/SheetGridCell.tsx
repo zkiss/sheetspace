@@ -2,7 +2,10 @@ import { KeyboardEvent } from 'react';
 import { cellRawContent, type SheetTabularProjection } from './workbook';
 import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
 import { cellTargetAt } from './cellInteraction';
+import { GRID_CELL_HEIGHT } from './gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';
+import { cssRemFromPixels } from './styleTokens';
+import './SheetGridCell.css';
 
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
 export const CELL_EDITOR_MAX_HEIGHT = '12rem';
@@ -198,7 +201,7 @@ function cellEditorSizing(value: string) {
   const visibleColumnCount = Math.min(Math.max(longestLineLength + 2, 12), 64);
 
   return {
-    height: `min(${CELL_EDITOR_MAX_HEIGHT}, max(1.65rem, ${visibleLineCount * 1.45}rem))`,
+    height: `min(${CELL_EDITOR_MAX_HEIGHT}, max(${cssRemFromPixels(GRID_CELL_HEIGHT)}, ${visibleLineCount * 1.45}rem))`,
     multiline: lineCount > 1,
     visibleLineCount,
     width: `min(${CELL_EDITOR_MAX_WIDTH}, max(100%, ${visibleColumnCount}ch))`,

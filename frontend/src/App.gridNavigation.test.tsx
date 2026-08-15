@@ -12,12 +12,16 @@ describe('App grid rendering and navigation', () => {
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
 
     const frame = screen.getByTestId('sheet-frame');
+    const grid = within(frame).getByRole('table', { name: 'Inputs grid' });
     expect(frame).toHaveAttribute('data-column-count', '10');
     expect(frame).toHaveAttribute('data-row-count', '20');
     expect(sheet.content.cells).toEqual({});
     expect(within(frame).getAllByRole('columnheader')).toHaveLength(11);
     expect(within(frame).getAllByRole('rowheader')).toHaveLength(20);
     expect(within(frame).getAllByTestId('sheet-grid-cell')).toHaveLength(200);
+    expect(grid.style.getPropertyValue('--grid-cell-height')).toBe('1.65rem');
+    expect(grid.style.getPropertyValue('--grid-cell-width')).toBe('4.75rem');
+    expect(grid.style.getPropertyValue('--grid-row-header-width')).toBe('2.5rem');
   });
 
   it('renders spreadsheet row numbers and Excel-style column labels beyond Z', () => {

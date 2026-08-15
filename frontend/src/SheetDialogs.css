@@ -1,0 +1,63 @@
+.dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(23 32 42 / 32%);
+}
+
+.sheet-dialog {
+  display: grid;
+  width: min(26rem, 100%);
+  gap: 0.75rem;
+  border: 1px solid #d6dee3;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #ffffff;
+  box-shadow: 0 20px 60px rgb(23 32 42 / 24%);
+}
+
+.sheet-dialog h2,
+.form-error {
+  margin: 0;
+}
+
+.sheet-dialog h2 {
+  font-size: 1rem;
+}
+
+.sheet-dialog label {
+  color: #344454;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sheet-dialog input {
+  width: 100%;
+  border: 1px solid #aebcc5;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+}
+
+.sheet-dialog input:focus {
+  border-color: #3b6f78;
+  outline: 3px solid rgb(59 111 120 / 18%);
+}
+
+.form-error {
+  color: #a33a3a;
+  font-size: 0.9rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.dialog-actions button:first-child {
+  color: #26323f;
+  background: #ffffff;
+}

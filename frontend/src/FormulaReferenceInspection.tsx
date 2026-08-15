@@ -3,6 +3,7 @@ import type {
   FormulaInspection,
   FormulaInspectionReference,
 } from './formulaInspection';
+import './FormulaReferenceInspection.css';
 
 export function FormulaReferenceInspection({
   inspection,
