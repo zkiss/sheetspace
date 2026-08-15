@@ -26,14 +26,18 @@ function renderCell(overrides: Partial<Parameters<typeof SheetGridCell>[0]> = {}
     editingCell: null,
     isActive: true,
     isEditing: false,
-    onCancelEdit: vi.fn(),
-    onClearCell: vi.fn(),
-    onCommitEdit: vi.fn(),
-    onCommitEditAndNavigate: vi.fn(),
-    onEditValueChange: vi.fn(),
-    onNavigateCell: vi.fn(),
-    onSelectCell: vi.fn(),
-    onStartEdit: vi.fn(),
+    cellInteraction: {
+      clear: vi.fn(),
+      navigate: vi.fn(),
+      select: vi.fn(),
+      startEditing: vi.fn(),
+    },
+    editorInteraction: {
+      cancel: vi.fn(),
+      commit: vi.fn(),
+      commitAndNavigate: vi.fn(),
+      updateValue: vi.fn(),
+    },
     registerCell: vi.fn(),
     sheet,
     ...overrides,
@@ -59,16 +63,16 @@ describe('SheetGridCell', () => {
 
     fireEvent.click(cell);
     const target = cellTargetAt(props.sheet, 'A1');
-    expect(props.onSelectCell).toHaveBeenCalledWith(target);
+    expect(props.cellInteraction.select).toHaveBeenCalledWith(target);
 
     fireEvent.doubleClick(cell);
-    expect(props.onStartEdit).toHaveBeenCalledWith(target);
+    expect(props.cellInteraction.startEditing).toHaveBeenCalledWith(target);
 
     fireEvent.keyDown(cell, { key: 'ArrowRight' });
-    expect(props.onNavigateCell).toHaveBeenCalledWith(target, 'right');
+    expect(props.cellInteraction.navigate).toHaveBeenCalledWith(target, 'right');
 
     fireEvent.keyDown(cell, { key: 'Backspace' });
-    expect(props.onClearCell).toHaveBeenCalledWith(target);
+    expect(props.cellInteraction.clear).toHaveBeenCalledWith(target);
   });
 
   it('renders the editor and commits or cancels editor keyboard actions', () => {
@@ -81,19 +85,19 @@ describe('SheetGridCell', () => {
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
 
     fireEvent.change(editor, { target: { value: 'Updated' } });
-    expect(props.onEditValueChange).toHaveBeenCalledWith('Updated');
+    expect(props.editorInteraction.updateValue).toHaveBeenCalledWith('Updated');
 
     fireEvent.blur(editor, { target: { value: 'Updated' } });
-    expect(props.onCommitEdit).toHaveBeenCalledWith({ ...editingCell, draft: 'Updated' });
+    expect(props.editorInteraction.commit).toHaveBeenCalledWith({ ...editingCell, draft: 'Updated' });
 
     fireEvent.keyDown(editor, { key: 'Enter' });
-    expect(props.onCommitEditAndNavigate).toHaveBeenCalledWith(
+    expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledWith(
       { ...editingCell, draft: 'Updated' },
       'enter',
     );
 
     fireEvent.keyDown(editor, { key: 'Escape' });
-    expect(props.onCancelEdit).toHaveBeenCalled();
+    expect(props.editorInteraction.cancel).toHaveBeenCalled();
   });
 
   it('anchors multiline editor sizing to the cell with documented maximum dimensions', () => {

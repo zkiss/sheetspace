@@ -1,12 +1,6 @@
-import { useRef, type MouseEvent, type PointerEvent } from 'react';
-import type { CellRange, FormulaEvaluationSnapshot, SheetFrameProjection, SheetTabularProjection } from './workbook';
-import type {
-  CellTarget,
-  CellNavigationDirection,
-  CellEditSession,
-  SheetFrameResizeDirection,
-} from './appTypes';
-import { SheetGrid } from './SheetGrid';
+import { useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import type { SheetFrameProjection } from './workbook';
+import type { SheetFrameResizeDirection } from './appTypes';
 import { clampSheetFrameSize } from './workspaceGeometry';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
@@ -21,65 +15,39 @@ const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
 ];
 
 export function SheetFrame({
-  activeCellKey,
-  editingCell,
-  formulaResults,
+  children,
+  columnCount,
+  frame,
   isActiveSheet,
   isNavigationReveal,
-  keyboardFocusCellKey,
-  navigationHighlightCellKey,
-  navigationHighlightRange,
-  onCancelEdit,
-  onClearCell,
-  onCommitEdit,
-  onCommitEditAndNavigate,
-  onEditValueChange,
-  onNavigateCell,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
   onResizeStart,
   onResizeStop,
-  onSelectCell,
   onSheetFrameDragCancel,
   onSheetFrameInteraction,
   onSheetFrameDragMove,
   onSheetFrameDragStart,
   onSheetFrameDragStop,
-  onStartEdit,
-  frame,
-  tabular,
-  selectedRange,
+  rowCount,
 }: {
-  activeCellKey: string | null;
-  editingCell: CellEditSession | null;
-  formulaResults: FormulaEvaluationSnapshot;
+  children: (scrollContainerRef: RefObject<HTMLDivElement>) => ReactNode;
+  columnCount: number;
+  frame: SheetFrameProjection;
   isActiveSheet: boolean;
   isNavigationReveal: boolean;
-  keyboardFocusCellKey: string | null;
-  navigationHighlightCellKey: string | null;
-  navigationHighlightRange?: CellRange;
-  onCancelEdit: () => void;
-  onClearCell: (target: CellTarget) => void;
-  onCommitEdit: (session?: CellEditSession) => void;
-  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
-  onEditValueChange: (value: string) => void;
-  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
   onResizeStart: (sheetId: string, direction: SheetFrameResizeDirection, event: PointerEvent<HTMLElement>) => void;
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
-  onSelectCell: (target: CellTarget) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameInteraction: () => void;
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
-  onStartEdit: (target: CellTarget, initialValue?: string) => void;
-  frame: SheetFrameProjection;
-  tabular: SheetTabularProjection;
-  selectedRange?: CellRange;
+  rowCount: number;
 }) {
   const frameSize = clampSheetFrameSize(frame.size);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -92,12 +60,12 @@ export function SheetFrame({
       }`}
       data-active-sheet={isActiveSheet ? 'true' : undefined}
       data-navigation-reveal={isNavigationReveal ? 'true' : undefined}
-      data-column-count={tabular.columns.length}
+      data-column-count={columnCount}
       data-frame-height={frameSize.height}
       data-frame-width={frameSize.width}
-      data-row-count={tabular.rows.length}
       data-position-x={frame.position.x}
       data-position-y={frame.position.y}
+      data-row-count={rowCount}
       data-sheet-id={frame.id}
       data-testid="sheet-frame"
       data-z-index={frame.zIndex}
@@ -143,25 +111,7 @@ export function SheetFrame({
         <h2>{frame.name}</h2>
       </header>
       <div className="sheet-frame-body" data-testid="sheet-frame-body" ref={bodyRef}>
-        <SheetGrid
-          activeCellKey={activeCellKey}
-          editingCell={editingCell}
-          keyboardFocusCellKey={keyboardFocusCellKey}
-          navigationHighlightCellKey={navigationHighlightCellKey}
-          navigationHighlightRange={navigationHighlightRange}
-          onCancelEdit={onCancelEdit}
-          onClearCell={onClearCell}
-          onCommitEdit={onCommitEdit}
-          onCommitEditAndNavigate={onCommitEditAndNavigate}
-          onEditValueChange={onEditValueChange}
-          onNavigateCell={onNavigateCell}
-          onSelectCell={onSelectCell}
-          onStartEdit={onStartEdit}
-          formulaResults={formulaResults}
-          sheet={tabular}
-          scrollContainerRef={bodyRef}
-          selectedRange={selectedRange}
-        />
+        {children(bodyRef)}
       </div>
     </article>
   );
