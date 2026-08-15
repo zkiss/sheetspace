@@ -34,8 +34,7 @@
 }
 
 .sheet-grid-corner,
-.sheet-grid-column-header,
-.sheet-grid-cell {
+.sheet-grid-column-header {
   position: sticky;
   top: 0;
   z-index: 30;
@@ -45,7 +44,8 @@
   z-index: 40;
 }
 
-.sheet-grid-column-header {
+.sheet-grid-column-header,
+.sheet-grid-cell {
   width: var(--grid-cell-width);
   min-width: var(--grid-cell-width);
 }
