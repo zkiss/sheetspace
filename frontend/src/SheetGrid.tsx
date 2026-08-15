@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef, type CSSProperties, type RefObject } from 'react';
 import {
   cellKey,
   columnIndexToLabel,
@@ -11,6 +11,8 @@ import {
 } from './workbook';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
+  GRID_CELL_HEIGHT,
+  GRID_CELL_WIDTH,
   GRID_ROW_HEADER_WIDTH,
   sheetContentOffsetForCell,
 } from './gridGeometry';
@@ -23,6 +25,7 @@ import {
 } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
 import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
+import './SheetGrid.css';
 
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLTableCellElement,
@@ -134,7 +137,16 @@ export function SheetGrid({
   }, [navigationHighlightCellKey, navigationHighlightRange, scrollContainerRef, sheet]);
 
   return (
-    <table aria-label={`${sheet.name} grid`} className="sheet-grid" data-testid="sheet-grid">
+    <table
+      aria-label={`${sheet.name} grid`}
+      className="sheet-grid"
+      data-testid="sheet-grid"
+      style={{
+        '--grid-cell-height': `${GRID_CELL_HEIGHT}px`,
+        '--grid-cell-width': `${GRID_CELL_WIDTH}px`,
+        '--grid-row-header-width': `${GRID_ROW_HEADER_WIDTH}px`,
+      } as CSSProperties}
+    >
       <SheetGridHeaders columnHeaderRef={columnHeaderRef} columns={columns} />
       <tbody>
         {rows.map((rowIndex) => (

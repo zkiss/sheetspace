@@ -1,0 +1,58 @@
+.formula-reference-inspection {
+  display: flex;
+  grid-row: 2;
+  align-items: baseline;
+  gap: 0.65rem;
+  min-width: 0;
+  border-bottom: 1px solid #d6dee3;
+  padding: 0.45rem 1rem;
+  background: #f8fafb;
+}
+
+.formula-reference-inspection-label {
+  color: #50606d;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.formula-reference-inspection code {
+  overflow: auto;
+  min-width: 0;
+  color: #17202a;
+  font: 0.85rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.formula-reference-token {
+  display: inline;
+  border: 0;
+  border-radius: 0.2rem;
+  padding: 0.05rem 0.12rem;
+  color: #11606b;
+  background: #dff1f2;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.formula-reference-token:focus-visible {
+  outline: 2px solid #2f747e;
+  outline-offset: 1px;
+}
+
+.formula-reference-token-broken {
+  color: #a33a3a;
+  background: #fbe4e4;
+  cursor: not-allowed;
+  text-decoration: wavy underline;
+}
+
+.formula-reference-feedback:empty {
+  display: none;
+}
+
+.formula-reference-feedback {
+  color: #a33a3a;
+  font-size: 0.78rem;
+}

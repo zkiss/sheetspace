@@ -1,5 +1,7 @@
 import type { SheetDocument, SheetZOrderDirection } from './workbook';
 import type { PendingSheetMenu } from './appTypes';
+import { FLOATING_OVERLAY_Z_INDEX } from './styleTokens';
+import './SheetContextMenu.css';
 
 export function SheetContextMenu({
   menu,
@@ -28,6 +30,7 @@ export function SheetContextMenu({
       style={{
         left: menu.x,
         top: menu.y,
+        zIndex: FLOATING_OVERLAY_Z_INDEX,
       }}
     >
       <button type="button" role="menuitem" onClick={() => onAppendRow(sheet.id)}>

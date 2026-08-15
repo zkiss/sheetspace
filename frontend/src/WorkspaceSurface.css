@@ -1,0 +1,44 @@
+.workspace-surface {
+  position: relative;
+  grid-row: 3;
+  overflow: hidden;
+  min-height: 0;
+  background-color: #edf3f5;
+  background-image:
+    linear-gradient(#d6e1e5 1px, transparent 1px),
+    linear-gradient(90deg, #d6e1e5 1px, transparent 1px);
+  background-size: 40px 40px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.workspace-surface-panning {
+  cursor: grabbing;
+}
+
+.workspace-plane {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.workspace-plane-navigating {
+  transition: transform 180ms ease-out;
+}
+
+.empty-workspace {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(24rem, calc(100% - 2rem));
+  margin: 0;
+  transform: translate(-50%, -50%);
+  color: #50606d;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-plane-navigating {
+    transition: none;
+  }
+}

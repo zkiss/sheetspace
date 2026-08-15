@@ -1,5 +1,6 @@
 import type { MouseEvent, PointerEvent, ReactNode, RefObject, WheelEvent } from 'react';
 import type { WorkspaceViewport } from './appTypes';
+import './WorkspaceSurface.css';
 
 export function WorkspaceSurface({
   children,

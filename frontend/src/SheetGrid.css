@@ -1,0 +1,51 @@
+.sheet-grid {
+  min-width: max-content;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: #17202a;
+  font-size: 0.78rem;
+  table-layout: fixed;
+}
+
+.sheet-grid th,
+.sheet-grid-cell {
+  height: var(--grid-cell-height);
+  border: 1px solid #d9e1e6;
+  padding: 0 0.35rem;
+}
+
+.sheet-grid-corner,
+.sheet-grid-column-header,
+.sheet-grid-row-header {
+  background: #f4f7f8;
+  color: #50606d;
+  font-weight: 600;
+  text-align: center;
+  user-select: none;
+}
+
+.sheet-grid-corner,
+.sheet-grid-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  width: var(--grid-row-header-width);
+  min-width: var(--grid-row-header-width);
+}
+
+.sheet-grid-corner,
+.sheet-grid-column-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.sheet-grid-corner {
+  z-index: 40;
+}
+
+.sheet-grid-column-header,
+.sheet-grid-cell {
+  width: var(--grid-cell-width);
+  min-width: var(--grid-cell-width);
+}

@@ -1,0 +1,1 @@
+export const FLOATING_OVERLAY_Z_INDEX = 10_000;
