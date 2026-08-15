@@ -7,7 +7,8 @@
   table-layout: fixed;
 }
 
-.sheet-grid th {
+.sheet-grid th,
+.sheet-grid-cell {
   height: var(--grid-cell-height);
   border: 1px solid #d9e1e6;
   padding: 0 0.35rem;
@@ -33,7 +34,8 @@
 }
 
 .sheet-grid-corner,
-.sheet-grid-column-header {
+.sheet-grid-column-header,
+.sheet-grid-cell {
   position: sticky;
   top: 0;
   z-index: 30;
