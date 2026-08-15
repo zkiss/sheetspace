@@ -7,6 +7,20 @@ import { gridCellKeyboardAction } from './sheetGridModel';
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
 export const CELL_EDITOR_MAX_HEIGHT = '12rem';
 
+export type SheetGridCellInteraction = {
+  clear: (target: CellTarget) => void;
+  navigate: (target: CellTarget, direction: CellNavigationDirection) => void;
+  select: (target: CellTarget) => void;
+  startEditing: (target: CellTarget, initialValue?: string) => void;
+};
+
+export type SheetGridCellEditorInteraction = {
+  cancel: () => void;
+  commit: (session?: CellEditSession) => void;
+  commitAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
+  updateValue: (value: string) => void;
+};
+
 function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
   if (!editor) {
     return;
@@ -24,14 +38,8 @@ export function SheetGridCell({
   isEditing,
   isNavigationTarget = false,
   isRangeSelected = false,
-  onCancelEdit,
-  onClearCell,
-  onCommitEdit,
-  onCommitEditAndNavigate,
-  onEditValueChange,
-  onNavigateCell,
-  onSelectCell,
-  onStartEdit,
+  cellInteraction,
+  editorInteraction,
   registerCell,
   sheet,
 }: {
@@ -42,14 +50,8 @@ export function SheetGridCell({
   isEditing: boolean;
   isNavigationTarget?: boolean;
   isRangeSelected?: boolean;
-  onCancelEdit: () => void;
-  onClearCell: (target: CellTarget) => void;
-  onCommitEdit: (session?: CellEditSession) => void;
-  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
-  onEditValueChange: (value: string) => void;
-  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
-  onSelectCell: (target: CellTarget) => void;
-  onStartEdit: (target: CellTarget, initialValue?: string) => void;
+  cellInteraction: SheetGridCellInteraction;
+  editorInteraction: SheetGridCellEditorInteraction;
   registerCell: (cellKey: string, element: HTMLTableCellElement | null) => void;
   sheet: SheetTabularProjection;
 }) {
@@ -72,16 +74,16 @@ export function SheetGridCell({
     event.preventDefault();
 
     if (action.kind === 'navigate') {
-      onNavigateCell(target, action.direction);
+      cellInteraction.navigate(target, action.direction);
       return;
     }
 
     if (action.kind === 'clear-cell') {
-      onClearCell(target);
+      cellInteraction.clear(target);
       return;
     }
 
-    onStartEdit(target, action.initialValue);
+    cellInteraction.startEditing(target, action.initialValue);
   }
 
   return (
@@ -101,16 +103,16 @@ export function SheetGridCell({
       data-testid="sheet-grid-cell"
       onClick={() => {
         const target = cellTargetAt(sheet, cellKey);
-        if (target) onSelectCell(target);
+        if (target) cellInteraction.select(target);
       }}
       onDoubleClick={() => {
         const target = cellTargetAt(sheet, cellKey);
-        if (target) onStartEdit(target);
+        if (target) cellInteraction.startEditing(target);
       }}
       onFocus={() => {
         if (!isActive) {
           const target = cellTargetAt(sheet, cellKey);
-          if (target) onSelectCell(target);
+          if (target) cellInteraction.select(target);
         }
       }}
       onKeyDown={handleCellKeyDown}
@@ -121,10 +123,7 @@ export function SheetGridCell({
         <SheetGridCellEditor
           editingCell={editingCell}
           cellKey={cellKey}
-          onCancelEdit={onCancelEdit}
-          onCommitEdit={onCommitEdit}
-          onCommitEditAndNavigate={onCommitEditAndNavigate}
-          onEditValueChange={onEditValueChange}
+          interaction={editorInteraction}
           sheetName={sheet.name}
         />
       ) : (
@@ -137,18 +136,12 @@ export function SheetGridCell({
 export function SheetGridCellEditor({
   cellKey,
   editingCell,
-  onCancelEdit,
-  onCommitEdit,
-  onCommitEditAndNavigate,
-  onEditValueChange,
+  interaction,
   sheetName,
 }: {
   cellKey: string;
   editingCell: CellEditSession;
-  onCancelEdit: () => void;
-  onCommitEdit: (session?: CellEditSession) => void;
-  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
-  onEditValueChange: (value: string) => void;
+  interaction: SheetGridCellEditorInteraction;
   sheetName: string;
 }) {
   const editorSizing = cellEditorSizing(editingCell.draft);
@@ -162,26 +155,26 @@ export function SheetGridCellEditor({
       data-max-width={CELL_EDITOR_MAX_WIDTH}
       data-multiline-editor={editorSizing.multiline ? 'true' : undefined}
       data-visible-lines={editorSizing.visibleLineCount}
-      onBlur={(event) => onCommitEdit({ ...editingCell, draft: event.currentTarget.value })}
-      onChange={(event) => onEditValueChange(event.target.value)}
+      onBlur={(event) => interaction.commit({ ...editingCell, draft: event.currentTarget.value })}
+      onChange={(event) => interaction.updateValue(event.target.value)}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
           event.stopPropagation();
-          onCommitEditAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'enter');
+          interaction.commitAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'enter');
         }
 
         if (event.key === 'Tab' && !event.shiftKey) {
           event.preventDefault();
           event.stopPropagation();
-          onCommitEditAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'tab');
+          interaction.commitAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'tab');
         }
 
         if (event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
-          onCancelEdit();
+          interaction.cancel();
         }
       }}
       ref={moveEditorCaretToEnd}

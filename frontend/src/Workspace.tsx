@@ -4,7 +4,14 @@ import type {
   Workbook,
   WorkspacePosition,
 } from './workbook';
-import { cellRawContent, findSheetById, sheetsInOrder } from './workbook';
+import {
+  addressRangeOf,
+  cellRawContent,
+  findSheetById,
+  frameProjection,
+  sheetsInOrder,
+  tabularProjection,
+} from './workbook';
 import type {
   CellTarget,
   CellNavigationDirection,
@@ -15,6 +22,9 @@ import type {
 import { cellKeyForTarget } from './cellInteraction';
 import { FormulaReferenceInspection } from './FormulaReferenceInspection';
 import { inspectFormula } from './formulaInspection';
+import { SheetContextMenu } from './SheetContextMenu';
+import { SheetFrame } from './SheetFrame';
+import { SheetGrid } from './SheetGrid';
 import { useReferenceNavigation } from './useReferenceNavigation';
 import { useSheetFrameInteractions } from './useSheetFrameInteractions';
 import type { WorkbookCommands } from './useWorkbookController';
@@ -106,6 +116,17 @@ export function Workspace({
     onOpenRenameDialog(sheet);
   }
 
+  const resolvedPendingSheetMenu = workspaceController.pendingSheetMenu
+    ? {
+        ...workspaceController.pendingSheetMenu,
+        sheetId: sheetIdRemaps[workspaceController.pendingSheetMenu.sheetId]
+          ?? workspaceController.pendingSheetMenu.sheetId,
+      }
+    : null;
+  const menuSheet = resolvedPendingSheetMenu
+    ? sheets.find((sheet) => sheet.id === resolvedPendingSheetMenu.sheetId)
+    : undefined;
+
   return (
     <>
       <WorkspaceToolbar
@@ -125,63 +146,115 @@ export function Workspace({
       />
 
       <WorkspaceSurface
-        activeCell={activeCell}
-        editingCell={editingCell}
-        formulaResults={formulaResults}
-        frameLayoutPreview={frameLayoutPreview}
+        contextMenu={resolvedPendingSheetMenu && menuSheet ? (
+          <SheetContextMenu
+            menu={resolvedPendingSheetMenu}
+            onAppendColumn={(sheetId) => {
+              workspaceController.closeSheetMenu();
+              commands.appendColumn(sheetId);
+            }}
+            onAppendRow={(sheetId) => {
+              workspaceController.closeSheetMenu();
+              commands.appendRow(sheetId);
+            }}
+            onChangeZOrder={(sheetId, direction) => {
+              workspaceController.closeSheetMenu();
+              commands.changeSheetZOrder(sheetId, direction);
+            }}
+            onDelete={(sheetId) => {
+              workspaceController.closeSheetMenu();
+              if (editingCell?.target.sheetId === sheetId) onCancelEdit();
+              commands.deleteSheet(sheetId);
+            }}
+            onRename={handleOpenRenameDialog}
+            sheet={menuSheet}
+          />
+        ) : undefined}
+        hasSheets={sheets.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
-        keyboardFocusTarget={keyboardFocusTarget}
-        navigationHighlight={navigationHighlight}
         navigationMotion={navigationMotion}
-        referenceSelection={referenceSelection}
-        onAppendColumn={(sheetId) => {
-          workspaceController.closeSheetMenu();
-          commands.appendColumn(sheetId);
-        }}
-        onAppendRow={(sheetId) => {
-          workspaceController.closeSheetMenu();
-          commands.appendRow(sheetId);
-        }}
-        onCancelEdit={onCancelEdit}
-        onClearCell={onClearCell}
-        onChangeSheetZOrder={(sheetId, direction) => {
-          workspaceController.closeSheetMenu();
-          commands.changeSheetZOrder(sheetId, direction);
-        }}
-        onCommitEdit={onCommitEdit}
-        onCommitEditAndNavigate={onCommitEditAndNavigate}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
-        onDeleteSheet={(sheetId) => {
-          workspaceController.closeSheetMenu();
-          if (editingCell?.target.sheetId === sheetId) onCancelEdit();
-          commands.deleteSheet(sheetId);
-        }}
-        onEditValueChange={onEditValueChange}
-        onNavigateCell={onNavigateCell}
-        onOpenRenameDialog={handleOpenRenameDialog}
-        onOpenSheetMenu={workspaceController.openSheetMenu}
         onPointerCancel={workspaceController.stopWorkspacePan}
         onPointerDown={workspaceController.handleWorkspacePointerDown}
         onPointerMove={workspaceController.handleWorkspacePointerMove}
         onPointerUp={workspaceController.stopWorkspacePan}
-        onResizeCancel={cancelSheetFrameResize}
-        onResizeMove={handleSheetFrameResizeMove}
-        onResizeStart={handleSheetFrameResizeStart}
-        onResizeStop={stopSheetFrameResize}
-        onSelectCell={onSelectCell}
-        onSheetFrameDragCancel={cancelSheetFrameDrag}
-        onSheetFrameInteraction={workspaceController.closeSheetMenu}
-        onSheetFrameDragMove={handleSheetFrameDragMove}
-        onSheetFrameDragStart={handleSheetFrameDragStart}
-        onSheetFrameDragStop={stopSheetFrameDrag}
-        onStartEdit={onStartEdit}
         onWheel={workspaceController.handleWorkspaceWheel}
-        pendingSheetMenu={workspaceController.pendingSheetMenu}
-        sheetIdRemaps={sheetIdRemaps}
-        sheets={sheets}
         viewport={workspaceController.viewport}
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
-      />
+      >
+        {sheets.map((sheet) => {
+          const projectedFrame = frameProjection(sheet);
+          const frame = frameLayoutPreview?.sheetId === sheet.id
+            ? {
+                ...projectedFrame,
+                position: frameLayoutPreview.position,
+                size: frameLayoutPreview.size,
+              }
+            : projectedFrame;
+          const tabular = tabularProjection(sheet);
+          const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
+          const selectedRange = referenceSelection?.kind === 'range'
+            && referenceSelection.sheetId === sheet.id
+            ? addressRangeOf(sheet.content, referenceSelection.range)
+            : undefined;
+          const highlightTarget = navigationHighlight?.kind === 'cell'
+            ? navigationHighlight.target
+            : null;
+          const navigationHighlightRange = navigationHighlight?.kind === 'range'
+            && navigationHighlight.sheetId === sheet.id
+            ? addressRangeOf(sheet.content, navigationHighlight.range)
+            : undefined;
+
+          return (
+            <SheetFrame
+              columnCount={tabular.columns.length}
+              frame={frame}
+              isActiveSheet={activeCell?.sheetId === sheet.id}
+              isNavigationReveal={navigationHighlight?.kind === 'cell'
+                ? navigationHighlight.target.sheetId === sheet.id
+                : navigationHighlight?.sheetId === sheet.id}
+              key={sheet.id}
+              onOpenSheetMenu={workspaceController.openSheetMenu}
+              onResizeCancel={cancelSheetFrameResize}
+              onResizeMove={handleSheetFrameResizeMove}
+              onResizeStart={handleSheetFrameResizeStart}
+              onResizeStop={stopSheetFrameResize}
+              onSheetFrameDragCancel={cancelSheetFrameDrag}
+              onSheetFrameInteraction={workspaceController.closeSheetMenu}
+              onSheetFrameDragMove={handleSheetFrameDragMove}
+              onSheetFrameDragStart={handleSheetFrameDragStart}
+              onSheetFrameDragStop={stopSheetFrameDrag}
+              rowCount={tabular.rows.length}
+            >
+              {(scrollContainerRef) => (
+                <SheetGrid
+                  activeCellKey={cellKeyForTarget(sheet, activeCell)}
+                  cellInteraction={{
+                    clear: onClearCell,
+                    navigate: onNavigateCell,
+                    select: onSelectCell,
+                    startEditing: onStartEdit,
+                  }}
+                  editingCell={sheetEditingCell}
+                  editorInteraction={{
+                    cancel: onCancelEdit,
+                    commit: onCommitEdit,
+                    commitAndNavigate: onCommitEditAndNavigate,
+                    updateValue: onEditValueChange,
+                  }}
+                  formulaResults={formulaResults}
+                  keyboardFocusCellKey={cellKeyForTarget(sheet, keyboardFocusTarget)}
+                  navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
+                  navigationHighlightRange={navigationHighlightRange}
+                  scrollContainerRef={scrollContainerRef}
+                  selectedRange={selectedRange}
+                  sheet={tabular}
+                />
+              )}
+            </SheetFrame>
+          );
+        })}
+      </WorkspaceSurface>
     </>
   );
 }

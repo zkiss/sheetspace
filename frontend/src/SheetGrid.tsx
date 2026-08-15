@@ -14,9 +14,13 @@ import {
   GRID_ROW_HEADER_WIDTH,
   sheetContentOffsetForCell,
 } from './gridGeometry';
-import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
+import type { CellEditSession } from './appTypes';
 import { cellKeyForTarget } from './cellInteraction';
-import { SheetGridCell } from './SheetGridCell';
+import {
+  SheetGridCell,
+  type SheetGridCellEditorInteraction,
+  type SheetGridCellInteraction,
+} from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
 import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
 
@@ -45,36 +49,24 @@ function ensureCellVisibleOutsideStickyHeaders(
 
 export function SheetGrid({
   activeCellKey,
+  cellInteraction,
+  editorInteraction,
   editingCell,
   keyboardFocusCellKey,
   navigationHighlightCellKey,
   navigationHighlightRange,
-  onCancelEdit,
-  onClearCell,
-  onCommitEdit,
-  onCommitEditAndNavigate,
-  onEditValueChange,
-  onNavigateCell,
-  onSelectCell,
-  onStartEdit,
   formulaResults,
   scrollContainerRef,
   sheet,
   selectedRange,
 }: {
   activeCellKey: string | null;
+  cellInteraction: SheetGridCellInteraction;
+  editorInteraction: SheetGridCellEditorInteraction;
   editingCell: CellEditSession | null;
   keyboardFocusCellKey: string | null;
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
-  onCancelEdit: () => void;
-  onClearCell: (target: CellTarget) => void;
-  onCommitEdit: (session?: CellEditSession) => void;
-  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
-  onEditValueChange: (value: string) => void;
-  onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
-  onSelectCell: (target: CellTarget) => void;
-  onStartEdit: (target: CellTarget, initialValue?: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
   sheet: SheetTabularProjection;
@@ -169,19 +161,13 @@ export function SheetGrid({
                   cellKey={key}
                   displayText={getSheetCellDisplayText({ cellKey: key, formulaResults, sheet })}
                   editingCell={editingCell}
+                  cellInteraction={cellInteraction}
+                  editorInteraction={editorInteraction}
                   isActive={isActive}
                   isEditing={isEditing}
                   isNavigationTarget={isNavigationTarget}
                   isRangeSelected={isRangeSelected}
                   key={key}
-                  onCancelEdit={onCancelEdit}
-                  onClearCell={onClearCell}
-                  onCommitEdit={onCommitEdit}
-                  onCommitEditAndNavigate={onCommitEditAndNavigate}
-                  onEditValueChange={onEditValueChange}
-                  onNavigateCell={onNavigateCell}
-                  onSelectCell={onSelectCell}
-                  onStartEdit={onStartEdit}
                   registerCell={registerCell}
                   sheet={sheet}
                 />
