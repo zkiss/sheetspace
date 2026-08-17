@@ -10,6 +10,7 @@ import {
   updateFormulaDependencyGraph,
   type FormulaDependencyGraph,
 } from './formulaDependencies';
+import { cycleAffectedFormulaNodes } from './formulaCycles';
 import {
   FormulaEvaluator,
   sheetCellNodeId,
@@ -19,6 +20,7 @@ import type {
   FormulaEvaluationSnapshot,
   FormulaScalarValue,
 } from './formulaValue';
+import { formulaErrorValue } from './formulaValue';
 
 /**
  * Owns dependency edges and derived values for the calculation projection.
@@ -68,6 +70,9 @@ export class FormulaCalculation {
         nextFormulaNodes.has(nodeId) && !impacted.has(nodeId),
       ),
     );
+    for (const nodeId of cycleAffectedFormulaNodes(nextGraph)) {
+      reusableResults.set(nodeId, formulaErrorValue('#CYCLE!'));
+    }
     const evaluator = new FormulaEvaluator(projection, reusableResults, onEvaluate);
 
     this.snapshot = evaluator.evaluate();
