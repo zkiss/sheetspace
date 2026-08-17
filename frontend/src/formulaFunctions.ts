@@ -39,6 +39,7 @@ export type LazyFormulaFunctionContext = {
     expression: FormulaExpression,
     kind: FormulaFunctionArgumentKind,
   ) => FormulaValue;
+  evaluateCollectionArgument: (expression: FormulaExpression) => FormulaValue;
   evaluateReferenceArgument: (expression: FormulaExpression) => FormulaReferenceArgumentResult;
 };
 
@@ -87,6 +88,7 @@ export function evaluateFunctionCall(
 
   const invocationContext: LazyFormulaFunctionContext = {
     evaluateArgument: (argument, kind) => evaluateArgument(argument, kind, context),
+    evaluateCollectionArgument: (argument) => context.evaluateExpression(argument),
     evaluateReferenceArgument: context.evaluateReferenceArgument
       ?? (() => ({ ok: false, error: '#VALUE!' })),
   };

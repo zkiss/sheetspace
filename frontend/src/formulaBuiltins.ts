@@ -11,6 +11,7 @@ import {
   type FormulaValue,
 } from './formulaValue';
 import { conditionalAggregateFunctions } from './formulaConditionalAggregates';
+import { logicalFormulaFunctions } from './formulaLogical';
 
 const collectionArgument = () => 'collection' as const;
 const scalarArgument = () => 'scalar' as const;
@@ -80,6 +81,7 @@ export const builtInFormulaFunctions: FormulaFunctionRegistry = new Map<
   ['COUNTA', counta],
   ['ABS', absolute],
   ['SQRT', squareRoot],
+  ...logicalFormulaFunctions,
   ...conditionalAggregateFunctions,
 ]);
 

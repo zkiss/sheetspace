@@ -335,6 +335,26 @@ describe('App formula integration', () => {
     expect(await openCellEditor(user, formulaCell)).toHaveValue(rawFormula);
   });
 
+  it('displays IF results from comparisons and recomputes after condition edits', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: { A1: '3', B1: '=IF(A1 >= 5, "high", "low")' },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const result = screen.getByRole('cell', { name: 'Inputs B1 cell' });
+    expect(result).toHaveTextContent('low');
+
+    const editor = await openCellEditor(user, screen.getByRole('cell', { name: 'Inputs A1 cell' }));
+    await user.clear(editor);
+    await user.type(editor, '7');
+    await user.keyboard('{Enter}');
+
+    expect(result).toHaveTextContent('high');
+  });
+
   it('keeps cross-sheet formulas bound by sheet id after target rename', async () => {
     const user = userEvent.setup();
     const inputs = {
