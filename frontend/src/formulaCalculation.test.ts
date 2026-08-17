@@ -213,6 +213,30 @@ describe('incremental formula calculation', () => {
     expect(results['sheet-outputs'].B1).toMatchObject({ kind: 'number', value: 9 });
   });
 
+  it('recomputes conditional branches after same-sheet and cross-sheet condition edits', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '1', B1: '10', C1: '20' });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=IF(sheet-inputs!A1 > 0, sheet-inputs!B1, sheet-inputs!C1)',
+      A2: '=IF(A3, "yes", "no")',
+      A3: 'FALSE',
+    });
+    let workbook = workbookWithSheets([inputs, outputs]);
+    calculation.update(calculationProjection(workbook), { kind: 'structure' });
+
+    workbook = commitCellRawContent(workbook, 'sheet-inputs', 'A1', '-1');
+    expect(calculation.update(
+      calculationProjection(workbook),
+      { kind: 'cells', cells: [{ sheetId: 'sheet-inputs', key: 'A1' }] },
+    )['sheet-outputs'].A1).toMatchObject({ kind: 'number', value: 20 });
+
+    workbook = commitCellRawContent(workbook, 'sheet-outputs', 'A3', 'TRUE');
+    expect(calculation.update(
+      calculationProjection(workbook),
+      { kind: 'cells', cells: [{ sheetId: 'sheet-outputs', key: 'A3' }] },
+    )['sheet-outputs'].A2).toMatchObject({ kind: 'text', value: 'yes' });
+  });
+
   it('recalculates conditional aggregates for criteria, criteria-range, and sum-range edits', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-inputs', 'Inputs', {
