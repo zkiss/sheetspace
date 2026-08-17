@@ -1,4 +1,4 @@
-import type { FormulaExpression, FunctionFormula } from './formulaSyntax';
+import type { FormulaErrorCode, FormulaExpression, FunctionFormula } from './formulaSyntax';
 import {
   formulaErrorValue,
   type FormulaRangeValue,
@@ -6,7 +6,7 @@ import {
   type FormulaValue,
 } from './formulaValue';
 
-export type FormulaFunctionArgumentKind = 'scalar' | 'collection';
+export type FormulaFunctionArgumentKind = 'scalar' | 'collection' | 'reference';
 
 export type FormulaFunctionArity = {
   min: number;
@@ -16,7 +16,18 @@ export type FormulaFunctionArity = {
 type FormulaFunctionDefinitionBase = {
   arity: FormulaFunctionArity;
   argumentKind: (index: number) => FormulaFunctionArgumentKind;
+  validateArguments?: (arguments_: readonly FormulaExpression[]) => FormulaErrorCode | undefined;
 };
+
+export type FormulaReferenceArgument = {
+  values: Iterable<FormulaScalarValue>;
+  rowCount: number;
+  columnCount: number;
+};
+
+export type FormulaReferenceArgumentResult =
+  | { ok: true; value: FormulaReferenceArgument }
+  | { ok: false; error: FormulaErrorCode };
 
 export type EagerFormulaFunction = FormulaFunctionDefinitionBase & {
   evaluation: 'eager';
@@ -28,6 +39,7 @@ export type LazyFormulaFunctionContext = {
     expression: FormulaExpression,
     kind: FormulaFunctionArgumentKind,
   ) => FormulaValue;
+  evaluateReferenceArgument: (expression: FormulaExpression) => FormulaReferenceArgumentResult;
 };
 
 export type LazyFormulaFunction = FormulaFunctionDefinitionBase & {
@@ -43,6 +55,7 @@ export type FormulaFunctionRegistry = ReadonlyMap<string, FormulaFunctionDefinit
 
 export type FormulaFunctionEvaluationContext = {
   evaluateExpression: (expression: FormulaExpression) => FormulaValue;
+  evaluateReferenceArgument?: (expression: FormulaExpression) => FormulaReferenceArgumentResult;
 };
 
 export function evaluateFunctionCall(
@@ -59,16 +72,23 @@ export function evaluateFunctionCall(
   }
 
   for (let index = 0; index < expression.arguments.length; index += 1) {
-    if (
-      definition.argumentKind(index) === 'scalar'
-      && isSyntacticRange(expression.arguments[index])
-    ) {
+    const kind = definition.argumentKind(index);
+    if (kind === 'scalar' && isSyntacticRange(expression.arguments[index])) {
       return formulaErrorValue('#VALUE!');
     }
+    if (kind === 'reference' && !isSyntacticReference(expression.arguments[index])) {
+      return formulaErrorValue('#VALUE!');
+    }
+  }
+  const validationError = definition.validateArguments?.(expression.arguments);
+  if (validationError) {
+    return formulaErrorValue(validationError);
   }
 
   const invocationContext: LazyFormulaFunctionContext = {
     evaluateArgument: (argument, kind) => evaluateArgument(argument, kind, context),
+    evaluateReferenceArgument: context.evaluateReferenceArgument
+      ?? (() => ({ ok: false, error: '#VALUE!' })),
   };
   if (definition.evaluation === 'lazy') {
     return definition.invoke(expression.arguments, invocationContext);
@@ -97,11 +117,20 @@ function isSyntacticRange(expression: FormulaExpression): boolean {
     || (expression.kind === 'group' && isSyntacticRange(expression.expression));
 }
 
+function isSyntacticReference(expression: FormulaExpression): boolean {
+  return expression.kind === 'cell'
+    || expression.kind === 'range'
+    || (expression.kind === 'group' && isSyntacticReference(expression.expression));
+}
+
 function evaluateArgument(
   expression: FormulaExpression,
   kind: FormulaFunctionArgumentKind,
   context: FormulaFunctionEvaluationContext,
 ): FormulaValue {
+  if (kind === 'reference') {
+    return formulaErrorValue('#VALUE!');
+  }
   const value = context.evaluateExpression(expression);
   if (value.kind === 'error') {
     return value;

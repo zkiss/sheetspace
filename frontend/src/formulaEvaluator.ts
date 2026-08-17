@@ -13,6 +13,7 @@ import {
 } from './formulaComparison';
 import {
   evaluateFunctionCall,
+  type FormulaReferenceArgumentResult,
   type FormulaFunctionRegistry,
 } from './formulaFunctions';
 import {
@@ -159,7 +160,11 @@ export class FormulaEvaluator {
     if (expression.kind === 'function') {
       return evaluateFunctionCall(
         expression,
-        { evaluateExpression: (argument) => this.evaluateExpression(argument, currentSheet) },
+        {
+          evaluateExpression: (argument) => this.evaluateExpression(argument, currentSheet),
+          evaluateReferenceArgument: (argument) =>
+            this.evaluateFunctionReferenceArgument(argument, currentSheet),
+        },
         this.functions,
       );
     }
@@ -244,6 +249,49 @@ export class FormulaEvaluator {
       values: this.evaluateRangeCells(sheet, range.value),
       rowCount: reference.range.end.rowIndex - reference.range.start.rowIndex + 1,
       columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1,
+    };
+  }
+
+  private evaluateFunctionReferenceArgument(
+    expression: FormulaExpression,
+    currentSheet: CalculationSheet,
+  ): FormulaReferenceArgumentResult {
+    if (expression.kind === 'group') {
+      return this.evaluateFunctionReferenceArgument(expression.expression, currentSheet);
+    }
+    if (expression.kind !== 'cell' && expression.kind !== 'range') {
+      return { ok: false, error: '#VALUE!' };
+    }
+
+    const sheet = resolveFormulaReferenceSheet(expression, this.workbook, currentSheet);
+    if (!sheet) {
+      return { ok: false, error: '#REF!' };
+    }
+    if (expression.kind === 'cell') {
+      if (!isAddressWithinBounds(expression.address, sheet)) {
+        return { ok: false, error: '#REF!' };
+      }
+      return {
+        ok: true,
+        value: {
+          values: this.evaluateRangeCells(sheet, [expression.address]),
+          rowCount: 1,
+          columnCount: 1,
+        },
+      };
+    }
+
+    const range = expandRange(expression.range, sheet);
+    if (!range.ok) {
+      return { ok: false, error: '#REF!' };
+    }
+    return {
+      ok: true,
+      value: {
+        values: this.evaluateRangeCells(sheet, range.value),
+        rowCount: expression.range.end.rowIndex - expression.range.start.rowIndex + 1,
+        columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1,
+      },
     };
   }
 
