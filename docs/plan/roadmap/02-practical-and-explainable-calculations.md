@@ -216,6 +216,12 @@ Display is derived and never persisted: numbers use ECMAScript `Number::toString
 - Broken references remain visible but cannot navigate to an incorrect target.
 - Formula values, errors, dependency behavior, and stable cross-sheet identity remain correct after persistence and reload.
 
+## Delivery And Verification
+
+Phase 2 is delivered with its deliberately narrow typed-value and criteria contracts above. Wildcards, broad spreadsheet coercion, rich formula editing, navigation history, reference lines, and structural reference rewriting remain deferred.
+
+Automated coverage is split by ownership: parser and evaluator suites verify the value contract, operators, functions, criteria, dependencies, and cycles; reference inspection and navigation suites verify token identity, broken targets, selection, highlighting, and viewport movement; startup and API suites verify canonical persistence and reload. `App.phase2Workflow.test.tsx` is the end-to-end acceptance scenario joining those boundaries in one representative multi-sheet model, including rename, offscreen navigation, isolated errors, persistence, reload, and recalculation. Existing MVP workflow coverage remains in `App.mvpWorkflow.test.tsx`.
+
 ## Out Of Scope
 
 - Broad Excel formula compatibility, lookup functions, text functions beyond literals, date/time functions, array formulas, named ranges, and custom functions.
