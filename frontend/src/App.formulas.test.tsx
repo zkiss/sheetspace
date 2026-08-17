@@ -6,6 +6,34 @@ import { openCellEditor, openSheetContextMenu } from './test/appScreen';
 import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('App formula integration', () => {
+  it('keeps cycle cells selectable and editable, then recovers after the cycle breaks', async () => {
+    const user = userEvent.setup();
+    const sheet = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+      cells: { A1: '=B1', B1: '=A1' },
+    };
+
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const first = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    const second = screen.getByRole('cell', { name: 'Inputs B1 cell' });
+    expect(first).toHaveTextContent('#CYCLE!');
+    expect(second).toHaveTextContent('#CYCLE!');
+
+    await user.click(first);
+    expect(first).toHaveAttribute('aria-selected', 'true');
+    expect(await openCellEditor(user, first)).toHaveValue('=B1');
+    await user.keyboard('{Escape}');
+
+    const editor = await openCellEditor(user, second);
+    await user.clear(editor);
+    await user.type(editor, '5');
+    await user.keyboard('{Enter}');
+
+    expect(first).toHaveTextContent('5');
+    expect(second).toHaveTextContent('5');
+  });
+
   it('shows reference tokens for the selected formula and clears the surface for plain cells', async () => {
     const user = userEvent.setup();
     const inputs = {

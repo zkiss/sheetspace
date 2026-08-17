@@ -15,6 +15,105 @@ function sheetWithCells(id: string, name: string, cells: Record<string, string>)
 }
 
 describe('incremental formula calculation', () => {
+  it('detects direct, indirect, cross-sheet, and range-mediated cycles', () => {
+    const calculation = new FormulaCalculation();
+    const first = sheetWithCells('sheet-first', 'First', {
+      A1: '=A1',
+      A2: '=B2',
+      B2: '=A2',
+      A3: '=SUM(B3:C3)',
+      B3: '=A3',
+      C3: '1',
+      A4: '=sheet-second!A4',
+    });
+    const second = sheetWithCells('sheet-second', 'Second', {
+      A4: '=sheet-first!A4',
+    });
+
+    const results = calculation.update(
+      calculationProjection(workbookWithSheets([first, second])),
+      { kind: 'structure' },
+    );
+
+    expect(results['sheet-first']).toMatchObject({
+      A1: { kind: 'error', error: '#CYCLE!' },
+      A2: { kind: 'error', error: '#CYCLE!' },
+      B2: { kind: 'error', error: '#CYCLE!' },
+      A3: { kind: 'error', error: '#CYCLE!' },
+      B3: { kind: 'error', error: '#CYCLE!' },
+      A4: { kind: 'error', error: '#CYCLE!' },
+    });
+    expect(results['sheet-second'].A4).toMatchObject({ kind: 'error', error: '#CYCLE!' });
+  });
+
+  it('marks structural downstream references while calculating independent components', () => {
+    const calculation = new FormulaCalculation();
+    const sheet = sheetWithCells('sheet-1', 'Inputs', {
+      A1: '=B1',
+      B1: '=A1',
+      C1: '=IF(FALSE, A1, 7)',
+      D1: '=C1 + 1',
+      E1: '=F1 + 1',
+      F1: '4',
+    });
+
+    const results = calculation.update(
+      calculationProjection(workbookWithSheets([sheet])),
+      { kind: 'structure' },
+    )['sheet-1'];
+
+    expect(results.A1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
+    expect(results.B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
+    expect(results.C1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
+    expect(results.D1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
+    expect(results.E1).toMatchObject({ kind: 'number', value: 5 });
+  });
+
+  it('recomputes affected components when edits create and break a cycle', () => {
+    const calculation = new FormulaCalculation();
+    let workbook = workbookWithSheets([
+      sheetWithCells('sheet-1', 'Inputs', {
+        A1: '=B1',
+        B1: '2',
+        C1: '=A1 + 1',
+        D1: '=E1 + 1',
+        E1: '9',
+      }),
+    ]);
+    expect(calculation.update(calculationProjection(workbook), { kind: 'structure' })['sheet-1'])
+      .toMatchObject({
+        A1: { kind: 'number', value: 2 },
+        C1: { kind: 'number', value: 3 },
+        D1: { kind: 'number', value: 10 },
+      });
+
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '=A1');
+    const createdEvaluations: string[] = [];
+    const created = calculation.update(
+      calculationProjection(workbook),
+      { kind: 'cells', cells: [{ sheetId: 'sheet-1', key: 'B1' }] },
+      (_sheetId, key) => createdEvaluations.push(key),
+    )['sheet-1'];
+    expect(created).toMatchObject({
+      A1: { kind: 'error', error: '#CYCLE!' },
+      B1: { kind: 'error', error: '#CYCLE!' },
+      C1: { kind: 'error', error: '#CYCLE!' },
+      D1: { kind: 'number', value: 10 },
+    });
+    expect(createdEvaluations).toEqual([]);
+
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '5');
+    const recovered = calculation.update(
+      calculationProjection(workbook),
+      { kind: 'cells', cells: [{ sheetId: 'sheet-1', key: 'B1' }] },
+    )['sheet-1'];
+    expect(recovered).toMatchObject({
+      A1: { kind: 'number', value: 5 },
+      C1: { kind: 'number', value: 6 },
+      D1: { kind: 'number', value: 10 },
+    });
+  });
+
   it('recomputes direct and transitive diamond dependents without evaluating unrelated formulas', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
