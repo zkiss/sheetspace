@@ -95,7 +95,10 @@ describe('App startup', () => {
     const rawFormula = '=SUMIF(sheet-inputs!A1:A2, "open", sheet-inputs!B1:B2)';
     const outputs = sheetDocument({
       id: 'sheet-outputs', name: 'Outputs',
-      cells: { A1: rawFormula },
+      cells: {
+        A1: rawFormula,
+        A2: '= CoUnTiF ( sheet-inputs!A1:A2 , "open" )',
+      },
     });
     const apiClient = {
       loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([inputs, outputs])),
@@ -108,6 +111,12 @@ describe('App startup', () => {
     expect(formulaCell).toHaveTextContent('3');
     expect(await openCellEditor(user, formulaCell)).toHaveValue(
       '=SUMIF(\'Sales Data\'!A1:A2, "open", \'Sales Data\'!B1:B2)',
+    );
+    await user.keyboard('{Escape}');
+    const countCell = within(outputFrame).getByRole('cell', { name: 'Outputs A2 cell' });
+    expect(countCell).toHaveTextContent('1');
+    expect(await openCellEditor(user, countCell)).toHaveValue(
+      '= CoUnTiF ( \'Sales Data\'!A1:A2 , "open" )',
     );
     expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
   });

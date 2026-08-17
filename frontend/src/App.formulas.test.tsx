@@ -266,12 +266,13 @@ describe('App formula integration', () => {
   it('displays conditional aggregates, recomputes them, and preserves raw formulas for editing', async () => {
     const user = userEvent.setup();
     const rawFormula = '= SuMiF ( A1:A2 , ">0" , B1:B2 )';
+    const rawCountFormula = '= CoUnTiF ( A1:A2 , ">0" )';
     const sheet = {
       ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
       cells: {
         A1: '1', A2: '-1', B1: '4', B2: '9',
         C1: rawFormula,
-        C2: '=COUNTIF(A1:A2, ">0")',
+        C2: rawCountFormula,
       },
     };
 
@@ -283,13 +284,17 @@ describe('App formula integration', () => {
     expect(await openCellEditor(user, sumCell)).toHaveValue(rawFormula);
     await user.keyboard('{Escape}');
 
+    const countCell = screen.getByRole('cell', { name: 'Inputs C2 cell' });
+    expect(await openCellEditor(user, countCell)).toHaveValue(rawCountFormula);
+    await user.keyboard('{Escape}');
+
     const a2Editor = await openCellEditor(user, screen.getByRole('cell', { name: 'Inputs A2 cell' }));
     await user.clear(a2Editor);
     await user.type(a2Editor, '2');
     await user.keyboard('{Enter}');
 
     expect(sumCell).toHaveTextContent('13');
-    expect(screen.getByRole('cell', { name: 'Inputs C2 cell' })).toHaveTextContent('2');
+    expect(countCell).toHaveTextContent('2');
   });
 
   it('displays and edits unary-minus cross-sheet formulas without losing the qualifier', async () => {

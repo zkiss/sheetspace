@@ -59,11 +59,13 @@ describe('conditional aggregate formula functions', () => {
       name: 'Inputs',
       cells: {
         A1: '1', B1: '-1', A2: '2', B2: 'open',
+        A3: 'match', B3: '', A4: 'match', B4: 'text', A5: 'match', B5: 'TRUE',
         C1: '10', D1: '20', C2: '30', D2: '40',
         F1: '=SUMIF(A1:B2, ">0", C1:D2)',
         F2: '=SUMIF(A1:B2, ">0")',
         F3: '=SUMIF(A1:B2, "missing", C1:D2)',
         F4: '=SUMIF(B2, "open", D2)',
+        F5: '=SUMIF(A3:A5, "match", B3:B5)',
       },
     });
 
@@ -73,6 +75,7 @@ describe('conditional aggregate formula functions', () => {
     expect(results.F2).toMatchObject({ kind: 'number', value: 3 });
     expect(results.F3).toMatchObject({ kind: 'number', value: 0 });
     expect(results.F4).toMatchObject({ kind: 'number', value: 40 });
+    expect(results.F5).toMatchObject({ kind: 'number', value: 0 });
   });
 
   it('validates arity, reference positions, criteria, and shapes before value evaluation', () => {
