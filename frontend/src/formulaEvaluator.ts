@@ -7,6 +7,11 @@ import {
 } from './cellAddress';
 import { builtInFormulaFunctions } from './formulaBuiltins';
 import {
+  applyComparisonOperator,
+  compareFormulaScalars,
+  isComparisonOperator,
+} from './formulaComparison';
+import {
   evaluateFunctionCall,
   type FormulaFunctionRegistry,
 } from './formulaFunctions';
@@ -275,70 +280,4 @@ function resolveFormulaReferenceSheet(
     return workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
   }
   return defaultSheet;
-}
-
-function isComparisonOperator(
-  operator: BinaryFormula['operator'],
-): operator is '=' | '<>' | '<' | '<=' | '>' | '>=' {
-  return operator === '='
-    || operator === '<>'
-    || operator === '<'
-    || operator === '<='
-    || operator === '>'
-    || operator === '>=';
-}
-
-function compareFormulaScalars(
-  left: FormulaScalarValue,
-  right: FormulaScalarValue,
-): -1 | 0 | 1 | undefined {
-  if (left.kind === 'number' && right.kind === 'number') {
-    return left.value < right.value ? -1 : left.value > right.value ? 1 : 0;
-  }
-  if (left.kind === 'text' && right.kind === 'text') {
-    return compareTextByCodePoint(left.value, right.value);
-  }
-  if (left.kind === 'boolean' && right.kind === 'boolean') {
-    return left.value === right.value ? 0 : left.value ? 1 : -1;
-  }
-  if (left.kind === 'blank' && right.kind === 'blank') {
-    return 0;
-  }
-  return undefined;
-}
-
-function compareTextByCodePoint(left: string, right: string): -1 | 0 | 1 {
-  const leftCodePoints = [...left].map((value) => value.codePointAt(0) as number);
-  const rightCodePoints = [...right].map((value) => value.codePointAt(0) as number);
-  const sharedLength = Math.min(leftCodePoints.length, rightCodePoints.length);
-  for (let index = 0; index < sharedLength; index += 1) {
-    if (leftCodePoints[index] !== rightCodePoints[index]) {
-      return leftCodePoints[index] < rightCodePoints[index] ? -1 : 1;
-    }
-  }
-  return leftCodePoints.length < rightCodePoints.length
-    ? -1
-    : leftCodePoints.length > rightCodePoints.length
-      ? 1
-      : 0;
-}
-
-function applyComparisonOperator(
-  comparison: -1 | 0 | 1,
-  operator: '=' | '<>' | '<' | '<=' | '>' | '>=',
-): boolean {
-  switch (operator) {
-    case '=':
-      return comparison === 0;
-    case '<>':
-      return comparison !== 0;
-    case '<':
-      return comparison < 0;
-    case '<=':
-      return comparison <= 0;
-    case '>':
-      return comparison > 0;
-    case '>=':
-      return comparison >= 0;
-  }
 }
