@@ -86,6 +86,41 @@ describe('App startup', () => {
     expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
   });
 
+  it('reloads persisted conditional aggregate formulas with cross-sheet references intact', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Sales Data',
+      cells: { A1: 'open', A2: 'closed', B1: '3', B2: '8' },
+    });
+    const rawFormula = '=SUMIF(sheet-inputs!A1:A2, "open", sheet-inputs!B1:B2)';
+    const outputs = sheetDocument({
+      id: 'sheet-outputs', name: 'Outputs',
+      cells: {
+        A1: rawFormula,
+        A2: '= CoUnTiF ( sheet-inputs!A1:A2 , "open" )',
+      },
+    });
+    const apiClient = {
+      loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([inputs, outputs])),
+    };
+
+    render(<App apiClient={apiClient} />);
+
+    const outputFrame = await screen.findByRole('article', { name: 'Sheet Outputs' });
+    const formulaCell = within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' });
+    expect(formulaCell).toHaveTextContent('3');
+    expect(await openCellEditor(user, formulaCell)).toHaveValue(
+      '=SUMIF(\'Sales Data\'!A1:A2, "open", \'Sales Data\'!B1:B2)',
+    );
+    await user.keyboard('{Escape}');
+    const countCell = within(outputFrame).getByRole('cell', { name: 'Outputs A2 cell' });
+    expect(countCell).toHaveTextContent('1');
+    expect(await openCellEditor(user, countCell)).toHaveValue(
+      '= CoUnTiF ( \'Sales Data\'!A1:A2 , "open" )',
+    );
+    expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
+  });
+
   it('renders an empty workspace after loading an empty backend state', async () => {
     const apiClient = {
       loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),

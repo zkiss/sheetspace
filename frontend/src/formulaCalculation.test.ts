@@ -213,6 +213,43 @@ describe('incremental formula calculation', () => {
     expect(results['sheet-outputs'].B1).toMatchObject({ kind: 'number', value: 9 });
   });
 
+  it('recalculates conditional aggregates for criteria, criteria-range, and sum-range edits', () => {
+    const calculation = new FormulaCalculation();
+    const inputs = sheetWithCells('sheet-inputs', 'Inputs', {
+      A1: 'east', A2: 'west', B1: '2', B2: '5', C1: 'east',
+    });
+    const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
+      A1: '=COUNTIF(sheet-inputs!A1:A2, sheet-inputs!C1)',
+      A2: '=SUMIF(sheet-inputs!A1:A2, sheet-inputs!C1, sheet-inputs!B1:B2)',
+    });
+    let workbook = workbookWithSheets([inputs, outputs]);
+    calculation.update(calculationProjection(workbook), { kind: 'structure' });
+
+    workbook = commitCellRawContent(workbook, 'sheet-inputs', 'B1', '8');
+    expect(calculation.update(
+      calculationProjection(workbook),
+      { kind: 'cells', cells: [{ sheetId: 'sheet-inputs', key: 'B1' }] },
+    )['sheet-outputs'].A2).toMatchObject({ kind: 'number', value: 8 });
+
+    workbook = commitCellRawContent(workbook, 'sheet-inputs', 'A2', 'east');
+    expect(calculation.update(
+      calculationProjection(workbook),
+      { kind: 'cells', cells: [{ sheetId: 'sheet-inputs', key: 'A2' }] },
+    )['sheet-outputs']).toMatchObject({
+      A1: { kind: 'number', value: 2 },
+      A2: { kind: 'number', value: 13 },
+    });
+
+    workbook = commitCellRawContent(workbook, 'sheet-inputs', 'C1', 'west');
+    expect(calculation.update(
+      calculationProjection(workbook),
+      { kind: 'cells', cells: [{ sheetId: 'sheet-inputs', key: 'C1' }] },
+    )['sheet-outputs']).toMatchObject({
+      A1: { kind: 'number', value: 0 },
+      A2: { kind: 'number', value: 0 },
+    });
+  });
+
   it('removes stale edges when formulas change or clear', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-1', 'Inputs', {

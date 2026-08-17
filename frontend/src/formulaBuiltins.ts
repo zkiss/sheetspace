@@ -10,6 +10,7 @@ import {
   type FormulaScalarValue,
   type FormulaValue,
 } from './formulaValue';
+import { conditionalAggregateFunctions } from './formulaConditionalAggregates';
 
 const collectionArgument = () => 'collection' as const;
 const scalarArgument = () => 'scalar' as const;
@@ -79,6 +80,7 @@ export const builtInFormulaFunctions: FormulaFunctionRegistry = new Map<
   ['COUNTA', counta],
   ['ABS', absolute],
   ['SQRT', squareRoot],
+  ...conditionalAggregateFunctions,
 ]);
 
 function numericAggregate(
