@@ -1,9 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
-import { openCellEditor, openSheetContextMenu, workspaceSurface } from './test/appScreen';
+import { openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
 import { workbookWithSheets } from './test/workbookFactories';
 
@@ -11,7 +10,6 @@ describe('App MVP workflow', () => {
   it(
     'persists and reloads the complete MVP workflow across creation paths, arrangement, rename, formulas, and appended dimensions',
     async () => {
-      const user = userEvent.setup();
       const rawSameSheetFormula = '= \n SuM ( B1 , B2 )';
       const rawCrossSheetFormula = '=SUM(Renamed Inputs!B1:B2)';
       const apiClient = persistedWorkbookClient();
@@ -20,15 +18,15 @@ describe('App MVP workflow', () => {
 
       render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
 
-      await user.click(screen.getByRole('button', { name: /new sheet/i }));
+      fireEvent.click(screen.getByRole('button', { name: /new sheet/i }));
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Inputs' } });
-      await user.click(screen.getByRole('button', { name: /^create$/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
 
       workspaceSurface().getBoundingClientRect = workspaceRect;
       fireEvent.contextMenu(workspaceSurface(), { clientX: 440, clientY: 290 });
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
-      await user.click(screen.getByRole('button', { name: /^create$/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
 
       let inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
@@ -40,50 +38,39 @@ describe('App MVP workflow', () => {
         expect(apiClient.updateSheetPosition).toHaveBeenCalledWith(inputSheetId, { x: 72, y: 144 }, { revision: 0 }),
       );
 
-      await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
+      fireEvent.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Renamed Inputs' } });
-      await user.click(screen.getByRole('button', { name: /^save$/i }));
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
       await waitFor(() =>
         expect(apiClient.renameSheet).toHaveBeenCalledWith(inputSheetId, 'Renamed Inputs', { revision: 0 }),
       );
-
       inputFrame = screen.getByRole('article', { name: 'Sheet Renamed Inputs' });
       const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
 
-      let editor = await openCellEditor(
-        user,
-        within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B1 empty cell' }),
-      );
+      let editor = openSmokeCellEditor(cellAt(inputFrame, 'B1'));
       fireEvent.change(editor, { target: { value: '10' } });
-      await user.keyboard('{Enter}');
+      fireEvent.keyDown(editor, { key: 'Enter' });
 
-      editor = await openCellEditor(
-        user,
-        within(inputFrame).getByRole('cell', { name: 'Renamed Inputs B2 empty cell' }),
-      );
+      editor = openSmokeCellEditor(cellAt(inputFrame, 'B2'));
       fireEvent.change(editor, { target: { value: '5' } });
-      await user.keyboard('{Enter}');
+      fireEvent.keyDown(editor, { key: 'Enter' });
 
-      editor = await openCellEditor(
-        user,
-        within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 empty cell' }),
-      );
+      editor = openSmokeCellEditor(cellAt(inputFrame, 'C1'));
       fireEvent.change(editor, { target: { value: rawSameSheetFormula } });
-      await user.keyboard('{Enter}');
+      fireEvent.keyDown(editor, { key: 'Enter' });
 
-      editor = await openCellEditor(user, within(outputFrame).getByRole('cell', { name: 'Outputs A1 empty cell' }));
+      editor = openSmokeCellEditor(cellAt(outputFrame, 'A1'));
       fireEvent.change(editor, { target: { value: rawCrossSheetFormula } });
-      await user.keyboard('{Enter}');
+      fireEvent.keyDown(editor, { key: 'Enter' });
 
-      await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
-      await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
+      fireEvent.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
+      fireEvent.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
 
       await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(4));
       await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith(inputSheetId, { revision: 0 }));
       await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith(inputSheetId, { revision: 0 }));
-      expect(within(inputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent('15');
-      expect(within(outputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
-
+      expect(cellAt(inputFrame, 'C1')).toHaveTextContent('15');
+      expect(cellAt(outputFrame, 'A1')).toHaveTextContent('15');
       cleanup();
       render(<App apiClient={apiClient} />);
 
@@ -98,22 +85,32 @@ describe('App MVP workflow', () => {
       expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', outputSheetId);
       expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '420');
       expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '260');
-      expect(within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' })).toHaveTextContent(
-        '15',
-      );
-      expect(within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveTextContent('15');
+      expect(cellAt(reloadedInputFrame, 'C1')).toHaveTextContent('15');
+      expect(cellAt(reloadedOutputFrame, 'A1')).toHaveTextContent('15');
 
-      editor = await openCellEditor(
-        user,
-        within(reloadedInputFrame).getByRole('cell', { name: 'Renamed Inputs C1 cell' }),
-      );
+      editor = openSmokeCellEditor(cellAt(reloadedInputFrame, 'C1'));
       expect(editor).toHaveValue(rawSameSheetFormula);
-      await user.keyboard('{Escape}');
+      fireEvent.keyDown(editor, { key: 'Escape' });
 
-      editor = await openCellEditor(user, within(reloadedOutputFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
+      editor = openSmokeCellEditor(cellAt(reloadedOutputFrame, 'A1'));
       expect(editor).toHaveValue("=SUM('Renamed Inputs'!B1:B2)");
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
     },
-    20_000,
+    8_000,
   );
 });
+
+function openSmokeCellEditor(cell: HTMLElement) {
+  // Focused interaction suites cover browser-like event sequences. This broad smoke test emits
+  // one semantic event per action so parallel coverage load measures product work, not event expansion.
+  fireEvent.doubleClick(cell);
+  const editor = cell.querySelector('textarea');
+  if (!editor) throw new Error(`Missing editor for cell ${cell.dataset.cellKey}`);
+  return editor;
+}
+
+function cellAt(frame: HTMLElement, cellKey: string) {
+  const cell = frame.querySelector<HTMLElement>(`[data-cell-key="${cellKey}"]`);
+  if (!cell) throw new Error(`Missing cell ${cellKey}`);
+  return cell;
+}
