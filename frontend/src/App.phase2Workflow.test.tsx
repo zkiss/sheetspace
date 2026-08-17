@@ -148,6 +148,10 @@ function cellAt(frame: HTMLElement, cellKey: string) {
 
 function expectResults(frame: HTMLElement, expected: Readonly<Record<string, string>>) {
   for (const [cellKey, display] of Object.entries(expected)) {
-    expect(cellAt(frame, cellKey)).toHaveTextContent(display);
+    expect(cellAt(frame, cellKey)).toHaveTextContent(new RegExp(`^${escapeRegex(display)}$`));
   }
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

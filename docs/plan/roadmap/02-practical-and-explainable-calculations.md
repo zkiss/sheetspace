@@ -218,7 +218,7 @@ Display is derived and never persisted: numbers use ECMAScript `Number::toString
 
 ## Delivery And Verification
 
-Phase 2 is delivered with its deliberately narrow typed-value and criteria contracts above. Wildcards, broad spreadsheet coercion, rich formula editing, navigation history, reference lines, and structural reference rewriting remain deferred.
+Phase 2 is delivered with its deliberately narrow typed-value and criteria contracts above. The cell editor preserves and commits raw formulas containing line breaks, but rich multiline formula editing remains deferred alongside wildcards, broad spreadsheet coercion, navigation history, reference lines, and structural reference rewriting.
 
 Automated coverage is split by ownership: parser and evaluator suites verify the value contract, operators, functions, criteria, dependencies, and cycles; reference inspection and navigation suites verify token identity, broken targets, selection, highlighting, and viewport movement; startup and API suites verify canonical persistence and reload. `App.phase2Workflow.test.tsx` is the end-to-end acceptance scenario joining those boundaries in one representative multi-sheet model, including rename, offscreen navigation, isolated errors, persistence, reload, and recalculation. Existing MVP workflow coverage remains in `App.mvpWorkflow.test.tsx`.
 
@@ -226,7 +226,7 @@ Automated coverage is split by ownership: parser and evaluator suites verify the
 
 - Broad Excel formula compatibility, lookup functions, text functions beyond literals, date/time functions, array formulas, named ranges, and custom functions.
 - Wildcards or full Excel-compatible coercion in `SUMIF` and `COUNTIF` criteria.
-- Multiline formula editing, autocomplete, formatting, comments, and a full formula bar.
+- Rich multiline formula editing beyond the raw multiline cell textarea, autocomplete, formatting, comments, and a full formula bar.
 - Reference hover previews, dependency lines, clickable lines, and navigation history.
 - Range copy/paste, fill handles, undo/redo, and cell presentation formatting.
 - Row or column insertion, deletion, and reference rewriting for structural edits.
