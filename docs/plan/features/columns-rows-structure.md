@@ -13,8 +13,9 @@ Rows and columns give worksheets their spreadsheet shape. Structural editing sho
 - Reorder rows and columns.
 - Resize row heights and column widths.
 - Allow custom column names.
-- Keep stable internal row and column ids where needed.
-- Define how formulas behave when rows or columns move.
+- Keep stable internal row and column ids.
+- Use stable row and column identities as resolved formula targets so structural reordering preserves
+  reference meaning while displayed A1 coordinates may change.
 
 ## Custom Column Names
 
@@ -23,11 +24,9 @@ Users should be able to rename columns for readability. A renamed column should 
 Requirements to resolve:
 
 - Custom names should be unique within a sheet or conflicts must be handled clearly.
-- Formula references need a stable canonical representation.
+- Formula references retain stable canonical identities independently of display names.
 - The UI can show custom names while preserving standard A1 addressing.
 
 ## Open Decisions
 
-- Should formulas use positional A1 references, stable row/column ids, or both?
 - Should custom column names appear in formulas?
-- Should reordering preserve formula meaning or preserve visual coordinates?
