@@ -2,7 +2,13 @@ package com.sheetspace
 
 import java.sql.Connection
 
-/** Persists normalized workbook aggregates inside one caller-owned transaction. */
+/**
+ * Persists normalized workbook aggregates inside one caller-owned transaction.
+ *
+ * Sheet documents own their name and revision, frames own spatial state, and tabular content owns
+ * row, column, and sparse-cell records.  Ordinary mutations therefore update only their owning
+ * records; aggregate replacement is reserved for workbook creation/bootstrap and deletion.
+ */
 internal class SqliteWorkbookWriter(
     private val connection: Connection,
     private val reader: SqliteWorkbookReader,
@@ -44,7 +50,7 @@ internal class SqliteWorkbookWriter(
             val currentSheet = current.findSheet(updatedSheet.id)
             when {
                 currentSheet == null -> insertSheet(updatedSheet)
-                currentSheet != updatedSheet -> replaceSheet(currentSheet, updatedSheet)
+                currentSheet != updatedSheet -> persistSheetChanges(currentSheet, updatedSheet)
             }
         }
 
@@ -64,7 +70,7 @@ internal class SqliteWorkbookWriter(
         insertTabularContent(sheet.id, sheet.tabularContent)
     }
 
-    private fun replaceSheet(current: SheetDocument, updated: SheetDocument) {
+    private fun persistSheetChanges(current: SheetDocument, updated: SheetDocument) {
         val updatedRows = connection.prepareStatement(
             """
             UPDATE sheet_documents
@@ -85,7 +91,7 @@ internal class SqliteWorkbookWriter(
             )
         }
 
-        connection.prepareStatement(
+        if (current.frame != updated.frame) connection.prepareStatement(
             """
             UPDATE frame_state
             SET position_x = ?, position_y = ?, frame_width = ?, frame_height = ?, z_index = ?
@@ -100,15 +106,89 @@ internal class SqliteWorkbookWriter(
             statement.setBytes(6, updated.id.value.toUuidBytes())
             statement.executeUpdate()
         }
-        connection.prepareStatement("DELETE FROM sheet_rows WHERE sheet_id = ?").use { statement ->
-            statement.setBytes(1, updated.id.value.toUuidBytes())
+        persistTabularChanges(updated.id, current.tabularContent, updated.tabularContent)
+    }
+
+    private fun persistTabularChanges(
+        sheetId: SheetId,
+        current: TabularContent,
+        updated: TabularContent,
+    ) {
+        persistStructureChanges(sheetId, "sheet_rows", "row_id", current.rows, updated.rows)
+        persistStructureChanges(sheetId, "sheet_columns", "column_id", current.columns, updated.columns)
+
+        val writes = (current.cellContents.keys + updated.cellContents.keys)
+            .distinct()
+            .mapNotNull { coordinate ->
+                val before = current.cellContents[coordinate]
+                val after = updated.cellContents[coordinate]
+                if (before == after) null else CellWrite(coordinate, after.orEmpty())
+            }
+        if (writes.isNotEmpty()) cellWriter.apply(sheetId, writes)
+    }
+
+    private fun <T : Any> persistStructureChanges(
+        sheetId: SheetId,
+        table: String,
+        idColumn: String,
+        current: List<T>,
+        updated: List<T>,
+    ) {
+        val removed = current.toSet() - updated.toSet()
+        if (removed.isNotEmpty()) {
+            connection.prepareStatement("DELETE FROM $table WHERE sheet_id = ? AND $idColumn = ?").use { statement ->
+                removed.forEach { id ->
+                    statement.setBytes(1, sheetId.value.toUuidBytes())
+                    statement.setBytes(2, id.uuidBytes())
+                    statement.addBatch()
+                }
+                statement.executeBatch()
+            }
+        }
+
+        val retained = current.filter { it in updated }
+        val reordered = retained.map { updated.indexOf(it) } != retained.indices.toList()
+        if (reordered) reorderStructure(sheetId, table, idColumn, updated)
+
+        val additions = updated.filterNot { it in current }
+        if (additions.isNotEmpty()) {
+            val orderColumn = if (table == "sheet_rows") "row_order" else "column_order"
+            connection.prepareStatement(
+                "INSERT INTO $table (sheet_id, $idColumn, $orderColumn) VALUES (?, ?, ?)",
+            ).use { statement ->
+                additions.forEach { id ->
+                    statement.setBytes(1, sheetId.value.toUuidBytes())
+                    statement.setBytes(2, id.uuidBytes())
+                    statement.setInt(3, updated.indexOf(id))
+                    statement.addBatch()
+                }
+                statement.executeBatch()
+            }
+        }
+    }
+
+    private fun <T : Any> reorderStructure(sheetId: SheetId, table: String, idColumn: String, updated: List<T>) {
+        val orderColumn = if (table == "sheet_rows") "row_order" else "column_order"
+        connection.prepareStatement("UPDATE $table SET $orderColumn = $orderColumn + ? WHERE sheet_id = ?").use { statement ->
+            statement.setInt(1, updated.size)
+            statement.setBytes(2, sheetId.value.toUuidBytes())
             statement.executeUpdate()
         }
-        connection.prepareStatement("DELETE FROM sheet_columns WHERE sheet_id = ?").use { statement ->
-            statement.setBytes(1, updated.id.value.toUuidBytes())
-            statement.executeUpdate()
+        connection.prepareStatement("UPDATE $table SET $orderColumn = ? WHERE sheet_id = ? AND $idColumn = ?").use { statement ->
+            updated.forEachIndexed { index, id ->
+                statement.setInt(1, index)
+                statement.setBytes(2, sheetId.value.toUuidBytes())
+                statement.setBytes(3, id.uuidBytes())
+                statement.addBatch()
+            }
+            statement.executeBatch()
         }
-        insertTabularContent(updated.id, updated.tabularContent)
+    }
+
+    private fun Any.uuidBytes(): ByteArray = when (this) {
+        is RowId -> value.toUuidBytes()
+        is ColumnId -> value.toUuidBytes()
+        else -> error("Unsupported tabular identity: $this")
     }
 
     private fun insertFrame(sheet: SheetDocument) {
