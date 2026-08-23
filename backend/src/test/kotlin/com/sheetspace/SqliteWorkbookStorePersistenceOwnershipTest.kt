@@ -56,6 +56,44 @@ class SqliteWorkbookStorePersistenceOwnershipTest {
             assertEquals(setOf("cells:INSERT", "sheet_documents:UPDATE"), recordedWrites(connection))
         }
     }
+
+    @Test
+    fun `structural deletion followed by append compacts row and column orders`() = withSqliteStore { store ->
+        val initial = testDocument(
+            TEST_SHEET_1,
+            "Inputs",
+            tabular = TabularContent(rowCount = 3, columnCount = 3),
+        )
+        store.saveWorkbook(testWorkbookOf(initial))
+
+        val rowUpdated = initial.updateTabularContent { content ->
+            val removedRow = content.rows[1]
+            TabularContent(
+                rows = content.rows.filterNot { it == removedRow } + RowId.generate(),
+                columns = content.columns,
+                cellContents = content.cellContents.filterKeys { it.rowId != removedRow },
+            )
+        }
+        store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) { workbook ->
+            workbook.replaceSheet(rowUpdated)
+        }
+        assertEquals(rowUpdated.tabularContent.rows, store.loadSheet(rowUpdated.id)!!.tabularContent.rows)
+
+        val columnUpdated = rowUpdated.updateTabularContent { content ->
+            val removedColumn = content.columns[1]
+            TabularContent(
+                rows = content.rows,
+                columns = content.columns.filterNot { it == removedColumn } + ColumnId.generate(),
+                cellContents = content.cellContents.filterKeys { it.columnId != removedColumn },
+            )
+        }
+        store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 1)) { workbook ->
+            workbook.replaceSheet(columnUpdated)
+        }
+        val reloaded = store.loadSheet(columnUpdated.id)!!.tabularContent
+        assertEquals(columnUpdated.tabularContent.rows, reloaded.rows)
+        assertEquals(columnUpdated.tabularContent.columns, reloaded.columns)
+    }
 }
 
 private fun installWriteAudit(connection: java.sql.Connection) {

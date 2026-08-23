@@ -147,8 +147,8 @@ internal class SqliteWorkbookWriter(
         }
 
         val retained = current.filter { it in updated }
-        val reordered = retained.map { updated.indexOf(it) } != retained.indices.toList()
-        if (reordered) reorderStructure(sheetId, table, idColumn, updated)
+        val reordered = removed.isNotEmpty() || retained.map { updated.indexOf(it) } != retained.indices.toList()
+        if (reordered) reorderStructure(sheetId, table, idColumn, retained, updated.size)
 
         val additions = updated.filterNot { it in current }
         if (additions.isNotEmpty()) {
@@ -167,15 +167,21 @@ internal class SqliteWorkbookWriter(
         }
     }
 
-    private fun <T : Any> reorderStructure(sheetId: SheetId, table: String, idColumn: String, updated: List<T>) {
+    private fun <T : Any> reorderStructure(
+        sheetId: SheetId,
+        table: String,
+        idColumn: String,
+        retained: List<T>,
+        updatedSize: Int,
+    ) {
         val orderColumn = if (table == "sheet_rows") "row_order" else "column_order"
         connection.prepareStatement("UPDATE $table SET $orderColumn = $orderColumn + ? WHERE sheet_id = ?").use { statement ->
-            statement.setInt(1, updated.size)
+            statement.setInt(1, updatedSize)
             statement.setBytes(2, sheetId.value.toUuidBytes())
             statement.executeUpdate()
         }
         connection.prepareStatement("UPDATE $table SET $orderColumn = ? WHERE sheet_id = ? AND $idColumn = ?").use { statement ->
-            updated.forEachIndexed { index, id ->
+            retained.forEachIndexed { index, id ->
                 statement.setInt(1, index)
                 statement.setBytes(2, sheetId.value.toUuidBytes())
                 statement.setBytes(3, id.uuidBytes())
