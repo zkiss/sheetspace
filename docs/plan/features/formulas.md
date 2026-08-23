@@ -8,8 +8,8 @@ Formulas make sheets more than static tables. The formula engine should grow del
 
 - Treat cell content beginning with `=` as a formula.
 - Store each cell as its raw string value, without a cell-content wrapper or persisted formula metadata.
-- Match function names and boolean literals case-insensitively while preserving raw formula text.
-- Store cross-sheet qualifiers as stable sheet ids inside canonical formula strings; translate visible sheet names to ids when edits commit and ids back to current names while editing.
+- Match function names and boolean literals case-insensitively while preserving formula text outside translated reference tokens.
+- Store resolved formula coordinates by stable row and column ids and explicit cross-sheet qualifiers by stable sheet ids inside canonical formula strings; translate them to current A1 addresses and sheet names while editing.
 - Parse formulas into an AST.
 - Evaluate formulas against a workbook snapshot.
 - Support A1-style cell references, ranges, and cross-sheet references.
