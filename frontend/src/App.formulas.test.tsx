@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { openCellEditor, openSheetContextMenu } from './test/appScreen';
+import { autosaveClient } from './test/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('App formula integration', () => {
@@ -541,7 +542,7 @@ describe('App formula integration', () => {
       },
     };
 
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={autosaveClient()} />);
 
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const formulaCell = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
@@ -552,7 +553,7 @@ describe('App formula integration', () => {
 
     await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Append row' }));
 
-    expect(formulaCell).toHaveTextContent('0');
+    await waitFor(() => expect(formulaCell).toHaveTextContent('0'));
     expect(persistentErrorCell).toHaveTextContent('#REF!');
 
     const editor = await openCellEditor(user, persistentErrorCell);
@@ -571,7 +572,7 @@ describe('App formula integration', () => {
       },
     };
 
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={autosaveClient()} />);
 
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const formulaCell = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
@@ -582,7 +583,7 @@ describe('App formula integration', () => {
 
     await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Append column' }));
 
-    expect(formulaCell).toHaveTextContent('0');
+    await waitFor(() => expect(formulaCell).toHaveTextContent('0'));
     expect(persistentErrorCell).toHaveTextContent('#REF!');
 
     const editor = await openCellEditor(user, persistentErrorCell);

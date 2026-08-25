@@ -439,12 +439,12 @@ describe('incremental formula calculation', () => {
     expect(initial['sheet-1'].A1).toMatchObject({ kind: 'error', error: '#REF!' });
     expect(initial['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#REF!' });
 
-    workbook = workbookWithSheets([appendRow(findSheetById(workbook, inputs.id)!)]);
+    workbook = workbookWithSheets([appendRow(findSheetById(workbook, inputs.id)!, 'sheet-1:row:2')]);
     const afterRow = calculation.update(calculationProjection(workbook), { kind: 'structure' });
     expect(afterRow['sheet-1'].A1).toMatchObject({ kind: 'number', value: 0 });
     expect(afterRow['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#REF!' });
 
-    workbook = workbookWithSheets([appendColumn(findSheetById(workbook, inputs.id)!)]);
+    workbook = workbookWithSheets([appendColumn(findSheetById(workbook, inputs.id)!, 'sheet-1:column:3')]);
     const afterColumn = calculation.update(calculationProjection(workbook), { kind: 'structure' });
     expect(afterColumn['sheet-1'].B1).toMatchObject({ kind: 'number', value: 0 });
   });

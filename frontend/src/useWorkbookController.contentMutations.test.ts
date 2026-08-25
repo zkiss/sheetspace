@@ -6,9 +6,13 @@ import {
   sheetBounds,
   type SheetDocument,
 } from './workbook';
-import { WorkbookApiError } from './workbookApi';
+import {
+  WorkbookApiError,
+  type ColumnAppendResponse,
+  type RowAppendResponse,
+} from './workbookApi';
 import { useWorkbookController } from './useWorkbookController';
-import { autosaveClient } from './test/apiClients';
+import { autosaveClient, deferred } from './test/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function documentWithCells(
@@ -28,6 +32,64 @@ function documentWithCells(
     columnCount: bounds.columnCount,
     cells,
   });
+}
+
+async function expectQueuedAxisReconciliation(axis: 'row' | 'column') {
+  const firstAppend = deferred<RowAppendResponse | ColumnAppendResponse>();
+  const secondAppend = deferred<RowAppendResponse | ColumnAppendResponse>();
+  const append = vi.fn()
+    .mockReturnValueOnce(firstAppend.promise)
+    .mockReturnValueOnce(secondAppend.promise);
+  const apiClient = autosaveClient(axis === 'row' ? { appendRow: append } : { appendColumn: append });
+  const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 5 };
+  const { result } = renderHook(() => useWorkbookController({
+    apiClient,
+    initialWorkbook: workbookWithSheets([sheet]),
+  }));
+  const slotKey = axis === 'row' ? 'rows' : 'columns';
+  const firstId = `server-${axis}-first`;
+  const secondId = `server-${axis}-second`;
+
+  act(() => {
+    result.current.commands[axis === 'row' ? 'appendRow' : 'appendColumn'](sheet.id);
+    result.current.commands[axis === 'row' ? 'appendRow' : 'appendColumn'](sheet.id);
+  });
+
+  const queuedSlots = result.current.creatingAxes[sheet.id][slotKey];
+  expect(queuedSlots).toHaveLength(2);
+  expect(new Set(queuedSlots.map((slot) => slot.operationId)).size).toBe(2);
+  expect(append).toHaveBeenCalledTimes(1);
+  expect(append).toHaveBeenCalledWith(sheet.id, { revision: 5 });
+
+  await act(async () => {
+    firstAppend.resolve(axis === 'row'
+      ? { sheetId: sheet.id, revision: 6, rowCount: 21, rowId: firstId }
+      : { sheetId: sheet.id, revision: 6, columnCount: 11, columnId: firstId });
+    await firstAppend.promise;
+  });
+
+  await waitFor(() => expect(append).toHaveBeenCalledTimes(2));
+  expect(append).toHaveBeenNthCalledWith(2, sheet.id, { revision: 6 });
+  expect(result.current.creatingAxes[sheet.id][slotKey].map((slot) => slot.operationId)).toEqual([
+    queuedSlots[1].operationId,
+  ]);
+  const afterFirst = findSheetById(result.current.workbook, sheet.id)!.content[slotKey];
+  expect(afterFirst.slice(-1)).toEqual([firstId]);
+  expect(afterFirst.filter((id) => id === firstId)).toHaveLength(1);
+
+  await act(async () => {
+    secondAppend.resolve(axis === 'row'
+      ? { sheetId: sheet.id, revision: 7, rowCount: 22, rowId: secondId }
+      : { sheetId: sheet.id, revision: 7, columnCount: 12, columnId: secondId });
+    await secondAppend.promise;
+  });
+
+  await waitFor(() => expect(result.current.creatingAxes[sheet.id]).toBeUndefined());
+  const reconciledIds = findSheetById(result.current.workbook, sheet.id)!.content[slotKey];
+  expect(reconciledIds.slice(-2)).toEqual([firstId, secondId]);
+  expect(reconciledIds.filter((id) => id === firstId)).toHaveLength(1);
+  expect(reconciledIds.filter((id) => id === secondId)).toHaveLength(1);
+  expect(append).toHaveBeenCalledTimes(2);
 }
 
 describe('useWorkbookController content mutations', () => {
@@ -189,8 +251,13 @@ describe('useWorkbookController content mutations', () => {
     expect(apiClient.renameSheet).toHaveBeenCalledWith('sheet-inputs', 'Renamed Inputs', { revision: 4 });
   });
 
-  it('appends rows and columns through autosave with revision tokens', () => {
-    const apiClient = autosaveClient();
+  it('queues creating axis slots without changing durable bounds', async () => {
+    const rowAppend = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+    const columnAppend = deferred<{ sheetId: string; revision: number; columnCount: number; columnId: string }>();
+    const apiClient = autosaveClient({
+      appendRow: vi.fn().mockReturnValue(rowAppend.promise),
+      appendColumn: vi.fn().mockReturnValue(columnAppend.promise),
+    });
     const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 5 };
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -207,11 +274,66 @@ describe('useWorkbookController content mutations', () => {
     });
 
     expect(sheetBounds(findSheetById(result.current.workbook, 'sheet-inputs')!)).toEqual({
-      rowCount: 21,
-      columnCount: 11,
+      rowCount: 20,
+      columnCount: 10,
+    });
+    expect(result.current.creatingAxes['sheet-inputs']).toMatchObject({
+      rows: [{ kind: 'creating' }],
+      columns: [{ kind: 'creating' }],
     });
     expect(apiClient.appendRow).toHaveBeenCalledWith('sheet-inputs', { revision: 5 });
-    expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs', { revision: 5 });
+    expect(apiClient.appendColumn).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rowAppend.resolve({ sheetId: 'sheet-inputs', revision: 6, rowCount: 21, rowId: 'server-row' });
+      await rowAppend.promise;
+    });
+
+    await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs', { revision: 6 }));
+    expect(sheetBounds(findSheetById(result.current.workbook, 'sheet-inputs')!)).toEqual({
+      rowCount: 21,
+      columnCount: 10,
+    });
+
+    await act(async () => {
+      columnAppend.resolve({ sheetId: 'sheet-inputs', revision: 7, columnCount: 11, columnId: 'server-column' });
+      await columnAppend.promise;
+    });
+
+    await waitFor(() => expect(result.current.creatingAxes['sheet-inputs']).toBeUndefined());
+    expect(apiClient.appendColumn).toHaveBeenCalledWith('sheet-inputs', { revision: 6 });
+  });
+
+  it.each(['row', 'column'] as const)(
+    'reconciles queued %s placeholders once in request order with exact backend IDs',
+    expectQueuedAxisReconciliation,
+  );
+
+  it('removes only the failed creating slot and reports a failed save', async () => {
+    const rowAppend = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+    const apiClient = autosaveClient({ appendRow: vi.fn().mockReturnValue(rowAppend.promise) });
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => result.current.commands.appendRow('sheet-inputs'));
+    expect(result.current.creatingAxes['sheet-inputs'].rows).toHaveLength(1);
+
+    await act(async () => {
+      rowAppend.reject(new Error('append failed'));
+      await rowAppend.promise.catch(() => undefined);
+    });
+
+    await waitFor(() => {
+      expect(result.current.creatingAxes['sheet-inputs']).toBeUndefined();
+      expect(result.current.saveStatus).toBe('failed');
+    });
+    expect(sheetBounds(findSheetById(result.current.workbook, 'sheet-inputs')!)).toEqual({
+      rowCount: 20,
+      columnCount: 10,
+    });
   });
 
 });

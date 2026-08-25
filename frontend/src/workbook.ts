@@ -55,12 +55,9 @@ export type {
 } from './formulaValue';
 
 export const WORKBOOK_SCHEMA_VERSION = 1;
-export const DEFAULT_COLUMN_COUNT = 10;
-export const DEFAULT_ROW_COUNT = 20;
 export const DEFAULT_SHEET_FRAME_SIZE: SheetFrameSize = { width: 240, height: 160 };
 
 export type SheetId = string;
-export type PendingSheetId = `pending:${string}`;
 export type RowId = string;
 export type ColumnId = string;
 export type CellIdentityKey = string;
@@ -118,10 +115,6 @@ export type ParseResult<T> =
 
 const CELL_ID_SEPARATOR = '\u0000';
 const a1CellsCache = new WeakMap<TabularContent, Readonly<Record<CellKey, string>>>();
-
-export function isPendingSheetId(sheetId: SheetId): sheetId is PendingSheetId {
-  return sheetId.startsWith('pending:');
-}
 
 export function cellIdentityKey(identity: StableCellIdentity): CellIdentityKey {
   return `${identity.rowId}${CELL_ID_SEPARATOR}${identity.columnId}`;
@@ -209,42 +202,6 @@ export function createEmptyWorkbook(): Workbook {
   return { manifest: { version: WORKBOOK_SCHEMA_VERSION, revision: 0, sheetIds: [] }, documents: {} };
 }
 
-function pendingGridId(kind: 'row' | 'column'): string {
-  return `pending-${kind}:${crypto.randomUUID()}`;
-}
-
-export function createSheet(input: {
-  id: SheetId;
-  name: string;
-  existingSheets?: Pick<SheetDocument, 'id' | 'name' | 'frame'>[];
-  position?: WorkspacePosition;
-  frameSize?: SheetFrameSize;
-  zIndex?: number;
-}): MutationResult<SheetDocument> {
-  const existingSheets = input.existingSheets ?? [];
-  const validation = validateSheetName(input.name, existingSheets);
-  if (!validation.ok) return validation;
-  return {
-    ok: true,
-    value: {
-      id: input.id,
-      name: validation.name,
-      revision: 0,
-      frame: {
-        position: input.position ?? { x: 0, y: 0 },
-        size: input.frameSize ?? DEFAULT_SHEET_FRAME_SIZE,
-        zIndex: input.zIndex ?? nextSheetZIndex(existingSheets),
-      },
-      content: {
-        kind: 'tabular',
-        rows: Array.from({ length: DEFAULT_ROW_COUNT }, () => pendingGridId('row')),
-        columns: Array.from({ length: DEFAULT_COLUMN_COUNT }, () => pendingGridId('column')),
-        cells: {},
-      },
-    },
-  };
-}
-
 export function moveSheetZOrder(workbook: Workbook, sheetId: string, direction: SheetZOrderDirection): MutationResult<Workbook> {
   if (!findSheetById(workbook, sheetId)) return { ok: false, reason: 'unknown-sheet' };
   const ordered = [...sheetsInOrder(workbook)].sort((a, b) => a.frame.zIndex - b.frame.zIndex);
@@ -284,10 +241,6 @@ function updateDocuments(workbook: Workbook, update: (sheet: SheetDocument) => S
     return [id, next];
   }));
   return changed ? { ...workbook, documents } : workbook;
-}
-
-function nextSheetZIndex(sheets: Pick<SheetDocument, 'frame'>[]): number {
-  return Math.max(0, ...sheets.map((sheet) => sheet.frame.zIndex)) + 1;
 }
 
 export function validateSheetName(name: string, existingSheets: Pick<SheetDocument, 'id' | 'name'>[], currentSheetId?: string): ValidationResult {
@@ -330,11 +283,11 @@ export function findSheetByName(workbook: Workbook, sheetName: string): ParseRes
   return sheet ? { ok: true, value: sheet } : { ok: false, reason: 'unknown-sheet' };
 }
 
-export function appendRow(sheet: SheetDocument, rowId: RowId = pendingGridId('row')): SheetDocument {
+export function appendRow(sheet: SheetDocument, rowId: RowId): SheetDocument {
   return { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, rowId] } };
 }
 
-export function appendColumn(sheet: SheetDocument, columnId: ColumnId = pendingGridId('column')): SheetDocument {
+export function appendColumn(sheet: SheetDocument, columnId: ColumnId): SheetDocument {
   return { ...sheet, content: { ...sheet.content, columns: [...sheet.content.columns, columnId] } };
 }
 
@@ -381,23 +334,6 @@ export function formulaRawForDisplay(raw: string, workbook: Workbook): string {
 
 export function formulaSheetReferenceIds(raw: string): string[] {
   return formulaSheetReferences(raw).filter((sheetId) => sheetId !== '#REF');
-}
-
-export function remapFormulaSheetIds(raw: string, remaps: ReadonlyMap<string, string>): string {
-  return replaceFormulaQualifiers(raw, (sheetId) => remaps.get(sheetId) ?? sheetId);
-}
-
-export function remapWorkbookFormulaSheetId(workbook: Workbook, fromSheetId: string, toSheetId: string): Workbook {
-  const remaps = new Map([[fromSheetId, toSheetId]]);
-  return updateDocuments(workbook, (sheet) => {
-    let changed = false;
-    const cells = Object.fromEntries(Object.entries(sheet.content.cells).map(([key, raw]) => {
-      const next = remapFormulaSheetIds(raw, remaps);
-      changed ||= next !== raw;
-      return [key, next];
-    }));
-    return changed ? { ...sheet, content: { ...sheet.content, cells } } : sheet;
-  });
 }
 
 function splitSheetReference(input: string): ParseResult<{ sheetName?: string; reference: string }> {

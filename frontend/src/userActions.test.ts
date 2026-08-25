@@ -63,22 +63,6 @@ describe('applyUserAction', () => {
     expect(result.value.calculationImpact.kind).toBe(impact);
   });
 
-  it('creates one deterministic optimistic sheet transition', () => {
-    const sheet = sheetDocument({ id: 'pending:new', name: 'New', revision: 0, position: { x: 40, y: 50 }, zIndex: 3 });
-    const action = { kind: 'create-sheet', sheet } satisfies UserAction;
-    const first = applyUserAction(workbook, action);
-
-    expect(first).toEqual(applyUserAction(workbook, action));
-    expect(first).toMatchObject({
-      ok: true,
-      value: {
-        nextWorkbook: { manifest: { sheetIds: ['alpha', 'beta', 'pending:new'] } },
-        changed: true,
-        calculationImpact: { kind: 'structure' },
-      },
-    });
-  });
-
   it('stores a canonical formula and reports its exact calculation target', () => {
     const cell = cellIdentityAt(alpha.content, 'B2')!;
     const result = applyUserAction(workbook, {

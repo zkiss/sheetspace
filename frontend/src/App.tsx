@@ -34,7 +34,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { commands, formulaResults, retryStartupLoad, saveStatus, sheetIdRemaps, startupLoad, workbook } =
+  const { commands, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -55,7 +55,6 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     updateEditingCellValue,
   } = useCellEditing({
     commands,
-    sheetIdRemaps,
     workbook,
   });
 
@@ -126,6 +125,8 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       <Workspace
         activeCell={activeCell}
         commands={commands}
+        creatingAxes={creatingAxes}
+        creatingFrames={creatingFrames}
         editingCell={editingCell}
         formulaResults={formulaResults}
         keyboardFocusTarget={keyboardFocusTarget}
@@ -142,7 +143,6 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onStartEdit={startEditingCell}
         referenceSelection={referenceSelection}
         saveStatus={saveStatus}
-        sheetIdRemaps={sheetIdRemaps}
         workbook={workbook}
       />
 

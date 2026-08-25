@@ -54,10 +54,12 @@ export type SheetRevisionResponse = {
 
 export type RowAppendResponse = SheetRevisionResponse & {
   rowCount: number;
+  rowId: string;
 };
 
 export type ColumnAppendResponse = SheetRevisionResponse & {
   columnCount: number;
+  columnId: string;
 };
 
 export type SheetZOrderUpdate = {

@@ -11,7 +11,6 @@ import {
   cellRawContent,
   commitCellRawContent,
   createEmptyWorkbook,
-  createSheet,
   findSheetByName,
   frameProjection,
   moveSheetZOrder,
@@ -36,24 +35,6 @@ describe('workbook aggregates and projections', () => {
       manifest: { version: 1, revision: 0, sheetIds: [] },
       documents: {},
     });
-  });
-
-  it('creates named documents with pending stable grid identities and MVP defaults', () => {
-    const result = createSheet({ id: 'pending:sheet-1', name: 'Inputs', position: { x: 12, y: 24 } });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toMatchObject({
-      id: 'pending:sheet-1',
-      name: 'Inputs',
-      revision: 0,
-      frame: { position: { x: 12, y: 24 }, size: { width: 240, height: 160 }, zIndex: 1 },
-      content: { kind: 'tabular', cells: {} },
-    });
-    expect(result.value.content.rows).toHaveLength(20);
-    expect(result.value.content.columns).toHaveLength(10);
-    expect(new Set(result.value.content.rows).size).toBe(20);
-    expect(new Set(result.value.content.columns).size).toBe(10);
   });
 
   it('keeps manifest order independent from document object insertion order', () => {

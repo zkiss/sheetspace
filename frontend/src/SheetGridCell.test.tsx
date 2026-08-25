@@ -1,21 +1,17 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSheet, tabularProjection } from './workbook';
 import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from './SheetGridCell';
 import type { CellEditSession } from './appTypes';
 import { cellTargetAt } from './cellInteraction';
+import { sheetDocument } from './test/workbookFactories';
+import { tabularProjection } from './workbook';
 
 afterEach(() => {
   cleanup();
 });
 
 function testSheet() {
-  const result = createSheet({ id: 'sheet-inputs', name: 'Inputs' });
-  if (!result.ok) {
-    throw new Error('Failed to create test sheet');
-  }
-
-  return tabularProjection(result.value);
+  return tabularProjection(sheetDocument({ id: 'sheet-inputs', name: 'Inputs' }));
 }
 
 function renderCell(overrides: Partial<Parameters<typeof SheetGridCell>[0]> = {}) {

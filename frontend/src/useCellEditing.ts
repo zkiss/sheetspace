@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from 'react';
+import { useEffect, useReducer } from 'react';
 import {
   cellAddressOf,
   cellRawContent,
@@ -19,11 +19,9 @@ import {
   cellInteractionReducer,
   cellKeyForTarget,
   EMPTY_CELL_INTERACTION_STATE,
-  pendingCellIdentityRemaps,
 } from './cellInteraction';
 import type { WorkbookCommands } from './useWorkbookController';
 
-const EMPTY_SHEET_ID_REMAPS: Readonly<Record<string, string>> = {};
 
 function adjacentTarget(
   sheet: SheetDocument | SheetTabularProjection,
@@ -44,24 +42,12 @@ function adjacentTarget(
 
 export function useCellEditing({
   commands,
-  sheetIdRemaps = EMPTY_SHEET_ID_REMAPS,
   workbook,
 }: {
   commands: Pick<WorkbookCommands, 'updateCellContent'>;
-  sheetIdRemaps?: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
   const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
-  const previousWorkbook = useRef(workbook);
-
-  useEffect(() => {
-    dispatch({
-      type: 'remap-sheets',
-      remaps: sheetIdRemaps,
-      identityRemaps: pendingCellIdentityRemaps(previousWorkbook.current, workbook, sheetIdRemaps),
-    });
-    previousWorkbook.current = workbook;
-  }, [sheetIdRemaps, workbook]);
 
   useEffect(() => {
     dispatch({

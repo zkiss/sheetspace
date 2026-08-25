@@ -49,3 +49,9 @@
   width: var(--grid-cell-width);
   min-width: var(--grid-cell-width);
 }
+
+.sheet-grid-axis-creating,
+.sheet-grid-cell-creating {
+  color: #7a8791;
+  background: repeating-linear-gradient(-45deg, #f4f7f8, #f4f7f8 0.35rem, #e8edef 0.35rem, #e8edef 0.7rem);
+}

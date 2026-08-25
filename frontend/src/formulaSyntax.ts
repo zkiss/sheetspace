@@ -544,10 +544,7 @@ class FormulaParser {
       const char = this.input[cursor];
       if (char === '!') return cursor;
       if (char === '(' || char === ',' || char === ')' || /[+*/=<>]/.test(char)) return -1;
-      if (
-        char === ':'
-        && !(cursor === this.index + 'pending'.length && this.input.startsWith('pending:', this.index))
-      ) return -1;
+      if (char === ':') return -1;
       if (
         char === '-'
         && !isUuidLike(candidate)

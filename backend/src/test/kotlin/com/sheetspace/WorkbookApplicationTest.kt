@@ -34,15 +34,17 @@ class WorkbookApplicationTest {
             listOf(SheetZOrderUpdate(updated.id.value, updated.revision, 3)),
         ).single()
         val withRow = application.appendRow(reordered.id.value, reordered.revision)
-        val withColumn = application.appendColumn(withRow.id.value, withRow.revision)
-        application.deleteSheet(withColumn.id.value, withColumn.revision)
+        val withColumn = application.appendColumn(withRow.sheet.id.value, withRow.sheet.revision)
+        application.deleteSheet(withColumn.sheet.id.value, withColumn.sheet.revision)
 
         assertEquals("Inputs", created.name)
         assertEquals("Model", updated.name)
         assertEquals(WorkspacePosition(30.0, 40.0), updated.frame.position)
         assertEquals(3, reordered.frame.zIndex)
-        assertEquals(DEFAULT_ROW_COUNT + 1, withRow.tabularContent.rowCount)
-        assertEquals(DEFAULT_COLUMN_COUNT + 1, withColumn.tabularContent.columnCount)
+        assertEquals(DEFAULT_ROW_COUNT + 1, withRow.sheet.tabularContent.rowCount)
+        assertEquals(withRow.rowId, withRow.sheet.tabularContent.rows.last())
+        assertEquals(DEFAULT_COLUMN_COUNT + 1, withColumn.sheet.tabularContent.columnCount)
+        assertEquals(withColumn.columnId, withColumn.sheet.tabularContent.columns.last())
         assertEquals(emptyList(), store.loadWorkbookBundle().manifest.sheetIds)
     }
 

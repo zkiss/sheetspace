@@ -1,14 +1,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSheet, frameProjection } from './workbook';
 import { SheetFrame } from './SheetFrame';
+import { sheetDocument } from './test/workbookFactories';
+import { frameProjection } from './workbook';
 
 afterEach(cleanup);
 
 function testFrame() {
-  const result = createSheet({ id: 'sheet-inputs', name: 'Inputs' });
-  if (!result.ok) throw new Error('Failed to create test sheet');
-  return frameProjection(result.value);
+  return frameProjection(sheetDocument({ id: 'sheet-inputs', name: 'Inputs' }));
 }
 
 describe('SheetFrame', () => {

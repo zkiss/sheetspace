@@ -3,9 +3,7 @@ import type { CellTarget, ReferenceNavigationTarget } from './appTypes';
 import {
   cellInteractionReducer,
   EMPTY_CELL_INTERACTION_STATE,
-  pendingCellIdentityRemaps,
 } from './cellInteraction';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 
 const a1: CellTarget = {
   sheetId: 'sheet-inputs',
@@ -74,46 +72,4 @@ describe('cellInteractionReducer', () => {
     expect(selected.referenceSelection).toBeNull();
   });
 
-  it('remaps all sheet-bearing state while preserving row and column identity', () => {
-    const reference: ReferenceNavigationTarget = { kind: 'cell', target: a1 };
-    let state = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
-      type: 'select-reference',
-      target: reference,
-    });
-    state = cellInteractionReducer(state, {
-      type: 'start-edit',
-      session: { target: a1, draft: 'Draft' },
-    });
-    state = cellInteractionReducer(state, {
-      type: 'remap-sheets',
-      remaps: { 'sheet-inputs': 'sheet-saved' },
-    });
-
-    expect(state.selection).toEqual({ ...a1, sheetId: 'sheet-saved' });
-    expect(state.editing?.target).toEqual({ ...a1, sheetId: 'sheet-saved' });
-    expect(state.focusRequest).toEqual({ ...a1, sheetId: 'sheet-saved' });
-  });
-
-  it('maps pending row and column identities to saved identities by current position', () => {
-    const pending = positionedSheet('pending:sheet', 'Inputs', { x: 0, y: 0 });
-    const saved = positionedSheet('sheet-saved', 'Inputs', { x: 0, y: 0 });
-    const identityRemaps = pendingCellIdentityRemaps(
-      workbookWithSheets([pending]),
-      workbookWithSheets([saved]),
-      { 'pending:sheet': 'sheet-saved' },
-    );
-    const pendingTarget = {
-      sheetId: pending.id,
-      cell: { rowId: pending.content.rows[2], columnId: pending.content.columns[1] },
-    };
-    const state = cellInteractionReducer(
-      { ...EMPTY_CELL_INTERACTION_STATE, selection: pendingTarget },
-      { type: 'remap-sheets', remaps: { 'pending:sheet': 'sheet-saved' }, identityRemaps },
-    );
-
-    expect(state.selection).toEqual({
-      sheetId: saved.id,
-      cell: { rowId: saved.content.rows[2], columnId: saved.content.columns[1] },
-    });
-  });
 });

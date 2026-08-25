@@ -3,17 +3,17 @@ import {
   appendColumn,
   appendRow,
   commitCellRawContent,
-  createSheet,
   findSheetById,
   renameSheet,
   sheetsInOrder,
+  validateSheetName,
   type SheetDocument,
   type SheetFrameSize,
   type Workbook,
   type WorkspacePosition,
 } from '../workbook';
 import type { WorkbookApi } from '../workbookApi';
-import { workbookWithSheets } from './workbookFactories';
+import { sheetDocument, workbookWithSheets } from './workbookFactories';
 
 export function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -38,8 +38,8 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
       sheets: updates.map(({ sheetId }) => ({ sheetId, revision: 0 })),
     })),
     updateCellContent: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
-    appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0 })),
-    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0 })),
+    appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0, rowId: 'row-appended' })),
+    appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0, columnId: 'column-appended' })),
     ...overrides,
   } satisfies Partial<WorkbookApi>;
 }
@@ -66,17 +66,18 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       return sheet;
     }),
     createSheet: vi.fn().mockImplementation(async (sheet: Parameters<WorkbookApi['createSheet']>[0]) => {
-      const result = createSheet({
+      const existingSheets = sheetsInOrder(persistedWorkbook);
+      const validation = validateSheetName(sheet.name, existingSheets);
+      if (!validation.ok) throw new Error('invalid-sheet');
+      const created = sheetDocument({
         id: deterministicSheetId(nextSheetId++),
-        name: sheet.name,
-        existingSheets: sheetsInOrder(persistedWorkbook),
+        name: validation.name,
         position: sheet.position,
         frameSize: sheet.frameSize,
-        zIndex: sheet.zIndex,
+        zIndex: sheet.zIndex ?? Math.max(0, ...existingSheets.map((existing) => existing.frame.zIndex)) + 1,
       });
-      if (!result.ok) throw new Error('invalid-sheet');
-      persistedWorkbook = workbookWithSheets([...sheetsInOrder(persistedWorkbook), result.value]);
-      return result.value;
+      persistedWorkbook = workbookWithSheets([...existingSheets, created]);
+      return created;
     }),
     deleteSheet: vi.fn().mockImplementation(async (sheetId: string) => {
       if (!findSheetById(persistedWorkbook, sheetId)) throw new Error('sheet-not-found');
@@ -121,12 +122,22 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       return revisionResponse(persistedWorkbook, sheetId);
     }),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
-      const sheet = findSheetById(updateSheet(sheetId, appendRow), sheetId);
-      return { ...revisionResponse(persistedWorkbook, sheetId), rowCount: sheet?.content.rows.length ?? 0 };
+      const rowId = `${sheetId}:row:${findSheetById(persistedWorkbook, sheetId)!.content.rows.length + 1}`;
+      const sheet = findSheetById(updateSheet(sheetId, (current) => appendRow(current, rowId)), sheetId);
+      return {
+        ...revisionResponse(persistedWorkbook, sheetId),
+        rowCount: sheet?.content.rows.length ?? 0,
+        rowId,
+      };
     }),
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => {
-      const sheet = findSheetById(updateSheet(sheetId, appendColumn), sheetId);
-      return { ...revisionResponse(persistedWorkbook, sheetId), columnCount: sheet?.content.columns.length ?? 0 };
+      const columnId = `${sheetId}:column:${findSheetById(persistedWorkbook, sheetId)!.content.columns.length + 1}`;
+      const sheet = findSheetById(updateSheet(sheetId, (current) => appendColumn(current, columnId)), sheetId);
+      return {
+        ...revisionResponse(persistedWorkbook, sheetId),
+        columnCount: sheet?.content.columns.length ?? 0,
+        columnId,
+      };
     }),
   } satisfies WorkbookApi;
 }

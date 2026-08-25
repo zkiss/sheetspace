@@ -119,3 +119,6 @@
   overflow: auto;
   background: #ffffff;
 }
+
+.sheet-frame-creating { opacity: 0.72; }
+.sheet-frame-creating-body { display: grid; flex: 1; place-items: center; color: #5b6870; }

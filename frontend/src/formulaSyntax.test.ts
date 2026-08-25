@@ -28,7 +28,7 @@ describe('formula syntax', () => {
   });
 
   it('preserves ordered reference and qualifier spans from raw syntax', () => {
-    const raw = "=SUM(A1, 'Owner''s Plan' \n! B2:C3, pending:abc-123!D4, #REF!E5)";
+    const raw = "=SUM(A1, 'Owner''s Plan' \n! B2:C3, saved-sheet!D4, #REF!E5)";
     const parsed = parseFormulaSyntax(raw, { preserveUnknownFunctions: true });
 
     expect(parsed.references.map((reference) => ({
@@ -40,34 +40,34 @@ describe('formula syntax', () => {
     }))).toEqual([
       { raw: 'A1', qualifier: undefined, sheetId: undefined },
       { raw: "'Owner''s Plan' \n! B2:C3", qualifier: "'Owner''s Plan'", sheetId: "Owner's Plan" },
-      { raw: 'pending:abc-123!D4', qualifier: 'pending:abc-123', sheetId: 'pending:abc-123' },
+      { raw: 'saved-sheet!D4', qualifier: 'saved-sheet', sheetId: 'saved-sheet' },
       { raw: '#REF!E5', qualifier: '#REF', sheetId: '#REF' },
     ]);
   });
 
   it('retains valid prefix references when later syntax is malformed', () => {
-    const raw = '=SUM(pending:local!A1,)';
+    const raw = '=SUM(source-sheet!A1,)';
     const parsed = parseFormulaSyntax(raw);
 
     expect(parsed.result).toEqual({ kind: 'error', raw, error: '#PARSE!' });
-    expect(formulaSheetReferences(raw)).toEqual(['pending:local']);
+    expect(formulaSheetReferences(raw)).toEqual(['source-sheet']);
     expect(replaceFormulaQualifiers(raw, (qualifier) =>
-      qualifier === 'pending:local' ? 'saved-sheet' : qualifier,
-    )).toBe('=SUM(saved-sheet!A1,)');
+      qualifier === 'source-sheet' ? 'archived-sheet' : qualifier,
+    )).toBe('=SUM(archived-sheet!A1,)');
   });
 
   it('recovers qualifiers after an earlier syntax error for inspection and remapping', () => {
-    const raw = '=SUM(A1,) + pending:local!B2 + saved-sheet!C3 + #REF!D4';
+    const raw = '=SUM(A1,) + source-sheet!B2 + saved-sheet!C3 + #REF!D4';
     const parsed = parseFormulaSyntax(raw);
 
     expect(parsed.result).toEqual({ kind: 'error', raw, error: '#PARSE!' });
-    expect(formulaSheetReferences(raw)).toEqual(['pending:local', 'saved-sheet', '#REF']);
+    expect(formulaSheetReferences(raw)).toEqual(['source-sheet', 'saved-sheet', '#REF']);
     expect(parsed.references.map((reference) =>
       raw.slice(reference.sourceSpan.start, reference.sourceSpan.end),
-    )).toEqual(['A1', 'pending:local!B2', 'saved-sheet!C3', '#REF!D4']);
+    )).toEqual(['A1', 'source-sheet!B2', 'saved-sheet!C3', '#REF!D4']);
     expect(replaceFormulaQualifiers(raw, (qualifier) =>
-      qualifier === 'pending:local' ? 'saved-pending' : qualifier,
-    )).toBe('=SUM(A1,) + saved-pending!B2 + saved-sheet!C3 + #REF!D4');
+      qualifier === 'source-sheet' ? 'archived-sheet' : qualifier,
+    )).toBe('=SUM(A1,) + archived-sheet!B2 + saved-sheet!C3 + #REF!D4');
   });
 
   it('does not reinterpret a malformed range/reference mixture as a colon qualifier', () => {

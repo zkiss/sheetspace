@@ -24,10 +24,6 @@ import {
 // Phase 3 will add inverse data only for actions that its undo contract supports.
 export type UserAction =
   | {
-      kind: 'create-sheet';
-      sheet: SheetDocument;
-    }
-  | {
       kind: 'delete-sheet';
       sheetId: SheetId;
     }
@@ -78,7 +74,6 @@ export type AppliedUserAction = {
 export type UserActionFailureReason =
   | 'duplicate-column-id'
   | 'duplicate-row-id'
-  | 'duplicate-sheet'
   | 'duplicate-sheet-name'
   | 'empty-sheet-name'
   | 'invalid-cell'
@@ -90,8 +85,6 @@ export type UserActionResult =
 
 export function applyUserAction(workbook: Workbook, action: UserAction): UserActionResult {
   switch (action.kind) {
-    case 'create-sheet':
-      return applyCreateSheet(workbook, action);
     case 'delete-sheet':
       return applyDeleteSheet(workbook, action);
     case 'rename-sheet':
@@ -109,24 +102,6 @@ export function applyUserAction(workbook: Workbook, action: UserAction): UserAct
     case 'change-sheet-z-order':
       return applyZOrderChange(workbook, action);
   }
-}
-
-function applyCreateSheet(workbook: Workbook, action: Extract<UserAction, { kind: 'create-sheet' }>): UserActionResult {
-  if (findSheetById(workbook, action.sheet.id)) return { ok: false, reason: 'duplicate-sheet' };
-  const validation = validateSheetName(action.sheet.name, sheetsInOrder(workbook));
-  if (!validation.ok) return { ok: false, reason: validation.reason === 'empty' ? 'empty-sheet-name' : 'duplicate-sheet-name' };
-  const nextZIndex = Math.max(0, ...sheetsInOrder(workbook).map((sheet) => sheet.frame.zIndex)) + 1;
-  const sheet = {
-    ...action.sheet,
-    name: validation.name,
-    frame: { ...action.sheet.frame, zIndex: nextZIndex },
-  };
-  const nextWorkbook: Workbook = {
-    ...workbook,
-    manifest: { ...workbook.manifest, sheetIds: [...workbook.manifest.sheetIds, sheet.id] },
-    documents: { ...workbook.documents, [sheet.id]: sheet },
-  };
-  return success(nextWorkbook, { kind: 'structure' });
 }
 
 function applyDeleteSheet(workbook: Workbook, action: Extract<UserAction, { kind: 'delete-sheet' }>): UserActionResult {

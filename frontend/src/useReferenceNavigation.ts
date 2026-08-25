@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   addressRangeOf,
   cellAddressOf,
@@ -9,7 +9,6 @@ import {
   type Workbook,
 } from './workbook';
 import type { ReferenceNavigationTarget } from './appTypes';
-import { pendingCellIdentityRemaps, remapReferenceNavigationTarget } from './cellInteraction';
 import type { FormulaInspectionReference } from './formulaInspection';
 import { rangeFitsSheetViewport } from './gridGeometry';
 import {
@@ -46,7 +45,6 @@ function normalizedRange(reference: FormulaInspectionReference, sheet: SheetDocu
 export function useReferenceNavigation({
   navigateToTarget,
   onSelectReferenceTarget,
-  sheetIdRemaps,
   workbook,
 }: {
   navigateToTarget: (
@@ -54,20 +52,11 @@ export function useReferenceNavigation({
     forceOversized?: boolean,
   ) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
-  sheetIdRemaps: Readonly<Record<string, string>>;
   workbook: Workbook;
 }) {
-  const previousWorkbook = useRef(workbook);
   const [navigationHighlight, setNavigationHighlight] =
     useState<ReferenceNavigationTarget | null>(null);
   const [navigationMotion, setNavigationMotion] = useState(false);
-
-  useEffect(() => {
-    const identityRemaps = pendingCellIdentityRemaps(previousWorkbook.current, workbook, sheetIdRemaps);
-    setNavigationHighlight((current) =>
-      remapReferenceNavigationTarget(current, sheetIdRemaps, identityRemaps));
-    previousWorkbook.current = workbook;
-  }, [sheetIdRemaps, workbook]);
 
   useEffect(() => {
     if (!navigationHighlight) {

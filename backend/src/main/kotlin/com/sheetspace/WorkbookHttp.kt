@@ -63,6 +63,7 @@ data class RowAppendResponse(
     val sheetId: String,
     val revision: Long,
     val rowCount: Int,
+    val rowId: String,
 )
 
 @Serializable
@@ -70,6 +71,7 @@ data class ColumnAppendResponse(
     val sheetId: String,
     val revision: Long,
     val columnCount: Int,
+    val columnId: String,
 )
 
 @Serializable
@@ -198,12 +200,13 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             if (!call.requireExistingSheet(workbookApplication, sheetId)) return@post
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             call.respondApplicationResult {
-                val sheet = workbookApplication.appendRow(sheetId, expectedRevision)
+                val result = workbookApplication.appendRow(sheetId, expectedRevision)
                 call.respond(
                     RowAppendResponse(
-                        sheet.id.value,
-                        sheet.revision,
-                        sheet.tabularContent.rowCount,
+                        result.sheet.id.value,
+                        result.sheet.revision,
+                        result.sheet.tabularContent.rowCount,
+                        result.rowId.value,
                     ),
                 )
             }
@@ -217,12 +220,13 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             if (!call.requireExistingSheet(workbookApplication, sheetId)) return@post
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             call.respondApplicationResult {
-                val sheet = workbookApplication.appendColumn(sheetId, expectedRevision)
+                val result = workbookApplication.appendColumn(sheetId, expectedRevision)
                 call.respond(
                     ColumnAppendResponse(
-                        sheet.id.value,
-                        sheet.revision,
-                        sheet.tabularContent.columnCount,
+                        result.sheet.id.value,
+                        result.sheet.revision,
+                        result.sheet.tabularContent.columnCount,
+                        result.columnId.value,
                     ),
                 )
             }

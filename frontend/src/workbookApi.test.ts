@@ -241,10 +241,16 @@ describe('workbook API mutations', () => {
   });
 
   it('sends A1 cell content and structure mutations with revision tokens', async () => {
-    const fetchMock = mockFetch({ sheetId: 'sheet 1', revision: 1, rowCount: 21, columnCount: 11 });
+    const fetchMock = mockFetch({
+      sheetId: 'sheet 1', revision: 1, rowCount: 21, columnCount: 11, rowId: 'row-21', columnId: 'column-11',
+    });
     await workbookApi.updateCellContent('sheet 1', 'A1', '=SUM(B1:B2)', { revision: 7 });
-    await workbookApi.appendRow('sheet 1', { revision: 8 });
-    await workbookApi.appendColumn('sheet 1');
+    const row = await workbookApi.appendRow('sheet 1', { revision: 8 });
+    const column = await workbookApi.appendColumn('sheet 1');
+
+    expect(row.rowId).toBe('row-21');
+    expect(column.columnId).toBe('column-11');
+
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet%201/cells/A1', {
       method: 'PUT', body: JSON.stringify('=SUM(B1:B2)'),

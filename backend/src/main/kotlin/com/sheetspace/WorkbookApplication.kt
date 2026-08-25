@@ -19,6 +19,16 @@ data class SheetZOrderUpdate(
     val zIndex: Int,
 )
 
+data class RowAppendResult(
+    val sheet: SheetDocument,
+    val rowId: RowId,
+)
+
+data class ColumnAppendResult(
+    val sheet: SheetDocument,
+    val columnId: ColumnId,
+)
+
 enum class WorkbookApplicationError {
     SHEET_NOT_FOUND,
     SHEET_NAME_REQUIRED,
@@ -53,9 +63,9 @@ interface WorkbookApplication {
 
     fun updateCell(sheetId: String, address: String, content: String, expectedRevision: Long): SheetDocument
 
-    fun appendRow(sheetId: String, expectedRevision: Long): SheetDocument
+    fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult
 
-    fun appendColumn(sheetId: String, expectedRevision: Long): SheetDocument
+    fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
 }
 
 class DefaultWorkbookApplication(
@@ -176,15 +186,19 @@ class DefaultWorkbookApplication(
         )
     }
 
-    override fun appendRow(sheetId: String, expectedRevision: Long): SheetDocument =
-        updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+    override fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult {
+        val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendRow))
         }
+        return RowAppendResult(sheet, sheet.tabularContent.rows.last())
+    }
 
-    override fun appendColumn(sheetId: String, expectedRevision: Long): SheetDocument =
-        updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+    override fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult {
+        val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
+        return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
+    }
 
     private fun updateExistingSheet(
         sheetId: String,

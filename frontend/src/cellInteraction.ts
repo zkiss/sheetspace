@@ -4,7 +4,6 @@ import {
   cellKey,
   type SheetDocument,
   type SheetTabularProjection,
-  type Workbook,
 } from './workbook';
 import type { CellEditSession, CellTarget, ReferenceNavigationTarget } from './appTypes';
 
@@ -35,52 +34,12 @@ export type CellInteractionAction =
   | { type: 'navigate'; target: CellTarget }
   | { type: 'commit-tab'; target: CellTarget; originColumnId: string }
   | { type: 'commit-enter'; target: CellTarget }
-  | {
-      type: 'remap-sheets';
-      remaps: Readonly<Record<string, string>>;
-      identityRemaps?: CellIdentityRemaps;
-    }
   | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> };
 
 function referenceStart(target: ReferenceNavigationTarget): CellTarget {
   return target.kind === 'cell'
     ? target.target
     : { sheetId: target.sheetId, cell: target.range.start };
-}
-
-export type CellIdentityRemaps = Readonly<Record<string, {
-  sheetId: string;
-  rowIds: Readonly<Record<string, string>>;
-  columnIds: Readonly<Record<string, string>>;
-}>>;
-
-function remapTarget(
-  target: CellTarget | null,
-  remaps: Readonly<Record<string, string>>,
-  identityRemaps?: CellIdentityRemaps,
-) {
-  if (!target) return null;
-  const identityRemap = identityRemaps?.[target.sheetId];
-  const sheetId = identityRemap?.sheetId ?? remaps[target.sheetId] ?? target.sheetId;
-  const rowId = identityRemap?.rowIds[target.cell.rowId] ?? target.cell.rowId;
-  const columnId = identityRemap?.columnIds[target.cell.columnId] ?? target.cell.columnId;
-  return sheetId === target.sheetId && rowId === target.cell.rowId && columnId === target.cell.columnId
-    ? target
-    : { sheetId, cell: { rowId, columnId } };
-}
-
-export function remapReferenceNavigationTarget(
-  target: ReferenceNavigationTarget | null,
-  remaps: Readonly<Record<string, string>>,
-  identityRemaps?: CellIdentityRemaps,
-): ReferenceNavigationTarget | null {
-  if (!target) return null;
-  if (target.kind === 'cell') {
-    return { kind: 'cell', target: remapTarget(target.target, remaps, identityRemaps)! };
-  }
-  const start = remapTarget({ sheetId: target.sheetId, cell: target.range.start }, remaps, identityRemaps)!;
-  const end = remapTarget({ sheetId: target.sheetId, cell: target.range.end }, remaps, identityRemaps)!;
-  return { kind: 'range', sheetId: start.sheetId, range: { start: start.cell, end: end.cell } };
 }
 
 export function cellInteractionReducer(
@@ -148,20 +107,6 @@ export function cellInteractionReducer(
         referenceSelection: null,
         tabRunOriginColumnId: null,
       };
-    case 'remap-sheets':
-      return {
-        ...state,
-        selection: remapTarget(state.selection, action.remaps, action.identityRemaps),
-        editing: state.editing
-          ? { ...state.editing, target: remapTarget(state.editing.target, action.remaps, action.identityRemaps)! }
-          : null,
-        focusRequest: remapTarget(state.focusRequest, action.remaps, action.identityRemaps),
-        referenceSelection: remapReferenceNavigationTarget(
-          state.referenceSelection,
-          action.remaps,
-          action.identityRemaps,
-        ),
-      };
     case 'prune-sheets': {
       const keep = (target: CellTarget | null) => target && action.sheetIds.has(target.sheetId) ? target : null;
       const referenceSelection = state.referenceSelection
@@ -177,29 +122,6 @@ export function cellInteractionReducer(
       };
     }
   }
-}
-
-export function pendingCellIdentityRemaps(
-  previous: Workbook,
-  current: Workbook,
-  sheetIdRemaps: Readonly<Record<string, string>>,
-): CellIdentityRemaps {
-  const result: Record<string, CellIdentityRemaps[string]> = {};
-  for (const [oldSheetId, sheetId] of Object.entries(sheetIdRemaps)) {
-    const oldSheet = previous.documents[oldSheetId];
-    const newSheet = current.documents[sheetId];
-    if (!oldSheet || !newSheet) continue;
-    const identityRemap = {
-      sheetId,
-      rowIds: Object.fromEntries(oldSheet.content.rows.flatMap((rowId, index) =>
-        newSheet.content.rows[index] ? [[rowId, newSheet.content.rows[index]]] : [])),
-      columnIds: Object.fromEntries(oldSheet.content.columns.flatMap((columnId, index) =>
-        newSheet.content.columns[index] ? [[columnId, newSheet.content.columns[index]]] : [])),
-    };
-    result[oldSheetId] = identityRemap;
-    result[sheetId] = identityRemap;
-  }
-  return result;
 }
 
 export function cellTargetAt(

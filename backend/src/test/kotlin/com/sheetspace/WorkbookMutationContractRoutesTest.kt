@@ -31,10 +31,6 @@ class WorkbookMutationContractRoutesTest {
             val columnResponse = client.post("/api/sheets/$sheetId/columns") {
                 revisionHeader(workbookApplication, sheetId)
             }
-            val deleteResponse = client.delete("/api/sheets/$sheetId") {
-                revisionHeader(workbookApplication, sheetId)
-            }
-
             val patchBody = patchResponse.bodyAsText()
             val cellBody = cellResponse.bodyAsText()
             val rowBody = rowResponse.bodyAsText()
@@ -44,7 +40,6 @@ class WorkbookMutationContractRoutesTest {
             assertEquals(HttpStatusCode.OK, cellResponse.status)
             assertEquals(HttpStatusCode.OK, rowResponse.status)
             assertEquals(HttpStatusCode.OK, columnResponse.status)
-            assertEquals(HttpStatusCode.NoContent, deleteResponse.status)
             assertEquals(
                 SheetRevisionResponse(sheetId = sheetId, revision = 1),
                 testJson.decodeFromString(patchBody),
@@ -53,14 +48,23 @@ class WorkbookMutationContractRoutesTest {
                 SheetRevisionResponse(sheetId = sheetId, revision = 2),
                 testJson.decodeFromString(cellBody),
             )
-            assertEquals(
-                RowAppendResponse(sheetId = sheetId, revision = 3, rowCount = DEFAULT_ROW_COUNT + 1),
-                testJson.decodeFromString(rowBody),
-            )
-            assertEquals(
-                ColumnAppendResponse(sheetId = sheetId, revision = 4, columnCount = DEFAULT_COLUMN_COUNT + 1),
-                testJson.decodeFromString(columnBody),
-            )
+            val rowAppend = testJson.decodeFromString<RowAppendResponse>(rowBody)
+            val columnAppend = testJson.decodeFromString<ColumnAppendResponse>(columnBody)
+            assertEquals(sheetId, rowAppend.sheetId)
+            assertEquals(3, rowAppend.revision)
+            assertEquals(DEFAULT_ROW_COUNT + 1, rowAppend.rowCount)
+            assertEquals(sheetId, columnAppend.sheetId)
+            assertEquals(4, columnAppend.revision)
+            assertEquals(DEFAULT_COLUMN_COUNT + 1, columnAppend.columnCount)
+            val persisted = workbookApplication.loadSheet(sheetId).tabularContent
+            assertEquals(persisted.rows.last().value, rowAppend.rowId)
+            assertEquals(persisted.columns.last().value, columnAppend.columnId)
+            assertFalse(rowAppend.rowId in persisted.rows.dropLast(1).map(RowId::value))
+            assertFalse(columnAppend.columnId in persisted.columns.dropLast(1).map(ColumnId::value))
+            val deleteResponse = client.delete("/api/sheets/$sheetId") {
+                revisionHeader(workbookApplication, sheetId)
+            }
+            assertEquals(HttpStatusCode.NoContent, deleteResponse.status)
             assertFalse(patchBody.contains("ok"))
             assertFalse(cellBody.contains("ok"))
             assertFalse(rowBody.contains("ok"))

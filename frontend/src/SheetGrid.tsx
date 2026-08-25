@@ -1,7 +1,6 @@
 import { useEffect, useRef, type CSSProperties, type RefObject } from 'react';
 import {
   cellKey,
-  columnIndexToLabel,
   parseA1Address,
   sheetBounds,
   type CellAddress,
@@ -9,6 +8,7 @@ import {
   type FormulaEvaluationSnapshot,
   type SheetTabularProjection,
 } from './workbook';
+import type { GridAxisProjection } from './gridAxisProjection';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
   GRID_CELL_HEIGHT,
@@ -24,7 +24,7 @@ import {
   type SheetGridCellInteraction,
 } from './SheetGridCell';
 import { SheetGridHeaders } from './SheetGridHeaders';
-import { getSheetCellDisplayText, type ColumnHeader } from './sheetGridModel';
+import { getSheetCellDisplayText } from './sheetGridModel';
 import { cssRemFromPixels } from './styleTokens';
 import './SheetGrid.css';
 
@@ -53,6 +53,7 @@ function ensureCellVisibleOutsideStickyHeaders(
 
 export function SheetGrid({
   activeCellKey,
+  axisProjection,
   cellInteraction,
   editorInteraction,
   editingCell,
@@ -65,6 +66,7 @@ export function SheetGrid({
   selectedRange,
 }: {
   activeCellKey: string | null;
+  axisProjection: GridAxisProjection;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
   editingCell: CellEditSession | null;
@@ -79,11 +81,7 @@ export function SheetGrid({
   const cellRefs = useRef(new Map<string, HTMLTableCellElement>());
   const columnHeaderRef = useRef<HTMLTableCellElement>(null);
   const rowHeaderRef = useRef<HTMLTableCellElement>(null);
-  const columns: ColumnHeader[] = sheet.columns.map((_, columnIndex) => ({
-    index: columnIndex,
-    label: columnIndexToLabel(columnIndex),
-  }));
-  const rows = sheet.rows.map((_, rowIndex) => rowIndex);
+  const { columns, rows } = axisProjection;
 
   function registerCell(key: string, cellElement: HTMLTableCellElement | null) {
     if (cellElement) {
@@ -150,17 +148,27 @@ export function SheetGrid({
     >
       <SheetGridHeaders columnHeaderRef={columnHeaderRef} columns={columns} />
       <tbody>
-        {rows.map((rowIndex) => (
-          <tr key={rowIndex}>
+        {rows.map((row) => (
+          <tr key={row.kind === 'creating' ? row.operationId : row.id}>
             <th
-              className="sheet-grid-row-header"
-              ref={rowIndex === 0 ? rowHeaderRef : undefined}
+              aria-label={row.kind === 'creating' ? 'Creating row' : undefined}
+              className={`sheet-grid-row-header${row.kind === 'creating' ? ' sheet-grid-axis-creating' : ''}`}
+              ref={row.kind === 'saved' && row.durableIndex === 0 ? rowHeaderRef : undefined}
               scope="row"
             >
-              {rowIndex + 1}
+              {row.kind === 'creating' ? 'Creating…' : row.durableIndex + 1}
             </th>
             {columns.map((column) => {
-              const address = { columnIndex: column.index, rowIndex };
+              if (row.kind === 'creating' || column.kind === 'creating') {
+                return (
+                  <td
+                    aria-label="Creating cell"
+                    className="sheet-grid-cell sheet-grid-cell-creating"
+                    key={column.kind === 'creating' ? column.operationId : column.id}
+                  />
+                );
+              }
+              const address = { columnIndex: column.durableIndex, rowIndex: row.durableIndex };
               const key = cellKey(address);
               const isActive = activeCellKey === key;
               const isEditing = cellKeyForTarget(sheet, editingCell?.target ?? null) === key;

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import {
   createSheetFromToolbar,
@@ -8,10 +8,9 @@ import {
   openSheetContextMenu,
   workspaceSurface,
 } from './test/appScreen';
-import { autosaveClient, deferred, deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
+import { autosaveClient, deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
 import { workspaceRect } from './test/domGeometry';
 import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
-import type { SheetDocument } from './workbook';
 
 function renderEmptyPersistedWorkbook() {
   render(<App initialWorkbook={workbookWithSheets([])} apiClient={persistedWorkbookClient()} />);
@@ -180,7 +179,7 @@ describe('App sheet management integration', () => {
       columnCount: 2,
     });
 
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={autosaveClient()} />);
 
     const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
@@ -191,7 +190,7 @@ describe('App sheet management integration', () => {
     await user.keyboard('{Enter}');
     await user.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
 
-    expect(inputFrame).toHaveAttribute('data-row-count', '3');
+    await waitFor(() => expect(inputFrame).toHaveAttribute('data-row-count', '3'));
     expect(within(inputFrame).getByRole('rowheader', { name: '3' })).toBeInTheDocument();
     expect(within(inputFrame).getByRole('cell', { name: 'Inputs A1 cell' })).toHaveTextContent('Existing');
     expect(within(inputFrame).getByRole('cell', { name: 'Inputs B3 empty cell' })).toBeInTheDocument();
@@ -212,7 +211,7 @@ describe('App sheet management integration', () => {
       columnCount: 2,
     });
 
-    render(<App initialWorkbook={workbookWithSheets([wide, compact])} />);
+    render(<App initialWorkbook={workbookWithSheets([wide, compact])} apiClient={autosaveClient()} />);
 
     const wideFrame = screen.getByRole('article', { name: 'Sheet Wide Sheet' });
     const compactFrame = screen.getByRole('article', { name: 'Sheet Compact' });
@@ -223,7 +222,7 @@ describe('App sheet management integration', () => {
     await user.keyboard('{Enter}');
     await user.click(within(openSheetContextMenu(wideFrame)).getByRole('menuitem', { name: 'Append column' }));
 
-    expect(wideFrame).toHaveAttribute('data-column-count', '27');
+    await waitFor(() => expect(wideFrame).toHaveAttribute('data-column-count', '27'));
     expect(within(wideFrame).getByRole('columnheader', { name: 'AA' })).toBeInTheDocument();
     expect(within(wideFrame).getByRole('cell', { name: 'Wide Sheet Z1 cell' })).toHaveTextContent('Edge');
     expect(within(wideFrame).getByRole('cell', { name: 'Wide Sheet AA2 empty cell' })).toBeInTheDocument();
@@ -364,24 +363,6 @@ describe('App sheet management integration', () => {
 
     expect(await screen.findByRole('article', { name: 'Sheet Outputs' })).toBeInTheDocument();
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
-  });
-
-  it('deletes pending sheets from their context menu without waiting for create persistence', async () => {
-    const user = userEvent.setup();
-    const createSave = deferred<SheetDocument>();
-    const apiClient = autosaveClient({
-      createSheet: vi.fn().mockReturnValue(createSave.promise),
-    });
-    render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
-
-    await createSheetFromToolbar('Inputs');
-
-    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    expect(frame.getAttribute('data-sheet-id')).toMatch(/^pending:[0-9a-f-]+$/);
-    await user.click(within(openSheetContextMenu(frame)).getByRole('menuitem', { name: 'Delete' }));
-
-    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
-    expect(screen.getByText('0 sheets')).toBeInTheDocument();
   });
 
   it('rejects duplicate sheet renames and keeps the old name active', async () => {

@@ -16,6 +16,7 @@ export type SavedSheetSaveTarget =
   | { kind: 'rename' }
   | { kind: 'rows' }
   | { kind: 'columns' }
+  | { kind: 'axis-append' }
   | { kind: 'cell-content'; cellKey: CellKey }
   | { kind: 'frame' }
   | { kind: 'z-index' };
@@ -211,6 +212,7 @@ export function useSavedSheetAutosave({
     target,
     run,
     reconcile,
+    onFailure,
     coalesceKey = null,
     coalesce = true,
     affectedSheetIds,
@@ -220,6 +222,7 @@ export function useSavedSheetAutosave({
     target: SavedSheetSaveTarget;
     run: () => Promise<T>;
     reconcile?: (savedResult: T) => void;
+    onFailure?: () => void;
     coalesceKey?: string | null;
     coalesce?: boolean;
     affectedSheetIds?: ReadonlySet<string>;
@@ -231,9 +234,14 @@ export function useSavedSheetAutosave({
     const task: SavedSheetTask = {
       affectedSheetIds: affectedSheetIds ?? new Set(typeof sheetId === 'string' ? [sheetId] : []),
       coalesceKey,
-      execute: () => run().then((savedResult) => {
-        reconcile?.(savedResult);
-      }),
+      execute: () => run()
+        .then((savedResult) => {
+          reconcile?.(savedResult);
+        })
+        .catch((cause: unknown) => {
+          onFailure?.();
+          throw cause;
+        }),
       ignoreFailure,
       superseded: false,
     };
@@ -392,16 +400,25 @@ export function useSavedSheetAutosave({
     target,
     request,
     coalesceKey,
+    coalesce = true,
+    reconcile,
+    onFailure,
   }: {
     sheetId: string;
     target: SavedSheetSaveTarget;
     request: (sheetId: string, revision: number | undefined) => Promise<T>;
     coalesceKey?: string;
+    coalesce?: boolean;
+    reconcile?: (response: T | undefined) => void;
+    onFailure?: () => void;
   }) => {
     enqueueEdit({
       sheetId,
       target,
       coalesceKey,
+      coalesce,
+      reconcile,
+      onFailure,
       run: () => runRevisionedEdit({
         sheetId,
         request: (revision) => request(sheetId, revision),

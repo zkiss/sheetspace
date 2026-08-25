@@ -12,6 +12,8 @@ import {
   sheetsInOrder,
   tabularProjection,
 } from './workbook';
+import { projectGridAxes } from './gridAxisProjection';
+import type { CreatingGridAxes } from './gridAxisProjection';
 import type {
   CellTarget,
   CellNavigationDirection,
@@ -24,6 +26,8 @@ import { FormulaReferenceInspection } from './FormulaReferenceInspection';
 import { inspectFormula } from './formulaInspection';
 import { SheetContextMenu } from './SheetContextMenu';
 import { SheetFrame } from './SheetFrame';
+import { CreatingSheetFrame } from './CreatingSheetFrame';
+import type { CreatingSheetFrame as CreatingSheetFrameState } from './useSheetCreationOperations';
 import { SheetGrid } from './SheetGrid';
 import { useReferenceNavigation } from './useReferenceNavigation';
 import { useSheetFrameInteractions } from './useSheetFrameInteractions';
@@ -51,7 +55,8 @@ export function Workspace({
   onStartEdit,
   referenceSelection,
   saveStatus,
-  sheetIdRemaps,
+  creatingAxes,
+  creatingFrames,
   workbook,
 }: {
   activeCell: CellTarget | null;
@@ -72,7 +77,8 @@ export function Workspace({
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
   referenceSelection: ReferenceNavigationTarget | null;
   saveStatus: SaveStatus;
-  sheetIdRemaps: Readonly<Record<string, string>>;
+  creatingFrames: CreatingSheetFrameState[];
+  creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
   workbook: Workbook;
 }) {
   const sheets = sheetsInOrder(workbook);
@@ -92,7 +98,6 @@ export function Workspace({
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
     onSelectReferenceTarget,
-    sheetIdRemaps,
     workbook,
   });
   const {
@@ -116,15 +121,8 @@ export function Workspace({
     onOpenRenameDialog(sheet);
   }
 
-  const resolvedPendingSheetMenu = workspaceController.pendingSheetMenu
-    ? {
-        ...workspaceController.pendingSheetMenu,
-        sheetId: sheetIdRemaps[workspaceController.pendingSheetMenu.sheetId]
-          ?? workspaceController.pendingSheetMenu.sheetId,
-      }
-    : null;
-  const menuSheet = resolvedPendingSheetMenu
-    ? sheets.find((sheet) => sheet.id === resolvedPendingSheetMenu.sheetId)
+  const menuSheet = workspaceController.pendingSheetMenu
+    ? sheets.find((sheet) => sheet.id === workspaceController.pendingSheetMenu!.sheetId)
     : undefined;
 
   return (
@@ -146,9 +144,9 @@ export function Workspace({
       />
 
       <WorkspaceSurface
-        contextMenu={resolvedPendingSheetMenu && menuSheet ? (
+        contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
-            menu={resolvedPendingSheetMenu}
+            menu={workspaceController.pendingSheetMenu}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();
               commands.appendColumn(sheetId);
@@ -170,7 +168,7 @@ export function Workspace({
             sheet={menuSheet}
           />
         ) : undefined}
-        hasSheets={sheets.length > 0}
+        hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
         navigationMotion={navigationMotion}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
@@ -192,6 +190,7 @@ export function Workspace({
               }
             : projectedFrame;
           const tabular = tabularProjection(sheet);
+          const axisProjection = projectGridAxes(tabular, creatingAxes[sheet.id]);
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const selectedRange = referenceSelection?.kind === 'range'
             && referenceSelection.sheetId === sheet.id
@@ -207,7 +206,7 @@ export function Workspace({
 
           return (
             <SheetFrame
-              columnCount={tabular.columns.length}
+              columnCount={axisProjection.columns.length}
               frame={frame}
               isActiveSheet={activeCell?.sheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
@@ -224,11 +223,12 @@ export function Workspace({
               onSheetFrameDragMove={handleSheetFrameDragMove}
               onSheetFrameDragStart={handleSheetFrameDragStart}
               onSheetFrameDragStop={stopSheetFrameDrag}
-              rowCount={tabular.rows.length}
+              rowCount={axisProjection.rows.length}
             >
               {(scrollContainerRef) => (
                 <SheetGrid
                   activeCellKey={cellKeyForTarget(sheet, activeCell)}
+                  axisProjection={axisProjection}
                   cellInteraction={{
                     clear: onClearCell,
                     navigate: onNavigateCell,
@@ -254,6 +254,7 @@ export function Workspace({
             </SheetFrame>
           );
         })}
+        {creatingFrames.map((frame) => <CreatingSheetFrame frame={frame} key={frame.operationKey} />)}
       </WorkspaceSurface>
     </>
   );
