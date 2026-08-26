@@ -34,7 +34,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { commands, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRetryFailedSaves, commands, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -124,6 +124,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     <main className="workspace-shell">
       <Workspace
         activeCell={activeCell}
+        canRetryFailedSaves={canRetryFailedSaves}
         commands={commands}
         creatingAxes={creatingAxes}
         creatingFrames={creatingFrames}
@@ -138,6 +139,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onEditValueChange={updateEditingCellValue}
         onNavigateCell={navigateCell}
         onOpenRenameDialog={openRenameDialog}
+        onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
         onSelectReferenceTarget={selectReferenceTarget}
         onStartEdit={startEditingCell}

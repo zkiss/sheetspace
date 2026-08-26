@@ -137,6 +137,47 @@ describe('useWorkbookController frame layout and z-order', () => {
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
 
+  it('retains the in-flight resize and persists only the latest queued resize', async () => {
+    const firstResize = deferred<{ sheetId: string; revision: number }>();
+    const finalResize = deferred<{ sheetId: string; revision: number }>();
+    const updateSheetFrameLayout = vi.fn()
+      .mockReturnValueOnce(firstResize.promise)
+      .mockReturnValueOnce(finalResize.promise);
+    const apiClient = autosaveClient({ updateSheetFrameLayout });
+    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }), revision: 6 };
+    const { result } = renderHook(() =>
+      useWorkbookController({ apiClient, initialWorkbook: workbookWithSheets([sheet]) }),
+    );
+
+    act(() => {
+      result.current.commands.resizeSheetFrame(sheet.id, { x: 130, y: 80 }, { width: 160, height: 150 });
+      result.current.commands.resizeSheetFrame(sheet.id, { x: 140, y: 80 }, { width: 170, height: 155 });
+      result.current.commands.resizeSheetFrame(sheet.id, { x: 150, y: 80 }, { width: 180, height: 160 });
+    });
+
+    expect(updateSheetFrameLayout).toHaveBeenCalledTimes(1);
+    expect(updateSheetFrameLayout).toHaveBeenNthCalledWith(
+      1,
+      sheet.id,
+      { x: 130, y: 80 },
+      { width: 160, height: 150 },
+      { revision: 6 },
+    );
+
+    firstResize.resolve({ sheetId: sheet.id, revision: 7 });
+    await waitFor(() => expect(updateSheetFrameLayout).toHaveBeenNthCalledWith(
+      2,
+      sheet.id,
+      { x: 150, y: 80 },
+      { width: 180, height: 160 },
+      { revision: 7 },
+    ));
+    expect(updateSheetFrameLayout).toHaveBeenCalledTimes(2);
+
+    finalResize.resolve({ sheetId: sheet.id, revision: 8 });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  });
+
   it('persists z-order changes for every sheet whose z-index changes', async () => {
     const apiClient = autosaveClient();
     const inputs = sheetDocument({

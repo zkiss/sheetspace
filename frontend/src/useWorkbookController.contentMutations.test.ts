@@ -336,4 +336,79 @@ describe('useWorkbookController content mutations', () => {
     });
   });
 
+  it('retires queued axis and saved work when an axis conflict confirms the sheet is missing', async () => {
+    const runningCellSave = deferred<{ sheetId: string; revision: number }>();
+    const runningAppend = deferred<RowAppendResponse>();
+    const updateCellContent = vi.fn().mockReturnValue(runningCellSave.promise);
+    const renameSheet = vi.fn();
+    const appendColumn = vi.fn();
+    const apiClient = autosaveClient({
+      appendRow: vi.fn().mockReturnValue(runningAppend.promise),
+      appendColumn,
+      loadSheet: vi.fn().mockRejectedValue(new WorkbookApiError('missing', 404, 'sheet-not-found')),
+      renameSheet,
+      updateCellContent,
+    });
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      result.current.commands.updateCellContent(sheet.id, 'A1', 'running');
+      result.current.commands.renameSheet(sheet.id, 'Never sent');
+      result.current.commands.appendRow(sheet.id);
+      result.current.commands.appendColumn(sheet.id);
+    });
+
+    expect(updateCellContent).toHaveBeenCalledTimes(1);
+    expect(renameSheet).not.toHaveBeenCalled();
+    expect(appendColumn).not.toHaveBeenCalled();
+
+    runningAppend.reject(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
+    await waitFor(() => expect(result.current.workbook.manifest.sheetIds).toEqual([]));
+    expect(apiClient.loadSheet).toHaveBeenCalledWith(sheet.id);
+    expect(renameSheet).not.toHaveBeenCalled();
+    expect(appendColumn).not.toHaveBeenCalled();
+    expect(result.current.saveStatus).toBe('saved');
+
+    runningCellSave.resolve({ sheetId: sheet.id, revision: 2 });
+    await runningCellSave.promise;
+    expect(renameSheet).not.toHaveBeenCalled();
+    expect(appendColumn).not.toHaveBeenCalled();
+    expect(result.current.saveStatus).toBe('saved');
+  });
+
+  it('keeps shared revision tokens monotonic when an axis response arrives late', async () => {
+    const axisSave = deferred<RowAppendResponse>();
+    const renameSave = deferred<{ sheetId: string; revision: number }>();
+    const apiClient = autosaveClient({
+      appendRow: vi.fn().mockReturnValue(axisSave.promise),
+      renameSheet: vi.fn().mockReturnValue(renameSave.promise),
+    });
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      result.current.commands.appendRow(sheet.id);
+      result.current.commands.renameSheet(sheet.id, 'Renamed');
+    });
+    expect(apiClient.appendRow).toHaveBeenCalledWith(sheet.id, { revision: 0 });
+    expect(apiClient.renameSheet).toHaveBeenCalledWith(sheet.id, 'Renamed', { revision: 0 });
+
+    renameSave.resolve({ sheetId: sheet.id, revision: 2 });
+    await waitFor(() => expect(findSheetById(result.current.workbook, sheet.id)?.revision).toBe(2));
+
+    axisSave.resolve({ sheetId: sheet.id, revision: 1, rowCount: 21, rowId: 'late-row' });
+    await waitFor(() => expect(result.current.creatingAxes[sheet.id]).toBeUndefined());
+
+    act(() => result.current.commands.moveSheetFrame(sheet.id, { x: 20, y: 30 }));
+    expect(apiClient.updateSheetPosition).toHaveBeenCalledWith(sheet.id, { x: 20, y: 30 }, { revision: 2 });
+    expect(findSheetById(result.current.workbook, sheet.id)?.revision).toBe(2);
+  });
+
 });

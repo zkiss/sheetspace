@@ -15,17 +15,21 @@ function saveStatusText(status: SaveStatus) {
 }
 
 export function WorkspaceToolbar({
+  canRetryFailedSaves,
   onCreateSheet,
   onPanWorkspace,
   onResetViewport,
+  onRetryFailedSaves,
   onZoomWorkspace,
   saveStatus,
   sheetCount,
   viewport,
 }: {
+  canRetryFailedSaves: boolean;
   onCreateSheet: () => void;
   onPanWorkspace: (deltaX: number, deltaY: number) => void;
   onResetViewport: () => void;
+  onRetryFailedSaves: () => void;
   onZoomWorkspace: (scale: number) => void;
   saveStatus: SaveStatus;
   sheetCount: number;
@@ -39,6 +43,16 @@ export function WorkspaceToolbar({
         <p className={`save-status save-status-${saveStatus}`} role="status" aria-label="Save status">
           {saveStatusText(saveStatus)}
         </p>
+        {saveStatus === 'failed' ? (
+          <button
+            type="button"
+            disabled={!canRetryFailedSaves}
+            onClick={onRetryFailedSaves}
+            title={canRetryFailedSaves ? 'Retry retained failed save operations' : 'This creation failure cannot be retried'}
+          >
+            Retry failed saves
+          </button>
+        ) : null}
       </div>
       <div className="workspace-toolbar-actions">
         <div className="workspace-viewport-controls" aria-label="Workspace viewport controls">

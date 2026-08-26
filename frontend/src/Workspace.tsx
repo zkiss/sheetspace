@@ -38,6 +38,7 @@ import { WorkspaceToolbar } from './WorkspaceToolbar';
 
 export function Workspace({
   activeCell,
+  canRetryFailedSaves,
   commands,
   editingCell,
   formulaResults,
@@ -50,6 +51,7 @@ export function Workspace({
   onEditValueChange,
   onNavigateCell,
   onOpenRenameDialog,
+  onRetryFailedSaves,
   onSelectCell,
   onSelectReferenceTarget,
   onStartEdit,
@@ -60,6 +62,7 @@ export function Workspace({
   workbook,
 }: {
   activeCell: CellTarget | null;
+  canRetryFailedSaves: boolean;
   commands: WorkbookCommands;
   editingCell: CellEditSession | null;
   formulaResults: FormulaEvaluationSnapshot;
@@ -72,6 +75,7 @@ export function Workspace({
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
+  onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
@@ -131,8 +135,10 @@ export function Workspace({
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onPanWorkspace={workspaceController.panWorkspace}
         onResetViewport={workspaceController.resetViewport}
+        onRetryFailedSaves={onRetryFailedSaves}
         onZoomWorkspace={workspaceController.zoomWorkspace}
         saveStatus={saveStatus}
+        canRetryFailedSaves={canRetryFailedSaves}
         sheetCount={sheets.length}
         viewport={workspaceController.viewport}
       />

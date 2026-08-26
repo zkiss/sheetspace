@@ -173,4 +173,62 @@ describe('useWorkbookController sheet deletion', () => {
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   });
 
+  it.each([
+    ['row', 'column', 'succeeds'],
+    ['column', 'row', 'fails'],
+  ] as const)(
+    'waits for a running %s append, drops the queued %s append, and deletes after the append %s',
+    async (runningAxis, queuedAxis, settlement) => {
+      const append = deferred<{ sheetId: string; revision: number; rowCount?: number; rowId?: string; columnCount?: number; columnId?: string }>();
+      const deleteSave = deferred<void>();
+      const appendRow = vi.fn();
+      const appendColumn = vi.fn();
+      const runningAppend = runningAxis === 'row' ? appendRow : appendColumn;
+      const queuedAppend = queuedAxis === 'row' ? appendRow : appendColumn;
+      runningAppend.mockReturnValue(append.promise);
+      const apiClient = autosaveClient({
+        appendRow,
+        appendColumn,
+        deleteSheet: vi.fn().mockReturnValue(deleteSave.promise),
+      });
+      const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+      const { result } = renderHook(() => useWorkbookController({
+        apiClient,
+        initialWorkbook: workbookWithSheets([sheet]),
+      }));
+
+      act(() => {
+        result.current.commands[runningAxis === 'row' ? 'appendRow' : 'appendColumn'](sheet.id);
+        result.current.commands[queuedAxis === 'row' ? 'appendRow' : 'appendColumn'](sheet.id);
+        result.current.commands.deleteSheet(sheet.id);
+      });
+
+      expect(result.current.workbook.manifest.sheetIds).toEqual([]);
+      expect(runningAppend).toHaveBeenCalledTimes(1);
+      expect(queuedAppend).not.toHaveBeenCalled();
+      expect(apiClient.deleteSheet).not.toHaveBeenCalled();
+
+      await act(async () => {
+        if (settlement === 'succeeds') {
+          append.resolve(runningAxis === 'row'
+            ? { sheetId: sheet.id, revision: 1, rowCount: 21, rowId: 'server-row' }
+            : { sheetId: sheet.id, revision: 1, columnCount: 11, columnId: 'server-column' });
+        } else {
+          append.reject(new Error('obsolete append failed'));
+        }
+        await append.promise.catch(() => undefined);
+      });
+
+      await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledTimes(1));
+      expect(apiClient.deleteSheet).toHaveBeenCalledWith(sheet.id, {
+        revision: settlement === 'succeeds' ? 1 : 0,
+      });
+      expect(queuedAppend).not.toHaveBeenCalled();
+      expect(result.current.saveStatus).toBe('saving');
+
+      deleteSave.resolve();
+      await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    },
+  );
+
 });

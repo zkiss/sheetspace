@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
-import { applyUserAction, type UserAction } from './userActions';
+import { applyUserAction, applyWorkbookOperation, type UserAction, type WorkbookOperation } from './userActions';
 import { cellIdentityAt, cellRawContent, type Workbook } from './workbook';
 
 const alpha = sheetDocument({ id: 'alpha', name: 'Alpha', revision: 4, zIndex: 1 });
@@ -171,10 +171,55 @@ describe('applyUserAction', () => {
     const result = applyUserAction(source, {
       kind: 'set-cell-content', sheetId: 'alpha', cell: cellIdentityAt(sheet.content, 'A1')!, raw,
     });
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: true,
       value: { nextWorkbook: source, changed: false, calculationImpact: { kind: 'none' } },
     });
+  });
+
+  it('applies a batch of cell writes atomically with canonical persistence and inverse data', () => {
+    const a1 = cellIdentityAt(alpha.content, 'A1')!;
+    const b2 = cellIdentityAt(alpha.content, 'B2')!;
+    const result = applyWorkbookOperation(workbookWithSheets([
+      sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'old' } }), beta,
+    ]), {
+      kind: 'write-cells', operationId: 'write-1', sheetId: 'alpha',
+      writes: [{ cell: a1, raw: '' }, { cell: b2, raw: '=Beta!A1' }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        changed: true,
+        calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'alpha', key: 'B2' }] },
+        persistence: { kind: 'write-cells', sheetId: 'alpha', writes: [{ cell: a1, raw: '' }, { cell: b2, raw: '=beta!A1' }] },
+        inverse: { kind: 'write-cells', sheetId: 'alpha', writes: [{ cell: b2, raw: '' }, { cell: a1, raw: 'old' }] },
+      },
+    });
+    if (result.ok) {
+      expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'A1')).toBeUndefined();
+      expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=beta!A1');
+    }
+  });
+
+  it('rejects any invalid batch target before changing a valid target', () => {
+    const source = workbookWithSheets([alpha, beta]);
+    const result = applyWorkbookOperation(source, {
+      kind: 'write-cells', operationId: 'write-2', sheetId: 'alpha',
+      writes: [{ cell: cellIdentityAt(alpha.content, 'A1')!, raw: 'valid' }, { cell: { rowId: 'missing', columnId: 'missing' }, raw: 'invalid' }],
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid-cell' });
+    expect(source).toEqual(workbookWithSheets([alpha, beta]));
+  });
+
+  it('uses plain serializable operation and persistence shapes', () => {
+    const operation = {
+      kind: 'write-cells', operationId: 'write-3', sheetId: 'alpha',
+      writes: [{ cell: cellIdentityAt(alpha.content, 'A1')!, raw: 'value' }],
+    } satisfies WorkbookOperation;
+    const result = applyWorkbookOperation(workbook, operation);
+    expect(JSON.parse(JSON.stringify(operation))).toEqual(operation);
+    if (result.ok) expect(JSON.parse(JSON.stringify(result.value.persistence))).toEqual(result.value.persistence);
   });
 
   it.each([

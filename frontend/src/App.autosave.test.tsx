@@ -118,4 +118,49 @@ describe('App autosave integration', () => {
 
     expect(b1).toHaveTextContent('Still editable');
   });
+
+  it('retries a retained failed save from the toolbar without applying the edit twice', async () => {
+    const user = userEvent.setup();
+    const retrySave = deferred<SheetRevisionResponse>();
+    const updateCellContent = vi.fn()
+      .mockRejectedValueOnce(new Error('backend unavailable'))
+      .mockReturnValueOnce(retrySave.promise);
+    const apiClient = autosaveClient({ updateCellContent });
+
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+        apiClient={apiClient}
+      />,
+    );
+
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.type(await openCellEditor(user, a1), 'Local value');
+    await user.keyboard('{Enter}');
+    const retryButton = await screen.findByRole('button', { name: 'Retry failed saves' });
+
+    expect(a1).toHaveTextContent('Local value');
+    await user.click(retryButton);
+    expect(updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Local value', { revision: 0 });
+    expect(a1).toHaveTextContent('Local value');
+
+    retrySave.resolve({ sheetId: 'sheet-inputs', revision: 1 });
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+    expect(updateCellContent).toHaveBeenCalledTimes(2);
+    expect(a1).toHaveTextContent('Local value');
+  });
+
+  it('disables retained-save retry for a non-replayable creation-only failure', async () => {
+    const user = userEvent.setup();
+    const apiClient = autosaveClient({ createSheet: vi.fn().mockRejectedValue(new Error('create failed')) });
+    render(<App initialWorkbook={workbookWithSheets([])} apiClient={apiClient} />);
+
+    await user.click(screen.getByRole('button', { name: /new sheet/i }));
+    await user.type(screen.getByLabelText(/sheet name/i), 'Inputs');
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    expect(await screen.findByRole('button', { name: 'Retry failed saves' })).toBeDisabled();
+  });
 });

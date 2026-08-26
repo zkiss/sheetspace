@@ -2,15 +2,11 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from './calculationProjection';
 import { FormulaCalculation } from './formulaCalculation';
 import {
-  WorkbookApiError,
   workbookApi,
-  type ColumnAppendResponse,
-  type RowAppendResponse,
   type WorkbookApi,
 } from './workbookApi';
 import {
   cellIdentityAt,
-  cellRawContent,
   createEmptyWorkbook,
   findSheetById,
   sheetsInOrder,
@@ -24,15 +20,19 @@ import {
   type WorkspacePosition,
   type ValidationResult,
 } from './workbook';
-import { applyUserAction, type AppliedUserAction, type UserAction } from './userActions';
+import {
+  applyBackendWorkbookReconciliation,
+  applyWorkbookOperation,
+  type AppliedWorkbookOperation,
+  type WorkbookOperation,
+  type WorkbookOperationResult,
+} from './userActions';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
+import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations, type CreatingSheetFrame } from './useSheetCreationOperations';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
-import {
-  emptyCreatingGridAxes,
-  type CreatingGridAxes,
-  type CreatingGridAxisSlot,
-} from './gridAxisProjection';
+import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
+import type { CreatingGridAxes } from './gridAxisProjection';
 import {
   calculationRequest,
   mergeCalculationImpacts,
@@ -48,12 +48,14 @@ export type WorkbookCommands = {
   deleteSheet: (sheetId: string) => void;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
+  retryFailedSaves: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
 };
 
 export type WorkbookController = {
   commands: WorkbookCommands;
+  canRetryFailedSaves: boolean;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];
@@ -89,7 +91,6 @@ export function useWorkbookController({
     };
   });
   const { calculationRequest: pendingCalculation, workbook } = controllerState;
-  const [creatingAxes, setCreatingAxes] = useState<Record<string, CreatingGridAxes>>({});
   const optimisticWorkbook = useRef(workbook);
   optimisticWorkbook.current = workbook;
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
@@ -119,11 +120,15 @@ export function useWorkbookController({
       };
     });
   }, []);
+  const persistenceCoordinatorRef = useRef<WorkbookPersistenceCoordinator | undefined>(undefined);
+  persistenceCoordinatorRef.current ??= new WorkbookPersistenceCoordinator();
+  const persistenceCoordinator = persistenceCoordinatorRef.current;
   const committedCalculation = useRef<FormulaCalculation | undefined>(undefined);
   committedCalculation.current ??= calculator ?? new FormulaCalculation();
   const calculationObserverRef = useRef(calculationObserver);
   const savedAutosave = useSavedSheetAutosave({
     autosaveEnabled,
+    persistenceCoordinator,
     resolvedApiClient,
     setWorkbook,
     workbook,
@@ -134,10 +139,6 @@ export function useWorkbookController({
     resolvedApiClient,
     setWorkbook,
   });
-  const getApiMethod = useCallback(
-    <K extends keyof WorkbookApi>(method: K): WorkbookApi[K] => resolvedApiClient[method] ?? workbookApi[method],
-    [resolvedApiClient],
-  );
   const { retryStartupLoad, startupLoad } = useStartupWorkbookLoad({
     initialWorkbook,
     markSaved: savedAutosave.markSaved,
@@ -162,22 +163,26 @@ export function useWorkbookController({
   }, [calculated, pendingCalculation]);
   const formulaResults = calculated.results;
 
-  function applyAction(action: UserAction): AppliedUserAction | undefined {
-    const result = applyUserAction(optimisticWorkbook.current, action);
+  type WorkbookOperationInput = WorkbookOperation extends infer Operation
+    ? Operation extends unknown ? Omit<Operation, 'operationId'> : never
+    : never;
+
+  function applyResult(result: WorkbookOperationResult): AppliedWorkbookOperation | undefined {
     if (!result.ok) return undefined;
     optimisticWorkbook.current = result.value.nextWorkbook;
     setWorkbook(result.value.nextWorkbook, result.value.calculationImpact);
     return result.value;
   }
 
-  function persistDeletedSheet(savedSheetId: string, revision: number | undefined) {
-    return getApiMethod('deleteSheet')(savedSheetId, { revision }).catch((cause: unknown) => {
-      if (cause instanceof WorkbookApiError && cause.status === 404 && cause.code === 'sheet-not-found') {
-        return undefined;
-      }
+  function applyAction(action: WorkbookOperationInput): AppliedWorkbookOperation | undefined {
+    const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
+    const applied = applyResult(applyWorkbookOperation(optimisticWorkbook.current, operation));
+    if (applied?.changed) savedAutosave.enqueue(operation.operationId, applied.persistence);
+    return applied;
+  }
 
-      throw cause;
-    });
+  function applyReconciliation(reconciliation: Parameters<typeof applyBackendWorkbookReconciliation>[1]) {
+    return applyResult(applyBackendWorkbookReconciliation(optimisticWorkbook.current, reconciliation));
   }
 
   function deleteSheetCommand(sheetId: string) {
@@ -185,23 +190,14 @@ export function useWorkbookController({
       return;
     }
 
-    savedAutosave.dropSheetQueuedTasks(sheetId);
-    const sheetIdle = savedAutosave.waitForSheetIdle(sheetId);
-    const applied = applyAction({ kind: 'delete-sheet', sheetId });
-    if (!applied) return;
-    savedAutosave.enqueueEdit({
-      sheetId,
-      target: { kind: 'delete' },
-      run: async () => {
-        await sheetIdle;
-        savedAutosave.dropSheetQueuedTasks(sheetId);
-        return savedAutosave.runRevisionedEdit({
-          sheetId,
-          request: (revision) => persistDeletedSheet(sheetId, revision),
-          revisionOf: () => undefined,
-        });
-      },
-    });
+    savedAutosave.supersedeSheetOperations(sheetId);
+    const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const;
+    const applied = applyResult(applyWorkbookOperation(optimisticWorkbook.current, operation));
+    if (!applied?.changed || !applied.persistence) return;
+    const enqueueDelete = () => savedAutosave.enqueue(operation.operationId, applied.persistence);
+    const pendingAxisCreation = axisCreation.prepareSheetDeletion(sheetId);
+    if (pendingAxisCreation) void pendingAxisCreation.then(enqueueDelete);
+    else enqueueDelete();
   }
 
   function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> {
@@ -212,81 +208,17 @@ export function useWorkbookController({
     if (!validation.ok) return validation;
     const applied = applyAction({ kind: 'rename-sheet', sheetId: localSheetId, name });
     if (!applied) return { ok: false, reason: 'unknown-sheet' };
-    const renamedSheet = findSheetById(applied.nextWorkbook, localSheetId);
-    if (renamedSheet) {
-      savedAutosave.enqueueRevisionedEdit({
-        sheetId,
-        target: { kind: 'rename' },
-        request: (savedSheetId, revision) =>
-          getApiMethod('renameSheet')(savedSheetId, renamedSheet.name, { revision }),
-      });
-    }
-
     return { ok: true, value: applied.nextWorkbook };
   }
 
-  function appendSheetRow(sheetId: string) {
-    appendSheetAxis(sheetId, 'row');
-  }
-
-  function appendSheetColumn(sheetId: string) {
-    appendSheetAxis(sheetId, 'column');
-  }
-
-  function appendSheetAxis(sheetId: string, axis: 'row' | 'column') {
-    if (!autosaveEnabled || !findSheetById(optimisticWorkbook.current, sheetId)) return;
-    const slot: CreatingGridAxisSlot = {
-      kind: 'creating',
-      operationId: crypto.randomUUID(),
-      boundary: Number.MAX_SAFE_INTEGER,
-    };
-    setCreatingAxes((current) => {
-      const axes = current[sheetId] ?? emptyCreatingGridAxes;
-      return {
-        ...current,
-        [sheetId]: {
-          ...axes,
-          [axis === 'row' ? 'rows' : 'columns']: [
-            ...(axis === 'row' ? axes.rows : axes.columns),
-            slot,
-          ],
-        },
-      };
-    });
-
-    const removeSlot = () => setCreatingAxes((current) => {
-      const axes = current[sheetId];
-      if (!axes) return current;
-      const key = axis === 'row' ? 'rows' : 'columns';
-      const nextSlots = axes[key].filter((candidate) => candidate.operationId !== slot.operationId);
-      if (nextSlots.length === axes[key].length) return current;
-      const nextAxes = { ...axes, [key]: nextSlots };
-      if (nextAxes.rows.length === 0 && nextAxes.columns.length === 0) {
-        const { [sheetId]: _removed, ...remaining } = current;
-        return remaining;
-      }
-      return { ...current, [sheetId]: nextAxes };
-    });
-
-    savedAutosave.enqueueRevisionedEdit<RowAppendResponse | ColumnAppendResponse>({
-      sheetId,
-      target: { kind: 'axis-append' },
-      coalesce: false,
-      request: (savedSheetId, revision) => axis === 'row'
-        ? getApiMethod('appendRow')(savedSheetId, { revision })
-        : getApiMethod('appendColumn')(savedSheetId, { revision }),
-      reconcile: (response) => {
-        if (!response) return;
-        removeSlot();
-        if ('rowId' in response) {
-          applyAction({ kind: 'append-row', sheetId, rowId: response.rowId });
-        } else {
-          applyAction({ kind: 'append-column', sheetId, columnId: response.columnId });
-        }
-      },
-      onFailure: removeSlot,
-    });
-  }
+  const axisCreation = useGridAxisCreationOperations({
+    autosaveEnabled,
+    currentWorkbook: () => optimisticWorkbook.current,
+    persistenceCoordinator,
+    reconcile: applyReconciliation,
+    resolvedApiClient,
+    setWorkbook,
+  });
 
   function updateCellContent(sheetId: string, cellKey: CellKey, raw: string) {
     const localSheetId = sheetId;
@@ -294,84 +226,53 @@ export function useWorkbookController({
     const cell = currentSheet && cellIdentityAt(currentSheet.content, cellKey);
     if (!currentSheet || !cell) return;
     const applied = applyAction({
-      kind: 'set-cell-content', sheetId: localSheetId, cell, raw,
+      kind: 'write-cells', sheetId: localSheetId, writes: [{ cell, raw }],
     });
     if (!applied?.changed) return;
-    const nextWorkbook = applied.nextWorkbook;
-    const nextSheet = findSheetById(nextWorkbook, localSheetId);
-    const canonicalRaw = nextSheet ? cellRawContent(nextSheet, cellKey) ?? '' : '';
-
-    savedAutosave.enqueueRevisionedEdit({
-      sheetId,
-      target: { kind: 'cell-content', cellKey },
-      request: (savedSheetId, revision) => getApiMethod('updateCellContent')(savedSheetId, cellKey, canonicalRaw, { revision }),
-    });
   }
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
     const localSheetId = sheetId;
-    if (!applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position })) return;
-    savedAutosave.enqueueRevisionedEdit({
-      sheetId,
-      target: { kind: 'frame' },
-      coalesceKey: 'position',
-      request: (savedSheetId, revision) =>
-        getApiMethod('updateSheetPosition')(savedSheetId, position, { revision }),
-    });
+    applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
   }
 
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
     const localSheetId = sheetId;
-    if (!applyAction({
+    applyAction({
       kind: 'resize-sheet-frame', sheetId: localSheetId, position, size: frameSize,
-    })) return;
-    savedAutosave.enqueueRevisionedEdit({
-      sheetId,
-      target: { kind: 'frame' },
-      coalesceKey: 'layout',
-      request: (savedSheetId, revision) =>
-        getApiMethod('updateSheetFrameLayout')(savedSheetId, position, frameSize, { revision }),
     });
   }
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
-    const sourceWorkbook = optimisticWorkbook.current;
-    const applied = applyAction({
+    applyAction({
       kind: 'change-sheet-z-order', sheetId, direction,
-    });
-    if (!applied) return;
-    const updates = [];
-    for (const nextSheet of sheetsInOrder(applied.nextWorkbook)) {
-      const currentSheet = findSheetById(sourceWorkbook, nextSheet.id);
-      if (currentSheet && currentSheet.frame.zIndex !== nextSheet.frame.zIndex) {
-        updates.push({ sheetId: nextSheet.id, zIndex: nextSheet.frame.zIndex });
-      }
-    }
-    savedAutosave.enqueueRevisionedZOrder({
-      updates,
-      request: (revisionedUpdates) => getApiMethod('updateSheetZOrder')(revisionedUpdates),
     });
   }
 
+  const creationFailed = creationSaveStatus === 'failed' || axisCreation.saveStatus === 'failed';
+  const creationSaving = creationSaveStatus === 'saving' || axisCreation.saveStatus === 'saving';
+
   return {
     commands: {
-      appendColumn: appendSheetColumn,
-      appendRow: appendSheetRow,
+      appendColumn: axisCreation.appendColumn,
+      appendRow: axisCreation.appendRow,
       changeSheetZOrder,
       createSheet,
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,
       renameSheet: renameSheetCommand,
+      retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
       updateCellContent,
     },
+    canRetryFailedSaves: savedAutosave.hasRetryableFailures,
     formulaResults,
     retryStartupLoad,
     creatingFrames,
-    creatingAxes,
-    saveStatus: creationSaveStatus === 'failed' || savedAutosave.saveStatus === 'failed'
+    creatingAxes: axisCreation.creatingAxes,
+    saveStatus: creationFailed || savedAutosave.saveStatus === 'failed'
       ? 'failed'
-      : creationSaveStatus === 'saving' || savedAutosave.saveStatus === 'saving' ? 'saving' : 'saved',
+      : creationSaving || savedAutosave.saveStatus === 'saving' ? 'saving' : 'saved',
     startupLoad,
     workbook,
   };
