@@ -454,7 +454,7 @@ describe('formula parser', () => {
     const raw = "=sUm( Outputs !A1, 'Sales Q1'!A1:B2, 'Owner''s Plan'!C3 )";
 
     expect(formulaRawForStorage(raw, workbook)).toBe(
-      '=sUm( sheet-2 !A1, sheet-3!A1:B2, sheet-5!C3 )',
+      "=sUm( 'sheet-2' !A1, 'sheet-3'!A1:B2, 'sheet-5'!C3 )",
     );
   });
 
@@ -462,16 +462,16 @@ describe('formula parser', () => {
     const { workbook } = formulaWorkbook();
 
     expect(formulaRawForStorage("=Inputs!A1+'Sales Q1'!B2*2", workbook)).toBe(
-      '=sheet-1!A1+sheet-3!B2*2',
+      "='sheet-1'!A1+'sheet-3'!B2*2",
     );
-    expect(formulaRawForStorage('=-Inputs!A1', workbook)).toBe('=-sheet-1!A1');
-    expect(formulaRawForStorage('=A1-Inputs!A1', workbook)).toBe('=A1-sheet-1!A1');
-    expect(formulaRawForStorage('=A1--Inputs!A1', workbook)).toBe('=A1--sheet-1!A1');
+    expect(formulaRawForStorage('=-Inputs!A1', workbook)).toBe("=-'sheet-1'!A1");
+    expect(formulaRawForStorage('=A1-Inputs!A1', workbook)).toBe("=A1-'sheet-1'!A1");
+    expect(formulaRawForStorage('=A1--Inputs!A1', workbook)).toBe("=A1--'sheet-1'!A1");
     expect(formulaRawForStorage('=Inputs!A1-Outputs!A1', workbook)).toBe(
-      '=sheet-1!A1-sheet-2!A1',
+      "='sheet-1'!A1-'sheet-2'!A1",
     );
     expect(formulaRawForStorage("=Inputs!A1-Outputs!A1-'Sales Q1'!A1", workbook)).toBe(
-      '=sheet-1!A1-sheet-2!A1-sheet-3!A1',
+      "='sheet-1'!A1-'sheet-2'!A1-'sheet-3'!A1",
     );
 
     const uuid = '123e4567-e89b-12d3-a456-426614174000';
@@ -494,10 +494,10 @@ describe('formula parser', () => {
       const { workbook } = formulaWorkbook();
 
       expect(formulaRawForStorage(`=Inputs!A1${operator}2`, workbook)).toBe(
-        `=sheet-1!A1${operator}2`,
+        `='sheet-1'!A1${operator}2`,
       );
       expect(formulaRawForStorage(`=2${operator}Inputs!A1`, workbook)).toBe(
-        `=2${operator}sheet-1!A1`,
+        `=2${operator}'sheet-1'!A1`,
       );
       expect(formulaRawForDisplay(`=sheet-1!A1${operator}2`, workbook)).toBe(
         `=Inputs!A1${operator}2`,
@@ -513,7 +513,7 @@ describe('formula parser', () => {
     const raw = '=SUM("Inputs!A1 and ""Sales Q1!B2""", Inputs!A1)';
 
     expect(formulaRawForStorage(raw, workbook)).toBe(
-      '=SUM("Inputs!A1 and ""Sales Q1!B2""", sheet-1!A1)',
+      "=SUM(\"Inputs!A1 and \"\"Sales Q1!B2\"\"\", 'sheet-1'!A1)",
     );
     expect(formulaRawForDisplay('="sheet-1!A1"', workbook)).toBe('="sheet-1!A1"');
   });
@@ -631,6 +631,15 @@ describe('formula parser', () => {
     const cell = '=SUM(sheet-1!A1)';
 
     expect(formulaRawForDisplay(cell, workbook)).toBe("=SUM('Renamed Inputs'!A1)");
+  });
+
+  it('resolves canonical coordinates before rendering an explicit sheet name', () => {
+    const inputs = sheet('sheet-1', 'Renamed Inputs');
+    const outputs = sheet('sheet-2', 'Outputs');
+    const workbook = workbookWithSheets([inputs, outputs]);
+    const cell = '=SUM(sheet-1!@[sheet-1:column:2,sheet-1:row:1]:@[sheet-1:column:2,sheet-1:row:2])';
+
+    expect(formulaRawForDisplay(cell, workbook, outputs.id)).toBe("=SUM('Renamed Inputs'!B1:B2)");
   });
 
   it('renders unknown canonical ids as #REF qualifiers', () => {

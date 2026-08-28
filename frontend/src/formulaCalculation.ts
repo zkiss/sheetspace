@@ -21,6 +21,7 @@ import type {
   FormulaScalarValue,
 } from './formulaValue';
 import { formulaErrorValue } from './formulaValue';
+import { cellIdentityAt, cellIdentityKey } from './workbook';
 
 /**
  * Owns dependency edges and derived values for the calculation projection.
@@ -61,7 +62,11 @@ export class FormulaCalculation {
     const impacted = effectiveImpact.kind === 'structure'
       ? new Set(nextFormulaNodes)
       : dependentClosure(
-          new Set(effectiveImpact.cells.map(({ sheetId, key }) => sheetCellNodeId(sheetId, key))),
+          new Set(effectiveImpact.cells.map(({ sheetId, key }) => {
+            const sheet = projection.sheets.find((candidate) => candidate.id === sheetId);
+            const identity = sheet && cellIdentityAt({ kind: 'tabular', rows: [...sheet.rows], columns: [...sheet.columns], cells: {} }, key);
+            return sheetCellNodeId(sheetId, identity ? cellIdentityKey(identity) : key);
+          })),
           previousGraph.dependents,
           nextGraph.dependents,
         );

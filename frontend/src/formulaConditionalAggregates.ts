@@ -43,6 +43,16 @@ const sumIf: LazyFormulaFunction = {
     const criteriaInput = context.evaluateReferenceArgument(arguments_[0]);
     if (!criteriaInput.ok) return formulaErrorValue(criteriaInput.error);
 
+    let sumInput: FormulaReferenceArgument | undefined;
+    if (arguments_.length === 3) {
+      const evaluatedSumInput = context.evaluateReferenceArgument(arguments_[2]);
+      if (!evaluatedSumInput.ok) return formulaErrorValue(evaluatedSumInput.error);
+      if (!sameShape(criteriaInput.value, evaluatedSumInput.value)) {
+        return formulaErrorValue('#VALUE!');
+      }
+      sumInput = evaluatedSumInput.value;
+    }
+
     const candidates = materializeCriteria(criteriaInput.value);
     if (!candidates.ok) return formulaErrorValue(candidates.error);
 
@@ -58,11 +68,9 @@ const sumIf: LazyFormulaFunction = {
     }
 
     let sumValues = candidates.value;
-    if (arguments_.length === 3) {
-      const sumInput = context.evaluateReferenceArgument(arguments_[2]);
-      if (!sumInput.ok) return formulaErrorValue(sumInput.error);
+    if (sumInput) {
       if (matchingIndexes.length === 0) return { kind: 'number', value: 0 };
-      sumValues = [...sumInput.value.values];
+      sumValues = [...sumInput.values];
     }
 
     let total = 0;
@@ -90,8 +98,18 @@ function materializeCriteria(
   return error ? { ok: false, error: error.error } : { ok: true, value: values };
 }
 
+function sameShape(
+  first: FormulaReferenceArgument,
+  second: FormulaReferenceArgument,
+): boolean {
+  return first.rowCount === second.rowCount && first.columnCount === second.columnCount;
+}
+
 function validateSumIfShapes(arguments_: readonly FormulaExpression[]) {
   if (arguments_.length !== 3) return undefined;
+  // Canonical coordinates have no intrinsic position; their current rectangle
+  // is resolved by the evaluator against the sheet's ordered axes.
+  if (containsCanonicalReference(arguments_[0]) || containsCanonicalReference(arguments_[2])) return undefined;
   const criteriaShape = referenceShape(arguments_[0]);
   const sumShape = referenceShape(arguments_[2]);
   return criteriaShape !== undefined
@@ -100,6 +118,11 @@ function validateSumIfShapes(arguments_: readonly FormulaExpression[]) {
     && criteriaShape.columnCount === sumShape.columnCount
     ? undefined
     : '#VALUE!' as const;
+}
+
+function containsCanonicalReference(expression: FormulaExpression): boolean {
+  return expression.kind === 'canonical'
+    || (expression.kind === 'group' && containsCanonicalReference(expression.expression));
 }
 
 function referenceShape(expression: FormulaExpression): Pick<FormulaReferenceArgument, 'rowCount' | 'columnCount'> | undefined {

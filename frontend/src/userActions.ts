@@ -55,29 +55,6 @@ export type AppliedWorkbookOperation = {
 export type WorkbookOperationFailureReason = 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 
-/** @deprecated Temporary adapter for existing controller callers during operation migration. */
-export type UserAction =
-  | { kind: 'delete-sheet'; sheetId: SheetId }
-  | { kind: 'rename-sheet'; sheetId: SheetId; name: string }
-  | { kind: 'set-cell-content'; sheetId: SheetId; cell: StableCellIdentity; raw: string }
-  | { kind: 'append-row'; sheetId: SheetId; rowId: RowId }
-  | { kind: 'append-column'; sheetId: SheetId; columnId: ColumnId }
-  | { kind: 'move-sheet-frame'; sheetId: SheetId; position: WorkspacePosition }
-  | { kind: 'resize-sheet-frame'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
-  | { kind: 'change-sheet-z-order'; sheetId: SheetId; direction: SheetZOrderDirection };
-export type AppliedUserAction = AppliedWorkbookOperation;
-export type UserActionFailureReason = WorkbookOperationFailureReason;
-export type UserActionResult = WorkbookOperationResult;
-
-/** @deprecated Use applyWorkbookOperation or applyBackendWorkbookReconciliation. */
-export function applyUserAction(workbook: Workbook, action: UserAction): UserActionResult {
-  if (action.kind === 'append-row' || action.kind === 'append-column') return applyBackendWorkbookReconciliation(workbook, action);
-  const operation: WorkbookOperation = action.kind === 'set-cell-content'
-    ? { kind: 'write-cells', operationId: 'legacy', sheetId: action.sheetId, writes: [{ cell: action.cell, raw: action.raw }] }
-    : { ...action, operationId: 'legacy' };
-  return applyWorkbookOperation(workbook, operation);
-}
-
 export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOperation): WorkbookOperationResult {
   switch (operation.kind) {
     case 'delete-sheet': return applyDeleteSheet(workbook, operation);
@@ -128,7 +105,7 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
     const address = entry.address!;
     const identityKey = cellIdentityKey(entry.write.cell);
     const before = cells[identityKey];
-    const raw = formulaRawForStorage(entry.write.raw, workbook);
+    const raw = formulaRawForStorage(entry.write.raw, workbook, sheet.id);
     if ((entry.write.raw.length === 0 && before === undefined) || (entry.write.raw.length > 0 && before === raw)) continue;
     inverseWrites.unshift({ cell: entry.write.cell, raw: before ?? '' });
     changedWrites.push({ cell: entry.write.cell, raw: entry.write.raw.length === 0 ? '' : raw });

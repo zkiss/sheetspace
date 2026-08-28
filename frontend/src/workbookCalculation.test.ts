@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SheetDocument, Workbook } from './workbook';
+import { cellIdentityKey, type SheetDocument, type Workbook } from './workbook';
 import {
   calculationProjection,
   calculationRequest,
@@ -16,13 +16,15 @@ function workbook(sheet: SheetDocument): Workbook {
 }
 
 describe('workbook calculation boundary', () => {
-  it('projects only sheet identity, ordered grid structure, and raw cells', () => {
+  it('projects sheet identity, ordered stable axes, and identity-keyed raw cells', () => {
     expect(calculationProjection(workbook(sheetWithCells({ A1: '=1' })))).toEqual({
       sheets: [{
         id: 'sheet-1',
-        rowCount: 20,
-        columnCount: 10,
-        cells: { A1: '=1' },
+        rows: Array.from({ length: 20 }, (_, index) => `sheet-1:row:${index + 1}`),
+        columns: Array.from({ length: 10 }, (_, index) => `sheet-1:column:${index + 1}`),
+        cells: {
+          [cellIdentityKey({ rowId: 'sheet-1:row:1', columnId: 'sheet-1:column:1' })]: '=1',
+        },
       }],
     });
   });
@@ -38,7 +40,9 @@ describe('workbook calculation boundary', () => {
       kind: 'cells',
       cells: [{ sheetId: 'sheet-1', key: 'A1' }],
     });
-    expect(request.projection.sheets[0].cells.A1).toBe('2');
+    expect(request.projection.sheets[0].cells[
+      cellIdentityKey({ rowId: 'sheet-1:row:1', columnId: 'sheet-1:column:1' })
+    ]).toBe('2');
   });
 
   it('merges batched cell impacts without duplicates', () => {

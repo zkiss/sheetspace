@@ -89,6 +89,23 @@ describe('workbook API read decoding', () => {
     expect(cellRawContent(document, 'B2')).toBe('5');
   });
 
+  it('decodes canonical formula strings without rewriting persisted content', () => {
+    const canonical = "=SUM('sheet-inputs'!@[$column-a,row-a]:@[column-b,$row-b], @[column-c,row-c])";
+    const response: SheetDocumentResponse = {
+      ...outputsResponse,
+      content: {
+        ...outputsResponse.content,
+        cells: [{
+          rowId: outputsResponse.content.rows[0],
+          columnId: outputsResponse.content.columns[0],
+          content: canonical,
+        }],
+      },
+    };
+
+    expect(cellRawContent(decodeSheetDocument(response), 'A1')).toBe(canonical);
+  });
+
   it('loads one stable sheet document by encoded id', async () => {
     const fetchMock = mockFetch(inputsResponse);
     await expect(workbookApi.loadSheet('sheet 1')).resolves.toEqual(inputsDocument);

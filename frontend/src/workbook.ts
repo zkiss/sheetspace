@@ -13,6 +13,12 @@ import {
   replaceFormulaQualifiers,
   type FormulaParseResult,
 } from './formulaSyntax';
+import {
+  formulaRawToCanonical,
+  formulaRawToDisplay,
+  formulaReferenceTokens,
+  workbookFormulaReferenceResolver,
+} from './formulaReference';
 
 export {
   cellKey,
@@ -25,6 +31,26 @@ export {
 } from './cellAddress';
 export type { CellAddress, CellKey, CellRange } from './cellAddress';
 export { formatSheetReferenceToken } from './formulaSyntax';
+export {
+  copyCanonicalFormula,
+  formulaRawToCanonical,
+  formulaRawToDisplay,
+  formulaRawToDisplayProjection,
+  formulaReferenceTokens,
+  moveCanonicalFormula,
+  workbookFormulaReferenceResolver,
+} from './formulaReference';
+export type {
+  FormulaAxisAnchor,
+  FormulaCopyContext,
+  FormulaCoordinate,
+  FormulaDisplayProjection,
+  FormulaQualifier,
+  FormulaReferenceEndpoint,
+  FormulaReferenceResolver,
+  FormulaReferenceToken,
+  FormulaTransformResult,
+} from './formulaReference';
 export type {
   BinaryFormula,
   FormulaErrorCode,
@@ -263,7 +289,7 @@ export function commitCellRawContent(workbook: Workbook, sheetId: string, key: C
   const sheet = findSheetById(workbook, sheetId);
   const identity = sheet && cellIdentityAt(sheet.content, key);
   if (!sheet || !identity) return workbook;
-  const canonicalRaw = formulaRawForStorage(raw, workbook);
+  const canonicalRaw = formulaRawForStorage(raw, workbook, sheet.id);
   const identityKey = cellIdentityKey(identity);
   const current = sheet.content.cells[identityKey];
   if ((raw.length === 0 && current === undefined) || (raw.length > 0 && current === canonicalRaw)) return workbook;
@@ -318,16 +344,25 @@ function resolveReferenceSheet(sheetName: string | undefined, workbook: Workbook
   return findSheetByName(workbook, sheetName);
 }
 
-export function formulaRawForStorage(raw: string, workbook: Workbook): string {
+export function formulaRawForStorage(raw: string, workbook: Workbook, currentSheetId?: SheetId): string {
+  if (currentSheetId) {
+    return formulaRawToCanonical(raw, workbookFormulaReferenceResolver(workbook, currentSheetId));
+  }
   return replaceFormulaQualifiers(raw, (reference) => {
     if (reference === '#REF') return reference;
-    return sheetsInOrder(workbook).find((sheet) => sheet.name === reference || sheet.id === reference)?.id ?? '#REF';
+    const sheetId = sheetsInOrder(workbook).find((sheet) => sheet.name === reference || sheet.id === reference)?.id;
+    return sheetId ? formatSheetReferenceToken(sheetId) : '#REF';
   });
 }
 
-export function formulaRawForDisplay(raw: string, workbook: Workbook): string {
-  return replaceFormulaQualifiers(raw, (sheetId) => {
-    const sheet = findSheetById(workbook, sheetId);
+export function formulaRawForDisplay(raw: string, workbook: Workbook, currentSheetId?: SheetId): string {
+  if (currentSheetId && formulaReferenceTokens(raw).some((reference) =>
+    reference.endpoints.some((endpoint) => endpoint?.kind === 'canonical'),
+  )) {
+    return formulaRawToDisplay(raw, workbookFormulaReferenceResolver(workbook, currentSheetId));
+  }
+  return replaceFormulaQualifiers(raw, (sheetReference) => {
+    const sheet = findSheetById(workbook, sheetReference);
     return sheet ? formatSheetReferenceToken(sheet.name) : '#REF';
   });
 }

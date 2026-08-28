@@ -4,6 +4,7 @@ import { FormulaCalculation } from './formulaCalculation';
 import {
   appendColumn,
   appendRow,
+  cellAddressOf,
   commitCellRawContent,
   findSheetById,
   renameSheet,
@@ -15,6 +16,36 @@ function sheetWithCells(id: string, name: string, cells: Record<string, string>)
 }
 
 describe('incremental formula calculation', () => {
+  it('keeps canonical formula targets through row and column reorder', () => {
+    const calculation = new FormulaCalculation();
+    let workbook = workbookWithSheets([sheetWithCells('sheet-1', 'Inputs', {
+      A1: '7',
+      B1: '=A1',
+      A2: '3',
+      B2: '=B1',
+    })]);
+    // Route formulas through the write path that captures their stable targets.
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '=A1');
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B2', '=B1');
+    const initial = calculation.update(calculationProjection(workbook), { kind: 'structure' });
+    expect(initial['sheet-1'].B2).toMatchObject({ kind: 'number', value: 7 });
+
+    const sheet = findSheetById(workbook, 'sheet-1')!;
+    const reorderedSheet = {
+      ...sheet,
+      content: {
+        ...sheet.content,
+        rows: [sheet.content.rows[1]!, sheet.content.rows[0]!, ...sheet.content.rows.slice(2)],
+        columns: [sheet.content.columns[1]!, sheet.content.columns[0]!, ...sheet.content.columns.slice(2)],
+      },
+    };
+    workbook = workbookWithSheets([reorderedSheet]);
+    const reordered = calculation.update(calculationProjection(workbook), { kind: 'structure' });
+    const originalB2 = { rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[1]! };
+    expect(cellAddressOf(reorderedSheet.content, originalB2)).toEqual({ rowIndex: 0, columnIndex: 0 });
+    expect(reordered['sheet-1'].A1).toMatchObject({ kind: 'number', value: 7 });
+  });
+
   it('detects direct, indirect, cross-sheet, and range-mediated cycles', () => {
     const calculation = new FormulaCalculation();
     const first = sheetWithCells('sheet-first', 'First', {

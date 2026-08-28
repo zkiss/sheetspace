@@ -1,12 +1,10 @@
-import {
-  cellKey,
-  expandRange,
-} from './cellAddress';
 import type {
   CalculationCellChange,
   CalculationProjection,
   CalculationSheet,
 } from './calculationProjection';
+import { calculationCellKey } from './calculationProjection';
+import { cellIdentityAt, cellIdentityKey } from './workbook';
 import { sheetCellNodeId } from './formulaEvaluator';
 import {
   collectFormulaReferences,
@@ -59,15 +57,16 @@ export function updateFormulaDependencyGraph(
   const changedNodes = new Set<string>();
 
   for (const change of changes) {
-    const formulaNode = sheetCellNodeId(change.sheetId, change.key);
+    const currentSheet = sheetsById.get(change.sheetId);
+    const changedKey = cellIdentityAt(currentSheet?.rows && currentSheet?.columns ? { kind: 'tabular', rows: [...currentSheet.rows], columns: [...currentSheet.columns], cells: {} } : { kind: 'tabular', rows: [], columns: [], cells: {} }, change.key);
+    const formulaNode = sheetCellNodeId(change.sheetId, changedKey ? cellIdentityKey(changedKey) : change.key);
     if (changedNodes.has(formulaNode)) {
       continue;
     }
     changedNodes.add(formulaNode);
     removeFormulaEdges(formulaNode, dependencies, dependents);
 
-    const currentSheet = sheetsById.get(change.sheetId);
-    const raw = currentSheet?.cells[change.key];
+    const raw = currentSheet?.cells[changedKey ? cellIdentityKey(changedKey) : change.key];
     if (!currentSheet || !raw?.startsWith('=')) {
       continue;
     }
@@ -139,14 +138,29 @@ function referenceDependencies(
   if (!targetSheet) {
     return new Set();
   }
-  if (reference.kind === 'cell') {
-    return new Set([sheetCellNodeId(targetSheet.id, cellKey(reference.address))]);
+  if (reference.kind === 'cell') return new Set([sheetCellNodeId(targetSheet.id, reference.address.columnIndex >= 0 ? legacyKey(targetSheet, reference.address.rowIndex, reference.address.columnIndex) : '')]);
+  if (reference.kind === 'range') {
+    const dependencies = new Set<string>();
+    for (let row = Math.min(reference.range.start.rowIndex, reference.range.end.rowIndex); row <= Math.max(reference.range.start.rowIndex, reference.range.end.rowIndex); row += 1) for (let column = Math.min(reference.range.start.columnIndex, reference.range.end.columnIndex); column <= Math.max(reference.range.start.columnIndex, reference.range.end.columnIndex); column += 1) dependencies.add(sheetCellNodeId(targetSheet.id, legacyKey(targetSheet, row, column)));
+    return dependencies;
   }
+  if (!reference.range) {
+    const key = calculationCellKey(targetSheet, reference.coordinate);
+    return key ? new Set([sheetCellNodeId(targetSheet.id, key)]) : new Set();
+  }
+  const startRow = targetSheet.rows.indexOf(reference.range.start.rowId), endRow = targetSheet.rows.indexOf(reference.range.end.rowId);
+  const startColumn = targetSheet.columns.indexOf(reference.range.start.columnId), endColumn = targetSheet.columns.indexOf(reference.range.end.columnId);
+  if (Math.min(startRow, endRow, startColumn, endColumn) < 0) return new Set();
+  const dependencies = new Set<string>();
+  for (let row = Math.min(startRow, endRow); row <= Math.max(startRow, endRow); row += 1) for (let column = Math.min(startColumn, endColumn); column <= Math.max(startColumn, endColumn); column += 1) dependencies.add(sheetCellNodeId(targetSheet.id, calculationCellKey(targetSheet, { rowId: targetSheet.rows[row]!, columnId: targetSheet.columns[column]! })!));
+  return dependencies;
+}
 
-  const addresses = expandRange(reference.range, targetSheet);
-  return addresses.ok
-    ? new Set(addresses.value.map((address) => sheetCellNodeId(targetSheet.id, cellKey(address))))
-    : new Set();
+function legacyKey(sheet: CalculationSheet, rowIndex: number, columnIndex: number): string {
+  if (!sheet.rows || !sheet.columns) {
+    return `${String.fromCharCode(65 + columnIndex)}${rowIndex + 1}`;
+  }
+  return calculationCellKey(sheet, { rowId: sheet.rows[rowIndex]!, columnId: sheet.columns[columnIndex]! })!;
 }
 
 function removeFormulaEdges(

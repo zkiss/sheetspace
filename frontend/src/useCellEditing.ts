@@ -64,7 +64,7 @@ export function useCellEditing({
 
     const currentCell = cellRawContent(sheet, key);
     const currentRaw = currentCell ?? '';
-    const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook) : currentRaw;
+    const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook, sheet.id) : currentRaw;
     if (
       currentEditValue !== session.draft
       || (currentCell && currentRaw.length === 0 && session.draft.length === 0)
@@ -87,7 +87,7 @@ export function useCellEditing({
       type: 'start-edit',
       session: {
         target,
-        draft: initialValue ?? (raw ? formulaRawForDisplay(raw, workbook) : ''),
+        draft: initialValue ?? (raw ? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
       },
     });
   }

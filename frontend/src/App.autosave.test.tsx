@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { autosaveClient, deferred } from './test/apiClients';
+import { autosaveClient, deferred, persistedWorkbookClient } from './test/apiClients';
 import { openCellEditor, openSheetContextMenu } from './test/appScreen';
 import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
 import type { SheetDocument } from './workbook';
@@ -60,6 +60,40 @@ describe('App autosave integration', () => {
     await user.keyboard('{Enter}');
 
     expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', 'Draft', { revision: 0 });
+  });
+
+  it('persists canonical formulas and reopens only current A1 names after reload', async () => {
+    const user = userEvent.setup();
+    const apiClient = persistedWorkbookClient(workbookWithSheets([
+      positionedSheet('sheet-inputs', 'Sales Q1', { x: 120, y: 80 }),
+      positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }),
+    ]));
+    const first = render(<App apiClient={apiClient} />);
+    const output = await screen.findByRole('cell', { name: 'Outputs A1 empty cell' });
+
+    await user.type(
+      await openCellEditor(user, output),
+      "=SUM('Sales Q1'!$A1:B$2, A2)",
+    );
+    await user.keyboard('{Enter}');
+
+    const canonical = "=SUM('sheet-inputs'!@[$sheet-inputs:column:1,sheet-inputs:row:1]:@[sheet-inputs:column:2,$sheet-inputs:row:2], @[sheet-outputs:column:1,sheet-outputs:row:2])";
+    expect(apiClient.updateCellContent).toHaveBeenCalledWith(
+      'sheet-outputs',
+      'A1',
+      canonical,
+      { revision: 0 },
+    );
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+
+    first.unmount();
+    await apiClient.renameSheet('sheet-inputs', 'Owner\'s Plan');
+    render(<App apiClient={apiClient} />);
+
+    const reloaded = await screen.findByRole('cell', { name: 'Outputs A1 cell' });
+    const editor = await openCellEditor(user, reloaded);
+    expect(editor).toHaveValue("=SUM('Owner''s Plan'!$A1:B$2, A2)");
+    expect((editor as HTMLTextAreaElement).value).not.toContain('sheet-inputs');
   });
 
   it('autosaves optimistic sheet deletion and reports app-level save status', async () => {

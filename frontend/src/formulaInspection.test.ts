@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inspectFormula } from './formulaInspection';
-import { cellAddressOf } from './workbook';
+import { cellAddressOf, cellIdentityKey, commitCellRawContent } from './workbook';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 const sheet = (id: string, name: string, cells: Record<string, string> = {}) =>
@@ -53,6 +53,27 @@ describe('formula inspection', () => {
     expect(target?.kind).toBe('cell');
     if (target?.kind !== 'cell' || !target.identity) return;
     expect(cellAddressOf(reordered.content, target.identity)).toEqual({ rowIndex: 1, columnIndex: 0 });
+  });
+
+  it('projects persisted canonical references at their reordered A1 position', () => {
+    const inputs = sheet('sheet-inputs', 'Inputs');
+    let model = workbook([inputs]);
+    model = commitCellRawContent(model, inputs.id, 'B1', '=A1');
+    const original = model.documents[inputs.id]!;
+    const reordered = {
+      ...original,
+      content: { ...original.content, columns: [original.content.columns[1]!, original.content.columns[0]!, ...original.content.columns.slice(2)] },
+    };
+    model = workbook([reordered]);
+
+    const result = inspectFormula(reordered.content.cells[cellIdentityKey({
+      rowId: original.content.rows[0]!, columnId: original.content.columns[1]!,
+    })]!, model, reordered);
+    expect(result?.raw).toBe('=B1');
+    expect(result?.references[0].target).toEqual({
+      kind: 'cell', sheetId: inputs.id,
+      identity: { rowId: original.content.rows[0], columnId: original.content.columns[0] },
+    });
   });
 
   it('renders current quoted sheet names while retaining canonical ids and translated spans', () => {
@@ -109,6 +130,41 @@ describe('formula inspection', () => {
       { text: 'A21', broken: true, navigable: false },
       { text: 'K1', broken: true, navigable: false },
     ]);
+  });
+
+  it('keeps broken canonical references inspectable after their target is deleted', () => {
+    const outputs = sheet('sheet-outputs', 'Outputs');
+    const missingSheet = inspectFormula(
+      '=sheet-deleted!@[sheet-deleted:column:1,sheet-deleted:row:1]',
+      workbook([outputs]),
+      outputs,
+    );
+    const deletedAxis = inspectFormula(
+      '=@[sheet-outputs:column:1,sheet-outputs:row:deleted]',
+      workbook([outputs]),
+      outputs,
+    );
+
+    for (const result of [missingSheet, deletedAxis]) {
+      expect(result?.raw).toBe('=#REF!');
+      expect(result?.parts.map((part) => part.text).join('')).toBe(result?.raw);
+      expect(result?.references[0]).toMatchObject({
+        text: '#REF!',
+        displaySpan: { start: 1, end: 6 },
+        broken: true,
+        navigable: false,
+      });
+    }
+    expect(missingSheet?.references[0]?.target).toEqual({
+      kind: 'cell',
+      sheetId: 'sheet-deleted',
+      identity: { columnId: 'sheet-deleted:column:1', rowId: 'sheet-deleted:row:1' },
+    });
+    expect(deletedAxis?.references[0]?.target).toEqual({
+      kind: 'cell',
+      sheetId: outputs.id,
+      identity: { columnId: 'sheet-outputs:column:1', rowId: 'sheet-outputs:row:deleted' },
+    });
   });
 
   it('keeps references inspectable in formulas with evaluation errors', () => {

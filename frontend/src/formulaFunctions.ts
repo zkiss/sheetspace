@@ -116,12 +116,14 @@ function acceptsArity(arity: FormulaFunctionArity, argumentCount: number): boole
 
 function isSyntacticRange(expression: FormulaExpression): boolean {
   return expression.kind === 'range'
+    || (expression.kind === 'canonical' && expression.range !== undefined)
     || (expression.kind === 'group' && isSyntacticRange(expression.expression));
 }
 
 function isSyntacticReference(expression: FormulaExpression): boolean {
   return expression.kind === 'cell'
     || expression.kind === 'range'
+    || expression.kind === 'canonical'
     || (expression.kind === 'group' && isSyntacticReference(expression.expression));
 }
 

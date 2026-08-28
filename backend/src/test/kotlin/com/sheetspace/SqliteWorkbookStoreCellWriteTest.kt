@@ -28,6 +28,21 @@ class SqliteWorkbookStoreCellWriteTest {
         }
 
     @Test
+    fun `canonical formula content survives sqlite round trip byte for byte`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Outputs")
+        val canonical =
+            "= SUM( 'sheet-inputs'!@[\$column-a,row-a]:@[column-b,\$row-b], @[column-c,row-c] )"
+        store.saveWorkbook(testWorkbookOf(sheet))
+
+        store.writeCells(
+            ExpectedSheetRevision(TEST_SHEET_1, 0),
+            listOf(CellWrite(sheet.tabularContent.coordinateAt("A1")!!, canonical)),
+        )
+
+        assertEquals(canonical, store.loadSheet(SheetId(TEST_SHEET_1))!!.tabularContent.cells.getValue("A1"))
+    }
+
+    @Test
     fun `stale batch cell write is atomic`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Inputs")
         store.saveWorkbook(testWorkbookOf(sheet))

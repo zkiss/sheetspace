@@ -1,8 +1,6 @@
 import {
-  cellKey,
   expandRange,
   isAddressWithinBounds,
-  type CellAddress,
   type CellKey,
 } from './cellAddress';
 import { builtInFormulaFunctions } from './formulaBuiltins';
@@ -36,6 +34,8 @@ import type {
   CalculationProjection,
   CalculationSheet,
 } from './calculationProjection';
+import { calculationCellKey } from './calculationProjection';
+import { cellIdentityFromKey, cellKey } from './workbook';
 
 export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
 
@@ -45,7 +45,7 @@ export function evaluateFormulaCells<T extends CalculationProjection>(
   return new FormulaEvaluator(projection).evaluate();
 }
 
-export function sheetCellNodeId(sheetId: string, key: CellKey): string {
+export function sheetCellNodeId(sheetId: string, key: string): string {
   return `${sheetId}\u0000${key}`;
 }
 
@@ -81,8 +81,11 @@ export class FormulaEvaluator {
       const sheetResults: Record<CellKey, ReturnType<typeof displayFormulaValue>> = {};
       for (const key of Object.keys(sheet.cells).sort()) {
         const result = this.results.get(sheetCellNodeId(sheet.id, key));
-        if (result) {
-          sheetResults[key] = displayFormulaValue(result);
+        const identity = cellIdentityFromKey(key);
+        const rowIndex = identity ? sheet.rows.indexOf(identity.rowId) : -1;
+        const columnIndex = identity ? sheet.columns.indexOf(identity.columnId) : -1;
+        if (result && rowIndex >= 0 && columnIndex >= 0) {
+          sheetResults[cellKey({ rowIndex, columnIndex })] = displayFormulaValue(result);
         }
       }
       snapshot[sheet.id] = sheetResults;
@@ -110,7 +113,10 @@ export class FormulaEvaluator {
       return this.evaluateLiteralCell(sheet, key);
     }
 
-    this.onEvaluate?.(sheet.id, key);
+    const identity = cellIdentityFromKey(key);
+    const rowIndex = identity ? sheet.rows.indexOf(identity.rowId) : -1;
+    const columnIndex = identity ? sheet.columns.indexOf(identity.columnId) : -1;
+    this.onEvaluate?.(sheet.id, rowIndex >= 0 && columnIndex >= 0 ? cellKey({ rowIndex, columnIndex }) : key);
     this.visiting.add(nodeId);
     this.stack.push({ nodeId, sheet, key });
 
@@ -233,23 +239,23 @@ export class FormulaEvaluator {
       return formulaErrorValue('#REF!');
     }
 
+    if (reference.kind === 'canonical') {
+      const key = calculationCellKey(sheet, reference.coordinate);
+      if (!key) return formulaErrorValue('#REF!');
+      if (!reference.range) return this.evaluateReferencedCell(sheet, key);
+      const addresses = canonicalRangeAddresses(sheet, reference.range);
+      if (!addresses) return formulaErrorValue('#REF!');
+      return { kind: 'range', values: this.evaluateRangeCells(sheet, addresses), rowCount: addresses.length / rangeColumnCount(sheet, reference.range), columnCount: rangeColumnCount(sheet, reference.range) };
+    }
     if (reference.kind === 'cell') {
-      if (!isAddressWithinBounds(reference.address, sheet)) {
-        return formulaErrorValue('#REF!');
-      }
-      return this.evaluateReferencedCell(sheet, cellKey(reference.address));
+      if (!isAddressWithinBounds(reference.address, { rowCount: sheet.rows.length, columnCount: sheet.columns.length })) return formulaErrorValue('#REF!');
+      const key = calculationCellKey(sheet, { rowId: sheet.rows[reference.address.rowIndex]!, columnId: sheet.columns[reference.address.columnIndex]! });
+      return key ? this.evaluateReferencedCell(sheet, key) : formulaErrorValue('#REF!');
     }
-
-    const range = expandRange(reference.range, sheet);
-    if (!range.ok) {
-      return formulaErrorValue('#REF!');
-    }
-    return {
-      kind: 'range',
-      values: this.evaluateRangeCells(sheet, range.value),
-      rowCount: reference.range.end.rowIndex - reference.range.start.rowIndex + 1,
-      columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1,
-    };
+    const range = expandRange(reference.range, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
+    if (!range.ok) return formulaErrorValue('#REF!');
+    const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
+    return { kind: 'range', values: this.evaluateRangeCells(sheet, keys), rowCount: reference.range.end.rowIndex - reference.range.start.rowIndex + 1, columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1 };
   }
 
   private evaluateFunctionReferenceArgument(
@@ -259,48 +265,52 @@ export class FormulaEvaluator {
     if (expression.kind === 'group') {
       return this.evaluateFunctionReferenceArgument(expression.expression, currentSheet);
     }
-    if (expression.kind !== 'cell' && expression.kind !== 'range') {
+    if (expression.kind !== 'cell' && expression.kind !== 'range' && expression.kind !== 'canonical') {
       return { ok: false, error: '#VALUE!' };
     }
-
     const sheet = resolveFormulaReferenceSheet(expression, this.workbook, currentSheet);
-    if (!sheet) {
-      return { ok: false, error: '#REF!' };
-    }
+    if (!sheet) return { ok: false, error: '#REF!' };
     if (expression.kind === 'cell') {
-      if (!isAddressWithinBounds(expression.address, sheet)) {
-        return { ok: false, error: '#REF!' };
-      }
+      const key = isAddressWithinBounds(expression.address, { rowCount: sheet.rows.length, columnCount: sheet.columns.length }) ? calculationCellKey(sheet, { rowId: sheet.rows[expression.address.rowIndex]!, columnId: sheet.columns[expression.address.columnIndex]! }) : undefined;
+      return key ? { ok: true, value: { values: this.evaluateRangeCells(sheet, [key]), rowCount: 1, columnCount: 1 } } : { ok: false, error: '#REF!' };
+    }
+    if (expression.kind === 'range') {
+      const range = expandRange(expression.range, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
+      if (!range.ok) return { ok: false, error: '#REF!' };
+      const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
+      return { ok: true, value: { values: this.evaluateRangeCells(sheet, keys), rowCount: expression.range.end.rowIndex - expression.range.start.rowIndex + 1, columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1 } };
+    }
+    const key = calculationCellKey(sheet, expression.coordinate);
+    if (!key) return { ok: false, error: '#REF!' };
+    if (!expression.range) {
       return {
         ok: true,
         value: {
-          values: this.evaluateRangeCells(sheet, [expression.address]),
+          values: this.evaluateRangeCells(sheet, [key]),
           rowCount: 1,
           columnCount: 1,
         },
       };
     }
 
-    const range = expandRange(expression.range, sheet);
-    if (!range.ok) {
-      return { ok: false, error: '#REF!' };
-    }
+    const range = canonicalRangeAddresses(sheet, expression.range);
+    if (!range) return { ok: false, error: '#REF!' };
     return {
       ok: true,
       value: {
-        values: this.evaluateRangeCells(sheet, range.value),
-        rowCount: expression.range.end.rowIndex - expression.range.start.rowIndex + 1,
-        columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1,
+        values: this.evaluateRangeCells(sheet, range),
+        rowCount: range.length / rangeColumnCount(sheet, expression.range),
+        columnCount: rangeColumnCount(sheet, expression.range),
       },
     };
   }
 
   private *evaluateRangeCells(
     sheet: CalculationSheet,
-    addresses: readonly CellAddress[],
+    addresses: readonly string[],
   ): IterableIterator<FormulaScalarValue> {
     for (const address of addresses) {
-      yield this.evaluateReferencedCell(sheet, cellKey(address));
+      yield this.evaluateReferencedCell(sheet, address);
     }
   }
 
@@ -317,6 +327,19 @@ export class FormulaEvaluator {
   private evaluateLiteralCell(sheet: CalculationSheet, key: CellKey): FormulaScalarValue {
     return classifyCellValue(sheet.cells[key] ?? '');
   }
+}
+
+function canonicalRangeAddresses(sheet: CalculationSheet, range: NonNullable<Extract<FormulaReference, { kind: 'canonical' }>['range']>): string[] | undefined {
+  const startRow = sheet.rows.indexOf(range.start.rowId), endRow = sheet.rows.indexOf(range.end.rowId);
+  const startColumn = sheet.columns.indexOf(range.start.columnId), endColumn = sheet.columns.indexOf(range.end.columnId);
+  if (Math.min(startRow, endRow, startColumn, endColumn) < 0) return undefined;
+  const addresses: string[] = [];
+  for (let row = Math.min(startRow, endRow); row <= Math.max(startRow, endRow); row += 1) for (let column = Math.min(startColumn, endColumn); column <= Math.max(startColumn, endColumn); column += 1) addresses.push(calculationCellKey(sheet, { rowId: sheet.rows[row]!, columnId: sheet.columns[column]! })!);
+  return addresses;
+}
+
+function rangeColumnCount(sheet: CalculationSheet, range: NonNullable<Extract<FormulaReference, { kind: 'canonical' }>['range']>): number {
+  return Math.abs(sheet.columns.indexOf(range.end.columnId) - sheet.columns.indexOf(range.start.columnId)) + 1;
 }
 
 function resolveFormulaReferenceSheet(

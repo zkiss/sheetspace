@@ -1,15 +1,17 @@
 import {
   cellIdentityAt,
   findSheetById,
+  formulaRawForDisplay,
+  formulaRawToDisplayProjection,
   stableRangeAt,
   type SheetDocument,
   type StableCellIdentity,
   type StableCellRange,
   type Workbook,
+  workbookFormulaReferenceResolver,
 } from './workbook';
 import {
   collectFormulaReferences,
-  formatSheetReferenceToken,
   parseFormulaSyntax,
   type FormulaReference,
   type FormulaSourceSpan,
@@ -47,8 +49,6 @@ export type FormulaInspection = {
   parts: FormulaInspectionPart[];
 };
 
-type QualifierReplacement = FormulaSourceSpan & { text: string };
-
 export function inspectFormula(
   canonicalRaw: string,
   workbook: Workbook,
@@ -63,10 +63,19 @@ export function inspectFormula(
     ? collectFormulaReferences(parsed.result.expression)
     : parsed.references)
     .sort((first, second) => first.sourceSpan.start - second.sourceSpan.start);
-  const replacements = qualifierReplacements(formulaReferences, workbook);
-  const raw = applyQualifierReplacements(canonicalRaw, replacements);
-  const references = formulaReferences.map((reference) =>
-    inspectionReference(reference, raw, replacements, workbook, currentSheet),
+  const raw = formulaRawForDisplay(canonicalRaw, workbook, currentSheet.id);
+  const hasCanonicalReference = formulaReferences.some((reference) => reference.kind === 'canonical');
+  const displaySpans = hasCanonicalReference
+    ? referenceDisplaySpans(
+      formulaReferences,
+      formulaRawToDisplayProjection(
+        canonicalRaw,
+        workbookFormulaReferenceResolver(workbook, currentSheet.id),
+      ).referenceSpans,
+    )
+    : parsedDisplaySpans(raw, formulaReferences);
+  const references = formulaReferences.map((reference, index) =>
+    inspectionReference(reference, raw, displaySpans[index]!, workbook, currentSheet),
   );
 
   return {
@@ -76,46 +85,70 @@ export function inspectFormula(
   };
 }
 
-function qualifierReplacements(
-  references: readonly FormulaReference[],
-  workbook: Workbook,
-): QualifierReplacement[] {
-  return references.flatMap((reference) => {
-    if (!reference.sheetReferenceSpan || reference.sheetId === undefined) {
-      return [];
-    }
-
-    const sheet = findSheetById(workbook, reference.sheetId);
-    return [{
-      ...reference.sheetReferenceSpan,
-      text: sheet ? formatSheetReferenceToken(sheet.name) : '#REF',
-    }];
-  });
+function parsedDisplaySpans(raw: string, references: readonly FormulaReference[]): FormulaSourceSpan[] {
+  const parsed = parseFormulaSyntax(raw, { preserveUnknownFunctions: true });
+  const displayReferences = (parsed.result.kind === 'formula'
+    ? collectFormulaReferences(parsed.result.expression)
+    : parsed.references)
+    .sort((first, second) => first.sourceSpan.start - second.sourceSpan.start);
+  return references.map((reference, index) => displayReferences[index]?.sourceSpan ?? reference.sourceSpan);
 }
 
-function applyQualifierReplacements(
-  canonicalRaw: string,
-  replacements: readonly QualifierReplacement[],
-): string {
-  return [...replacements]
-    .sort((first, second) => second.start - first.start)
-    .reduce(
-      (raw, replacement) =>
-        raw.slice(0, replacement.start) + replacement.text + raw.slice(replacement.end),
-      canonicalRaw,
-    );
+/**
+ * Rendering a broken canonical reference replaces its whole token with #REF!,
+ * which cannot be reparsed as a reference. Keep the source-to-display mapping
+ * from the original parsed tokens so inspection still exposes that target.
+ */
+function referenceDisplaySpans(
+  references: readonly FormulaReference[],
+  canonicalSpans: readonly FormulaSourceSpan[],
+): FormulaSourceSpan[] {
+  const canonical = references.filter((reference) => reference.kind === 'canonical');
+  let canonicalIndex = 0;
+  return references.map((reference) => {
+    if (reference.kind === 'canonical') return canonicalSpans[canonicalIndex++]!;
+    const priorCanonical = canonicalSpans.slice(0, canonicalIndex)
+      .filter((_, index) => canonical[index]!.sourceSpan.end <= reference.sourceSpan.start);
+    const sourceLength = canonical.slice(0, priorCanonical.length)
+      .reduce((total, item) => total + item.sourceSpan.end - item.sourceSpan.start, 0);
+    const displayLength = priorCanonical.reduce((total, span) => total + span.end - span.start, 0);
+    const shift = displayLength - sourceLength;
+    return { start: reference.sourceSpan.start + shift, end: reference.sourceSpan.end + shift };
+  });
 }
 
 function inspectionReference(
   reference: FormulaReference,
   displayRaw: string,
-  replacements: readonly QualifierReplacement[],
+  displaySpan: FormulaSourceSpan,
   workbook: Workbook,
   currentSheet: SheetDocument,
 ): FormulaInspectionReference {
+  if (reference.kind === 'canonical') {
+    const sheetId = reference.sheetId ?? currentSheet.id;
+    const targetSheet = findSheetById(workbook, sheetId);
+    const range = reference.range
+      ? { start: { rowId: reference.range.start.rowId, columnId: reference.range.start.columnId }, end: { rowId: reference.range.end.rowId, columnId: reference.range.end.columnId } }
+      : undefined;
+    const identity = !reference.range
+      ? { rowId: reference.coordinate.rowId, columnId: reference.coordinate.columnId }
+      : undefined;
+    const valid = targetSheet && (range
+      ? targetSheet.content.rows.includes(range.start.rowId) && targetSheet.content.columns.includes(range.start.columnId)
+        && targetSheet.content.rows.includes(range.end.rowId) && targetSheet.content.columns.includes(range.end.columnId)
+      : identity && targetSheet.content.rows.includes(identity.rowId) && targetSheet.content.columns.includes(identity.columnId));
+    return {
+      kind: 'reference',
+      text: displayRaw.slice(displaySpan.start, displaySpan.end),
+      sourceSpan: reference.sourceSpan,
+      displaySpan,
+      target: range ? { kind: 'range', sheetId, range } : { kind: 'cell', sheetId, identity },
+      broken: !valid,
+      navigable: Boolean(valid),
+    };
+  }
   const sheetId = reference.sheetId ?? currentSheet.id;
   const targetSheet = findSheetById(workbook, sheetId);
-  const displaySpan = translatedSpan(reference.sourceSpan, replacements);
   const target: FormulaReferenceTarget = reference.kind === 'cell'
     ? {
         kind: 'cell',
@@ -138,28 +171,6 @@ function inspectionReference(
     broken,
     navigable: !broken,
   };
-}
-
-function translatedSpan(
-  span: FormulaSourceSpan,
-  replacements: readonly QualifierReplacement[],
-): FormulaSourceSpan {
-  return {
-    start: span.start + replacementOffsetAt(span.start, replacements),
-    end: span.end + replacementOffsetAt(span.end, replacements),
-  };
-}
-
-function replacementOffsetAt(
-  index: number,
-  replacements: readonly QualifierReplacement[],
-): number {
-  return replacements
-    .filter((replacement) => replacement.end <= index)
-    .reduce(
-      (offset, replacement) => offset + replacement.text.length - (replacement.end - replacement.start),
-      0,
-    );
 }
 
 function inspectionParts(

@@ -1,16 +1,16 @@
-import type { CellKey } from './cellAddress';
 import {
+  cellIdentityKey,
   sheetsInOrder,
-  sheetBounds,
-  tabularCellsByA1,
   type Workbook,
 } from './workbook';
+import type { CellKey } from './cellAddress';
 
 export type CalculationSheet = {
   readonly id: string;
-  readonly rowCount: number;
-  readonly columnCount: number;
-  readonly cells: Readonly<Record<CellKey, string>>;
+  readonly rows: readonly string[];
+  readonly columns: readonly string[];
+  /** Raw values keyed by durable row/column identity, never by A1 position. */
+  readonly cells: Readonly<Record<string, string>>;
 };
 
 export type CalculationProjection = {
@@ -36,8 +36,18 @@ export function calculationProjection(
   return {
     sheets: sheetsInOrder(source).map((sheet) => ({
       id: sheet.id,
-      ...sheetBounds(sheet),
-      cells: tabularCellsByA1(sheet.content),
+      rows: sheet.content.rows,
+      columns: sheet.content.columns,
+      cells: sheet.content.cells,
     })),
   };
+}
+
+export function calculationCellKey(
+  sheet: CalculationSheet,
+  coordinate: { readonly rowId: string; readonly columnId: string },
+): string | undefined {
+  return sheet.rows.includes(coordinate.rowId) && sheet.columns.includes(coordinate.columnId)
+    ? cellIdentityKey(coordinate)
+    : undefined;
 }

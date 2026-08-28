@@ -109,7 +109,7 @@ function calculationProjection(
       columnCount: 10,
       cells,
     })),
-  };
+  } as unknown as CalculationProjection;
 }
 
 function node(sheetId: string, key: string): string {

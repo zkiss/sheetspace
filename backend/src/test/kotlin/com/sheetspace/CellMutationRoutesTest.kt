@@ -13,15 +13,17 @@ class CellMutationRoutesTest {
     fun `cell update endpoint persists raw content without evaluated formula artifacts`() =
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
+            val canonical =
+                "=SUM('sheet-inputs'!@[\$column-a,row-a]:@[column-b,\$row-b], @[column-c,row-c])"
 
             val response = client.put("/api/sheets/$sheetId/cells/A1") {
                 revisionHeader(workbookApplication, sheetId)
-                cellBody("=SUM(B1:B2)")
+                cellBody(canonical)
             }
 
             assertEquals(HttpStatusCode.OK, response.status)
             val sheet = client.loadWorkbook().sheets.single()
-            assertEquals("=SUM(B1:B2)", sheet.cells.getValue("A1"))
+            assertEquals(canonical, sheet.cells.getValue("A1"))
             assertFalse(sheet.cells.containsKey("A1_display"))
         }
 

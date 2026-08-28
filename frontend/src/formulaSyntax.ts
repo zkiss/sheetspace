@@ -30,6 +30,14 @@ export type FormulaReference =
       range: CellRange;
       sourceSpan: FormulaSourceSpan;
       sheetReferenceSpan?: FormulaSourceSpan;
+    }
+  | {
+      kind: 'canonical';
+      sheetId?: string;
+      coordinate: { columnId: string; rowId: string };
+      range?: { start: { columnId: string; rowId: string }; end: { columnId: string; rowId: string } };
+      sourceSpan: FormulaSourceSpan;
+      sheetReferenceSpan?: FormulaSourceSpan;
     };
 
 export type FormulaLiteral =
@@ -82,7 +90,20 @@ export type FormulaSyntaxResult = {
   result: FormulaParseResult;
   /** Ordered references parsed before success or failure. */
   references: FormulaReference[];
+  /** Exact transform tokens emitted by the parser in normal grammar contexts. */
+  referenceLexemes: FormulaReferenceLexeme[];
 };
+
+/** Exact reference lexemes for source-preserving transforms.  This is the sole lexical authority. */
+export type FormulaReferenceLexeme = {
+  sourceSpan: FormulaSourceSpan;
+  qualifier?: { value: string; sourceSpan: FormulaSourceSpan; broken: boolean };
+  endpoints: readonly { kind: 'a1' | 'canonical'; value: CellAddress | { columnId: string; rowId: string }; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan }[];
+};
+
+export function formulaReferenceLexemes(raw: string): FormulaReferenceLexeme[] {
+  return parseFormulaSyntax(raw, { preserveUnknownFunctions: true }).referenceLexemes;
+}
 
 /** Syntactically valid calls retain one general function AST. */
 export function parseFormula(raw: string): FormulaParseResult {
@@ -102,7 +123,7 @@ export function parseFormulaSyntax(
   _options: { preserveUnknownFunctions?: boolean } = {},
 ): FormulaSyntaxResult {
   if (!raw.startsWith('=')) {
-    return { result: { kind: 'not-formula', raw }, references: [] };
+    return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [] };
   }
   return new FormulaParser(raw.slice(1)).parse(raw);
 }
@@ -111,6 +132,7 @@ export function collectFormulaReferences(expression: FormulaExpression): Formula
   switch (expression.kind) {
     case 'cell':
     case 'range':
+    case 'canonical':
       return [expression];
     case 'number':
     case 'text':
@@ -173,6 +195,7 @@ type ReadResult<T> =
 class FormulaParser {
   private index = 0;
   private readonly references: FormulaReference[] = [];
+  private readonly referenceLexemes: FormulaReferenceLexeme[] = [];
 
   constructor(private readonly input: string) {}
 
@@ -189,7 +212,7 @@ class FormulaParser {
       : trailingSyntax
         ? { kind: 'error', raw, error: '#PARSE!' }
         : { kind: 'formula', raw, expression: expression.value };
-    return { result, references: [...this.references] };
+    return { result, references: [...this.references], referenceLexemes: [...this.referenceLexemes] };
   }
 
   /**
@@ -441,58 +464,92 @@ class FormulaParser {
     const start = this.index;
     const qualifier = this.readOptionalQualifier();
     if (qualifier === false) return this.error();
-    const firstToken = this.readA1Token();
-    if (!firstToken) return this.error();
+    const first = this.readReferenceEndpoint();
+    if (!first) return this.error();
     const firstEnd = this.index;
-    const first = parseA1Address(firstToken, {
-      columnCount: Number.MAX_SAFE_INTEGER,
-      rowCount: Number.MAX_SAFE_INTEGER,
-    });
-    if (!first.ok) {
-      return {
-        ok: false,
-        error: first.reason === 'out-of-bounds' ? '#REF!' : '#PARSE!',
-      };
-    }
     this.skipWhitespace();
     if (!this.consume(':')) {
-      const reference: FormulaReference = {
-        kind: 'cell',
-        ...(qualifier.sheetId === undefined ? {} : { sheetId: qualifier.sheetId }),
-        address: first.value,
-        sourceSpan: this.spanTo(start, firstEnd),
-        ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
-      };
-      this.references.push(reference);
+      const reference = this.makeReference(first, undefined, qualifier, start, firstEnd);
+      this.recordReference(reference, qualifier, [first]);
       return { ok: true, value: reference };
     }
 
     this.skipWhitespace();
-    const secondToken = this.readA1Token();
-    if (!secondToken) {
-      this.references.push({
-        kind: 'cell',
-        ...(qualifier.sheetId === undefined ? {} : { sheetId: qualifier.sheetId }),
-        address: first.value,
-        sourceSpan: this.spanTo(start, firstEnd),
-        ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
-      });
+    const second = this.readReferenceEndpoint();
+    if (!second || second.kind !== first.kind) {
+      this.recordReference(this.makeReference(first, undefined, qualifier, start, firstEnd), qualifier, [first]);
       return this.error();
     }
-    const second = parseA1Address(secondToken, {
+    const reference = this.makeReference(first, second, qualifier, start, this.index);
+    this.recordReference(reference, qualifier, [first, second]);
+    return { ok: true, value: reference };
+  }
+
+  private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
+    const start = this.index;
+    const canonical = /^(?:@\[(\$?)([^,\]\s]+),(\$?)([^\]\s]+)\])/.exec(this.input.slice(this.index));
+    if (canonical) {
+      this.index += canonical[0].length;
+      return {
+        kind: 'canonical',
+        value: { columnId: canonical[2], rowId: canonical[4] },
+        anchors: { column: canonical[1] === '$', row: canonical[3] === '$' },
+        sourceSpan: this.span(start),
+      };
+    }
+    const token = this.readA1Token();
+    if (!token) return undefined;
+    const address = parseA1Address(token.replace(/\$/g, ''), {
       columnCount: Number.MAX_SAFE_INTEGER,
       rowCount: Number.MAX_SAFE_INTEGER,
     });
-    if (!second.ok) return this.error();
-    const reference: FormulaReference = {
-      kind: 'range',
-      ...(qualifier.sheetId === undefined ? {} : { sheetId: qualifier.sheetId }),
-      range: normalizeRange({ start: first.value, end: second.value }),
+    if (!address.ok) return undefined;
+    return {
+      kind: 'a1',
+      value: address.value,
+      anchors: { column: token.startsWith('$'), row: /\$[0-9]/.test(token) },
       sourceSpan: this.span(start),
+    };
+  }
+
+  private makeReference(
+    first: FormulaReferenceLexeme['endpoints'][number],
+    second: FormulaReferenceLexeme['endpoints'][number] | undefined,
+    qualifier: Exclude<ReturnType<FormulaParser['readOptionalQualifier']>, false>,
+    start: number,
+    end: number,
+  ): FormulaReference {
+    const base = {
+      ...(qualifier.sheetId === undefined ? {} : { sheetId: qualifier.sheetId }),
+      sourceSpan: this.spanTo(start, end),
       ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
     };
+    if (first.kind === 'canonical') {
+      const coordinate = first.value as { columnId: string; rowId: string };
+      return {
+        kind: 'canonical',
+        ...base,
+        coordinate,
+        ...(second ? { range: { start: coordinate, end: second.value as { columnId: string; rowId: string } } } : {}),
+      };
+    }
+    if (!second) return { kind: 'cell', ...base, address: first.value as CellAddress };
+    return { kind: 'range', ...base, range: normalizeRange({ start: first.value as CellAddress, end: second.value as CellAddress }) };
+  }
+
+  private recordReference(
+    reference: FormulaReference,
+    qualifier: Exclude<ReturnType<FormulaParser['readOptionalQualifier']>, false>,
+    endpoints: FormulaReferenceLexeme['endpoints'],
+  ): void {
     this.references.push(reference);
-    return { ok: true, value: reference };
+    this.referenceLexemes.push({
+      sourceSpan: reference.sourceSpan,
+      ...(qualifier.sourceSpan && qualifier.sheetId !== undefined
+        ? { qualifier: { value: qualifier.sheetId, sourceSpan: qualifier.sourceSpan, broken: qualifier.sheetId === '#REF' } }
+        : {}),
+      endpoints,
+    });
   }
 
   private readOptionalQualifier(): { sheetId?: string; sourceSpan?: FormulaSourceSpan } | false {
@@ -555,7 +612,7 @@ class FormulaParser {
   }
 
   private readA1Token(): string | undefined {
-    const match = /^[A-Za-z]+[1-9][0-9]*/.exec(this.input.slice(this.index));
+    const match = /^(?:\$?[A-Za-z]+\$?[1-9][0-9]*)/.exec(this.input.slice(this.index));
     if (!match) return undefined;
     this.index += match[0].length;
     return this.peek() && /[A-Za-z0-9]/.test(this.peek()) ? undefined : match[0];
