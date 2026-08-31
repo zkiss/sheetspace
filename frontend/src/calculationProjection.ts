@@ -1,8 +1,6 @@
-import {
-  cellIdentityKey,
-  sheetsInOrder,
-  type Workbook,
-} from './workbook';
+import { cellIdentityKey } from './stableCellIdentity';
+import { sheetsInOrder } from './workbookQueries';
+import { type Workbook } from './workbookModel';
 import type { CellKey } from './cellAddress';
 
 export type CalculationSheet = {

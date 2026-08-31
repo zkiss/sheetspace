@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  formulaRawForDisplay,
-  formulaRawForStorage,
-  formulaSheetReferenceIds,
-  type SheetDocument,
-  type Workbook,
-} from './workbook';
+import { formulaRawForDisplay, formulaRawForStorage, formulaSheetReferenceIds } from './formulaReference';
+import { type SheetDocument, type Workbook } from './workbookModel';
 import { parseFormula as parseFormulaSyntax } from './formulaSyntax';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 

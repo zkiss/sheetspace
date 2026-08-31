@@ -1,6 +1,7 @@
 import { PointerEvent, useRef, useState } from 'react';
 import type { SheetFrameDrag, SheetFrameResize, SheetFrameResizeDirection } from './appTypes';
-import { findSheetById, type SheetFrameSize, type Workbook, type WorkspacePosition } from './workbook';
+import { findSheetById } from './workbookQueries';
+import { type SheetFrameSize, type Workbook, type WorkspacePosition } from './workbookModel';
 import type { WorkbookCommands } from './useWorkbookController';
 import { resizeSheetFrame, workspaceDeltaFromClient } from './workspaceGeometry';
 

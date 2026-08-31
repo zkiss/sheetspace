@@ -1,5 +1,5 @@
 import type { WorkspaceViewport } from './appTypes';
-import type { SheetFrameProjection, SheetFrameSize } from './workbook';
+import { SheetFrameProjection, SheetFrameSize } from './workbookModel';
 import {
   visibleSheetFrames,
   WORKSPACE_FRAME_OVERSCAN,

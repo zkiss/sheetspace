@@ -4,7 +4,7 @@ import type {
   CalculationSheet,
 } from './calculationProjection';
 import { calculationCellKey } from './calculationProjection';
-import { cellIdentityAt, cellIdentityKey } from './workbook';
+import { cellIdentityAt, cellIdentityKey } from './stableCellIdentity';
 import { sheetCellNodeId } from './formulaEvaluator';
 import {
   collectFormulaReferences,

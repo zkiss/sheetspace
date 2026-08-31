@@ -5,7 +5,8 @@ import { projectGridAxes } from './gridAxisProjection';
 import { createGridAxisMetrics } from './gridAxisMetrics';
 import { SheetGrid } from './SheetGrid';
 import { sheetDocument, sparseLargeSheetDocument } from './test/workbookFactories';
-import { cellIdentityAt, tabularProjection } from './workbook';
+import { cellIdentityAt } from './stableCellIdentity';
+import { tabularProjection } from './workbookQueries';
 import { virtualGridGeometry } from './test/domGeometry';
 
 afterEach(cleanup);

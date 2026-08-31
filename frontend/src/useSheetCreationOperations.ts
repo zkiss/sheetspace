@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import type { SaveStatus } from './appTypes';
-import { DEFAULT_SHEET_FRAME_SIZE, sheetsInOrder, validateSheetName, type SheetDocument, type Workbook, type WorkspacePosition } from './workbook';
+import { DEFAULT_SHEET_FRAME_SIZE, type SheetDocument, type Workbook, type WorkspacePosition } from './workbookModel';
+import { sheetsInOrder } from './workbookQueries';
+import { validateSheetName } from './workbookOperations';
 import { workbookApi, type WorkbookApi } from './workbookApi';
 import type { SetWorkbook } from './workbookCalculation';
 

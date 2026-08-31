@@ -1,14 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { calculationProjection } from './calculationProjection';
 import { FormulaCalculation } from './formulaCalculation';
-import {
-  appendColumn,
-  appendRow,
-  cellAddressOf,
-  commitCellRawContent,
-  findSheetById,
-  renameSheet,
-} from './workbook';
+import { appendColumn, appendRow, commitCellRawContent, renameSheet } from './workbookOperations';
+import { cellAddressOf } from './stableCellIdentity';
+import { findSheetById } from './workbookQueries';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function sheetWithCells(id: string, name: string, cells: Record<string, string>) {

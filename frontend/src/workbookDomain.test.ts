@@ -1,29 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
-import {
-  addressRangeOf,
-  appendColumn,
-  appendRow,
-  cellAddressOf,
-  cellIdentityAt,
-  cellIdentityFromKey,
-  cellIdentityKey,
-  cellRawContent,
-  commitCellRawContent,
-  createEmptyWorkbook,
-  findSheetByName,
-  frameProjection,
-  moveSheetZOrder,
-  parseNamedA1Address,
-  parseNamedA1Range,
-  renameSheet,
-  sheetsInOrder,
-  stableRangeAt,
-  tabularCellsByA1,
-  tabularProjection,
-  validateSheetName,
-  type SheetDocument,
-} from './workbook';
+import { addressRangeOf, cellAddressOf, cellIdentityAt, cellIdentityFromKey, cellIdentityKey, stableRangeAt } from './stableCellIdentity';
+import { appendColumn, appendRow, commitCellRawContent, createEmptyWorkbook, moveSheetZOrder, renameSheet, validateSheetName } from './workbookOperations';
+import { cellRawContent, findSheetByName, frameProjection, parseNamedA1Address, parseNamedA1Range, sheetsInOrder, tabularCellsByA1, tabularProjection } from './workbookQueries';
+import { type SheetDocument } from './workbookModel';
 
 function sheet(id: string, name: string): SheetDocument {
   return sheetDocument({ id, name });

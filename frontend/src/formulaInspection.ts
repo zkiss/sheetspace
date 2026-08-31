@@ -1,15 +1,7 @@
-import {
-  cellIdentityAt,
-  findSheetById,
-  formulaRawForDisplay,
-  formulaRawToDisplayProjection,
-  stableRangeAt,
-  type SheetDocument,
-  type StableCellIdentity,
-  type StableCellRange,
-  type Workbook,
-  workbookFormulaReferenceResolver,
-} from './workbook';
+import { cellIdentityAt, stableRangeAt } from './stableCellIdentity';
+import { findSheetById } from './workbookQueries';
+import { formulaRawForDisplay, formulaRawToDisplayProjection, workbookFormulaReferenceResolver } from './formulaReference';
+import { type SheetDocument, type StableCellIdentity, type StableCellRange, type Workbook } from './workbookModel';
 import {
   collectFormulaReferences,
   parseFormulaSyntax,

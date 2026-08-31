@@ -1,0 +1,10 @@
+import { parseA1Address, type CellAddress, type CellKey, type CellRange } from './cellAddress';
+import type { CellIdentityKey, StableCellIdentity, StableCellRange, TabularContent } from './workbookModel';
+
+const CELL_ID_SEPARATOR = '\u0000';
+export function cellIdentityKey(identity: StableCellIdentity): CellIdentityKey { return `${identity.rowId}${CELL_ID_SEPARATOR}${identity.columnId}`; }
+export function cellIdentityFromKey(key: CellIdentityKey): StableCellIdentity | undefined { const separator = key.indexOf(CELL_ID_SEPARATOR); return separator < 1 || separator === key.length - 1 ? undefined : { rowId: key.slice(0, separator), columnId: key.slice(separator + 1) }; }
+export function cellIdentityAt(content: TabularContent, address: CellAddress | CellKey): StableCellIdentity | undefined { const resolved = typeof address === 'string' ? parseA1Address(address, { rowCount: content.rows.length, columnCount: content.columns.length }) : { ok: true as const, value: address }; if (!resolved.ok) return undefined; const rowId = content.rows[resolved.value.rowIndex]; const columnId = content.columns[resolved.value.columnIndex]; return rowId === undefined || columnId === undefined ? undefined : { rowId, columnId }; }
+export function cellAddressOf(content: TabularContent, identity: StableCellIdentity): CellAddress | undefined { const rowIndex = content.rows.indexOf(identity.rowId); const columnIndex = content.columns.indexOf(identity.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { rowIndex, columnIndex }; }
+export function stableRangeAt(content: TabularContent, range: CellRange): StableCellRange | undefined { const start = cellIdentityAt(content, range.start); const end = cellIdentityAt(content, range.end); return start && end ? { start, end } : undefined; }
+export function addressRangeOf(content: TabularContent, range: StableCellRange): CellRange | undefined { const start = cellAddressOf(content, range.start); const end = cellAddressOf(content, range.end); return start && end ? { start, end } : undefined; }

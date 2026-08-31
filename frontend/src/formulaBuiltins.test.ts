@@ -3,9 +3,7 @@ import { calculationProjection } from './calculationProjection';
 import { FormulaEvaluator } from './formulaEvaluator';
 import type { FormulaFunctionRegistry, LazyFormulaFunction } from './formulaFunctions';
 import { formulaScalarValue } from './formulaValue';
-import {
-  evaluateFormulaCells,
-} from './workbook';
+import { evaluateFormulaCells } from './formulaEvaluator';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('formula built-ins and function dispatch', () => {

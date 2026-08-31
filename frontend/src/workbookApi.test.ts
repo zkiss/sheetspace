@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import workbookReadContract from '../../test-fixtures/workbook-read-contract.json';
-import { cellIdentityKey, cellRawContent, sheetsInOrder, type SheetDocument } from './workbook';
+import { cellIdentityKey } from './stableCellIdentity';
+import { cellRawContent, sheetsInOrder } from './workbookQueries';
+import { type SheetDocument } from './workbookModel';
 import {
   decodeSheetDocument,
   decodeWorkbookBundle,

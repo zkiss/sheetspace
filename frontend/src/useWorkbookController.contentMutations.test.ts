@@ -1,11 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  cellRawContent,
-  findSheetById,
-  sheetBounds,
-  type SheetDocument,
-} from './workbook';
+import { cellRawContent, findSheetById, sheetBounds } from './workbookQueries';
+import { type SheetDocument } from './workbookModel';
 import {
   WorkbookApiError,
   type ColumnAppendResponse,

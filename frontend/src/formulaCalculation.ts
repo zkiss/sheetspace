@@ -21,7 +21,7 @@ import type {
   FormulaScalarValue,
 } from './formulaValue';
 import { formulaErrorValue } from './formulaValue';
-import { cellIdentityAt, cellIdentityKey } from './workbook';
+import { cellIdentityAt, cellIdentityKey } from './stableCellIdentity';
 
 /**
  * Owns dependency edges and derived values for the calculation projection.

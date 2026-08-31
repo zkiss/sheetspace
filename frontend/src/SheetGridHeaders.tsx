@@ -1,7 +1,8 @@
 import type { CSSProperties, RefObject } from 'react';
 import type { GridAxisEntry } from './gridAxisProjection';
 import type { VirtualItem } from '@tanstack/react-virtual';
-import { columnIndexToLabel, type ColumnId } from './workbook';
+import { columnIndexToLabel } from './cellAddress';
+import { type ColumnId } from './workbookModel';
 
 export function SheetGridHeaders({
   columnHeaderRef,

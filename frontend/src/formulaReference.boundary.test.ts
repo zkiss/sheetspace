@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
-import {
-  cellRawContent,
-  commitCellRawContent,
-  formulaRawForDisplay,
-  formulaRawForStorage,
-} from './workbook';
+import { cellRawContent } from './workbookQueries';
+import { commitCellRawContent } from './workbookOperations';
+import { formulaRawForDisplay, formulaRawForStorage } from './formulaReference';
 
 describe('workbook formula storage and display boundary', () => {
   it('canonicalizes every anchor and preserves qualification and formatting', () => {

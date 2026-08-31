@@ -3,7 +3,7 @@ import {
   type CalculationImpact,
   type CalculationProjection,
 } from './calculationProjection';
-import type { Workbook } from './workbook';
+import { Workbook } from './workbookModel';
 
 export type CalculationRequest = {
   projection: CalculationProjection;

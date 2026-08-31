@@ -1,4 +1,4 @@
-import type { SheetFrameSize, SheetFrameProjection, WorkspacePosition } from './workbook';
+import { SheetFrameSize, SheetFrameProjection, WorkspacePosition } from './workbookModel';
 import type { SheetFrameResize, WorkspaceViewport } from './appTypes';
 
 export const MIN_SHEET_FRAME_WIDTH = 180;

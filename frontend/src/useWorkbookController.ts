@@ -5,21 +5,12 @@ import {
   workbookApi,
   type WorkbookApi,
 } from './workbookApi';
-import {
-  cellIdentityAt,
-  createEmptyWorkbook,
-  findSheetById,
-  sheetsInOrder,
-  validateSheetName,
-  type CellKey,
-  type FormulaEvaluationSnapshot,
-  type MutationResult,
-  type SheetFrameSize,
-  type SheetZOrderDirection,
-  type Workbook,
-  type WorkspacePosition,
-  type ValidationResult,
-} from './workbook';
+import { cellIdentityAt } from './stableCellIdentity';
+import { createEmptyWorkbook, validateSheetName } from './workbookOperations';
+import { findSheetById, sheetsInOrder } from './workbookQueries';
+import { type CellKey } from './cellAddress';
+import { type FormulaEvaluationSnapshot } from './formulaValue';
+import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from './workbookModel';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,

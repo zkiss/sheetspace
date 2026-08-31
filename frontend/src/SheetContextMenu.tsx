@@ -1,4 +1,4 @@
-import type { SheetDocument, SheetZOrderDirection } from './workbook';
+import { SheetDocument, SheetZOrderDirection } from './workbookModel';
 import type { PendingSheetMenu } from './appTypes';
 import { FLOATING_OVERLAY_Z_INDEX } from './styleTokens';
 import './SheetContextMenu.css';

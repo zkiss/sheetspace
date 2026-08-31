@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cellIdentityKey, type SheetDocument, type Workbook } from './workbook';
+import { cellIdentityKey } from './stableCellIdentity';
+import { type SheetDocument, type Workbook } from './workbookModel';
 import {
   calculationProjection,
   calculationRequest,

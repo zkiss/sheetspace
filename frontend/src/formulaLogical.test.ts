@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calculationProjection } from './calculationProjection';
-import { evaluateFormulaCells } from './workbook';
+import { evaluateFormulaCells } from './formulaEvaluator';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('logical formula functions', () => {

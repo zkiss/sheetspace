@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  cellRawContent,
-  evaluateFormulaCells,
-} from './workbook';
+import { cellRawContent } from './workbookQueries';
+import { evaluateFormulaCells } from './formulaEvaluator';
 import { calculationProjection } from './calculationProjection';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 

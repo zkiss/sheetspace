@@ -35,7 +35,8 @@ import type {
   CalculationSheet,
 } from './calculationProjection';
 import { calculationCellKey } from './calculationProjection';
-import { cellIdentityFromKey, cellKey } from './workbook';
+import { cellIdentityFromKey } from './stableCellIdentity';
+import { cellKey } from './cellAddress';
 
 export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
 

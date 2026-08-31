@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { inspectFormula } from './formulaInspection';
-import { cellAddressOf, cellIdentityKey, commitCellRawContent } from './workbook';
+import { cellAddressOf, cellIdentityKey } from './stableCellIdentity';
+import { commitCellRawContent } from './workbookOperations';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 const sheet = (id: string, name: string, cells: Record<string, string> = {}) =>

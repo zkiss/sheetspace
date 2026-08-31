@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { projectGridAxes } from './gridAxisProjection';
-import type { TabularContent } from './workbook';
+import { TabularContent } from './workbookModel';
 
 describe('projectGridAxes', () => {
   it('places creating rows and columns between durable entries without changing tabular content', () => {

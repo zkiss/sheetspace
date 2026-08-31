@@ -1,12 +1,7 @@
-import {
-  cellIdentityAt,
-  cellIdentityKey,
-  tabularCellsByA1,
-  type CellKey,
-  type SheetDocument,
-  type Workbook,
-  type WorkspacePosition,
-} from '../workbook';
+import { cellIdentityAt, cellIdentityKey } from '../stableCellIdentity';
+import { tabularCellsByA1 } from '../workbookQueries';
+import { type CellKey } from '../cellAddress';
+import { type SheetDocument, type Workbook, type WorkspacePosition } from '../workbookModel';
 
 export function positionedSheet(id: string, name: string, position: WorkspacePosition): SheetDocument {
   return sheetDocument({ id, name, position });

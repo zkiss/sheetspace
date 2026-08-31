@@ -1,5 +1,6 @@
 import { KeyboardEvent, type CSSProperties } from 'react';
-import { cellRawContent, type SheetTabularProjection } from './workbook';
+import { cellRawContent } from './workbookQueries';
+import { type SheetTabularProjection } from './workbookModel';
 import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
 import { cellTargetAt } from './cellInteraction';
 import { GRID_CELL_HEIGHT } from './gridGeometry';
