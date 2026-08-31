@@ -1,13 +1,13 @@
 .sheet-grid {
+  position: relative;
   min-width: max-content;
-  border-collapse: separate;
-  border-spacing: 0;
   color: #17202a;
   font-size: 0.78rem;
-  table-layout: fixed;
 }
 
-.sheet-grid th,
+.sheet-grid-corner,
+.sheet-grid-column-header,
+.sheet-grid-row-header,
 .sheet-grid-cell {
   height: var(--grid-cell-height);
   border: 1px solid #d9e1e6;
@@ -17,6 +17,7 @@
 .sheet-grid-corner,
 .sheet-grid-column-header,
 .sheet-grid-row-header {
+  box-sizing: border-box;
   background: #f4f7f8;
   color: #50606d;
   font-weight: 600;
@@ -26,7 +27,6 @@
 
 .sheet-grid-corner,
 .sheet-grid-row-header {
-  position: sticky;
   left: 0;
   z-index: 20;
   width: var(--grid-row-header-width);
@@ -35,20 +35,51 @@
 
 .sheet-grid-corner,
 .sheet-grid-column-header {
-  position: sticky;
-  top: 0;
   z-index: 30;
 }
 
+.sheet-grid-header-row {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--grid-cell-height);
+  min-width: 100%;
+}
+
 .sheet-grid-corner {
+  position: sticky;
   z-index: 40;
+}
+
+.sheet-grid-column-header {
+  position: absolute;
+  top: 0;
+}
+
+.sheet-grid-row-header {
+  position: sticky;
 }
 
 .sheet-grid-column-header,
 .sheet-grid-cell {
-  width: var(--grid-cell-width);
-  min-width: var(--grid-cell-width);
+  box-sizing: border-box;
+  min-width: 0;
 }
+
+.sheet-grid-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--grid-cell-height);
+}
+
+.sheet-grid-cell {
+  position: absolute;
+  top: 0;
+  box-sizing: border-box;
+}
+
+.sheet-grid-row-header { height: var(--grid-cell-height); }
 
 .sheet-grid-axis-creating,
 .sheet-grid-cell-creating {

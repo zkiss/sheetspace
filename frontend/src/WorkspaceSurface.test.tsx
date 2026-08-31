@@ -6,6 +6,7 @@ import { WorkspaceSurface } from './WorkspaceSurface';
 afterEach(cleanup);
 
 function renderSurface(hasSheets = true) {
+  const surfaceRef = createRef<HTMLElement>();
   const interactions = {
     onContextMenu: vi.fn(),
     onPointerCancel: vi.fn(),
@@ -23,18 +24,18 @@ function renderSurface(hasSheets = true) {
       navigationMotion
       {...interactions}
       viewport={{ scale: 1.5, x: 24, y: -12 }}
-      workspaceSurfaceRef={createRef<HTMLElement>()}
+      workspaceSurfaceRef={surfaceRef}
     >
       <article>Sheet content</article>
     </WorkspaceSurface>,
   );
 
-  return interactions;
+  return { interactions, surfaceRef };
 }
 
 describe('WorkspaceSurface', () => {
   it('owns workspace events and places supplied sheet and menu content', () => {
-    const interactions = renderSurface();
+    const { interactions, surfaceRef } = renderSurface();
     const surface = screen.getByRole('region', { name: 'Spatial workspace' });
 
     fireEvent.contextMenu(surface);
@@ -50,6 +51,7 @@ describe('WorkspaceSurface', () => {
     expect(interactions.onPointerUp).toHaveBeenCalledOnce();
     expect(interactions.onPointerCancel).toHaveBeenCalledOnce();
     expect(interactions.onWheel).toHaveBeenCalledOnce();
+    expect(surfaceRef.current).toBe(surface);
     expect(screen.getByText('Sheet content')).toBeInTheDocument();
     expect(screen.getByText('Sheet menu')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-plane')).toHaveStyle({

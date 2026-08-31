@@ -1,11 +1,35 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from './test/appScreen';
-import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { virtualGridGeometry } from './test/domGeometry';
 
 describe('App cell editing integration', () => {
+  it('preserves an App-managed edit draft and editor focus through a measured virtual-window change', async () => {
+    const user = userEvent.setup();
+    render(<App initialWorkbook={workbookWithSheets([sparseLargeSheetDocument()])} />);
+
+    const body = screen.getByTestId('sheet-frame-body');
+    const geometry = virtualGridGeometry(body);
+    const a1 = await screen.findByRole('cell', { name: 'Sparse large sheet A1 empty cell' });
+    const editor = await openCellEditor(user, a1);
+    await user.type(editor, 'Draft that must survive scrolling');
+
+    act(() => geometry.resize({ height: 160, width: 240 }));
+    body.scrollTop = 264_000;
+    body.scrollLeft = 7_300;
+    fireEvent.scroll(body);
+
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet CV10000 empty cell' })).toBeInTheDocument());
+    const retainedEditor = screen.getByRole('textbox', { name: 'Sparse large sheet A1 editor' });
+    expect(retainedEditor).toHaveValue('Draft that must survive scrolling');
+    expect(retainedEditor).toHaveFocus();
+    expect(a1).toHaveAttribute('data-editing-cell', 'true');
+    expect(a1).toHaveTextContent('Draft that must survive scrolling');
+  });
+
   it('commits an active edit when keyboard focus moves to another cell', async () => {
     const user = userEvent.setup();
     render(

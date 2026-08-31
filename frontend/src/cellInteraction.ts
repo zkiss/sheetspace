@@ -10,15 +10,22 @@ import type { CellEditSession, CellTarget, ReferenceNavigationTarget } from './a
 export type CellInteractionState = {
   selection: CellTarget | null;
   editing: CellEditSession | null;
-  focusRequest: CellTarget | null;
+  focusRequest: CellFocusRequest | null;
+  nextFocusRequestId: number;
   referenceSelection: ReferenceNavigationTarget | null;
   tabRunOriginColumnId: string | null;
+};
+
+export type CellFocusRequest = {
+  id: number;
+  target: CellTarget;
 };
 
 export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
   selection: null,
   editing: null,
   focusRequest: null,
+  nextFocusRequestId: 1,
   referenceSelection: null,
   tabRunOriginColumnId: null,
 };
@@ -34,6 +41,7 @@ export type CellInteractionAction =
   | { type: 'navigate'; target: CellTarget }
   | { type: 'commit-tab'; target: CellTarget; originColumnId: string }
   | { type: 'commit-enter'; target: CellTarget }
+  | { type: 'acknowledge-focus'; requestId: number }
   | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> };
 
 function referenceStart(target: ReferenceNavigationTarget): CellTarget {
@@ -57,14 +65,13 @@ export function cellInteractionReducer(
       };
     case 'select-reference': {
       const target = referenceStart(action.target);
-      return {
+      return withFocusRequest({
         ...state,
         selection: target,
         editing: null,
-        focusRequest: target,
         referenceSelection: action.target,
         tabRunOriginColumnId: null,
-      };
+      }, target);
     }
     case 'start-edit':
       return {
@@ -78,35 +85,34 @@ export function cellInteractionReducer(
     case 'commit':
       return { ...state, editing: null };
     case 'cancel':
-      return { ...state, editing: null, focusRequest: state.editing?.target ?? state.focusRequest };
+      return state.editing ? withFocusRequest({ ...state, editing: null }, state.editing.target) : state;
     case 'clear':
     case 'navigate':
-      return {
+      return withFocusRequest({
         ...state,
         selection: action.target,
         editing: null,
-        focusRequest: action.target,
         referenceSelection: null,
         tabRunOriginColumnId: null,
-      };
+      }, action.target);
     case 'commit-tab':
-      return {
+      return withFocusRequest({
         ...state,
         selection: action.target,
         editing: null,
-        focusRequest: action.target,
         referenceSelection: null,
         tabRunOriginColumnId: action.originColumnId,
-      };
+      }, action.target);
     case 'commit-enter':
-      return {
+      return withFocusRequest({
         ...state,
         selection: action.target,
         editing: null,
-        focusRequest: action.target,
         referenceSelection: null,
         tabRunOriginColumnId: null,
-      };
+      }, action.target);
+    case 'acknowledge-focus':
+      return state.focusRequest?.id === action.requestId ? { ...state, focusRequest: null } : state;
     case 'prune-sheets': {
       const keep = (target: CellTarget | null) => target && action.sheetIds.has(target.sheetId) ? target : null;
       const referenceSelection = state.referenceSelection
@@ -117,11 +123,19 @@ export function cellInteractionReducer(
         ...state,
         selection: keep(state.selection),
         editing: state.editing && action.sheetIds.has(state.editing.target.sheetId) ? state.editing : null,
-        focusRequest: keep(state.focusRequest),
+        focusRequest: state.focusRequest && keep(state.focusRequest.target) ? state.focusRequest : null,
         referenceSelection,
       };
     }
   }
+}
+
+function withFocusRequest(state: CellInteractionState, target: CellTarget): CellInteractionState {
+  return {
+    ...state,
+    focusRequest: { id: state.nextFocusRequestId, target },
+    nextFocusRequestId: state.nextFocusRequestId + 1,
+  };
 }
 
 export function cellTargetAt(

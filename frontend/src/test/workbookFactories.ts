@@ -53,6 +53,16 @@ export function sheetDocument({
   };
 }
 
+/** A large sparse grid used to assert that grid rendering stays window-bounded. */
+export function sparseLargeSheetDocument(overrides: Partial<Pick<SheetDocument, 'id' | 'name'>> = {}): SheetDocument {
+  return sheetDocument({
+    id: overrides.id ?? 'sheet-sparse-large',
+    name: overrides.name ?? 'Sparse large sheet',
+    rowCount: 10_000,
+    columnCount: 100,
+  });
+}
+
 export function workbookWithSheets(sheets: readonly SheetDocument[], revision = 0): Workbook {
   const normalizedSheets = sheets.map(normalizeLegacyTestOverrides);
   return {

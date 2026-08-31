@@ -2,8 +2,19 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { testRect } from './test/domGeometry';
-import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { testRect, virtualGridGeometry } from './test/domGeometry';
+import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from './test/workbookFactories';
+
+function columnLabel(index: number) {
+  let label = '';
+  let value = index;
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = Math.floor(value / 26);
+  }
+  return label;
+}
 
 describe('App grid rendering and navigation', () => {
   it('renders new sheets as default 10-column by 20-row grids without stored cells', () => {
@@ -101,6 +112,100 @@ describe('App grid rendering and navigation', () => {
     expect(frame).toHaveAttribute('data-active-sheet', 'true');
     expect(a1).toHaveAttribute('data-active-cell', 'true');
     expect(a1).toHaveClass('sheet-grid-cell-active');
+  });
+
+  it('enters an unselected grid with the keyboard and establishes a roving cell focus', () => {
+    render(
+      <App
+        initialWorkbook={workbookWithSheets([
+          positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }),
+        ])}
+      />,
+    );
+
+    const grid = screen.getByRole('table', { name: 'Inputs grid' });
+    const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    expect(grid).toHaveAttribute('tabindex', '0');
+
+    fireEvent.focus(grid);
+
+    expect(a1).toHaveAttribute('data-active-cell', 'true');
+    expect(a1).toHaveAttribute('tabindex', '0');
+    expect(document.activeElement).toBe(a1);
+    expect(grid).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('keeps focus in the grid across a measured virtual row boundary until the destination is native', async () => {
+    render(<App initialWorkbook={workbookWithSheets([sparseLargeSheetDocument()])} />);
+
+    const frame = screen.getByTestId('sheet-frame');
+    const body = within(frame).getByTestId('sheet-frame-body');
+    virtualGridGeometry(body, { height: 160, width: 240 });
+    const grid = within(frame).getByRole('table', { name: 'Sparse large sheet grid' });
+    body.scrollTop = 1_000;
+    fireEvent.scroll(body);
+    await screen.findByRole('cell', { name: 'Sparse large sheet A40 empty cell' });
+    const lastMountedRow = Math.max(...within(grid).getAllByRole('rowheader').map((header) => Number(header.textContent)));
+    const source = within(grid).getByRole('cell', { name: `Sparse large sheet A${lastMountedRow} empty cell` });
+
+    fireEvent.click(source);
+    const selectedSource = await screen.findByRole('cell', { name: `Sparse large sheet A${lastMountedRow} empty cell` });
+    fireEvent.keyDown(selectedSource, { key: 'ArrowDown' });
+
+    const destination = await screen.findByRole('cell', { name: `Sparse large sheet A${lastMountedRow + 1} empty cell` });
+    expect(destination).toBeInTheDocument();
+    expect(grid).toHaveFocus();
+    body.scrollTop = lastMountedRow * 26.4;
+    fireEvent.scroll(body);
+    await screen.findByRole('rowheader', { name: String(lastMountedRow + 1) });
+    const nativeDestination = await screen.findByRole('cell', { name: `Sparse large sheet A${lastMountedRow + 1} empty cell` });
+    expect(nativeDestination).toHaveFocus();
+    expect(nativeDestination).toHaveAttribute('data-active-cell', 'true');
+    expect(within(grid).getAllByTestId('sheet-grid-cell').filter((cell) => cell.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it('keeps focus in the grid across a measured virtual column boundary until the destination is native', async () => {
+    render(<App initialWorkbook={workbookWithSheets([sparseLargeSheetDocument()])} />);
+
+    const frame = screen.getByTestId('sheet-frame');
+    const body = within(frame).getByTestId('sheet-frame-body');
+    virtualGridGeometry(body, { height: 160, width: 240 });
+    const grid = within(frame).getByRole('table', { name: 'Sparse large sheet grid' });
+    body.scrollLeft = 1_000;
+    fireEvent.scroll(body);
+    await screen.findByRole('cell', { name: 'Sparse large sheet N1 empty cell' });
+    const lastMountedColumn = Math.max(...within(grid).getAllByRole('columnheader')
+      .map((header) => Number(header.getAttribute('aria-colindex')))
+      .filter(Number.isFinite));
+    const sourceColumn = within(grid).getAllByRole('columnheader')
+      .find((header) => Number(header.getAttribute('aria-colindex')) === lastMountedColumn)!;
+    const source = within(grid).getByRole('cell', {
+      name: `Sparse large sheet ${sourceColumn.textContent}1 empty cell`,
+    });
+
+    fireEvent.click(source);
+    const selectedSource = await screen.findByRole('cell', {
+      name: `Sparse large sheet ${sourceColumn.textContent}1 empty cell`,
+    });
+    fireEvent.keyDown(selectedSource, { key: 'ArrowRight' });
+
+    const destinationColumn = within(grid).getAllByRole('columnheader')
+      .find((header) => Number(header.getAttribute('aria-colindex')) === lastMountedColumn + 1);
+    const destination = await screen.findByRole('cell', {
+      name: `Sparse large sheet ${columnLabel(lastMountedColumn)}1 empty cell`,
+    });
+    expect(destination).toBeInTheDocument();
+    expect(destinationColumn).toBeInTheDocument();
+    expect(grid).toHaveFocus();
+    body.scrollLeft = (lastMountedColumn - 1) * 76;
+    fireEvent.scroll(body);
+    await screen.findByRole('columnheader', { name: columnLabel(lastMountedColumn) });
+    const nativeDestination = await screen.findByRole('cell', {
+      name: `Sparse large sheet ${columnLabel(lastMountedColumn)}1 empty cell`,
+    });
+    expect(nativeDestination).toHaveFocus();
+    expect(nativeDestination).toHaveAttribute('data-active-cell', 'true');
+    expect(within(grid).getAllByTestId('sheet-grid-cell').filter((cell) => cell.tabIndex === 0)).toHaveLength(1);
   });
 
   it('moves single-cell selection within a sheet', async () => {

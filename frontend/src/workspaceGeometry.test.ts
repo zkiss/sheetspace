@@ -12,6 +12,9 @@ import {
   workspacePointFromClient,
   workspacePointFromSurface,
   workspaceRectForFrame,
+  workspaceRectsIntersect,
+  workspaceViewportBounds,
+  visibleSheetFrames,
   zoomViewportAt,
 } from './workspaceGeometry';
 
@@ -85,6 +88,35 @@ describe('workspaceGeometry', () => {
       position: { x: 120, y: 80 },
       size: { width: 10, height: 20 },
     })).toEqual({ left: 120, top: 80, right: 300, bottom: 200 });
+  });
+
+  it('projects resized surfaces through pan and zoom into workspace bounds', () => {
+    expect(workspaceViewportBounds(
+      { width: 1000, height: 800 },
+      { x: 80, y: -40, scale: 2 },
+    )).toEqual({ left: -40, top: 20, right: 460, bottom: 420 });
+    expect(workspaceViewportBounds(
+      { width: -10, height: 0 },
+      { x: 0, y: 0, scale: 1 },
+    )).toEqual({ left: 0, top: 0, right: 0, bottom: 0 });
+  });
+
+  it('selects intersecting and pinned frames with clamped frame sizes and overscan', () => {
+    const frames = [
+      { id: 'inside', name: 'Inside', position: { x: 10, y: 10 }, size: { width: 240, height: 160 }, zIndex: 1 },
+      { id: 'edge', name: 'Edge', position: { x: -80, y: 0 }, size: { width: 20, height: 20 }, zIndex: 2 },
+      { id: 'nearby', name: 'Nearby', position: { x: 290, y: 10 }, size: { width: 240, height: 160 }, zIndex: 3 },
+      { id: 'pinned', name: 'Pinned', position: { x: 1000, y: 1000 }, size: { width: 240, height: 160 }, zIndex: 4 },
+    ];
+    const viewport = { left: 0, top: 0, right: 100, bottom: 100 };
+
+    expect(workspaceRectsIntersect({ left: 100, top: 0, right: 200, bottom: 100 }, viewport)).toBe(false);
+    expect(workspaceRectsIntersect({ left: 99, top: 0, right: 200, bottom: 100 }, viewport)).toBe(true);
+    expect(visibleSheetFrames(frames, viewport).map((frame) => frame.id)).toEqual(['inside', 'edge']);
+    expect(visibleSheetFrames(frames, viewport, { overscan: 191 }).map((frame) => frame.id))
+      .toEqual(['inside', 'edge', 'nearby']);
+    expect(visibleSheetFrames(frames, viewport, { pinnedSheetIds: new Set(['pinned']) }).map((frame) => frame.id))
+      .toEqual(['inside', 'edge', 'pinned']);
   });
 
   it('anchors left and top resize handles while enforcing minimum frame size', () => {

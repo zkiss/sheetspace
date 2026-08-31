@@ -80,6 +80,7 @@ describe('useSheetFrameInteractions', () => {
     expect(result.current.frameLayoutPreview).toMatchObject({
       sheetId: 'sheet-inputs', position: { x: 30, y: 35 },
     });
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
 
     act(() => {
@@ -87,6 +88,7 @@ describe('useSheetFrameInteractions', () => {
     });
 
     expect(result.current.frameLayoutPreview).toBeNull();
+    expect(result.current.interactionPinnedSheetId).toBeNull();
     expect(testCommands.moveSheetFrame).toHaveBeenCalledTimes(1);
     expect(testCommands.moveSheetFrame).toHaveBeenCalledWith('sheet-inputs', { x: 30, y: 35 });
   });
@@ -160,6 +162,7 @@ describe('useSheetFrameInteractions', () => {
       position: { x: 10, y: 20 },
       size: { width: 270, height: 180 },
     });
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
 
     act(() => {
@@ -167,6 +170,7 @@ describe('useSheetFrameInteractions', () => {
     });
 
     expect(result.current.frameLayoutPreview).toBeNull();
+    expect(result.current.interactionPinnedSheetId).toBeNull();
     expect(testCommands.resizeSheetFrame).toHaveBeenCalledTimes(1);
     expect(testCommands.resizeSheetFrame).toHaveBeenCalledWith(
       'sheet-inputs',
@@ -199,8 +203,10 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150 }));
     });
     expect(result.current.frameLayoutPreview).not.toBeNull();
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     act(() => result.current.cancelSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150 })));
     expect(result.current.frameLayoutPreview).toBeNull();
+    expect(result.current.interactionPinnedSheetId).toBeNull();
     expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
 
     act(() => {
@@ -212,8 +218,10 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 140, clientY: 150 }));
     });
     expect(result.current.frameLayoutPreview).not.toBeNull();
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     act(() => result.current.cancelSheetFrameResize(pointerEvent({ clientX: 140, clientY: 150 })));
     expect(result.current.frameLayoutPreview).toBeNull();
+    expect(result.current.interactionPinnedSheetId).toBeNull();
     expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
   });
 

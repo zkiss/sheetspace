@@ -15,6 +15,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // App integration files exercise real keyboard and focus behavior. Under coverage,
+    // parallel workers can make those interactions exceed Vitest's short default.
+    testTimeout: 15_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

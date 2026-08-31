@@ -22,6 +22,7 @@ export function useSheetFrameInteractions({
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
   const sheetFrameResize = useRef<SheetFrameResize | null>(null);
   const [frameLayoutPreview, setFrameLayoutPreview] = useState<SheetFrameLayoutPreview | null>(null);
+  const [interactionPinnedSheetId, setInteractionPinnedSheetId] = useState<string | null>(null);
 
   function handleSheetFrameDragStart(sheetId: string, event: PointerEvent<HTMLElement>) {
     if (event.button !== 0 && event.button !== undefined) {
@@ -40,6 +41,7 @@ export function useSheetFrameInteractions({
       startClientY: event.clientY,
       startPosition: sheet.frame.position,
     };
+    setInteractionPinnedSheetId(sheetId);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
   }
@@ -88,6 +90,7 @@ export function useSheetFrameInteractions({
 
     sheetFrameDrag.current = null;
     setFrameLayoutPreview(null);
+    setInteractionPinnedSheetId(null);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
@@ -95,6 +98,7 @@ export function useSheetFrameInteractions({
     if (!sheetFrameDrag.current || sheetFrameDrag.current.pointerId !== event.pointerId) return;
     sheetFrameDrag.current = null;
     setFrameLayoutPreview(null);
+    setInteractionPinnedSheetId(null);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
@@ -121,6 +125,7 @@ export function useSheetFrameInteractions({
       startFrameSize: sheet.frame.size,
       direction,
     };
+    setInteractionPinnedSheetId(sheetId);
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
     event.stopPropagation();
@@ -167,6 +172,7 @@ export function useSheetFrameInteractions({
 
     sheetFrameResize.current = null;
     setFrameLayoutPreview(null);
+    setInteractionPinnedSheetId(null);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
@@ -174,6 +180,7 @@ export function useSheetFrameInteractions({
     if (!sheetFrameResize.current || sheetFrameResize.current.pointerId !== event.pointerId) return;
     sheetFrameResize.current = null;
     setFrameLayoutPreview(null);
+    setInteractionPinnedSheetId(null);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
   }
 
@@ -185,6 +192,7 @@ export function useSheetFrameInteractions({
     handleSheetFrameDragStart,
     handleSheetFrameResizeMove,
     handleSheetFrameResizeStart,
+    interactionPinnedSheetId,
     stopSheetFrameDrag,
     stopSheetFrameResize,
   };

@@ -22,7 +22,7 @@ describe('useCellEditing', () => {
     rerender({ workbook: workbookWithSheets([]) });
 
     expect(result.current.activeCell).toBeNull();
-    expect(result.current.keyboardFocusTarget).toBeNull();
+    expect(result.current.keyboardFocusRequest).toBeNull();
     expect(result.current.editingCell).toBeNull();
   });
 });

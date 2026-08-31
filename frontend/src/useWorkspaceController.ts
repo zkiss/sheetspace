@@ -1,10 +1,10 @@
-import { MouseEvent, PointerEvent, useRef, useState, WheelEvent } from 'react';
+import { MouseEvent, PointerEvent, useLayoutEffect, useRef, useState, WheelEvent } from 'react';
 import type { PendingSheetMenu, WorkspaceViewport } from './appTypes';
-import type { WorkspacePosition } from './workbook';
+import type { SheetFrameSize, WorkspacePosition } from './workbook';
 import {
   surfacePointFromClient,
   surfaceDeltaFromClient,
-  surfaceSize,
+  surfaceSize as measureSurfaceSize,
   viewportForTarget,
   workspacePointAtViewportCenter,
   workspacePointFromClient,
@@ -21,8 +21,32 @@ export function useWorkspaceController({
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
   const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
+  const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const workspace = workspaceSurfaceRef.current;
+    if (!workspace) return;
+
+    const updateSurfaceSize = (observedSize?: SheetFrameSize) => {
+      const nextSize = observedSize ?? measureSurfaceSize(workspace);
+      setWorkspaceSurfaceSize((currentSize) => currentSize
+        && currentSize.width === nextSize.width
+        && currentSize.height === nextSize.height
+        ? currentSize
+        : nextSize);
+    };
+    updateSurfaceSize();
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => updateSurfaceSize({
+      height: entry.contentRect.height,
+      width: entry.contentRect.width,
+    }));
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, []);
 
   function closeSheetMenu() {
     setPendingSheetMenu(null);
@@ -60,7 +84,7 @@ export function useWorkspaceController({
   ) {
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
-    const { height: surfaceHeight, width: surfaceWidth } = surfaceSize(workspace);
+    const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
     setViewport((currentViewport) =>
       viewportForTarget({
         currentViewport,
@@ -158,6 +182,7 @@ export function useWorkspaceController({
     stopWorkspacePan,
     viewport,
     workspaceSurfaceRef,
+    workspaceSurfaceSize,
     zoomWorkspace,
   };
 }

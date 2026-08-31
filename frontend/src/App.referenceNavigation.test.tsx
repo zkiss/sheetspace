@@ -3,20 +3,15 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openSheetContextMenu, workspaceSurface } from './test/appScreen';
-import { testRect } from './test/domGeometry';
-import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { measuredElementGeometry, virtualGridGeometry } from './test/domGeometry';
+import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function modifierClick(reference: HTMLElement, modifier: 'ctrl' | 'meta' = 'ctrl') {
   fireEvent.click(reference, modifier === 'ctrl' ? { ctrlKey: true } : { metaKey: true });
 }
 
 function setSurfaceSize(width: number, height: number) {
-  const surface = workspaceSurface();
-  Object.defineProperties(surface, {
-    clientHeight: { configurable: true, value: height },
-    clientWidth: { configurable: true, value: width },
-  });
-  surface.getBoundingClientRect = () => testRect({ height, left: 0, top: 0, width });
+  return measuredElementGeometry(workspaceSurface(), { height, width });
 }
 
 afterEach(() => {
@@ -25,6 +20,37 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
+  it('jumps to a distant same-sheet cell and range through a measured virtual window', async () => {
+    const inputs = sparseLargeSheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
+      cells: { A1: '=SUM(sheet-inputs!CU9999:CV10000)' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => {
+      setSurfaceSize(800, 600);
+    });
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const body = within(inputsFrame).getByTestId('sheet-frame-body');
+    virtualGridGeometry(body, { height: 160, width: 240 });
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999:CV10000, reference' }));
+
+    // The range endpoints are pinned while the native virtual window scrolls to them.
+    // Focus transfers only after the scroll event mounts CU9999 natively.
+    await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
+    body.scrollTop = 9_998 * 26.4;
+    body.scrollLeft = 98 * 76;
+    fireEvent.scroll(body);
+    const target = await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
+    expect(target).toHaveFocus();
+    expect(target).toHaveAttribute('data-navigation-highlight', 'true');
+    expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CV10000 empty cell' }))
+      .toHaveAttribute('data-reference-selected', 'true');
+    expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
+  });
+
   it('requires a modifier, then focuses a same-sheet cell and keeps keyboard navigation usable', () => {
     const sheet = {
       ...positionedSheet('sheet-data', 'Data', { x: 80, y: 60 }),
@@ -131,6 +157,39 @@ describe('formula reference navigation', () => {
       .getByTestId('sheet-frame-body');
     expect(body.scrollLeft).toBe(684);
     expect(body.scrollTop).toBe(502);
+  });
+
+  it('releases an offscreen navigation pin after outer mount, inner scroll, focus, and highlight', async () => {
+    vi.useFakeTimers();
+    const inputs = {
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 1_800, y: 1_200 }),
+      cells: { J20: '1' },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
+      cells: { A1: '=sheet-inputs!J20' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => {
+      setSurfaceSize(800, 600);
+    });
+
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!J20, reference' }));
+
+    const target = screen.getByRole('cell', { name: 'Inputs J20 cell' });
+    expect(target).toHaveFocus();
+    expect(target).toHaveAttribute('data-navigation-highlight', 'true');
+    expect(within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body'))
+      .toHaveProperty('scrollTop', 502);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(1_200));
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Sheet Outputs' })).toBeInTheDocument();
   });
 
   it('zooms a large frame only when its full target range stays readable', () => {

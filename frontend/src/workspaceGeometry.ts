@@ -8,6 +8,8 @@ export const WORKSPACE_ZOOM_STEP = 0.2;
 export const MIN_WORKSPACE_ZOOM = 0.5;
 export const MAX_WORKSPACE_ZOOM = 2;
 export const MIN_READABLE_CELL_SCALE = 0.75;
+/** Keeps nearby frames warm without making mounted work proportional to sheet count. */
+export const WORKSPACE_FRAME_OVERSCAN = { horizontal: 320, vertical: 240 } as const;
 const NAVIGATION_PADDING = 48;
 
 export type WorkspaceTargetRect = {
@@ -16,6 +18,49 @@ export type WorkspaceTargetRect = {
   right: number;
   bottom: number;
 };
+
+export type WorkspaceOverscan = number | { horizontal: number; vertical: number };
+
+export type VisibleSheetFrameOptions = {
+  overscan?: WorkspaceOverscan;
+  pinnedSheetIds?: ReadonlySet<string>;
+};
+
+export function workspaceViewportBounds(
+  surfaceSize: SheetFrameSize,
+  viewport: WorkspaceViewport,
+): WorkspaceTargetRect {
+  const scale = viewport.scale || 1;
+  const left = -viewport.x / scale || 0;
+  const top = -viewport.y / scale || 0;
+  return {
+    left,
+    top,
+    right: left + Math.max(0, surfaceSize.width) / scale,
+    bottom: top + Math.max(0, surfaceSize.height) / scale,
+  };
+}
+
+export function workspaceRectsIntersect(
+  first: WorkspaceTargetRect,
+  second: WorkspaceTargetRect,
+  overscan: WorkspaceOverscan = 0,
+) {
+  const { horizontal, vertical } = normalizedOverscan(overscan);
+  return first.left < second.right + horizontal
+    && first.right > second.left - horizontal
+    && first.top < second.bottom + vertical
+    && first.bottom > second.top - vertical;
+}
+
+export function visibleSheetFrames(
+  frames: readonly SheetFrameProjection[],
+  viewportBounds: WorkspaceTargetRect,
+  { overscan = 0, pinnedSheetIds = new Set<string>() }: VisibleSheetFrameOptions = {},
+): readonly SheetFrameProjection[] {
+  return frames.filter((frame) => pinnedSheetIds.has(frame.id)
+    || workspaceRectsIntersect(workspaceRectForFrame(frame), viewportBounds, overscan));
+}
 
 export function workspacePointFromClient(
   clientPoint: WorkspacePosition,
@@ -185,6 +230,17 @@ export function clampSheetFrameSize(frameSize: SheetFrameSize): SheetFrameSize {
   return {
     width: Math.max(MIN_SHEET_FRAME_WIDTH, frameSize.width),
     height: Math.max(MIN_SHEET_FRAME_HEIGHT, frameSize.height),
+  };
+}
+
+function normalizedOverscan(overscan: WorkspaceOverscan) {
+  if (typeof overscan === 'number') {
+    const size = Math.max(0, overscan);
+    return { horizontal: size, vertical: size };
+  }
+  return {
+    horizontal: Math.max(0, overscan.horizontal),
+    vertical: Math.max(0, overscan.vertical),
   };
 }
 

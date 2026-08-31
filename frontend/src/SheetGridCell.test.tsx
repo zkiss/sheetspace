@@ -43,7 +43,7 @@ function renderCell(overrides: Partial<Parameters<typeof SheetGridCell>[0]> = {}
     <table>
       <tbody>
         <tr>
-          <SheetGridCell {...props} />
+          <SheetGridCell {...props} columnIndex={1} />
         </tr>
       </tbody>
     </table>,

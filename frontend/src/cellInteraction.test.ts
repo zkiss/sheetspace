@@ -28,7 +28,7 @@ describe('cellInteractionReducer', () => {
 
     const canceled = cellInteractionReducer(editing, { type: 'cancel' });
     expect(canceled.editing).toBeNull();
-    expect(canceled.focusRequest).toEqual(a1);
+    expect(canceled.focusRequest).toMatchObject({ id: 1, target: a1 });
   });
 
   it('derives keyboard focus and tab-run origin from commit navigation', () => {
@@ -42,11 +42,11 @@ describe('cellInteractionReducer', () => {
       originColumnId: a1.cell.columnId,
     });
     expect(tabbed.selection).toEqual(b1);
-    expect(tabbed.focusRequest).toEqual(b1);
+    expect(tabbed.focusRequest).toMatchObject({ id: 1, target: b1 });
     expect(tabbed.tabRunOriginColumnId).toBe('column-1');
 
     const entered = cellInteractionReducer(tabbed, { type: 'commit-enter', target: a1 });
-    expect(entered.focusRequest).toEqual(a1);
+    expect(entered.focusRequest).toMatchObject({ id: 2, target: a1 });
     expect(entered.tabRunOriginColumnId).toBeNull();
   });
 
@@ -65,7 +65,7 @@ describe('cellInteractionReducer', () => {
     });
     expect(navigated.selection).toEqual(a1);
     expect(navigated.referenceSelection).toEqual(reference);
-    expect(navigated.focusRequest).toEqual(a1);
+    expect(navigated.focusRequest).toMatchObject({ id: 1, target: a1 });
 
     const selected = cellInteractionReducer(navigated, { type: 'select', target: b1 });
     expect(selected.selection).toEqual(b1);

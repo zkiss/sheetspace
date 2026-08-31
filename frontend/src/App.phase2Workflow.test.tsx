@@ -72,11 +72,16 @@ describe('Phase 2 acceptance workflow', () => {
       expect(cellAt(inputFrame, 'B3')).toHaveAttribute('data-reference-selected', 'true');
       expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '-1288');
 
-      let editor = openEditor(cellAt(outputFrame, 'A6'));
+      fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+      let currentOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+      let editor = openEditor(cellAt(currentOutputFrame, 'A6'));
       expect(editor).toHaveValue('=SUMIF(Inputs!B1:B3, "open", Inputs!C1:C3)');
       fireEvent.keyDown(editor, { key: 'Escape' });
 
-      fireEvent.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
+      fireEvent.click(cellAt(currentOutputFrame, 'A6'));
+      modifierClick(screen.getByRole('button', { name: 'Inputs!B1:B3, reference' }));
+      const currentInputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+      fireEvent.click(within(openSheetContextMenu(currentInputFrame)).getByRole('menuitem', { name: 'Rename' }));
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Sales Data' } });
       fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
       await waitFor(() => expect(apiClient.renameSheet).toHaveBeenCalledWith(
@@ -91,8 +96,11 @@ describe('Phase 2 acceptance workflow', () => {
         'sheet-inputs', 'A1', '20', { revision: 0 },
       ));
 
-      expectResults(outputFrame, { A1: '-15.714285714285714', A2: 'TRUE', A3: 'high', A8: '42' });
-      expectResults(errorsFrame, {
+      fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+      currentOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+      const currentErrorsFrame = screen.getByRole('article', { name: 'Sheet Errors' });
+      expectResults(currentOutputFrame, { A1: '-15.714285714285714', A2: 'TRUE', A3: 'high', A8: '42' });
+      expectResults(currentErrorsFrame, {
         A1: '#PARSE!', A2: '#REF!', A3: '#DIV/0!', A4: '#VALUE!',
         A5: '#CYCLE!', B5: '#CYCLE!', C1: '21',
       });

@@ -1,4 +1,4 @@
-import { KeyboardEvent } from 'react';
+import { KeyboardEvent, type CSSProperties } from 'react';
 import { cellRawContent, type SheetTabularProjection } from './workbook';
 import type { CellEditSession, CellNavigationDirection, CellTarget } from './appTypes';
 import { cellTargetAt } from './cellInteraction';
@@ -35,6 +35,7 @@ function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
 
 export function SheetGridCell({
   cellKey,
+  columnIndex,
   displayText,
   editingCell,
   isActive,
@@ -44,9 +45,12 @@ export function SheetGridCell({
   cellInteraction,
   editorInteraction,
   registerCell,
+  style,
+  tabIndex = -1,
   sheet,
 }: {
   cellKey: string;
+  columnIndex: number;
   displayText: string;
   editingCell: CellEditSession | null;
   isActive: boolean;
@@ -55,8 +59,10 @@ export function SheetGridCell({
   isRangeSelected?: boolean;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
-  registerCell: (cellKey: string, element: HTMLTableCellElement | null) => void;
+  registerCell?: (cellKey: string, element: HTMLElement | null) => void;
   sheet: SheetTabularProjection;
+  style?: CSSProperties;
+  tabIndex?: number;
 }) {
   function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
     const target = cellTargetAt(sheet, cellKey);
@@ -90,8 +96,9 @@ export function SheetGridCell({
   }
 
   return (
-    <td
+    <div
       aria-label={`${sheet.name} ${cellKey}${cellRawContent(sheet, cellKey) ? '' : ' empty'} cell`}
+      aria-colindex={columnIndex}
       aria-selected={isActive || isRangeSelected ? 'true' : undefined}
       className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
         isRangeSelected ? ' sheet-grid-cell-range-selected' : ''
@@ -119,8 +126,10 @@ export function SheetGridCell({
         }
       }}
       onKeyDown={handleCellKeyDown}
-      ref={(cellElement) => registerCell(cellKey, cellElement)}
-      tabIndex={0}
+      ref={(cellElement) => registerCell?.(cellKey, cellElement)}
+      role="cell"
+      style={style}
+      tabIndex={tabIndex}
     >
       {isEditing && editingCell ? (
         <SheetGridCellEditor
@@ -132,7 +141,7 @@ export function SheetGridCell({
       ) : (
         displayText
       )}
-    </td>
+    </div>
   );
 }
 

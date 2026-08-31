@@ -52,7 +52,7 @@ export function SheetFrame({
   rowCount: number;
 }) {
   const frameSize = clampSheetFrameSize(frame.size);
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   return (
     <article

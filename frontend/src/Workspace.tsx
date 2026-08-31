@@ -21,7 +21,7 @@ import type {
   ReferenceNavigationTarget,
   SaveStatus,
 } from './appTypes';
-import { cellKeyForTarget } from './cellInteraction';
+import { cellKeyForTarget, type CellFocusRequest } from './cellInteraction';
 import { FormulaReferenceInspection } from './FormulaReferenceInspection';
 import { inspectFormula } from './formulaInspection';
 import { SheetContextMenu } from './SheetContextMenu';
@@ -35,6 +35,7 @@ import type { WorkbookCommands } from './useWorkbookController';
 import { useWorkspaceController } from './useWorkspaceController';
 import { WorkspaceSurface } from './WorkspaceSurface';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
+import { mountedWorkspaceFrameIds } from './workspaceFrameVirtualization';
 
 export function Workspace({
   activeCell,
@@ -42,7 +43,8 @@ export function Workspace({
   commands,
   editingCell,
   formulaResults,
-  keyboardFocusTarget,
+  keyboardFocusRequest,
+  onKeyboardFocusRequestConsumed,
   onCancelEdit,
   onClearCell,
   onCommitEdit,
@@ -66,7 +68,8 @@ export function Workspace({
   commands: WorkbookCommands;
   editingCell: CellEditSession | null;
   formulaResults: FormulaEvaluationSnapshot;
-  keyboardFocusTarget: CellTarget | null;
+  keyboardFocusRequest: CellFocusRequest | null;
+  onKeyboardFocusRequestConsumed: (requestId: number) => void;
   onCancelEdit: () => void;
   onClearCell: (target: CellTarget) => void;
   onCommitEdit: (session?: CellEditSession) => void;
@@ -112,12 +115,34 @@ export function Workspace({
     handleSheetFrameDragStart,
     handleSheetFrameResizeMove,
     handleSheetFrameResizeStart,
+    interactionPinnedSheetId,
     stopSheetFrameDrag,
     stopSheetFrameResize,
   } = useSheetFrameInteractions({
     commands,
     viewportScale: workspaceController.viewport.scale,
     workbook,
+  });
+  const projectedFrames = sheets.map((sheet) => {
+    const frame = frameProjection(sheet);
+    return frameLayoutPreview?.sheetId === sheet.id
+      ? { ...frame, position: frameLayoutPreview.position, size: frameLayoutPreview.size }
+      : frame;
+  });
+  const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
+  const navigationRevealSheetId = navigationHighlight?.kind === 'cell'
+    ? navigationHighlight.target.sheetId
+    : navigationHighlight?.sheetId;
+  const mountedSheetIds = mountedWorkspaceFrameIds({
+    frames: projectedFrames,
+    pins: {
+      editingSheetId: editingCell?.target.sheetId,
+      interactionSheetId: interactionPinnedSheetId,
+      navigationRevealSheetId,
+      pendingFocusSheetId: keyboardFocusRequest?.target.sheetId,
+    },
+    surfaceSize: workspaceController.workspaceSurfaceSize,
+    viewport: workspaceController.viewport,
   });
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
@@ -187,14 +212,8 @@ export function Workspace({
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
       >
         {sheets.map((sheet) => {
-          const projectedFrame = frameProjection(sheet);
-          const frame = frameLayoutPreview?.sheetId === sheet.id
-            ? {
-                ...projectedFrame,
-                position: frameLayoutPreview.position,
-                size: frameLayoutPreview.size,
-              }
-            : projectedFrame;
+          if (!mountedSheetIds.has(sheet.id)) return null;
+          const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
           const axisProjection = projectGridAxes(tabular, creatingAxes[sheet.id]);
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
@@ -249,7 +268,13 @@ export function Workspace({
                     updateValue: onEditValueChange,
                   }}
                   formulaResults={formulaResults}
-                  keyboardFocusCellKey={cellKeyForTarget(sheet, keyboardFocusTarget)}
+                  keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
+                    ? {
+                        id: keyboardFocusRequest.id,
+                        targetKey: cellKeyForTarget(sheet, keyboardFocusRequest.target),
+                      }
+                    : null}
+                  onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
                   navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                   navigationHighlightRange={navigationHighlightRange}
                   scrollContainerRef={scrollContainerRef}

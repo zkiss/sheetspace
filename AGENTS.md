@@ -50,6 +50,7 @@ The outer agent—the agent handling the user's request—owns the Git branch li
 When Devflow is selected, prepare the Deliverable branch before invoking `devflow-runner`. Devflow works entirely on that branch and stops when the work is complete. It does not create, switch, push, or merge branches.
 
 Use a concise squash-merge commit message that summarizes what changed, not how or why it changed.
+For a Bead-backed Deliverable, start the message with `<bead-id>:`.
 
 Never implement or make ordinary commits on `main`; Deliverables reach `main` only through a user-authorized squash merge.
 
