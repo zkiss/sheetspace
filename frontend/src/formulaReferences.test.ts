@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { cellRawContent } from './workbookQueries';
+import { cellRawContent } from './workbook/read/queries';
 import { evaluateFormulaCells } from './formulaEvaluator';
-import { calculationProjection } from './calculationProjection';
+import { calculationProjection } from './workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('formula references, errors, and cycles', () => {

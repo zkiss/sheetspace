@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calculationProjection } from './calculationProjection';
+import { calculationProjection } from './workbook/read/calculationProjection';
 import { FormulaCalculation } from './formulaCalculation';
-import { appendColumn, appendRow, commitCellRawContent, renameSheet } from './workbookOperations';
-import { cellAddressOf } from './stableCellIdentity';
-import { findSheetById } from './workbookQueries';
+import { appendColumn, appendRow, commitCellRawContent, renameSheet } from './workbook/mutations/operations';
+import { cellAddressOf } from './workbook/core/cellIdentity';
+import { findSheetById } from './workbook/read/queries';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function sheetWithCells(id: string, name: string, cells: Record<string, string>) {

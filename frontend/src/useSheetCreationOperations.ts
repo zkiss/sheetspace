@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import type { SaveStatus } from './appTypes';
-import { DEFAULT_SHEET_FRAME_SIZE, type SheetDocument, type Workbook, type WorkspacePosition } from './workbookModel';
-import { sheetsInOrder } from './workbookQueries';
-import { validateSheetName } from './workbookOperations';
+import { DEFAULT_SHEET_FRAME_SIZE, type SheetDocument, type Workbook, type WorkspacePosition } from './workbook/core/model';
+import { sheetsInOrder } from './workbook/read/queries';
+import { validateSheetName } from './workbook/mutations/operations';
 import { workbookApi, type WorkbookApi } from './workbookApi';
 import type { SetWorkbook } from './workbookCalculation';
 

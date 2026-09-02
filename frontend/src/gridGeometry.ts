@@ -1,5 +1,5 @@
-import { CellAddress, CellRange } from './cellAddress';
-import { SheetDocument, WorkspacePosition } from './workbookModel';
+import { CellAddress, CellRange } from './workbook/core/address';
+import { SheetDocument, WorkspacePosition } from './workbook/core/model';
 import { clampSheetFrameSize } from './workspaceGeometry';
 
 export const GRID_CELL_WIDTH = 76;

@@ -4,7 +4,7 @@ import type {
   LazyFormulaFunction,
   FormulaReferenceArgument,
 } from './formulaFunctions';
-import type { FormulaErrorCode, FormulaExpression } from './formulaSyntax';
+import type { FormulaErrorCode, FormulaExpression } from './workbook/formula/syntax';
 import { formulaErrorValue, formulaScalarValue, type FormulaScalarValue } from './formulaValue';
 
 const conditionalArgumentKind = (index: number) => index === 1 ? 'scalar' as const : 'reference' as const;

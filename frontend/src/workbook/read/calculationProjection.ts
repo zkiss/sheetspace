@@ -1,7 +1,7 @@
-import { cellIdentityKey } from './stableCellIdentity';
-import { sheetsInOrder } from './workbookQueries';
-import { type Workbook } from './workbookModel';
-import type { CellKey } from './cellAddress';
+import { cellIdentityKey } from '../core/cellIdentity';
+import { type Workbook } from '../core/model';
+import type { CellKey } from '../core/address';
+import { sheetsInOrder } from './queries';
 
 export type CalculationSheet = {
   readonly id: string;

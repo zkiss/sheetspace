@@ -1,5 +1,5 @@
-import { parseA1Address, type CellAddress, type CellKey, type CellRange } from './cellAddress';
-import type { CellIdentityKey, StableCellIdentity, StableCellRange, TabularContent } from './workbookModel';
+import { parseA1Address, type CellAddress, type CellKey, type CellRange } from './address';
+import type { CellIdentityKey, StableCellIdentity, StableCellRange, TabularContent } from './model';
 
 const CELL_ID_SEPARATOR = '\u0000';
 export function cellIdentityKey(identity: StableCellIdentity): CellIdentityKey { return `${identity.rowId}${CELL_ID_SEPARATOR}${identity.columnId}`; }

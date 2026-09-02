@@ -1,4 +1,4 @@
-import { SheetId } from './workbookModel';
+import { SheetId } from './workbook/core/model';
 import type { WorkbookOperationId } from './userActions';
 
 export type MissingSheetSource = {

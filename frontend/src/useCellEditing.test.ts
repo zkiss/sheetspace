@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cellTargetAt } from './cellInteraction';
 import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
 import { useCellEditing } from './useCellEditing';
-import { formulaRawForStorage } from './formulaReference';
+import { formulaRawForStorage } from './workbook/formula/reference';
 
 function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 })) {
   const commands = { updateCellContent: vi.fn() };

@@ -1,8 +1,8 @@
-import type { CellKey } from './cellAddress';
-import { formulaRawForStorage } from './formulaReference';
-import { cellIdentityAt, cellIdentityKey } from './stableCellIdentity';
-import { findSheetById, sheetsInOrder } from './workbookQueries';
-import { WORKBOOK_SCHEMA_VERSION, type ColumnId, type MutationResult, type RowId, type SheetDocument, type SheetZOrderDirection, type ValidationResult, type Workbook } from './workbookModel';
+import type { CellKey } from '../core/address';
+import { cellIdentityAt, cellIdentityKey } from '../core/cellIdentity';
+import { WORKBOOK_SCHEMA_VERSION, type ColumnId, type MutationResult, type RowId, type SheetDocument, type SheetZOrderDirection, type ValidationResult, type Workbook } from '../core/model';
+import { formulaRawForStorage } from '../formula/reference';
+import { findSheetById, sheetsInOrder } from '../read/queries';
 
 export function createEmptyWorkbook(): Workbook { return { manifest: { version: WORKBOOK_SCHEMA_VERSION, revision: 0, sheetIds: [] }, documents: {} }; }
 export function validateSheetName(name: string, existingSheets: Pick<SheetDocument, 'id' | 'name'>[], currentSheetId?: string): ValidationResult { const trimmedName = name.trim(); if (!trimmedName) return { ok: false, reason: 'empty' }; return existingSheets.some((sheet) => sheet.id !== currentSheetId && sheet.name === trimmedName) ? { ok: false, reason: 'duplicate' } : { ok: true, name: trimmedName }; }

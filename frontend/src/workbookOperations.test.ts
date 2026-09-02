@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
-import { appendColumn, appendRow, commitCellRawContent, createEmptyWorkbook, moveSheetZOrder, renameSheet, validateSheetName } from './workbookOperations';
-import { cellRawContent, sheetsInOrder } from './workbookQueries';
-import type { SheetDocument } from './workbookModel';
+import { appendColumn, appendRow, commitCellRawContent, createEmptyWorkbook, moveSheetZOrder, renameSheet, validateSheetName } from './workbook/mutations/operations';
+import { cellRawContent, sheetsInOrder } from './workbook/read/queries';
+import type { SheetDocument } from './workbook/core/model';
 
 function sheet(id: string, name: string): SheetDocument {
   return sheetDocument({ id, name });

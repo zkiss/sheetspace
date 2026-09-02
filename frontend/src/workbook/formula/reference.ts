@@ -1,7 +1,7 @@
-import { columnIndexToLabel, type CellAddress } from './cellAddress';
-import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, replaceFormulaQualifiers, type FormulaReferenceLexeme } from './formulaSyntax';
-import type { ColumnId, RowId, SheetId, Workbook } from './workbookModel';
-import { findSheetById, sheetsInOrder } from './workbookQueries';
+import { columnIndexToLabel, type CellAddress } from '../core/address';
+import type { ColumnId, RowId, SheetId, Workbook } from '../core/model';
+import { findSheetById, sheetsInOrder } from '../read/queries';
+import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, replaceFormulaQualifiers, type FormulaReferenceLexeme } from './syntax';
 
 export type FormulaCoordinate = { columnId: ColumnId; rowId: RowId };
 export type FormulaAxisAnchor = { column: boolean; row: boolean };

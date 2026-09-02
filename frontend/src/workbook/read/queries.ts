@@ -1,6 +1,6 @@
-import { cellKey, parseA1Address, parseA1Range, type CellAddress, type CellKey, type CellRange } from './cellAddress';
-import { cellAddressOf, cellIdentityAt, cellIdentityFromKey, cellIdentityKey } from './stableCellIdentity';
-import type { SheetDocument, SheetFrameProjection, SheetId, SheetTabularProjection, TabularContent, Workbook } from './workbookModel';
+import { cellKey, parseA1Address, parseA1Range, type CellAddress, type CellKey, type CellRange } from '../core/address';
+import { cellAddressOf, cellIdentityAt, cellIdentityFromKey, cellIdentityKey } from '../core/cellIdentity';
+import type { SheetDocument, SheetFrameProjection, SheetId, SheetTabularProjection, TabularContent, Workbook } from '../core/model';
 
 const a1CellsCache = new WeakMap<TabularContent, Readonly<Record<CellKey, string>>>();
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: 'invalid-format' | 'out-of-bounds' | 'unknown-sheet' };

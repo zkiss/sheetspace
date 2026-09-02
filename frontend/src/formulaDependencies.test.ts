@@ -6,7 +6,7 @@ import {
   formulaNodes,
   updateFormulaDependencyGraph,
 } from './formulaDependencies';
-import type { CalculationProjection } from './calculationProjection';
+import type { CalculationProjection } from './workbook/read/calculationProjection';
 
 describe('formula dependencies', () => {
   it('builds direct, range, and cross-sheet edges', () => {

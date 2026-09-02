@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { formulaRawForDisplay, formulaRawForStorage, formulaSheetReferenceIds } from './formulaReference';
-import { type SheetDocument, type Workbook } from './workbookModel';
-import { parseFormula as parseFormulaSyntax } from './formulaSyntax';
+import { formulaRawForDisplay, formulaRawForStorage, formulaSheetReferenceIds } from './workbook/formula/reference';
+import { type SheetDocument, type Workbook } from './workbook/core/model';
+import { parseFormula as parseFormulaSyntax } from './workbook/formula/syntax';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function parseFormula(raw: string, _workbook?: unknown, _sheet?: unknown) {

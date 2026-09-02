@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculationProjection } from './calculationProjection';
+import { calculationProjection } from './workbook/read/calculationProjection';
 import { FormulaEvaluator } from './formulaEvaluator';
 import type { FormulaFunctionRegistry, LazyFormulaFunction } from './formulaFunctions';
 import { formulaScalarValue } from './formulaValue';

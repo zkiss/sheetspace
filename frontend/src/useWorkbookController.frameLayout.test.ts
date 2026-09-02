@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { findSheetById } from './workbookQueries';
+import { findSheetById } from './workbook/read/queries';
 import { useWorkbookController } from './useWorkbookController';
 import { autosaveClient, deferred } from './test/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';

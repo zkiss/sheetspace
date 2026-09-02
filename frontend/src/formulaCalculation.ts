@@ -1,7 +1,7 @@
 import type {
   CalculationImpact,
   CalculationProjection,
-} from './calculationProjection';
+} from './workbook/read/calculationProjection';
 import {
   buildFormulaDependencyGraph,
   dependentClosure,
@@ -21,7 +21,7 @@ import type {
   FormulaScalarValue,
 } from './formulaValue';
 import { formulaErrorValue } from './formulaValue';
-import { cellIdentityAt, cellIdentityKey } from './stableCellIdentity';
+import { cellIdentityAt, cellIdentityKey } from './workbook/core/cellIdentity';
 
 /**
  * Owns dependency edges and derived values for the calculation projection.

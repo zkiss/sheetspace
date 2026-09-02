@@ -2,8 +2,8 @@ import {
   calculationProjection,
   type CalculationImpact,
   type CalculationProjection,
-} from './calculationProjection';
-import { Workbook } from './workbookModel';
+} from './workbook/read/calculationProjection';
+import { Workbook } from './workbook/core/model';
 
 export type CalculationRequest = {
   projection: CalculationProjection;
@@ -15,7 +15,7 @@ export type SetWorkbook = (
   impact: CalculationImpact,
 ) => void;
 
-export { calculationProjection } from './calculationProjection';
+export { calculationProjection } from './workbook/read/calculationProjection';
 
 export function calculationRequest(
   workbook: Workbook,

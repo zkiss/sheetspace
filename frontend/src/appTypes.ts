@@ -1,4 +1,4 @@
-import { SheetFrameSize, StableCellIdentity, StableCellRange, WorkspacePosition } from './workbookModel';
+import { SheetFrameSize, StableCellIdentity, StableCellRange, WorkspacePosition } from './workbook/core/model';
 
 export type PendingSheetCreation = {
   position: WorkspacePosition;

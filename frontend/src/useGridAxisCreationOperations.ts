@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CreatingGridAxes, CreatingGridAxisSlot } from './gridAxisProjection';
-import { findSheetById } from './workbookQueries';
-import { type Workbook } from './workbookModel';
+import { findSheetById } from './workbook/read/queries';
+import { type Workbook } from './workbook/core/model';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import type { SetWorkbook } from './workbookCalculation';
 import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';

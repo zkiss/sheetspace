@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculationProjection } from './calculationProjection';
+import { calculationProjection } from './workbook/read/calculationProjection';
 import { evaluateFormulaCells } from './formulaEvaluator';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 

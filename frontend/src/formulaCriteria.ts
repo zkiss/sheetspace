@@ -3,7 +3,7 @@ import {
   compareFormulaScalars,
   type FormulaComparisonOperator,
 } from './formulaComparison';
-import type { FormulaErrorCode } from './formulaSyntax';
+import type { FormulaErrorCode } from './workbook/formula/syntax';
 import type { FormulaScalarValue } from './formulaValue';
 
 type CriterionOperand = Exclude<FormulaScalarValue, { kind: 'error' }>;

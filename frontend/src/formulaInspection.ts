@@ -1,13 +1,13 @@
-import { cellIdentityAt, stableRangeAt } from './stableCellIdentity';
-import { findSheetById } from './workbookQueries';
-import { formulaRawForDisplay, formulaRawToDisplayProjection, workbookFormulaReferenceResolver } from './formulaReference';
-import { type SheetDocument, type StableCellIdentity, type StableCellRange, type Workbook } from './workbookModel';
+import { cellIdentityAt, stableRangeAt } from './workbook/core/cellIdentity';
+import { findSheetById } from './workbook/read/queries';
+import { formulaRawForDisplay, formulaRawToDisplayProjection, workbookFormulaReferenceResolver } from './workbook/formula/reference';
+import { type SheetDocument, type StableCellIdentity, type StableCellRange, type Workbook } from './workbook/core/model';
 import {
   collectFormulaReferences,
   parseFormulaSyntax,
   type FormulaReference,
   type FormulaSourceSpan,
-} from './formulaSyntax';
+} from './workbook/formula/syntax';
 
 export type FormulaReferenceTarget =
   | {

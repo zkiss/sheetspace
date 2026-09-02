@@ -1,5 +1,5 @@
-import type { CellKey } from './cellAddress';
-import type { FormulaErrorCode } from './formulaSyntax';
+import type { CellKey } from './workbook/core/address';
+import type { FormulaErrorCode } from './workbook/formula/syntax';
 
 export type FormulaScalarValue =
   | { kind: 'number'; value: number }

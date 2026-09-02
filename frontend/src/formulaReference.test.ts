@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { copyCanonicalFormula, formulaRawToCanonical, formulaRawToDisplay, formulaReferenceTokens, moveCanonicalFormula, workbookFormulaReferenceResolver } from './formulaReference';
+import { copyCanonicalFormula, formulaRawToCanonical, formulaRawToDisplay, formulaReferenceTokens, moveCanonicalFormula, workbookFormulaReferenceResolver } from './workbook/formula/reference';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('canonical formula references', () => {
