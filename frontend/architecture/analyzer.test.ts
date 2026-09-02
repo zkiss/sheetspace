@@ -19,9 +19,10 @@ const policy: ArchitecturePolicy = {
   globFiles: ['app/glob.ts'],
 };
 
-function fixture(files: Record<string, string>, nextPolicy = policy) {
+function fixture(files: Record<string, string>, nextPolicy = policy, links: Record<string, string> = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-')); temporary.push(root);
   for (const [name, content] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.writeFileSync(path.join(root, name), content); }
+  for (const [name, target] of Object.entries(links)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.symlinkSync(target, path.join(root, name)); }
   fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', resolveJsonModule: true, baseUrl: '.', paths: { '@core/*': ['core/*'] } } }));
   return analyzeArchitecture({ rootDir: root, tsconfigPath: path.join(root, 'tsconfig.json'), policy: nextPolicy }).diagnostics;
 }
@@ -33,23 +34,47 @@ describe('architecture analyzer', () => {
     const local: ArchitecturePolicy = { ...policy, exactTestData: ['fixtures/workbook-api.json'] };
     expect(codes({ ...base, 'core/index.ts': "export * from './value';", 'core/data.json': '{}', 'app/main.ts': "import '../core'; import data from '@core/data.json'; import '../assets/logo.svg'; void data;", 'test/example.test.ts': "import '../support/helpers';", 'support/helpers.ts': "import '../core/value';", 'fixtures/workbook-api.json': '{}' }, local)).toEqual([]);
   });
-  it('rejects ownership, aliases, dynamic imports and unapproved glob calls', () => {
+  it('rejects missing and multiple ownership while accepting alias resolution', () => {
     expect(codes({ ...base, 'loose.ts': '' })).toContain('unowned-file');
+    const duplicate: ArchitecturePolicy = { ...policy, owners: [...policy.owners, { name: 'also-core', files: /^core\//, role: 'production' }] };
+    expect(codes(base, duplicate)).toContain('multiple-owner');
     expect(codes({ ...base, 'app/main.ts': "import '@core/value';" })).toEqual([]);
+  });
+  it('accepts approved literal dynamic imports and rejects disallowed dynamic and glob usage', () => {
+    expect(codes({ ...base, 'app/main.ts': "import('../core/value');" })).toEqual([]);
     expect(codes({ ...base, 'app/main.ts': 'import(name);' })).toContain('nonliteral-dynamic-import');
     expect(codes({ ...base, 'core/bad.ts': "import('../app/main');" })).toContain('forbidden-package-import');
     expect(codes({ ...base, 'app/main.ts': "import.meta.glob('./*.ts');" })).toContain('unapproved-glob');
   });
-  it('rejects package, barrel, test-support, external and cycle violations', () => {
+  it('rejects package, barrel, mock target, test-support, external and cycle violations', () => {
     expect(codes({ ...base, 'core/bad.ts': "import '../app/main';" })).toContain('forbidden-package-import');
     expect(codes({ ...base, 'core/index.ts': "export * from '../app/main';" })).toContain('cross-package-reexport');
     expect(codes({ ...base, 'app/main.ts': "import '../support/helpers';", 'support/helpers.ts': '' })).toContain('test-role-import');
+    expect(codes({ ...base, 'app/main.ts': "vi.mock('../support/helpers');", 'support/helpers.ts': '' })).toContain('test-role-import');
     expect(codes({ ...base, 'core/bad.ts': "import React from 'react';" })).toContain('forbidden-external');
     expect(codes({ ...base, 'core/a.ts': "import './b';", 'core/b.ts': "import './a';" })).toContain('dependency-cycle');
   });
-  it('rejects CSS package crossings, import rules, invalid assets and source escapes', () => {
-    expect(codes({ ...base, 'app/site.css': "@import './x.css'; .x { background: url('../core/value.ts'); }" })).toContain('css-import');
+  it('limits global CSS to bootstrap importers', () => {
+    const local = { ...policy, globalStyles: ['app/main.ts'] };
+    expect(codes({ ...base, 'app/site.css': 'body { margin: 0; }', 'app/main.ts': "import './site.css';" }, local)).toEqual([]);
+    expect(codes({ ...base, 'app/site.css': 'body { margin: 0; }', 'app/feature.ts': "import './site.css';" }, local)).toContain('global-css');
+  });
+  it('rejects CSS imports and invalid, unowned, and cross-package assets', () => {
+    const invalid = codes({ ...base, 'app/site.css': "@import './x.css'; .x { background: url('../core/value.ts'); }" });
+    expect(invalid).toContain('css-import');
+    expect(invalid).toContain('invalid-css-asset');
     expect(codes({ ...base, 'app/site.css': ".x { background: url('../../outside.png'); }" })).toContain('invalid-css-asset');
-    expect(codes({ ...base, 'app/main.ts': "import '../../outside';" })).toContain('unresolved-import');
+    expect(codes({ ...base, 'app/site.css': ".x { src: url('../core/font.woff'); }" })).toContain('unowned-css-asset');
+    expect(codes({ ...base, 'app/site.css': ".x { background: url('../core/logo.svg'); }", 'core/logo.svg': '<svg />' })).toContain('forbidden-package-import');
+    expect(codes({ ...base, 'app/site.css': ".x { background: url('../assets/logo.svg'); }" })).toEqual([]);
+  });
+  it('rejects resolved source escapes and symlink traversal', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-outside-')); temporary.push(outside);
+    fs.writeFileSync(path.join(outside, 'outside.ts'), 'export const outside = 1;');
+    expect(fixture({ ...base, 'app/main.ts': "import './linked';" }, policy, { 'app/linked.ts': path.join(outside, 'outside.ts') })).toContain('source-escape');
+  });
+  it('rejects restoration of the removed workbook facade', () => {
+    const local = { ...policy, forbiddenFiles: ['src/workbook.ts'], owners: [...policy.owners, { name: 'legacy', files: /^src\//, role: 'production' }] };
+    expect(codes({ ...base, 'src/workbook.ts': 'export {};' }, local)).toContain('forbidden-file');
   });
 });

@@ -41,7 +41,8 @@ export interface AnalysisResult {
   files: readonly string[];
 }
 
-const sourceExtensions = new Set(['.ts', '.tsx', '.css', '.json', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp']);
+const assetExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.woff', '.woff2', '.ttf', '.otf']);
+const sourceExtensions = new Set(['.ts', '.tsx', '.css', '.json', ...assetExtensions]);
 const remoteUrl = /^(?:[a-z]+:|\/\/|#)/i;
 
 export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
@@ -153,13 +154,19 @@ function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owne
     if (!specifier || remoteUrl.test(specifier)) continue;
     const target = realIfExists(path.resolve(path.dirname(file), specifier));
     if (!target || !inside(root, target)) { report('invalid-css-asset', rel, `invalid local url ${specifier}`); continue; }
+    if (!assetExtensions.has(path.extname(target).toLowerCase())) { report('invalid-css-asset', rel, `unsupported local url ${specifier}`); continue; }
     const sourceOwner = owners.get(file);
     const targetOwner = owners.get(target);
+    if (!targetOwner) { report('unowned-css-asset', rel, `local url ${specifier} has no owner`); continue; }
     if (sourceOwner && targetOwner && sourceOwner.name !== targetOwner.name && !sourceOwner.mayImport?.includes(targetOwner.name)) report('forbidden-package-import', rel, `${sourceOwner.name} cannot use ${targetOwner.name} asset`);
     edges.push(target);
   }
   graph.set(file, edges);
-  if (/(?:^|\n)\s*(?:html|body|:root)\b/.test(text) && !policy.globalStyles?.includes(rel)) report('global-css', rel, 'global CSS may only be imported by app bootstrap');
+  if (/(?:^|\n)\s*(?:html|body|:root)\b/.test(text)) {
+    for (const [importer, imports] of graph) {
+      if (imports.includes(file) && !policy.globalStyles?.includes(relative(root, importer))) report('global-css', relative(root, importer), `${rel} global CSS may only be imported by app bootstrap`);
+    }
+  }
 }
 
 function resolveRequest(from: string, specifier: string, compilerOptions: ts.CompilerOptions): string | undefined {
@@ -167,7 +174,7 @@ function resolveRequest(from: string, specifier: string, compilerOptions: ts.Com
   if (resolution) return realIfExists(resolution);
   if (specifier.startsWith('.') || path.isAbsolute(specifier)) {
     const direct = path.resolve(path.dirname(from), specifier);
-    for (const candidate of [direct, ...['.css', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp'].map((extension) => `${direct}${extension}`), path.join(direct, 'index.css')]) {
+    for (const candidate of [direct, ...['.css', ...assetExtensions].map((extension) => `${direct}${extension}`), path.join(direct, 'index.css')]) {
       const found = realIfExists(candidate);
       if (found) return found;
     }
