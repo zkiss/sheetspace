@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { cellIdentityKey } from './workbook/core/cellIdentity';
 import { type SheetDocument, type Workbook } from './workbook/core/model';
-import {
-  calculationProjection,
-  calculationRequest,
-  mergeCalculationImpacts,
-} from './workbookCalculation';
+import { calculationProjection } from './workbook/read/calculationProjection';
+import { calculationRequest, mergeCalculationImpacts } from './workbookCalculation';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 function sheetWithCells(cells: Record<string, string> = {}): SheetDocument {

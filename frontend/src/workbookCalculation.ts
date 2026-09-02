@@ -15,8 +15,6 @@ export type SetWorkbook = (
   impact: CalculationImpact,
 ) => void;
 
-export { calculationProjection } from './workbook/read/calculationProjection';
-
 export function calculationRequest(
   workbook: Workbook,
   impact: CalculationImpact,
