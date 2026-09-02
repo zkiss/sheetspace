@@ -36,6 +36,13 @@ describe('workbook architecture', () => {
     }
   });
 
+  it('keeps every workbook domain module independent of UI, controllers, and transports', () => {
+    for (const module of domainModules) {
+      const forbidden = importsFor(module, sources).filter((specifier) => isForbiddenLayer(specifier, module, sources));
+      expect(forbidden, `${module} imports forbidden layers`).toEqual([]);
+    }
+  });
+
   it('keeps model and identity modules independent of UI, controllers, transports, and mutations', () => {
     for (const module of lowerLevelModules) {
       const forbidden = importsFor(module, sources).filter((specifier) => isForbiddenLowerDependency(specifier, module, sources));
@@ -49,30 +56,47 @@ describe('workbook architecture', () => {
     }
   });
 
-  it('keeps workbook operations independent of UI, controllers, and transports', () => {
-    const forbidden = importsFor('workbookOperations', sources)
-      .filter((specifier) => isForbiddenLayer(specifier, 'workbookOperations', sources));
-    expect(forbidden).toEqual([]);
-  });
-
   it('keeps the workbook domain dependency graph acyclic', () => {
     expect(findCycle(dependencyGraph(sources, domainModules))).toBeUndefined();
   });
 
   it('rejects representative forbidden dependencies and circular graphs', () => {
-    const fixture = {
-      workbookModel: "import React from 'react';",
+    const forbiddenLayerFixture = {
+      cellAddress: "import React from 'react';",
+      workbookModel: "import './useWorkbookController';",
+      stableCellIdentity: "import './workbookApi';",
+      workbookQueries: "import React from 'react';",
+      calculationProjection: "import './workbookOutbox';",
+      formulaSyntax: "import './workbookPersistenceCoordinator';",
+      formulaReference: "import './useWorkbookController';",
+      workbookOperations: "import React from 'react';",
+    };
+    const mutationFixture = {
+      cellAddress: "import { renameSheet } from './workbookOperations';",
+      workbookModel: "import { renameSheet } from './workbookOperations';",
+      stableCellIdentity: "import { renameSheet } from './workbookOperations';",
       workbookQueries: "import { renameSheet } from './workbookOperations';",
-      workbookOperations: "import { useWorkbookController } from './useWorkbookController';",
-      useWorkbookController: '',
+      calculationProjection: "import { renameSheet } from './workbookOperations';",
+      workbookOperations: '',
+    };
+    const cycleFixture = {
       alpha: "import './beta';",
       beta: "import './alpha';",
     };
 
-    expect(importsFor('workbookModel', fixture).some((specifier) => isForbiddenLowerDependency(specifier, 'workbookModel', fixture))).toBe(true);
-    expect(importsFor('workbookQueries', fixture).some((specifier) => resolveRelativeModule('workbookQueries', specifier) === 'workbookOperations')).toBe(true);
-    expect(importsFor('workbookOperations', fixture).some((specifier) => isForbiddenLayer(specifier, 'workbookOperations', fixture))).toBe(true);
-    expect(findCycle(dependencyGraph(fixture, ['alpha', 'beta']))).toEqual(['alpha', 'beta', 'alpha']);
+    for (const module of domainModules) {
+      expect(importsFor(module, forbiddenLayerFixture)
+        .some((specifier) => isForbiddenLayer(specifier, module, forbiddenLayerFixture)), module).toBe(true);
+    }
+    for (const module of lowerLevelModules) {
+      expect(importsFor(module, mutationFixture)
+        .some((specifier) => isForbiddenLowerDependency(specifier, module, mutationFixture)), module).toBe(true);
+    }
+    for (const module of readOnlyModules) {
+      expect(importsFor(module, mutationFixture)
+        .some((specifier) => resolveRelativeModule(module, specifier) === 'workbookOperations'), module).toBe(true);
+    }
+    expect(findCycle(dependencyGraph(cycleFixture, ['alpha', 'beta']))).toEqual(['alpha', 'beta', 'alpha']);
   });
 });
 
