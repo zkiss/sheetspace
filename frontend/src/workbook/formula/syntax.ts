@@ -3,7 +3,7 @@ import {
   parseA1Address,
   type CellAddress,
   type CellRange,
-} from './cellAddress';
+} from '../core/address';
 
 export type FormulaErrorCode =
   | '#PARSE!'

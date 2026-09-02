@@ -1,6 +1,6 @@
 import { MouseEvent, PointerEvent, useLayoutEffect, useRef, useState, WheelEvent } from 'react';
 import type { PendingSheetMenu, WorkspaceViewport } from './appTypes';
-import type { SheetFrameSize, WorkspacePosition } from './workbook';
+import { SheetFrameSize, WorkspacePosition } from './workbook/core/model';
 import {
   surfacePointFromClient,
   surfaceDeltaFromClient,

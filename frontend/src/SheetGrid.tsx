@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type RefObject } from 'react';
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
-import {
-  cellKey,
-  parseA1Address,
-  sheetBounds,
-  type CellAddress,
-  type CellRange,
-  type FormulaEvaluationSnapshot,
-  type SheetTabularProjection,
-} from './workbook';
+import { cellKey, parseA1Address, type CellAddress, type CellRange } from './workbook/core/address';
+import { sheetBounds } from './workbook/read/queries';
+import { type FormulaEvaluationSnapshot } from './formulaValue';
+import { type SheetTabularProjection } from './workbook/core/model';
 import type { GridAxisProjection } from './gridAxisProjection';
 import { createGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
 import {
@@ -95,6 +90,10 @@ export function SheetGrid({
   selectedRange?: CellRange;
 }) {
   const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
+  // The application owns request lifetime, so it may keep a request prop present
+  // while virtualization causes this effect to rerun. Remember acknowledgements
+  // locally to make each request's completion edge-triggered.
+  const consumedKeyboardFocusRequestIds = useRef(new Set<number>());
   const gridRef = useRef<HTMLDivElement>(null);
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
@@ -249,7 +248,11 @@ export function SheetGrid({
     const completedIntent = focusIntent;
     if (completedIntent.requestId === undefined) {
       setGridEntryFocusIntent((current) => current?.id === completedIntent.id ? null : current);
-    } else if (keyboardFocusRequest?.id === completedIntent.requestId) {
+    } else if (
+      keyboardFocusRequest?.id === completedIntent.requestId
+      && !consumedKeyboardFocusRequestIds.current.has(completedIntent.requestId)
+    ) {
+      consumedKeyboardFocusRequestIds.current.add(completedIntent.requestId);
       onKeyboardFocusRequestConsumed(completedIntent.requestId);
     }
   }, [editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, onKeyboardFocusRequestConsumed, scrollContainerRef, virtualColumns, virtualRows]);

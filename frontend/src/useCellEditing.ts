@@ -1,14 +1,8 @@
 import { useEffect, useReducer } from 'react';
-import {
-  cellAddressOf,
-  cellRawContent,
-  findSheetById,
-  formulaRawForDisplay,
-  sheetsInOrder,
-  type SheetDocument,
-  type SheetTabularProjection,
-  type Workbook,
-} from './workbook';
+import { cellAddressOf } from './workbook/core/cellIdentity';
+import { cellRawContent, findSheetById, sheetsInOrder } from './workbook/read/queries';
+import { formulaRawForDisplay } from './workbook/formula/reference';
+import { type SheetDocument, type SheetTabularProjection, type Workbook } from './workbook/core/model';
 import type {
   CellEditSession,
   CellNavigationDirection,

@@ -1,25 +1,16 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CalculationImpact } from './calculationProjection';
+import type { CalculationImpact } from './workbook/read/calculationProjection';
 import { FormulaCalculation } from './formulaCalculation';
 import {
   workbookApi,
   type WorkbookApi,
 } from './workbookApi';
-import {
-  cellIdentityAt,
-  createEmptyWorkbook,
-  findSheetById,
-  sheetsInOrder,
-  validateSheetName,
-  type CellKey,
-  type FormulaEvaluationSnapshot,
-  type MutationResult,
-  type SheetFrameSize,
-  type SheetZOrderDirection,
-  type Workbook,
-  type WorkspacePosition,
-  type ValidationResult,
-} from './workbook';
+import { cellIdentityAt } from './workbook/core/cellIdentity';
+import { createEmptyWorkbook, validateSheetName } from './workbook/mutations/operations';
+import { findSheetById, sheetsInOrder } from './workbook/read/queries';
+import { type CellKey } from './workbook/core/address';
+import { type FormulaEvaluationSnapshot } from './formulaValue';
+import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from './workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,

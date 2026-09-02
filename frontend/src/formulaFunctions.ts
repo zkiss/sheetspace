@@ -1,4 +1,4 @@
-import type { FormulaErrorCode, FormulaExpression, FunctionFormula } from './formulaSyntax';
+import type { FormulaErrorCode, FormulaExpression, FunctionFormula } from './workbook/formula/syntax';
 import {
   formulaErrorValue,
   type FormulaRangeValue,

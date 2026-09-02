@@ -1,13 +1,6 @@
-import {
-  WORKBOOK_SCHEMA_VERSION,
-  cellIdentityKey,
-  type CellKey,
-  type SheetDocument,
-  type SheetFrameSize,
-  type Workbook,
-  type WorkbookManifest,
-  type WorkspacePosition,
-} from './workbook';
+import { WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from './workbook/core/model';
+import { cellIdentityKey } from './workbook/core/cellIdentity';
+import { type CellKey } from './workbook/core/address';
 
 type ApiErrorBody = {
   error?: string;

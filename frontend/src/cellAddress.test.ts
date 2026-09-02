@@ -6,7 +6,7 @@ import {
   expandRange,
   parseA1Address,
   parseA1Range,
-} from './cellAddress';
+} from './workbook/core/address';
 
 const bounds = { columnCount: 10, rowCount: 20 };
 

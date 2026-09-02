@@ -2,7 +2,7 @@ import {
   expandRange,
   isAddressWithinBounds,
   type CellKey,
-} from './cellAddress';
+} from './workbook/core/address';
 import { builtInFormulaFunctions } from './formulaBuiltins';
 import {
   applyComparisonOperator,
@@ -20,7 +20,7 @@ import {
   type FormulaExpression,
   type FormulaReference,
   type UnaryFormula,
-} from './formulaSyntax';
+} from './workbook/formula/syntax';
 import {
   classifyCellValue,
   displayFormulaValue,
@@ -33,9 +33,10 @@ import {
 import type {
   CalculationProjection,
   CalculationSheet,
-} from './calculationProjection';
-import { calculationCellKey } from './calculationProjection';
-import { cellIdentityFromKey, cellKey } from './workbook';
+} from './workbook/read/calculationProjection';
+import { calculationCellKey } from './workbook/read/calculationProjection';
+import { cellIdentityFromKey } from './workbook/core/cellIdentity';
+import { cellKey } from './workbook/core/address';
 
 export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
 

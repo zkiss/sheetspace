@@ -1,5 +1,5 @@
 import { useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
-import type { SheetFrameProjection } from './workbook';
+import { SheetFrameProjection } from './workbook/core/model';
 import type { SheetFrameResizeDirection } from './appTypes';
 import { FLOATING_OVERLAY_Z_INDEX } from './styleTokens';
 import { clampSheetFrameSize } from './workspaceGeometry';

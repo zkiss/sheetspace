@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react';
-import {
-  addressRangeOf,
-  cellAddressOf,
-  findSheetById,
-  stableRangeAt,
-  type CellRange,
-  type SheetDocument,
-  type Workbook,
-} from './workbook';
+import { addressRangeOf, cellAddressOf, stableRangeAt } from './workbook/core/cellIdentity';
+import { findSheetById } from './workbook/read/queries';
+import { type CellRange } from './workbook/core/address';
+import { type SheetDocument, type Workbook } from './workbook/core/model';
 import type { ReferenceNavigationTarget } from './appTypes';
 import type { FormulaInspectionReference } from './formulaInspection';
 import { rangeFitsSheetViewport } from './gridGeometry';

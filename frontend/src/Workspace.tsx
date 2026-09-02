@@ -1,17 +1,7 @@
-import type {
-  FormulaEvaluationSnapshot,
-  SheetDocument,
-  Workbook,
-  WorkspacePosition,
-} from './workbook';
-import {
-  addressRangeOf,
-  cellRawContent,
-  findSheetById,
-  frameProjection,
-  sheetsInOrder,
-  tabularProjection,
-} from './workbook';
+import { FormulaEvaluationSnapshot } from './formulaValue';
+import { SheetDocument, Workbook, WorkspacePosition } from './workbook/core/model';
+import { addressRangeOf } from './workbook/core/cellIdentity';
+import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from './workbook/read/queries';
 import { projectGridAxes } from './gridAxisProjection';
 import type { CreatingGridAxes } from './gridAxisProjection';
 import type {

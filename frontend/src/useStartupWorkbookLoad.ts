@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { workbookApi, type WorkbookApi } from './workbookApi';
 import type { StartupLoadState } from './appTypes';
-import type { Workbook } from './workbook';
+import { Workbook } from './workbook/core/model';
 import type { SetWorkbook } from './workbookCalculation';
 
 export function useStartupWorkbookLoad({

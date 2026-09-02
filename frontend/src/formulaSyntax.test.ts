@@ -5,7 +5,7 @@ import {
   parseFormulaForInspection,
   parseFormulaSyntax,
   replaceFormulaQualifiers,
-} from './formulaSyntax';
+} from './workbook/formula/syntax';
 
 describe('formula syntax', () => {
   it('uses one function-call node for built-ins and unknown functions', () => {

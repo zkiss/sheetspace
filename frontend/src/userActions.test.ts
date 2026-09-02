@@ -6,7 +6,9 @@ import {
   type BackendWorkbookReconciliation,
   type WorkbookOperation,
 } from './userActions';
-import { cellIdentityAt, cellRawContent, type Workbook } from './workbook';
+import { cellIdentityAt } from './workbook/core/cellIdentity';
+import { cellRawContent } from './workbook/read/queries';
+import { type Workbook } from './workbook/core/model';
 
 const alpha = sheetDocument({ id: 'alpha', name: 'Alpha', revision: 4, zIndex: 1 });
 const beta = sheetDocument({ id: 'beta', name: 'Beta', revision: 7, zIndex: 2 });

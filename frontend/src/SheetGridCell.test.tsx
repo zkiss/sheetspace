@@ -4,7 +4,7 @@ import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from './
 import type { CellEditSession } from './appTypes';
 import { cellTargetAt } from './cellInteraction';
 import { sheetDocument } from './test/workbookFactories';
-import { tabularProjection } from './workbook';
+import { tabularProjection } from './workbook/read/queries';
 
 afterEach(() => {
   cleanup();

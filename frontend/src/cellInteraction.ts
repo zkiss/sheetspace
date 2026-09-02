@@ -1,10 +1,6 @@
-import {
-  cellAddressOf,
-  cellIdentityAt,
-  cellKey,
-  type SheetDocument,
-  type SheetTabularProjection,
-} from './workbook';
+import { cellAddressOf, cellIdentityAt } from './workbook/core/cellIdentity';
+import { cellKey } from './workbook/core/address';
+import { type SheetDocument, type SheetTabularProjection } from './workbook/core/model';
 import type { CellEditSession, CellTarget, ReferenceNavigationTarget } from './appTypes';
 
 export type CellInteractionState = {

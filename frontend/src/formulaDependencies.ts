@@ -2,15 +2,15 @@ import type {
   CalculationCellChange,
   CalculationProjection,
   CalculationSheet,
-} from './calculationProjection';
-import { calculationCellKey } from './calculationProjection';
-import { cellIdentityAt, cellIdentityKey } from './workbook';
+} from './workbook/read/calculationProjection';
+import { calculationCellKey } from './workbook/read/calculationProjection';
+import { cellIdentityAt, cellIdentityKey } from './workbook/core/cellIdentity';
 import { sheetCellNodeId } from './formulaEvaluator';
 import {
   collectFormulaReferences,
   parseFormula,
   type FormulaReference,
-} from './formulaSyntax';
+} from './workbook/formula/syntax';
 
 export type FormulaDependencyGraph = {
   readonly dependencies: ReadonlyMap<string, ReadonlySet<string>>;

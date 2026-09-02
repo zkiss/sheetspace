@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  evaluateFormulaCells,
-} from './workbook';
-import { calculationProjection } from './calculationProjection';
+import { evaluateFormulaCells } from './formulaEvaluator';
+import { calculationProjection } from './workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from './test/workbookFactories';
 
 describe('formula operators and scalar values', () => {

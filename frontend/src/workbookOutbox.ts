@@ -1,4 +1,4 @@
-import type { SheetId, StableCellIdentity } from './workbook';
+import { SheetId, StableCellIdentity } from './workbook/core/model';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
 import type { WorkbookOperationId, WorkbookPersistenceIntent } from './userActions';

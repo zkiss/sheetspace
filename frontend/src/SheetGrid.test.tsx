@@ -5,7 +5,8 @@ import { projectGridAxes } from './gridAxisProjection';
 import { createGridAxisMetrics } from './gridAxisMetrics';
 import { SheetGrid } from './SheetGrid';
 import { sheetDocument, sparseLargeSheetDocument } from './test/workbookFactories';
-import { cellIdentityAt, tabularProjection } from './workbook';
+import { cellIdentityAt } from './workbook/core/cellIdentity';
+import { tabularProjection } from './workbook/read/queries';
 import { virtualGridGeometry } from './test/domGeometry';
 
 afterEach(cleanup);
@@ -447,6 +448,57 @@ describe('SheetGrid virtualization', () => {
     await waitFor(() => expect(currentTarget).toHaveFocus());
     expect(onConsumed).toHaveBeenCalledTimes(1);
     expect(onConsumed).toHaveBeenCalledWith(2);
+  });
+
+  it('acknowledges each application focus request once across completion-effect rerenders', async () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-focus', name: 'Focus' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const onConsumed = vi.fn();
+
+    function FocusRequestRerenderHarness() {
+      const [request, setRequest] = useState({ id: 1, targetKey: 'A1' });
+      const [, setRenderVersion] = useState(0);
+      return (
+        <>
+          <button onClick={() => setRenderVersion((version) => version + 1)} type="button">Rerender</button>
+          <button onClick={() => setRequest({ id: 2, targetKey: 'B1' })} type="button">Next request</button>
+          <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+            <SheetGrid
+              activeCellKey={null}
+              axisProjection={axisProjection}
+              cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
+              editingCell={null}
+              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              formulaResults={{}}
+              keyboardFocusRequest={request}
+              onKeyboardFocusRequestConsumed={(requestId) => onConsumed(requestId)}
+              navigationHighlightCellKey={null}
+              scrollContainerRef={scrollContainerRef}
+              sheet={sheet}
+            />
+          </div>
+        </>
+      );
+    }
+
+    render(<FocusRequestRerenderHarness />);
+    virtualGridGeometry(scrollContainerRef.current!);
+    await waitFor(() => expect(onConsumed).toHaveBeenCalledTimes(1));
+    expect(onConsumed).toHaveBeenLastCalledWith(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rerender' }));
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Focus A1 empty cell' })).toHaveFocus());
+    expect(onConsumed).toHaveBeenCalledTimes(1);
+    expect(onConsumed).toHaveBeenLastCalledWith(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next request' }));
+    await waitFor(() => expect(onConsumed).toHaveBeenCalledTimes(2));
+    expect(onConsumed).toHaveBeenLastCalledWith(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rerender' }));
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Focus B1 empty cell' })).toHaveFocus());
+    expect(onConsumed).toHaveBeenCalledTimes(2);
   });
 
   it('permanently invalidates a grid-entry request superseded by an application request', async () => {

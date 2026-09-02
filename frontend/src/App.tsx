@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import './App.css';
 import type { WorkbookApi } from './workbookApi';
-import type { SheetDocument, Workbook, WorkspacePosition } from './workbook';
+import { SheetDocument, Workbook, WorkspacePosition } from './workbook/core/model';
 import {
   type PendingSheetCreation,
   type PendingSheetRename,

@@ -1,6 +1,7 @@
-import { columnIndexToLabel, type CellAddress } from './cellAddress';
-import { formatSheetReferenceToken, formulaReferenceLexemes, type FormulaReferenceLexeme } from './formulaSyntax';
-import type { ColumnId, RowId, SheetId, Workbook } from './workbook';
+import { columnIndexToLabel, type CellAddress } from '../core/address';
+import type { ColumnId, RowId, SheetId, Workbook } from '../core/model';
+import { findSheetById, sheetsInOrder } from '../read/queries';
+import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, replaceFormulaQualifiers, type FormulaReferenceLexeme } from './syntax';
 
 export type FormulaCoordinate = { columnId: ColumnId; rowId: RowId };
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
@@ -35,6 +36,22 @@ export function formulaRawToCanonical(raw: string, resolver: FormulaReferenceRes
 export function formulaRawToDisplay(raw: string, resolver: FormulaReferenceResolver): string {
   return displayProjection(raw, resolver).raw;
 }
+
+export function formulaRawForStorage(raw: string, workbook: Workbook, currentSheetId?: SheetId): string {
+  if (currentSheetId) return formulaRawToCanonical(raw, workbookFormulaReferenceResolver(workbook, currentSheetId));
+  return replaceFormulaQualifiers(raw, (reference) => {
+    if (reference === '#REF') return reference;
+    const sheetId = sheetsInOrder(workbook).find((sheet) => sheet.name === reference || sheet.id === reference)?.id;
+    return sheetId ? formatSheetReferenceToken(sheetId) : '#REF';
+  });
+}
+
+export function formulaRawForDisplay(raw: string, workbook: Workbook, currentSheetId?: SheetId): string {
+  if (currentSheetId && formulaReferenceTokens(raw).some((reference) => reference.endpoints.some((endpoint) => endpoint?.kind === 'canonical'))) return formulaRawToDisplay(raw, workbookFormulaReferenceResolver(workbook, currentSheetId));
+  return replaceFormulaQualifiers(raw, (sheetReference) => { const sheet = findSheetById(workbook, sheetReference); return sheet ? formatSheetReferenceToken(sheet.name) : '#REF'; });
+}
+
+export function formulaSheetReferenceIds(raw: string): string[] { return formulaSheetReferences(raw).filter((sheetId) => sheetId !== '#REF'); }
 
 /** Returns rendered canonical-reference spans, including replacements such as #REF!. */
 export function formulaRawToDisplayProjection(raw: string, resolver: FormulaReferenceResolver): FormulaDisplayProjection {

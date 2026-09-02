@@ -1,17 +1,7 @@
 import { vi } from 'vitest';
-import {
-  appendColumn,
-  appendRow,
-  commitCellRawContent,
-  findSheetById,
-  renameSheet,
-  sheetsInOrder,
-  validateSheetName,
-  type SheetDocument,
-  type SheetFrameSize,
-  type Workbook,
-  type WorkspacePosition,
-} from '../workbook';
+import { appendColumn, appendRow, commitCellRawContent, renameSheet, validateSheetName } from '../workbook/mutations/operations';
+import { findSheetById, sheetsInOrder } from '../workbook/read/queries';
+import { type SheetDocument, type SheetFrameSize, type Workbook, type WorkspacePosition } from '../workbook/core/model';
 import type { WorkbookApi } from '../workbookApi';
 import { sheetDocument, workbookWithSheets } from './workbookFactories';
 

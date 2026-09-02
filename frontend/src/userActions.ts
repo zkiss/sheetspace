@@ -1,10 +1,10 @@
-import type { CalculationImpact } from './calculationProjection';
-import {
-  cellAddressOf, cellIdentityKey, cellKey, findSheetById, formulaRawForStorage,
-  moveSheetZOrder, sheetsInOrder, validateSheetName,
-  type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize,
-  type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition,
-} from './workbook';
+import type { CalculationImpact } from './workbook/read/calculationProjection';
+import { cellAddressOf, cellIdentityKey } from './workbook/core/cellIdentity';
+import { cellKey } from './workbook/core/address';
+import { findSheetById, sheetsInOrder } from './workbook/read/queries';
+import { formulaRawForStorage } from './workbook/formula/reference';
+import { moveSheetZOrder, validateSheetName } from './workbook/mutations/operations';
+import { type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from './workbook/core/model';
 
 export type WorkbookOperationId = string;
 export type CellWrite = { cell: StableCellIdentity; raw: string };

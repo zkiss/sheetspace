@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SaveStatus } from './appTypes';
-import {
-  cellAddressOf,
-  cellKey,
-  findSheetById,
-  type SheetId,
-  type Workbook,
-} from './workbook';
+import { cellAddressOf } from './workbook/core/cellIdentity';
+import { cellKey } from './workbook/core/address';
+import { findSheetById } from './workbook/read/queries';
+import { type SheetId, type Workbook } from './workbook/core/model';
 import type { SetWorkbook } from './workbookCalculation';
 import type { WorkbookApi } from './workbookApi';
 import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';

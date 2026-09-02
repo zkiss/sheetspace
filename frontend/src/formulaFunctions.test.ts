@@ -6,7 +6,7 @@ import {
   type FormulaFunctionRegistry,
   type LazyFormulaFunction,
 } from './formulaFunctions';
-import { parseFormula, type FormulaExpression, type FunctionFormula } from './formulaSyntax';
+import { parseFormula, type FormulaExpression, type FunctionFormula } from './workbook/formula/syntax';
 import { formulaScalarValue, type FormulaValue } from './formulaValue';
 
 describe('formula function protocol', () => {

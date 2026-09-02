@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetFrame } from './SheetFrame';
 import { sheetDocument } from './test/workbookFactories';
-import { frameProjection } from './workbook';
+import { frameProjection } from './workbook/read/queries';
 
 afterEach(cleanup);
 

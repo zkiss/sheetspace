@@ -1,4 +1,6 @@
-import { cellRawContent, type FormulaEvaluationSnapshot, type SheetTabularProjection } from './workbook';
+import { cellRawContent } from './workbook/read/queries';
+import { type FormulaEvaluationSnapshot } from './formulaValue';
+import { type SheetTabularProjection } from './workbook/core/model';
 import type { CellNavigationDirection } from './appTypes';
 
 export type ColumnHeader = {

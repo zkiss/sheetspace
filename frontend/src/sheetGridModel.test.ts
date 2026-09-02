@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { tabularProjection, type FormulaEvaluationSnapshot } from './workbook';
+import { tabularProjection } from './workbook/read/queries';
+import { type FormulaEvaluationSnapshot } from './formulaValue';
 import { getSheetCellDisplayText, gridCellKeyboardAction } from './sheetGridModel';
 import { sheetDocument } from './test/workbookFactories';
 
