@@ -4,7 +4,7 @@ import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { appendColumn, appendRow, commitCellRawContent, renameSheet } from '@workbook/mutations/operations';
 import { cellAddressOf } from '@workbook/core/cellIdentity';
 import { findSheetById } from '@workbook/read/queries';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function sheetWithCells(id: string, name: string, cells: Record<string, string>) {
   return sheetDocument({ id, name, cells });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { deferred } from '@test/apiClients';
+import { deferred } from '@test-support/apiClients';
 import { WorkbookApiError, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { WorkbookOutbox } from '@infrastructure/persistence/workbookOutbox';
 import { WorkbookPersistenceTransport } from '@infrastructure/persistence/workbookPersistenceTransport';

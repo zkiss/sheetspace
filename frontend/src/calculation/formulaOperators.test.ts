@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateFormulaCells } from '@calculation/formulaEvaluator';
 import { calculationProjection } from '@workbook/read/calculationProjection';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('formula operators and scalar values', () => {
   function sheetWithCells(id: string, name: string, cells: Record<string, string>) {

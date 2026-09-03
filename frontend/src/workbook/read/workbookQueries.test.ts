@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { findSheetByName, frameProjection, parseNamedA1Address, parseNamedA1Range, sheetsInOrder, tabularCellsByA1, tabularProjection } from '@workbook/read/queries';
 import type { SheetDocument } from '@workbook/core/model';
 

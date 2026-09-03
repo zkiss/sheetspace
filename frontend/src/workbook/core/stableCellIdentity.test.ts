@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sheetDocument } from '@test/workbookFactories';
+import { sheetDocument } from '@test-support/workbookFactories';
 import { addressRangeOf, cellAddressOf, cellIdentityAt, cellIdentityFromKey, cellIdentityKey, stableRangeAt } from '@workbook/core/cellIdentity';
 
 describe('stableCellIdentity', () => {

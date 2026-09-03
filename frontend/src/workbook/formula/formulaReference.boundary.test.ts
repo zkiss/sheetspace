@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { cellRawContent } from '@workbook/read/queries';
 import { commitCellRawContent } from '@workbook/mutations/operations';
 import { formulaRawForDisplay, formulaRawForStorage } from '@workbook/formula/reference';

@@ -12,7 +12,12 @@
       "@calculation/*": ["calculation/*"],
       "@application/*": ["application/*"],
       "@infrastructure/*": ["infrastructure/*"],
-      "@test/*": ["test/*"]
+      "@app/*": ["app/*"],
+      "@grid/*": ["grid/*"],
+      "@workspace/*": ["workspace/*"],
+      "@reference-navigation/*": ["reference-navigation/*"],
+      "@shared/*": ["shared/*"],
+      "@test-support/*": ["test-support/*"]
     },
     "allowImportingTsExtensions": false,
     "resolveJsonModule": true,

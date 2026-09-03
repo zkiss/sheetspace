@@ -4,7 +4,7 @@ import { FormulaEvaluator } from '@calculation/formulaEvaluator';
 import type { FormulaFunctionRegistry, LazyFormulaFunction } from '@calculation/formulaFunctions';
 import { formulaScalarValue } from '@calculation/formulaValue';
 import { evaluateFormulaCells } from '@calculation/formulaEvaluator';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('formula built-ins and function dispatch', () => {
   function sheetWithCells(id: string, name: string, cells: Record<string, string>) {

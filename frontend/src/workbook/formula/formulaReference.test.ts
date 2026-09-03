@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { copyCanonicalFormula, formulaRawToCanonical, formulaRawToDisplay, formulaReferenceTokens, moveCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('canonical formula references', () => {
   const source = sheetDocument({ id: 'source', name: 'Source', columnCount: 4, rowCount: 4 });

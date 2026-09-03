@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,

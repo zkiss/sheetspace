@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { evaluateFormulaCells } from '@calculation/formulaEvaluator';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('conditional aggregate formula functions', () => {
   it('counts equality and ordered matches across cells and 2D ranges', () => {

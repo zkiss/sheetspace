@@ -9,7 +9,12 @@ export default defineConfig({
       '@calculation': '/src/calculation',
       '@application': '/src/application',
       '@infrastructure': '/src/infrastructure',
-      '@test': '/src/test',
+      '@app': '/src/app',
+      '@grid': '/src/grid',
+      '@workspace': '/src/workspace',
+      '@reference-navigation': '/src/reference-navigation',
+      '@shared': '/src/shared',
+      '@test-support': '/src/test-support',
     },
   },
   server: {
@@ -23,7 +28,7 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    setupFiles: './src/test/setup.ts',
+    setupFiles: './src/test-support/setup.ts',
     // App integration files exercise real keyboard and focus behavior. Under coverage,
     // parallel workers can make those interactions exceed Vitest's short default.
     testTimeout: 15_000,
@@ -31,7 +36,13 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/main.tsx', 'src/test/**', 'src/**/*.test.tsx'],
+      exclude: [
+        'src/app/main.tsx',
+        'src/test-support/**',
+        'src/architecture/**',
+        'src/**/*.test.ts',
+        'src/**/*.test.tsx',
+      ],
       thresholds: {
         lines: 90,
         functions: 90,

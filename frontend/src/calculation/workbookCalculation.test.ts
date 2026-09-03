@@ -3,7 +3,7 @@ import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { calculationRequest, mergeCalculationImpacts } from '@calculation/workbookCalculation';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function sheetWithCells(cells: Record<string, string> = {}): SheetDocument {
   return sheetDocument({ id: 'sheet-1', name: 'Inputs', cells });

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cellRawContent } from '@workbook/read/queries';
 import { evaluateFormulaCells } from '@calculation/formulaEvaluator';
 import { calculationProjection } from '@workbook/read/calculationProjection';
-import { sheetDocument, workbookWithSheets } from '@test/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('formula references, errors, and cycles', () => {
   function sheetWithCells(id: string, name: string, cells: Record<string, string>) {
