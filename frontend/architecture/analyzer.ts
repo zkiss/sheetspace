@@ -22,6 +22,8 @@ export interface StyleClassification {
 
 export interface ArchitecturePolicy {
   owners: readonly Owner[];
+  /** Exact root-relative tool trees which are not repository-owned source. */
+  excludedDirectories?: readonly string[];
   /** Every stylesheet must match exactly one declared architectural classification. */
   styles?: readonly StyleClassification[];
   /** Files allowed to use import.meta.glob. */
@@ -55,14 +57,21 @@ type Resolution = { kind: 'local'; file: string } | { kind: 'external'; package:
 
 export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
   const root = real(options.rootDir);
-  const config = ts.readConfigFile(options.tsconfigPath, ts.sys.readFile);
-  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(options.tsconfigPath));
-  const files = enumerate(root);
   const diagnostics: Diagnostic[] = [];
+  const report = (code: string, file: string, message: string) => diagnostics.push({ code, file, message });
+  const excluded = excludedDirectories(options.policy.excludedDirectories ?? [], report);
+  const inventory = enumerate(root, excluded, report);
+  const files = inventory.files;
+  const fileSet = new Set(files);
+  const configPath = realIfExists(options.tsconfigPath);
+  if (!configPath || !validateLocalTarget(root, configPath, fileSet, excluded, report, relative(root, options.tsconfigPath), 'tsconfigPath')) {
+    return { diagnostics, files: files.map((file) => relative(root, file)) };
+  }
+  const config = ts.readConfigFile(configPath, ts.sys.readFile);
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath));
   const owners = new Map<string, Owner>();
   const graph = new Map<string, string[]>();
   const styles = new Map<string, StyleClassification>();
-  const report = (code: string, file: string, message: string) => diagnostics.push({ code, file, message });
 
   for (const file of files) {
     const rel = relative(root, file);
@@ -101,12 +110,9 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
         continue;
       }
       const target = resolved.file;
-      if (!inside(root, target)) {
-        report('source-escape', rel, `${request.specifier} resolves outside the source tree`);
-        continue;
-      }
+      if (!validateLocalTarget(root, target, fileSet, excluded, report, rel, request.specifier!)) continue;
       const targetOwner = owners.get(target);
-      if (!targetOwner) continue;
+      if (!targetOwner) { report('unowned-import', rel, `${request.specifier} has no owner`); continue; }
       if (fromOwner?.role === 'production' && targetOwner.role !== 'production') report('test-role-import', rel, `production cannot import ${targetOwner.role}`);
       if (fromOwner && targetOwner && fromOwner.name !== targetOwner.name && !fromOwner.mayImport?.includes(targetOwner.name)) report('forbidden-package-import', rel, `${fromOwner.name} cannot import ${targetOwner.name}`);
       if (request.kind === 'reexport' && fromOwner && targetOwner && fromOwner.name !== targetOwner.name) report('cross-package-reexport', rel, 'barrels may only re-export their own package');
@@ -116,20 +122,31 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
     graph.set(file, edges);
   }
 
-  for (const file of files.filter((candidate) => path.extname(candidate) === '.css')) analyzeCss(file, root, owners, report, graph);
+  for (const file of files.filter((candidate) => path.extname(candidate) === '.css')) analyzeCss(file, root, owners, fileSet, excluded, report, graph);
   const cycle = cycleIn(graph, owners);
   if (cycle) report('dependency-cycle', relative(root, cycle[0]!), cycle.map((item) => relative(root, item)).join(' -> '));
   return { diagnostics, files: files.map((file) => relative(root, file)) };
 }
 
-function enumerate(root: string): string[] {
-  const visit = (dir: string): string[] => (fs.readdirSync(dir, { withFileTypes: true }) as Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>).flatMap((entry) => {
+function enumerate(root: string, excluded: ReadonlySet<string>, report: (code: string, file: string, message: string) => void): { files: string[] } {
+  const files: string[] = [];
+  const visit = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const candidate = path.join(dir, entry.name);
-    if (entry.isDirectory()) return visit(candidate);
-    if (!entry.isFile() || !sourceExtensions.has(path.extname(entry.name).toLowerCase())) return [];
-    return [real(candidate)];
-  });
-  return visit(root).sort();
+    const rel = relative(root, candidate);
+    if (entry.isSymbolicLink()) {
+      const target = realIfExists(candidate);
+      if (!target) report('invalid-symlink', rel, `${rel} is a broken symbolic link`);
+      else if (!insideOrEqual(root, target) || inExcluded(root, target, excluded)) report('source-escape', rel, `${rel} symbolic link escapes the repository-owned tree`);
+      else report('symlink-traversal', rel, `${rel} symbolic links are not allowed`);
+      continue;
+    }
+    if (entry.isDirectory()) { if (!excluded.has(rel)) visit(candidate); continue; }
+    if (entry.isFile() && sourceExtensions.has(path.extname(entry.name).toLowerCase())) files.push(real(candidate));
+    }
+  };
+  visit(root);
+  return { files: files.sort() };
 }
 
 function importsFrom(file: string): Array<{ kind: 'import' | 'reexport' | 'dynamic-nonliteral' | 'glob'; specifier?: string }> {
@@ -158,7 +175,7 @@ function importsFrom(file: string): Array<{ kind: 'import' | 'reexport' | 'dynam
   return imports;
 }
 
-function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owner>, report: (code: string, file: string, message: string) => void, graph: Map<string, string[]>): void {
+function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owner>, fileSet: ReadonlySet<string>, excluded: ReadonlySet<string>, report: (code: string, file: string, message: string) => void, graph: Map<string, string[]>): void {
   const rel = relative(root, file);
   const text = fs.readFileSync(file, 'utf8');
   if (/^\s*@import\b/m.test(text)) report('css-import', rel, 'CSS @import is not supported');
@@ -167,7 +184,7 @@ function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owne
     const specifier = match[2]!.trim();
     if (!specifier || remoteUrl.test(specifier)) continue;
     const target = realIfExists(path.resolve(path.dirname(file), specifier));
-    if (!target || !inside(root, target)) { report('invalid-css-asset', rel, `invalid local url ${specifier}`); continue; }
+    if (!target || !validateLocalTarget(root, target, fileSet, excluded, report, rel, specifier)) { report('invalid-css-asset', rel, `invalid local url ${specifier}`); continue; }
     if (!assetExtensions.has(path.extname(target).toLowerCase())) { report('invalid-css-asset', rel, `unsupported local url ${specifier}`); continue; }
     const sourceOwner = owners.get(file);
     const targetOwner = owners.get(target);
@@ -182,7 +199,7 @@ function resolveRequest(from: string, specifier: string, compilerOptions: ts.Com
   const resolved = ts.resolveModuleName(specifier, from, compilerOptions, ts.sys).resolvedModule;
   if (resolved) {
     const file = realIfExists(resolved.resolvedFileName);
-    if (file) return resolved.isExternalLibraryImport ? { kind: 'external', package: packageName(specifier) } : { kind: 'local', file };
+    if (file) return localIntent(specifier, compilerOptions) || !resolved.isExternalLibraryImport ? { kind: 'local', file } : { kind: 'external', package: packageName(specifier) };
   }
   if (specifier.startsWith('.') || path.isAbsolute(specifier)) {
     const direct = path.resolve(path.dirname(from), specifier);
@@ -191,8 +208,9 @@ function resolveRequest(from: string, specifier: string, compilerOptions: ts.Com
       if (found) return { kind: 'local', file: found };
     }
   }
-  return matchesPathAlias(specifier, compilerOptions.paths) ? { kind: 'unresolved' } : { kind: 'external', package: packageName(specifier) };
+  return localIntent(specifier, compilerOptions) ? { kind: 'unresolved' } : { kind: 'external', package: packageName(specifier) };
 }
+function localIntent(specifier: string, compilerOptions: ts.CompilerOptions): boolean { return specifier.startsWith('.') || path.isAbsolute(specifier) || matchesPathAlias(specifier, compilerOptions.paths); }
 function matchesPathAlias(specifier: string, paths: ts.MapLike<readonly string[]> | undefined): boolean {
   return Object.keys(paths ?? {}).some((pattern) => {
     const [start, end = ''] = pattern.split('*');
@@ -217,4 +235,20 @@ function packageName(specifier: string): string { return specifier.startsWith('@
 function real(file: string): string { return fs.realpathSync.native(file); }
 function realIfExists(file: string): string | undefined { try { return real(file); } catch { return undefined; } }
 function inside(root: string, file: string): boolean { const rel = path.relative(root, file); return rel !== '' && !rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel); }
+function insideOrEqual(root: string, file: string): boolean { return file === root || inside(root, file); }
 function relative(root: string, file: string): string { return path.relative(root, file).replace(/\\/g, '/'); }
+function excludedDirectories(entries: readonly string[], report: (code: string, file: string, message: string) => void): Set<string> {
+  const result = new Set<string>();
+  for (const entry of entries) {
+    const normalized = entry.replace(/\\/g, '/').replace(/\/$/, '');
+    if (!normalized || path.isAbsolute(entry) || normalized.split('/').some((part) => !part || part === '.' || part === '..') || result.has(normalized) || [...result].some((other) => other.startsWith(`${normalized}/`) || normalized.startsWith(`${other}/`))) report('invalid-excluded-directory', entry, `${entry} is not a distinct root-relative directory`);
+    else result.add(normalized);
+  }
+  return result;
+}
+function inExcluded(root: string, file: string, excluded: ReadonlySet<string>): boolean { const rel = relative(root, file); return [...excluded].some((entry) => rel === entry || rel.startsWith(`${entry}/`)); }
+function validateLocalTarget(root: string, target: string, inventory: ReadonlySet<string>, excluded: ReadonlySet<string>, report: (code: string, file: string, message: string) => void, from: string, specifier: string): boolean {
+  if (!inside(root, target) || inExcluded(root, target, excluded)) { report('source-escape', from, `${specifier} resolves outside the repository-owned tree`); return false; }
+  if (!inventory.has(target)) { report('unowned-import', from, `${specifier} is absent from the repository-owned inventory`); return false; }
+  return true;
+}

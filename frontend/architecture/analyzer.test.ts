@@ -17,6 +17,7 @@ const policy: ArchitecturePolicy = {
     { name: 'config', files: /^tsconfig\.json$/, role: 'tooling', external: [] },
   ],
   globFiles: ['app/glob.ts'],
+  excludedDirectories: ['node_modules', 'dist', 'coverage'],
   styles: [{ files: /\.css$/, kind: 'scoped' }],
 };
 
@@ -25,9 +26,9 @@ function fixture(files: Record<string, string>, nextPolicy = policy, links: Reco
   for (const [name, content] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.writeFileSync(path.join(root, name), content); }
   for (const [name, target] of Object.entries(links)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.symlinkSync(target, path.join(root, name)); }
   fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', resolveJsonModule: true, baseUrl: '.', paths } }));
-  return analyzeArchitecture({ rootDir: root, tsconfigPath: path.join(root, 'tsconfig.json'), policy: nextPolicy }).diagnostics;
+  return analyzeArchitecture({ rootDir: root, tsconfigPath: path.join(root, 'tsconfig.json'), policy: nextPolicy });
 }
-const codes = (files: Record<string, string>, nextPolicy?: ArchitecturePolicy) => fixture(files, nextPolicy).map((item) => item.code);
+const codes = (files: Record<string, string>, nextPolicy?: ArchitecturePolicy) => fixture(files, nextPolicy).diagnostics.map((item) => item.code);
 const base = { 'app/main.ts': "import '../core/value';", 'core/value.ts': 'export const value = 1;', 'assets/logo.svg': '<svg />' };
 
 describe('architecture analyzer', () => {
@@ -81,8 +82,31 @@ describe('architecture analyzer', () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-outside-')); temporary.push(outside);
     fs.writeFileSync(path.join(outside, 'outside.ts'), 'export const outside = 1;');
     fs.writeFileSync(path.join(outside, 'secret.ts'), 'export const secret = 1;');
-    expect(fixture({ ...base, 'app/main.ts': "import './linked';" }, policy, { 'app/linked.ts': path.join(outside, 'outside.ts') }).map((item) => item.code)).toContain('source-escape');
-    expect(fixture({ ...base, 'app/main.ts': "import '@outside/secret';" }, { ...policy, owners: policy.owners.map((owner) => owner.name === 'app' ? { ...owner, external: ['@outside/secret'] } : owner) }, {}, { '@outside/*': [`../${path.basename(outside)}/*`] }).map((item) => item.code)).toContain('source-escape');
+    expect(fixture({ ...base, 'app/main.ts': "import './linked';" }, policy, { 'app/linked.ts': path.join(outside, 'outside.ts') }).diagnostics.map((item) => item.code)).toContain('source-escape');
+    expect(fixture({ ...base, 'app/main.ts': "import '@outside/secret';" }, { ...policy, owners: policy.owners.map((owner) => owner.name === 'app' ? { ...owner, external: ['@outside/secret'] } : owner) }, {}, { '@outside/*': [`../${path.basename(outside)}/*`] }).diagnostics.map((item) => item.code)).toContain('source-escape');
+  });
+  it('keeps exact tool trees outside the owned inventory', () => {
+    const result = fixture({ ...base, 'node_modules/dependency.ts': '', 'dist/output.ts': '', 'coverage/report.json': '{}' });
+    expect(result.files).not.toContain('node_modules/dependency.ts');
+    expect(result.files).not.toContain('dist/output.ts');
+    expect(result.files).not.toContain('coverage/report.json');
+    expect(result.diagnostics.map((item) => item.code)).not.toContain('unowned-file');
+    expect(codes({ ...base, 'unknown/file.ts': '' })).toContain('unowned-file');
+  });
+  it('rejects imports and CSS URLs that target excluded tool trees', () => {
+    const tools = { ...base, 'node_modules/dependency.ts': 'export {};', 'dist/generated.ts': 'export {};', 'node_modules/logo.svg': '<svg />' };
+    expect(codes({ ...tools, 'app/main.ts': "import '../node_modules/dependency';" })).toContain('source-escape');
+    expect(fixture({ ...tools, 'app/main.ts': "import '@dependency/dependency';" }, policy, {}, { '@dependency/*': ['node_modules/*'] }).diagnostics.map((item) => item.code)).toContain('source-escape');
+    expect(codes({ ...tools, 'app/main.ts': "import '../dist/generated';" })).toContain('source-escape');
+    expect(codes({ ...tools, 'app/site.css': ".x { background: url('../node_modules/logo.svg'); }" })).toContain('invalid-css-asset');
+  });
+  it('rejects unreferenced source and directory symlinks during inventory', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-outside-')); temporary.push(outside);
+    fs.writeFileSync(path.join(outside, 'escape.ts'), 'export {};');
+    expect(fixture(base, policy, { 'app/escape.ts': path.join(outside, 'escape.ts') }).diagnostics.map((item) => item.code)).toContain('source-escape');
+    expect(fixture(base, policy, { 'app/broken.ts': path.join(outside, 'missing.ts') }).diagnostics.map((item) => item.code)).toContain('invalid-symlink');
+    expect(fixture(base, policy, { 'app/linked.ts': '../core/value.ts', 'app/linked-directory': '../core' }).diagnostics.map((item) => item.code)).toContain('symlink-traversal');
+    expect(fixture({ ...base, 'node_modules/dep.ts': '' }, policy, { 'app/dependency.ts': '../node_modules/dep.ts' }).diagnostics.map((item) => item.code)).toContain('source-escape');
   });
   it('rejects restoration of the removed workbook facade', () => {
     const local: ArchitecturePolicy = { ...policy, forbiddenFiles: ['src/workbook.ts'], owners: [...policy.owners, { name: 'legacy', files: /^src\//, role: 'production' }] };
