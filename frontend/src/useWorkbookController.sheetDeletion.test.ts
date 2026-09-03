@@ -1,9 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { sheetsInOrder } from './workbook/read/queries';
+import { sheetsInOrder } from '@workbook/read/queries';
 import { useWorkbookController } from './useWorkbookController';
-import { autosaveClient, deferred } from './test/apiClients';
-import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { autosaveClient, deferred } from '@test/apiClients';
+import { positionedSheet, sheetDocument, workbookWithSheets } from '@test/workbookFactories';
 
 describe('useWorkbookController sheet deletion', () => {
   it('deletes saved sheets optimistically and persists deletion with the current revision token', async () => {

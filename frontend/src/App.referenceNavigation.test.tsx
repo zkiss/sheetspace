@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { measuredElementGeometry, virtualGridGeometry } from './test/domGeometry';
-import { positionedSheet, sparseLargeSheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sparseLargeSheetDocument, workbookWithSheets } from '@test/workbookFactories';
 
 function modifierClick(reference: HTMLElement, modifier: 'ctrl' | 'meta' = 'ctrl') {
   fireEvent.click(reference, modifier === 'ctrl' ? { ctrlKey: true } : { metaKey: true });

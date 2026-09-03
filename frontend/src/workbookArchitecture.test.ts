@@ -12,7 +12,7 @@ declare global {
 const sourceEntries = import.meta.glob('./**/*.{ts,tsx}', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
 const sources: SourceMap = Object.fromEntries(Object.entries(sourceEntries)
   .map(([path, source]) => [moduleName(path.slice(2)), source]));
-const domainModules = Object.keys(sources).filter((module) => domainLayer(module) !== undefined);
+const domainModules = Object.keys(sources).filter((module) => domainLayer(module) !== undefined && !/\.test$/.test(module));
 
 describe('workbook architecture', () => {
   it('does not restore the removed workbook facade through any source kind', () => {

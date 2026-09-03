@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { projectGridAxes } from './gridAxisProjection';
 import { createGridAxisMetrics } from './gridAxisMetrics';
 import { SheetGrid } from './SheetGrid';
-import { sheetDocument, sparseLargeSheetDocument } from './test/workbookFactories';
-import { cellIdentityAt } from './workbook/core/cellIdentity';
-import { tabularProjection } from './workbook/read/queries';
+import { sheetDocument, sparseLargeSheetDocument } from '@test/workbookFactories';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { tabularProjection } from '@workbook/read/queries';
 import { virtualGridGeometry } from './test/domGeometry';
 
 afterEach(cleanup);

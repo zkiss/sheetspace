@@ -2,10 +2,10 @@ import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PointerEvent } from 'react';
 import type { SheetFrameResizeDirection } from './appTypes';
-import { Workbook } from './workbook/core/model';
+import { Workbook } from '@workbook/core/model';
 import type { WorkbookCommands } from './useWorkbookController';
 import { useSheetFrameInteractions } from './useSheetFrameInteractions';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, workbookWithSheets } from '@test/workbookFactories';
 
 function commands() {
   return {

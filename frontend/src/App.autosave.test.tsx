@@ -2,10 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { autosaveClient, deferred } from './test/apiClients';
+import { autosaveClient, deferred } from '@test/apiClients';
 import { openCellEditor } from './test/appScreen';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-import type { SheetRevisionResponse } from './workbookApi';
+import { positionedSheet, workbookWithSheets } from '@test/workbookFactories';
+import type { SheetRevisionResponse } from '@infrastructure/persistence/workbookApi';
 
 describe('App autosave integration', () => {
   it('retries a retained failed save from the toolbar without applying the edit twice', async () => {

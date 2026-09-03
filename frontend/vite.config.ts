@@ -3,6 +3,15 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@workbook': '/src/workbook',
+      '@calculation': '/src/calculation',
+      '@application': '/src/application',
+      '@infrastructure': '/src/infrastructure',
+      '@test': '/src/test',
+    },
+  },
   server: {
     port: 5173,
     proxy: {

@@ -1,7 +1,7 @@
-import { FormulaEvaluationSnapshot } from './formulaValue';
-import { SheetDocument, Workbook, WorkspacePosition } from './workbook/core/model';
-import { addressRangeOf } from './workbook/core/cellIdentity';
-import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from './workbook/read/queries';
+import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
+import { addressRangeOf } from '@workbook/core/cellIdentity';
+import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from './gridAxisProjection';
 import type { CreatingGridAxes } from './gridAxisProjection';
 import type {
@@ -9,11 +9,11 @@ import type {
   CellNavigationDirection,
   CellEditSession,
   ReferenceNavigationTarget,
-  SaveStatus,
 } from './appTypes';
+import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from './cellInteraction';
 import { FormulaReferenceInspection } from './FormulaReferenceInspection';
-import { inspectFormula } from './formulaInspection';
+import { inspectFormula } from '@calculation/formulaInspection';
 import { SheetContextMenu } from './SheetContextMenu';
 import { SheetFrame } from './SheetFrame';
 import { CreatingSheetFrame } from './CreatingSheetFrame';

@@ -1,4 +1,4 @@
-import { ColumnId, RowId, TabularContent } from './workbook/core/model';
+import { ColumnId, RowId, TabularContent } from '@workbook/core/model';
 
 export type CreatingGridAxisSlot = {
   kind: 'creating';

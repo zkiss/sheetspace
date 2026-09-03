@@ -1,35 +1,35 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { CalculationImpact } from './workbook/read/calculationProjection';
-import { FormulaCalculation } from './formulaCalculation';
+import type { CalculationImpact } from '@workbook/read/calculationProjection';
+import { FormulaCalculation } from '@calculation/formulaCalculation';
 import {
   workbookApi,
   type WorkbookApi,
-} from './workbookApi';
-import { cellIdentityAt } from './workbook/core/cellIdentity';
-import { createEmptyWorkbook, validateSheetName } from './workbook/mutations/operations';
-import { findSheetById, sheetsInOrder } from './workbook/read/queries';
-import { type CellKey } from './workbook/core/address';
-import { type FormulaEvaluationSnapshot } from './formulaValue';
-import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from './workbook/core/model';
+} from '@infrastructure/persistence/workbookApi';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
+import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
+import { type CellKey } from '@workbook/core/address';
+import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
   type AppliedWorkbookOperation,
   type WorkbookOperation,
   type WorkbookOperationResult,
-} from './userActions';
+} from '@application/core/userActions';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations, type CreatingSheetFrame } from './useSheetCreationOperations';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
-import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
+import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
 import type { CreatingGridAxes } from './gridAxisProjection';
 import {
   calculationRequest,
   mergeCalculationImpacts,
   type CalculationRequest,
   type SetWorkbook,
-} from './workbookCalculation';
+} from '@calculation/workbookCalculation';
 
 export type WorkbookCommands = {
   appendColumn: (sheetId: string) => void;

@@ -1,10 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
-import type { SaveStatus } from './appTypes';
-import { DEFAULT_SHEET_FRAME_SIZE, type SheetDocument, type Workbook, type WorkspacePosition } from './workbook/core/model';
-import { sheetsInOrder } from './workbook/read/queries';
-import { validateSheetName } from './workbook/mutations/operations';
-import { workbookApi, type WorkbookApi } from './workbookApi';
-import type { SetWorkbook } from './workbookCalculation';
+import type { SaveStatus } from '@application/core/state';
+import { DEFAULT_SHEET_FRAME_SIZE, type SheetDocument, type Workbook, type WorkspacePosition } from '@workbook/core/model';
+import { sheetsInOrder } from '@workbook/read/queries';
+import { validateSheetName } from '@workbook/mutations/operations';
+import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
+import type { SetWorkbook } from '@calculation/workbookCalculation';
 
 /** A view-only frame shown while the server creates its SheetDocument. */
 export type CreatingSheetFrame = {

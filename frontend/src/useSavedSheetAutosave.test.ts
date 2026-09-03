@@ -1,12 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useCallback, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { deferred } from './test/apiClients';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
-import { findSheetById } from './workbook/read/queries';
-import { type Workbook } from './workbook/core/model';
-import type { SetWorkbook } from './workbookCalculation';
-import { WorkbookApiError, type SheetRevisionResponse, type WorkbookApi } from './workbookApi';
+import { deferred } from '@test/apiClients';
+import { positionedSheet, workbookWithSheets } from '@test/workbookFactories';
+import { findSheetById } from '@workbook/read/queries';
+import { type Workbook } from '@workbook/core/model';
+import type { SetWorkbook } from '@calculation/workbookCalculation';
+import { WorkbookApiError, type SheetRevisionResponse, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 
 function renderAutosave(apiClient: Partial<WorkbookApi>, initialWorkbook: Workbook) {

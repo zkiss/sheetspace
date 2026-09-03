@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CreatingGridAxes, CreatingGridAxisSlot } from './gridAxisProjection';
-import { findSheetById } from './workbook/read/queries';
-import { type Workbook } from './workbook/core/model';
-import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
-import type { SetWorkbook } from './workbookCalculation';
-import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
+import { findSheetById } from '@workbook/read/queries';
+import { type Workbook } from '@workbook/core/model';
+import { WorkbookApiError, workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
+import type { SetWorkbook } from '@calculation/workbookCalculation';
+import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
 
 type AxisKind = 'row' | 'column';
 type AxisCreationStatus = 'queued' | 'running' | 'failed' | 'succeeded' | 'superseded';

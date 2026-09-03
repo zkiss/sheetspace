@@ -2,7 +2,7 @@ import { useState, type MouseEvent } from 'react';
 import type {
   FormulaInspection,
   FormulaInspectionReference,
-} from './formulaInspection';
+} from '@calculation/formulaInspection';
 import './FormulaReferenceInspection.css';
 
 export function FormulaReferenceInspection({

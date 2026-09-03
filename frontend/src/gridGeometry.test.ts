@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rangeFitsSheetViewport, sheetContentOffsetForCell } from './gridGeometry';
-import { positionedSheet } from './test/workbookFactories';
+import { positionedSheet } from '@test/workbookFactories';
 
 describe('gridGeometry', () => {
   it('converts a cell address into its sheet-content offset', () => {

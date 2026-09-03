@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, workbookWithSheets } from '@test/workbookFactories';
 
 describe('App startup', () => {
   it('loads the current workbook before showing the editable workspace', async () => {

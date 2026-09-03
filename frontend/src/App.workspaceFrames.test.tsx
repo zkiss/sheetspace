@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { autosaveClient } from './test/apiClients';
+import { autosaveClient } from '@test/apiClients';
 import { resizeHandle, workspaceSurface } from './test/appScreen';
 import { measuredElementGeometry } from './test/domGeometry';
-import { positionedSheet, sparseLargeSheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sparseLargeSheetDocument, workbookWithSheets } from '@test/workbookFactories';
 
 const { sheetFrameRenderSpy } = vi.hoisted(() => ({ sheetFrameRenderSpy: vi.fn() }));
 

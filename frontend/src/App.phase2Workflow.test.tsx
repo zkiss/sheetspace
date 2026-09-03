@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { persistedWorkbookClient } from './test/apiClients';
+import { persistedWorkbookClient } from '@test/apiClients';
 import { openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { testRect } from './test/domGeometry';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, workbookWithSheets } from '@test/workbookFactories';
 
 describe('Phase 2 acceptance workflow', () => {
   it(

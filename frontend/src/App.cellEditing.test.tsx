@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from './test/appScreen';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, workbookWithSheets } from '@test/workbookFactories';
 
 describe('App cell editing composition', () => {
   it('commits an active edit when selection moves to another sheet', async () => {

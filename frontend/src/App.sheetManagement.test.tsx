@@ -2,10 +2,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { persistedWorkbookClient } from './test/apiClients';
+import { persistedWorkbookClient } from '@test/apiClients';
 import { openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
-import { positionedSheet, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, workbookWithSheets } from '@test/workbookFactories';
 
 describe('App sheet management integration', () => {
   it('wires the workspace context menu create dialog to a sheet at the clicked coordinate', async () => {

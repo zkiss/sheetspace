@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from '@test/workbookFactories';
 
 describe('App grid composition', () => {
   it('wires independent sheet grids into their frames', () => {

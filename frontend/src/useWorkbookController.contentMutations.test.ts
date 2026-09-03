@@ -1,15 +1,15 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { cellRawContent, findSheetById, sheetBounds } from './workbook/read/queries';
-import { type SheetDocument } from './workbook/core/model';
+import { cellRawContent, findSheetById, sheetBounds } from '@workbook/read/queries';
+import { type SheetDocument } from '@workbook/core/model';
 import {
   WorkbookApiError,
   type ColumnAppendResponse,
   type RowAppendResponse,
-} from './workbookApi';
+} from '@infrastructure/persistence/workbookApi';
 import { useWorkbookController } from './useWorkbookController';
-import { autosaveClient, deferred } from './test/apiClients';
-import { positionedSheet, sheetDocument, workbookWithSheets } from './test/workbookFactories';
+import { autosaveClient, deferred } from '@test/apiClients';
+import { positionedSheet, sheetDocument, workbookWithSheets } from '@test/workbookFactories';
 
 function documentWithCells(
   document: SheetDocument,

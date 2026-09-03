@@ -1,10 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { deterministicSheetId, persistedWorkbookClient } from './test/apiClients';
+import { deterministicSheetId, persistedWorkbookClient } from '@test/apiClients';
 import { openSheetContextMenu, workspaceSurface } from './test/appScreen';
 import { workspaceRect } from './test/domGeometry';
-import { workbookWithSheets } from './test/workbookFactories';
+import { workbookWithSheets } from '@test/workbookFactories';
 
 describe('App MVP workflow', () => {
   it(

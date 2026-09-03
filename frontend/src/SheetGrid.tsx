@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type RefObject } from 'react';
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
-import { cellKey, parseA1Address, type CellAddress, type CellRange } from './workbook/core/address';
-import { sheetBounds } from './workbook/read/queries';
-import { type FormulaEvaluationSnapshot } from './formulaValue';
-import { type SheetTabularProjection } from './workbook/core/model';
+import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
+import { sheetBounds } from '@workbook/read/queries';
+import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { type SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from './gridAxisProjection';
 import { createGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
 import {

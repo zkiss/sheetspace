@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { tabularProjection } from './workbook/read/queries';
-import { type FormulaEvaluationSnapshot } from './formulaValue';
+import { tabularProjection } from '@workbook/read/queries';
+import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { getSheetCellDisplayText, gridCellKeyboardAction } from './sheetGridModel';
-import { sheetDocument } from './test/workbookFactories';
+import { sheetDocument } from '@test/workbookFactories';
 
 function testSheet() {
   return tabularProjection(sheetDocument({

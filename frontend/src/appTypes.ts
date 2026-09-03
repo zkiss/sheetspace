@@ -1,4 +1,4 @@
-import { SheetFrameSize, StableCellIdentity, StableCellRange, WorkspacePosition } from './workbook/core/model';
+import { SheetFrameSize, StableCellIdentity, StableCellRange, WorkspacePosition } from '@workbook/core/model';
 
 export type PendingSheetCreation = {
   position: WorkspacePosition;
@@ -60,10 +60,3 @@ export type SheetFrameResize = {
   startFrameSize: SheetFrameSize;
   direction: SheetFrameResizeDirection;
 };
-
-export type SaveStatus = 'saved' | 'saving' | 'failed';
-
-export type StartupLoadState =
-  | { status: 'loading' }
-  | { status: 'loaded' }
-  | { status: 'error'; message: string };

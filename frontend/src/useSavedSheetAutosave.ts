@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SaveStatus } from './appTypes';
-import { cellAddressOf } from './workbook/core/cellIdentity';
-import { cellKey } from './workbook/core/address';
-import { findSheetById } from './workbook/read/queries';
-import { type SheetId, type Workbook } from './workbook/core/model';
-import type { SetWorkbook } from './workbookCalculation';
-import type { WorkbookApi } from './workbookApi';
-import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
-import type { WorkbookOperationId, WorkbookPersistenceIntent } from './userActions';
+import type { SaveStatus } from '@application/core/state';
+import { cellAddressOf } from '@workbook/core/cellIdentity';
+import { cellKey } from '@workbook/core/address';
+import { findSheetById } from '@workbook/read/queries';
+import { type SheetId, type Workbook } from '@workbook/core/model';
+import type { SetWorkbook } from '@calculation/workbookCalculation';
+import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
+import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
+import type { WorkbookOperationId, WorkbookPersistenceIntent } from '@application/core/userActions';
 import {
   WorkbookOutbox,
-  WorkbookPersistenceTransport,
   type OutboxSnapshot,
   type PersistenceTransport,
   type TransportResult,
-} from './workbookOutbox';
+} from '@infrastructure/persistence/workbookOutbox';
+import { WorkbookPersistenceTransport } from '@infrastructure/persistence/workbookPersistenceTransport';
 
 function removeSheets(workbook: Workbook, sheetIds: readonly SheetId[]): Workbook {
   const removed = new Set(sheetIds);
