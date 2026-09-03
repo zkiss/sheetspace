@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react';
-import type { PendingSheetCreation, PendingSheetRename } from '@app/contracts';
+import type { PendingSheetCreation, PendingSheetRename } from './sheetDialogContracts';
 import './SheetDialogs.css';
 
 export function SheetDialog({

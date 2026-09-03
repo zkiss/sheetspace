@@ -1,5 +1,5 @@
 import { SheetFrameSize, SheetFrameProjection, WorkspacePosition } from '@workbook/core/model';
-import type { SheetFrameResize, WorkspaceViewport } from '@app/contracts';
+import type { SheetFrameResize, WorkspaceViewport } from './workspaceContracts';
 
 export const MIN_SHEET_FRAME_WIDTH = 180;
 export const MIN_SHEET_FRAME_HEIGHT = 120;

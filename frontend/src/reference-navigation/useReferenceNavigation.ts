@@ -3,7 +3,7 @@ import { addressRangeOf, cellAddressOf, stableRangeAt } from '@workbook/core/cel
 import { findSheetById } from '@workbook/read/queries';
 import { type CellRange } from '@workbook/core/address';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
-import type { ReferenceNavigationTarget } from '@app/contracts';
+import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
 import { rangeFitsSheetViewport } from '@grid/gridGeometry';
 import {

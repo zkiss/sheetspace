@@ -1,36 +1,10 @@
-import { SheetFrameSize, StableCellIdentity, StableCellRange, WorkspacePosition } from '@workbook/core/model';
-
-export type PendingSheetCreation = {
-  position: WorkspacePosition;
-  label: string;
-};
-
-export type PendingSheetRename = {
-  sheetId: string;
-  currentName: string;
-};
+import type { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 
 export type PendingSheetMenu = {
   sheetId: string;
   x: number;
   y: number;
 };
-
-export type CellTarget = {
-  sheetId: string;
-  cell: StableCellIdentity;
-};
-
-export type ReferenceNavigationTarget =
-  | { kind: 'cell'; target: CellTarget }
-  | { kind: 'range'; sheetId: string; range: StableCellRange };
-
-export type CellEditSession = {
-  target: CellTarget;
-  draft: string;
-};
-
-export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
 
 export type WorkspaceViewport = {
   x: number;

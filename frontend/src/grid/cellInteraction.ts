@@ -1,7 +1,7 @@
 import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { type SheetDocument, type SheetTabularProjection } from '@workbook/core/model';
-import type { CellEditSession, CellTarget, ReferenceNavigationTarget } from '@app/contracts';
+import type { CellEditSession, CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
 
 export type CellInteractionState = {
   selection: CellTarget | null;

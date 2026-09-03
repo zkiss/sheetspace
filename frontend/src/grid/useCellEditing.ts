@@ -8,7 +8,7 @@ import type {
   CellNavigationDirection,
   CellTarget,
   ReferenceNavigationTarget,
-} from '@app/contracts';
+} from './cellInteractionContracts';
 import {
   cellInteractionReducer,
   cellKeyForTarget,

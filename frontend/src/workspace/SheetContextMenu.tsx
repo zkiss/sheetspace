@@ -1,5 +1,5 @@
 import { SheetDocument, SheetZOrderDirection } from '@workbook/core/model';
-import type { PendingSheetMenu } from '@app/contracts';
+import type { PendingSheetMenu } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
 import '@workspace/SheetContextMenu.css';
 

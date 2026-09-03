@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from '@grid/SheetGridCell';
-import type { CellEditSession } from '@app/contracts';
+import type { CellEditSession } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { tabularProjection } from '@workbook/read/queries';

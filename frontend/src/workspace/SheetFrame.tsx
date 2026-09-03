@@ -1,6 +1,6 @@
 import { useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { SheetFrameProjection } from '@workbook/core/model';
-import type { SheetFrameResizeDirection } from '@app/contracts';
+import type { SheetFrameResizeDirection } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
 import { clampSheetFrameSize } from '@workspace/workspaceGeometry';
 import '@workspace/SheetFrame.css';

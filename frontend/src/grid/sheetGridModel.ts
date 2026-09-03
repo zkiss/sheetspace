@@ -1,7 +1,7 @@
 import { cellRawContent } from '@workbook/read/queries';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type SheetTabularProjection } from '@workbook/core/model';
-import type { CellNavigationDirection } from '@app/contracts';
+import type { CellNavigationDirection } from './cellInteractionContracts';
 
 export type ColumnHeader = {
   index: number;

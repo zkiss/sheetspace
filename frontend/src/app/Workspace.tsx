@@ -9,7 +9,7 @@ import type {
   CellNavigationDirection,
   CellEditSession,
   ReferenceNavigationTarget,
-} from '@app/contracts';
+} from '@grid/cellInteractionContracts';
 import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';

@@ -1,5 +1,5 @@
 import type { MouseEvent, PointerEvent, ReactNode, RefObject, WheelEvent } from 'react';
-import type { WorkspaceViewport } from '@app/contracts';
+import type { WorkspaceViewport } from './workspaceContracts';
 import '@workspace/WorkspaceSurface.css';
 
 export function WorkspaceSurface({

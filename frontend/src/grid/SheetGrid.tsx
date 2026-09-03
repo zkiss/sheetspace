@@ -12,7 +12,7 @@ import {
   GRID_CELL_WIDTH,
   GRID_ROW_HEADER_WIDTH,
 } from '@grid/gridGeometry';
-import type { CellEditSession } from '@app/contracts';
+import type { CellEditSession } from './cellInteractionContracts';
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
 import {
   SheetGridCell,

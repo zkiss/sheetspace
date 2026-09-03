@@ -1,5 +1,5 @@
 import { PointerEvent, useRef, useState } from 'react';
-import type { SheetFrameDrag, SheetFrameResize, SheetFrameResizeDirection } from '@app/contracts';
+import type { SheetFrameDrag, SheetFrameResize, SheetFrameResizeDirection } from './workspaceContracts';
 import { findSheetById } from '@workbook/read/queries';
 import { type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 import type { WorkbookCommands } from '@application/react/useWorkbookController';

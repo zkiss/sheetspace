@@ -1,7 +1,7 @@
 import { KeyboardEvent, type CSSProperties } from 'react';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
-import type { CellEditSession, CellNavigationDirection, CellTarget } from '@app/contracts';
+import type { CellEditSession, CellNavigationDirection, CellTarget } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { GRID_CELL_HEIGHT } from '@grid/gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';

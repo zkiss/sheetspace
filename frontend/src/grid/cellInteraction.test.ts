@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CellTarget, ReferenceNavigationTarget } from '@app/contracts';
+import type { CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
 import {
   cellInteractionReducer,
   EMPTY_CELL_INTERACTION_STATE,

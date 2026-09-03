@@ -1,4 +1,4 @@
-import type { WorkspaceViewport } from '@app/contracts';
+import type { WorkspaceViewport } from './workspaceContracts';
 import type { SaveStatus } from '@application/core/state';
 import { WORKSPACE_PAN_STEP, WORKSPACE_ZOOM_STEP } from '@workspace/workspaceGeometry';
 import '@workspace/WorkspaceToolbar.css';

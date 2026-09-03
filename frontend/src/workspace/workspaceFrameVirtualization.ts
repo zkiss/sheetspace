@@ -1,4 +1,4 @@
-import type { WorkspaceViewport } from '@app/contracts';
+import type { WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameProjection, SheetFrameSize } from '@workbook/core/model';
 import {
   visibleSheetFrames,

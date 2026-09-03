@@ -5,7 +5,7 @@ import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model
 import {
   type PendingSheetCreation,
   type PendingSheetRename,
-} from '@app/contracts';
+} from './sheetDialogContracts';
 import { CreateSheetDialog, RenameSheetDialog } from './SheetDialogs';
 import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
 import { useCellEditing } from '@grid/useCellEditing';
