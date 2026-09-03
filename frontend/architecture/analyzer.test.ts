@@ -48,6 +48,33 @@ describe('architecture analyzer', () => {
     expect(codes({ ...base, 'core/bad.ts': "import('../app/main');" })).toContain('forbidden-package-import');
     expect(codes({ ...base, 'app/main.ts': "import.meta.glob('./*.ts');" })).toContain('unapproved-glob');
   });
+  it('applies ownership rules to every static TypeScript import form', () => {
+    const targets = {
+      'core/types.ts': 'export interface Value { value: number; }',
+      'core/legacy.ts': 'export const legacy = 1;',
+    };
+    expect(codes({
+      ...base,
+      ...targets,
+      'app/main.ts': [
+        "import type { Value } from '../core/types';",
+        "type ImportedValue = import('../core/types').Value;",
+        "import legacy = require('../core/legacy');",
+        "const required = require('../core/legacy');",
+        'void legacy; void required; const value: Value | ImportedValue | undefined = undefined; void value;',
+      ].join('\n'),
+    })).toEqual([]);
+
+    const violations: Record<string, string> = {
+      'core/type-only.ts': "import type { Value } from '../app/main'; type Local = Value;",
+      'core/import-type.ts': "type Local = import('../app/main').Value;",
+      'core/import-equals.ts': "import app = require('../app/main'); void app;",
+      'core/require.ts': "const app = require('../app/main'); void app;",
+    };
+    for (const [file, content] of Object.entries(violations)) {
+      expect(codes({ ...base, ...targets, [file]: content })).toContain('forbidden-package-import');
+    }
+  });
   it('rejects package, barrel, mock target, test-support, external and cycle violations', () => {
     expect(codes({ ...base, 'core/bad.ts': "import '../app/main';" })).toContain('forbidden-package-import');
     expect(codes({ ...base, 'core/index.ts': "export * from '../app/main';" })).toContain('cross-package-reexport');
