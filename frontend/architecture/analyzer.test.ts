@@ -64,17 +64,17 @@ describe('architecture analyzer', () => {
     expect(invalid).toContain('css-import');
     expect(invalid).toContain('invalid-css-asset');
     expect(codes({ ...base, 'app/site.css': ".x { background: url('../../outside.png'); }" })).toContain('invalid-css-asset');
-    expect(codes({ ...base, 'app/site.css': ".x { src: url('../core/font.woff'); }" })).toContain('unowned-css-asset');
-    expect(codes({ ...base, 'app/site.css': ".x { background: url('../core/logo.svg'); }", 'core/logo.svg': '<svg />' })).toContain('forbidden-package-import');
+    expect(codes({ ...base, 'app/site.css': ".x { src: url('../loose/font.woff'); }", 'loose/font.woff': 'font' })).toContain('unowned-css-asset');
+    expect(codes({ ...base, 'app/site.css': ".x { background: url('../test/logo.svg'); }", 'test/logo.svg': '<svg />' })).toContain('forbidden-package-import');
     expect(codes({ ...base, 'app/site.css': ".x { background: url('../assets/logo.svg'); }" })).toEqual([]);
   });
   it('rejects resolved source escapes and symlink traversal', () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-outside-')); temporary.push(outside);
     fs.writeFileSync(path.join(outside, 'outside.ts'), 'export const outside = 1;');
-    expect(fixture({ ...base, 'app/main.ts': "import './linked';" }, policy, { 'app/linked.ts': path.join(outside, 'outside.ts') })).toContain('source-escape');
+    expect(fixture({ ...base, 'app/main.ts': "import './linked';" }, policy, { 'app/linked.ts': path.join(outside, 'outside.ts') }).map((item) => item.code)).toContain('source-escape');
   });
   it('rejects restoration of the removed workbook facade', () => {
-    const local = { ...policy, forbiddenFiles: ['src/workbook.ts'], owners: [...policy.owners, { name: 'legacy', files: /^src\//, role: 'production' }] };
+    const local: ArchitecturePolicy = { ...policy, forbiddenFiles: ['src/workbook.ts'], owners: [...policy.owners, { name: 'legacy', files: /^src\//, role: 'production' }] };
     expect(codes({ ...base, 'src/workbook.ts': 'export {};' }, local)).toContain('forbidden-file');
   });
 });
