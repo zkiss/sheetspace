@@ -17,13 +17,14 @@ const policy: ArchitecturePolicy = {
     { name: 'config', files: /^tsconfig\.json$/, role: 'tooling', external: [] },
   ],
   globFiles: ['app/glob.ts'],
+  styles: [{ files: /\.css$/, kind: 'scoped' }],
 };
 
-function fixture(files: Record<string, string>, nextPolicy = policy, links: Record<string, string> = {}) {
+function fixture(files: Record<string, string>, nextPolicy = policy, links: Record<string, string> = {}, paths: Record<string, string[]> = { '@core/*': ['core/*'] }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-')); temporary.push(root);
   for (const [name, content] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.writeFileSync(path.join(root, name), content); }
   for (const [name, target] of Object.entries(links)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.symlinkSync(target, path.join(root, name)); }
-  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', resolveJsonModule: true, baseUrl: '.', paths: { '@core/*': ['core/*'] } } }));
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', resolveJsonModule: true, baseUrl: '.', paths } }));
   return analyzeArchitecture({ rootDir: root, tsconfigPath: path.join(root, 'tsconfig.json'), policy: nextPolicy }).diagnostics;
 }
 const codes = (files: Record<string, string>, nextPolicy?: ArchitecturePolicy) => fixture(files, nextPolicy).map((item) => item.code);
@@ -55,9 +56,17 @@ describe('architecture analyzer', () => {
     expect(codes({ ...base, 'core/a.ts': "import './b';", 'core/b.ts': "import './a';" })).toContain('dependency-cycle');
   });
   it('limits global CSS to bootstrap importers', () => {
-    const local = { ...policy, globalStyles: ['app/main.ts'] };
+    const local = { ...policy, styles: [{ files: /^app\/site\.css$/, kind: 'global' as const, importers: ['app/main.ts'] }] };
     expect(codes({ ...base, 'app/site.css': 'body { margin: 0; }', 'app/main.ts': "import './site.css';" }, local)).toEqual([]);
-    expect(codes({ ...base, 'app/site.css': 'body { margin: 0; }', 'app/feature.ts': "import './site.css';" }, local)).toContain('global-css');
+    for (const css of ['h1 { margin: 0; }', '* { box-sizing: border-box; }', '@font-face { font-family: x; src: url(x); }', '.plain { color: red; }']) {
+      expect(codes({ ...base, 'app/site.css': css, 'app/feature.ts': "import './site.css';" }, local)).toContain('global-css');
+    }
+  });
+  it('requires exactly one explicit stylesheet classification', () => {
+    const missing = { ...policy, styles: [] };
+    expect(codes({ ...base, 'app/site.css': '.component {}' }, missing)).toContain('missing-style-classification');
+    const multiple = { ...policy, styles: [{ files: /\.css$/, kind: 'scoped' as const }, { files: /^app\//, kind: 'global' as const, importers: ['app/main.ts'] }] };
+    expect(codes({ ...base, 'app/site.css': '.component {}' }, multiple)).toContain('multiple-style-classification');
   });
   it('rejects CSS imports and invalid, unowned, and cross-package assets', () => {
     const invalid = codes({ ...base, 'app/site.css': "@import './x.css'; .x { background: url('../core/value.ts'); }" });
@@ -71,7 +80,9 @@ describe('architecture analyzer', () => {
   it('rejects resolved source escapes and symlink traversal', () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-outside-')); temporary.push(outside);
     fs.writeFileSync(path.join(outside, 'outside.ts'), 'export const outside = 1;');
+    fs.writeFileSync(path.join(outside, 'secret.ts'), 'export const secret = 1;');
     expect(fixture({ ...base, 'app/main.ts': "import './linked';" }, policy, { 'app/linked.ts': path.join(outside, 'outside.ts') }).map((item) => item.code)).toContain('source-escape');
+    expect(fixture({ ...base, 'app/main.ts': "import '@outside/secret';" }, { ...policy, owners: policy.owners.map((owner) => owner.name === 'app' ? { ...owner, external: ['@outside/secret'] } : owner) }, {}, { '@outside/*': [`../${path.basename(outside)}/*`] }).map((item) => item.code)).toContain('source-escape');
   });
   it('rejects restoration of the removed workbook facade', () => {
     const local: ArchitecturePolicy = { ...policy, forbiddenFiles: ['src/workbook.ts'], owners: [...policy.owners, { name: 'legacy', files: /^src\//, role: 'production' }] };

@@ -13,10 +13,17 @@ export interface Owner {
   external?: readonly string[];
 }
 
+export interface StyleClassification {
+  files: RegExp;
+  kind: 'global' | 'scoped';
+  /** The only modules allowed to import a global stylesheet. */
+  importers?: readonly string[];
+}
+
 export interface ArchitecturePolicy {
   owners: readonly Owner[];
-  /** Global styles may only be imported by these files (relative to rootDir). */
-  globalStyles?: readonly string[];
+  /** Every stylesheet must match exactly one declared architectural classification. */
+  styles?: readonly StyleClassification[];
   /** Files allowed to use import.meta.glob. */
   globFiles?: readonly string[];
   /** Test-data files intentionally outside their owner's normal pattern. */
@@ -44,6 +51,7 @@ export interface AnalysisResult {
 const assetExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.woff', '.woff2', '.ttf', '.otf']);
 const sourceExtensions = new Set(['.ts', '.tsx', '.css', '.json', ...assetExtensions]);
 const remoteUrl = /^(?:[a-z]+:|\/\/|#)/i;
+type Resolution = { kind: 'local'; file: string } | { kind: 'external'; package: string } | { kind: 'unresolved' };
 
 export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
   const root = real(options.rootDir);
@@ -53,6 +61,7 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
   const diagnostics: Diagnostic[] = [];
   const owners = new Map<string, Owner>();
   const graph = new Map<string, string[]>();
+  const styles = new Map<string, StyleClassification>();
   const report = (code: string, file: string, message: string) => diagnostics.push({ code, file, message });
 
   for (const file of files) {
@@ -62,6 +71,11 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
     if (matches.length !== 1) report(matches.length ? 'multiple-owner' : 'unowned-file', rel, `${rel} has ${matches.length} owners`);
     else owners.set(file, matches[0]!);
     if (options.policy.forbiddenFiles?.includes(rel)) report('forbidden-file', rel, `${rel} is forbidden`);
+    if (path.extname(file) === '.css') {
+      const matches = options.policy.styles?.filter((style) => style.files.test(rel)) ?? [];
+      if (matches.length !== 1) report(matches.length ? 'multiple-style-classification' : 'missing-style-classification', rel, `${rel} has ${matches.length} style classifications`);
+      else styles.set(file, matches[0]!);
+    }
   }
 
   for (const file of files.filter(isCode)) {
@@ -78,31 +92,31 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
         continue;
       }
       const resolved = resolveRequest(file, request.specifier!, parsed.options);
-      if (!resolved) {
-        if (!request.specifier!.startsWith('.') && !path.isAbsolute(request.specifier!)) {
-          if (!fromOwner?.external?.includes(packageName(request.specifier!))) report('forbidden-external', rel, `${request.specifier} is not allowed for ${fromOwner?.name ?? 'an unowned file'}`);
-        } else report('unresolved-import', rel, `cannot resolve ${request.specifier}`);
+      if (resolved.kind === 'external') {
+        if (!fromOwner?.external?.includes(resolved.package)) report('forbidden-external', rel, `${request.specifier} is not allowed for ${fromOwner?.name ?? 'an unowned file'}`);
         continue;
       }
-      if (!request.specifier!.startsWith('.') && !path.isAbsolute(request.specifier!) && !inside(root, resolved)) {
-        if (!fromOwner?.external?.includes(packageName(request.specifier!))) report('forbidden-external', rel, `${request.specifier} is not allowed for ${fromOwner?.name ?? 'an unowned file'}`);
+      if (resolved.kind === 'unresolved') {
+        report('unresolved-import', rel, `cannot resolve ${request.specifier}`);
         continue;
       }
-      if (!inside(root, resolved)) {
+      const target = resolved.file;
+      if (!inside(root, target)) {
         report('source-escape', rel, `${request.specifier} resolves outside the source tree`);
         continue;
       }
-      const targetOwner = owners.get(resolved);
+      const targetOwner = owners.get(target);
       if (!targetOwner) continue;
       if (fromOwner?.role === 'production' && targetOwner.role !== 'production') report('test-role-import', rel, `production cannot import ${targetOwner.role}`);
       if (fromOwner && targetOwner && fromOwner.name !== targetOwner.name && !fromOwner.mayImport?.includes(targetOwner.name)) report('forbidden-package-import', rel, `${fromOwner.name} cannot import ${targetOwner.name}`);
       if (request.kind === 'reexport' && fromOwner && targetOwner && fromOwner.name !== targetOwner.name) report('cross-package-reexport', rel, 'barrels may only re-export their own package');
-      edges.push(resolved);
+      if (path.extname(target) === '.css' && styles.get(target)?.kind === 'global' && !styles.get(target)?.importers?.includes(rel)) report('global-css', rel, `${relative(root, target)} global CSS may only be imported by app bootstrap`);
+      edges.push(target);
     }
     graph.set(file, edges);
   }
 
-  for (const file of files.filter((candidate) => path.extname(candidate) === '.css')) analyzeCss(file, root, owners, options.policy, report, graph);
+  for (const file of files.filter((candidate) => path.extname(candidate) === '.css')) analyzeCss(file, root, owners, report, graph);
   const cycle = cycleIn(graph, owners);
   if (cycle) report('dependency-cycle', relative(root, cycle[0]!), cycle.map((item) => relative(root, item)).join(' -> '));
   return { diagnostics, files: files.map((file) => relative(root, file)) };
@@ -144,7 +158,7 @@ function importsFrom(file: string): Array<{ kind: 'import' | 'reexport' | 'dynam
   return imports;
 }
 
-function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owner>, policy: ArchitecturePolicy, report: (code: string, file: string, message: string) => void, graph: Map<string, string[]>): void {
+function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owner>, report: (code: string, file: string, message: string) => void, graph: Map<string, string[]>): void {
   const rel = relative(root, file);
   const text = fs.readFileSync(file, 'utf8');
   if (/^\s*@import\b/m.test(text)) report('css-import', rel, 'CSS @import is not supported');
@@ -162,24 +176,28 @@ function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owne
     edges.push(target);
   }
   graph.set(file, edges);
-  if (/(?:^|\n)\s*(?:html|body|:root)\b/.test(text)) {
-    for (const [importer, imports] of graph) {
-      if (imports.includes(file) && !policy.globalStyles?.includes(relative(root, importer))) report('global-css', relative(root, importer), `${rel} global CSS may only be imported by app bootstrap`);
-    }
-  }
 }
 
-function resolveRequest(from: string, specifier: string, compilerOptions: ts.CompilerOptions): string | undefined {
-  const resolution = ts.resolveModuleName(specifier, from, compilerOptions, ts.sys).resolvedModule?.resolvedFileName;
-  if (resolution) return realIfExists(resolution);
+function resolveRequest(from: string, specifier: string, compilerOptions: ts.CompilerOptions): Resolution {
+  const resolved = ts.resolveModuleName(specifier, from, compilerOptions, ts.sys).resolvedModule;
+  if (resolved) {
+    const file = realIfExists(resolved.resolvedFileName);
+    if (file) return resolved.isExternalLibraryImport ? { kind: 'external', package: packageName(specifier) } : { kind: 'local', file };
+  }
   if (specifier.startsWith('.') || path.isAbsolute(specifier)) {
     const direct = path.resolve(path.dirname(from), specifier);
     for (const candidate of [direct, ...['.css', ...assetExtensions].map((extension) => `${direct}${extension}`), path.join(direct, 'index.css')]) {
       const found = realIfExists(candidate);
-      if (found) return found;
+      if (found) return { kind: 'local', file: found };
     }
   }
-  return undefined;
+  return matchesPathAlias(specifier, compilerOptions.paths) ? { kind: 'unresolved' } : { kind: 'external', package: packageName(specifier) };
+}
+function matchesPathAlias(specifier: string, paths: ts.MapLike<readonly string[]> | undefined): boolean {
+  return Object.keys(paths ?? {}).some((pattern) => {
+    const [start, end = ''] = pattern.split('*');
+    return specifier.startsWith(start!) && specifier.endsWith(end);
+  });
 }
 function cycleIn(graph: ReadonlyMap<string, readonly string[]>, owners: ReadonlyMap<string, Owner>): string[] | undefined {
   const done = new Set<string>(); const active: string[] = [];
