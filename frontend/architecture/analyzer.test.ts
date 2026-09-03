@@ -21,11 +21,11 @@ const policy: ArchitecturePolicy = {
   styles: [{ files: /\.css$/, kind: 'scoped' }],
 };
 
-function fixture(files: Record<string, string>, nextPolicy = policy, links: Record<string, string> = {}, paths: Record<string, string[]> = { '@core/*': ['core/*'] }) {
+function fixture(files: Record<string, string>, nextPolicy = policy, links: Record<string, string> = {}, paths: Record<string, string[]> = { '@core/*': ['core/*'] }, baseUrl = '.') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-')); temporary.push(root);
   for (const [name, content] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.writeFileSync(path.join(root, name), content); }
   for (const [name, target] of Object.entries(links)) { fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); fs.symlinkSync(target, path.join(root, name)); }
-  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', resolveJsonModule: true, baseUrl: '.', paths } }));
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'bundler', resolveJsonModule: true, baseUrl, paths } }));
   return analyzeArchitecture({ rootDir: root, tsconfigPath: path.join(root, 'tsconfig.json'), policy: nextPolicy });
 }
 const codes = (files: Record<string, string>, nextPolicy?: ArchitecturePolicy) => fixture(files, nextPolicy).diagnostics.map((item) => item.code);
@@ -126,6 +126,20 @@ describe('architecture analyzer', () => {
     expect(fixture({ ...tools, 'app/main.ts': "import '@dependency/dependency';" }, policy, {}, { '@dependency/*': ['node_modules/*'] }).diagnostics.map((item) => item.code)).toContain('source-escape');
     expect(codes({ ...tools, 'app/main.ts': "import '../dist/generated';" })).toContain('source-escape');
     expect(codes({ ...tools, 'app/site.css': ".x { background: url('../node_modules/logo.svg'); }" })).toContain('invalid-css-asset');
+  });
+  it('routes baseUrl-resolved targets through the owned inventory', () => {
+    expect(fixture({ ...base, 'app/main.ts': "import 'core/value';" }).diagnostics).toEqual([]);
+    const allowlisted = {
+      ...policy,
+      owners: policy.owners.map((owner) => owner.name === 'app' ? { ...owner, external: ['dependency'] } : owner),
+    };
+    expect(fixture(
+      { ...base, 'app/main.ts': "import 'dependency';", 'node_modules/dependency/index.ts': 'export {};'},
+      allowlisted,
+      {},
+      {},
+      'node_modules',
+    ).diagnostics.map((item) => item.code)).toContain('source-escape');
   });
   it('rejects unreferenced source and directory symlinks during inventory', () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'architecture-outside-')); temporary.push(outside);

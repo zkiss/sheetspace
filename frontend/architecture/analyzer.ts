@@ -199,7 +199,7 @@ function resolveRequest(from: string, specifier: string, compilerOptions: ts.Com
   const resolved = ts.resolveModuleName(specifier, from, compilerOptions, ts.sys).resolvedModule;
   if (resolved) {
     const file = realIfExists(resolved.resolvedFileName);
-    if (file) return localIntent(specifier, compilerOptions) || !resolved.isExternalLibraryImport ? { kind: 'local', file } : { kind: 'external', package: packageName(specifier) };
+    if (file) return localIntent(specifier, compilerOptions, file) || !resolved.isExternalLibraryImport ? { kind: 'local', file } : { kind: 'external', package: packageName(specifier) };
   }
   if (specifier.startsWith('.') || path.isAbsolute(specifier)) {
     const direct = path.resolve(path.dirname(from), specifier);
@@ -210,7 +210,18 @@ function resolveRequest(from: string, specifier: string, compilerOptions: ts.Com
   }
   return localIntent(specifier, compilerOptions) ? { kind: 'unresolved' } : { kind: 'external', package: packageName(specifier) };
 }
-function localIntent(specifier: string, compilerOptions: ts.CompilerOptions): boolean { return specifier.startsWith('.') || path.isAbsolute(specifier) || matchesPathAlias(specifier, compilerOptions.paths); }
+function localIntent(specifier: string, compilerOptions: ts.CompilerOptions, resolvedFile?: string): boolean {
+  return specifier.startsWith('.')
+    || path.isAbsolute(specifier)
+    || matchesPathAlias(specifier, compilerOptions.paths)
+    || (Boolean(resolvedFile) && baseUrlTarget(specifier, compilerOptions, resolvedFile!));
+}
+function baseUrlTarget(specifier: string, compilerOptions: ts.CompilerOptions, resolvedFile: string): boolean {
+  if (!compilerOptions.baseUrl || specifier.startsWith('.') || path.isAbsolute(specifier)) return false;
+  // A bare package can also live below baseUrl. It is baseUrl-local only when the
+  // resolved target is at the path TypeScript would probe from baseUrl directly.
+  return insideOrEqual(path.resolve(compilerOptions.baseUrl, specifier), resolvedFile);
+}
 function matchesPathAlias(specifier: string, paths: ts.MapLike<readonly string[]> | undefined): boolean {
   return Object.keys(paths ?? {}).some((pattern) => {
     const [start, end = ''] = pattern.split('*');
