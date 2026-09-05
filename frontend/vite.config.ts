@@ -1,21 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tsconfig from './tsconfig.json';
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: {
-      '@workbook': '/src/workbook',
-      '@calculation': '/src/calculation',
-      '@application': '/src/application',
-      '@infrastructure': '/src/infrastructure',
-      '@app': '/src/app',
-      '@grid': '/src/grid',
-      '@workspace': '/src/workspace',
-      '@reference-navigation': '/src/reference-navigation',
-      '@shared': '/src/shared',
-      '@test-support': '/src/test-support',
-    },
+    alias: Object.entries(tsconfig.compilerOptions.paths).map(([alias, [target]]) => ({
+      find: new RegExp(`^${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\*', '(.*)')}$`),
+      replacement: `/${tsconfig.compilerOptions.baseUrl}/${target.replace('*', '$1')}`,
+    })),
   },
   server: {
     port: 5173,
@@ -39,7 +32,7 @@ export default defineConfig({
       exclude: [
         'src/app/main.tsx',
         'src/test-support/**',
-        'src/architecture/**',
+        'architecture/**',
         'src/**/*.test.ts',
         'src/**/*.test.tsx',
       ],

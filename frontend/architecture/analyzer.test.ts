@@ -33,7 +33,7 @@ const base = { 'app/main.ts': "import '../core/value';", 'core/value.ts': 'expor
 
 describe('architecture analyzer', () => {
   it('accepts extensions, indexes, JSON aliases, test roles, and exact data ownership', () => {
-    const local: ArchitecturePolicy = { ...policy, exactTestData: ['fixtures/workbook-api.json'] };
+    const local: ArchitecturePolicy = { ...policy, exactTestData: [{ file: 'fixtures/workbook-api.json', importers: ['test/example.test.ts'] }] };
     expect(codes({ ...base, 'core/index.ts': "export * from './value';", 'core/data.json': '{}', 'app/main.ts': "import '../core'; import data from '@core/data.json'; import '../assets/logo.svg'; void data;", 'test/example.test.ts': "import '../support/helpers';", 'support/helpers.ts': "import '../core/value';", 'fixtures/workbook-api.json': '{}' }, local)).toEqual([]);
   });
   it('rejects missing and multiple ownership while accepting alias resolution', () => {

@@ -28,8 +28,8 @@ export interface ArchitecturePolicy {
   styles?: readonly StyleClassification[];
   /** Files allowed to use import.meta.glob. */
   globFiles?: readonly string[];
-  /** Test-data files intentionally outside their owner's normal pattern. */
-  exactTestData?: readonly string[];
+  /** Exact data files, including shared repository fixtures, and their sole permitted test importers. */
+  exactTestData?: readonly { file: string; importers: readonly string[] }[];
   forbiddenFiles?: readonly string[];
 }
 
@@ -62,6 +62,17 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
   const excluded = excludedDirectories(options.policy.excludedDirectories ?? [], report);
   const inventory = enumerate(root, excluded, report);
   const files = inventory.files;
+  const testData = new Map<string, readonly string[]>();
+  for (const rule of options.policy.exactTestData ?? []) {
+    const candidate = path.resolve(root, rule.file);
+    const target = realIfExists(candidate);
+    if (!target || target !== candidate || path.extname(target) !== '.json' || testData.has(target)) {
+      report('invalid-test-data', rule.file, 'test data must be a distinct, existing JSON file without symlink traversal');
+      continue;
+    }
+    testData.set(target, rule.importers);
+    if (!files.includes(target)) files.push(target);
+  }
   const fileSet = new Set(files);
   const configPath = realIfExists(options.tsconfigPath);
   if (!configPath || !validateLocalTarget(root, configPath, fileSet, excluded, report, relative(root, options.tsconfigPath), 'tsconfigPath')) {
@@ -76,7 +87,7 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
   for (const file of files) {
     const rel = relative(root, file);
     const matches = options.policy.owners.filter((owner) => owner.files.test(rel));
-    if (options.policy.exactTestData?.includes(rel) && matches.length === 0) matches.push({ name: 'exact-test-data', files: /$^/, role: 'test-data', external: [] });
+    if (testData.has(file)) matches.push({ name: 'exact-test-data', files: /$^/, role: 'test-data', external: [] });
     if (matches.length !== 1) report(matches.length ? 'multiple-owner' : 'unowned-file', rel, `${rel} has ${matches.length} owners`);
     else owners.set(file, matches[0]!);
     if (options.policy.forbiddenFiles?.includes(rel)) report('forbidden-file', rel, `${rel} is forbidden`);
@@ -110,6 +121,11 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
         continue;
       }
       const target = resolved.file;
+      if (testData.has(target)) {
+        if (fromOwner?.role !== 'test' || !testData.get(target)!.includes(rel)) report('test-data-import', rel, `${request.specifier} is reserved for its exact contract test`);
+        if (request.kind === 'reexport') report('cross-package-reexport', rel, 'barrels may only re-export their own package');
+        continue;
+      }
       if (!validateLocalTarget(root, target, fileSet, excluded, report, rel, request.specifier!)) continue;
       const targetOwner = owners.get(target);
       if (!targetOwner) { report('unowned-import', rel, `${request.specifier} has no owner`); continue; }
@@ -189,6 +205,7 @@ function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owne
     const sourceOwner = owners.get(file);
     const targetOwner = owners.get(target);
     if (!targetOwner) { report('unowned-css-asset', rel, `local url ${specifier} has no owner`); continue; }
+    if (sourceOwner?.role === 'production' && targetOwner.role !== 'production') report('test-role-import', rel, `production cannot import ${targetOwner.role}`);
     if (sourceOwner && targetOwner && sourceOwner.name !== targetOwner.name && !sourceOwner.mayImport?.includes(targetOwner.name)) report('forbidden-package-import', rel, `${sourceOwner.name} cannot use ${targetOwner.name} asset`);
     edges.push(target);
   }
@@ -201,14 +218,28 @@ function resolveRequest(from: string, specifier: string, compilerOptions: ts.Com
     const file = realIfExists(resolved.resolvedFileName);
     if (file) return localIntent(specifier, compilerOptions, file) || !resolved.isExternalLibraryImport ? { kind: 'local', file } : { kind: 'external', package: packageName(specifier) };
   }
-  if (specifier.startsWith('.') || path.isAbsolute(specifier)) {
-    const direct = path.resolve(path.dirname(from), specifier);
+  for (const direct of assetCandidates(from, specifier, compilerOptions)) {
     for (const candidate of [direct, ...['.css', ...assetExtensions].map((extension) => `${direct}${extension}`), path.join(direct, 'index.css')]) {
       const found = realIfExists(candidate);
       if (found) return { kind: 'local', file: found };
     }
   }
   return localIntent(specifier, compilerOptions) ? { kind: 'unresolved' } : { kind: 'external', package: packageName(specifier) };
+}
+function assetCandidates(from: string, specifier: string, options: ts.CompilerOptions): string[] {
+  if (specifier.startsWith('.') || path.isAbsolute(specifier)) return [path.resolve(path.dirname(from), specifier)];
+  const aliases = Object.entries(options.paths ?? {}).filter(([pattern]) => aliasMatch(specifier, pattern) !== undefined);
+  // TypeScript prefers an exact alias, then the matching wildcard with the longest prefix.
+  aliases.sort(([a], [b]) => Number(b === specifier) - Number(a === specifier) || b.split('*')[0]!.length - a.split('*')[0]!.length);
+  const match = aliases[0];
+  if (match) return match[1].map((target) => path.resolve(options.baseUrl ?? path.dirname(from), target.replace('*', aliasMatch(specifier, match[0])!)));
+  return options.baseUrl ? [path.resolve(options.baseUrl, specifier)] : [];
+}
+function aliasMatch(specifier: string, pattern: string): string | undefined {
+  if (!pattern.includes('*')) return specifier === pattern ? '' : undefined;
+  const [start, end = ''] = pattern.split('*');
+  return specifier.startsWith(start!) && specifier.endsWith(end) && specifier.length >= start!.length + end.length
+    ? specifier.slice(start!.length, specifier.length - end.length) : undefined;
 }
 function localIntent(specifier: string, compilerOptions: ts.CompilerOptions, resolvedFile?: string): boolean {
   return specifier.startsWith('.')
@@ -223,10 +254,7 @@ function baseUrlTarget(specifier: string, compilerOptions: ts.CompilerOptions, r
   return insideOrEqual(path.resolve(compilerOptions.baseUrl, specifier), resolvedFile);
 }
 function matchesPathAlias(specifier: string, paths: ts.MapLike<readonly string[]> | undefined): boolean {
-  return Object.keys(paths ?? {}).some((pattern) => {
-    const [start, end = ''] = pattern.split('*');
-    return specifier.startsWith(start!) && specifier.endsWith(end);
-  });
+  return Object.keys(paths ?? {}).some((pattern) => aliasMatch(specifier, pattern) !== undefined);
 }
 function cycleIn(graph: ReadonlyMap<string, readonly string[]>, owners: ReadonlyMap<string, Owner>): string[] | undefined {
   const done = new Set<string>(); const active: string[] = [];

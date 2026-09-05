@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run check:architecture && tsc --noEmit && vite build",
+    "check:architecture": "vitest run architecture",
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
