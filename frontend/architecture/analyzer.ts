@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
+import { cssDependencies } from './cssDependencies';
 
 export type FileRole = 'production' | 'test' | 'test-support' | 'tooling' | 'test-data';
 
@@ -52,7 +53,7 @@ export interface AnalysisResult {
 
 const assetExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.woff', '.woff2', '.ttf', '.otf']);
 const sourceExtensions = new Set(['.ts', '.tsx', '.css', '.json', ...assetExtensions]);
-const remoteUrl = /^(?:[a-z]+:|\/\/|#)/i;
+const remoteUrl = /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i;
 type Resolution = { kind: 'local'; file: string } | { kind: 'external'; package: string } | { kind: 'unresolved' };
 
 export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
@@ -91,7 +92,7 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
     if (matches.length !== 1) report(matches.length ? 'multiple-owner' : 'unowned-file', rel, `${rel} has ${matches.length} owners`);
     else owners.set(file, matches[0]!);
     if (options.policy.forbiddenFiles?.includes(rel)) report('forbidden-file', rel, `${rel} is forbidden`);
-    if (path.extname(file) === '.css') {
+    if (isCss(file)) {
       const matches = options.policy.styles?.filter((style) => style.files.test(rel)) ?? [];
       if (matches.length !== 1) report(matches.length ? 'multiple-style-classification' : 'missing-style-classification', rel, `${rel} has ${matches.length} style classifications`);
       else styles.set(file, matches[0]!);
@@ -132,13 +133,13 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
       if (fromOwner?.role === 'production' && targetOwner.role !== 'production') report('test-role-import', rel, `production cannot import ${targetOwner.role}`);
       if (fromOwner && targetOwner && fromOwner.name !== targetOwner.name && !fromOwner.mayImport?.includes(targetOwner.name)) report('forbidden-package-import', rel, `${fromOwner.name} cannot import ${targetOwner.name}`);
       if (request.kind === 'reexport' && fromOwner && targetOwner && fromOwner.name !== targetOwner.name) report('cross-package-reexport', rel, 'barrels may only re-export their own package');
-      if (path.extname(target) === '.css' && styles.get(target)?.kind === 'global' && !styles.get(target)?.importers?.includes(rel)) report('global-css', rel, `${relative(root, target)} global CSS may only be imported by app bootstrap`);
+      if (isCss(target) && styles.get(target)?.kind === 'global' && !styles.get(target)?.importers?.includes(rel)) report('global-css', rel, `${relative(root, target)} global CSS may only be imported by app bootstrap`);
       edges.push(target);
     }
     graph.set(file, edges);
   }
 
-  for (const file of files.filter((candidate) => path.extname(candidate) === '.css')) analyzeCss(file, root, owners, fileSet, excluded, report, graph);
+  for (const file of files.filter(isCss)) analyzeCss(file, root, owners, fileSet, excluded, report, graph);
   const cycle = cycleIn(graph, owners);
   if (cycle) report('dependency-cycle', relative(root, cycle[0]!), cycle.map((item) => relative(root, item)).join(' -> '));
   return { diagnostics, files: files.map((file) => relative(root, file)) };
@@ -193,13 +194,18 @@ function importsFrom(file: string): Array<{ kind: 'import' | 'reexport' | 'dynam
 
 function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owner>, fileSet: ReadonlySet<string>, excluded: ReadonlySet<string>, report: (code: string, file: string, message: string) => void, graph: Map<string, string[]>): void {
   const rel = relative(root, file);
-  const text = fs.readFileSync(file, 'utf8');
-  if (/^\s*@import\b/m.test(text)) report('css-import', rel, 'CSS @import is not supported');
+  const dependencies = cssDependencies(fs.readFileSync(file, 'utf8'));
+  if (dependencies.imports) report('css-import', rel, 'CSS @import is not supported');
+  for (const error of dependencies.errors) report('invalid-css', rel, error);
   const edges = graph.get(file) ?? [];
-  for (const match of text.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/g)) {
-    const specifier = match[2]!.trim();
-    if (!specifier || remoteUrl.test(specifier)) continue;
-    const target = realIfExists(path.resolve(path.dirname(file), specifier));
+  for (const specifier of dependencies.urls) {
+    if (remoteUrl.test(specifier)) continue;
+    // URL suffixes are not part of the filesystem name. Decode percent escapes
+    // after separating them so encoded punctuation can still name a local file.
+    let pathname: string;
+    try { pathname = decodeURIComponent(specifier.split(/[?#]/, 1)[0]!); }
+    catch { report('invalid-css-asset', rel, `invalid local url ${specifier}`); continue; }
+    const target = pathname && realIfExists(path.resolve(path.dirname(file), pathname));
     if (!target || !validateLocalTarget(root, target, fileSet, excluded, report, rel, specifier)) { report('invalid-css-asset', rel, `invalid local url ${specifier}`); continue; }
     if (!assetExtensions.has(path.extname(target).toLowerCase())) { report('invalid-css-asset', rel, `unsupported local url ${specifier}`); continue; }
     const sourceOwner = owners.get(file);
@@ -270,6 +276,7 @@ function cycleIn(graph: ReadonlyMap<string, readonly string[]>, owners: Readonly
   return undefined;
 }
 function isCode(file: string): boolean { return ['.ts', '.tsx'].includes(path.extname(file)); }
+function isCss(file: string): boolean { return path.extname(file).toLowerCase() === '.css'; }
 function packageName(specifier: string): string { return specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]!; }
 function real(file: string): string { return fs.realpathSync.native(file); }
 function realIfExists(file: string): string | undefined { try { return real(file); } catch { return undefined; } }

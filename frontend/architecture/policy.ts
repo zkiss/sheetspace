@@ -46,7 +46,7 @@ export const frontendPolicy: ArchitecturePolicy = {
       mayImport: [...productionNames, 'test-support'], external: testingExternal,
     })),
     { name: 'test-support', files: /^src\/test-support\/(?![^/]*\.test\.tsx?$)[^/]+$/, role: 'test-support', mayImport: productionNames, external: testingExternal },
-    { name: 'architecture', files: /^architecture\/[^/]+$/, role: 'tooling', mayImport: ['configuration'], external: ['node:fs', 'node:os', 'node:path', 'typescript', 'vitest'] },
+    { name: 'architecture', files: /^architecture\/[^/]+$/, role: 'tooling', mayImport: ['configuration'], external: ['node:fs', 'node:os', 'node:path', 'typescript', 'vitest', '@csstools/css-tokenizer'] },
     { name: 'configuration', files: /^(?:package(?:-lock)?\.json|tsconfig(?:\.node)?\.json|vite\.config\.ts)$/, role: 'tooling', external: ['vite', '@vitejs/plugin-react'] },
   ],
   exactTestData: [{ file: '../test-fixtures/workbook-read-contract.json', importers: ['src/infrastructure/persistence/workbookApi.test.ts'] }],
