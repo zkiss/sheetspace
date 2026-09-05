@@ -5,6 +5,7 @@ import { formulaRawForDisplay } from '@workbook/formula/reference';
 import { type SheetDocument, type SheetTabularProjection, type Workbook } from '@workbook/core/model';
 import type {
   CellEditSession,
+  CellContentCommands,
   CellNavigationDirection,
   CellTarget,
   ReferenceNavigationTarget,
@@ -14,8 +15,6 @@ import {
   cellKeyForTarget,
   EMPTY_CELL_INTERACTION_STATE,
 } from '@grid/cellInteraction';
-import type { WorkbookCommands } from '@application/react/useWorkbookController';
-
 
 function adjacentTarget(
   sheet: SheetDocument | SheetTabularProjection,
@@ -38,7 +37,7 @@ export function useCellEditing({
   commands,
   workbook,
 }: {
-  commands: Pick<WorkbookCommands, 'updateCellContent'>;
+  commands: CellContentCommands;
   workbook: Workbook;
 }) {
   const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);

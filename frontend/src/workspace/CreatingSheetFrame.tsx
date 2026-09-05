@@ -1,5 +1,5 @@
 import { clampSheetFrameSize } from '@workspace/workspaceGeometry';
-import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/react/useSheetCreationOperations';
+import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/core/sheetCreationState';
 import './SheetFrame.css';
 
 export function CreatingSheetFrame({ frame }: { frame: CreatingSheetFrameState }) {

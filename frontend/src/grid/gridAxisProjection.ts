@@ -1,10 +1,5 @@
 import { ColumnId, RowId, TabularContent } from '@workbook/core/model';
-
-export type CreatingGridAxisSlot = {
-  kind: 'creating';
-  operationId: string;
-  boundary: number;
-};
+import type { CreatingGridAxes, CreatingGridAxisSlot } from '@application/core/gridAxisCreationState';
 
 export type SavedGridAxisEntry<Id extends string> = {
   kind: 'saved';
@@ -17,11 +12,6 @@ export type GridAxisEntry<Id extends string> = SavedGridAxisEntry<Id> | Creating
 export type GridAxisProjection = {
   rows: readonly GridAxisEntry<RowId>[];
   columns: readonly GridAxisEntry<ColumnId>[];
-};
-
-export type CreatingGridAxes = {
-  rows: readonly CreatingGridAxisSlot[];
-  columns: readonly CreatingGridAxisSlot[];
 };
 
 export const emptyCreatingGridAxes: CreatingGridAxes = { rows: [], columns: [] };

@@ -20,10 +20,11 @@ import {
 } from '@application/core/userActions';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
-import { useSheetCreationOperations, type CreatingSheetFrame } from '@application/react/useSheetCreationOperations';
+import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
+import type { CreatingSheetFrame } from '@application/core/sheetCreationState';
+import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
-import type { CreatingGridAxes } from '@grid/gridAxisProjection';
 import {
   calculationRequest,
   mergeCalculationImpacts,

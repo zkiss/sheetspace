@@ -1,8 +1,7 @@
 import { PointerEvent, useRef, useState } from 'react';
-import type { SheetFrameDrag, SheetFrameResize, SheetFrameResizeDirection } from './workspaceContracts';
+import type { SheetFrameDrag, SheetFrameLayoutCommands, SheetFrameResize, SheetFrameResizeDirection } from './workspaceContracts';
 import { findSheetById } from '@workbook/read/queries';
 import { type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
-import type { WorkbookCommands } from '@application/react/useWorkbookController';
 import { resizeSheetFrame, workspaceDeltaFromClient } from '@workspace/workspaceGeometry';
 
 export type SheetFrameLayoutPreview = {
@@ -16,7 +15,7 @@ export function useSheetFrameInteractions({
   viewportScale,
   workbook,
 }: {
-  commands: Pick<WorkbookCommands, 'moveSheetFrame' | 'resizeSheetFrame'>;
+  commands: SheetFrameLayoutCommands;
   viewportScale: number;
   workbook: Workbook;
 }) {

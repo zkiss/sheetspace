@@ -3,7 +3,7 @@ import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model
 import { addressRangeOf } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
-import type { CreatingGridAxes } from '@grid/gridAxisProjection';
+import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import type {
   CellTarget,
   CellNavigationDirection,
@@ -17,7 +17,7 @@ import { inspectFormula } from '@reference-navigation/formulaInspection';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { CreatingSheetFrame } from '@workspace/CreatingSheetFrame';
-import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/react/useSheetCreationOperations';
+import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/core/sheetCreationState';
 import { SheetGrid } from '@grid/SheetGrid';
 import { useReferenceNavigation } from '@reference-navigation/useReferenceNavigation';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';

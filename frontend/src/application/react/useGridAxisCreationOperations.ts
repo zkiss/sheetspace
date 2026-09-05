@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CreatingGridAxes, CreatingGridAxisSlot } from '@grid/gridAxisProjection';
+import type { CreatingGridAxes, CreatingGridAxisSlot } from '@application/core/gridAxisCreationState';
 import { findSheetById } from '@workbook/read/queries';
 import { type Workbook } from '@workbook/core/model';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';

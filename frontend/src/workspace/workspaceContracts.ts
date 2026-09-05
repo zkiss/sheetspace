@@ -6,6 +6,11 @@ export type PendingSheetMenu = {
   y: number;
 };
 
+export type SheetFrameLayoutCommands = {
+  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
+  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
+};
+
 export type WorkspaceViewport = {
   x: number;
   y: number;

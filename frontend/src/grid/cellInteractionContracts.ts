@@ -1,4 +1,9 @@
 import type { StableCellIdentity, StableCellRange } from '@workbook/core/model';
+import type { CellKey } from '@workbook/core/address';
+
+export type CellContentCommands = {
+  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
+};
 
 export type CellTarget = {
   sheetId: string;

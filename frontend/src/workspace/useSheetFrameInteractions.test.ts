@@ -1,9 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PointerEvent } from 'react';
-import type { SheetFrameResizeDirection } from './workspaceContracts';
+import type { SheetFrameLayoutCommands, SheetFrameResizeDirection } from './workspaceContracts';
 import { Workbook } from '@workbook/core/model';
-import type { WorkbookCommands } from '@application/react/useWorkbookController';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 
@@ -11,7 +10,7 @@ function commands() {
   return {
     moveSheetFrame: vi.fn(),
     resizeSheetFrame: vi.fn(),
-  } satisfies Pick<WorkbookCommands, 'moveSheetFrame' | 'resizeSheetFrame'>;
+  } satisfies SheetFrameLayoutCommands;
 }
 
 function pointerEvent({
