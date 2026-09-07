@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
 import { cssDependencies } from './cssDependencies';
+import { typescriptDependencies } from './typescriptDependencies';
 
 export type FileRole = 'production' | 'test' | 'test-support' | 'tooling' | 'test-data';
 
@@ -103,7 +104,7 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
     const fromOwner = owners.get(file);
     const rel = relative(root, file);
     const edges: string[] = [];
-    for (const request of importsFrom(file)) {
+    for (const request of typescriptDependencies(file, fs.readFileSync(file, 'utf8'))) {
       if (request.kind === 'dynamic-nonliteral') {
         if (fromOwner?.role === 'production') report('nonliteral-dynamic-import', rel, 'production dynamic imports must be literals');
         continue;
@@ -112,7 +113,7 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
         if (!options.policy.globFiles?.includes(rel)) report('unapproved-glob', rel, 'import.meta.glob is not approved here');
         continue;
       }
-      const resolved = resolveRequest(file, request.specifier!, parsed.options);
+      const resolved = resolveRequest(file, request.specifier, parsed.options);
       if (resolved.kind === 'external') {
         if (!fromOwner?.external?.includes(resolved.package)) report('forbidden-external', rel, `${request.specifier} is not allowed for ${fromOwner?.name ?? 'an unowned file'}`);
         continue;
@@ -127,7 +128,7 @@ export function analyzeArchitecture(options: AnalysisOptions): AnalysisResult {
         if (request.kind === 'reexport') report('cross-package-reexport', rel, 'barrels may only re-export their own package');
         continue;
       }
-      if (!validateLocalTarget(root, target, fileSet, excluded, report, rel, request.specifier!)) continue;
+      if (!validateLocalTarget(root, target, fileSet, excluded, report, rel, request.specifier)) continue;
       const targetOwner = owners.get(target);
       if (!targetOwner) { report('unowned-import', rel, `${request.specifier} has no owner`); continue; }
       if (fromOwner?.role === 'production' && targetOwner.role !== 'production') report('test-role-import', rel, `production cannot import ${targetOwner.role}`);
@@ -164,32 +165,6 @@ function enumerate(root: string, excluded: ReadonlySet<string>, report: (code: s
   };
   visit(root);
   return { files: files.sort() };
-}
-
-function importsFrom(file: string): Array<{ kind: 'import' | 'reexport' | 'dynamic-nonliteral' | 'glob'; specifier?: string }> {
-  const text = fs.readFileSync(file, 'utf8');
-  const ast = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const imports: Array<{ kind: 'import' | 'reexport' | 'dynamic-nonliteral' | 'glob'; specifier?: string }> = [];
-  const literal = (node: ts.Expression): string | undefined => ts.isStringLiteralLike(node) ? node.text : undefined;
-  const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      if (node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) imports.push({ kind: ts.isExportDeclaration(node) ? 'reexport' : 'import', specifier: node.moduleSpecifier.text });
-    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && node.moduleReference.expression && ts.isStringLiteralLike(node.moduleReference.expression)) imports.push({ kind: 'import', specifier: node.moduleReference.expression.text });
-    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteralLike(node.argument.literal)) imports.push({ kind: 'import', specifier: node.argument.literal.text });
-    else if (ts.isCallExpression(node)) {
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-        const value = node.arguments[0] && literal(node.arguments[0]);
-        imports.push(value ? { kind: 'import', specifier: value } : { kind: 'dynamic-nonliteral' });
-      } else if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'glob' && node.expression.expression.getText(ast) === 'import.meta') imports.push({ kind: 'glob' });
-      else if ((node.expression.getText(ast) === 'require' || /(?:^|\.)mock$/.test(node.expression.getText(ast))) && node.arguments[0]) {
-        const value = literal(node.arguments[0]);
-        if (value) imports.push({ kind: 'import', specifier: value });
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(ast);
-  return imports;
 }
 
 function analyzeCss(file: string, root: string, owners: ReadonlyMap<string, Owner>, fileSet: ReadonlySet<string>, excluded: ReadonlySet<string>, report: (code: string, file: string, message: string) => void, graph: Map<string, string[]>): void {
