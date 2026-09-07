@@ -6,6 +6,19 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    "baseUrl": "src",
+    "paths": {
+      "@workbook/*": ["workbook/*"],
+      "@calculation/*": ["calculation/*"],
+      "@application/*": ["application/*"],
+      "@infrastructure/*": ["infrastructure/*"],
+      "@app/*": ["app/*"],
+      "@grid/*": ["grid/*"],
+      "@workspace/*": ["workspace/*"],
+      "@reference-navigation/*": ["reference-navigation/*"],
+      "@shared/*": ["shared/*"],
+      "@test-support/*": ["test-support/*"]
+    },
     "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -16,5 +29,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src", "architecture"]
 }

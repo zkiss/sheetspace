@@ -1,0 +1,41 @@
+import type { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
+
+export type PendingSheetMenu = {
+  sheetId: string;
+  x: number;
+  y: number;
+};
+
+export type SheetFrameLayoutCommands = {
+  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
+  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
+};
+
+export type WorkspaceViewport = {
+  x: number;
+  y: number;
+  scale: number;
+};
+
+export type SheetFrameDrag = {
+  pointerId: number;
+  sheetId: string;
+  startClientX: number;
+  startClientY: number;
+  startPosition: WorkspacePosition;
+};
+
+export type SheetFrameResizeDirection = {
+  horizontal: -1 | 0 | 1;
+  vertical: -1 | 0 | 1;
+};
+
+export type SheetFrameResize = {
+  pointerId: number;
+  sheetId: string;
+  startClientX: number;
+  startClientY: number;
+  startPosition: WorkspacePosition;
+  startFrameSize: SheetFrameSize;
+  direction: SheetFrameResizeDirection;
+};
