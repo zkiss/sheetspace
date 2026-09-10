@@ -41,6 +41,25 @@ describe('workspaceFrameVirtualization', () => {
     })]).toEqual(['offscreen']);
   });
 
+  it('culls and retains navigation pins at both supported scale limits and large signed positions', () => {
+    const base = {
+      frames,
+      surfaceSize: { width: 800, height: 600 },
+    };
+
+    for (const viewport of [
+      { scale: 0.1, x: -180, y: -120 },
+      { scale: 8, x: -14_400, y: -9_600 },
+    ]) {
+      expect([...mountedWorkspaceFrameIds({ ...base, pins: {}, viewport })]).toEqual(['offscreen']);
+      expect([...mountedWorkspaceFrameIds({
+        ...base,
+        pins: { navigationRevealSheetId: 'visible' },
+        viewport,
+      })]).toEqual(['visible', 'offscreen']);
+    }
+  });
+
   it('mounts only explicit pins before measurement and while the surface is zero-sized', () => {
     for (const surfaceSize of [null, { width: 0, height: 600 }, { width: 800, height: 0 }]) {
       expect([...mountedWorkspaceFrameIds({

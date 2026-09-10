@@ -4,9 +4,15 @@ import type { SheetFrameResize, WorkspaceViewport } from './workspaceContracts';
 export const MIN_SHEET_FRAME_WIDTH = 180;
 export const MIN_SHEET_FRAME_HEIGHT = 120;
 export const WORKSPACE_PAN_STEP = 80;
-export const WORKSPACE_ZOOM_STEP = 0.2;
-export const MIN_WORKSPACE_ZOOM = 0.5;
-export const MAX_WORKSPACE_ZOOM = 2;
+/** Supported scales are deliberately finite so every projected coordinate remains usable. */
+export const MIN_WORKSPACE_ZOOM = 0.1;
+export const MAX_WORKSPACE_ZOOM = 8;
+/** Each zoom control changes the current scale by 20%, rather than adding an absolute amount. */
+export const WORKSPACE_ZOOM_FACTOR = 1.2;
+export const WORKSPACE_WHEEL_PIXEL_SENSITIVITY = 0.002;
+export const WHEEL_DELTA_LINE_HEIGHT = 16;
+const WHEEL_DELTA_LINE_MODE = 1;
+const WHEEL_DELTA_PAGE_MODE = 2;
 export const MIN_READABLE_CELL_SCALE = 0.75;
 /** Keeps nearby frames warm without making mounted work proportional to sheet count. */
 export const WORKSPACE_FRAME_OVERSCAN = { horizontal: 320, vertical: 240 } as const;
@@ -30,9 +36,9 @@ export function workspaceViewportBounds(
   surfaceSize: SheetFrameSize,
   viewport: WorkspaceViewport,
 ): WorkspaceTargetRect {
-  const scale = viewport.scale || 1;
-  const left = -viewport.x / scale || 0;
-  const top = -viewport.y / scale || 0;
+  const scale = normalizedWorkspaceZoom(viewport.scale);
+  const left = finiteOr(-finiteOr(viewport.x) / scale);
+  const top = finiteOr(-finiteOr(viewport.y) / scale);
   return {
     left,
     top,
@@ -80,8 +86,8 @@ export function workspacePointFromSurface(
   viewport: WorkspaceViewport,
 ): WorkspacePosition {
   return {
-    x: Math.round((surfacePoint.x - viewport.x) / viewport.scale),
-    y: Math.round((surfacePoint.y - viewport.y) / viewport.scale),
+    x: finiteOr((finiteOr(surfacePoint.x) - finiteOr(viewport.x)) / normalizedWorkspaceZoom(viewport.scale)),
+    y: finiteOr((finiteOr(surfacePoint.y) - finiteOr(viewport.y)) / normalizedWorkspaceZoom(viewport.scale)),
   };
 }
 
@@ -91,8 +97,8 @@ export function workspaceDeltaFromClient(
   viewportScale: number,
 ): WorkspacePosition {
   return {
-    x: (currentClientPoint.x - startClientPoint.x) / viewportScale,
-    y: (currentClientPoint.y - startClientPoint.y) / viewportScale,
+    x: (finiteOr(currentClientPoint.x) - finiteOr(startClientPoint.x)) / normalizedWorkspaceZoom(viewportScale),
+    y: (finiteOr(currentClientPoint.y) - finiteOr(startClientPoint.y)) / normalizedWorkspaceZoom(viewportScale),
   };
 }
 
@@ -107,7 +113,28 @@ export function surfaceDeltaFromClient(
 }
 
 export function clampWorkspaceZoom(scale: number) {
-  return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, scale));
+  return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, normalizedWorkspaceZoom(scale)));
+}
+
+export function zoomScaleBy(currentScale: number, factor: number): number {
+  return clampWorkspaceZoom(normalizedWorkspaceZoom(currentScale) * finitePositiveOr(factor, 1));
+}
+
+export function normalizedWheelDelta(
+  delta: number,
+  deltaMode: number,
+  surfaceHeight: number,
+): number {
+  const unit = deltaMode === WHEEL_DELTA_LINE_MODE
+    ? WHEEL_DELTA_LINE_HEIGHT
+    : deltaMode === WHEEL_DELTA_PAGE_MODE
+      ? Math.max(1, finitePositiveOr(surfaceHeight, 1))
+      : 1;
+  return finiteOr(delta) * unit;
+}
+
+export function zoomFactorFromWheelDelta(delta: number): number {
+  return Math.exp(-finiteOr(delta) * WORKSPACE_WHEEL_PIXEL_SENSITIVITY);
 }
 
 export function zoomViewportAt(
@@ -116,14 +143,16 @@ export function zoomViewportAt(
   surfaceOrigin: WorkspacePosition = { x: 0, y: 0 },
 ): WorkspaceViewport {
   const scale = clampWorkspaceZoom(nextScale);
+  const previousScale = normalizedWorkspaceZoom(currentViewport.scale);
+  const origin = { x: finiteOr(surfaceOrigin.x), y: finiteOr(surfaceOrigin.y) };
   const workspaceOrigin = {
-    x: (surfaceOrigin.x - currentViewport.x) / currentViewport.scale,
-    y: (surfaceOrigin.y - currentViewport.y) / currentViewport.scale,
+    x: (origin.x - finiteOr(currentViewport.x)) / previousScale,
+    y: (origin.y - finiteOr(currentViewport.y)) / previousScale,
   };
 
   return {
-    x: Math.round(surfaceOrigin.x - workspaceOrigin.x * scale),
-    y: Math.round(surfaceOrigin.y - workspaceOrigin.y * scale),
+    x: finiteOr(origin.x - workspaceOrigin.x * scale),
+    y: finiteOr(origin.y - workspaceOrigin.y * scale),
     scale,
   };
 }
@@ -189,8 +218,8 @@ export function viewportForTarget({
     return {
       oversized,
       viewport: {
-        x: Math.round(NAVIGATION_PADDING - target.left * scale),
-        y: Math.round(NAVIGATION_PADDING - target.top * scale),
+        x: NAVIGATION_PADDING - target.left * scale,
+        y: NAVIGATION_PADDING - target.top * scale,
         scale,
       },
     };
@@ -216,13 +245,13 @@ export function viewportForTarget({
   }
 
   if (scale !== currentViewport.scale) {
-    x = Math.round((surfaceWidth - targetWidth * scale) / 2 - target.left * scale);
-    y = Math.round((surfaceHeight - targetHeight * scale) / 2 - target.top * scale);
+    x = (surfaceWidth - targetWidth * scale) / 2 - target.left * scale;
+    y = (surfaceHeight - targetHeight * scale) / 2 - target.top * scale;
   }
 
   return {
     oversized,
-    viewport: { x: Math.round(x), y: Math.round(y), scale },
+    viewport: { x: finiteOr(x), y: finiteOr(y), scale },
   };
 }
 
@@ -242,6 +271,18 @@ function normalizedOverscan(overscan: WorkspaceOverscan) {
     horizontal: Math.max(0, overscan.horizontal),
     vertical: Math.max(0, overscan.vertical),
   };
+}
+
+function normalizedWorkspaceZoom(scale: number): number {
+  return finitePositiveOr(scale, 1);
+}
+
+function finitePositiveOr(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function finiteOr(value: number, fallback = 0): number {
+  return Number.isFinite(value) ? (Object.is(value, -0) ? 0 : value) : fallback;
 }
 
 export function resizeSheetFrame(

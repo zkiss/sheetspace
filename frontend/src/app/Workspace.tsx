@@ -151,7 +151,7 @@ export function Workspace({
         onPanWorkspace={workspaceController.panWorkspace}
         onResetViewport={workspaceController.resetViewport}
         onRetryFailedSaves={onRetryFailedSaves}
-        onZoomWorkspace={workspaceController.zoomWorkspace}
+        onZoomWorkspace={workspaceController.zoomWorkspaceBy}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
         sheetCount={sheets.length}

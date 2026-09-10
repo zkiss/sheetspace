@@ -9,7 +9,9 @@ import {
   workspacePointAtViewportCenter,
   workspacePointFromClient,
   type WorkspaceTargetRect,
-  WORKSPACE_ZOOM_STEP,
+  normalizedWheelDelta,
+  zoomFactorFromWheelDelta,
+  zoomScaleBy,
   zoomViewportAt,
 } from '@workspace/workspaceGeometry';
 
@@ -65,13 +67,27 @@ export function useWorkspaceController({
   function panWorkspace(deltaX: number, deltaY: number) {
     setViewport((currentViewport) => ({
       ...currentViewport,
-      x: currentViewport.x + deltaX,
-      y: currentViewport.y + deltaY,
+      x: currentViewport.x + (Number.isFinite(deltaX) ? deltaX : 0),
+      y: currentViewport.y + (Number.isFinite(deltaY) ? deltaY : 0),
     }));
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
-    setViewport((currentViewport) => zoomViewportAt(currentViewport, nextScale, origin));
+    setViewport((currentViewport) => zoomViewportAt(currentViewport, nextScale, zoomOrigin(origin)));
+  }
+
+  function zoomWorkspaceBy(factor: number, origin?: WorkspacePosition) {
+    setViewport((currentViewport) => zoomViewportAt(
+      currentViewport,
+      zoomScaleBy(currentViewport.scale, factor),
+      zoomOrigin(origin),
+    ));
+  }
+
+  function zoomOrigin(origin?: WorkspacePosition): WorkspacePosition | undefined {
+    if (origin || !workspaceSurfaceRef.current) return origin;
+    const { width, height } = measureSurfaceSize(workspaceSurfaceRef.current);
+    return { x: width / 2, y: height / 2 };
   }
 
   function resetViewport() {
@@ -162,8 +178,8 @@ export function useWorkspaceController({
       { x: event.clientX, y: event.clientY },
       event.currentTarget,
     );
-    const delta = event.deltaY < 0 ? WORKSPACE_ZOOM_STEP : -WORKSPACE_ZOOM_STEP;
-    zoomWorkspace(viewport.scale + delta, origin);
+    const height = measureSurfaceSize(event.currentTarget).height;
+    zoomWorkspaceBy(zoomFactorFromWheelDelta(normalizedWheelDelta(event.deltaY, event.deltaMode, height)), origin);
   }
 
   return {
@@ -184,5 +200,6 @@ export function useWorkspaceController({
     workspaceSurfaceRef,
     workspaceSurfaceSize,
     zoomWorkspace,
+    zoomWorkspaceBy,
   };
 }
