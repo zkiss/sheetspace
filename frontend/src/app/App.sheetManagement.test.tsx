@@ -22,7 +22,7 @@ describe('App sheet management integration', () => {
 
     const frame = screen.getByTestId('sheet-frame');
     expect(within(frame).getByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
-    expect(frame).toHaveStyle({ left: '183px', top: '250px' });
+    expect(frame).toHaveStyle({ left: '267px', top: '317px' });
   });
 
   it('wires the rename dialog to the selected workbook sheet', async () => {

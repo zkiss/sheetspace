@@ -80,4 +80,17 @@ describe('useWorkspaceController', () => {
     expect(onCreateSheet).toHaveBeenCalledWith({ x: 400, y: 350 }, 'Create sheet at viewport center');
     expect(result.current.pendingSheetMenu).toBeNull();
   });
+
+  it('rounds sheet frame placement after fractional viewport geometry is resolved', () => {
+    const onCreateSheet = vi.fn();
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet }));
+
+    act(() => {
+      result.current.workspaceSurfaceRef.current = workspaceElement(1001, 801);
+      result.current.zoomWorkspaceBy(1.2);
+      result.current.createSheetAtViewportCenter();
+    });
+
+    expect(onCreateSheet).toHaveBeenCalledWith({ x: 501, y: 401 }, 'Create sheet at viewport center');
+  });
 });

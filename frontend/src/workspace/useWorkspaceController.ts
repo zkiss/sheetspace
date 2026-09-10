@@ -116,17 +116,17 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();
-    onCreateSheet(workspacePointAtViewportCenter(workspace, viewport), 'Create sheet at viewport center');
+    onCreateSheet(sheetFramePosition(workspacePointAtViewportCenter(workspace, viewport)), 'Create sheet at viewport center');
   }
 
   function handleWorkspaceContextMenu(event: MouseEvent<HTMLElement>) {
     event.preventDefault();
     closeSheetMenu();
-    onCreateSheet(workspacePointFromClient(
+    onCreateSheet(sheetFramePosition(workspacePointFromClient(
       { x: event.clientX, y: event.clientY },
       event.currentTarget,
       viewport,
-    ), 'Create sheet here');
+    )), 'Create sheet here');
   }
 
   function handleWorkspacePointerDown(event: PointerEvent<HTMLElement>) {
@@ -202,4 +202,8 @@ export function useWorkspaceController({
     zoomWorkspace,
     zoomWorkspaceBy,
   };
+}
+
+function sheetFramePosition(position: WorkspacePosition): WorkspacePosition {
+  return { x: Math.round(position.x), y: Math.round(position.y) };
 }
