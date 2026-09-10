@@ -20,15 +20,17 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 - Copy and paste scalar values, raw formulas, and rectangular ranges.
 - Add `$` row and column anchors for absolute and mixed A1 references.
 - Adjust relative references when formulas are copied while preserving anchored coordinates.
+- Apply the same coordinate transformation when copying between sheets. Unqualified references resolve in the destination sheet, including anchored references; explicit sheet qualifiers retain their sheet identity. Anchors fix row or column coordinates, not the source sheet.
 - Clear and move selected ranges with predictable reference and comment hooks for later features.
-- Provide a fill handle for repeating values, patterns, and formulas across rows or columns.
 - Make multi-cell operations atomic from the user's perspective.
 
 ### Undo and redo
 
-- Add workbook-aware undo and redo for cell edits and Phase 3 range operations.
-- Preserve correct formula results, selection, and persistence after undo or redo.
-- Define transaction boundaries so a paste or fill action is undone as one action.
+- Add session-local, workbook-aware undo and redo for cell-content edits and Phase 3 range operations. Selection, focus, and viewport movement belong to the separate Phase 5 navigation history and are not recorded or restored by edit history.
+- Recalculate formula results from restored contents and persist the resulting changes. A paste, clear, or move is undone as one atomic action, including moves between sheets.
+- Reveal the affected region without changing the current selection. Use a temporary yellow, selection-like pulse to distinguish edit feedback from selection.
+- Fade restored contents in when undoing deletion, fade removed contents out, and crossfade between previous and restored contents when replacing values. Redo uses the same feedback. Apply data changes immediately; animation must not delay calculation, saving, or further input.
+- Under reduced-motion preferences, use a brief static highlight without pulsing or fading.
 
 ### Canvas navigation and multi-scale composition
 
@@ -44,7 +46,10 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 
 - Resize sheet frames from their edges or corners and persist frame size.
 - Resize row heights and column widths and persist their metadata.
-- Add a focused initial set of value and presentation formatting.
+- Support General, Number, and Percent value formats plus bold, alignment, text colour, and fill colour at column, row, and cell level.
+- Combine formatting one property at a time using the planning default precedence cell > row > column > application default. Store row and column formatting as inherited defaults for their cells, including blank cells, rather than copying it into every cell.
+- Distinguish removing an override to inherit from explicitly resetting a property to its application default. An explicit normal font, General number format, or no-fill background must be able to suppress inherited formatting while leaving other properties intact.
+- Preserve explicit override intent through persistence, including default-valued properties that suppress inheritance. Applying row or column formats retains cell overrides; changing or clearing cell contents retains formatting.
 - Use a lightweight overview presentation when combined viewport-and-sheet scale makes cell editing illegible, while keeping navigation and sheet selection available.
 - Restore detailed editing automatically when the sheet becomes legible again.
 - Respect reduced-motion preferences in selection and focus transitions.
@@ -52,15 +57,16 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 ## Completion Signal
 
 - A user can enter and revise a medium-sized table without relying on repeated pointer-driven single-cell edits.
-- Range copy, paste, clear, move, and fill preserve raw formulas and produce correct recalculation.
+- Range copy, paste, clear, and move preserve raw formulas and produce correct recalculation.
 - Undo and redo reliably reverse and restore compound grid actions.
-- Sheet, row, and column sizing plus supported formatting survive reload.
+- Sheet, row, and column sizing plus supported row, column, and cell formatting survive reload, preserving inheritance and explicit overrides.
 - A user can smoothly traverse a wide-range canvas, create a sheet at deep zoom, and later see it as a miniature part of a larger visual composition.
 - Per-sheet visual scale survives reload as its own part of frame layout.
 - Zoomed-out or individually miniaturized sheets present a clear overview suited to their current scale.
 
 ## Deferred To Later Phases
 
+- Fill handles and automatic pattern or series extension are deferred without an assigned phase.
 - Row and column insertion, deletion, reordering, custom names, and extraction are Phase 4.
 - Rich formula editing and deeper reference visualization are Phase 5.
 - Comments, layers, and frame hiding are Phase 6.

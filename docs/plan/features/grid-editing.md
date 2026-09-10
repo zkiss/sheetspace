@@ -19,7 +19,7 @@ Each sheet needs a familiar spreadsheet grid. Grid editing should feel recogniza
 - Copy, paste, clear, and move ranges.
 - Provide undo and redo for user actions.
 - Support fill-handle workflows.
-- Support formatting for values and presentation.
+- Support value and presentation formatting at column, row, and cell level, combining individual properties through inheritance and explicit cell overrides.
 
 ## Open Decisions
 
