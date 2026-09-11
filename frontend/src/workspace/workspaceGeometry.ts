@@ -117,7 +117,15 @@ export function clampWorkspaceZoom(scale: number) {
 }
 
 export function zoomScaleBy(currentScale: number, factor: number): number {
-  return clampWorkspaceZoom(normalizedWorkspaceZoom(currentScale) * finitePositiveOr(factor, 1));
+  const scale = normalizedWorkspaceZoom(currentScale);
+  if (factor === 0) return MIN_WORKSPACE_ZOOM;
+  if (factor === Number.POSITIVE_INFINITY) return MAX_WORKSPACE_ZOOM;
+  if (!Number.isFinite(factor) || factor < 0) return clampWorkspaceZoom(scale);
+
+  const nextScale = scale * factor;
+  if (nextScale === 0) return MIN_WORKSPACE_ZOOM;
+  if (nextScale === Number.POSITIVE_INFINITY) return MAX_WORKSPACE_ZOOM;
+  return clampWorkspaceZoom(nextScale);
 }
 
 export function normalizedWheelDelta(
@@ -134,7 +142,18 @@ export function normalizedWheelDelta(
 }
 
 export function zoomFactorFromWheelDelta(delta: number): number {
-  return Math.exp(-finiteOr(delta) * WORKSPACE_WHEEL_PIXEL_SENSITIVITY);
+  const exponent = -finiteOr(delta) * WORKSPACE_WHEEL_PIXEL_SENSITIVITY;
+  if (exponent >= Math.log(Number.MAX_VALUE)) return Number.MAX_VALUE;
+  if (exponent <= Math.log(Number.MIN_VALUE)) return Number.MIN_VALUE;
+  return Math.exp(exponent);
+}
+
+export function addFiniteWorkspaceCoordinate(current: number, delta: number): number {
+  const finiteCurrent = finiteOr(current);
+  const finiteDelta = finiteOr(delta);
+  const sum = finiteCurrent + finiteDelta;
+  if (Number.isFinite(sum)) return finiteOr(sum);
+  return finiteDelta < 0 ? -Number.MAX_VALUE : Number.MAX_VALUE;
 }
 
 export function zoomViewportAt(

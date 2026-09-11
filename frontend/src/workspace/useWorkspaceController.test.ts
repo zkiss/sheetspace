@@ -59,6 +59,23 @@ describe('useWorkspaceController', () => {
     expect(result.current.viewport).toEqual({ x: 0, y: 0, scale: 1 });
   });
 
+  it('saturates repeated finite pans before viewport coordinates overflow', () => {
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
+
+    act(() => {
+      result.current.panWorkspace(Number.MAX_VALUE, -Number.MAX_VALUE);
+      result.current.panWorkspace(Number.MAX_VALUE, -Number.MAX_VALUE);
+    });
+
+    expect(result.current.viewport).toEqual({
+      x: Number.MAX_VALUE,
+      y: -Number.MAX_VALUE,
+      scale: 1,
+    });
+    expect(Number.isFinite(result.current.viewport.x)).toBe(true);
+    expect(Number.isFinite(result.current.viewport.y)).toBe(true);
+  });
+
   it('uses the surface center as the toolbar zoom origin', () => {
     const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
     act(() => { result.current.workspaceSurfaceRef.current = workspaceElement(1000, 800); });

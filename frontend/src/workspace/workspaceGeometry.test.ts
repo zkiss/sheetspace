@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  addFiniteWorkspaceCoordinate,
   clampSheetFrameSize,
   clampWorkspaceZoom,
   normalizedWheelDelta,
@@ -67,6 +68,23 @@ describe('workspaceGeometry', () => {
     expect(normalizedWheelDelta(1 / 900, 2, 900)).toBeCloseTo(1);
     expect(normalizedWheelDelta(Number.POSITIVE_INFINITY, 0, 900)).toBe(0);
     expect(zoomFactorFromWheelDelta(0)).toBe(1);
+  });
+
+  it('saturates large finite wheel deltas at the zoom limits in their original direction', () => {
+    const pageHeight = 1000;
+    const zoomOutFactor = zoomFactorFromWheelDelta(normalizedWheelDelta(1_000_000, 2, pageHeight));
+    const zoomInFactor = zoomFactorFromWheelDelta(normalizedWheelDelta(-1_000_000, 2, pageHeight));
+
+    expect(Number.isFinite(zoomOutFactor)).toBe(true);
+    expect(Number.isFinite(zoomInFactor)).toBe(true);
+    expect(zoomScaleBy(1, zoomOutFactor)).toBe(0.1);
+    expect(zoomScaleBy(1, zoomInFactor)).toBe(8);
+  });
+
+  it('keeps accumulated workspace coordinates finite when addition overflows', () => {
+    expect(addFiniteWorkspaceCoordinate(Number.MAX_VALUE, Number.MAX_VALUE)).toBe(Number.MAX_VALUE);
+    expect(addFiniteWorkspaceCoordinate(-Number.MAX_VALUE, -Number.MAX_VALUE)).toBe(-Number.MAX_VALUE);
+    expect(addFiniteWorkspaceCoordinate(10, Number.POSITIVE_INFINITY)).toBe(10);
   });
 
   it('converts viewport coordinates into workspace points and centers', () => {

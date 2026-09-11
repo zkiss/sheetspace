@@ -2,6 +2,7 @@ import { MouseEvent, PointerEvent, useLayoutEffect, useRef, useState, WheelEvent
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 import {
+  addFiniteWorkspaceCoordinate,
   surfacePointFromClient,
   surfaceDeltaFromClient,
   surfaceSize as measureSurfaceSize,
@@ -67,8 +68,8 @@ export function useWorkspaceController({
   function panWorkspace(deltaX: number, deltaY: number) {
     setViewport((currentViewport) => ({
       ...currentViewport,
-      x: currentViewport.x + (Number.isFinite(deltaX) ? deltaX : 0),
-      y: currentViewport.y + (Number.isFinite(deltaY) ? deltaY : 0),
+      x: addFiniteWorkspaceCoordinate(currentViewport.x, deltaX),
+      y: addFiniteWorkspaceCoordinate(currentViewport.y, deltaY),
     }));
   }
 
