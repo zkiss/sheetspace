@@ -138,7 +138,10 @@ export function normalizedWheelDelta(
     : deltaMode === WHEEL_DELTA_PAGE_MODE
       ? Math.max(1, finitePositiveOr(surfaceHeight, 1))
       : 1;
-  return finiteOr(delta) * unit;
+  const normalizedDelta = finiteOr(delta);
+  const scaledDelta = normalizedDelta * unit;
+  if (Number.isFinite(scaledDelta)) return scaledDelta;
+  return normalizedDelta < 0 ? -Number.MAX_VALUE : Number.MAX_VALUE;
 }
 
 export function zoomFactorFromWheelDelta(delta: number): number {
@@ -164,6 +167,13 @@ export function zoomViewportAt(
   const scale = clampWorkspaceZoom(nextScale);
   const previousScale = normalizedWorkspaceZoom(currentViewport.scale);
   const origin = { x: finiteOr(surfaceOrigin.x), y: finiteOr(surfaceOrigin.y) };
+  if (scale === previousScale) {
+    return {
+      x: finiteOr(currentViewport.x),
+      y: finiteOr(currentViewport.y),
+      scale,
+    };
+  }
   const workspaceOrigin = {
     x: (origin.x - finiteOr(currentViewport.x)) / previousScale,
     y: (origin.y - finiteOr(currentViewport.y)) / previousScale,
