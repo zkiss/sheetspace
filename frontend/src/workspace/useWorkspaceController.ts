@@ -1,17 +1,14 @@
-import { MouseEvent, PointerEvent, useLayoutEffect, useRef, useState, WheelEvent } from 'react';
+import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
+import { useWorkspaceGestures } from './useWorkspaceGestures';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 import {
   addFiniteWorkspaceCoordinate,
-  surfacePointFromClient,
-  surfaceDeltaFromClient,
   surfaceSize as measureSurfaceSize,
   viewportForTarget,
   workspacePointAtViewportCenter,
   workspacePointFromClient,
   type WorkspaceTargetRect,
-  normalizedWheelDelta,
-  zoomFactorFromWheelDelta,
   zoomScaleBy,
   zoomViewportAt,
 } from '@workspace/workspaceGeometry';
@@ -23,10 +20,12 @@ export function useWorkspaceController({
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
-  const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
+  const [navigationInterrupted, setNavigationInterrupted] = useState(false);
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
-  const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
+  const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
+    pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu,
+  });
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -66,6 +65,7 @@ export function useWorkspaceController({
   }
 
   function panWorkspace(deltaX: number, deltaY: number) {
+    setNavigationInterrupted(true);
     setViewport((currentViewport) => ({
       ...currentViewport,
       x: addFiniteWorkspaceCoordinate(currentViewport.x, deltaX),
@@ -74,10 +74,12 @@ export function useWorkspaceController({
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
+    setNavigationInterrupted(true);
     setViewport((currentViewport) => zoomViewportAt(currentViewport, nextScale, zoomOrigin(origin)));
   }
 
   function zoomWorkspaceBy(factor: number, origin?: WorkspacePosition) {
+    setNavigationInterrupted(true);
     setViewport((currentViewport) => zoomViewportAt(
       currentViewport,
       zoomScaleBy(currentViewport.scale, factor),
@@ -92,6 +94,7 @@ export function useWorkspaceController({
   }
 
   function resetViewport() {
+    setNavigationInterrupted(true);
     setViewport({ x: 0, y: 0, scale: 1 });
   }
 
@@ -102,6 +105,7 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
+    setNavigationInterrupted(false);
     setViewport((currentViewport) =>
       viewportForTarget({
         currentViewport,
@@ -130,73 +134,17 @@ export function useWorkspaceController({
     )), 'Create sheet here');
   }
 
-  function handleWorkspacePointerDown(event: PointerEvent<HTMLElement>) {
-    closeSheetMenu();
-
-    if (event.button !== 0 && event.button !== undefined) {
-      return;
-    }
-
-    panDrag.current = {
-      pointerId: event.pointerId,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    };
-    setIsPanningWorkspace(true);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  }
-
-  function handleWorkspacePointerMove(event: PointerEvent<HTMLElement>) {
-    if (!panDrag.current || panDrag.current.pointerId !== event.pointerId) {
-      return;
-    }
-
-    const delta = surfaceDeltaFromClient(
-      { x: panDrag.current.clientX, y: panDrag.current.clientY },
-      { x: event.clientX, y: event.clientY },
-    );
-    panDrag.current = {
-      pointerId: event.pointerId,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    };
-    panWorkspace(delta.x, delta.y);
-  }
-
-  function stopWorkspacePan(event: PointerEvent<HTMLElement>) {
-    if (!panDrag.current || panDrag.current.pointerId !== event.pointerId) {
-      return;
-    }
-
-    panDrag.current = null;
-    setIsPanningWorkspace(false);
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-  }
-
-  function handleWorkspaceWheel(event: WheelEvent<HTMLElement>) {
-    event.preventDefault();
-    const origin = surfacePointFromClient(
-      { x: event.clientX, y: event.clientY },
-      event.currentTarget,
-    );
-    const height = measureSurfaceSize(event.currentTarget).height;
-    zoomWorkspaceBy(zoomFactorFromWheelDelta(normalizedWheelDelta(event.deltaY, event.deltaMode, height)), origin);
-  }
-
   return {
     closeSheetMenu,
     createSheetAtViewportCenter,
     handleWorkspaceContextMenu,
-    handleWorkspacePointerDown,
-    handleWorkspacePointerMove,
-    handleWorkspaceWheel,
     isPanningWorkspace,
+    navigationInterrupted,
     navigateToTarget,
     openSheetMenu,
     panWorkspace,
     pendingSheetMenu,
     resetViewport,
-    stopWorkspacePan,
     viewport,
     workspaceSurfaceRef,
     workspaceSurfaceSize,

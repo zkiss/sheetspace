@@ -1,4 +1,4 @@
-import type { MouseEvent, PointerEvent, ReactNode, RefObject, WheelEvent } from 'react';
+import type { MouseEvent, ReactNode, RefObject } from 'react';
 import type { WorkspaceViewport } from './workspaceContracts';
 import '@workspace/WorkspaceSurface.css';
 
@@ -9,11 +9,6 @@ export function WorkspaceSurface({
   isPanningWorkspace,
   navigationMotion,
   onContextMenu,
-  onPointerCancel,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  onWheel,
   viewport,
   workspaceSurfaceRef,
 }: {
@@ -23,11 +18,6 @@ export function WorkspaceSurface({
   isPanningWorkspace: boolean;
   navigationMotion: boolean;
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
-  onPointerCancel: (event: PointerEvent<HTMLElement>) => void;
-  onPointerDown: (event: PointerEvent<HTMLElement>) => void;
-  onPointerMove: (event: PointerEvent<HTMLElement>) => void;
-  onPointerUp: (event: PointerEvent<HTMLElement>) => void;
-  onWheel: (event: WheelEvent<HTMLElement>) => void;
   viewport: WorkspaceViewport;
   workspaceSurfaceRef: RefObject<HTMLElement>;
 }) {
@@ -40,11 +30,6 @@ export function WorkspaceSurface({
       data-viewport-y={viewport.y}
       data-testid="workspace-surface"
       onContextMenu={onContextMenu}
-      onPointerCancel={onPointerCancel}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onWheel={onWheel}
       ref={workspaceSurfaceRef}
     >
       {!hasSheets ? (

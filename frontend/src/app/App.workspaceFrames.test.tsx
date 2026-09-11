@@ -68,7 +68,7 @@ describe('App workspace and sheet frame composition', () => {
 
     const surface = workspaceSurface();
     fireEvent(surface, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 0, clientY: 0 }));
-    fireEvent(surface, new MouseEvent('pointermove', { bubbles: true, clientX: -2_200, clientY: -1_400 }));
+    fireEvent(surface, new MouseEvent('pointermove', { bubbles: true, buttons: 1, clientX: -2_200, clientY: -1_400 }));
     fireEvent(surface, new MouseEvent('pointerup', { bubbles: true, clientX: -2_200, clientY: -1_400 }));
 
     await waitFor(() => expect(screen.getAllByTestId('sheet-frame')).toHaveLength(1));

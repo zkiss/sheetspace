@@ -191,13 +191,8 @@ export function Workspace({
         ) : undefined}
         hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
-        navigationMotion={navigationMotion}
+        navigationMotion={navigationMotion && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
-        onPointerCancel={workspaceController.stopWorkspacePan}
-        onPointerDown={workspaceController.handleWorkspacePointerDown}
-        onPointerMove={workspaceController.handleWorkspacePointerMove}
-        onPointerUp={workspaceController.stopWorkspacePan}
-        onWheel={workspaceController.handleWorkspaceWheel}
         viewport={workspaceController.viewport}
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
       >
