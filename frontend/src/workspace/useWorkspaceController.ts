@@ -1,15 +1,16 @@
-import { MouseEvent, PointerEvent, useLayoutEffect, useRef, useState, WheelEvent } from 'react';
+import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
+import { useWorkspaceGestures } from './useWorkspaceGestures';
+import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 import {
-  surfacePointFromClient,
-  surfaceDeltaFromClient,
+  addFiniteWorkspaceCoordinate,
   surfaceSize as measureSurfaceSize,
   viewportForTarget,
   workspacePointAtViewportCenter,
   workspacePointFromClient,
   type WorkspaceTargetRect,
-  WORKSPACE_ZOOM_STEP,
+  zoomScaleBy,
   zoomViewportAt,
 } from '@workspace/workspaceGeometry';
 
@@ -20,10 +21,14 @@ export function useWorkspaceController({
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
-  const [isPanningWorkspace, setIsPanningWorkspace] = useState(false);
+  const [navigationInterrupted, setNavigationInterrupted] = useState(false);
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
-  const panDrag = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
+  const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
+  const navigationMayBeMoving = useRef(false);
+  const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
+    start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu,
+  });
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -62,19 +67,48 @@ export function useWorkspaceController({
     });
   }
 
+  function interruptNavigation() {
+    // Read before React removes the transition, and only once even for batched inputs.
+    if (navigationMayBeMoving.current) {
+      navigationMayBeMoving.current = false;
+      const displayed = displayedWorkspaceViewport(workspacePlaneRef.current);
+      if (displayed) setViewport(displayed);
+    }
+    setNavigationInterrupted(true);
+  }
+
   function panWorkspace(deltaX: number, deltaY: number) {
+    interruptNavigation();
     setViewport((currentViewport) => ({
       ...currentViewport,
-      x: currentViewport.x + deltaX,
-      y: currentViewport.y + deltaY,
+      x: addFiniteWorkspaceCoordinate(currentViewport.x, deltaX),
+      y: addFiniteWorkspaceCoordinate(currentViewport.y, deltaY),
     }));
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
-    setViewport((currentViewport) => zoomViewportAt(currentViewport, nextScale, origin));
+    interruptNavigation();
+    setViewport((currentViewport) => zoomViewportAt(currentViewport, nextScale, zoomOrigin(origin)));
+  }
+
+  function zoomWorkspaceBy(factor: number, origin?: WorkspacePosition) {
+    interruptNavigation();
+    setViewport((currentViewport) => zoomViewportAt(
+      currentViewport,
+      zoomScaleBy(currentViewport.scale, factor),
+      zoomOrigin(origin),
+    ));
+  }
+
+  function zoomOrigin(origin?: WorkspacePosition): WorkspacePosition | undefined {
+    if (origin || !workspaceSurfaceRef.current) return origin;
+    const { width, height } = measureSurfaceSize(workspaceSurfaceRef.current);
+    return { x: width / 2, y: height / 2 };
   }
 
   function resetViewport() {
+    navigationMayBeMoving.current = false;
+    setNavigationInterrupted(true);
     setViewport({ x: 0, y: 0, scale: 1 });
   }
 
@@ -85,6 +119,8 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
+    navigationMayBeMoving.current = true;
+    setNavigationInterrupted(false);
     setViewport((currentViewport) =>
       viewportForTarget({
         currentViewport,
@@ -100,89 +136,39 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();
-    onCreateSheet(workspacePointAtViewportCenter(workspace, viewport), 'Create sheet at viewport center');
+    onCreateSheet(sheetFramePosition(workspacePointAtViewportCenter(workspace, viewport)), 'Create sheet at viewport center');
   }
 
   function handleWorkspaceContextMenu(event: MouseEvent<HTMLElement>) {
     event.preventDefault();
     closeSheetMenu();
-    onCreateSheet(workspacePointFromClient(
+    onCreateSheet(sheetFramePosition(workspacePointFromClient(
       { x: event.clientX, y: event.clientY },
       event.currentTarget,
       viewport,
-    ), 'Create sheet here');
-  }
-
-  function handleWorkspacePointerDown(event: PointerEvent<HTMLElement>) {
-    closeSheetMenu();
-
-    if (event.button !== 0 && event.button !== undefined) {
-      return;
-    }
-
-    panDrag.current = {
-      pointerId: event.pointerId,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    };
-    setIsPanningWorkspace(true);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  }
-
-  function handleWorkspacePointerMove(event: PointerEvent<HTMLElement>) {
-    if (!panDrag.current || panDrag.current.pointerId !== event.pointerId) {
-      return;
-    }
-
-    const delta = surfaceDeltaFromClient(
-      { x: panDrag.current.clientX, y: panDrag.current.clientY },
-      { x: event.clientX, y: event.clientY },
-    );
-    panDrag.current = {
-      pointerId: event.pointerId,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    };
-    panWorkspace(delta.x, delta.y);
-  }
-
-  function stopWorkspacePan(event: PointerEvent<HTMLElement>) {
-    if (!panDrag.current || panDrag.current.pointerId !== event.pointerId) {
-      return;
-    }
-
-    panDrag.current = null;
-    setIsPanningWorkspace(false);
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-  }
-
-  function handleWorkspaceWheel(event: WheelEvent<HTMLElement>) {
-    event.preventDefault();
-    const origin = surfacePointFromClient(
-      { x: event.clientX, y: event.clientY },
-      event.currentTarget,
-    );
-    const delta = event.deltaY < 0 ? WORKSPACE_ZOOM_STEP : -WORKSPACE_ZOOM_STEP;
-    zoomWorkspace(viewport.scale + delta, origin);
+    )), 'Create sheet here');
   }
 
   return {
     closeSheetMenu,
     createSheetAtViewportCenter,
     handleWorkspaceContextMenu,
-    handleWorkspacePointerDown,
-    handleWorkspacePointerMove,
-    handleWorkspaceWheel,
     isPanningWorkspace,
+    navigationInterrupted,
     navigateToTarget,
     openSheetMenu,
     panWorkspace,
     pendingSheetMenu,
     resetViewport,
-    stopWorkspacePan,
     viewport,
+    workspacePlaneRef,
     workspaceSurfaceRef,
     workspaceSurfaceSize,
     zoomWorkspace,
+    zoomWorkspaceBy,
   };
+}
+
+function sheetFramePosition(position: WorkspacePosition): WorkspacePosition {
+  return { x: Math.round(position.x), y: Math.round(position.y) };
 }

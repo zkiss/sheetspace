@@ -37,7 +37,7 @@ describe('useWorkspaceController', () => {
     expect(currentController?.workspaceSurfaceSize).toEqual({ height: 480, width: 640 });
   });
 
-  it('pans, zooms around an origin, clamps zoom, and resets viewport state', () => {
+  it('pans, compounds multiplicative zoom around an origin, clamps zoom, and resets viewport state', () => {
     const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
 
     act(() => result.current.panWorkspace(80, -40));
@@ -46,11 +46,42 @@ describe('useWorkspaceController', () => {
     act(() => result.current.zoomWorkspace(1.5, { x: 100, y: 100 }));
     expect(result.current.viewport).toEqual({ x: 70, y: -110, scale: 1.5 });
 
+    act(() => {
+      result.current.zoomWorkspaceBy(1.2);
+      result.current.zoomWorkspaceBy(1.2);
+    });
+    expect(result.current.viewport.scale).toBeCloseTo(2.16);
+
     act(() => result.current.zoomWorkspace(10));
-    expect(result.current.viewport.scale).toBe(2);
+    expect(result.current.viewport.scale).toBe(8);
 
     act(() => result.current.resetViewport());
     expect(result.current.viewport).toEqual({ x: 0, y: 0, scale: 1 });
+  });
+
+  it('saturates repeated finite pans before viewport coordinates overflow', () => {
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
+
+    act(() => {
+      result.current.panWorkspace(Number.MAX_VALUE, -Number.MAX_VALUE);
+      result.current.panWorkspace(Number.MAX_VALUE, -Number.MAX_VALUE);
+    });
+
+    expect(result.current.viewport).toEqual({
+      x: Number.MAX_VALUE,
+      y: -Number.MAX_VALUE,
+      scale: 1,
+    });
+    expect(Number.isFinite(result.current.viewport.x)).toBe(true);
+    expect(Number.isFinite(result.current.viewport.y)).toBe(true);
+  });
+
+  it('uses the surface center as the toolbar zoom origin', () => {
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
+    act(() => { result.current.workspaceSurfaceRef.current = workspaceElement(1000, 800); });
+    act(() => result.current.zoomWorkspaceBy(1.2));
+
+    expect(result.current.viewport).toEqual({ x: -100, y: -80, scale: 1.2 });
   });
 
   it('creates sheets at the current viewport center and clears an open sheet menu', () => {
@@ -65,5 +96,18 @@ describe('useWorkspaceController', () => {
 
     expect(onCreateSheet).toHaveBeenCalledWith({ x: 400, y: 350 }, 'Create sheet at viewport center');
     expect(result.current.pendingSheetMenu).toBeNull();
+  });
+
+  it('rounds sheet frame placement after fractional viewport geometry is resolved', () => {
+    const onCreateSheet = vi.fn();
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet }));
+
+    act(() => {
+      result.current.workspaceSurfaceRef.current = workspaceElement(1001, 801);
+      result.current.zoomWorkspaceBy(1.2);
+      result.current.createSheetAtViewportCenter();
+    });
+
+    expect(onCreateSheet).toHaveBeenCalledWith({ x: 501, y: 401 }, 'Create sheet at viewport center');
   });
 });

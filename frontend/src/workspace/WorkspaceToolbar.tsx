@@ -1,6 +1,6 @@
 import type { WorkspaceViewport } from './workspaceContracts';
 import type { SaveStatus } from '@application/core/state';
-import { WORKSPACE_PAN_STEP, WORKSPACE_ZOOM_STEP } from '@workspace/workspaceGeometry';
+import { WORKSPACE_PAN_STEP, WORKSPACE_ZOOM_FACTOR } from '@workspace/workspaceGeometry';
 import '@workspace/WorkspaceToolbar.css';
 
 function saveStatusText(status: SaveStatus) {
@@ -31,7 +31,7 @@ export function WorkspaceToolbar({
   onPanWorkspace: (deltaX: number, deltaY: number) => void;
   onResetViewport: () => void;
   onRetryFailedSaves: () => void;
-  onZoomWorkspace: (scale: number) => void;
+  onZoomWorkspace: (factor: number) => void;
   saveStatus: SaveStatus;
   sheetCount: number;
   viewport: WorkspaceViewport;
@@ -69,11 +69,11 @@ export function WorkspaceToolbar({
           <button type="button" aria-label="Pan workspace down" onClick={() => onPanWorkspace(0, WORKSPACE_PAN_STEP)}>
             ↓
           </button>
-          <button type="button" aria-label="Zoom workspace out" onClick={() => onZoomWorkspace(viewport.scale - WORKSPACE_ZOOM_STEP)}>
+          <button type="button" aria-label="Zoom workspace out" onClick={() => onZoomWorkspace(1 / WORKSPACE_ZOOM_FACTOR)}>
             -
           </button>
           <output aria-label="Workspace zoom level">{Math.round(viewport.scale * 100)}%</output>
-          <button type="button" aria-label="Zoom workspace in" onClick={() => onZoomWorkspace(viewport.scale + WORKSPACE_ZOOM_STEP)}>
+          <button type="button" aria-label="Zoom workspace in" onClick={() => onZoomWorkspace(WORKSPACE_ZOOM_FACTOR)}>
             +
           </button>
           <button type="button" aria-label="Reset workspace viewport" onClick={onResetViewport}>

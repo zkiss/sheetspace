@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  addFiniteWorkspaceCoordinate,
   clampSheetFrameSize,
   clampWorkspaceZoom,
+  normalizedWheelDelta,
   resizeSheetFrame,
   surfacePointFromClient,
   surfaceDeltaFromClient,
@@ -14,6 +16,8 @@ import {
   workspaceRectForFrame,
   workspaceRectsIntersect,
   workspaceViewportBounds,
+  zoomFactorFromWheelDelta,
+  zoomScaleBy,
   visibleSheetFrames,
   zoomViewportAt,
 } from '@workspace/workspaceGeometry';
@@ -48,9 +52,49 @@ function workspaceElement({
 
 describe('workspaceGeometry', () => {
   it('clamps workspace zoom to the supported range', () => {
-    expect(clampWorkspaceZoom(0.1)).toBe(0.5);
+    expect(clampWorkspaceZoom(0.01)).toBe(0.1);
     expect(clampWorkspaceZoom(1.25)).toBe(1.25);
-    expect(clampWorkspaceZoom(8)).toBe(2);
+    expect(clampWorkspaceZoom(80)).toBe(8);
+    expect(clampWorkspaceZoom(Number.NaN)).toBe(1);
+    expect(clampWorkspaceZoom(Number.POSITIVE_INFINITY)).toBe(1);
+  });
+
+  it('uses finite multiplicative scales and normalizes wheel units', () => {
+    expect(zoomScaleBy(1, 1.2)).toBeCloseTo(1.2);
+    expect(zoomScaleBy(0.1, 1 / 1.2)).toBe(0.1);
+    expect(zoomScaleBy(8, 1.2)).toBe(8);
+    expect(normalizedWheelDelta(16, 0, 900)).toBe(16);
+    expect(normalizedWheelDelta(1, 1, 900)).toBe(16);
+    expect(normalizedWheelDelta(1 / 900, 2, 900)).toBeCloseTo(1);
+    expect(normalizedWheelDelta(Number.POSITIVE_INFINITY, 0, 900)).toBe(0);
+    expect(zoomFactorFromWheelDelta(0)).toBe(1);
+  });
+
+  it('saturates large finite wheel deltas at the zoom limits in their original direction', () => {
+    const pageHeight = 1000;
+    const zoomOutFactor = zoomFactorFromWheelDelta(normalizedWheelDelta(1_000_000, 2, pageHeight));
+    const zoomInFactor = zoomFactorFromWheelDelta(normalizedWheelDelta(-1_000_000, 2, pageHeight));
+
+    expect(Number.isFinite(zoomOutFactor)).toBe(true);
+    expect(Number.isFinite(zoomInFactor)).toBe(true);
+    expect(zoomScaleBy(1, zoomOutFactor)).toBe(0.1);
+    expect(zoomScaleBy(1, zoomInFactor)).toBe(8);
+  });
+
+  it('saturates page-mode normalization when finite operands overflow', () => {
+    const positiveDelta = normalizedWheelDelta(Number.MAX_VALUE, 2, 1000);
+    const negativeDelta = normalizedWheelDelta(-Number.MAX_VALUE, 2, 1000);
+
+    expect(positiveDelta).toBe(Number.MAX_VALUE);
+    expect(negativeDelta).toBe(-Number.MAX_VALUE);
+    expect(zoomScaleBy(1, zoomFactorFromWheelDelta(positiveDelta))).toBe(0.1);
+    expect(zoomScaleBy(1, zoomFactorFromWheelDelta(negativeDelta))).toBe(8);
+  });
+
+  it('keeps accumulated workspace coordinates finite when addition overflows', () => {
+    expect(addFiniteWorkspaceCoordinate(Number.MAX_VALUE, Number.MAX_VALUE)).toBe(Number.MAX_VALUE);
+    expect(addFiniteWorkspaceCoordinate(-Number.MAX_VALUE, -Number.MAX_VALUE)).toBe(-Number.MAX_VALUE);
+    expect(addFiniteWorkspaceCoordinate(10, Number.POSITIVE_INFINITY)).toBe(10);
   });
 
   it('converts viewport coordinates into workspace points and centers', () => {
@@ -75,7 +119,44 @@ describe('workspaceGeometry', () => {
       { x: 100, y: 100 },
     )).toEqual({ x: 70, y: -110, scale: 1.5 });
     expect(zoomViewportAt({ x: 0, y: 0, scale: 1 }, 10))
-      .toEqual({ x: 0, y: 0, scale: 2 });
+      .toEqual({ x: 0, y: 0, scale: 8 });
+  });
+
+  it('preserves an anchored workspace point through inverse zoom round trips without rounding drift', () => {
+    const origin = { x: 323.75, y: 171.125 };
+    const initial = { x: -1200.25, y: 900.5, scale: 1 };
+    const anchored = workspacePointFromSurface(origin, initial);
+    const zoomed = zoomViewportAt(initial, zoomScaleBy(initial.scale, 1.2), origin);
+    const restored = zoomViewportAt(zoomed, zoomScaleBy(zoomed.scale, 1 / 1.2), origin);
+
+    expect(workspacePointFromSurface(origin, zoomed)).toEqual(anchored);
+    expect(restored.x).toBeCloseTo(initial.x, 10);
+    expect(restored.y).toBeCloseTo(initial.y, 10);
+    expect(restored.scale).toBeCloseTo(initial.scale, 10);
+  });
+
+  it('preserves finite translation when zoom is clamped at either limit', () => {
+    const minimumViewport = { x: Number.MAX_VALUE, y: -Number.MAX_VALUE, scale: 0.1 };
+    const maximumViewport = { x: -Number.MAX_VALUE, y: Number.MAX_VALUE, scale: 8 };
+    const origin = { x: 400, y: 300 };
+
+    expect(zoomViewportAt(minimumViewport, 0.01, origin)).toEqual(minimumViewport);
+    expect(zoomViewportAt(maximumViewport, 80, origin)).toEqual(maximumViewport);
+  });
+
+  it('keeps large signed coordinates and fractional translations finite', () => {
+    const initial = { x: -9_000_000.25, y: 12_000_000.5, scale: 0.1 };
+    const origin = { x: 640.75, y: 360.25 };
+    const anchored = workspacePointFromSurface(origin, initial);
+    const viewport = zoomViewportAt(
+      initial,
+      8,
+      origin,
+    );
+    expect(Number.isFinite(viewport.x)).toBe(true);
+    expect(Number.isFinite(viewport.y)).toBe(true);
+    expect(workspacePointFromSurface(origin, viewport).x).toBeCloseTo(anchored.x, 8);
+    expect(Number.isFinite(workspaceViewportBounds({ width: 1280, height: 720 }, viewport).left)).toBe(true);
   });
 
   it('clamps sheet frame sizes to practical minimum dimensions', () => {
@@ -155,7 +236,7 @@ describe('workspaceGeometry', () => {
       target: { left: 1800, top: 1200, right: 2700, bottom: 1800 },
     })).toEqual({
       oversized: false,
-      viewport: { x: -1360, y: -873, scale: 0.7822222222222223 },
+      viewport: { x: -1360, y: -873.3333333333335, scale: 0.7822222222222223 },
     });
 
     expect(viewportForTarget({
@@ -177,7 +258,7 @@ describe('workspaceGeometry', () => {
       target: { left: 100, top: 100, right: 860, bottom: 628 },
     })).toEqual({
       oversized: false,
-      viewport: { x: -45, y: -37, scale: 0.9263157894736842 },
+      viewport: { x: -44.631578947368425, y: -37.17894736842105, scale: 0.9263157894736842 },
     });
 
     expect(viewportForTarget({

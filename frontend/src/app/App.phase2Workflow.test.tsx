@@ -124,7 +124,6 @@ describe('Phase 2 acceptance workflow', () => {
       );
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(2);
     },
-    8_000,
   );
 });
 

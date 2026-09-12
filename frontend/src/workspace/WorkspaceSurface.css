@@ -12,8 +12,10 @@
   touch-action: none;
 }
 
-.workspace-surface-panning {
+.workspace-surface-panning,
+.workspace-surface-panning * {
   cursor: grabbing;
+  user-select: none;
 }
 
 .workspace-plane {

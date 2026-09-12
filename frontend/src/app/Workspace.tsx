@@ -151,7 +151,7 @@ export function Workspace({
         onPanWorkspace={workspaceController.panWorkspace}
         onResetViewport={workspaceController.resetViewport}
         onRetryFailedSaves={onRetryFailedSaves}
-        onZoomWorkspace={workspaceController.zoomWorkspace}
+        onZoomWorkspace={workspaceController.zoomWorkspaceBy}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
         sheetCount={sheets.length}
@@ -191,15 +191,11 @@ export function Workspace({
         ) : undefined}
         hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
-        navigationMotion={navigationMotion}
+        navigationMotion={navigationMotion && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
-        onPointerCancel={workspaceController.stopWorkspacePan}
-        onPointerDown={workspaceController.handleWorkspacePointerDown}
-        onPointerMove={workspaceController.handleWorkspacePointerMove}
-        onPointerUp={workspaceController.stopWorkspacePan}
-        onWheel={workspaceController.handleWorkspaceWheel}
         viewport={workspaceController.viewport}
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
+        workspacePlaneRef={workspaceController.workspacePlaneRef}
       >
         {sheets.map((sheet) => {
           if (!mountedSheetIds.has(sheet.id)) return null;
