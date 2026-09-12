@@ -83,6 +83,17 @@ describe('cellInteractionReducer', () => {
     expect(crossed.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a1 });
   });
 
+  it('requests focus only for keyboard range extension', () => {
+    const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: b1 });
+    const pointerExtended = cellInteractionReducer(selected, { type: 'extend-selection', target: a2 });
+    expect(pointerExtended.focusRequest).toBeNull();
+
+    const keyboardExtended = cellInteractionReducer(pointerExtended, {
+      type: 'extend-selection', target: a1, requestFocus: true,
+    });
+    expect(keyboardExtended.focusRequest).toMatchObject({ id: 1, target: a1 });
+  });
+
   it('uses the same stable model for whole-axis ranges without crossing sheets', () => {
     const rows = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
       type: 'select-axis', mode: 'rows', target: a1, extend: false,

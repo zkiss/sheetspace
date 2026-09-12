@@ -30,7 +30,7 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
 
 export type CellInteractionAction =
   | { type: 'select'; target: CellTarget }
-  | { type: 'extend-selection'; target: CellTarget }
+  | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'start-edit'; session: CellEditSession }
@@ -70,7 +70,7 @@ export function cellInteractionReducer(
       if (!anchor || anchor.sheetId !== action.target.sheetId) {
         return cellInteractionReducer(state, { type: 'select', target: action.target });
       }
-      return {
+      const extended = {
         ...state,
         selection: action.target,
         rangeSelection: { mode: state.rangeSelection?.mode ?? 'cells', anchor, extent: action.target },
@@ -78,6 +78,7 @@ export function cellInteractionReducer(
         referenceSelection: null,
         tabRunOriginColumnId: null,
       };
+      return action.requestFocus ? withFocusRequest(extended, action.target) : extended;
     }
     case 'select-axis': {
       const canExtend = action.extend

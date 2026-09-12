@@ -16,6 +16,32 @@ function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x
 }
 
 describe('useCellEditing', () => {
+  it('keeps focus with the extent through repeated Shift-arrow extension and reversal', () => {
+    const { result, sheet } = renderCellEditing();
+    const b1 = cellTargetAt(sheet, 'B1')!;
+    const c1 = cellTargetAt(sheet, 'C1')!;
+    const d1 = cellTargetAt(sheet, 'D1')!;
+    const a1 = cellTargetAt(sheet, 'A1')!;
+
+    act(() => result.current.selectCell(b1));
+    act(() => result.current.navigateCell(b1, 'right', true));
+    expect(result.current.activeCell).toEqual(c1);
+    expect(result.current.keyboardFocusRequest).toMatchObject({ id: 1, target: c1 });
+
+    act(() => result.current.navigateCell(c1, 'right', true));
+    expect(result.current.activeCell).toEqual(d1);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: b1, extent: d1 });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ id: 2, target: d1 });
+
+    act(() => result.current.navigateCell(d1, 'left', true));
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: b1, extent: c1 });
+
+    act(() => result.current.navigateCell(c1, 'left', true));
+    act(() => result.current.navigateCell(b1, 'left', true));
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: b1, extent: a1 });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ id: 5, target: a1 });
+  });
+
   it('clears local interaction state when deleted sheet disappears from workbook', () => {
     const commands = { updateCellContent: vi.fn() };
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });

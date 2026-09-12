@@ -105,7 +105,9 @@ export function useCellEditing({
       down: { columnIndex: 0, rowIndex: 1 },
     } satisfies Record<CellNavigationDirection, { columnIndex: number; rowIndex: number }>;
     const next = adjacentTarget(sheet, target, delta[direction]);
-    if (next) dispatch(extend ? { type: 'extend-selection', target: next } : { type: 'navigate', target: next });
+    if (next) dispatch(extend
+      ? { type: 'extend-selection', target: next, requestFocus: true }
+      : { type: 'navigate', target: next });
   }
 
   function commitEditAndNavigate(session: CellEditSession, direction: 'tab' | 'enter') {
