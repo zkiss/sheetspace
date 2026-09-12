@@ -60,6 +60,7 @@ export type SheetGridAxisMetrics = {
 
 export function SheetGrid({
   activeCellKey,
+  activeSheetId,
   axisMetrics,
   axisProjection,
   cellInteraction,
@@ -77,6 +78,12 @@ export function SheetGrid({
   onSelectAxis,
 }: {
   activeCellKey: string | null;
+  /**
+   * The sheet that currently owns logical selection/focus.  A mounted grid may
+   * remain visible after ownership moves to another sheet, so its pointer
+   * session must not continue dispatching into the shared selection state.
+   */
+  activeSheetId?: string | null;
   axisMetrics?: SheetGridAxisMetrics;
   axisProjection: GridAxisProjection;
   cellInteraction: SheetGridCellInteraction;
@@ -113,6 +120,8 @@ export function SheetGrid({
   const animationFrameRef = useRef(0);
   const cellInteractionRef = useRef(cellInteraction);
   cellInteractionRef.current = cellInteraction;
+  const activeSheetIdRef = useRef(activeSheetId);
+  activeSheetIdRef.current = activeSheetId;
   const { columns, rows } = axisProjection;
   const defaultRowMetrics = useMemo(() => createGridAxisMetrics(rows, GRID_CELL_HEIGHT), [rows]);
   const defaultColumnMetrics = useMemo(() => createGridAxisMetrics(columns, GRID_CELL_WIDTH), [columns]);
@@ -336,6 +345,13 @@ export function SheetGrid({
     const scrollContainer = scrollContainerRef.current;
     const drag = dragRef.current;
     if (!scrollContainer || !drag) return;
+    // This check runs from both pointer movement and the RAF loop. It closes the
+    // gap between a context-replacement render and its cleanup effect, so an
+    // already queued stale callback cannot replace the new sheet selection.
+    if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
+      finishDrag();
+      return;
+    }
     const rect = scrollContainer.getBoundingClientRect();
     // Pointer coordinates are screen-space while the grid may be scaled by the
     // workspace. Convert through the scroll viewport before consulting metrics.
@@ -395,6 +411,10 @@ export function SheetGrid({
       const drag = dragRef.current;
       const scrollContainer = scrollContainerRef.current;
       if (!drag || !scrollContainer) return;
+      if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
+        finishDrag();
+        return;
+      }
       const rect = scrollContainer.getBoundingClientRect();
       const edge = 28;
       const scrollX = drag.mode === 'rows' ? 0 : drag.clientX < rect.left + edge ? -18 : drag.clientX > rect.right - edge ? 18 : 0;
@@ -428,6 +448,13 @@ export function SheetGrid({
 
   useEffect(() => () => finishDrag(), [finishDrag, sheet.id]);
 
+  // A frame can remain mounted when reference navigation or a workspace action
+  // moves logical selection to another sheet. End the old session as part of
+  // that replacement, while allowing ordinary same-sheet rerenders to continue.
+  useEffect(() => {
+    if (activeSheetId != null && activeSheetId !== sheet.id) finishDrag();
+  }, [activeSheetId, finishDrag, sheet.id]);
+
   function beginDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"]')) return;
@@ -450,6 +477,10 @@ export function SheetGrid({
 
   function moveDrag(event: PointerEvent<HTMLDivElement>) {
     if (dragRef.current?.pointerId !== event.pointerId) return;
+    if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
+      finishDrag();
+      return;
+    }
     dragRef.current = { ...dragRef.current, clientX: event.clientX, clientY: event.clientY };
     extendSelectionAt(event.clientX, event.clientY);
   }

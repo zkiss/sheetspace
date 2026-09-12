@@ -252,6 +252,7 @@ export function Workspace({
               {(scrollContainerRef) => (
                 <SheetGrid
                   activeCellKey={cellKeyForTarget(sheet, activeCell)}
+                  activeSheetId={activeCell?.sheetId ?? null}
                   axisProjection={axisProjection}
                   cellInteraction={{
                     clear: onClearCell,

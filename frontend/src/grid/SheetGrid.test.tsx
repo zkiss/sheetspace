@@ -195,6 +195,49 @@ describe('SheetGrid creating axis slots', () => {
     expect(cellInteraction.select).toHaveBeenCalledTimes(1);
   });
 
+  it('ends a mounted grid drag when logical selection moves to another sheet', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-a', name: 'Sheet A' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = {
+      clear: vi.fn(), extend: vi.fn(), focusSelection: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(),
+    };
+    const grid = (activeSheetId: string) => (
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid
+          activeCellKey={activeSheetId === sheet.id ? 'A1' : null}
+          activeSheetId={activeSheetId}
+          axisProjection={axisProjection}
+          cellInteraction={cellInteraction}
+          editingCell={null}
+          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}}
+          keyboardFocusRequest={null}
+          onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null}
+          scrollContainerRef={scrollContainerRef}
+          sheet={sheet}
+        />
+      </div>
+    );
+
+    const view = render(grid(sheet.id));
+    const scrollContainer = scrollContainerRef.current!;
+    virtualGridGeometry(scrollContainer);
+    const sheetGrid = screen.getByTestId('sheet-grid');
+    const a1 = screen.getByRole('cell', { name: 'Sheet A A1 empty cell' });
+    firePointer(a1, 'pointerdown', { button: 0, clientX: 50, clientY: 40, pointerId: 14 });
+
+    // Sheet A stays mounted, as it does in the workspace, but Sheet B now owns
+    // the shared selection. Neither pointer nor release callbacks may reclaim it.
+    view.rerender(grid('sheet-b'));
+    firePointer(sheetGrid, 'pointermove', { clientX: 130, clientY: 40, pointerId: 14 });
+    firePointer(sheetGrid, 'pointerup', { clientX: 130, clientY: 40, pointerId: 14 });
+
+    expect(cellInteraction.extend).not.toHaveBeenCalled();
+    expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
+  });
+
   it('uses loading-only, non-addressable row and column placeholders', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'sheet-inputs', name: 'Inputs' }));
     const axisProjection = projectGridAxes(sheet, {
