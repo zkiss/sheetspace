@@ -31,3 +31,6 @@ export type CellEditSession = {
 };
 
 export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
+
+// A start establishes a fresh pointer owner; continuations must match it.
+export type SelectionGesture = { owner: symbol; start?: boolean };

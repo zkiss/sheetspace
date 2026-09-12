@@ -4,6 +4,7 @@ import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/que
 import { formulaRawForDisplay } from '@workbook/formula/reference';
 import { type SheetDocument, type SheetTabularProjection, type Workbook } from '@workbook/core/model';
 import type {
+  SelectionGesture,
   CellEditSession,
   CellSelectionMode,
   CellContentCommands,
@@ -167,12 +168,13 @@ export function useCellEditing({
     navigateCell,
     referenceSelection: state.referenceSelection,
     selectionRange: state.rangeSelection,
-    selectCell: (target: CellTarget) => dispatch({ type: 'select', target }),
-    extendSelection: (target: CellTarget) => dispatch({ type: 'extend-selection', target }),
-    focusSelection: (target: CellTarget) => dispatch({ type: 'extend-selection', target, requestFocus: true }),
-    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => {
-      commitActiveEdit();
-      dispatch({ type: 'select-axis', mode, target, extend });
+    selectionOwner: state.selectionOwner,
+    selectCell: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'select', target, gesture }),
+    extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
+    focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
+    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
+      if (!gesture || gesture.start) commitActiveEdit();
+      dispatch({ type: 'select-axis', mode, target, extend, gesture });
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,

@@ -1,7 +1,7 @@
 import { KeyboardEvent, type CSSProperties } from 'react';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
-import type { CellEditSession, CellNavigationDirection, CellTarget } from './cellInteractionContracts';
+import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellTarget } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { GRID_CELL_HEIGHT } from '@grid/gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';
@@ -14,9 +14,9 @@ export const CELL_EDITOR_MAX_HEIGHT = '12rem';
 export type SheetGridCellInteraction = {
   clear: (target: CellTarget) => void;
   navigate: (target: CellTarget, direction: CellNavigationDirection, extend?: boolean) => void;
-  select: (target: CellTarget) => void;
-  extend?: (target: CellTarget) => void;
-  focusSelection?: (target: CellTarget) => void;
+  select: (target: CellTarget, gesture?: SelectionGesture) => void;
+  extend?: (target: CellTarget, gesture?: SelectionGesture) => void;
+  focusSelection?: (target: CellTarget, gesture?: SelectionGesture) => void;
   startEditing: (target: CellTarget, initialValue?: string) => void;
 };
 

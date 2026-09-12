@@ -1,10 +1,11 @@
 import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { type SheetDocument, type SheetTabularProjection } from '@workbook/core/model';
-import type { CellEditSession, CellSelection, CellSelectionMode, CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
+import type { SelectionGesture, CellEditSession, CellSelection, CellSelectionMode, CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
 
 export type CellInteractionState = {
   selection: CellTarget | null;
+  selectionOwner: symbol | null;
   rangeSelection: CellSelection | null;
   editing: CellEditSession | null;
   focusRequest: CellFocusRequest | null;
@@ -20,6 +21,7 @@ export type CellFocusRequest = {
 
 export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
   selection: null,
+  selectionOwner: null,
   rangeSelection: null,
   editing: null,
   focusRequest: null,
@@ -29,9 +31,9 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
 };
 
 export type CellInteractionAction =
-  | { type: 'select'; target: CellTarget }
-  | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean }
-  | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean }
+  | { type: 'select'; target: CellTarget; gesture?: SelectionGesture }
+  | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean; gesture?: SelectionGesture }
+  | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'start-edit'; session: CellEditSession }
   | { type: 'update-draft'; draft: string }
@@ -54,11 +56,15 @@ export function cellInteractionReducer(
   state: CellInteractionState,
   action: CellInteractionAction,
 ): CellInteractionState {
+  // Reducer checks also reject stale dispatches queued between renders.
+  if ('gesture' in action && action.gesture && !action.gesture.start
+    && action.type !== 'select' && state.selectionOwner !== action.gesture.owner) return state;
   switch (action.type) {
     case 'select':
       return {
         ...state,
         selection: action.target,
+        selectionOwner: action.gesture?.owner ?? null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
         focusRequest: null,
         referenceSelection: null,
@@ -68,11 +74,12 @@ export function cellInteractionReducer(
       const anchor = state.rangeSelection?.anchor;
       // A range never crosses sheets.  A new sheet starts a fresh selection.
       if (!anchor || anchor.sheetId !== action.target.sheetId) {
-        return cellInteractionReducer(state, { type: 'select', target: action.target });
+        return cellInteractionReducer(state, { type: 'select', target: action.target, gesture: action.gesture });
       }
       const extended = {
         ...state,
         selection: action.target,
+        selectionOwner: action.gesture?.owner ?? null,
         rangeSelection: { mode: state.rangeSelection?.mode ?? 'cells', anchor, extent: action.target },
         focusRequest: null,
         referenceSelection: null,
@@ -87,6 +94,7 @@ export function cellInteractionReducer(
       return {
         ...state,
         selection: action.target,
+        selectionOwner: action.gesture?.owner ?? null,
         rangeSelection: {
           mode: action.mode,
           anchor: canExtend ? state.rangeSelection!.anchor : action.target,
@@ -103,6 +111,7 @@ export function cellInteractionReducer(
       return withFocusRequest({
         ...state,
         selection: target,
+        selectionOwner: null,
         rangeSelection: action.target.kind === 'range'
           ? {
               mode: 'cells',
@@ -119,6 +128,7 @@ export function cellInteractionReducer(
       return {
         ...state,
         selection: action.session.target,
+        selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.session.target, extent: action.session.target },
         editing: action.session,
         referenceSelection: null,
@@ -134,6 +144,7 @@ export function cellInteractionReducer(
       return withFocusRequest({
         ...state,
         selection: action.target,
+        selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
         editing: null,
         referenceSelection: null,
@@ -143,6 +154,7 @@ export function cellInteractionReducer(
       return withFocusRequest({
         ...state,
         selection: action.target,
+        selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
         editing: null,
         referenceSelection: null,
@@ -152,6 +164,7 @@ export function cellInteractionReducer(
       return withFocusRequest({
         ...state,
         selection: action.target,
+        selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
         editing: null,
         referenceSelection: null,
@@ -168,6 +181,7 @@ export function cellInteractionReducer(
       return {
         ...state,
         selection: keep(state.selection),
+        selectionOwner: keep(state.selection) ? state.selectionOwner : null,
         rangeSelection: state.rangeSelection && action.sheetIds.has(state.rangeSelection.anchor.sheetId)
           ? state.rangeSelection : null,
         editing: state.editing && action.sheetIds.has(state.editing.target.sheetId) ? state.editing : null,

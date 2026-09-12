@@ -6,6 +6,7 @@ import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularP
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import type {
+  SelectionGesture,
   CellTarget,
   CellNavigationDirection,
   CellEditSession,
@@ -55,6 +56,7 @@ export function Workspace({
   onStartEdit,
   referenceSelection,
   selectionRange,
+  selectionOwner,
   saveStatus,
   creatingAxes,
   creatingFrames,
@@ -76,14 +78,15 @@ export function Workspace({
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onRetryFailedSaves: () => void;
-  onSelectCell: (target: CellTarget) => void;
-  onExtendSelection: (target: CellTarget) => void;
-  onFocusSelection: (target: CellTarget) => void;
-  onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => void;
+  onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
+  onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
+  onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
+  onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
   referenceSelection: ReferenceNavigationTarget | null;
   selectionRange: CellSelection | null;
+  selectionOwner?: symbol | null;
   saveStatus: SaveStatus;
   creatingFrames: CreatingSheetFrameState[];
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
@@ -253,6 +256,7 @@ export function Workspace({
                 <SheetGrid
                   activeCellKey={cellKeyForTarget(sheet, activeCell)}
                   activeSheetId={activeCell?.sheetId ?? null}
+                  selectionOwner={selectionOwner}
                   axisProjection={axisProjection}
                   cellInteraction={{
                     clear: onClearCell,

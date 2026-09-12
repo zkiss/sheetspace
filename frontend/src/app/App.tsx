@@ -53,6 +53,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     navigateCell,
     referenceSelection,
     selectionRange,
+    selectionOwner,
     selectCell,
     selectAxis,
     selectReferenceTarget,
@@ -154,6 +155,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onStartEdit={startEditingCell}
         referenceSelection={referenceSelection}
         selectionRange={selectionRange}
+        selectionOwner={selectionOwner}
         saveStatus={saveStatus}
         workbook={workbook}
       />

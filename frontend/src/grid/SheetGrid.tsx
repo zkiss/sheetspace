@@ -12,7 +12,7 @@ import {
   GRID_CELL_WIDTH,
   GRID_ROW_HEADER_WIDTH,
 } from '@grid/gridGeometry';
-import type { CellEditSession, CellSelectionMode, CellTarget } from './cellInteractionContracts';
+import type { SelectionGesture, CellEditSession, CellSelectionMode, CellTarget } from './cellInteractionContracts';
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
 import {
   SheetGridCell,
@@ -73,6 +73,7 @@ export function SheetGrid({
   formulaResults,
   scrollContainerRef,
   selectionMode,
+  selectionOwner,
   sheet,
   selectedRange,
   onSelectAxis,
@@ -96,9 +97,11 @@ export function SheetGrid({
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
   selectionMode?: CellSelectionMode;
+  /** Controlled selection owner; omitted only by consumers without shared interaction state. */
+  selectionOwner?: symbol | null;
   sheet: SheetTabularProjection;
   selectedRange?: CellRange;
-  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => void;
+  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
 }) {
   const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
   // The application owns request lifetime, so it may keep a request prop present
@@ -115,9 +118,7 @@ export function SheetGrid({
     clientY: number;
     mode: CellSelectionMode;
     target: CellTarget | null;
-    expectedActiveCellKey: string | null;
-    expectedMode: CellSelectionMode;
-    observedSelection: boolean;
+    owner: symbol;
     captureElement: HTMLDivElement;
   } | null>(null);
   const animationFrameRef = useRef(0);
@@ -125,10 +126,8 @@ export function SheetGrid({
   cellInteractionRef.current = cellInteraction;
   const activeSheetIdRef = useRef(activeSheetId);
   activeSheetIdRef.current = activeSheetId;
-  const activeCellKeyRef = useRef(activeCellKey);
-  activeCellKeyRef.current = activeCellKey;
-  const selectionModeRef = useRef(selectionMode);
-  selectionModeRef.current = selectionMode;
+  const selectionOwnerRef = useRef(selectionOwner);
+  selectionOwnerRef.current = selectionOwner;
   const { columns, rows } = axisProjection;
   const defaultRowMetrics = useMemo(() => createGridAxisMetrics(rows, GRID_CELL_HEIGHT), [rows]);
   const defaultColumnMetrics = useMemo(() => createGridAxisMetrics(columns, GRID_CELL_WIDTH), [columns]);
@@ -382,8 +381,7 @@ export function SheetGrid({
       const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: firstRow.durableIndex }));
       if (target) {
         drag.target = target;
-        drag.expectedActiveCellKey = cellKeyForTarget(sheet, target);
-        onSelectAxis?.('columns', target, true);
+        onSelectAxis?.('columns', target, true, { owner: drag.owner });
       }
       return;
     }
@@ -393,8 +391,7 @@ export function SheetGrid({
       const target = cellTargetAt(sheet, cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: row.durableIndex }));
       if (target) {
         drag.target = target;
-        drag.expectedActiveCellKey = cellKeyForTarget(sheet, target);
-        onSelectAxis?.('rows', target, true);
+        onSelectAxis?.('rows', target, true, { owner: drag.owner });
       }
       return;
     }
@@ -402,8 +399,7 @@ export function SheetGrid({
     const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: row.durableIndex }));
     if (target) {
       drag.target = target;
-      drag.expectedActiveCellKey = cellKeyForTarget(sheet, target);
-      cellInteraction.extend(target);
+      cellInteraction.extend(target, { owner: drag.owner });
     }
   }
 
@@ -417,7 +413,7 @@ export function SheetGrid({
     animationFrameRef.current = 0;
     if (drag.captureElement.hasPointerCapture?.(drag.pointerId)) drag.captureElement.releasePointerCapture(drag.pointerId);
     setDragging(false);
-    if (focusExtent && drag.target) cellInteractionRef.current.focusSelection?.(drag.target);
+    if (focusExtent && drag.target) cellInteractionRef.current.focusSelection?.(drag.target, { owner: drag.owner });
   }, []);
 
   useEffect(() => {
@@ -474,16 +470,8 @@ export function SheetGrid({
   }, [activeSheetId, finishDrag, sheet.id]);
 
   useEffect(() => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const matchesExpected = activeCellKey === drag.expectedActiveCellKey
-      && (selectionMode ?? 'cells') === drag.expectedMode;
-    if (matchesExpected) {
-      drag.observedSelection = true;
-    } else if (drag.observedSelection) {
-      finishDrag();
-    }
-  }, [activeCellKey, finishDrag, selectionMode]);
+    if (dragRef.current && !dragOwnsCurrentSelection()) finishDrag();
+  }, [selectionOwner, finishDrag]);
 
   function beginDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
@@ -495,11 +483,13 @@ export function SheetGrid({
     const target = dragTargetForSource(source, mode ?? 'cells', sheet, rows, columns);
     if (!target) return;
     const dragMode = mode ?? 'cells';
+    const owner = Symbol('selection-gesture');
+    const gesture = { owner, start: true };
     if (dragMode === 'cells') {
-      if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
-      else cellInteraction.select(target);
+      if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target, gesture);
+      else cellInteraction.select(target, gesture);
     } else {
-      onSelectAxis?.(dragMode, target, event.shiftKey);
+      onSelectAxis?.(dragMode, target, event.shiftKey, gesture);
     }
     dragRef.current = {
       pointerId: event.pointerId,
@@ -507,9 +497,7 @@ export function SheetGrid({
       clientY: event.clientY,
       mode: dragMode,
       target,
-      expectedActiveCellKey: cellKeyForTarget(sheet, target),
-      expectedMode: dragMode,
-      observedSelection: false,
+      owner,
       captureElement: event.currentTarget,
     };
     setDragging(true);
@@ -533,12 +521,7 @@ export function SheetGrid({
   function dragOwnsCurrentSelection() {
     const drag = dragRef.current;
     if (!drag) return false;
-    // A render caused by the gesture itself moves active selection to the
-    // expected extent. Any other replacement in this mounted sheet must win
-    // over a queued move or release from the old pointer session.
-    return activeCellKeyRef.current === drag.expectedActiveCellKey
-      && (selectionModeRef.current ?? 'cells') === drag.expectedMode
-      || !drag.observedSelection;
+    return selectionOwnerRef.current === undefined || selectionOwnerRef.current === drag.owner;
   }
 
   function completeDrag(event: PointerEvent<HTMLDivElement>) {

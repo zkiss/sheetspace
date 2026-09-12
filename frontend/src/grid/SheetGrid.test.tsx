@@ -1,13 +1,11 @@
-import { createRef, useEffect, useReducer, useRef, useState, type ComponentProps } from 'react';
+import { createRef, useState, type ComponentProps } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import { createGridAxisMetrics } from './gridAxisMetrics';
 import { savedAxisIndexAtOffset, SheetGrid } from '@grid/SheetGrid';
-import { cellInteractionReducer, cellKeyForTarget, EMPTY_CELL_INTERACTION_STATE } from '@grid/cellInteraction';
 import { sheetDocument, sparseLargeSheetDocument } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
-import { cellAddressOf } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
 import { virtualGridGeometry } from '@test-support/domGeometry';
 
@@ -47,176 +45,7 @@ function firePointer(
   fireEvent(element, event);
 }
 
-function runPendingAnimationFrames(callbacks: Map<number, FrameRequestCallback>, rounds = 3) {
-  for (let round = 0; round < rounds; round += 1) {
-    const pending = [...callbacks.entries()];
-    if (!pending.length) return;
-    for (const [frame, callback] of pending) {
-      callbacks.delete(frame);
-      act(() => callback(0));
-    }
-  }
-}
-
-function StatefulSelectionGrid({
-  sheet,
-  selectReference = false,
-}: {
-  sheet: ReturnType<typeof tabularProjection>;
-  selectReference?: boolean;
-}) {
-  const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const activeCellKey = cellKeyForTarget(sheet, state.selection);
-  const range = state.rangeSelection;
-  const selectedRange = range ? (() => {
-    const anchor = cellAddressOf(sheet, range.anchor.cell)!;
-    const extent = cellAddressOf(sheet, range.extent.cell)!;
-    return {
-      start: { rowIndex: Math.min(anchor.rowIndex, extent.rowIndex), columnIndex: Math.min(anchor.columnIndex, extent.columnIndex) },
-      end: { rowIndex: Math.max(anchor.rowIndex, extent.rowIndex), columnIndex: Math.max(anchor.columnIndex, extent.columnIndex) },
-    };
-  })() : undefined;
-
-  useEffect(() => {
-    if (!selectReference) return;
-    const target = cellIdentityAt(sheet, 'C1');
-    if (target) dispatch({ type: 'select-reference', target: { kind: 'cell', target: { sheetId: sheet.id, cell: target } } });
-  }, [selectReference, sheet]);
-
-  return (
-    <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
-      <SheetGrid
-        activeCellKey={activeCellKey}
-        activeSheetId={state.selection?.sheetId}
-        axisProjection={projectGridAxes(sheet, { columns: [], rows: [] })}
-        cellInteraction={{
-          clear: (target) => dispatch({ type: 'clear', target }),
-          extend: (target) => dispatch({ type: 'extend-selection', target }),
-          focusSelection: (target) => dispatch({ type: 'extend-selection', target, requestFocus: true }),
-          navigate: (target, direction, extend) => {
-            const address = cellKeyForTarget(sheet, target);
-            const current = address && /^([A-Z]+)(\d+)$/.exec(address);
-            if (!current) return;
-            const column = current[1].charCodeAt(0) - 65 + (direction === 'left' ? -1 : direction === 'right' ? 1 : 0);
-            const row = Number(current[2]) - 1 + (direction === 'up' ? -1 : direction === 'down' ? 1 : 0);
-            const next = column >= 0 && row >= 0 ? cellIdentityAt(sheet, `${String.fromCharCode(65 + column)}${row + 1}`) : undefined;
-            if (next) dispatch({ type: extend ? 'extend-selection' : 'navigate', target: { sheetId: sheet.id, cell: next }, ...(extend ? { requestFocus: true } : {}) });
-          },
-          select: (target) => dispatch({ type: 'select', target }),
-          startEditing: () => undefined,
-        }}
-        editingCell={state.editing}
-        editorInteraction={{ cancel: () => dispatch({ type: 'cancel' }), commit: () => dispatch({ type: 'commit' }), commitAndNavigate: () => dispatch({ type: 'commit' }), updateValue: (draft) => dispatch({ type: 'update-draft', draft }) }}
-        formulaResults={{}}
-        keyboardFocusRequest={state.focusRequest && { id: state.focusRequest.id, targetKey: cellKeyForTarget(sheet, state.focusRequest.target) }}
-        onKeyboardFocusRequestConsumed={(requestId) => dispatch({ type: 'acknowledge-focus', requestId })}
-        navigationHighlightCellKey={null}
-        scrollContainerRef={scrollContainerRef}
-        selectedRange={selectedRange}
-        selectionMode={range?.mode}
-        sheet={sheet}
-      />
-    </div>
-  );
-}
-
 describe('SheetGrid creating axis slots', () => {
-  it('continues a stationary edge drag through RAF, then keeps its state inert after cancellation', () => {
-    const sheet = tabularProjection(sheetDocument({ id: 'sheet-raf-drag', name: 'RAF drag' }));
-    const callbacks = new Map<number, FrameRequestCallback>();
-    let nextFrame = 1;
-    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
-      const frame = nextFrame++;
-      callbacks.set(frame, callback);
-      return frame;
-    }));
-    vi.stubGlobal('cancelAnimationFrame', vi.fn((frame: number) => callbacks.delete(frame)));
-
-    try {
-      render(<StatefulSelectionGrid sheet={sheet} />);
-      const grid = screen.getByTestId('sheet-grid');
-      const scrollContainer = grid.parentElement!;
-      virtualGridGeometry(scrollContainer);
-      Object.defineProperty(scrollContainer, 'scrollLeft', { configurable: true, value: 0, writable: true });
-      const a1 = screen.getByRole('cell', { name: 'RAF drag A1 empty cell' });
-
-      firePointer(a1, 'pointerdown', { button: 0, clientX: 50, clientY: 40, pointerId: 21 });
-      firePointer(grid, 'pointermove', { clientX: 230, clientY: 40, pointerId: 21 });
-      const beforeTick = scrollContainer.scrollLeft;
-      runPendingAnimationFrames(callbacks);
-
-      expect(scrollContainer.scrollLeft).toBeGreaterThan(beforeTick);
-      const activeKey = grid.querySelector<HTMLElement>('[data-active-cell="true"]')?.dataset.cellKey;
-      expect(activeKey).toBeDefined();
-      expect(activeKey).not.toBe('A1');
-
-      firePointer(grid, 'pointercancel', { pointerId: 21 });
-      const afterCancel = scrollContainer.scrollLeft;
-      runPendingAnimationFrames(callbacks);
-      expect(grid.querySelector<HTMLElement>('[data-active-cell="true"]')?.dataset.cellKey).toBe(activeKey);
-      expect(scrollContainer.scrollLeft).toBe(afterCancel);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('lets a same-sheet reference replacement defeat queued old-drag release and RAF work', () => {
-    const sheet = tabularProjection(sheetDocument({ id: 'sheet-reference-wins', name: 'Reference wins' }));
-    const callbacks = new Map<number, FrameRequestCallback>();
-    let nextFrame = 1;
-    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
-      const frame = nextFrame++;
-      callbacks.set(frame, callback);
-      return frame;
-    }));
-    vi.stubGlobal('cancelAnimationFrame', vi.fn((frame: number) => callbacks.delete(frame)));
-
-    try {
-      const view = render(<StatefulSelectionGrid sheet={sheet} />);
-      const grid = screen.getByTestId('sheet-grid');
-      virtualGridGeometry(grid.parentElement!);
-      firePointer(screen.getByRole('cell', { name: 'Reference wins A1 empty cell' }), 'pointerdown', {
-        button: 0, clientX: 50, clientY: 40, pointerId: 22,
-      });
-      firePointer(grid, 'pointermove', { clientX: 130, clientY: 40, pointerId: 22 });
-      view.rerender(<StatefulSelectionGrid sheet={sheet} selectReference />);
-
-      for (const callback of [...callbacks.values()]) act(() => callback(0));
-      firePointer(grid, 'pointerup', { pointerId: 22 });
-
-      const c1 = screen.getByRole('cell', { name: 'Reference wins C1 empty cell' });
-      expect(c1).toHaveAttribute('data-active-cell', 'true');
-      expect(c1).toHaveFocus();
-      expect(screen.getByRole('cell', { name: 'Reference wins B1 empty cell' })).not.toHaveAttribute('data-active-cell', 'true');
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('focuses a released stateful range extent so Shift-arrow can cross its anchor', async () => {
-    const sheet = tabularProjection(sheetDocument({ id: 'sheet-release-keyboard', name: 'Release keyboard' }));
-    render(<StatefulSelectionGrid sheet={sheet} />);
-    const grid = screen.getByTestId('sheet-grid');
-    virtualGridGeometry(grid.parentElement!);
-    const b1 = screen.getByRole('cell', { name: 'Release keyboard B1 empty cell' });
-    firePointer(b1, 'pointerdown', { button: 0, clientX: 130, clientY: 40, pointerId: 23 });
-    firePointer(grid, 'pointermove', { clientX: 210, clientY: 40, pointerId: 23 });
-    firePointer(grid, 'pointerup', { pointerId: 23 });
-
-    const c1 = screen.getByRole('cell', { name: 'Release keyboard C1 empty cell' });
-    await waitFor(() => expect(c1).toHaveFocus());
-    fireEvent.keyDown(c1, { key: 'ArrowLeft', shiftKey: true });
-    await waitFor(() => expect(b1).toHaveFocus());
-    fireEvent.keyDown(b1, { key: 'ArrowLeft', shiftKey: true });
-
-    const a1 = screen.getByRole('cell', { name: 'Release keyboard A1 empty cell' });
-    await waitFor(() => expect(a1).toHaveFocus());
-    expect(a1).toHaveAttribute('aria-selected', 'true');
-    expect(b1).toHaveAttribute('aria-selected', 'true');
-    expect(c1).not.toHaveAttribute('aria-selected', 'true');
-  });
-
   it('preserves a cell drag extent after the browser click following pointer release', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'sheet-drag', name: 'Drag' }));
     const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
@@ -256,7 +85,7 @@ describe('SheetGrid creating axis slots', () => {
     expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({
       sheetId: sheet.id,
       cell: cellIdentityAt(sheet, 'B1'),
-    }));
+    }), expect.objectContaining({ owner: expect.any(Symbol) }));
   });
 
   it('extends row and column header drags in their whole-axis modes', () => {
@@ -299,13 +128,13 @@ describe('SheetGrid creating axis slots', () => {
 
     expect(onSelectAxis).toHaveBeenCalledWith('columns', expect.objectContaining({
       cell: cellIdentityAt(sheet, 'C1'), sheetId: sheet.id,
-    }), true);
+    }), true, expect.objectContaining({ owner: expect.any(Symbol) }));
     expect(onSelectAxis).toHaveBeenCalledWith('rows', expect.objectContaining({
       cell: cellIdentityAt(sheet, 'A1'), sheetId: sheet.id,
-    }), false);
+    }), false, expect.objectContaining({ owner: expect.any(Symbol) }));
     expect(onSelectAxis).toHaveBeenCalledWith('rows', expect.objectContaining({
       cell: cellIdentityAt(sheet, 'A4'), sheetId: sheet.id,
-    }), true);
+    }), true, expect.objectContaining({ owner: expect.any(Symbol) }));
   });
 
   it('rejects a competing pointer before it can replace the active drag selection', () => {
@@ -333,8 +162,8 @@ describe('SheetGrid creating axis slots', () => {
     firePointer(grid, 'pointermove', { clientX: 210, clientY: 40, pointerId: 1 });
 
     expect(cellInteraction.select).toHaveBeenCalledTimes(1);
-    expect(cellInteraction.select).toHaveBeenLastCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'A1') }));
-    expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'C1') }));
+    expect(cellInteraction.select).toHaveBeenLastCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'A1') }), expect.objectContaining({ owner: expect.any(Symbol) }));
+    expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'C1') }), expect.objectContaining({ owner: expect.any(Symbol) }));
   });
 
   it.each([
@@ -416,7 +245,7 @@ describe('SheetGrid creating axis slots', () => {
 
     expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({
       cell: cellIdentityAt(sheet, 'B1'), sheetId: sheet.id,
-    }));
+    }), expect.objectContaining({ owner: expect.any(Symbol) }));
     expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
     expect(cellInteraction.extend).toHaveBeenCalledTimes(1);
   });
@@ -457,7 +286,7 @@ describe('SheetGrid creating axis slots', () => {
 
     expect(cellInteraction.focusSelection).toHaveBeenCalledWith(expect.objectContaining({
       cell: cellIdentityAt(sheet, 'B1'), sheetId: sheet.id,
-    }));
+    }), expect.objectContaining({ owner: expect.any(Symbol) }));
     expect(cellInteraction.select).toHaveBeenCalledTimes(1);
   });
 

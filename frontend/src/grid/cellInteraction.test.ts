@@ -109,3 +109,25 @@ describe('cellInteractionReducer', () => {
   });
 
 });
+
+
+describe('selection gesture owners', () => {
+  it('rejects queued owned updates after same-address replacement before any rerender', () => {
+    const gesture = { owner: Symbol('first'), start: true };
+    const start = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1, gesture });
+    const moved = cellInteractionReducer(start, { type: 'extend-selection', target: b1, gesture: { owner: gesture.owner } });
+    const replaced = cellInteractionReducer(moved, { type: 'select-reference', target: { kind: 'cell', target: b1 } });
+    for (const action of [
+      { type: 'extend-selection', target: a1, gesture: { owner: gesture.owner } },
+      { type: 'extend-selection', target: b1, requestFocus: true, gesture: { owner: gesture.owner } },
+      { type: 'select-axis', mode: 'rows', target: a1, extend: true, gesture: { owner: gesture.owner } },
+    ] as const) expect(cellInteractionReducer(replaced, action)).toBe(replaced);
+    const next = { owner: Symbol('next'), start: true };
+    const shifted = cellInteractionReducer(replaced, { type: 'extend-selection', target: a2, gesture: next });
+    expect(shifted.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a2 });
+    expect(shifted.selectionOwner).toBe(next.owner);
+    expect(cellInteractionReducer(shifted, { type: 'extend-selection', target: a1, gesture: { owner: gesture.owner } })).toBe(shifted);
+    const pruned = cellInteractionReducer(shifted, { type: 'prune-sheets', sheetIds: new Set() });
+    expect(pruned.selectionOwner).toBeNull();
+  });
+});

@@ -64,21 +64,25 @@ describe('useCellEditing', () => {
   });
 
   describe('edit persistence', () => {
-    it('commits an active draft once before selecting a whole axis', () => {
-      const { commands, result, sheet } = renderCellEditing();
-      const a1 = cellTargetAt(sheet, 'A1')!;
-      const b1 = cellTargetAt(sheet, 'B1')!;
-
-      act(() => {
-        result.current.startEditingCell(a1, 'Region');
-        result.current.selectAxis('columns', b1, false);
-      });
-      act(() => result.current.commitActiveEdit({ target: a1, draft: 'Region' }));
-
-      expect(commands.updateCellContent).toHaveBeenCalledOnce();
-      expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', 'Region');
-      expect(result.current.editingCell).toBeNull();
-      expect(result.current.selectionRange).toEqual({ mode: 'columns', anchor: b1, extent: b1 });
+    it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
+      for (const [raw, draft] of [['', 'Region'], ['', '=SUM(B1:B2)'], ['', ''], ['Region', 'Region'], ['=SUM(B1:B2)', '=SUM(B1:B2)']]) {
+        const input = sheetDocument({ id: 'header-drafts', name: 'Header drafts', cells: { A1: raw } });
+        const { commands, result, sheet, unmount } = renderCellEditing(input);
+        const a1 = cellTargetAt(sheet, 'A1')!;
+        const b1 = cellTargetAt(sheet, 'B1')!;
+        act(() => result.current.startEditingCell(a1, draft));
+        const session = result.current.editingCell!;
+        act(() => result.current.selectAxis(mode, b1, false));
+        const writes = draft === raw ? 0 : 1;
+        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
+        if (writes) expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', draft);
+        expect(result.current.editingCell).toBeNull();
+        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
+        act(() => result.current.commitActiveEdit(session));
+        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
+        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
+        unmount();
+      }
     });
 
     it.each([
