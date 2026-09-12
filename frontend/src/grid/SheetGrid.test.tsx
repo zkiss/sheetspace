@@ -155,6 +155,48 @@ describe('SheetGrid creating axis slots', () => {
     expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
   });
 
+  it('cancels a cell drag on pointer cancellation without requesting final focus', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-pointer-cancel', name: 'Pointer cancel' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = {
+      clear: vi.fn(), extend: vi.fn(), focusSelection: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(),
+    };
+
+    render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid
+          activeCellKey={null}
+          axisProjection={axisProjection}
+          cellInteraction={cellInteraction}
+          editingCell={null}
+          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}}
+          keyboardFocusRequest={null}
+          onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null}
+          scrollContainerRef={scrollContainerRef}
+          sheet={sheet}
+        />
+      </div>,
+    );
+
+    const scrollContainer = scrollContainerRef.current!;
+    virtualGridGeometry(scrollContainer);
+    const grid = screen.getByTestId('sheet-grid');
+    const a1 = screen.getByRole('cell', { name: 'Pointer cancel A1 empty cell' });
+    firePointer(a1, 'pointerdown', { button: 0, clientX: 50, clientY: 40, pointerId: 15 });
+    firePointer(grid, 'pointermove', { clientX: 130, clientY: 40, pointerId: 15 });
+    firePointer(grid, 'pointercancel', { clientX: 130, clientY: 40, pointerId: 15 });
+    firePointer(grid, 'pointermove', { clientX: 210, clientY: 40, pointerId: 15 });
+
+    expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({
+      cell: cellIdentityAt(sheet, 'B1'), sheetId: sheet.id,
+    }));
+    expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
+    expect(cellInteraction.extend).toHaveBeenCalledTimes(1);
+  });
+
   it('focuses the final drag extent without collapsing its selection', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'sheet-focus-drag', name: 'Focus drag' }));
     const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });

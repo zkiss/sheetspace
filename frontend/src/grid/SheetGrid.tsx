@@ -485,8 +485,12 @@ export function SheetGrid({
     extendSelectionAt(event.clientX, event.clientY);
   }
 
-  function endDrag(event: PointerEvent<HTMLDivElement>) {
+  function completeDrag(event: PointerEvent<HTMLDivElement>) {
     finishDrag(event.pointerId, true);
+  }
+
+  function cancelDrag(event: PointerEvent<HTMLDivElement>) {
+    finishDrag(event.pointerId);
   }
 
   return (
@@ -509,8 +513,8 @@ export function SheetGrid({
       }}
       onPointerDown={beginDrag}
       onPointerMove={moveDrag}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerUp={completeDrag}
+      onPointerCancel={cancelDrag}
       onLostPointerCapture={(event) => {
         finishDrag(event.pointerId);
       }}
