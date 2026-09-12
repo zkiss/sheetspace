@@ -107,7 +107,12 @@ export function SheetGrid({
     clientX: number;
     clientY: number;
     mode: CellSelectionMode;
+    target: CellTarget | null;
+    captureElement: HTMLDivElement;
   } | null>(null);
+  const animationFrameRef = useRef(0);
+  const cellInteractionRef = useRef(cellInteraction);
+  cellInteractionRef.current = cellInteraction;
   const { columns, rows } = axisProjection;
   const defaultRowMetrics = useMemo(() => createGridAxisMetrics(rows, GRID_CELL_HEIGHT), [rows]);
   const defaultColumnMetrics = useMemo(() => createGridAxisMetrics(columns, GRID_CELL_WIDTH), [columns]);
@@ -348,23 +353,44 @@ export function SheetGrid({
       const firstRow = rows.find((axis) => axis.kind === 'saved');
       if (column?.kind !== 'saved' || !firstRow) return;
       const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: firstRow.durableIndex }));
-      if (target) onSelectAxis?.('columns', target, true);
+      if (target) {
+        drag.target = target;
+        onSelectAxis?.('columns', target, true);
+      }
       return;
     }
     if (drag.mode === 'rows') {
       const firstColumn = columns.find((axis) => axis.kind === 'saved');
       if (row?.kind !== 'saved' || !firstColumn) return;
       const target = cellTargetAt(sheet, cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: row.durableIndex }));
-      if (target) onSelectAxis?.('rows', target, true);
+      if (target) {
+        drag.target = target;
+        onSelectAxis?.('rows', target, true);
+      }
       return;
     }
     if (!cellInteraction.extend || row?.kind !== 'saved' || column?.kind !== 'saved') return;
     const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: row.durableIndex }));
-    if (target) cellInteraction.extend(target);
+    if (target) {
+      drag.target = target;
+      cellInteraction.extend(target);
+    }
   }
 
+  const finishDrag = useCallback((pointerId?: number, focusExtent = false) => {
+    const drag = dragRef.current;
+    if (!drag || (pointerId !== undefined && drag.pointerId !== pointerId)) return;
+    // Clear ownership before releasing capture: lostpointercapture can reenter this
+    // path synchronously in some browsers.
+    dragRef.current = null;
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = 0;
+    if (drag.captureElement.hasPointerCapture?.(drag.pointerId)) drag.captureElement.releasePointerCapture(drag.pointerId);
+    setDragging(false);
+    if (focusExtent && drag.target) cellInteractionRef.current.focusSelection?.(drag.target);
+  }, []);
+
   useEffect(() => {
-    let frame = 0;
     const tick = () => {
       const drag = dragRef.current;
       const scrollContainer = scrollContainerRef.current;
@@ -378,18 +404,46 @@ export function SheetGrid({
         scrollContainer.scrollTop += scrollY;
         extendSelectionAt(drag.clientX, drag.clientY);
       }
-      frame = requestAnimationFrame(tick);
+      animationFrameRef.current = requestAnimationFrame(tick);
     };
-    if (dragging) frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    if (dragging) animationFrameRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = 0;
+    };
   }, [dragging, columnMetrics, rowMetrics, columns, rows, sheet, cellInteraction, onSelectAxis, scrollContainerRef]);
+
+  useEffect(() => {
+    const cancelForWindowDeparture = () => finishDrag();
+    const cancelForVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') finishDrag();
+    };
+    window.addEventListener('blur', cancelForWindowDeparture);
+    document.addEventListener('visibilitychange', cancelForVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', cancelForWindowDeparture);
+      document.removeEventListener('visibilitychange', cancelForVisibilityChange);
+    };
+  }, [finishDrag]);
+
+  useEffect(() => () => finishDrag(), [finishDrag, sheet.id]);
 
   function beginDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"]')) return;
+    if (dragRef.current) return;
     const source = (event.target as HTMLElement).closest<HTMLElement>('[data-cell-key], [data-axis-selection-mode]');
     if (!source) return;
     const mode = source.dataset.axisSelectionMode as Exclude<CellSelectionMode, 'cells'> | undefined;
-    dragRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, mode: mode ?? 'cells' };
+    const target = dragTargetForSource(source, mode ?? 'cells', sheet, rows, columns);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      mode: mode ?? 'cells',
+      target,
+      captureElement: event.currentTarget,
+    };
     setDragging(true);
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
@@ -401,10 +455,7 @@ export function SheetGrid({
   }
 
   function endDrag(event: PointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
-    dragRef.current = null;
-    setDragging(false);
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    finishDrag(event.pointerId, true);
   }
 
   return (
@@ -415,15 +466,22 @@ export function SheetGrid({
       className="sheet-grid"
       data-testid="sheet-grid"
       onFocus={enterGrid}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        // Internal focus movement (including editor focus) retains the gesture.
+        // A null target can be caused by virtualizing the focused cell, so window
+        // blur remains the reliable cancellation path for that case.
+        if (next && !event.currentTarget.contains(next)) finishDrag();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') finishDrag();
+      }}
       onPointerDown={beginDrag}
       onPointerMove={moveDrag}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onLostPointerCapture={(event) => {
-        if (dragRef.current?.pointerId === event.pointerId) {
-          dragRef.current = null;
-          setDragging(false);
-        }
+        finishDrag(event.pointerId);
       }}
       ref={gridRef}
       role="table"
@@ -470,8 +528,9 @@ export function SheetGrid({
                 ) ? ' sheet-grid-axis-selected' : ''
               }`}
               data-axis-selection-mode={row.kind === 'saved' ? 'rows' : undefined}
+              data-axis-durable-index={row.kind === 'saved' ? row.durableIndex : undefined}
               onPointerDown={(event) => {
-                if (row.kind !== 'saved') return;
+                if (row.kind !== 'saved' || event.button !== 0) return;
                 const firstColumn = columns.find((column) => column.kind === 'saved');
                 const target = firstColumn && cellTargetAt(sheet, cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: row.durableIndex }));
                 if (target) onSelectAxis?.('rows', target, Boolean(event.shiftKey));
@@ -548,6 +607,28 @@ export function SheetGrid({
 
 function axisKey(entry: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined) {
   return entry ? (entry.kind === 'saved' ? entry.id : entry.operationId) : '';
+}
+
+function dragTargetForSource(
+  source: HTMLElement,
+  mode: CellSelectionMode,
+  sheet: SheetTabularProjection,
+  rows: GridAxisProjection['rows'],
+  columns: GridAxisProjection['columns'],
+) {
+  if (mode === 'cells') {
+    const key = source.dataset.cellKey;
+    return key ? cellTargetAt(sheet, key) ?? null : null;
+  }
+  const durableIndex = Number(source.dataset.axisDurableIndex);
+  if (!Number.isInteger(durableIndex)) return null;
+  const firstRow = rows.find((axis) => axis.kind === 'saved');
+  const firstColumn = columns.find((axis) => axis.kind === 'saved');
+  if (!firstRow || !firstColumn) return null;
+  return cellTargetAt(sheet, cellKey({
+    columnIndex: mode === 'columns' ? durableIndex : firstColumn.durableIndex,
+    rowIndex: mode === 'rows' ? durableIndex : firstRow.durableIndex,
+  })) ?? null;
 }
 
 function hasDurableIndex(

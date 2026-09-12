@@ -47,6 +47,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     commitEditAndNavigate,
     editingCell,
     extendSelection,
+    focusSelection,
     acknowledgeKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
@@ -147,6 +148,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
         onExtendSelection={extendSelection}
+        onFocusSelection={focusSelection}
         onSelectAxis={selectAxis}
         onSelectReferenceTarget={selectReferenceTarget}
         onStartEdit={startEditingCell}

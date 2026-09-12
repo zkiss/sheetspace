@@ -160,6 +160,7 @@ export function useCellEditing({
     selectionRange: state.rangeSelection,
     selectCell: (target: CellTarget) => dispatch({ type: 'select', target }),
     extendSelection: (target: CellTarget) => dispatch({ type: 'extend-selection', target }),
+    focusSelection: (target: CellTarget) => dispatch({ type: 'extend-selection', target, requestFocus: true }),
     selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => dispatch({ type: 'select-axis', mode, target, extend }),
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,

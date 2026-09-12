@@ -49,6 +49,7 @@ export function Workspace({
   onRetryFailedSaves,
   onSelectCell,
   onExtendSelection,
+  onFocusSelection,
   onSelectAxis,
   onSelectReferenceTarget,
   onStartEdit,
@@ -77,6 +78,7 @@ export function Workspace({
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget) => void;
   onExtendSelection: (target: CellTarget) => void;
+  onFocusSelection: (target: CellTarget) => void;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
@@ -256,6 +258,7 @@ export function Workspace({
                     navigate: onNavigateCell,
                     select: onSelectCell,
                     extend: onExtendSelection,
+                    focusSelection: onFocusSelection,
                     startEditing: onStartEdit,
                   }}
                   editingCell={sheetEditingCell}

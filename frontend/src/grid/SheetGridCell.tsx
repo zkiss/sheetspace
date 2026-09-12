@@ -16,6 +16,7 @@ export type SheetGridCellInteraction = {
   navigate: (target: CellTarget, direction: CellNavigationDirection, extend?: boolean) => void;
   select: (target: CellTarget) => void;
   extend?: (target: CellTarget) => void;
+  focusSelection?: (target: CellTarget) => void;
   startEditing: (target: CellTarget, initialValue?: string) => void;
 };
 
@@ -136,14 +137,11 @@ export function SheetGridCell({
         }
       }}
       onPointerDown={(event) => {
+        if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"]')) return;
         const target = cellTargetAt(sheet, cellKey);
         if (!target || event.button !== 0) return;
         if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
         else cellInteraction.select(target);
-      }}
-      onPointerEnter={(event) => {
-        const target = cellTargetAt(sheet, cellKey);
-        if (target && (event.buttons & 1) && cellInteraction.extend) cellInteraction.extend(target);
       }}
       onKeyDown={handleCellKeyDown}
       ref={(cellElement) => registerCell?.(cellKey, cellElement)}
