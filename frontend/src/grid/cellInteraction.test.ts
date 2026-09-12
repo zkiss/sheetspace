@@ -13,6 +13,7 @@ const b1: CellTarget = {
   sheetId: 'sheet-inputs',
   cell: { rowId: 'row-1', columnId: 'column-2' },
 };
+const a2: CellTarget = { sheetId: 'sheet-inputs', cell: { rowId: 'row-2', columnId: 'column-1' } };
 
 describe('cellInteractionReducer', () => {
   it('keeps selection, editing, and focus as distinct current cell state', () => {
@@ -70,6 +71,30 @@ describe('cellInteractionReducer', () => {
     const selected = cellInteractionReducer(navigated, { type: 'select', target: b1 });
     expect(selected.selection).toEqual(b1);
     expect(selected.referenceSelection).toBeNull();
+  });
+
+  it('keeps a durable anchor while ranges extend, contract, and cross it', () => {
+    const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: b1 });
+    const extended = cellInteractionReducer(selected, { type: 'extend-selection', target: a2 });
+    expect(extended.selection).toEqual(a2);
+    expect(extended.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a2 });
+
+    const crossed = cellInteractionReducer(extended, { type: 'extend-selection', target: a1 });
+    expect(crossed.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a1 });
+  });
+
+  it('uses the same stable model for whole-axis ranges without crossing sheets', () => {
+    const rows = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'select-axis', mode: 'rows', target: a1, extend: false,
+    });
+    const moreRows = cellInteractionReducer(rows, {
+      type: 'select-axis', mode: 'rows', target: a2, extend: true,
+    });
+    expect(moreRows.rangeSelection).toEqual({ mode: 'rows', anchor: a1, extent: a2 });
+
+    const otherSheet = { ...a2, sheetId: 'other-sheet' };
+    const changedSheet = cellInteractionReducer(moreRows, { type: 'extend-selection', target: otherSheet });
+    expect(changedSheet.rangeSelection).toEqual({ mode: 'cells', anchor: otherSheet, extent: otherSheet });
   });
 
 });

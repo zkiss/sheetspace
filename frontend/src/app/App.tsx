@@ -46,11 +46,14 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     commitActiveEdit,
     commitEditAndNavigate,
     editingCell,
+    extendSelection,
     acknowledgeKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
     referenceSelection,
+    selectionRange,
     selectCell,
+    selectAxis,
     selectReferenceTarget,
     startEditingCell,
     updateEditingCellValue,
@@ -143,9 +146,12 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
+        onExtendSelection={extendSelection}
+        onSelectAxis={selectAxis}
         onSelectReferenceTarget={selectReferenceTarget}
         onStartEdit={startEditingCell}
         referenceSelection={referenceSelection}
+        selectionRange={selectionRange}
         saveStatus={saveStatus}
         workbook={workbook}
       />

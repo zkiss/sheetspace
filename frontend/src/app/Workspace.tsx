@@ -1,5 +1,6 @@
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
+import type { CellRange } from '@workbook/core/address';
 import { addressRangeOf } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
@@ -8,6 +9,8 @@ import type {
   CellTarget,
   CellNavigationDirection,
   CellEditSession,
+  CellSelection,
+  CellSelectionMode,
   ReferenceNavigationTarget,
 } from '@grid/cellInteractionContracts';
 import type { SaveStatus } from '@application/core/state';
@@ -45,9 +48,12 @@ export function Workspace({
   onOpenRenameDialog,
   onRetryFailedSaves,
   onSelectCell,
+  onExtendSelection,
+  onSelectAxis,
   onSelectReferenceTarget,
   onStartEdit,
   referenceSelection,
+  selectionRange,
   saveStatus,
   creatingAxes,
   creatingFrames,
@@ -70,9 +76,12 @@ export function Workspace({
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget) => void;
+  onExtendSelection: (target: CellTarget) => void;
+  onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
   referenceSelection: ReferenceNavigationTarget | null;
+  selectionRange: CellSelection | null;
   saveStatus: SaveStatus;
   creatingFrames: CreatingSheetFrameState[];
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
@@ -203,7 +212,9 @@ export function Workspace({
           const tabular = tabularProjection(sheet);
           const axisProjection = projectGridAxes(tabular, creatingAxes[sheet.id]);
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
-          const selectedRange = referenceSelection?.kind === 'range'
+          const selectedRange = selectionRange?.anchor.sheetId === sheet.id
+            ? selectionAddressRange(sheet, selectionRange)
+            : referenceSelection?.kind === 'range'
             && referenceSelection.sheetId === sheet.id
             ? addressRangeOf(sheet.content, referenceSelection.range)
             : undefined;
@@ -244,6 +255,7 @@ export function Workspace({
                     clear: onClearCell,
                     navigate: onNavigateCell,
                     select: onSelectCell,
+                    extend: onExtendSelection,
                     startEditing: onStartEdit,
                   }}
                   editingCell={sheetEditingCell}
@@ -265,6 +277,8 @@ export function Workspace({
                   navigationHighlightRange={navigationHighlightRange}
                   scrollContainerRef={scrollContainerRef}
                   selectedRange={selectedRange}
+                  selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
+                  onSelectAxis={onSelectAxis}
                   sheet={tabular}
                 />
               )}
@@ -275,4 +289,20 @@ export function Workspace({
       </WorkspaceSurface>
     </>
   );
+}
+
+function selectionAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
+  const range = addressRangeOf(sheet.content, { start: selection.anchor.cell, end: selection.extent.cell });
+  if (!range) return undefined;
+  const rowStart = Math.min(range.start.rowIndex, range.end.rowIndex);
+  const rowEnd = Math.max(range.start.rowIndex, range.end.rowIndex);
+  const columnStart = Math.min(range.start.columnIndex, range.end.columnIndex);
+  const columnEnd = Math.max(range.start.columnIndex, range.end.columnIndex);
+  return {
+    start: { rowIndex: selection.mode === 'columns' ? 0 : rowStart, columnIndex: selection.mode === 'rows' ? 0 : columnStart },
+    end: {
+      rowIndex: selection.mode === 'columns' ? sheet.content.rows.length - 1 : rowEnd,
+      columnIndex: selection.mode === 'rows' ? sheet.content.columns.length - 1 : columnEnd,
+    },
+  };
 }

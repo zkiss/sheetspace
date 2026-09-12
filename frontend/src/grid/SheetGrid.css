@@ -86,3 +86,9 @@
   color: #7a8791;
   background: repeating-linear-gradient(-45deg, #f4f7f8, #f4f7f8 0.35rem, #e8edef 0.35rem, #e8edef 0.7rem);
 }
+
+.sheet-grid-axis-selected {
+  background: #d5ece8;
+  color: #1f5960;
+  box-shadow: inset 0 0 0 2px #2f747e;
+}

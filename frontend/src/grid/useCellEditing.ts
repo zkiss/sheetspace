@@ -5,6 +5,7 @@ import { formulaRawForDisplay } from '@workbook/formula/reference';
 import { type SheetDocument, type SheetTabularProjection, type Workbook } from '@workbook/core/model';
 import type {
   CellEditSession,
+  CellSelectionMode,
   CellContentCommands,
   CellNavigationDirection,
   CellTarget,
@@ -94,7 +95,7 @@ export function useCellEditing({
     }
   }
 
-  function navigateCell(target: CellTarget, direction: CellNavigationDirection) {
+  function navigateCell(target: CellTarget, direction: CellNavigationDirection, extend = false) {
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet) return;
     const delta = {
@@ -104,7 +105,7 @@ export function useCellEditing({
       down: { columnIndex: 0, rowIndex: 1 },
     } satisfies Record<CellNavigationDirection, { columnIndex: number; rowIndex: number }>;
     const next = adjacentTarget(sheet, target, delta[direction]);
-    if (next) dispatch({ type: 'navigate', target: next });
+    if (next) dispatch(extend ? { type: 'extend-selection', target: next } : { type: 'navigate', target: next });
   }
 
   function commitEditAndNavigate(session: CellEditSession, direction: 'tab' | 'enter') {
@@ -154,7 +155,10 @@ export function useCellEditing({
     keyboardFocusRequest: state.focusRequest,
     navigateCell,
     referenceSelection: state.referenceSelection,
+    selectionRange: state.rangeSelection,
     selectCell: (target: CellTarget) => dispatch({ type: 'select', target }),
+    extendSelection: (target: CellTarget) => dispatch({ type: 'extend-selection', target }),
+    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => dispatch({ type: 'select-axis', mode, target, extend }),
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,
     updateEditingCellValue: (draft: string) => dispatch({ type: 'update-draft', draft }),

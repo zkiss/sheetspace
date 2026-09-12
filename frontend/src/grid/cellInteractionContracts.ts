@@ -10,6 +10,17 @@ export type CellTarget = {
   cell: StableCellIdentity;
 };
 
+export type CellSelectionMode = 'cells' | 'rows' | 'columns';
+
+// The selected rectangle is deliberately expressed in stable identities, rather
+// than A1 addresses or mounted DOM nodes.  Axis projection can consequently
+// change while a selection remains meaningful.
+export type CellSelection = {
+  mode: CellSelectionMode;
+  anchor: CellTarget;
+  extent: CellTarget;
+};
+
 export type ReferenceNavigationTarget =
   | { kind: 'cell'; target: CellTarget }
   | { kind: 'range'; sheetId: string; range: StableCellRange };

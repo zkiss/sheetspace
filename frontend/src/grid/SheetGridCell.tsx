@@ -13,8 +13,9 @@ export const CELL_EDITOR_MAX_HEIGHT = '12rem';
 
 export type SheetGridCellInteraction = {
   clear: (target: CellTarget) => void;
-  navigate: (target: CellTarget, direction: CellNavigationDirection) => void;
+  navigate: (target: CellTarget, direction: CellNavigationDirection, extend?: boolean) => void;
   select: (target: CellTarget) => void;
+  extend?: (target: CellTarget) => void;
   startEditing: (target: CellTarget, initialValue?: string) => void;
 };
 
@@ -84,7 +85,8 @@ export function SheetGridCell({
     event.preventDefault();
 
     if (action.kind === 'navigate') {
-      cellInteraction.navigate(target, action.direction);
+      if (event.shiftKey) cellInteraction.navigate(target, action.direction, true);
+      else cellInteraction.navigate(target, action.direction);
       return;
     }
 
@@ -112,9 +114,11 @@ export function SheetGridCell({
       data-navigation-highlight={isNavigationTarget ? 'true' : undefined}
       data-reference-selected={isRangeSelected ? 'true' : undefined}
       data-testid="sheet-grid-cell"
-      onClick={() => {
+      onClick={(event) => {
         const target = cellTargetAt(sheet, cellKey);
-        if (target) cellInteraction.select(target);
+        if (!target) return;
+        if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
+        else cellInteraction.select(target);
       }}
       onDoubleClick={() => {
         const target = cellTargetAt(sheet, cellKey);
@@ -125,6 +129,16 @@ export function SheetGridCell({
           const target = cellTargetAt(sheet, cellKey);
           if (target) cellInteraction.select(target);
         }
+      }}
+      onPointerDown={(event) => {
+        const target = cellTargetAt(sheet, cellKey);
+        if (!target || event.button !== 0) return;
+        if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
+        else cellInteraction.select(target);
+      }}
+      onPointerEnter={(event) => {
+        const target = cellTargetAt(sheet, cellKey);
+        if (target && (event.buttons & 1) && cellInteraction.extend) cellInteraction.extend(target);
       }}
       onKeyDown={handleCellKeyDown}
       ref={(cellElement) => registerCell?.(cellKey, cellElement)}
