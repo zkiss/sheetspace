@@ -115,6 +115,9 @@ export function SheetGrid({
     clientY: number;
     mode: CellSelectionMode;
     target: CellTarget | null;
+    expectedActiveCellKey: string | null;
+    expectedMode: CellSelectionMode;
+    observedSelection: boolean;
     captureElement: HTMLDivElement;
   } | null>(null);
   const animationFrameRef = useRef(0);
@@ -122,6 +125,10 @@ export function SheetGrid({
   cellInteractionRef.current = cellInteraction;
   const activeSheetIdRef = useRef(activeSheetId);
   activeSheetIdRef.current = activeSheetId;
+  const activeCellKeyRef = useRef(activeCellKey);
+  activeCellKeyRef.current = activeCellKey;
+  const selectionModeRef = useRef(selectionMode);
+  selectionModeRef.current = selectionMode;
   const { columns, rows } = axisProjection;
   const defaultRowMetrics = useMemo(() => createGridAxisMetrics(rows, GRID_CELL_HEIGHT), [rows]);
   const defaultColumnMetrics = useMemo(() => createGridAxisMetrics(columns, GRID_CELL_WIDTH), [columns]);
@@ -352,15 +359,19 @@ export function SheetGrid({
       finishDrag();
       return;
     }
+    if (!dragOwnsCurrentSelection()) {
+      finishDrag();
+      return;
+    }
     const rect = scrollContainer.getBoundingClientRect();
     // Pointer coordinates are screen-space while the grid may be scaled by the
     // workspace. Convert through the scroll viewport before consulting metrics.
     const scaleX = rect.width ? scrollContainer.clientWidth / rect.width : 1;
     const scaleY = rect.height ? scrollContainer.clientHeight / rect.height : 1;
-    const columnIndex = columnMetrics.indexAtOffset(
+    const columnIndex = savedAxisIndexAtOffset(columns, columnMetrics,
       scrollContainer.scrollLeft + (clientX - rect.left) * scaleX - GRID_ROW_HEADER_WIDTH,
     );
-    const rowIndex = rowMetrics.indexAtOffset(
+    const rowIndex = savedAxisIndexAtOffset(rows, rowMetrics,
       scrollContainer.scrollTop + (clientY - rect.top) * scaleY - GRID_COLUMN_HEADER_HEIGHT,
     );
     const row = rowIndex === undefined ? undefined : rows[rowIndex];
@@ -371,6 +382,7 @@ export function SheetGrid({
       const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: firstRow.durableIndex }));
       if (target) {
         drag.target = target;
+        drag.expectedActiveCellKey = cellKeyForTarget(sheet, target);
         onSelectAxis?.('columns', target, true);
       }
       return;
@@ -381,6 +393,7 @@ export function SheetGrid({
       const target = cellTargetAt(sheet, cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: row.durableIndex }));
       if (target) {
         drag.target = target;
+        drag.expectedActiveCellKey = cellKeyForTarget(sheet, target);
         onSelectAxis?.('rows', target, true);
       }
       return;
@@ -389,6 +402,7 @@ export function SheetGrid({
     const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: row.durableIndex }));
     if (target) {
       drag.target = target;
+      drag.expectedActiveCellKey = cellKeyForTarget(sheet, target);
       cellInteraction.extend(target);
     }
   }
@@ -412,6 +426,10 @@ export function SheetGrid({
       const scrollContainer = scrollContainerRef.current;
       if (!drag || !scrollContainer) return;
       if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
+        finishDrag();
+        return;
+      }
+      if (!dragOwnsCurrentSelection()) {
         finishDrag();
         return;
       }
@@ -455,6 +473,18 @@ export function SheetGrid({
     if (activeSheetId != null && activeSheetId !== sheet.id) finishDrag();
   }, [activeSheetId, finishDrag, sheet.id]);
 
+  useEffect(() => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const matchesExpected = activeCellKey === drag.expectedActiveCellKey
+      && (selectionMode ?? 'cells') === drag.expectedMode;
+    if (matchesExpected) {
+      drag.observedSelection = true;
+    } else if (drag.observedSelection) {
+      finishDrag();
+    }
+  }, [activeCellKey, finishDrag, selectionMode]);
+
   function beginDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"]')) return;
@@ -463,12 +493,23 @@ export function SheetGrid({
     if (!source) return;
     const mode = source.dataset.axisSelectionMode as Exclude<CellSelectionMode, 'cells'> | undefined;
     const target = dragTargetForSource(source, mode ?? 'cells', sheet, rows, columns);
+    if (!target) return;
+    const dragMode = mode ?? 'cells';
+    if (dragMode === 'cells') {
+      if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
+      else cellInteraction.select(target);
+    } else {
+      onSelectAxis?.(dragMode, target, event.shiftKey);
+    }
     dragRef.current = {
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
-      mode: mode ?? 'cells',
+      mode: dragMode,
       target,
+      expectedActiveCellKey: cellKeyForTarget(sheet, target),
+      expectedMode: dragMode,
+      observedSelection: false,
       captureElement: event.currentTarget,
     };
     setDragging(true);
@@ -477,6 +518,10 @@ export function SheetGrid({
 
   function moveDrag(event: PointerEvent<HTMLDivElement>) {
     if (dragRef.current?.pointerId !== event.pointerId) return;
+    if (!dragOwnsCurrentSelection()) {
+      finishDrag();
+      return;
+    }
     if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
       finishDrag();
       return;
@@ -485,7 +530,22 @@ export function SheetGrid({
     extendSelectionAt(event.clientX, event.clientY);
   }
 
+  function dragOwnsCurrentSelection() {
+    const drag = dragRef.current;
+    if (!drag) return false;
+    // A render caused by the gesture itself moves active selection to the
+    // expected extent. Any other replacement in this mounted sheet must win
+    // over a queued move or release from the old pointer session.
+    return activeCellKeyRef.current === drag.expectedActiveCellKey
+      && (selectionModeRef.current ?? 'cells') === drag.expectedMode
+      || !drag.observedSelection;
+  }
+
   function completeDrag(event: PointerEvent<HTMLDivElement>) {
+    if (!dragOwnsCurrentSelection()) {
+      finishDrag(event.pointerId);
+      return;
+    }
     finishDrag(event.pointerId, true);
   }
 
@@ -511,7 +571,7 @@ export function SheetGrid({
       onKeyDown={(event) => {
         if (event.key === 'Escape') finishDrag();
       }}
-      onPointerDown={beginDrag}
+      onPointerDownCapture={beginDrag}
       onPointerMove={moveDrag}
       onPointerUp={completeDrag}
       onPointerCancel={cancelDrag}
@@ -536,11 +596,6 @@ export function SheetGrid({
         selectedColumnIndices={selectionMode === 'columns' && selectedRange
           ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
           : undefined}
-        onSelectColumn={(columnIndex, extend) => {
-          const firstRow = rows.find((row) => row.kind === 'saved');
-          const target = firstRow && cellTargetAt(sheet, cellKey({ columnIndex, rowIndex: firstRow.durableIndex }));
-          if (target) onSelectAxis?.('columns', target, extend);
-        }}
       />
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
@@ -564,12 +619,6 @@ export function SheetGrid({
               }`}
               data-axis-selection-mode={row.kind === 'saved' ? 'rows' : undefined}
               data-axis-durable-index={row.kind === 'saved' ? row.durableIndex : undefined}
-              onPointerDown={(event) => {
-                if (row.kind !== 'saved' || event.button !== 0) return;
-                const firstColumn = columns.find((column) => column.kind === 'saved');
-                const target = firstColumn && cellTargetAt(sheet, cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: row.durableIndex }));
-                if (target) onSelectAxis?.('rows', target, Boolean(event.shiftKey));
-              }}
               ref={row.kind === 'saved' && row.durableIndex === 0 ? rowHeaderRef : undefined}
               role="rowheader"
               style={{ height: virtualRow.size, left: 0, position: 'sticky' }}
@@ -642,6 +691,41 @@ export function SheetGrid({
 
 function axisKey(entry: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined) {
   return entry ? (entry.kind === 'saved' ? entry.id : entry.operationId) : '';
+}
+
+/**
+ * Resolve pointer geometry to a durable axis item. Projection also contains
+ * temporary creation slots, so generic metric indexes cannot be used directly
+ * for selection. The closest saved item makes endpoint and pending-slot
+ * targeting deterministic without changing the metrics API's out-of-range
+ * contract.
+ */
+export function savedAxisIndexAtOffset(
+  entries: readonly GridAxisProjection['rows'][number][] | readonly GridAxisProjection['columns'][number][],
+  metrics: GridAxisMetrics,
+  offset: number,
+) {
+  if (!Number.isFinite(offset)) return undefined;
+  const saved = entries
+    .map((entry, index) => entry?.kind === 'saved' ? index : undefined)
+    .filter((index): index is number => index !== undefined);
+  if (!saved.length) return undefined;
+
+  const directIndex = metrics.indexAtOffset(offset);
+  if (directIndex !== undefined && entries[directIndex]?.kind === 'saved') return directIndex;
+
+  let nearestIndex = saved[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const index of saved) {
+    const start = metrics.itemOffset(index) ?? 0;
+    const end = start + (metrics.itemSize(index) ?? 0);
+    const distance = offset < start ? start - offset : offset >= end ? offset - end : 0;
+    if (distance < nearestDistance) {
+      nearestIndex = index;
+      nearestDistance = distance;
+    }
+  }
+  return nearestIndex;
 }
 
 function dragTargetForSource(

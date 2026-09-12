@@ -3,13 +3,37 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import { createGridAxisMetrics } from './gridAxisMetrics';
-import { SheetGrid } from '@grid/SheetGrid';
+import { savedAxisIndexAtOffset, SheetGrid } from '@grid/SheetGrid';
 import { sheetDocument, sparseLargeSheetDocument } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
 import { virtualGridGeometry } from '@test-support/domGeometry';
 
 afterEach(cleanup);
+
+describe('savedAxisIndexAtOffset', () => {
+  it('clamps to saved endpoints and skips projected creation slots', () => {
+    const entries = projectGridAxes(
+      tabularProjection(sheetDocument({ id: 'axis-targeting', name: 'Axis targeting' })),
+      {
+        rows: [
+          { kind: 'creating', operationId: 'before', boundary: 0 },
+          { kind: 'creating', operationId: 'between', boundary: 2 },
+          { kind: 'creating', operationId: 'after', boundary: 4 },
+        ],
+        columns: [],
+      },
+    ).rows;
+    const metrics = createGridAxisMetrics(entries, 20);
+
+    expect(savedAxisIndexAtOffset(entries, metrics, -1)).toBe(1);
+    expect(savedAxisIndexAtOffset(entries, metrics, metrics.totalSize)).toBe(
+      entries.reduce((lastSaved, entry, index) => entry.kind === 'saved' ? index : lastSaved, -1),
+    );
+    expect(savedAxisIndexAtOffset(entries, metrics, 0)).toBe(1);
+    expect(savedAxisIndexAtOffset(entries, metrics, 65)).toBe(2);
+  });
+});
 
 function firePointer(
   element: Element,
@@ -111,6 +135,35 @@ describe('SheetGrid creating axis slots', () => {
     expect(onSelectAxis).toHaveBeenCalledWith('rows', expect.objectContaining({
       cell: cellIdentityAt(sheet, 'A4'), sheetId: sheet.id,
     }), true);
+  });
+
+  it('rejects a competing pointer before it can replace the active drag selection', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-competing-pointer', name: 'Competing pointer' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = {
+      clear: vi.fn(), extend: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(),
+    };
+
+    render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey={null} axisProjection={axisProjection} cellInteraction={cellInteraction}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+
+    const grid = screen.getByTestId('sheet-grid');
+    const a1 = screen.getByRole('cell', { name: 'Competing pointer A1 empty cell' });
+    const b1 = screen.getByRole('cell', { name: 'Competing pointer B1 empty cell' });
+    firePointer(a1, 'pointerdown', { button: 0, clientX: 50, clientY: 40, pointerId: 1 });
+    firePointer(b1, 'pointerdown', { button: 0, clientX: 130, clientY: 40, pointerId: 2 });
+    firePointer(grid, 'pointermove', { clientX: 210, clientY: 40, pointerId: 1 });
+
+    expect(cellInteraction.select).toHaveBeenCalledTimes(1);
+    expect(cellInteraction.select).toHaveBeenLastCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'A1') }));
+    expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'C1') }));
   });
 
   it.each([

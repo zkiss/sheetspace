@@ -64,6 +64,23 @@ describe('useCellEditing', () => {
   });
 
   describe('edit persistence', () => {
+    it('commits an active draft once before selecting a whole axis', () => {
+      const { commands, result, sheet } = renderCellEditing();
+      const a1 = cellTargetAt(sheet, 'A1')!;
+      const b1 = cellTargetAt(sheet, 'B1')!;
+
+      act(() => {
+        result.current.startEditingCell(a1, 'Region');
+        result.current.selectAxis('columns', b1, false);
+      });
+      act(() => result.current.commitActiveEdit({ target: a1, draft: 'Region' }));
+
+      expect(commands.updateCellContent).toHaveBeenCalledOnce();
+      expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', 'Region');
+      expect(result.current.editingCell).toBeNull();
+      expect(result.current.selectionRange).toEqual({ mode: 'columns', anchor: b1, extent: b1 });
+    });
+
     it.each([
       ['text', 'Region'],
       ['numeric-looking text', '42.50'],

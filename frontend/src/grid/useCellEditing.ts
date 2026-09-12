@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import { cellAddressOf } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForDisplay } from '@workbook/formula/reference';
@@ -42,6 +42,11 @@ export function useCellEditing({
   workbook: Workbook;
 }) {
   const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
+  const committedDrafts = useRef(new Set<string>());
+
+  function draftKey(session: CellEditSession) {
+    return `${session.target.sheetId}:${session.target.cell.rowId}:${session.target.cell.columnId}:${session.draft}`;
+  }
 
   useEffect(() => {
     dispatch({
@@ -63,6 +68,9 @@ export function useCellEditing({
       currentEditValue !== session.draft
       || (currentCell && currentRaw.length === 0 && session.draft.length === 0)
     ) {
+      const draftSignature = draftKey(session);
+      if (committedDrafts.current.has(draftSignature)) return;
+      committedDrafts.current.add(draftSignature);
       commands.updateCellContent(session.target.sheetId, key, session.draft);
     }
   }
@@ -76,6 +84,7 @@ export function useCellEditing({
     const sheet = findSheetById(workbook, target.sheetId);
     const key = sheet && cellKeyForTarget(sheet, target);
     if (!sheet || !key) return;
+    committedDrafts.current.clear();
     const raw = cellRawContent(sheet, key);
     dispatch({
       type: 'start-edit',
@@ -161,9 +170,15 @@ export function useCellEditing({
     selectCell: (target: CellTarget) => dispatch({ type: 'select', target }),
     extendSelection: (target: CellTarget) => dispatch({ type: 'extend-selection', target }),
     focusSelection: (target: CellTarget) => dispatch({ type: 'extend-selection', target, requestFocus: true }),
-    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => dispatch({ type: 'select-axis', mode, target, extend }),
+    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean) => {
+      commitActiveEdit();
+      dispatch({ type: 'select-axis', mode, target, extend });
+    },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,
-    updateEditingCellValue: (draft: string) => dispatch({ type: 'update-draft', draft }),
+    updateEditingCellValue: (draft: string) => {
+      committedDrafts.current.clear();
+      dispatch({ type: 'update-draft', draft });
+    },
   };
 }

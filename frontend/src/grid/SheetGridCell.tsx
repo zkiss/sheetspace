@@ -136,13 +136,6 @@ export function SheetGridCell({
           if (target) cellInteraction.select(target);
         }
       }}
-      onPointerDown={(event) => {
-        if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"]')) return;
-        const target = cellTargetAt(sheet, cellKey);
-        if (!target || event.button !== 0) return;
-        if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
-        else cellInteraction.select(target);
-      }}
       onKeyDown={handleCellKeyDown}
       ref={(cellElement) => registerCell?.(cellKey, cellElement)}
       role="cell"

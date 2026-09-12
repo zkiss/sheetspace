@@ -80,7 +80,7 @@ describe('SheetGridCell', () => {
     fireEvent(cell, pointerDown);
     fireEvent.click(cell, { detail: 1 });
 
-    expect(props.cellInteraction.select).toHaveBeenCalledTimes(1);
+    expect(props.cellInteraction.select).not.toHaveBeenCalled();
   });
 
   it('renders the editor and commits or cancels editor keyboard actions', () => {

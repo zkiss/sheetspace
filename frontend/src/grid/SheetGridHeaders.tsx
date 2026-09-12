@@ -8,13 +8,11 @@ import './SheetGrid.css';
 export function SheetGridHeaders({
   columnHeaderRef,
   columns,
-  onSelectColumn,
   selectedColumnIndices,
   virtualColumns,
 }: {
   columnHeaderRef: RefObject<HTMLDivElement>;
   columns: readonly GridAxisEntry<ColumnId>[];
-  onSelectColumn?: (columnIndex: number, extend: boolean) => void;
   selectedColumnIndices?: ReadonlySet<number>;
   virtualColumns: readonly VirtualItem[];
 }) {
@@ -48,9 +46,6 @@ export function SheetGridHeaders({
             key={column.kind === 'creating' ? column.operationId : column.id}
             ref={column.kind === 'saved' && column.durableIndex === 0 ? columnHeaderRef : undefined}
             aria-colindex={column.kind === 'saved' ? column.durableIndex + 2 : undefined}
-            onPointerDown={(event) => {
-              if (column.kind === 'saved' && event.button === 0) onSelectColumn?.(column.durableIndex, Boolean(event.shiftKey));
-            }}
             role="columnheader"
             style={{
               // The horizontal virtualizer's padding starts after the row header.
