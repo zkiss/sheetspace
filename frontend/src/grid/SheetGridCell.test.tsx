@@ -71,6 +71,18 @@ describe('SheetGridCell', () => {
     expect(props.cellInteraction.clear).toHaveBeenCalledWith(target);
   });
 
+  it('does not reselect after a pointer-originated click', () => {
+    const props = renderCell();
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    const pointerDown = new MouseEvent('pointerdown', { bubbles: true, button: 0 });
+    Object.defineProperty(pointerDown, 'pointerId', { value: 1 });
+    fireEvent(cell, pointerDown);
+    fireEvent.click(cell, { detail: 1 });
+
+    expect(props.cellInteraction.select).toHaveBeenCalledTimes(1);
+  });
+
   it('renders the editor and commits or cancels editor keyboard actions', () => {
     const sheet = testSheet();
     const editingCell: CellEditSession = {

@@ -115,6 +115,11 @@ export function SheetGridCell({
       data-reference-selected={isRangeSelected ? 'true' : undefined}
       data-testid="sheet-grid-cell"
       onClick={(event) => {
+        // Pointer selection is committed on pointer-down so a drag can extend it.
+        // The browser emits a click after that gesture; handling it would collapse
+        // the completed range back to the pointer-down cell. Keyboard activation
+        // has detail 0 and still uses this path.
+        if (event.detail !== 0) return;
         const target = cellTargetAt(sheet, cellKey);
         if (!target) return;
         if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);

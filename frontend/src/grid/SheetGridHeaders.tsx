@@ -43,11 +43,12 @@ export function SheetGridHeaders({
             className={`sheet-grid-column-header${column.kind === 'creating' ? ' sheet-grid-axis-creating' : ''}${
               column.kind === 'saved' && selectedColumnIndices?.has(column.durableIndex) ? ' sheet-grid-axis-selected' : ''
             }`}
+            data-axis-selection-mode={column.kind === 'saved' ? 'columns' : undefined}
             key={column.kind === 'creating' ? column.operationId : column.id}
             ref={column.kind === 'saved' && column.durableIndex === 0 ? columnHeaderRef : undefined}
             aria-colindex={column.kind === 'saved' ? column.durableIndex + 2 : undefined}
             onPointerDown={(event) => {
-              if (column.kind === 'saved') onSelectColumn?.(column.durableIndex, event.shiftKey);
+              if (column.kind === 'saved') onSelectColumn?.(column.durableIndex, Boolean(event.shiftKey));
             }}
             role="columnheader"
             style={{
