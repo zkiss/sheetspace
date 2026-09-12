@@ -10,6 +10,7 @@ export function WorkspaceSurface({
   navigationMotion,
   onContextMenu,
   viewport,
+  workspacePlaneRef,
   workspaceSurfaceRef,
 }: {
   children: ReactNode;
@@ -19,6 +20,7 @@ export function WorkspaceSurface({
   navigationMotion: boolean;
   onContextMenu: (event: MouseEvent<HTMLElement>) => void;
   viewport: WorkspaceViewport;
+  workspacePlaneRef: RefObject<HTMLDivElement>;
   workspaceSurfaceRef: RefObject<HTMLElement>;
 }) {
   return (
@@ -40,6 +42,7 @@ export function WorkspaceSurface({
         className={`workspace-plane${navigationMotion ? ' workspace-plane-navigating' : ''}`}
         data-navigation-motion={navigationMotion ? 'smooth' : 'instant'}
         data-testid="workspace-plane"
+        ref={workspacePlaneRef}
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
         }}

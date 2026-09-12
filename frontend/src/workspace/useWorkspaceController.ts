@@ -1,5 +1,6 @@
 import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
+import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 import {
@@ -23,8 +24,10 @@ export function useWorkspaceController({
   const [navigationInterrupted, setNavigationInterrupted] = useState(false);
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
+  const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
+  const navigationMayBeMoving = useRef(false);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
-    pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu,
+    start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu,
   });
 
   useLayoutEffect(() => {
@@ -64,8 +67,18 @@ export function useWorkspaceController({
     });
   }
 
-  function panWorkspace(deltaX: number, deltaY: number) {
+  function interruptNavigation() {
+    // Read before React removes the transition, and only once even for batched inputs.
+    if (navigationMayBeMoving.current) {
+      navigationMayBeMoving.current = false;
+      const displayed = displayedWorkspaceViewport(workspacePlaneRef.current);
+      if (displayed) setViewport(displayed);
+    }
     setNavigationInterrupted(true);
+  }
+
+  function panWorkspace(deltaX: number, deltaY: number) {
+    interruptNavigation();
     setViewport((currentViewport) => ({
       ...currentViewport,
       x: addFiniteWorkspaceCoordinate(currentViewport.x, deltaX),
@@ -74,12 +87,12 @@ export function useWorkspaceController({
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
-    setNavigationInterrupted(true);
+    interruptNavigation();
     setViewport((currentViewport) => zoomViewportAt(currentViewport, nextScale, zoomOrigin(origin)));
   }
 
   function zoomWorkspaceBy(factor: number, origin?: WorkspacePosition) {
-    setNavigationInterrupted(true);
+    interruptNavigation();
     setViewport((currentViewport) => zoomViewportAt(
       currentViewport,
       zoomScaleBy(currentViewport.scale, factor),
@@ -94,6 +107,7 @@ export function useWorkspaceController({
   }
 
   function resetViewport() {
+    navigationMayBeMoving.current = false;
     setNavigationInterrupted(true);
     setViewport({ x: 0, y: 0, scale: 1 });
   }
@@ -105,6 +119,7 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
+    navigationMayBeMoving.current = true;
     setNavigationInterrupted(false);
     setViewport((currentViewport) =>
       viewportForTarget({
@@ -146,6 +161,7 @@ export function useWorkspaceController({
     pendingSheetMenu,
     resetViewport,
     viewport,
+    workspacePlaneRef,
     workspaceSurfaceRef,
     workspaceSurfaceSize,
     zoomWorkspace,

@@ -21,6 +21,7 @@ type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
 export function useWorkspaceGestures(
   surfaceRef: RefObject<HTMLElement>,
   actions: {
+    start: () => void;
     pan: (x: number, y: number) => void;
     zoom: (factor: number, origin: WorkspacePosition) => void;
     closeMenu: () => void;
@@ -71,6 +72,7 @@ export function useWorkspaceGestures(
       if (!explicit && (event.button !== 0 || within(event.target, NATIVE_CONTENT))) return;
       if (event.pointerType === 'touch') return;
       consume(event);
+      current.current.start();
       current.current.closeMenu();
       pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
         button: event.button, space: event.button === 0 && space };
@@ -117,7 +119,11 @@ export function useWorkspaceGestures(
       const input = event as GestureEvent;
       if (!Number.isFinite(input.scale) || input.scale <= 0) return;
       consume(event);
-      if (event.type === 'gesturestart') { gestureScale = input.scale; return; }
+      if (event.type === 'gesturestart') {
+        current.current.start();
+        gestureScale = input.scale;
+        return;
+      }
       if (gestureScale !== null) current.current.zoom(input.scale / gestureScale,
         surfacePointFromClient({ x: input.clientX, y: input.clientY }, surface!));
       gestureScale = input.scale;

@@ -195,6 +195,7 @@ export function Workspace({
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         viewport={workspaceController.viewport}
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
+        workspacePlaneRef={workspaceController.workspacePlaneRef}
       >
         {sheets.map((sheet) => {
           if (!mountedSheetIds.has(sheet.id)) return null;

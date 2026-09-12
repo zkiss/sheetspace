@@ -20,6 +20,7 @@ function renderSurface(hasSheets = true) {
       {...interactions}
       viewport={{ scale: 1.5, x: 24, y: -12 }}
       workspaceSurfaceRef={surfaceRef}
+      workspacePlaneRef={createRef<HTMLDivElement>()}
     >
       <article>Sheet content</article>
     </WorkspaceSurface>,
