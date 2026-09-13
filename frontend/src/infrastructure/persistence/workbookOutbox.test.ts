@@ -226,6 +226,70 @@ describe('WorkbookPersistenceTransport', () => {
     expect(writeCells).toHaveBeenCalledTimes(1);
     expect(outbox.inspect('cell')?.status).toBe('failed');
   });
+  it('keeps a failed cell write guarded when its conflict reload rejects', async () => {
+    const failure = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValue(failure);
+    const loadSheet = vi.fn().mockRejectedValue(new TypeError('reload unavailable'));
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(1);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('keeps a cell write guarded when the conflict retry response cannot be recovered', async () => {
+    const conflict = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValueOnce(conflict).mockRejectedValueOnce(new TypeError('response lost'));
+    const beforeSheet = sheetDocument({ id: 'a', name: 'A', revision: 2 });
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 3, cells: { A1: 'remote' } });
+    const loadSheet = vi.fn().mockResolvedValueOnce(beforeSheet).mockRejectedValueOnce(new TypeError('reload unavailable')).mockResolvedValueOnce(remoteSheet);
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(2);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('keeps a revalidated cell write guarded when its next response is unresolved', async () => {
+    const conflict = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValueOnce(conflict).mockRejectedValueOnce(new TypeError('response lost'));
+    const beforeSheet = sheetDocument({ id: 'a', name: 'A', revision: 2 });
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 3, cells: { A1: 'remote' } });
+    const loadSheet = vi.fn()
+      .mockResolvedValueOnce(beforeSheet)
+      .mockResolvedValueOnce(beforeSheet)
+      .mockRejectedValueOnce(new TypeError('reload unavailable'))
+      .mockResolvedValueOnce(remoteSheet);
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(2);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
   it('persists surviving z-order updates before reporting a precisely missing sheet', async () => {
     const updateSheetZOrder = vi.fn()
       .mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'))

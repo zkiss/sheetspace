@@ -17,9 +17,9 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   revision(sheetId: SheetId) { return this.coordinator.revision(sheetId); }
   recordRevision(sheetId: SheetId, revision: number) { return this.coordinator.recordRevision(sheetId, revision); }
 
-  async execute(entry: Pick<OutboxEntry, 'intent' | 'affectedSheetIds'>): Promise<TransportResult> {
+  async execute(entry: Pick<OutboxEntry, 'intent' | 'affectedSheetIds'> & Partial<Pick<OutboxEntry, 'operationId'>>): Promise<TransportResult> {
     const { intent, affectedSheetIds } = entry;
-    const operationId = (entry as Partial<Pick<OutboxEntry, 'operationId'>>).operationId;
+    const { operationId } = entry;
     try { return await this.coordinator.serialize(affectedSheetIds, () => this.executeKnownSheets(operationId, intent, affectedSheetIds)); }
     catch (failure) {
       if (isMissingSheet(failure) && affectedSheetIds.length === 1) return { kind: 'missing-sheet', sheetIds: [affectedSheetIds[0]] };
@@ -39,13 +39,13 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   }
 
   private async executeWithRetry(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
-    if (intent.kind === 'write-cells') {
+    if (intent.kind === 'write-cells' && operationId !== undefined && this.unsafeCellWriteFailures.has(operationId)) {
       const recovered = await this.recoverUnsafeCellWrite(operationId, intent);
       if (recovered) return recovered;
     }
+    if (intent.kind === 'write-cells') return this.requestCellWrite(operationId, intent);
     try { return await this.request(intent); }
     catch (failure) {
-      if (intent.kind === 'write-cells') return this.recoverCellWrite(operationId, intent, failure);
       if (!isRevisionConflict(failure)) throw failure;
       const latest = await this.loadSheets(affectedSheetIds);
       const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
@@ -63,8 +63,8 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   }
   private async recoverUnsafeCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult | undefined> {
     if (operationId === undefined) return undefined;
+    if (!this.unsafeCellWriteFailures.has(operationId)) return undefined;
     const failure = this.unsafeCellWriteFailures.get(operationId);
-    if (failure === undefined) return undefined;
     const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
     const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
     if (missingSheetIds.length > 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
@@ -75,25 +75,34 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
       return this.recordMany(sheets.map((sheet) => ({ sheetId: sheet.id, revision: sheet.revision })));
     }
     if (matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
-      this.unsafeCellWriteFailures.delete(operationId);
       return undefined;
     }
     throw failure;
   }
+  private async requestCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult> {
+    try {
+      const result = await this.request(intent);
+      if (operationId !== undefined) this.unsafeCellWriteFailures.delete(operationId);
+      return result;
+    } catch (failure) {
+      return this.recoverCellWrite(operationId, intent, failure);
+    }
+  }
   private async recoverCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>, failure: unknown): Promise<TransportResult> {
     if (!isRevisionConflict(failure) && !isAmbiguousResponse(failure)) throw failure;
+    if (operationId !== undefined) this.unsafeCellWriteFailures.set(operationId, failure);
     const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
     const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
     if (missingSheetIds.length > 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
     const sheets = latest.flatMap((result) => result.kind === 'loaded' ? [result.sheet] : []);
     sheets.forEach((sheet) => this.recordRevision(sheet.id, sheet.revision));
     if (matchesCellStates(intent.writes, sheets, 'afterRaw')) {
+      if (operationId !== undefined) this.unsafeCellWriteFailures.delete(operationId);
       return this.recordMany(sheets.map((sheet) => ({ sheetId: sheet.id, revision: sheet.revision })));
     }
     if (isRevisionConflict(failure) && matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
-      return this.request(intent);
+      return this.requestCellWrite(operationId, intent);
     }
-    if (operationId !== undefined) this.unsafeCellWriteFailures.set(operationId, failure);
     throw failure;
   }
   private async loadSheets(sheetIds: readonly SheetId[]) {
