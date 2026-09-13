@@ -10,9 +10,25 @@ type MissingSheetListener = (sheetId: SheetId, source: MissingSheetSource) => vo
 
 /** Shared backend-authoritative sheet lifecycle and revision state for all persistence queues. */
 export class WorkbookPersistenceCoordinator {
+  private readonly writeTails = new Map<SheetId, Promise<void>>();
   private readonly revisions = new Map<SheetId, number>();
   private readonly missingSheetIds = new Set<SheetId>();
   private readonly missingSheetListeners = new Set<MissingSheetListener>();
+
+  /** Reserve all affected sheets together; requests read revisions only after their predecessors finish. */
+  async serialize<T>(sheetIds: readonly SheetId[], request: () => Promise<T>): Promise<T> {
+    const ids = [...new Set(sheetIds)];
+    const predecessors = ids.flatMap((id) => { const tail = this.writeTails.get(id); return tail ? [tail] : []; });
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => { release = resolve; });
+    ids.forEach((id) => this.writeTails.set(id, tail));
+    if (predecessors.length > 0) await Promise.all(predecessors);
+    try { return await request(); }
+    finally {
+      release();
+      ids.forEach((id) => { if (this.writeTails.get(id) === tail) this.writeTails.delete(id); });
+    }
+  }
 
   revision(sheetId: SheetId) {
     return this.revisions.get(sheetId);

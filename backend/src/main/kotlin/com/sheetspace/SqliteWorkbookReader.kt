@@ -79,6 +79,10 @@ internal class SqliteWorkbookReader(
             name = document.name,
             revision = document.revision,
             frame = document.frame,
+            presentation = SheetPresentation(
+                rowHeights = loadSizes(sheetId, "row_presentation", "row_id", "height"),
+                columnWidths = loadSizes(sheetId, "column_presentation", "column_id", "width"),
+            ),
             content = TabularContent(
                 rows = loadRows(sheetId),
                 columns = loadColumns(sheetId),
@@ -102,6 +106,16 @@ internal class SqliteWorkbookReader(
                     if (rs.next()) rs.getInt("schema_version") else null
                 }
             }
+
+    private fun loadSizes(sheetId: SheetId, table: String, idColumn: String, sizeColumn: String): Map<String, Double> =
+        connection.prepareStatement("SELECT $idColumn, $sizeColumn FROM $table WHERE sheet_id = ?").use { statement ->
+            statement.setBytes(1, sheetId.value.toUuidBytes())
+            statement.executeQuery().use { rs ->
+                buildMap {
+                    while (rs.next()) put(rs.getBytes(idColumn).toUuidString(), rs.getDouble(sizeColumn))
+                }
+            }
+        }
 
     private fun loadRows(sheetId: SheetId): List<RowId> =
         connection.prepareStatement(

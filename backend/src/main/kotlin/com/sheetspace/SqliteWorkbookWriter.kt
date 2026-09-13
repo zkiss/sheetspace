@@ -13,6 +13,7 @@ internal class SqliteWorkbookWriter(
     private val connection: Connection,
     private val reader: SqliteWorkbookReader,
 ) {
+    private val presentationWriter = SqlitePresentationWriter(connection)
     private val cellWriter = SqliteCellWriter(connection)
 
     fun replaceAll(workbook: WorkbookState) {
@@ -39,6 +40,16 @@ internal class SqliteWorkbookWriter(
         incrementSheetRevision(sheetId, expectedRevision.revision)
         cellWriter.apply(sheetId, writes)
         return reader.loadSheet(sheetId) ?: error("Updated sheet disappeared: ${sheetId.value}")
+    }
+
+    fun writePresentation(expected: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument {
+        val sheetId = SheetId(expected.sheetId)
+        val current = reader.loadSheet(sheetId) ?: throw NoSuchElementException("Sheet not found: ${expected.sheetId}")
+        if (current.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, current.revision)
+        validatedPresentationWrites(current, writes)
+        incrementSheetRevision(sheetId, expected.revision)
+        presentationWriter.apply(sheetId, writes)
+        return reader.loadSheet(sheetId) ?: error("Updated sheet disappeared: ${expected.sheetId}")
     }
 
     fun persistChanges(current: WorkbookState, updated: WorkbookState) {
@@ -68,6 +79,7 @@ internal class SqliteWorkbookWriter(
         }
         insertFrame(sheet)
         insertTabularContent(sheet.id, sheet.tabularContent)
+        presentationWriter.persistChanges(sheet.id, SheetPresentation(), sheet.presentation)
     }
 
     private fun persistSheetChanges(current: SheetDocument, updated: SheetDocument) {
@@ -107,6 +119,7 @@ internal class SqliteWorkbookWriter(
             statement.executeUpdate()
         }
         persistTabularChanges(updated.id, current.tabularContent, updated.tabularContent)
+        presentationWriter.persistChanges(updated.id, current.presentation, updated.presentation)
     }
 
     private fun persistTabularChanges(

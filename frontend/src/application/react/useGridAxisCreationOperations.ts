@@ -153,7 +153,8 @@ export function useGridAxisCreationOperations({
     }, { kind: 'none' });
   }, [persistenceCoordinator, setWorkbook]);
 
-  const execute = useCallback(async (entry: AxisCreation) => {
+  const execute = useCallback(async (entry: AxisCreation) => persistenceCoordinator.serialize([entry.sheetId], async () => {
+    if (persistenceCoordinator.isSheetMissing(entry.sheetId)) return;
     const request = async (revision: number | undefined) => entry.axis === 'row'
       ? (resolvedApiClient.appendRow ?? workbookApi.appendRow)(entry.sheetId, { revision })
       : (resolvedApiClient.appendColumn ?? workbookApi.appendColumn)(entry.sheetId, { revision });
@@ -179,7 +180,7 @@ export function useGridAxisCreationOperations({
     recordRevision(response.sheetId, response.revision);
     if ('rowId' in response) reconcileRef.current({ kind: 'append-row', sheetId: entry.sheetId, rowId: response.rowId });
     else reconcileRef.current({ kind: 'append-column', sheetId: entry.sheetId, columnId: response.columnId });
-  }, [currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient]);
+  }), [currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient]);
 
   const pump = useCallback(function pumpAvailable() {
     for (const execution of queue.executeAvailable(execute)) void execution.finally(pumpAvailable);

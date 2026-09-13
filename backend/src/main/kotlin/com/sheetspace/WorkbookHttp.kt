@@ -22,6 +22,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 @Serializable
+data class PresentationWriteRequest(val writes: List<AxisSizeWrite>)
+
+@Serializable
 data class HealthResponse(val status: String, val service: String)
 
 @Serializable
@@ -142,6 +145,16 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                         frameSize = request.frameSize,
                     ),
                 )
+                call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
+            }
+        }
+
+        patch("/api/sheets/{sheetId}/presentation") {
+            val sheetId = call.parameters["sheetId"] ?: return@patch call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val request = call.receiveRequest<PresentationWriteRequest>() ?: return@patch
+            val expectedRevision = call.expectedSheetRevision() ?: return@patch
+            call.respondApplicationResult {
+                val sheet = workbookApplication.writePresentation(sheetId, expectedRevision, request.writes)
                 call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
             }
         }
@@ -275,6 +288,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
             HttpStatusCode.BadRequest to "sheet-z-order-update-required"
         WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE ->
             HttpStatusCode.BadRequest to "duplicate-sheet-z-order-update"
+        WorkbookApplicationError.INVALID_SHEET_PRESENTATION -> HttpStatusCode.BadRequest to "invalid-sheet-presentation"
         WorkbookApplicationError.INVALID_CELL_ADDRESS -> HttpStatusCode.BadRequest to "invalid-cell-address"
     }
     respondError(status, code)

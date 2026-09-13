@@ -35,6 +35,8 @@ interface WorkbookStore {
         writes: List<CellWrite>,
     ): SheetDocument
 
+    fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument
+
     fun updateSheetZOrder(writes: List<SheetZOrderWrite>): List<SheetDocument>
 
     fun updateWorkbook(

@@ -14,6 +14,7 @@ data class SheetDocument(
     val revision: Long = 0,
     val name: String,
     val frame: FrameState = FrameState(),
+    val presentation: SheetPresentation = SheetPresentation(),
     val content: SheetContent = TabularContent(),
 ) {
     val tabularContent: TabularContent

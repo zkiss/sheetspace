@@ -41,6 +41,14 @@ class InMemoryWorkbookStore(
         updated
     }
 
+    override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument = synchronized(this) {
+        val current = workbook.findSheet(SheetId(expectedRevision.sheetId)) ?: throw NoSuchElementException("Sheet not found")
+        if (current.revision != expectedRevision.revision) throw SheetRevisionConflict(expectedRevision.sheetId, expectedRevision.revision, current.revision)
+        val updated = current.copy(presentation = validatedPresentationWrites(current, writes), revision = current.revision + 1)
+        workbook = workbook.replaceSheet(updated)
+        updated
+    }
+
     override fun updateSheetZOrder(writes: List<SheetZOrderWrite>): List<SheetDocument> = synchronized(this) {
         require(writes.isNotEmpty())
         require(writes.map { it.expectedRevision.sheetId }.distinct().size == writes.size)

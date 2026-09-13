@@ -2,8 +2,10 @@ import { CellAddress, CellRange } from '@workbook/core/address';
 import { SheetDocument, WorkspacePosition } from '@workbook/core/model';
 import { clampSheetFrameSize } from '@workspace/workspaceGeometry';
 
-export const GRID_CELL_WIDTH = 76;
-export const GRID_CELL_HEIGHT = 26.4;
+import { DEFAULT_COLUMN_WIDTH, DEFAULT_ROW_HEIGHT } from '@workbook/core/axisSizePolicy';
+
+export const GRID_CELL_WIDTH = DEFAULT_COLUMN_WIDTH;
+export const GRID_CELL_HEIGHT = DEFAULT_ROW_HEIGHT;
 export const GRID_ROW_HEADER_WIDTH = 40;
 export const GRID_COLUMN_HEADER_HEIGHT = 26.4;
 export const SHEET_HEADER_HEIGHT = 42;

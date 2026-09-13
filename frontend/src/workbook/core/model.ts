@@ -7,7 +7,7 @@ export type ColumnId = string;
 export type CellIdentityKey = string;
 export type WorkbookManifest = { version: typeof WORKBOOK_SCHEMA_VERSION; revision: number; sheetIds: SheetId[] };
 export type Workbook = { manifest: WorkbookManifest; documents: Record<SheetId, SheetDocument> };
-export type SheetDocument = { id: SheetId; revision: number; name: string; frame: FrameState; content: TabularContent };
+export type SheetDocument = { id: SheetId; revision: number; name: string; frame: FrameState; presentation: SheetPresentation; content: TabularContent };
 export type FrameState = { position: WorkspacePosition; size: SheetFrameSize; zIndex: number };
 export type TabularContent = { kind: 'tabular'; rows: RowId[]; columns: ColumnId[]; cells: Record<CellIdentityKey, string> };
 export type StableCellIdentity = { rowId: RowId; columnId: ColumnId };
@@ -19,3 +19,6 @@ export type SheetTabularProjection = Pick<SheetDocument, 'id' | 'name' | 'revisi
 export type ValidationResult = { ok: true; name: string } | { ok: false; reason: 'empty' | 'duplicate' };
 export type MutationResult<T> = { ok: true; value: T } | { ok: false; reason: 'empty' | 'duplicate' | 'unknown-sheet' };
 export type SheetZOrderDirection = 'up' | 'down' | 'top' | 'bottom';
+
+export type SheetPresentation = { rowHeights: Record<RowId, number>; columnWidths: Record<ColumnId, number> };
+export type AxisSizeWrite = { axis: 'row' | 'column'; axisId: string; size: number | null };

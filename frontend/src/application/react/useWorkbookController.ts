@@ -1,3 +1,4 @@
+import type { AxisSizeWrite } from '@workbook/core/model';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
@@ -33,6 +34,7 @@ import {
 } from '@calculation/workbookCalculation';
 
 export type WorkbookCommands = {
+  writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => void;
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
@@ -246,6 +248,7 @@ export function useWorkbookController({
 
   return {
     commands: {
+      writeAxisSizes: (sheetId, writes) => { applyAction({ kind: 'write-axis-sizes', sheetId, writes }); },
       appendColumn: axisCreation.appendColumn,
       appendRow: axisCreation.appendRow,
       changeSheetZOrder,

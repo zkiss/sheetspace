@@ -17,6 +17,7 @@
         "size": { "width": 300.0, "height": 180.0 },
         "zIndex": 2
       },
+      "presentation": { "rowHeights": {}, "columnWidths": {} },
       "content": {
         "kind": "tabular",
         "rows": ["20000000-0000-0000-0000-000000000001"],
@@ -39,6 +40,7 @@
         "size": { "width": 360.0, "height": 240.0 },
         "zIndex": 1
       },
+      "presentation": { "rowHeights": {}, "columnWidths": {} },
       "content": {
         "kind": "tabular",
         "rows": [

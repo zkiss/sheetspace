@@ -40,6 +40,7 @@ enum class WorkbookApplicationError {
     SHEET_Z_ORDER_UPDATE_REQUIRED,
     DUPLICATE_SHEET_Z_ORDER_UPDATE,
     INVALID_CELL_ADDRESS,
+    INVALID_SHEET_PRESENTATION,
 }
 
 class WorkbookApplicationException(
@@ -56,6 +57,8 @@ interface WorkbookApplication {
     fun createSheet(command: CreateSheetCommand): SheetDocument
 
     fun updateSheet(sheetId: String, expectedRevision: Long, command: UpdateSheetCommand): SheetDocument
+
+    fun writePresentation(sheetId: String, expectedRevision: Long, writes: List<AxisSizeWrite>): SheetDocument
 
     fun updateSheetZOrder(updates: List<SheetZOrderUpdate>): List<SheetDocument>
 
@@ -140,6 +143,11 @@ class DefaultWorkbookApplication(
                 },
             )
         }
+    }
+
+    override fun writePresentation(sheetId: String, expectedRevision: Long, writes: List<AxisSizeWrite>): SheetDocument {
+        loadSheet(sheetId)
+        return store.writePresentation(ExpectedSheetRevision(sheetId, expectedRevision), writes)
     }
 
     override fun updateSheetZOrder(updates: List<SheetZOrderUpdate>): List<SheetDocument> {
