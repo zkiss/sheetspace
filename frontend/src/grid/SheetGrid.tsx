@@ -674,6 +674,7 @@ export function SheetGrid({
                   sheet={sheet}
                   style={{
                     height: virtualRow.size,
+                    lineHeight: `${virtualRow.size}px`,
                     left: virtualColumn.start,
                     minWidth: virtualColumn.size,
                     position: 'absolute',

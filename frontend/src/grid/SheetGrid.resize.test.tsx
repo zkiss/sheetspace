@@ -16,12 +16,12 @@ function pointer(element: Element, type: string, x = 0, y = 0, id = 7) {
   Object.defineProperty(event, 'pointerId', { value: id });
   fireEvent(element, event);
 }
-function Grid({ selection, owner, activeSheetId = sheet.id, resizable = true }: {
-  selection?: CellSelection; owner?: symbol; activeSheetId?: string; resizable?: boolean;
+function Grid({ selection, owner, activeSheetId = sheet.id, resizable = true, presentation = sheet.presentation }: {
+  selection?: CellSelection; owner?: symbol; activeSheetId?: string; resizable?: boolean; presentation?: typeof sheet.presentation;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const tabular = tabularProjection(sheet);
-  return <div ref={ref}><SheetGrid sheet={tabular} axisProjection={projectGridAxes(tabular)} presentation={sheet.presentation}
+  return <div ref={ref}><SheetGrid sheet={tabular} axisProjection={projectGridAxes(tabular)} presentation={presentation}
     activeCellKey={null} activeSheetId={activeSheetId} logicalSelection={selection} selectionOwner={owner}
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select, startEditing: vi.fn() }}
     editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
@@ -35,6 +35,25 @@ function selection(mode: 'rows' | 'columns' | 'cells', end = 90): CellSelection 
 }
 
 describe('axis resizing', () => {
+  it.each([16, 26.4, 80])('uses the projected %spx row height for cell text during preview and after restoration', (height) => {
+    const view = render(<Grid />);
+    const cell = screen.getByRole('cell', { name: 'Sizes A1 empty cell' });
+    const boundary = handle('row', '1');
+    const grid = screen.getByTestId('sheet-grid');
+    const header = screen.getByTestId('sheet-grid-header-row');
+    function expectTextHeight(expected: number) {
+      expect(cell).toHaveStyle({ height: `${expected}px`, lineHeight: `${expected}px` });
+      expect(grid.style.getPropertyValue('--grid-cell-height')).toBe('1.65rem');
+      expect(header.style.getPropertyValue('--grid-cell-height')).toBe('');
+    }
+    pointer(boundary, 'pointerdown'); pointer(boundary, 'pointermove', 0, height - 26.4);
+    expectTextHeight(height);
+    pointer(boundary, 'pointercancel');
+    expectTextHeight(26.4);
+    expect(commit).not.toHaveBeenCalled();
+    view.rerender(<Grid presentation={{ rowHeights: { [sheet.content.rows[0]]: height }, columnWidths: {} }} />);
+    expectTextHeight(height);
+  });
   it.each([0.5, 1, 2])('previews logical column dimensions at scale %s and commits once without selecting', (scale) => {
     render(<Grid />);
     const boundary = handle('column', 'A');

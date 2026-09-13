@@ -13,27 +13,28 @@ function pointer(element: Element, type: string, x = 0, y = 0) {
 }
 
 describe('axis resize application integration', () => {
-  it('saves committed dimensions, restores them on reload, aligns the editor and leaves frames and formulas intact', async () => {
+  it.each([16, 40])('saves committed dimensions with a %spx row, restores them on reload, aligns the editor and leaves frames and formulas intact', async (rowHeight) => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '7', B2: '=A1*2' } });
     const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
     const column = screen.getByRole('separator', { name: 'Resize column A' });
     pointer(column, 'pointerdown'); pointer(column, 'pointermove', 44); pointer(column, 'pointerup', 44);
     const row = screen.getByRole('separator', { name: 'Resize row 1' });
-    pointer(row, 'pointerdown'); pointer(row, 'pointermove', 0, 13.6); pointer(row, 'pointerup', 0, 13.6);
+    pointer(row, 'pointerdown'); pointer(row, 'pointermove', 0, rowHeight - 26.4); pointer(row, 'pointerup', 0, rowHeight - 26.4);
     await waitFor(() => expect(apiClient.writeAxisSizes).toHaveBeenCalledTimes(2));
     const persisted = await apiClient.loadWorkbook();
-    expect(persisted.documents.inputs.presentation).toEqual({ columnWidths: { [sheet.content.columns[0]]: 120 }, rowHeights: { [sheet.content.rows[0]]: 40 } });
+    expect(persisted.documents.inputs.presentation).toEqual({ columnWidths: { [sheet.content.columns[0]]: 120 }, rowHeights: { [sheet.content.rows[0]]: rowHeight } });
     expect(persisted.documents.inputs.content).toEqual(sheet.content);
     expect(persisted.documents.inputs.frame).toEqual(sheet.frame);
     view.unmount();
     render(<App initialWorkbook={persisted} apiClient={apiClient} />);
     const first = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-    expect(first).toHaveStyle({ width: '120px', height: '40px' });
+    expect(first).toHaveStyle({ width: '120px', height: `${rowHeight}px`, lineHeight: `${rowHeight}px` });
+    expect(first).toHaveTextContent('7');
     expect(screen.getByRole('cell', { name: 'Inputs B2 cell' })).toHaveTextContent('14');
     fireEvent.doubleClick(first);
     expect(screen.getByRole('textbox')).toHaveValue('7');
-    expect(screen.getByRole('textbox').closest('[role="cell"]')).toHaveStyle({ width: '120px', height: '40px' });
+    expect(screen.getByRole('textbox').closest('[role="cell"]')).toHaveStyle({ width: '120px', height: `${rowHeight}px` });
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
     const frame = screen.getByTestId('sheet-frame');
     const right = within(frame).getByRole('separator', { name: 'Resize sheet Inputs from right' });
