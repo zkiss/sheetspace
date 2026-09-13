@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CellSelection } from './cellInteractionContracts';
 import { sheetDocument } from '@test-support/workbookFactories';
@@ -16,7 +16,9 @@ function pointer(element: Element, type: string, x = 0, y = 0, id = 7) {
   Object.defineProperty(event, 'pointerId', { value: id });
   fireEvent(element, event);
 }
-function Grid({ selection, owner, activeSheetId = sheet.id }: { selection?: CellSelection; owner?: symbol; activeSheetId?: string }) {
+function Grid({ selection, owner, activeSheetId = sheet.id, resizable = true }: {
+  selection?: CellSelection; owner?: symbol; activeSheetId?: string; resizable?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const tabular = tabularProjection(sheet);
   return <div ref={ref}><SheetGrid sheet={tabular} axisProjection={projectGridAxes(tabular)} presentation={sheet.presentation}
@@ -24,7 +26,7 @@ function Grid({ selection, owner, activeSheetId = sheet.id }: { selection?: Cell
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select, startEditing: vi.fn() }}
     editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
     formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
-    navigationHighlightCellKey={null} scrollContainerRef={ref} onWriteAxisSizes={commit} /></div>;
+    navigationHighlightCellKey={null} scrollContainerRef={ref} onWriteAxisSizes={resizable ? commit : undefined} /></div>;
 }
 function handle(axis: 'row' | 'column', label: string) { return screen.getByRole('separator', { name: `Resize ${axis} ${label}` }); }
 function selection(mode: 'rows' | 'columns' | 'cells', end = 90): CellSelection {
@@ -76,6 +78,69 @@ describe('axis resizing', () => {
     render(<Grid selection={selection(mode)} />); const boundary = handle('column', 'A');
     pointer(boundary, 'pointerdown'); pointer(boundary, 'pointerup', 20);
     expect(commit.mock.calls[0][0]).toHaveLength(1);
+  });
+  it.each(['rows', 'columns'] as const)('retains the later selected %s capture owner through growing previews and scrolling', (mode) => {
+    const view = render(<Grid selection={selection(mode, 5)} />);
+    const grid = screen.getByTestId('sheet-grid'), viewport = grid.parentElement!;
+    act(() => { virtualGridGeometry(viewport, { width: 600, height: 160 }); });
+    const axis = mode === 'rows' ? 'row' : 'column';
+    const boundary = handle(axis, mode === 'rows' ? '6' : 'F');
+    const capture = vi.fn();
+    boundary.setPointerCapture = capture;
+    pointer(boundary, 'pointerdown');
+    expect(capture).toHaveBeenCalledWith(7);
+    pointer(boundary, 'pointermove', 1000, 1000);
+    // Earlier selected axes push the originating header outside the normal window.
+    expect(boundary.isConnected).toBe(true);
+    expect(handle(axis, mode === 'rows' ? '6' : 'F')).toBe(boundary);
+    expect(mode === 'rows' ? boundary.closest('[role="row"]') : boundary.parentElement)
+      .toHaveStyle(mode === 'rows' ? { top: '5026.4px' } : { left: '5420px' });
+    act(() => {
+      viewport.scrollLeft = 7000;
+      viewport.scrollTop = 12000;
+      fireEvent.scroll(viewport);
+    });
+    expect(boundary.isConnected).toBe(true);
+    expect(view.container.querySelectorAll('[role="cell"]').length).toBeLessThan(500);
+    pointer(boundary, 'pointerup', 1000, 1000);
+    pointer(boundary, 'pointerup', 1000, 1000);
+    expect(commit).toHaveBeenCalledTimes(1);
+    const ids = mode === 'rows' ? sheet.content.rows : sheet.content.columns;
+    expect(commit).toHaveBeenCalledWith(ids.slice(0, 6).map((axisId) => ({ axis, axisId, size: mode === 'rows' ? 1000 : 1076 })));
+  });
+  it.each(['rows', 'columns'] as const)('discards a later selected %s preview when its retained owner loses capture', (mode) => {
+    render(<Grid selection={selection(mode, 5)} />);
+    const grid = screen.getByTestId('sheet-grid');
+    act(() => { virtualGridGeometry(grid.parentElement!, { width: 600, height: 160 }); });
+    const axis = mode === 'rows' ? 'row' : 'column';
+    const boundary = handle(axis, mode === 'rows' ? '6' : 'F');
+    pointer(boundary, 'pointerdown'); pointer(boundary, 'pointermove', 1000, 1000);
+    pointer(boundary, 'lostpointercapture'); pointer(boundary, 'pointerup', 1000, 1000);
+    expect(commit).not.toHaveBeenCalled();
+    expect(grid).toHaveStyle({ width: '7640px' });
+    expect(parseFloat(grid.style.height)).toBeCloseTo(26426.4);
+    const next = handle(axis, mode === 'rows' ? '1' : 'A');
+    pointer(next, 'pointerdown'); pointer(next, 'pointerup', 20, 20);
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+  it('discards preview when its capture handle is removed while the grid remains mounted', () => {
+    const selected = selection('columns', 5);
+    const view = render(<Grid selection={selected} />);
+    const grid = screen.getByTestId('sheet-grid'), boundary = handle('column', 'F');
+    const release = vi.fn();
+    boundary.hasPointerCapture = () => true;
+    boundary.releasePointerCapture = release;
+    pointer(boundary, 'pointerdown'); pointer(boundary, 'pointermove', 1000);
+    view.rerender(<Grid selection={selected} resizable={false} />);
+    expect(boundary.isConnected).toBe(false);
+    expect(release).toHaveBeenCalledWith(7);
+    expect(grid).toHaveStyle({ width: '7640px' });
+    pointer(boundary, 'pointerup', 1000);
+    expect(commit).not.toHaveBeenCalled();
+    view.rerender(<Grid selection={selected} />);
+    const next = handle('column', 'A');
+    pointer(next, 'pointerdown'); pointer(next, 'pointerup', 20);
+    expect(commit).toHaveBeenCalledTimes(1);
   });
   it('targets only an unselected axis', () => {
     render(<Grid selection={selection('columns', 0)} />); const boundary = handle('column', 'B');

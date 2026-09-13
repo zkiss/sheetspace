@@ -29,17 +29,20 @@ export function useAxisResize(options: {
   const latest = useRef(options);
   latest.current = options;
   const session = useRef<Session | null>(null);
-  const [preview, setPreview] = useState<AxisResizePreview | null>(null);
+  const [preview, setPreview] = useState<(AxisResizePreview & { originId: string }) | null>(null);
   const cancel = useCallback(() => {
     const current = session.current;
     session.current = null;
     setPreview(null);
     if (current?.element.hasPointerCapture?.(current.pointerId)) current.element.releasePointerCapture(current.pointerId);
   }, []);
+  const detachHandle = useCallback((element: HTMLElement) => {
+    if (session.current?.element === element) cancel();
+  }, [cancel]);
   const ownsSession = () => {
     const current = session.current;
     const next = latest.current;
-    return current && current.sheetId === next.sheet.id && current.selection === next.selection
+    return current && current.element.isConnected && next.commit && current.sheetId === next.sheet.id && current.selection === next.selection
       && current.owner === next.selectionOwner && current.activeSheetId === next.activeSheetId
       && current.ids.every((id) => (current.axis === 'row' ? next.sheet.rows : next.sheet.columns).includes(id));
   };
@@ -70,7 +73,7 @@ export function useAxisResize(options: {
     session.current = { axis, ids, size: initialSize, initialSize, scale, element: event.currentTarget,
       pointerId: event.pointerId, origin: axis === 'row' ? event.clientY : event.clientX,
       sheetId: options.sheet.id, selection: options.selection, owner: options.selectionOwner, activeSheetId: options.activeSheetId };
-    setPreview({ axis, ids, size: initialSize });
+    setPreview({ axis, ids, size: initialSize, originId: id });
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
   function move(event: PointerEvent<HTMLElement>) {
@@ -82,7 +85,7 @@ export function useAxisResize(options: {
     if (!Number.isFinite(delta)) return;
     const { min, max } = AXIS_SIZE_LIMITS[current.axis];
     current.size = Math.min(max, Math.max(min, current.initialSize + delta));
-    setPreview({ axis: current.axis, ids: current.ids, size: current.size });
+    setPreview((previous) => previous && { ...previous, size: current.size });
   }
   function stop(event: PointerEvent<HTMLElement>) {
     event.stopPropagation();
@@ -97,5 +100,5 @@ export function useAxisResize(options: {
     event.stopPropagation();
     if (session.current?.pointerId === event.pointerId) cancel();
   }
-  return { preview, start, move, stop, interrupt };
+  return { preview, start, move, stop, interrupt, detachHandle };
 }

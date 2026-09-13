@@ -204,8 +204,8 @@ export function SheetGrid({
   const navigationAddress = navigationHighlightCellKey
     ? parseCellAddress(navigationHighlightCellKey, sheet)
     : navigationHighlightRange?.start;
-  // Selection is logical state and may leave the rendered window. Only an editor or
-  // an in-flight navigation target must stay mounted as a DOM requirement.
+  // Selection may leave the rendered window. Editors, navigation targets and the
+  // active resize capture owner must stay mounted throughout their interaction.
   const pinnedAddresses = [
     editingAddress,
     keyboardFocusAddress,
@@ -214,8 +214,10 @@ export function SheetGrid({
     navigationHighlightRange?.end,
   ]
     .filter(Boolean) as CellAddress[];
-  const pinnedRows = pinnedAxisIndices(rows, pinnedAddresses.map((address) => address.rowIndex));
-  const pinnedColumns = pinnedAxisIndices(columns, pinnedAddresses.map((address) => address.columnIndex));
+  const resizeRowIndex = resize.preview?.axis === 'row' ? sheet.rows.indexOf(resize.preview.originId) : -1;
+  const resizeColumnIndex = resize.preview?.axis === 'column' ? sheet.columns.indexOf(resize.preview.originId) : -1;
+  const pinnedRows = pinnedAxisIndices(rows, [...pinnedAddresses.map((address) => address.rowIndex), resizeRowIndex]);
+  const pinnedColumns = pinnedAxisIndices(columns, [...pinnedAddresses.map((address) => address.columnIndex), resizeColumnIndex]);
   const windowedRows = rowVirtualizer.getVirtualItems();
   const windowedColumns = columnVirtualizer.getVirtualItems();
   const virtualRows = mergeVirtualIndexes(
