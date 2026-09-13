@@ -10,6 +10,109 @@ import kotlin.test.assertTrue
 
 class CellMutationRoutesTest {
     @Test
+    fun `batch cell update commits multiple sheets in cell appearance order and preserves no-op revisions`() =
+        testWorkbookApplication { workbookApplication ->
+            val inputsId = client.createSheet().id
+            val outputs = workbookApplication.createSheet(CreateSheetCommand("Outputs"))
+            val inputs = workbookApplication.loadSheet(inputsId)
+            fun write(sheet: SheetDocument, address: String, raw: String): CellWriteRequest {
+                val coordinate = sheet.tabularContent.coordinateAt(address)!!
+                return CellWriteRequest(sheet.id.value, coordinate.rowId.value, coordinate.columnId.value, raw)
+            }
+
+            val first = client.patch("/api/cells") {
+                jsonBody(testJson.encodeToString(
+                    CellPatchRequest(
+                        expectedRevisions = listOf(
+                            CellRevisionRequest(inputs.id.value, inputs.revision),
+                            CellRevisionRequest(outputs.id.value, outputs.revision),
+                        ),
+                        cells = listOf(
+                            write(outputs, "A1", "result"),
+                            write(inputs, "B2", "42"),
+                            write(inputs, "A1", "source"),
+                        ),
+                    ),
+                ))
+            }
+
+            assertEquals(HttpStatusCode.OK, first.status)
+            assertEquals(
+                CellPatchResponse(
+                    listOf(
+                        SheetRevisionResponse(outputs.id.value, 1),
+                        SheetRevisionResponse(inputs.id.value, 1),
+                    ),
+                ),
+                first.decodeBody(),
+            )
+            val afterFirst = workbookApplication.loadWorkbookBundle()
+            assertEquals("source", afterFirst.documents.getValue(inputs.id).tabularContent.cells.getValue("A1"))
+            assertEquals("42", afterFirst.documents.getValue(inputs.id).tabularContent.cells.getValue("B2"))
+            assertEquals("result", afterFirst.documents.getValue(outputs.id).tabularContent.cells.getValue("A1"))
+
+            val second = client.patch("/api/cells") {
+                jsonBody(testJson.encodeToString(
+                    CellPatchRequest(
+                        expectedRevisions = listOf(
+                            CellRevisionRequest(inputs.id.value, 1),
+                            CellRevisionRequest(outputs.id.value, 1),
+                        ),
+                        cells = listOf(
+                            write(afterFirst.documents.getValue(inputs.id), "A1", "source"),
+                            write(afterFirst.documents.getValue(outputs.id), "A1", "changed result"),
+                        ),
+                    ),
+                ))
+            }
+
+            assertEquals(HttpStatusCode.OK, second.status)
+            assertEquals(
+                CellPatchResponse(
+                    listOf(
+                        SheetRevisionResponse(inputs.id.value, 1),
+                        SheetRevisionResponse(outputs.id.value, 2),
+                    ),
+                ),
+                second.decodeBody(),
+            )
+            assertEquals(2, workbookApplication.loadWorkbookBundle().manifest.sheetIds.size)
+        }
+
+    @Test
+    fun `batch cell update rejects invalid identities and patch shapes without mutation`() =
+        testWorkbookApplication { workbookApplication ->
+            val sheetId = client.createSheet().id
+            val sheet = workbookApplication.loadSheet(sheetId)
+            val coordinate = sheet.tabularContent.coordinateAt("A1")!!
+            val valid = CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, "value")
+            val expected = CellRevisionRequest(sheetId, sheet.revision)
+            val foreignSheetId = "00000000-0000-0000-0000-000000000099"
+            val cases = listOf(
+                CellPatchRequest(listOf(expected), emptyList()) to "empty-cell-patch",
+                CellPatchRequest(listOf(expected), listOf(valid, valid)) to "duplicate-cell-write",
+                CellPatchRequest(listOf(expected, expected), listOf(valid)) to "duplicate-sheet-revision",
+                CellPatchRequest(emptyList(), listOf(valid)) to "invalid-cell-patch",
+                CellPatchRequest(listOf(expected, CellRevisionRequest(foreignSheetId, 0)), listOf(valid)) to "invalid-cell-patch",
+                CellPatchRequest(listOf(expected), listOf(valid.copy(rowId = foreignSheetId))) to "invalid-cell-coordinate",
+                CellPatchRequest(listOf(expected), listOf(valid.copy(columnId = foreignSheetId))) to "invalid-cell-coordinate",
+                CellPatchRequest(
+                    listOf(expected, CellRevisionRequest(foreignSheetId, 0)),
+                    listOf(valid, valid.copy(sheetId = foreignSheetId)),
+                ) to "sheet-not-found",
+            )
+            val baseline = workbookApplication.loadWorkbookBundle()
+
+            cases.forEach { (request, expectedError) ->
+                val response = client.patch("/api/cells") { jsonBody(testJson.encodeToString(request)) }
+
+                assertEquals(HttpStatusCode.BadRequest.takeIf { expectedError != "sheet-not-found" } ?: HttpStatusCode.NotFound, response.status)
+                assertEquals(ErrorResponse(expectedError), response.decodeBody<ErrorResponse>())
+                assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+            }
+        }
+
+    @Test
     fun `cell update endpoint persists raw content without evaluated formula artifacts`() =
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id

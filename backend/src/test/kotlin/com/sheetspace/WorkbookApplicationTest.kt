@@ -100,6 +100,30 @@ class WorkbookApplicationTest {
     }
 
     @Test
+    fun `cell batch validates every sheet before changing any sheet`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val inputs = application.createSheet(CreateSheetCommand(name = "Inputs"))
+        val outputs = application.createSheet(CreateSheetCommand(name = "Outputs"))
+        val valid = inputs.cellWrite("A1", "source")
+        val invalid = outputs.cellWrite("A1", "result").copy(rowId = "00000000-0000-0000-0000-000000000099")
+
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_COORDINATE) {
+            application.writeCells(
+                CellPatchCommand(
+                    listOf(
+                        ExpectedSheetRevision(inputs.id.value, inputs.revision),
+                        ExpectedSheetRevision(outputs.id.value, outputs.revision),
+                    ),
+                    listOf(valid, invalid),
+                ),
+            )
+        }
+
+        assertEquals(inputs, application.loadSheet(inputs.id.value))
+        assertEquals(outputs, application.loadSheet(outputs.id.value))
+    }
+
+    @Test
     fun `application rejects invalid domain commands without changing store`() {
         val store = InMemoryWorkbookStore()
         val application = DefaultWorkbookApplication(store)
