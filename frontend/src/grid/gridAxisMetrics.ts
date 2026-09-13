@@ -1,4 +1,9 @@
+import { DEFAULT_COLUMN_WIDTH, DEFAULT_ROW_HEIGHT } from '@workbook/core/axisSizePolicy';
+import type { SheetPresentation } from '@workbook/core/model';
+import type { GridAxisProjection } from './gridAxisProjection';
 import type { GridAxisEntry } from '@grid/gridAxisProjection';
+
+export type AxisResizePreview = { axis: 'row' | 'column'; ids: readonly string[]; size: number };
 
 export type GridAxisItemSize<Id extends string> =
   | number
@@ -91,4 +96,19 @@ function sizeForItem<Id extends string>(
 
 function normalizedSize(size: number) {
   return Number.isFinite(size) ? Math.max(0, size) : 0;
+}
+
+/** Shared durable and preview geometry; temporary creation slots inherit defaults. */
+export function createSheetGridAxisMetrics(projection: GridAxisProjection, presentation?: SheetPresentation, preview?: AxisResizePreview | null) {
+  const targets = new Set(preview?.ids);
+  return {
+    rows: createGridAxisMetrics(projection.rows, (entry) => entry.kind === 'creating' ? DEFAULT_ROW_HEIGHT
+      : preview?.axis === 'row' && targets.has(entry.id) ? preview.size : savedSize(presentation?.rowHeights, entry.id, DEFAULT_ROW_HEIGHT)),
+    columns: createGridAxisMetrics(projection.columns, (entry) => entry.kind === 'creating' ? DEFAULT_COLUMN_WIDTH
+      : preview?.axis === 'column' && targets.has(entry.id) ? preview.size : savedSize(presentation?.columnWidths, entry.id, DEFAULT_COLUMN_WIDTH)),
+  };
+}
+
+function savedSize(overrides: Record<string, number> | undefined, id: string, fallback: number) {
+  return overrides && Object.prototype.hasOwnProperty.call(overrides, id) ? overrides[id] : fallback;
 }

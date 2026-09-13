@@ -5,7 +5,7 @@ import { sheetBounds } from '@workbook/read/queries';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from '@grid/gridAxisProjection';
-import { createGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
+import { createSheetGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
   GRID_CELL_HEIGHT,
@@ -19,6 +19,10 @@ import {
   type SheetGridCellEditorInteraction,
   type SheetGridCellInteraction,
 } from '@grid/SheetGridCell';
+import { useAxisResize } from './useAxisResize';
+import { AxisResizeHandle } from './AxisResizeHandle';
+import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
+import type { CellSelection } from './cellInteractionContracts';
 import { SheetGridHeaders } from '@grid/SheetGridHeaders';
 import { getSheetCellDisplayText } from './sheetGridModel';
 import { cssRemFromPixels } from '@shared/styles/styleTokens';
@@ -77,7 +81,13 @@ export function SheetGrid({
   sheet,
   selectedRange,
   onSelectAxis,
+  presentation,
+  logicalSelection,
+  onWriteAxisSizes,
 }: {
+  presentation?: SheetPresentation;
+  logicalSelection?: CellSelection | null;
+  onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -129,10 +139,11 @@ export function SheetGrid({
   const selectionOwnerRef = useRef(selectionOwner);
   selectionOwnerRef.current = selectionOwner;
   const { columns, rows } = axisProjection;
-  const defaultRowMetrics = useMemo(() => createGridAxisMetrics(rows, GRID_CELL_HEIGHT), [rows]);
-  const defaultColumnMetrics = useMemo(() => createGridAxisMetrics(columns, GRID_CELL_WIDTH), [columns]);
-  const rowMetrics = axisMetrics?.rows ?? defaultRowMetrics;
-  const columnMetrics = axisMetrics?.columns ?? defaultColumnMetrics;
+  const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes });
+  const projectedMetrics = useMemo(() => createSheetGridAxisMetrics(axisProjection, presentation, resize.preview),
+    [rows, columns, presentation, resize.preview]);
+  const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
+  const columnMetrics = axisMetrics?.columns ?? projectedMetrics.columns;
   const rowItemKey = useCallback((index: number) => rowMetrics.itemKey(index) ?? index, [rowMetrics]);
   const columnItemKey = useCallback((index: number) => columnMetrics.itemKey(index) ?? index, [columnMetrics]);
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
@@ -182,6 +193,8 @@ export function SheetGrid({
     overscan: 2,
     paddingStart: GRID_ROW_HEADER_WIDTH,
   });
+  useEffect(() => { rowVirtualizer.measure(); }, [rowMetrics, rowVirtualizer]);
+  useEffect(() => { columnVirtualizer.measure(); }, [columnMetrics, columnVirtualizer]);
   const activeAddress = parseCellAddress(activeCellKey, sheet);
   const keyboardFocusAddress = parseCellAddress(keyboardFocusRequest?.targetKey ?? null, sheet);
   const focusIntentAddress = parseCellAddress(focusIntent?.targetKey ?? null, sheet);
@@ -475,7 +488,7 @@ export function SheetGrid({
 
   function beginDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"]')) return;
+    if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"], .sheet-grid-resize-handle')) return;
     if (dragRef.current) return;
     const source = (event.target as HTMLElement).closest<HTMLElement>('[data-cell-key], [data-axis-selection-mode]');
     if (!source) return;
@@ -567,8 +580,8 @@ export function SheetGrid({
         '--grid-cell-height': cssRemFromPixels(GRID_CELL_HEIGHT),
         '--grid-cell-width': cssRemFromPixels(GRID_CELL_WIDTH),
         '--grid-row-header-width': cssRemFromPixels(GRID_ROW_HEADER_WIDTH),
-        height: rowVirtualizer.getTotalSize(),
-        width: columnVirtualizer.getTotalSize(),
+        height: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize,
+        width: GRID_ROW_HEADER_WIDTH + columnMetrics.totalSize,
       } as CSSProperties}
       tabIndex={!activeCellKey || !activeIsMounted ? 0 : -1}
     >
@@ -576,6 +589,7 @@ export function SheetGrid({
         columnHeaderRef={columnHeaderRef}
         columns={columns}
         virtualColumns={virtualColumns}
+        resize={onWriteAxisSizes ? resize : undefined}
         selectedColumnIndices={selectionMode === 'columns' && selectedRange
           ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
           : undefined}
@@ -607,6 +621,8 @@ export function SheetGrid({
               style={{ height: virtualRow.size, left: 0, position: 'sticky' }}
             >
               {row.kind === 'creating' ? 'Creating…' : row.durableIndex + 1}
+              {row.kind === 'saved' && onWriteAxisSizes && <AxisResizeHandle axis="row" id={row.id}
+                label={String(row.durableIndex + 1)} size={virtualRow.size} resize={resize} />}
             </div>
             {virtualColumns.map((virtualColumn) => {
               const column = columns[virtualColumn.index];
@@ -769,7 +785,11 @@ function mergeVirtualIndexes<TScrollElement extends Element, TItemElement extend
       ?? { end: start + size, index, key: metrics.itemKey(index) ?? index, lane: 0, size, start };
     if (!items.has(index)) items.set(index, item);
   }
-  return [...items.values()].sort((left, right) => left.index - right.index);
+  return [...items.values()].map((item) => {
+    const size = metrics.itemSize(item.index) ?? 0;
+    const start = paddingStart + (metrics.itemOffset(item.index) ?? 0);
+    return { ...item, size, start, end: start + size };
+  }).sort((left, right) => left.index - right.index);
 }
 
 function virtualItemsOrTestFallback(items: readonly VirtualItem[], metrics: GridAxisMetrics, paddingStart: number) {
