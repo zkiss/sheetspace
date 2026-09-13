@@ -1,12 +1,15 @@
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { type SheetDocument, type SheetId } from '@workbook/core/model';
-import type { WorkbookPersistenceIntent } from '@application/core/userActions';
+import type { WorkbookOperationId, WorkbookPersistenceIntent } from '@application/core/userActions';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from './workbookApi';
 import { type OutboxEntry, type PersistenceTransport, type TransportResult } from './workbookOutbox';
 import { WorkbookPersistenceCoordinator } from './workbookPersistenceCoordinator';
 
 /** Concrete HTTP adapter for the framework-independent outbox state machine. */
 export class WorkbookPersistenceTransport implements PersistenceTransport {
+  /** Transactions that failed recovery must prove their original state again before manual retry. */
+  private readonly unsafeCellWriteFailures = new Map<WorkbookOperationId, unknown>();
+
   constructor(
     private readonly api: Partial<WorkbookApi> = {},
     private readonly coordinator = new WorkbookPersistenceCoordinator(),
@@ -14,29 +17,35 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   revision(sheetId: SheetId) { return this.coordinator.revision(sheetId); }
   recordRevision(sheetId: SheetId, revision: number) { return this.coordinator.recordRevision(sheetId, revision); }
 
-  async execute({ intent, affectedSheetIds }: Pick<OutboxEntry, 'intent' | 'affectedSheetIds'>): Promise<TransportResult> {
-    try { return await this.coordinator.serialize(affectedSheetIds, () => this.executeKnownSheets(intent, affectedSheetIds)); }
+  async execute(entry: Pick<OutboxEntry, 'intent' | 'affectedSheetIds'>): Promise<TransportResult> {
+    const { intent, affectedSheetIds } = entry;
+    const operationId = (entry as Partial<Pick<OutboxEntry, 'operationId'>>).operationId;
+    try { return await this.coordinator.serialize(affectedSheetIds, () => this.executeKnownSheets(operationId, intent, affectedSheetIds)); }
     catch (failure) {
       if (isMissingSheet(failure) && affectedSheetIds.length === 1) return { kind: 'missing-sheet', sheetIds: [affectedSheetIds[0]] };
       throw failure;
     }
   }
-  private async executeKnownSheets(intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]): Promise<TransportResult> {
+  private async executeKnownSheets(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]): Promise<TransportResult> {
     const missingSheetIds = affectedSheetIds.filter((sheetId) => this.coordinator.isSheetMissing(sheetId));
-    if (missingSheetIds.length === 0) return this.executeWithRetry(intent, affectedSheetIds);
+    if (missingSheetIds.length === 0) return this.executeWithRetry(operationId, intent, affectedSheetIds);
     if (intent.kind !== 'update-sheet-z-order') return { kind: 'missing-sheet', sheetIds: missingSheetIds };
     const updates = intent.updates.filter(({ sheetId }) => !missingSheetIds.includes(sheetId));
     if (updates.length === 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
-    const result = await this.executeWithRetry({ kind: 'update-sheet-z-order', updates }, updates.map(({ sheetId }) => sheetId));
+    const result = await this.executeWithRetry(operationId, { kind: 'update-sheet-z-order', updates }, updates.map(({ sheetId }) => sheetId));
     if (result.kind === 'saved') return { ...result, missingSheetIds: [...missingSheetIds, ...result.missingSheetIds ?? []] };
     if (result.kind === 'missing-sheet') return { ...result, sheetIds: [...missingSheetIds, ...result.sheetIds] };
     return result;
   }
 
-  private async executeWithRetry(intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
+  private async executeWithRetry(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
+    if (intent.kind === 'write-cells') {
+      const recovered = await this.recoverUnsafeCellWrite(operationId, intent);
+      if (recovered) return recovered;
+    }
     try { return await this.request(intent); }
     catch (failure) {
-      if (intent.kind === 'write-cells') return this.recoverCellWrite(intent, failure);
+      if (intent.kind === 'write-cells') return this.recoverCellWrite(operationId, intent, failure);
       if (!isRevisionConflict(failure)) throw failure;
       const latest = await this.loadSheets(affectedSheetIds);
       const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
@@ -52,7 +61,26 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
       return this.request(intent);
     }
   }
-  private async recoverCellWrite(intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>, failure: unknown): Promise<TransportResult> {
+  private async recoverUnsafeCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult | undefined> {
+    if (operationId === undefined) return undefined;
+    const failure = this.unsafeCellWriteFailures.get(operationId);
+    if (failure === undefined) return undefined;
+    const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
+    const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
+    if (missingSheetIds.length > 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
+    const sheets = latest.flatMap((result) => result.kind === 'loaded' ? [result.sheet] : []);
+    sheets.forEach((sheet) => this.recordRevision(sheet.id, sheet.revision));
+    if (matchesCellStates(intent.writes, sheets, 'afterRaw')) {
+      this.unsafeCellWriteFailures.delete(operationId);
+      return this.recordMany(sheets.map((sheet) => ({ sheetId: sheet.id, revision: sheet.revision })));
+    }
+    if (matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
+      this.unsafeCellWriteFailures.delete(operationId);
+      return undefined;
+    }
+    throw failure;
+  }
+  private async recoverCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>, failure: unknown): Promise<TransportResult> {
     if (!isRevisionConflict(failure) && !isAmbiguousResponse(failure)) throw failure;
     const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
     const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
@@ -65,6 +93,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     if (isRevisionConflict(failure) && matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
       return this.request(intent);
     }
+    if (operationId !== undefined) this.unsafeCellWriteFailures.set(operationId, failure);
     throw failure;
   }
   private async loadSheets(sheetIds: readonly SheetId[]) {

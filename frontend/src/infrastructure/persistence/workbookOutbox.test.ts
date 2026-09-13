@@ -190,6 +190,42 @@ describe('WorkbookPersistenceTransport', () => {
     ] }, affectedSheetIds: ['a'] })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }] });
     expect(writeCells).toHaveBeenCalledTimes(1);
   });
+  it('does not replay a manually retried conflict after a remote touched-cell change', async () => {
+    const failure = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValue(failure);
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'remote' } });
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(remoteSheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(1);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('does not replay a manually retried ambiguous response without complete original state', async () => {
+    const failure = new TypeError('network disconnected');
+    const writeCells = vi.fn().mockRejectedValue(failure);
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'remote' } });
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(remoteSheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(1);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
   it('persists surviving z-order updates before reporting a precisely missing sheet', async () => {
     const updateSheetZOrder = vi.fn()
       .mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'))
