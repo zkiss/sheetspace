@@ -151,7 +151,7 @@ function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceInte
     case 'update-sheet-position': return { ...intent, position: { ...intent.position } };
     case 'update-sheet-frame-layout': return { ...intent, position: { ...intent.position }, size: { ...intent.size } };
     case 'update-sheet-z-order': return { ...intent, updates: intent.updates.map((update) => ({ ...update })) };
-    case 'write-cells': return { ...intent, writes: intent.writes.map((write) => ({ ...write, cell: { ...write.cell } })) };
+    case 'write-cells': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
   }
 }
 function policyFor(intent: WorkbookPersistenceIntent): OutboxEntry['policy'] {
@@ -164,5 +164,9 @@ function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
   if (intent.kind === 'update-sheet-frame-layout') return `layout:${intent.sheetId}`;
   return undefined;
 }
-function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] { return intent.kind === 'update-sheet-z-order' ? [...new Set(intent.updates.map(({ sheetId }) => sheetId))] : [intent.sheetId]; }
+function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
+  if (intent.kind === 'update-sheet-z-order') return [...new Set(intent.updates.map(({ sheetId }) => sheetId))];
+  if (intent.kind === 'write-cells') return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
+  return [intent.sheetId];
+}
 function intersects(left: readonly string[], right: readonly string[]) { return left.some((value) => right.includes(value)); }

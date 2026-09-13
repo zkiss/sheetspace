@@ -143,7 +143,7 @@ describe('WorkbookPersistenceTransport', () => {
   });
   it('does not route a multi-write intent to the single-cell API', async () => {
     const updateCellContent = vi.fn(); const transport = new WorkbookPersistenceTransport({ updateCellContent } as Partial<WorkbookApi>);
-    const result = await transport.execute({ intent: { kind: 'write-cells', sheetId: 'a', writes: [{ cell: { rowId: 'r', columnId: 'c' }, raw: '1' }, { cell: { rowId: 'r', columnId: 'd' }, raw: '2' }] }, affectedSheetIds: ['a'] });
+    const result = await transport.execute({ intent: { kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', raw: '1' }, { sheetId: 'a', rowId: 'r', columnId: 'd', raw: '2' }] }, affectedSheetIds: ['a'] });
     expect(result.kind).toBe('blocked'); expect(updateCellContent).not.toHaveBeenCalled();
   });
   it('persists surviving z-order updates before reporting a precisely missing sheet', async () => {

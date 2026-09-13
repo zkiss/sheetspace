@@ -220,7 +220,7 @@ export function useWorkbookController({
     const cell = currentSheet && cellIdentityAt(currentSheet.content, cellKey);
     if (!currentSheet || !cell) return;
     const applied = applyAction({
-      kind: 'write-cells', sheetId: localSheetId, writes: [{ cell, raw }],
+      kind: 'write-cells', writes: [{ sheetId: localSheetId, ...cell, raw }],
     });
     if (!applied?.changed) return;
   }

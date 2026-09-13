@@ -4,6 +4,7 @@ import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
   type BackendWorkbookReconciliation,
+  type CellWrite,
   type WorkbookOperation,
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
@@ -13,14 +14,15 @@ import { type Workbook } from '@workbook/core/model';
 const alpha = sheetDocument({ id: 'alpha', name: 'Alpha', revision: 4, zIndex: 1 });
 const beta = sheetDocument({ id: 'beta', name: 'Beta', revision: 7, zIndex: 2 });
 const workbook = workbookWithSheets([alpha, beta], 3);
+const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
 
 describe('workbook operations', () => {
   it.each([
     {
       label: 'cell content',
       action: {
-        kind: 'write-cells', operationId: 'cell-write', sheetId: 'alpha',
-        writes: [{ cell: cellIdentityAt(alpha.content, 'A1')!, raw: '=Beta!A1' }],
+        kind: 'write-cells', operationId: 'cell-write',
+        writes: [write('alpha', cellIdentityAt(alpha.content, 'A1')!, '=Beta!A1')],
       } satisfies WorkbookOperation,
       impact: 'cells',
     },
@@ -64,7 +66,7 @@ describe('workbook operations', () => {
   it('stores a canonical formula and reports its exact calculation target', () => {
     const cell = cellIdentityAt(alpha.content, 'B2')!;
     const result = applyWorkbookOperation(workbook, {
-      kind: 'write-cells', operationId: 'formula-write', sheetId: 'alpha', writes: [{ cell, raw: '=Beta!A1' }],
+      kind: 'write-cells', operationId: 'formula-write', writes: [write('alpha', cell, '=Beta!A1')],
     });
 
     expect(result).toMatchObject({
@@ -174,8 +176,8 @@ describe('workbook operations', () => {
   ])('treats $label as no state or calculation work', (_label, source, raw) => {
     const sheet = source.documents.alpha;
     const result = applyWorkbookOperation(source, {
-      kind: 'write-cells', operationId: 'write', sheetId: 'alpha',
-      writes: [{ cell: cellIdentityAt(sheet.content, 'A1')!, raw }],
+      kind: 'write-cells', operationId: 'write',
+      writes: [write('alpha', cellIdentityAt(sheet.content, 'A1')!, raw)],
     });
     expect(result).toMatchObject({
       ok: true,
@@ -189,8 +191,8 @@ describe('workbook operations', () => {
     const result = applyWorkbookOperation(workbookWithSheets([
       sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'old' } }), beta,
     ]), {
-      kind: 'write-cells', operationId: 'write-1', sheetId: 'alpha',
-      writes: [{ cell: a1, raw: '' }, { cell: b2, raw: '=Beta!A1' }],
+      kind: 'write-cells', operationId: 'write-1',
+      writes: [write('alpha', a1, ''), write('alpha', b2, '=Beta!A1')],
     });
 
     expect(result).toMatchObject({
@@ -198,8 +200,8 @@ describe('workbook operations', () => {
       value: {
         changed: true,
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'alpha', key: 'B2' }] },
-        persistence: { kind: 'write-cells', sheetId: 'alpha', writes: [{ cell: a1, raw: '' }, { cell: b2, raw: '=beta!@[beta:column:1,beta:row:1]' }] },
-        inverse: { kind: 'write-cells', sheetId: 'alpha', writes: [{ cell: b2, raw: '' }, { cell: a1, raw: 'old' }] },
+        persistence: { kind: 'write-cells', writes: [write('alpha', a1, ''), write('alpha', b2, '=beta!@[beta:column:1,beta:row:1]')] },
+        inverse: { kind: 'write-cells', writes: [write('alpha', a1, 'old'), write('alpha', b2, '')] },
       },
     });
     if (result.ok) {
@@ -211,8 +213,8 @@ describe('workbook operations', () => {
   it('rejects any invalid batch target before changing a valid target', () => {
     const source = workbookWithSheets([alpha, beta]);
     const result = applyWorkbookOperation(source, {
-      kind: 'write-cells', operationId: 'write-2', sheetId: 'alpha',
-      writes: [{ cell: cellIdentityAt(alpha.content, 'A1')!, raw: 'valid' }, { cell: { rowId: 'missing', columnId: 'missing' }, raw: 'invalid' }],
+      kind: 'write-cells', operationId: 'write-2',
+      writes: [write('alpha', cellIdentityAt(alpha.content, 'A1')!, 'valid'), write('alpha', { rowId: 'missing', columnId: 'missing' }, 'invalid')],
     });
     expect(result).toEqual({ ok: false, reason: 'invalid-cell' });
     expect(source).toEqual(workbookWithSheets([alpha, beta]));
@@ -220,8 +222,8 @@ describe('workbook operations', () => {
 
   it('uses plain serializable operation and persistence shapes', () => {
     const operation = {
-      kind: 'write-cells', operationId: 'write-3', sheetId: 'alpha',
-      writes: [{ cell: cellIdentityAt(alpha.content, 'A1')!, raw: 'value' }],
+      kind: 'write-cells', operationId: 'write-3',
+      writes: [write('alpha', cellIdentityAt(alpha.content, 'A1')!, 'value')],
     } satisfies WorkbookOperation;
     const result = applyWorkbookOperation(workbook, operation);
     expect(JSON.parse(JSON.stringify(operation))).toEqual(operation);
@@ -230,7 +232,7 @@ describe('workbook operations', () => {
 
   it.each([
     ['unknown sheet', { kind: 'delete-sheet', operationId: 'delete', sheetId: 'missing' } satisfies WorkbookOperation, 'unknown-sheet'],
-    ['invalid cell', { kind: 'write-cells', operationId: 'write', sheetId: 'alpha', writes: [{ cell: { rowId: 'missing', columnId: 'missing' }, raw: 'x' }] } satisfies WorkbookOperation, 'invalid-cell'],
+    ['invalid cell', { kind: 'write-cells', operationId: 'write', writes: [write('alpha', { rowId: 'missing', columnId: 'missing' }, 'x')] } satisfies WorkbookOperation, 'invalid-cell'],
     ['empty name', { kind: 'rename-sheet', operationId: 'rename', sheetId: 'alpha', name: ' ' } satisfies WorkbookOperation, 'empty-sheet-name'],
     ['duplicate name', { kind: 'rename-sheet', operationId: 'rename', sheetId: 'alpha', name: 'Beta' } satisfies WorkbookOperation, 'duplicate-sheet-name'],
   ])('rejects $label operation without mutating input', (_label, action, reason) => {

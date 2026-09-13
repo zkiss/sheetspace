@@ -51,7 +51,7 @@ describe('presentation persistence', () => {
     outbox.enqueue('size-2', { ...intent, writes: secondWrites });
     secondWrites[0].size = 900;
     outbox.enqueue('reset', { ...intent, writes: [{ ...writes[0], size: null }] });
-    outbox.enqueue('cell', { kind: 'write-cells', sheetId: document.id, writes: [{ cell: { rowId: row, columnId: column }, raw: '5' }] });
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [{ sheetId: document.id, rowId: row, columnId: column, raw: '5' }] });
     outbox.enqueue('frame', { kind: 'update-sheet-position', sheetId: document.id, position: { x: 10, y: 20 } });
     outbox.enqueue('rename', { kind: 'rename-sheet', sheetId: document.id, name: 'Renamed' });
     outbox.enqueue('z', { kind: 'update-sheet-z-order', updates: [{ sheetId: document.id, zIndex: 2 }] });

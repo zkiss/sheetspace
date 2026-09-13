@@ -58,9 +58,10 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     if (intent.kind === 'write-axis-sizes') return this.record(await this.method('writeAxisSizes')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-cells') {
       if (intent.writes.length !== 1) return { kind: 'blocked', reason: 'Batch cell persistence requires a batch endpoint.' };
-      const address = this.resolveCellAddress?.(intent.sheetId, intent.writes[0].cell);
+      const [write] = intent.writes;
+      const address = this.resolveCellAddress?.(write.sheetId, { rowId: write.rowId, columnId: write.columnId });
       if (!address) return { kind: 'blocked', reason: 'Cannot resolve a stable cell identity to a transport address.' };
-      return this.record(await this.method('updateCellContent')(intent.sheetId, address, intent.writes[0].raw, { revision: this.revision(intent.sheetId) }));
+      return this.record(await this.method('updateCellContent')(write.sheetId, address, write.raw, { revision: this.revision(write.sheetId) }));
     }
     if (intent.kind === 'delete-sheet') { await this.method('deleteSheet')(intent.sheetId, { revision: this.revision(intent.sheetId) }); return { kind: 'saved', revisions: [] }; }
     if (intent.kind === 'rename-sheet') return this.record(await this.method('renameSheet')(intent.sheetId, intent.name, { revision: this.revision(intent.sheetId) }));
