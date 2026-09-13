@@ -117,6 +117,30 @@ describe('WorkbookOutbox', () => {
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ intent: { kind: 'update-sheet-position', sheetId: 'a', position: { x: 1, y: 2 } } }));
     expect(outbox.inspect('move')).toMatchObject({ status: 'succeeded', failure: undefined });
   });
+  it('clones every cell transition at enqueue, snapshot, and transport boundaries', async () => {
+    const outbox = new WorkbookOutbox();
+    const intent = { kind: 'write-cells' as const, writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }] };
+    outbox.enqueue('cell', intent);
+    intent.writes[0].beforeRaw = 'mutated source';
+    intent.writes[0].afterRaw = 'mutated source';
+    const snapshot = outbox.snapshot()[0]!;
+    if (snapshot.intent.kind === 'write-cells') snapshot.intent.writes[0].afterRaw = 'mutated snapshot';
+
+    let delivered: unknown;
+    const execute = vi.fn(async (entry) => {
+      delivered = structuredClone(entry.intent);
+      if (entry.intent.kind === 'write-cells') entry.intent.writes[0].beforeRaw = 'mutated transport';
+      return { kind: 'saved', revisions: [] } as const;
+    });
+    await outbox.executeNext({ execute });
+
+    expect(delivered).toEqual({
+      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }],
+    });
+    expect(outbox.inspect('cell')?.intent).toEqual({
+      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }],
+    });
+  });
   it('does not expose a failed entry returned by executeNext for mutation', async () => {
     const outbox = new WorkbookOutbox();
     outbox.enqueue('move', { kind: 'update-sheet-position', sheetId: 'a', position: { x: 1, y: 2 } });
@@ -143,7 +167,7 @@ describe('WorkbookPersistenceTransport', () => {
   });
   it('does not route a multi-write intent to the single-cell API', async () => {
     const updateCellContent = vi.fn(); const transport = new WorkbookPersistenceTransport({ updateCellContent } as Partial<WorkbookApi>);
-    const result = await transport.execute({ intent: { kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', raw: '1' }, { sheetId: 'a', rowId: 'r', columnId: 'd', raw: '2' }] }, affectedSheetIds: ['a'] });
+    const result = await transport.execute({ intent: { kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: '1' }, { sheetId: 'a', rowId: 'r', columnId: 'd', beforeRaw: null, afterRaw: '2' }] }, affectedSheetIds: ['a'] });
     expect(result.kind).toBe('blocked'); expect(updateCellContent).not.toHaveBeenCalled();
   });
   it('persists surviving z-order updates before reporting a precisely missing sheet', async () => {

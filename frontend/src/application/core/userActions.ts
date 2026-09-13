@@ -11,6 +11,14 @@ import { type ColumnId, type FrameState, type RowId, type SheetDocument, type Sh
 export type WorkbookOperationId = string;
 /** A stable workbook-wide cell target. The raw content is the final persisted value. */
 export type CellWrite = { sheetId: SheetId; rowId: RowId; columnId: ColumnId; raw: string };
+/** A durable cell state transition. `null` explicitly represents a sparse (absent) cell. */
+export type CellPersistenceWrite = {
+  sheetId: SheetId;
+  rowId: RowId;
+  columnId: ColumnId;
+  beforeRaw: string | null;
+  afterRaw: string | null;
+};
 
 /** Plain durable data. Operations cannot carry code, promises, state, or transport clients. */
 export type WorkbookOperation =
@@ -34,7 +42,7 @@ export type WorkbookPersistenceIntent =
   | { kind: 'update-sheet-position'; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
-  | { kind: 'write-cells'; writes: readonly CellWrite[] };
+  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
 
 export type AffectedWorkbookEntities = {
   sheetIds: readonly SheetId[];
@@ -115,7 +123,7 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
   }
 
   const cellsBySheet = new Map<SheetId, Record<string, string>>();
-  const inverseWrites: CellWrite[] = [], changedWrites: CellWrite[] = [];
+  const inverseWrites: CellWrite[] = [], persistenceWrites: CellPersistenceWrite[] = [];
   const impacts: { sheetId: SheetId; key: string }[] = [];
   const affected: { sheetId: SheetId; cell: StableCellIdentity }[] = [];
   for (const entry of resolved) {
@@ -129,18 +137,24 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
     const raw = entry.write.raw.length === 0 ? '' : formulaRawForStorage(entry.write.raw, workbook, sheet.id);
     if ((raw.length === 0 && before === undefined) || (raw.length > 0 && before === raw)) continue;
     inverseWrites.push({ ...entry.write, raw: before ?? '' });
-    changedWrites.push({ ...entry.write, raw });
+    persistenceWrites.push({
+      sheetId: entry.write.sheetId,
+      rowId: entry.write.rowId,
+      columnId: entry.write.columnId,
+      beforeRaw: before ?? null,
+      afterRaw: raw.length === 0 ? null : raw,
+    });
     impacts.push({ sheetId: sheet.id, key: cellKey(address) });
     affected.push({ sheetId: sheet.id, cell: entry.cell });
     if (raw.length === 0) delete cells[identityKey]; else cells[identityKey] = raw;
   }
-  if (changedWrites.length === 0) return noChange(workbook);
+  if (persistenceWrites.length === 0) return noChange(workbook);
   const documents = { ...workbook.documents };
   for (const [sheetId, cells] of cellsBySheet) {
     const sheet = workbook.documents[sheetId]!;
     documents[sheetId] = { ...sheet, content: { ...sheet.content, cells } };
   }
-  return success({ ...workbook, documents }, { kind: 'cells', cells: impacts }, { kind: 'write-cells', writes: changedWrites }, { sheetIds: [...new Set(affected.map(({ sheetId }) => sheetId))], cells: affected }, { kind: 'write-cells', writes: inverseWrites });
+  return success({ ...workbook, documents }, { kind: 'cells', cells: impacts }, { kind: 'write-cells', writes: persistenceWrites }, { sheetIds: [...new Set(affected.map(({ sheetId }) => sheetId))], cells: affected }, { kind: 'write-cells', writes: inverseWrites });
 }
 
 function applyFrameChange(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'move-sheet-frame' | 'resize-sheet-frame' }>, change: (sheet: SheetDocument) => FrameState): WorkbookOperationResult {

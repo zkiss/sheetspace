@@ -61,7 +61,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
       const [write] = intent.writes;
       const address = this.resolveCellAddress?.(write.sheetId, { rowId: write.rowId, columnId: write.columnId });
       if (!address) return { kind: 'blocked', reason: 'Cannot resolve a stable cell identity to a transport address.' };
-      return this.record(await this.method('updateCellContent')(write.sheetId, address, write.raw, { revision: this.revision(write.sheetId) }));
+      return this.record(await this.method('updateCellContent')(write.sheetId, address, write.afterRaw ?? '', { revision: this.revision(write.sheetId) }));
     }
     if (intent.kind === 'delete-sheet') { await this.method('deleteSheet')(intent.sheetId, { revision: this.revision(intent.sheetId) }); return { kind: 'saved', revisions: [] }; }
     if (intent.kind === 'rename-sheet') return this.record(await this.method('renameSheet')(intent.sheetId, intent.name, { revision: this.revision(intent.sheetId) }));

@@ -15,6 +15,7 @@ const alpha = sheetDocument({ id: 'alpha', name: 'Alpha', revision: 4, zIndex: 1
 const beta = sheetDocument({ id: 'beta', name: 'Beta', revision: 7, zIndex: 2 });
 const workbook = workbookWithSheets([alpha, beta], 3);
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
+const persistenceWrite = (sheetId: string, cell: { rowId: string; columnId: string }, beforeRaw: string | null, afterRaw: string | null) => ({ sheetId, ...cell, beforeRaw, afterRaw });
 
 describe('workbook operations', () => {
   it.each([
@@ -200,7 +201,7 @@ describe('workbook operations', () => {
       value: {
         changed: true,
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'alpha', key: 'B2' }] },
-        persistence: { kind: 'write-cells', writes: [write('alpha', a1, ''), write('alpha', b2, '=beta!@[beta:column:1,beta:row:1]')] },
+        persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', a1, 'old', null), persistenceWrite('alpha', b2, null, '=beta!@[beta:column:1,beta:row:1]')] },
         inverse: { kind: 'write-cells', writes: [write('alpha', a1, 'old'), write('alpha', b2, '')] },
       },
     });
@@ -228,8 +229,8 @@ describe('workbook operations', () => {
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'beta', key: 'B2' }] },
         affected: { sheetIds: ['alpha', 'beta'], cells: [{ sheetId: 'alpha', cell: alphaA1 }, { sheetId: 'beta', cell: betaB2 }] },
         persistence: { kind: 'write-cells', writes: [
-          write('alpha', alphaA1, '=beta!@[beta:column:2,beta:row:2]'),
-          write('beta', betaB2, ''),
+          persistenceWrite('alpha', alphaA1, ' old value ', '=beta!@[beta:column:2,beta:row:2]'),
+          persistenceWrite('beta', betaB2, '=alpha!@[alpha:column:1,alpha:row:1]', null),
         ] },
         inverse: { kind: 'write-cells', writes: [
           write('alpha', alphaA1, ' old value '),
@@ -245,6 +246,19 @@ describe('workbook operations', () => {
     expect(restored).toMatchObject({ ok: true, value: { nextWorkbook: source } });
   });
 
+  it('records independent serializable state transitions for successive edits', () => {
+    const source = workbookWithSheets([sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: ' original ' } })]);
+    const cell = cellIdentityAt(source.documents.alpha.content, 'A1')!;
+    const first = applyWorkbookOperation(source, { kind: 'write-cells', operationId: 'first', writes: [write('alpha', cell, '=1+1')] });
+    if (!first.ok || first.value.persistence?.kind !== 'write-cells') throw new Error('Expected first cell transition.');
+    const firstPersistence = structuredClone(first.value.persistence);
+    const second = applyWorkbookOperation(first.value.nextWorkbook, { kind: 'write-cells', operationId: 'second', writes: [write('alpha', cell, '')] });
+
+    expect(first.value.persistence).toEqual(firstPersistence);
+    expect(second).toMatchObject({ ok: true, value: { persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', cell, '=1+1', null)] } } });
+    expect(JSON.parse(JSON.stringify(first.value.persistence))).toEqual(first.value.persistence);
+  });
+
   it('omits effective no-op writes and emits nothing when every write is a no-op', () => {
     const source = workbookWithSheets([sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'same' } }), beta]);
     const alphaA1 = cellIdentityAt(source.documents.alpha.content, 'A1')!;
@@ -257,7 +271,7 @@ describe('workbook operations', () => {
     expect(mixed).toMatchObject({
       ok: true,
       value: {
-        persistence: { kind: 'write-cells', writes: [write('beta', betaA1, 'changed')] },
+        persistence: { kind: 'write-cells', writes: [persistenceWrite('beta', betaA1, null, 'changed')] },
         inverse: { kind: 'write-cells', writes: [write('beta', betaA1, '')] },
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'beta', key: 'A1' }] },
       },
