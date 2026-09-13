@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGridAxisMetrics } from './gridAxisMetrics';
+import { createGridAxisMetrics, createSheetGridAxisMetrics } from './gridAxisMetrics';
 import type { GridAxisEntry } from '@grid/gridAxisProjection';
 
 const entries: readonly GridAxisEntry<string>[] = [
@@ -50,4 +50,25 @@ describe('createGridAxisMetrics', () => {
     expect(metrics.scrollOffsetForIndex(2, 25, 'end')).toBe(35);
     expect(metrics.scrollOffsetForIndex(3, 25)).toBeUndefined();
   });
+});
+
+
+describe('presentation axis projection', () => {
+  it('combines saved overrides, default pending slots, preview targets and binary lookup', () => {
+    const metrics = createSheetGridAxisMetrics({ rows: entries, columns: [] },
+      { rowHeights: { 'row-a': 40, 'row-b': 70 }, columnWidths: {} },
+      { axis: 'row', ids: ['row-b', 'insert-row'], size: 90 });
+    expect([0, 1, 2].map((index) => metrics.rows.itemSize(index))).toEqual([40, 26.4, 90]);
+    expect(metrics.rows.itemOffset(2)).toBe(66.4);
+    expect(metrics.rows.indexAtOffset(40)).toBe(1);
+    expect(metrics.rows.indexAtOffset(66.4)).toBe(2);
+    expect(metrics.rows.scrollOffsetForIndex(2, 40)).toBe(66.4);
+  });
+  it('inherits defaults for IDs that coincide with object prototype names', () => {
+    const metrics = createSheetGridAxisMetrics({ rows: [{ kind: 'saved', id: '__proto__', durableIndex: 0 }],
+      columns: [{ kind: 'saved', id: 'toString', durableIndex: 0 }] }, { rowHeights: {}, columnWidths: {} });
+    expect(metrics.rows.itemSize(0)).toBe(26.4);
+    expect(metrics.columns.itemSize(0)).toBe(76);
+  });
+
 });

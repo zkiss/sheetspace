@@ -21,6 +21,7 @@ function expectedDocument(response: SheetDocumentResponse): SheetDocument {
     id: response.id,
     name: response.name,
     revision: response.revision,
+    presentation: { rowHeights: { ...response.presentation.rowHeights }, columnWidths: { ...response.presentation.columnWidths } },
     frame: {
       position: { ...response.frame.position },
       size: { ...response.frame.size },

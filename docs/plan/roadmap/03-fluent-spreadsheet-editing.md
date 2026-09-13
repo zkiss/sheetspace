@@ -45,7 +45,8 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 ### Sizing, formatting, and zoom behavior
 
 - Resize sheet frames from their edges or corners and persist frame size.
-- Resize row heights and column widths and persist their metadata.
+- Resize row heights and column widths from header boundaries and persist dimensions against stable axis identities. Dragging a selected row or column sets every selected axis of that orientation to the same absolute dimension; other boundaries resize individually.
+- Preview resizing in logical grid units at the current visual scale. Pointer release commits once; Escape or an interrupted gesture discards the preview. Cells, headers, editors, selection and navigation reveal use the same dimensions, independently of sheet frame resizing.
 - Support General, Number, and Percent value formats plus bold, alignment, text colour, and fill colour at column, row, and cell level.
 - Combine formatting one property at a time using the planning default precedence cell > row > column > application default. Store row and column formatting as inherited defaults for their cells, including blank cells, rather than copying it into every cell.
 - Distinguish removing an override to inherit from explicitly resetting a property to its application default. An explicit normal font, General number format, or no-fill background must be able to suppress inherited formatting while leaving other properties intact.

@@ -57,3 +57,19 @@ CREATE TABLE cells (
     FOREIGN KEY (sheet_id, row_id) REFERENCES sheet_rows(sheet_id, row_id) ON DELETE CASCADE,
     FOREIGN KEY (sheet_id, column_id) REFERENCES sheet_columns(sheet_id, column_id) ON DELETE CASCADE
 );
+
+CREATE TABLE row_presentation (
+    sheet_id BLOB NOT NULL,
+    row_id BLOB NOT NULL,
+    height REAL NOT NULL CHECK (height >= 16 AND height <= 1000),
+    PRIMARY KEY (sheet_id, row_id),
+    FOREIGN KEY (sheet_id, row_id) REFERENCES sheet_rows(sheet_id, row_id) ON DELETE CASCADE
+);
+
+CREATE TABLE column_presentation (
+    sheet_id BLOB NOT NULL,
+    column_id BLOB NOT NULL,
+    width REAL NOT NULL CHECK (width >= 24 AND width <= 2000),
+    PRIMARY KEY (sheet_id, column_id),
+    FOREIGN KEY (sheet_id, column_id) REFERENCES sheet_columns(sheet_id, column_id) ON DELETE CASCADE
+);

@@ -13,6 +13,7 @@ export function sheetDocument({
   frameSize = { width: 240, height: 160 },
   id,
   name,
+  presentation = { rowHeights: {}, columnWidths: {} },
   position = { x: 0, y: 0 },
   revision = 0,
   rowCount = 20,
@@ -23,6 +24,7 @@ export function sheetDocument({
   cells?: Record<CellKey, string>;
   columnCount?: number;
   frameSize?: { width: number; height: number };
+  presentation?: SheetDocument['presentation'];
   position?: WorkspacePosition;
   revision?: number;
   rowCount?: number;
@@ -44,6 +46,7 @@ export function sheetDocument({
     name,
     revision,
     frame: { position, size: frameSize, zIndex },
+    presentation,
     content,
   };
 }
@@ -83,6 +86,7 @@ function normalizeLegacyTestOverrides(sheet: SheetDocument): SheetDocument {
     id: sheet.id,
     name: sheet.name,
     revision: sheet.revision,
+    presentation: sheet.presentation,
     rowCount: overrides.rowCount ?? sheet.content.rows.length,
     columnCount: overrides.columnCount ?? sheet.content.columns.length,
     cells: overrides.cells ?? { ...tabularCellsByA1(sheet.content) },

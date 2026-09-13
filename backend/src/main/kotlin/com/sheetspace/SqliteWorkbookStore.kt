@@ -67,6 +67,14 @@ class SqliteWorkbookStore internal constructor(
         }
     }
 
+    override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument =
+        synchronized(updateLock) {
+            database.transaction { conn ->
+                val reader = SqliteWorkbookReader(conn)
+                SqliteWorkbookWriter(conn, reader).writePresentation(expectedRevision, writes)
+            }
+        }
+
     override fun updateSheetZOrder(writes: List<SheetZOrderWrite>): List<SheetDocument> {
         require(writes.isNotEmpty()) { "At least one z-order write is required" }
         require(writes.map { it.expectedRevision.sheetId }.distinct().size == writes.size) {

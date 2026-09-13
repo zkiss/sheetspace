@@ -15,12 +15,24 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   recordRevision(sheetId: SheetId, revision: number) { return this.coordinator.recordRevision(sheetId, revision); }
 
   async execute({ intent, affectedSheetIds }: Pick<OutboxEntry, 'intent' | 'affectedSheetIds'>): Promise<TransportResult> {
-    try { return await this.executeWithRetry(intent, affectedSheetIds); }
+    try { return await this.coordinator.serialize(affectedSheetIds, () => this.executeKnownSheets(intent, affectedSheetIds)); }
     catch (failure) {
       if (isMissingSheet(failure) && affectedSheetIds.length === 1) return { kind: 'missing-sheet', sheetIds: [affectedSheetIds[0]] };
       throw failure;
     }
   }
+  private async executeKnownSheets(intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]): Promise<TransportResult> {
+    const missingSheetIds = affectedSheetIds.filter((sheetId) => this.coordinator.isSheetMissing(sheetId));
+    if (missingSheetIds.length === 0) return this.executeWithRetry(intent, affectedSheetIds);
+    if (intent.kind !== 'update-sheet-z-order') return { kind: 'missing-sheet', sheetIds: missingSheetIds };
+    const updates = intent.updates.filter(({ sheetId }) => !missingSheetIds.includes(sheetId));
+    if (updates.length === 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
+    const result = await this.executeWithRetry({ kind: 'update-sheet-z-order', updates }, updates.map(({ sheetId }) => sheetId));
+    if (result.kind === 'saved') return { ...result, missingSheetIds: [...missingSheetIds, ...result.missingSheetIds ?? []] };
+    if (result.kind === 'missing-sheet') return { ...result, sheetIds: [...missingSheetIds, ...result.sheetIds] };
+    return result;
+  }
+
   private async executeWithRetry(intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
     try { return await this.request(intent); }
     catch (failure) {
@@ -43,6 +55,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     }
   }
   private async request(intent: WorkbookPersistenceIntent): Promise<TransportResult> {
+    if (intent.kind === 'write-axis-sizes') return this.record(await this.method('writeAxisSizes')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-cells') {
       if (intent.writes.length !== 1) return { kind: 'blocked', reason: 'Batch cell persistence requires a batch endpoint.' };
       const address = this.resolveCellAddress?.(intent.sheetId, intent.writes[0].cell);

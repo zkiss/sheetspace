@@ -4,13 +4,17 @@ import type { VirtualItem } from '@tanstack/react-virtual';
 import { columnIndexToLabel } from '@workbook/core/address';
 import { type ColumnId } from '@workbook/core/model';
 import './SheetGrid.css';
+import { AxisResizeHandle } from './AxisResizeHandle';
+import type { useAxisResize } from './useAxisResize';
 
 export function SheetGridHeaders({
   columnHeaderRef,
   columns,
   selectedColumnIndices,
   virtualColumns,
+  resize,
 }: {
+  resize?: ReturnType<typeof useAxisResize>;
   columnHeaderRef: RefObject<HTMLDivElement>;
   columns: readonly GridAxisEntry<ColumnId>[];
   selectedColumnIndices?: ReadonlySet<number>;
@@ -58,6 +62,8 @@ export function SheetGridHeaders({
             } as CSSProperties}
           >
             {column.kind === 'creating' ? 'Creating…' : columnIndexToLabel(column.durableIndex)}
+            {column.kind === 'saved' && resize && <AxisResizeHandle axis="column" id={column.id}
+              label={columnIndexToLabel(column.durableIndex)} size={virtualColumn.size} resize={resize} />}
           </div>
         );
       })}

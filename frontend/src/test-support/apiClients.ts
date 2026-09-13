@@ -1,3 +1,5 @@
+import { applyAxisSizeWrites } from '@workbook/core/axisSizePolicy';
+import type { AxisSizeWrite } from '@workbook/core/model';
 import { vi } from 'vitest';
 import { appendColumn, appendRow, commitCellRawContent, renameSheet, validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -17,6 +19,7 @@ export function deferred<T>() {
 
 export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
   return {
+    writeAxisSizes: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
     loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
     loadSheet: vi.fn(),
     createSheet: vi.fn(),
@@ -49,6 +52,8 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
   };
 
   return {
+    writeAxisSizes: vi.fn().mockImplementation(async (sheetId: string, writes: readonly AxisSizeWrite[]) =>
+      revisionResponse(updateSheet(sheetId, (sheet) => ({ ...sheet, presentation: applyAxisSizeWrites(sheet.presentation, writes) })), sheetId)),
     loadWorkbook: vi.fn().mockImplementation(async () => persistedWorkbook),
     loadSheet: vi.fn().mockImplementation(async (sheetId: string) => {
       const sheet = findSheetById(persistedWorkbook, sheetId);

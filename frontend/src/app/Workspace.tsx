@@ -258,6 +258,9 @@ export function Workspace({
                   activeSheetId={activeCell?.sheetId ?? null}
                   selectionOwner={selectionOwner}
                   axisProjection={axisProjection}
+                  presentation={sheet.presentation}
+                  logicalSelection={selectionRange}
+                  onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                   cellInteraction={{
                     clear: onClearCell,
                     navigate: onNavigateCell,

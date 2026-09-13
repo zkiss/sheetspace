@@ -1,3 +1,5 @@
+import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
+import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { type CellKey } from '@workbook/core/address';
@@ -27,6 +29,7 @@ export type SheetDocumentResponse = {
     size: SheetFrameSize;
     zIndex: number;
   };
+  presentation: SheetPresentation;
   content: {
     kind: 'tabular';
     rows: string[];
@@ -132,6 +135,12 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  writeAxisSizes(sheetId: string, writes: readonly AxisSizeWrite[], options: RevisionedMutationOptions = {}): Promise<SheetRevisionResponse> {
+    return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}/presentation`, {
+      method: 'PATCH', body: JSON.stringify({ writes }), headers: revisionHeaders(options),
+    });
+  },
+
   loadWorkbook(): Promise<Workbook> {
     return requestJson<WorkbookBundleResponse>('/api/workbook/bundle').then(decodeWorkbookBundle);
   },
@@ -289,7 +298,23 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
     cells[identityKey] = cell.content;
   }
 
+  const presentation = document.presentation;
+  if (!presentation || !presentation.rowHeights || !presentation.columnWidths
+      || Array.isArray(presentation.rowHeights) || Array.isArray(presentation.columnWidths)
+      || typeof presentation.rowHeights !== 'object' || typeof presentation.columnWidths !== 'object') {
+    invalidReadContract('missing or malformed sheet presentation');
+  }
+  const overrides: AxisSizeWrite[] = [
+    ...Object.entries(presentation.rowHeights).map(([axisId, size]) => ({ axis: 'row' as const, axisId, size })),
+    ...Object.entries(presentation.columnWidths).map(([axisId, size]) => ({ axis: 'column' as const, axisId, size })),
+  ];
+  if (overrides.some((write) => typeof write.size !== 'number')
+      || (overrides.length > 0 && !validAxisSizeWrites({ ...document.content, cells: {} }, overrides))) {
+    invalidReadContract('invalid sheet presentation override');
+  }
+
   return {
+    presentation: { rowHeights: { ...presentation.rowHeights }, columnWidths: { ...presentation.columnWidths } },
     id: document.id,
     name: document.name,
     revision: document.revision,
