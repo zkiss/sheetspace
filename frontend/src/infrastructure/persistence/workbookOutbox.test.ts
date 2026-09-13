@@ -180,7 +180,7 @@ describe('WorkbookPersistenceTransport', () => {
     );
   });
   it('accepts a lost response only when every patched cell is present at its complete after-state', async () => {
-    const sheet = sheetDocument({ id: 'a', revision: 2, cells: { A1: 'saved', B1: 'also saved' } });
+    const sheet = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'saved', B1: 'also saved' } });
     const writeCells = vi.fn().mockRejectedValue(new TypeError('network disconnected'));
     const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(sheet) } as Partial<WorkbookApi>);
     transport.recordRevision('a', 1);

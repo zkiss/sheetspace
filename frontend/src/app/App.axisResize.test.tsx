@@ -34,7 +34,7 @@ describe('axis resize application integration', () => {
     expect(cell).toHaveStyle(axis === 'row' ? { height: '26.4px' } : { width: '76px' });
     await act(async () => { pointer(boundary, 'pointerup', x, y); });
     expect(apiClient.writeAxisSizes).not.toHaveBeenCalled();
-    expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
     expect((await apiClient.loadWorkbook()).documents.inputs).toEqual(sheet);
   });
   it.each([16, 40])('saves committed dimensions with a %spx row, restores them on reload, aligns the editor and leaves frames and formulas intact', async (rowHeight) => {

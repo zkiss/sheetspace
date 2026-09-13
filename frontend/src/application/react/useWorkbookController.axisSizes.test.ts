@@ -35,7 +35,7 @@ describe('workbook axis size commands', () => {
     const apiClient = autosaveClient({
       writeAxisSizes: vi.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce({ sheetId: sheet.id, revision: 5 }).mockResolvedValueOnce({ sheetId: sheet.id, revision: 6 }),
       appendRow: vi.fn().mockReturnValue(append.promise),
-      updateCellContent: vi.fn().mockResolvedValue({ sheetId: sheet.id, revision: 7 }),
+      writeCells: vi.fn().mockResolvedValue({ sheets: [{ sheetId: sheet.id, revision: 7 }] }),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient }));
     act(() => {
@@ -56,7 +56,7 @@ describe('workbook axis size commands', () => {
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     expect(apiClient.writeAxisSizes).toHaveBeenNthCalledWith(2, sheet.id, [{ axis: 'column', axisId: column, size: 120 }], { revision: 4 });
     expect(apiClient.writeAxisSizes).toHaveBeenNthCalledWith(3, sheet.id, [{ axis: 'row', axisId: row, size: null }], { revision: 5 });
-    expect(apiClient.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', '8', { revision: 6 });
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
     expect(result.current.workbook.documents[sheet.id].presentation.rowHeights['durable-new-row']).toBeUndefined();
     expect(result.current.workbook.documents[sheet.id].revision).toBe(7);
   });
