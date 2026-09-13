@@ -90,7 +90,7 @@ class SqliteWorkbookStorePresentationTest {
             }
         }
         val app = DefaultWorkbookApplication(store)
-        app.updateCell(TEST_SHEET_1, "A1", "5", 1)
+        app.writeOneCell(TEST_SHEET_1, "A1", "5", 1)
         app.updateSheet(TEST_SHEET_1, 2, UpdateSheetCommand(position = WorkspacePosition(20.0, 30.0)))
         app.appendRow(TEST_SHEET_1, 3)
         app.updateSheet(TEST_SHEET_1, 4, UpdateSheetCommand(name = "Renamed"))

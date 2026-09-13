@@ -1,8 +1,8 @@
 package com.sheetspace
 
-import io.ktor.client.request.header
-import io.ktor.client.request.put
+import io.ktor.client.request.patch
 import io.ktor.http.HttpStatusCode
+import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -16,10 +16,7 @@ class CellMutationRoutesTest {
             val canonical =
                 "=SUM('sheet-inputs'!@[\$column-a,row-a]:@[column-b,\$row-b], @[column-c,row-c])"
 
-            val response = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(workbookApplication, sheetId)
-                cellBody(canonical)
-            }
+            val response = client.patchSingleCell(workbookApplication, sheetId, "A1", canonical)
 
             assertEquals(HttpStatusCode.OK, response.status)
             val sheet = client.loadWorkbook().sheets.single()
@@ -32,14 +29,8 @@ class CellMutationRoutesTest {
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
 
-            val storeResponse = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(workbookApplication, sheetId)
-                cellBody("value")
-            }
-            val clearResponse = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(workbookApplication, sheetId)
-                cellBody("")
-            }
+            val storeResponse = client.patchSingleCell(workbookApplication, sheetId, "A1", "value")
+            val clearResponse = client.patchSingleCell(workbookApplication, sheetId, "A1", "")
 
             assertEquals(HttpStatusCode.OK, storeResponse.status)
             assertEquals(HttpStatusCode.OK, clearResponse.status)
@@ -51,12 +42,10 @@ class CellMutationRoutesTest {
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
 
-            val rawObject = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(workbookApplication, sheetId)
+            val rawObject = client.patch("/api/cells") {
                 jsonBody("""{"raw":"value"}""")
             }
-            val referenceObject = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(workbookApplication, sheetId)
+            val referenceObject = client.patch("/api/cells") {
                 jsonBody(
                     """
                     {
@@ -76,17 +65,16 @@ class CellMutationRoutesTest {
 
     @Test
     fun `stale sheet revision mutation returns conflict without overwriting newer content`() =
-        testWorkbookApplication {
+        testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
-            val initialRevision = client.loadWorkbook().sheets.single().revision
-
-            val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
-                header("If-Match", initialRevision.toString())
-                cellBody("newer value")
-            }
-            val staleUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
-                header("If-Match", initialRevision.toString())
-                cellBody("stale value")
+            val initial = workbookApplication.loadSheet(sheetId)
+            val coordinate = initial.tabularContent.coordinateAt("A1")!!
+            val firstUpdate = client.patchSingleCell(workbookApplication, sheetId, "A1", "newer value")
+            val staleUpdate = client.patch("/api/cells") {
+                jsonBody(testJson.encodeToString(CellPatchRequest(
+                    listOf(CellRevisionRequest(sheetId, initial.revision)),
+                    listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, "stale value")),
+                )))
             }
 
             assertEquals(HttpStatusCode.OK, firstUpdate.status)
@@ -94,6 +82,6 @@ class CellMutationRoutesTest {
             assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleUpdate.decodeBody<ErrorResponse>())
             val sheet = client.loadWorkbook().sheets.single()
             assertEquals("newer value", sheet.cells.getValue("A1"))
-            assertTrue(sheet.revision > initialRevision)
+            assertTrue(sheet.revision > initial.revision)
         }
 }

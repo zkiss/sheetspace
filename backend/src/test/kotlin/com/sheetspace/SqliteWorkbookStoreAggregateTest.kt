@@ -170,10 +170,9 @@ class SqliteWorkbookStoreAggregateTest {
 
         assertEquals(listOf(second.id, first.id), store.loadManifest().sheetIds)
         assertEquals(9, store.loadManifest().revision)
-        val coordinate = first.tabularContent.coordinateAt("A1")!!
         store.writeCells(
-            ExpectedSheetRevision(TEST_SHEET_1, 0),
-            listOf(CellWrite(coordinate, "42")),
+            listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)),
+            listOf(first.cellWrite("A1", "42")),
         )
         assertEquals(9, store.loadManifest().revision)
     }

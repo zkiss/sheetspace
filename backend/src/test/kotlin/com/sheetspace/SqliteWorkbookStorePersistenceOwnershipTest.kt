@@ -50,8 +50,8 @@ class SqliteWorkbookStorePersistenceOwnershipTest {
             clearAudit(connection)
             val current = store.loadSheet(sheet.id)!!
             store.writeCells(
-                ExpectedSheetRevision(sheet.id.value, current.revision),
-                listOf(CellWrite(current.tabularContent.coordinateAt("B2")!!, "targeted")),
+                listOf(ExpectedSheetRevision(sheet.id.value, current.revision)),
+                listOf(current.cellWrite("B2", "targeted")),
             )
             assertEquals(setOf("cells:INSERT", "sheet_documents:UPDATE"), recordedWrites(connection))
         }

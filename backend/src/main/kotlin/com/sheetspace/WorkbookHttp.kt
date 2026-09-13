@@ -10,16 +10,13 @@ import io.ktor.server.http.content.default
 import io.ktor.server.http.content.staticResources
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.receive
-import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
-import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 @Serializable
 data class PresentationWriteRequest(val writes: List<AxisSizeWrite>)
@@ -47,6 +44,21 @@ data class SheetRevisionResponse(
     val sheetId: String,
     val revision: Long,
 )
+
+@Serializable
+data class CellRevisionRequest(val sheetId: String, val revision: Long)
+
+@Serializable
+data class CellWriteRequest(val sheetId: String, val rowId: String, val columnId: String, val raw: String)
+
+@Serializable
+data class CellPatchRequest(
+    val expectedRevisions: List<CellRevisionRequest>,
+    val cells: List<CellWriteRequest>,
+)
+
+@Serializable
+data class CellPatchResponse(val sheets: List<SheetRevisionResponse>)
 
 @Serializable
 data class SheetZOrderUpdateRequest(
@@ -188,20 +200,16 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
-        put("/api/sheets/{sheetId}/cells/{cellAddress}") {
-            val sheetId = call.parameters["sheetId"] ?: return@put call.respondError(
-                HttpStatusCode.BadRequest,
-                "sheet-id-required",
-            )
-            val cellAddress = call.parameters["cellAddress"] ?: return@put call.respondError(
-                HttpStatusCode.BadRequest,
-                "cell-address-required",
-            )
-            val content = call.receiveCellContent() ?: return@put
-            val expectedRevision = call.expectedSheetRevision() ?: return@put
+        patch("/api/cells") {
+            val request = call.receiveRequest<CellPatchRequest>() ?: return@patch
             call.respondApplicationResult {
-                val sheet = workbookApplication.updateCell(sheetId, cellAddress, content, expectedRevision)
-                call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
+                val sheets = workbookApplication.writeCells(
+                    CellPatchCommand(
+                        request.expectedRevisions.map { ExpectedSheetRevision(it.sheetId, it.revision) },
+                        request.cells.map { SheetCellWrite(it.sheetId, it.rowId, it.columnId, it.raw) },
+                    ),
+                )
+                call.respond(CellPatchResponse(sheets.map { SheetRevisionResponse(it.id.value, it.revision) }))
             }
         }
 
@@ -289,7 +297,11 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE ->
             HttpStatusCode.BadRequest to "duplicate-sheet-z-order-update"
         WorkbookApplicationError.INVALID_SHEET_PRESENTATION -> HttpStatusCode.BadRequest to "invalid-sheet-presentation"
-        WorkbookApplicationError.INVALID_CELL_ADDRESS -> HttpStatusCode.BadRequest to "invalid-cell-address"
+        WorkbookApplicationError.EMPTY_CELL_PATCH -> HttpStatusCode.BadRequest to "empty-cell-patch"
+        WorkbookApplicationError.DUPLICATE_CELL_WRITE -> HttpStatusCode.BadRequest to "duplicate-cell-write"
+        WorkbookApplicationError.DUPLICATE_SHEET_REVISION -> HttpStatusCode.BadRequest to "duplicate-sheet-revision"
+        WorkbookApplicationError.INVALID_CELL_COORDINATE -> HttpStatusCode.BadRequest to "invalid-cell-coordinate"
+        WorkbookApplicationError.INVALID_CELL_PATCH -> HttpStatusCode.BadRequest to "invalid-cell-patch"
     }
     respondError(status, code)
 }
@@ -313,15 +325,6 @@ private suspend fun ApplicationCall.expectedSheetRevision(): Long? {
 private suspend inline fun <reified T : Any> ApplicationCall.receiveRequest(): T? {
     return try {
         receive<T>()
-    } catch (exception: Exception) {
-        respondError(HttpStatusCode.BadRequest, "invalid-request")
-        null
-    }
-}
-
-private suspend fun ApplicationCall.receiveCellContent(): String? {
-    return try {
-        Json.decodeFromString<String>(receiveText())
     } catch (exception: Exception) {
         respondError(HttpStatusCode.BadRequest, "invalid-request")
         null

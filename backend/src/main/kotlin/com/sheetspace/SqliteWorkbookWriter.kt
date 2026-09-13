@@ -23,23 +23,43 @@ internal class SqliteWorkbookWriter(
     }
 
     fun writeCells(
-        expectedRevision: ExpectedSheetRevision,
-        writes: List<CellWrite>,
-    ): SheetDocument {
-        val sheetId = SheetId(expectedRevision.sheetId)
-        val current = reader.loadSheet(sheetId)
-            ?: throw NoSuchElementException("Sheet not found: ${sheetId.value}")
-        if (current.revision != expectedRevision.revision) {
-            throw SheetRevisionConflict(
-                sheetId.value,
-                expectedRevision.revision,
-                current.revision,
-            )
+        expectedRevisions: List<ExpectedSheetRevision>,
+        writes: List<SheetCellWrite>,
+    ): List<SheetDocument> {
+        val sheetOrder = writes.map(SheetCellWrite::sheetId).distinct()
+        val expectedBySheet = expectedRevisions.associateBy(ExpectedSheetRevision::sheetId)
+        require(expectedBySheet.keys == sheetOrder.toSet()) { "Expected revisions must match written sheets" }
+        val currentBySheet = sheetOrder.associateWith { sheetId ->
+            reader.loadSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
         }
-
-        incrementSheetRevision(sheetId, expectedRevision.revision)
-        cellWriter.apply(sheetId, writes)
-        return reader.loadSheet(sheetId) ?: error("Updated sheet disappeared: ${sheetId.value}")
+        expectedRevisions.forEach { expected ->
+            val current = currentBySheet.getValue(expected.sheetId)
+            if (current.revision != expected.revision) {
+                throw SheetRevisionConflict(expected.sheetId, expected.revision, current.revision)
+            }
+        }
+        val effectiveWrites = writes.groupBy(SheetCellWrite::sheetId).mapValues { (sheetId, sheetWrites) ->
+            val current = currentBySheet.getValue(sheetId)
+            sheetWrites.mapNotNull { write ->
+                val coordinate = CellCoordinate(RowId(write.rowId), ColumnId(write.columnId))
+                require(coordinate.rowId in current.tabularContent.rows && coordinate.columnId in current.tabularContent.columns) {
+                    "Cell coordinate does not belong to sheet"
+                }
+                val before = current.tabularContent.cellContents[coordinate]
+                val after = write.raw.ifEmpty { null }
+                if (before == after) null else CellWrite(coordinate, write.raw)
+            }
+        }
+        sheetOrder.forEach { sheetId ->
+            val changes = effectiveWrites.getValue(sheetId)
+            if (changes.isNotEmpty()) {
+                incrementSheetRevision(SheetId(sheetId), expectedBySheet.getValue(sheetId).revision)
+                cellWriter.apply(SheetId(sheetId), changes)
+            }
+        }
+        return sheetOrder.map { sheetId ->
+            reader.loadSheet(SheetId(sheetId)) ?: error("Updated sheet disappeared: $sheetId")
+        }
     }
 
     fun writePresentation(expected: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument {

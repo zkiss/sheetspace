@@ -52,17 +52,21 @@ class SqliteWorkbookStore internal constructor(
     }
 
     override fun writeCells(
-        expectedRevision: ExpectedSheetRevision,
-        writes: List<CellWrite>,
-    ): SheetDocument {
+        expectedRevisions: List<ExpectedSheetRevision>,
+        writes: List<SheetCellWrite>,
+    ): List<SheetDocument> {
         require(writes.isNotEmpty()) { "At least one cell write is required" }
-        require(writes.map(CellWrite::coordinate).distinct().size == writes.size) {
+        require(expectedRevisions.isNotEmpty()) { "Expected sheet revisions are required" }
+        require(writes.map { Triple(it.sheetId, it.rowId, it.columnId) }.distinct().size == writes.size) {
             "Cell writes must target distinct coordinates"
+        }
+        require(expectedRevisions.map(ExpectedSheetRevision::sheetId).distinct().size == expectedRevisions.size) {
+            "Expected sheet revisions must be distinct"
         }
         return synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
-                SqliteWorkbookWriter(conn, reader).writeCells(expectedRevision, writes)
+                SqliteWorkbookWriter(conn, reader).writeCells(expectedRevisions, writes)
             }
         }
     }

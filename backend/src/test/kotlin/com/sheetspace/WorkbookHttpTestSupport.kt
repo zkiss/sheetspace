@@ -5,6 +5,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -111,4 +112,24 @@ internal fun HttpRequestBuilder.jsonBody(body: String) {
 
 internal fun HttpRequestBuilder.cellBody(content: String) {
     jsonBody(testJson.encodeToString(content))
+}
+
+internal suspend fun HttpClient.patchSingleCell(
+    application: WorkbookApplication,
+    sheetId: String,
+    address: String,
+    raw: String,
+): HttpResponse {
+    val sheet = application.loadSheet(sheetId)
+    val coordinate = sheet.tabularContent.coordinateAt(address) ?: error("Unknown test address: $address")
+    return patch("/api/cells") {
+        jsonBody(
+            testJson.encodeToString(
+                CellPatchRequest(
+                    listOf(CellRevisionRequest(sheetId, sheet.revision)),
+                    listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, raw)),
+                ),
+            ),
+        )
+    }
 }
