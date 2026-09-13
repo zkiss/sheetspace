@@ -21,6 +21,12 @@ make frontend-dist
 make build
 ```
 
+## Compatibility and test environments
+
+Sheetspace is a pet project with no deployed environment to support. Testing runs in a fresh, ephemeral environment created for each run.
+
+Breaking changes are acceptable. Do not add migrations, API backwards compatibility, legacy data support, or compatibility layers for previous versions. What matters is that the system works correctly after the change in a freshly created environment.
+
 ## Beads
 
 Beads are durable backlog and history, not live workflow state. Closed Beads are immutable.
