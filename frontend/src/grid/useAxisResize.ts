@@ -50,11 +50,12 @@ export function useAxisResize(options: {
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
     const hidden = () => { if (document.visibilityState === 'hidden') cancel(); };
-    window.addEventListener('keydown', key);
+    // A focused cell editor stops Escape from bubbling; cancel the resize first.
+    window.addEventListener('keydown', key, true);
     window.addEventListener('blur', cancel);
     document.addEventListener('visibilitychange', hidden);
     return () => {
-      window.removeEventListener('keydown', key);
+      window.removeEventListener('keydown', key, true);
       window.removeEventListener('blur', cancel);
       document.removeEventListener('visibilitychange', hidden);
       cancel();

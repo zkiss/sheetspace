@@ -13,6 +13,30 @@ function pointer(element: Element, type: string, x = 0, y = 0) {
 }
 
 describe('axis resize application integration', () => {
+  it.each(['row', 'column'] as const)('cancels a %s resize when Escape comes from the focused cell editor', async (axis) => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '7' } });
+    const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
+    render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
+    fireEvent.doubleClick(cell);
+    const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
+    expect(editor).toHaveFocus();
+    fireEvent.change(editor, { target: { value: '99' } });
+    const boundary = screen.getByRole('separator', { name: `Resize ${axis} ${axis === 'row' ? '1' : 'A'}` });
+    const x = axis === 'column' ? 50 : 0;
+    const y = axis === 'row' ? 50 : 0;
+    pointer(boundary, 'pointerdown'); pointer(boundary, 'pointermove', x, y);
+    expect(editor).toHaveFocus();
+    expect(cell).toHaveStyle(axis === 'row' ? { height: '76.4px' } : { width: '126px' });
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(cell).toHaveTextContent('7');
+    expect(cell).toHaveStyle(axis === 'row' ? { height: '26.4px' } : { width: '76px' });
+    await act(async () => { pointer(boundary, 'pointerup', x, y); });
+    expect(apiClient.writeAxisSizes).not.toHaveBeenCalled();
+    expect(apiClient.updateCellContent).not.toHaveBeenCalled();
+    expect((await apiClient.loadWorkbook()).documents.inputs).toEqual(sheet);
+  });
   it.each([16, 40])('saves committed dimensions with a %spx row, restores them on reload, aligns the editor and leaves frames and formulas intact', async (rowHeight) => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '7', B2: '=A1*2' } });
     const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
