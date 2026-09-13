@@ -1,10 +1,12 @@
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import { cellAddressOf } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForDisplay } from '@workbook/formula/reference';
 import { type SheetDocument, type SheetTabularProjection, type Workbook } from '@workbook/core/model';
 import type {
+  SelectionGesture,
   CellEditSession,
+  CellSelectionMode,
   CellContentCommands,
   CellNavigationDirection,
   CellTarget,
@@ -41,6 +43,11 @@ export function useCellEditing({
   workbook: Workbook;
 }) {
   const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
+  const committedDrafts = useRef(new Set<string>());
+
+  function draftKey(session: CellEditSession) {
+    return `${session.target.sheetId}:${session.target.cell.rowId}:${session.target.cell.columnId}:${session.draft}`;
+  }
 
   useEffect(() => {
     dispatch({
@@ -62,6 +69,9 @@ export function useCellEditing({
       currentEditValue !== session.draft
       || (currentCell && currentRaw.length === 0 && session.draft.length === 0)
     ) {
+      const draftSignature = draftKey(session);
+      if (committedDrafts.current.has(draftSignature)) return;
+      committedDrafts.current.add(draftSignature);
       commands.updateCellContent(session.target.sheetId, key, session.draft);
     }
   }
@@ -75,6 +85,7 @@ export function useCellEditing({
     const sheet = findSheetById(workbook, target.sheetId);
     const key = sheet && cellKeyForTarget(sheet, target);
     if (!sheet || !key) return;
+    committedDrafts.current.clear();
     const raw = cellRawContent(sheet, key);
     dispatch({
       type: 'start-edit',
@@ -94,7 +105,7 @@ export function useCellEditing({
     }
   }
 
-  function navigateCell(target: CellTarget, direction: CellNavigationDirection) {
+  function navigateCell(target: CellTarget, direction: CellNavigationDirection, extend = false) {
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet) return;
     const delta = {
@@ -104,7 +115,9 @@ export function useCellEditing({
       down: { columnIndex: 0, rowIndex: 1 },
     } satisfies Record<CellNavigationDirection, { columnIndex: number; rowIndex: number }>;
     const next = adjacentTarget(sheet, target, delta[direction]);
-    if (next) dispatch({ type: 'navigate', target: next });
+    if (next) dispatch(extend
+      ? { type: 'extend-selection', target: next, requestFocus: true }
+      : { type: 'navigate', target: next });
   }
 
   function commitEditAndNavigate(session: CellEditSession, direction: 'tab' | 'enter') {
@@ -154,9 +167,20 @@ export function useCellEditing({
     keyboardFocusRequest: state.focusRequest,
     navigateCell,
     referenceSelection: state.referenceSelection,
-    selectCell: (target: CellTarget) => dispatch({ type: 'select', target }),
+    selectionRange: state.rangeSelection,
+    selectionOwner: state.selectionOwner,
+    selectCell: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'select', target, gesture }),
+    extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
+    focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
+    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
+      if (!gesture || gesture.start) commitActiveEdit();
+      dispatch({ type: 'select-axis', mode, target, extend, gesture });
+    },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,
-    updateEditingCellValue: (draft: string) => dispatch({ type: 'update-draft', draft }),
+    updateEditingCellValue: (draft: string) => {
+      committedDrafts.current.clear();
+      dispatch({ type: 'update-draft', draft });
+    },
   };
 }

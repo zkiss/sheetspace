@@ -13,6 +13,7 @@ const b1: CellTarget = {
   sheetId: 'sheet-inputs',
   cell: { rowId: 'row-1', columnId: 'column-2' },
 };
+const a2: CellTarget = { sheetId: 'sheet-inputs', cell: { rowId: 'row-2', columnId: 'column-1' } };
 
 describe('cellInteractionReducer', () => {
   it('keeps selection, editing, and focus as distinct current cell state', () => {
@@ -72,4 +73,61 @@ describe('cellInteractionReducer', () => {
     expect(selected.referenceSelection).toBeNull();
   });
 
+  it('keeps a durable anchor while ranges extend, contract, and cross it', () => {
+    const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: b1 });
+    const extended = cellInteractionReducer(selected, { type: 'extend-selection', target: a2 });
+    expect(extended.selection).toEqual(a2);
+    expect(extended.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a2 });
+
+    const crossed = cellInteractionReducer(extended, { type: 'extend-selection', target: a1 });
+    expect(crossed.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a1 });
+  });
+
+  it('requests focus only for keyboard range extension', () => {
+    const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: b1 });
+    const pointerExtended = cellInteractionReducer(selected, { type: 'extend-selection', target: a2 });
+    expect(pointerExtended.focusRequest).toBeNull();
+
+    const keyboardExtended = cellInteractionReducer(pointerExtended, {
+      type: 'extend-selection', target: a1, requestFocus: true,
+    });
+    expect(keyboardExtended.focusRequest).toMatchObject({ id: 1, target: a1 });
+  });
+
+  it('uses the same stable model for whole-axis ranges without crossing sheets', () => {
+    const rows = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'select-axis', mode: 'rows', target: a1, extend: false,
+    });
+    const moreRows = cellInteractionReducer(rows, {
+      type: 'select-axis', mode: 'rows', target: a2, extend: true,
+    });
+    expect(moreRows.rangeSelection).toEqual({ mode: 'rows', anchor: a1, extent: a2 });
+
+    const otherSheet = { ...a2, sheetId: 'other-sheet' };
+    const changedSheet = cellInteractionReducer(moreRows, { type: 'extend-selection', target: otherSheet });
+    expect(changedSheet.rangeSelection).toEqual({ mode: 'cells', anchor: otherSheet, extent: otherSheet });
+  });
+
+});
+
+
+describe('selection gesture owners', () => {
+  it('rejects queued owned updates after same-address replacement before any rerender', () => {
+    const gesture = { owner: Symbol('first'), start: true };
+    const start = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1, gesture });
+    const moved = cellInteractionReducer(start, { type: 'extend-selection', target: b1, gesture: { owner: gesture.owner } });
+    const replaced = cellInteractionReducer(moved, { type: 'select-reference', target: { kind: 'cell', target: b1 } });
+    for (const action of [
+      { type: 'extend-selection', target: a1, gesture: { owner: gesture.owner } },
+      { type: 'extend-selection', target: b1, requestFocus: true, gesture: { owner: gesture.owner } },
+      { type: 'select-axis', mode: 'rows', target: a1, extend: true, gesture: { owner: gesture.owner } },
+    ] as const) expect(cellInteractionReducer(replaced, action)).toBe(replaced);
+    const next = { owner: Symbol('next'), start: true };
+    const shifted = cellInteractionReducer(replaced, { type: 'extend-selection', target: a2, gesture: next });
+    expect(shifted.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a2 });
+    expect(shifted.selectionOwner).toBe(next.owner);
+    expect(cellInteractionReducer(shifted, { type: 'extend-selection', target: a1, gesture: { owner: gesture.owner } })).toBe(shifted);
+    const pruned = cellInteractionReducer(shifted, { type: 'prune-sheets', sheetIds: new Set() });
+    expect(pruned.selectionOwner).toBeNull();
+  });
 });

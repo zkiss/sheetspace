@@ -16,6 +16,32 @@ function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x
 }
 
 describe('useCellEditing', () => {
+  it('keeps focus with the extent through repeated Shift-arrow extension and reversal', () => {
+    const { result, sheet } = renderCellEditing();
+    const b1 = cellTargetAt(sheet, 'B1')!;
+    const c1 = cellTargetAt(sheet, 'C1')!;
+    const d1 = cellTargetAt(sheet, 'D1')!;
+    const a1 = cellTargetAt(sheet, 'A1')!;
+
+    act(() => result.current.selectCell(b1));
+    act(() => result.current.navigateCell(b1, 'right', true));
+    expect(result.current.activeCell).toEqual(c1);
+    expect(result.current.keyboardFocusRequest).toMatchObject({ id: 1, target: c1 });
+
+    act(() => result.current.navigateCell(c1, 'right', true));
+    expect(result.current.activeCell).toEqual(d1);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: b1, extent: d1 });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ id: 2, target: d1 });
+
+    act(() => result.current.navigateCell(d1, 'left', true));
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: b1, extent: c1 });
+
+    act(() => result.current.navigateCell(c1, 'left', true));
+    act(() => result.current.navigateCell(b1, 'left', true));
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: b1, extent: a1 });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ id: 5, target: a1 });
+  });
+
   it('clears local interaction state when deleted sheet disappears from workbook', () => {
     const commands = { updateCellContent: vi.fn() };
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
@@ -38,6 +64,27 @@ describe('useCellEditing', () => {
   });
 
   describe('edit persistence', () => {
+    it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
+      for (const [raw, draft] of [['', 'Region'], ['', '=SUM(B1:B2)'], ['', ''], ['Region', 'Region'], ['=SUM(B1:B2)', '=SUM(B1:B2)']]) {
+        const input = sheetDocument({ id: 'header-drafts', name: 'Header drafts', cells: { A1: raw } });
+        const { commands, result, sheet, unmount } = renderCellEditing(input);
+        const a1 = cellTargetAt(sheet, 'A1')!;
+        const b1 = cellTargetAt(sheet, 'B1')!;
+        act(() => result.current.startEditingCell(a1, draft));
+        const session = result.current.editingCell!;
+        act(() => result.current.selectAxis(mode, b1, false));
+        const writes = draft === raw ? 0 : 1;
+        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
+        if (writes) expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', draft);
+        expect(result.current.editingCell).toBeNull();
+        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
+        act(() => result.current.commitActiveEdit(session));
+        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
+        expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
+        unmount();
+      }
+    });
+
     it.each([
       ['text', 'Region'],
       ['numeric-looking text', '42.50'],

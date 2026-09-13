@@ -8,10 +8,12 @@ import './SheetGrid.css';
 export function SheetGridHeaders({
   columnHeaderRef,
   columns,
+  selectedColumnIndices,
   virtualColumns,
 }: {
   columnHeaderRef: RefObject<HTMLDivElement>;
   columns: readonly GridAxisEntry<ColumnId>[];
+  selectedColumnIndices?: ReadonlySet<number>;
   virtualColumns: readonly VirtualItem[];
 }) {
   return (
@@ -36,7 +38,11 @@ export function SheetGridHeaders({
           <div
             aria-hidden={column.kind === 'creating' ? true : undefined}
             aria-label={column.kind === 'creating' ? 'Creating column' : undefined}
-            className={`sheet-grid-column-header${column.kind === 'creating' ? ' sheet-grid-axis-creating' : ''}`}
+            className={`sheet-grid-column-header${column.kind === 'creating' ? ' sheet-grid-axis-creating' : ''}${
+              column.kind === 'saved' && selectedColumnIndices?.has(column.durableIndex) ? ' sheet-grid-axis-selected' : ''
+            }`}
+            data-axis-selection-mode={column.kind === 'saved' ? 'columns' : undefined}
+            data-axis-durable-index={column.kind === 'saved' ? column.durableIndex : undefined}
             key={column.kind === 'creating' ? column.operationId : column.id}
             ref={column.kind === 'saved' && column.durableIndex === 0 ? columnHeaderRef : undefined}
             aria-colindex={column.kind === 'saved' ? column.durableIndex + 2 : undefined}

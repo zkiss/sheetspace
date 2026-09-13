@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type PointerEvent, type RefObject } from 'react';
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
 import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
@@ -12,7 +12,7 @@ import {
   GRID_CELL_WIDTH,
   GRID_ROW_HEADER_WIDTH,
 } from '@grid/gridGeometry';
-import type { CellEditSession } from './cellInteractionContracts';
+import type { SelectionGesture, CellEditSession, CellSelectionMode, CellTarget } from './cellInteractionContracts';
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
 import {
   SheetGridCell,
@@ -60,6 +60,7 @@ export type SheetGridAxisMetrics = {
 
 export function SheetGrid({
   activeCellKey,
+  activeSheetId,
   axisMetrics,
   axisProjection,
   cellInteraction,
@@ -71,10 +72,19 @@ export function SheetGrid({
   navigationHighlightRange,
   formulaResults,
   scrollContainerRef,
+  selectionMode,
+  selectionOwner,
   sheet,
   selectedRange,
+  onSelectAxis,
 }: {
   activeCellKey: string | null;
+  /**
+   * The sheet that currently owns logical selection/focus.  A mounted grid may
+   * remain visible after ownership moves to another sheet, so its pointer
+   * session must not continue dispatching into the shared selection state.
+   */
+  activeSheetId?: string | null;
   axisMetrics?: SheetGridAxisMetrics;
   axisProjection: GridAxisProjection;
   cellInteraction: SheetGridCellInteraction;
@@ -86,8 +96,12 @@ export function SheetGrid({
   navigationHighlightRange?: CellRange;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
+  selectionMode?: CellSelectionMode;
+  /** Controlled selection owner; omitted only by consumers without shared interaction state. */
+  selectionOwner?: symbol | null;
   sheet: SheetTabularProjection;
   selectedRange?: CellRange;
+  onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
 }) {
   const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
   // The application owns request lifetime, so it may keep a request prop present
@@ -98,6 +112,22 @@ export function SheetGrid({
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const rowHeaderRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    mode: CellSelectionMode;
+    target: CellTarget | null;
+    owner: symbol;
+    captureElement: HTMLDivElement;
+  } | null>(null);
+  const animationFrameRef = useRef(0);
+  const cellInteractionRef = useRef(cellInteraction);
+  cellInteractionRef.current = cellInteraction;
+  const activeSheetIdRef = useRef(activeSheetId);
+  activeSheetIdRef.current = activeSheetId;
+  const selectionOwnerRef = useRef(selectionOwner);
+  selectionOwnerRef.current = selectionOwner;
   const { columns, rows } = axisProjection;
   const defaultRowMetrics = useMemo(() => createGridAxisMetrics(rows, GRID_CELL_HEIGHT), [rows]);
   const defaultColumnMetrics = useMemo(() => createGridAxisMetrics(columns, GRID_CELL_WIDTH), [columns]);
@@ -108,6 +138,7 @@ export function SheetGrid({
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
+  const [dragging, setDragging] = useState(false);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
   // Application requests are already the authoritative focus state. Deriving their
   // intent during render makes replacement atomic: an R2 render cannot run R1's
@@ -316,6 +347,195 @@ export function SheetGrid({
     setGridEntryFocusIntent({ id: `entry-${nextGridFocusRequestId.current++}`, targetKey: key });
   }
 
+  function extendSelectionAt(clientX: number, clientY: number) {
+    const scrollContainer = scrollContainerRef.current;
+    const drag = dragRef.current;
+    if (!scrollContainer || !drag) return;
+    // This check runs from both pointer movement and the RAF loop. It closes the
+    // gap between a context-replacement render and its cleanup effect, so an
+    // already queued stale callback cannot replace the new sheet selection.
+    if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
+      finishDrag();
+      return;
+    }
+    if (!dragOwnsCurrentSelection()) {
+      finishDrag();
+      return;
+    }
+    const rect = scrollContainer.getBoundingClientRect();
+    // Pointer coordinates are screen-space while the grid may be scaled by the
+    // workspace. Convert through the scroll viewport before consulting metrics.
+    const scaleX = rect.width ? scrollContainer.clientWidth / rect.width : 1;
+    const scaleY = rect.height ? scrollContainer.clientHeight / rect.height : 1;
+    const columnIndex = savedAxisIndexAtOffset(columns, columnMetrics,
+      scrollContainer.scrollLeft + (clientX - rect.left) * scaleX - GRID_ROW_HEADER_WIDTH,
+    );
+    const rowIndex = savedAxisIndexAtOffset(rows, rowMetrics,
+      scrollContainer.scrollTop + (clientY - rect.top) * scaleY - GRID_COLUMN_HEADER_HEIGHT,
+    );
+    const row = rowIndex === undefined ? undefined : rows[rowIndex];
+    const column = columnIndex === undefined ? undefined : columns[columnIndex];
+    if (drag.mode === 'columns') {
+      const firstRow = rows.find((axis) => axis.kind === 'saved');
+      if (column?.kind !== 'saved' || !firstRow) return;
+      const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: firstRow.durableIndex }));
+      if (target) {
+        drag.target = target;
+        onSelectAxis?.('columns', target, true, { owner: drag.owner });
+      }
+      return;
+    }
+    if (drag.mode === 'rows') {
+      const firstColumn = columns.find((axis) => axis.kind === 'saved');
+      if (row?.kind !== 'saved' || !firstColumn) return;
+      const target = cellTargetAt(sheet, cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: row.durableIndex }));
+      if (target) {
+        drag.target = target;
+        onSelectAxis?.('rows', target, true, { owner: drag.owner });
+      }
+      return;
+    }
+    if (!cellInteraction.extend || row?.kind !== 'saved' || column?.kind !== 'saved') return;
+    const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: row.durableIndex }));
+    if (target) {
+      drag.target = target;
+      cellInteraction.extend(target, { owner: drag.owner });
+    }
+  }
+
+  const finishDrag = useCallback((pointerId?: number, focusExtent = false) => {
+    const drag = dragRef.current;
+    if (!drag || (pointerId !== undefined && drag.pointerId !== pointerId)) return;
+    // Clear ownership before releasing capture: lostpointercapture can reenter this
+    // path synchronously in some browsers.
+    dragRef.current = null;
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = 0;
+    if (drag.captureElement.hasPointerCapture?.(drag.pointerId)) drag.captureElement.releasePointerCapture(drag.pointerId);
+    setDragging(false);
+    if (focusExtent && drag.target) cellInteractionRef.current.focusSelection?.(drag.target, { owner: drag.owner });
+  }, []);
+
+  useEffect(() => {
+    const tick = () => {
+      const drag = dragRef.current;
+      const scrollContainer = scrollContainerRef.current;
+      if (!drag || !scrollContainer) return;
+      if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
+        finishDrag();
+        return;
+      }
+      if (!dragOwnsCurrentSelection()) {
+        finishDrag();
+        return;
+      }
+      const rect = scrollContainer.getBoundingClientRect();
+      const edge = 28;
+      const scrollX = drag.mode === 'rows' ? 0 : drag.clientX < rect.left + edge ? -18 : drag.clientX > rect.right - edge ? 18 : 0;
+      const scrollY = drag.mode === 'columns' ? 0 : drag.clientY < rect.top + edge ? -18 : drag.clientY > rect.bottom - edge ? 18 : 0;
+      if (scrollX || scrollY) {
+        scrollContainer.scrollLeft += scrollX;
+        scrollContainer.scrollTop += scrollY;
+        extendSelectionAt(drag.clientX, drag.clientY);
+      }
+      animationFrameRef.current = requestAnimationFrame(tick);
+    };
+    if (dragging) animationFrameRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = 0;
+    };
+  }, [dragging, columnMetrics, rowMetrics, columns, rows, sheet, cellInteraction, onSelectAxis, scrollContainerRef]);
+
+  useEffect(() => {
+    const cancelForWindowDeparture = () => finishDrag();
+    const cancelForVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') finishDrag();
+    };
+    window.addEventListener('blur', cancelForWindowDeparture);
+    document.addEventListener('visibilitychange', cancelForVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', cancelForWindowDeparture);
+      document.removeEventListener('visibilitychange', cancelForVisibilityChange);
+    };
+  }, [finishDrag]);
+
+  useEffect(() => () => finishDrag(), [finishDrag, sheet.id]);
+
+  // A frame can remain mounted when reference navigation or a workspace action
+  // moves logical selection to another sheet. End the old session as part of
+  // that replacement, while allowing ordinary same-sheet rerenders to continue.
+  useEffect(() => {
+    if (activeSheetId != null && activeSheetId !== sheet.id) finishDrag();
+  }, [activeSheetId, finishDrag, sheet.id]);
+
+  useEffect(() => {
+    if (dragRef.current && !dragOwnsCurrentSelection()) finishDrag();
+  }, [selectionOwner, finishDrag]);
+
+  function beginDrag(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"]')) return;
+    if (dragRef.current) return;
+    const source = (event.target as HTMLElement).closest<HTMLElement>('[data-cell-key], [data-axis-selection-mode]');
+    if (!source) return;
+    const mode = source.dataset.axisSelectionMode as Exclude<CellSelectionMode, 'cells'> | undefined;
+    const target = dragTargetForSource(source, mode ?? 'cells', sheet, rows, columns);
+    if (!target) return;
+    const dragMode = mode ?? 'cells';
+    const owner = Symbol('selection-gesture');
+    const gesture = { owner, start: true };
+    if (dragMode === 'cells') {
+      if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target, gesture);
+      else cellInteraction.select(target, gesture);
+    } else {
+      onSelectAxis?.(dragMode, target, event.shiftKey, gesture);
+    }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      mode: dragMode,
+      target,
+      owner,
+      captureElement: event.currentTarget,
+    };
+    setDragging(true);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveDrag(event: PointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    if (!dragOwnsCurrentSelection()) {
+      finishDrag();
+      return;
+    }
+    if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
+      finishDrag();
+      return;
+    }
+    dragRef.current = { ...dragRef.current, clientX: event.clientX, clientY: event.clientY };
+    extendSelectionAt(event.clientX, event.clientY);
+  }
+
+  function dragOwnsCurrentSelection() {
+    const drag = dragRef.current;
+    if (!drag) return false;
+    return selectionOwnerRef.current === undefined || selectionOwnerRef.current === drag.owner;
+  }
+
+  function completeDrag(event: PointerEvent<HTMLDivElement>) {
+    if (!dragOwnsCurrentSelection()) {
+      finishDrag(event.pointerId);
+      return;
+    }
+    finishDrag(event.pointerId, true);
+  }
+
+  function cancelDrag(event: PointerEvent<HTMLDivElement>) {
+    finishDrag(event.pointerId);
+  }
+
   return (
     <div
       aria-label={`${sheet.name} grid`}
@@ -324,6 +544,23 @@ export function SheetGrid({
       className="sheet-grid"
       data-testid="sheet-grid"
       onFocus={enterGrid}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        // Internal focus movement (including editor focus) retains the gesture.
+        // A null target can be caused by virtualizing the focused cell, so window
+        // blur remains the reliable cancellation path for that case.
+        if (next && !event.currentTarget.contains(next)) finishDrag();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') finishDrag();
+      }}
+      onPointerDownCapture={beginDrag}
+      onPointerMove={moveDrag}
+      onPointerUp={completeDrag}
+      onPointerCancel={cancelDrag}
+      onLostPointerCapture={(event) => {
+        finishDrag(event.pointerId);
+      }}
       ref={gridRef}
       role="table"
       style={{
@@ -335,7 +572,14 @@ export function SheetGrid({
       } as CSSProperties}
       tabIndex={!activeCellKey || !activeIsMounted ? 0 : -1}
     >
-      <SheetGridHeaders columnHeaderRef={columnHeaderRef} columns={columns} virtualColumns={virtualColumns} />
+      <SheetGridHeaders
+        columnHeaderRef={columnHeaderRef}
+        columns={columns}
+        virtualColumns={virtualColumns}
+        selectedColumnIndices={selectionMode === 'columns' && selectedRange
+          ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
+          : undefined}
+      />
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
         if (!row) return null;
@@ -351,7 +595,13 @@ export function SheetGrid({
             <div
               aria-label={row.kind === 'creating' ? 'Creating row' : undefined}
               aria-colindex={1}
-              className={`sheet-grid-row-header${row.kind === 'creating' ? ' sheet-grid-axis-creating' : ''}`}
+              className={`sheet-grid-row-header${row.kind === 'creating' ? ' sheet-grid-axis-creating' : ''}${
+                row.kind === 'saved' && selectionMode === 'rows' && isAddressInRange(
+                  { rowIndex: row.durableIndex, columnIndex: 0 }, selectedRange,
+                ) ? ' sheet-grid-axis-selected' : ''
+              }`}
+              data-axis-selection-mode={row.kind === 'saved' ? 'rows' : undefined}
+              data-axis-durable-index={row.kind === 'saved' ? row.durableIndex : undefined}
               ref={row.kind === 'saved' && row.durableIndex === 0 ? rowHeaderRef : undefined}
               role="rowheader"
               style={{ height: virtualRow.size, left: 0, position: 'sticky' }}
@@ -424,6 +674,63 @@ export function SheetGrid({
 
 function axisKey(entry: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined) {
   return entry ? (entry.kind === 'saved' ? entry.id : entry.operationId) : '';
+}
+
+/**
+ * Resolve pointer geometry to a durable axis item. Projection also contains
+ * temporary creation slots, so generic metric indexes cannot be used directly
+ * for selection. The closest saved item makes endpoint and pending-slot
+ * targeting deterministic without changing the metrics API's out-of-range
+ * contract.
+ */
+export function savedAxisIndexAtOffset(
+  entries: readonly GridAxisProjection['rows'][number][] | readonly GridAxisProjection['columns'][number][],
+  metrics: GridAxisMetrics,
+  offset: number,
+) {
+  if (!Number.isFinite(offset)) return undefined;
+  const saved = entries
+    .map((entry, index) => entry?.kind === 'saved' ? index : undefined)
+    .filter((index): index is number => index !== undefined);
+  if (!saved.length) return undefined;
+
+  const directIndex = metrics.indexAtOffset(offset);
+  if (directIndex !== undefined && entries[directIndex]?.kind === 'saved') return directIndex;
+
+  let nearestIndex = saved[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const index of saved) {
+    const start = metrics.itemOffset(index) ?? 0;
+    const end = start + (metrics.itemSize(index) ?? 0);
+    const distance = offset < start ? start - offset : offset >= end ? offset - end : 0;
+    if (distance < nearestDistance) {
+      nearestIndex = index;
+      nearestDistance = distance;
+    }
+  }
+  return nearestIndex;
+}
+
+function dragTargetForSource(
+  source: HTMLElement,
+  mode: CellSelectionMode,
+  sheet: SheetTabularProjection,
+  rows: GridAxisProjection['rows'],
+  columns: GridAxisProjection['columns'],
+) {
+  if (mode === 'cells') {
+    const key = source.dataset.cellKey;
+    return key ? cellTargetAt(sheet, key) ?? null : null;
+  }
+  const durableIndex = Number(source.dataset.axisDurableIndex);
+  if (!Number.isInteger(durableIndex)) return null;
+  const firstRow = rows.find((axis) => axis.kind === 'saved');
+  const firstColumn = columns.find((axis) => axis.kind === 'saved');
+  if (!firstRow || !firstColumn) return null;
+  return cellTargetAt(sheet, cellKey({
+    columnIndex: mode === 'columns' ? durableIndex : firstColumn.durableIndex,
+    rowIndex: mode === 'rows' ? durableIndex : firstRow.durableIndex,
+  })) ?? null;
 }
 
 function hasDurableIndex(

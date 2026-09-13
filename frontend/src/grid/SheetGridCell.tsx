@@ -1,7 +1,7 @@
 import { KeyboardEvent, type CSSProperties } from 'react';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
-import type { CellEditSession, CellNavigationDirection, CellTarget } from './cellInteractionContracts';
+import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellTarget } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { GRID_CELL_HEIGHT } from '@grid/gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';
@@ -13,8 +13,10 @@ export const CELL_EDITOR_MAX_HEIGHT = '12rem';
 
 export type SheetGridCellInteraction = {
   clear: (target: CellTarget) => void;
-  navigate: (target: CellTarget, direction: CellNavigationDirection) => void;
-  select: (target: CellTarget) => void;
+  navigate: (target: CellTarget, direction: CellNavigationDirection, extend?: boolean) => void;
+  select: (target: CellTarget, gesture?: SelectionGesture) => void;
+  extend?: (target: CellTarget, gesture?: SelectionGesture) => void;
+  focusSelection?: (target: CellTarget, gesture?: SelectionGesture) => void;
   startEditing: (target: CellTarget, initialValue?: string) => void;
 };
 
@@ -84,7 +86,8 @@ export function SheetGridCell({
     event.preventDefault();
 
     if (action.kind === 'navigate') {
-      cellInteraction.navigate(target, action.direction);
+      if (event.shiftKey) cellInteraction.navigate(target, action.direction, true);
+      else cellInteraction.navigate(target, action.direction);
       return;
     }
 
@@ -112,9 +115,16 @@ export function SheetGridCell({
       data-navigation-highlight={isNavigationTarget ? 'true' : undefined}
       data-reference-selected={isRangeSelected ? 'true' : undefined}
       data-testid="sheet-grid-cell"
-      onClick={() => {
+      onClick={(event) => {
+        // Pointer selection is committed on pointer-down so a drag can extend it.
+        // The browser emits a click after that gesture; handling it would collapse
+        // the completed range back to the pointer-down cell. Keyboard activation
+        // has detail 0 and still uses this path.
+        if (event.detail !== 0) return;
         const target = cellTargetAt(sheet, cellKey);
-        if (target) cellInteraction.select(target);
+        if (!target) return;
+        if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
+        else cellInteraction.select(target);
       }}
       onDoubleClick={() => {
         const target = cellTargetAt(sheet, cellKey);
