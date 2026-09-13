@@ -260,11 +260,14 @@ describe('workbook API mutations', () => {
     });
   });
 
-  it('sends A1 cell content and structure mutations with revision tokens', async () => {
+  it('sends stable-identity cell patches and structure mutations', async () => {
     const fetchMock = mockFetch({
       sheetId: 'sheet 1', revision: 1, rowCount: 21, columnCount: 11, rowId: 'row-21', columnId: 'column-11',
     });
-    await workbookApi.updateCellContent('sheet 1', 'A1', '=SUM(B1:B2)', { revision: 7 });
+    await workbookApi.writeCells(
+      [{ sheetId: 'sheet 1', revision: 7 }],
+      [{ sheetId: 'sheet 1', rowId: 'row-1', columnId: 'column-1', raw: '=SUM(B1:B2)' }],
+    );
     const row = await workbookApi.appendRow('sheet 1', { revision: 8 });
     const column = await workbookApi.appendColumn('sheet 1');
 
@@ -272,9 +275,12 @@ describe('workbook API mutations', () => {
     expect(column.columnId).toBe('column-11');
 
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sheets/sheet%201/cells/A1', {
-      method: 'PUT', body: JSON.stringify('=SUM(B1:B2)'),
-      headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/cells', {
+      method: 'PATCH', body: JSON.stringify({
+        expectedRevisions: [{ sheetId: 'sheet 1', revision: 7 }],
+        cells: [{ sheetId: 'sheet 1', rowId: 'row-1', columnId: 'column-1', raw: '=SUM(B1:B2)' }],
+      }),
+      headers: { 'Content-Type': 'application/json' },
     });
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sheets/sheet%201/rows', {
       method: 'POST', headers: { 'If-Match': '8' },

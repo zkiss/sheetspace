@@ -3,6 +3,7 @@ import { deferred } from '@test-support/apiClients';
 import { WorkbookApiError, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { WorkbookOutbox } from '@infrastructure/persistence/workbookOutbox';
 import { WorkbookPersistenceTransport } from '@infrastructure/persistence/workbookPersistenceTransport';
+import { sheetDocument } from '@test-support/workbookFactories';
 
 const rename = (sheetId: string, name: string) => ({ kind: 'rename-sheet', sheetId, name } as const);
 
@@ -165,10 +166,29 @@ describe('WorkbookPersistenceTransport', () => {
     const transport = new WorkbookPersistenceTransport({ renameSheet, loadSheet: vi.fn().mockResolvedValue({ id: 'a', revision: 7 }) } as Partial<WorkbookApi>);
     await transport.execute({ intent: rename('a', 'new'), affectedSheetIds: ['a'] }); expect(renameSheet).toHaveBeenNthCalledWith(2, 'a', 'new', { revision: 7 }); expect(transport.revision('a')).toBe(8);
   });
-  it('does not route a multi-write intent to the single-cell API', async () => {
-    const updateCellContent = vi.fn(); const transport = new WorkbookPersistenceTransport({ updateCellContent } as Partial<WorkbookApi>);
-    const result = await transport.execute({ intent: { kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: '1' }, { sheetId: 'a', rowId: 'r', columnId: 'd', beforeRaw: null, afterRaw: '2' }] }, affectedSheetIds: ['a'] });
-    expect(result.kind).toBe('blocked'); expect(updateCellContent).not.toHaveBeenCalled();
+  it('sends a multi-sheet atomic patch with stable identities and all expected revisions', async () => {
+    const writeCells = vi.fn().mockResolvedValue({ sheets: [{ sheetId: 'a', revision: 2 }, { sheetId: 'b', revision: 4 }] });
+    const transport = new WorkbookPersistenceTransport({ writeCells } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1); transport.recordRevision('b', 3);
+    await expect(transport.execute({ intent: { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: '1' },
+      { sheetId: 'b', rowId: 'r', columnId: 'd', beforeRaw: 'old', afterRaw: null },
+    ] }, affectedSheetIds: ['a', 'b'] })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }, { sheetId: 'b', revision: 4 }] });
+    expect(writeCells).toHaveBeenCalledWith(
+      [{ sheetId: 'a', revision: 1 }, { sheetId: 'b', revision: 3 }],
+      [{ sheetId: 'a', rowId: 'r', columnId: 'c', raw: '1' }, { sheetId: 'b', rowId: 'r', columnId: 'd', raw: '' }],
+    );
+  });
+  it('accepts a lost response only when every patched cell is present at its complete after-state', async () => {
+    const sheet = sheetDocument({ id: 'a', revision: 2, cells: { A1: 'saved', B1: 'also saved' } });
+    const writeCells = vi.fn().mockRejectedValue(new TypeError('network disconnected'));
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(sheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    await expect(transport.execute({ intent: { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'saved' },
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:2', beforeRaw: null, afterRaw: 'also saved' },
+    ] }, affectedSheetIds: ['a'] })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }] });
+    expect(writeCells).toHaveBeenCalledTimes(1);
   });
   it('persists surviving z-order updates before reporting a precisely missing sheet', async () => {
     const updateSheetZOrder = vi.fn()
