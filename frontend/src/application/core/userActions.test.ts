@@ -210,6 +210,69 @@ describe('workbook operations', () => {
     }
   });
 
+  it('applies changed cells across sheets in one transaction and its inverse restores exact raw content', () => {
+    const source = workbookWithSheets([
+      sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: ' old value ' } }),
+      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: '=alpha!@[alpha:column:1,alpha:row:1]' } }),
+    ]);
+    const alphaA1 = cellIdentityAt(source.documents.alpha.content, 'A1')!;
+    const betaB2 = cellIdentityAt(source.documents.beta.content, 'B2')!;
+    const result = applyWorkbookOperation(source, {
+      kind: 'write-cells', operationId: 'cross-sheet',
+      writes: [write('alpha', alphaA1, '=Beta!B2'), write('beta', betaB2, '')],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'beta', key: 'B2' }] },
+        affected: { sheetIds: ['alpha', 'beta'], cells: [{ sheetId: 'alpha', cell: alphaA1 }, { sheetId: 'beta', cell: betaB2 }] },
+        persistence: { kind: 'write-cells', writes: [
+          write('alpha', alphaA1, '=beta!@[beta:column:2,beta:row:2]'),
+          write('beta', betaB2, ''),
+        ] },
+        inverse: { kind: 'write-cells', writes: [
+          write('alpha', alphaA1, ' old value '),
+          write('beta', betaB2, '=alpha!@[alpha:column:1,alpha:row:1]'),
+        ] },
+      },
+    });
+    if (!result.ok || result.value.inverse?.kind !== 'write-cells') return;
+
+    const restored = applyWorkbookOperation(result.value.nextWorkbook, {
+      ...result.value.inverse, operationId: 'restore-cross-sheet',
+    });
+    expect(restored).toMatchObject({ ok: true, value: { nextWorkbook: source } });
+  });
+
+  it('omits effective no-op writes and emits nothing when every write is a no-op', () => {
+    const source = workbookWithSheets([sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'same' } }), beta]);
+    const alphaA1 = cellIdentityAt(source.documents.alpha.content, 'A1')!;
+    const alphaB2 = cellIdentityAt(source.documents.alpha.content, 'B2')!;
+    const betaA1 = cellIdentityAt(source.documents.beta.content, 'A1')!;
+    const mixed = applyWorkbookOperation(source, {
+      kind: 'write-cells', operationId: 'mixed-no-ops',
+      writes: [write('alpha', alphaA1, 'same'), write('alpha', alphaB2, ''), write('beta', betaA1, 'changed')],
+    });
+    expect(mixed).toMatchObject({
+      ok: true,
+      value: {
+        persistence: { kind: 'write-cells', writes: [write('beta', betaA1, 'changed')] },
+        inverse: { kind: 'write-cells', writes: [write('beta', betaA1, '')] },
+        calculationImpact: { kind: 'cells', cells: [{ sheetId: 'beta', key: 'A1' }] },
+      },
+    });
+
+    const noOps = applyWorkbookOperation(source, {
+      kind: 'write-cells', operationId: 'all-no-ops',
+      writes: [write('alpha', alphaA1, 'same'), write('alpha', alphaB2, '')],
+    });
+    expect(noOps).toMatchObject({
+      ok: true,
+      value: { nextWorkbook: source, changed: false, persistence: undefined, inverse: undefined, calculationImpact: { kind: 'none' } },
+    });
+  });
+
   it('rejects any invalid batch target before changing a valid target', () => {
     const source = workbookWithSheets([alpha, beta]);
     const result = applyWorkbookOperation(source, {
@@ -218,6 +281,27 @@ describe('workbook operations', () => {
     });
     expect(result).toEqual({ ok: false, reason: 'invalid-cell' });
     expect(source).toEqual(workbookWithSheets([alpha, beta]));
+  });
+
+  it.each([
+    ['duplicate target', (source: Workbook) => {
+      const cell = cellIdentityAt(source.documents.alpha.content, 'A1')!;
+      return [write('alpha', cell, 'one'), write('alpha', cell, 'two')];
+    }, 'duplicate-cell'],
+    ['foreign cell identity', (source: Workbook) => [
+      write('beta', cellIdentityAt(source.documents.alpha.content, 'A1')!, 'invalid'),
+    ], 'invalid-cell'],
+    ['unknown sheet after a valid target', (source: Workbook) => [
+      write('alpha', cellIdentityAt(source.documents.alpha.content, 'A1')!, 'valid'),
+      write('missing', { rowId: 'missing-row', columnId: 'missing-column' }, 'invalid'),
+    ], 'unknown-sheet'],
+  ])('rejects $label without changing any sheet', (_label, writes, reason) => {
+    const source = workbookWithSheets([alpha, beta]);
+    const before = structuredClone(source);
+    expect(applyWorkbookOperation(source, {
+      kind: 'write-cells', operationId: 'invalid-workbook-transaction', writes: writes(source),
+    })).toEqual({ ok: false, reason });
+    expect(source).toEqual(before);
   });
 
   it('uses plain serializable operation and persistence shapes', () => {
