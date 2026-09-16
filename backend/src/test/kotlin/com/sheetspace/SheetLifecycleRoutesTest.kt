@@ -13,7 +13,7 @@ import kotlin.test.assertEquals
 class SheetLifecycleRoutesTest {
     @Test
     fun `sheet creation endpoint persists sheet for later workbook loads`() =
-        testWorkbookApplication {
+        testWorkbookApplication { workbookApplication ->
             val response = client.post("/api/sheets") {
                 jsonBody("""{"name":" Inputs ","position":{"x":24.0,"y":48.0}}""")
             }
@@ -63,14 +63,10 @@ class SheetLifecycleRoutesTest {
 
     @Test
     fun `stale sheet deletion returns conflict without removing newer sheet state`() =
-        testWorkbookApplication {
+        testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
             val initialRevision = client.loadWorkbook().sheets.single().revision
-
-            val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
-                header("If-Match", initialRevision.toString())
-                cellBody("newer value")
-            }
+            val firstUpdate = client.patchSingleCell(workbookApplication, sheetId, "A1", "newer value")
             val staleDelete = client.delete("/api/sheets/$sheetId") {
                 header("If-Match", initialRevision.toString())
             }

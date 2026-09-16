@@ -21,10 +21,7 @@ class WorkbookMutationContractRoutesTest {
                 revisionHeader(workbookApplication, sheetId)
                 jsonBody("""{"name":"Renamed Inputs"}""")
             }
-            val cellResponse = client.put("/api/sheets/$sheetId/cells/A1") {
-                revisionHeader(workbookApplication, sheetId)
-                cellBody("value")
-            }
+            val cellResponse = client.patchSingleCell(workbookApplication, sheetId, "A1", "value")
             val rowResponse = client.post("/api/sheets/$sheetId/rows") {
                 revisionHeader(workbookApplication, sheetId)
             }
@@ -45,7 +42,7 @@ class WorkbookMutationContractRoutesTest {
                 testJson.decodeFromString(patchBody),
             )
             assertEquals(
-                SheetRevisionResponse(sheetId = sheetId, revision = 2),
+                CellPatchResponse(sheets = listOf(SheetRevisionResponse(sheetId = sheetId, revision = 2))),
                 testJson.decodeFromString(cellBody),
             )
             val rowAppend = testJson.decodeFromString<RowAppendResponse>(rowBody)
@@ -95,26 +92,11 @@ class WorkbookMutationContractRoutesTest {
             val appendInputColumn = client.post("/api/sheets/$inputsId/columns") {
                 revisionHeader(workbookApplication, inputsId)
             }
-            val updateTextCell = client.put("/api/sheets/$inputsId/cells/A1") {
-                revisionHeader(workbookApplication, inputsId)
-                cellBody("Region")
-            }
-            val updateNumericCell = client.put("/api/sheets/$inputsId/cells/B1") {
-                revisionHeader(workbookApplication, inputsId)
-                cellBody("10")
-            }
-            val updateSecondNumericCell = client.put("/api/sheets/$inputsId/cells/B2") {
-                revisionHeader(workbookApplication, inputsId)
-                cellBody("5")
-            }
-            val updateFormulaCell = client.put("/api/sheets/$inputsId/cells/C1") {
-                revisionHeader(workbookApplication, inputsId)
-                cellBody("= \n SuM ( B1 , B2 )")
-            }
-            val updateCrossSheetFormulaCell = client.put("/api/sheets/$outputsId/cells/A1") {
-                revisionHeader(workbookApplication, outputsId)
-                cellBody("=SUM($inputsId!B1:B2)")
-            }
+            val updateTextCell = client.patchSingleCell(workbookApplication, inputsId, "A1", "Region")
+            val updateNumericCell = client.patchSingleCell(workbookApplication, inputsId, "B1", "10")
+            val updateSecondNumericCell = client.patchSingleCell(workbookApplication, inputsId, "B2", "5")
+            val updateFormulaCell = client.patchSingleCell(workbookApplication, inputsId, "C1", "= \n SuM ( B1 , B2 )")
+            val updateCrossSheetFormulaCell = client.patchSingleCell(workbookApplication, outputsId, "A1", "=SUM($inputsId!B1:B2)")
 
             assertEquals(HttpStatusCode.Created, createInputs.status)
             assertEquals(HttpStatusCode.Created, createOutputs.status)
@@ -155,10 +137,7 @@ class WorkbookMutationContractRoutesTest {
                 revisionHeader(workbookApplication, sheet.id)
                 jsonBody("""{"name":"   "}""")
             }
-            val invalidCell = client.put("/api/sheets/${sheet.id}/cells/Z999") {
-                revisionHeader(workbookApplication, sheet.id)
-                cellBody("outside grid")
-            }
+            val invalidCell = client.patch("/api/cells") { jsonBody("""{}""") }
             val invalidFrameSize = client.patch("/api/sheets/${sheet.id}") {
                 revisionHeader(workbookApplication, sheet.id)
                 jsonBody(
@@ -179,18 +158,13 @@ class WorkbookMutationContractRoutesTest {
         testWorkbookApplication {
             val sheetId = client.createSheet().id
 
-            val missingRevision = client.put("/api/sheets/$sheetId/cells/A1") {
-                cellBody("value")
-            }
+            val missingRevision = client.patch("/api/cells") { jsonBody("""{"cells":[]}""") }
             val missingDeleteRevision = client.delete("/api/sheets/$sheetId")
-            val invalidRevision = client.put("/api/sheets/$sheetId/cells/A1") {
-                header("If-Match", "not-a-revision")
-                cellBody("value")
-            }
+            val invalidRevision = client.patch("/api/cells") { jsonBody("""{"expectedRevisions":[],"cells":[]}""") }
 
             assertEquals(HttpStatusCode.BadRequest, missingRevision.status)
             assertEquals(
-                ErrorResponse(error = "sheet-revision-required"),
+                ErrorResponse(error = "invalid-request"),
                 missingRevision.decodeBody<ErrorResponse>(),
             )
             assertEquals(HttpStatusCode.BadRequest, missingDeleteRevision.status)
@@ -200,7 +174,7 @@ class WorkbookMutationContractRoutesTest {
             )
             assertEquals(HttpStatusCode.BadRequest, invalidRevision.status)
             assertEquals(
-                ErrorResponse(error = "invalid-sheet-revision"),
+                ErrorResponse(error = "empty-cell-patch"),
                 invalidRevision.decodeBody<ErrorResponse>(),
             )
             assertEquals(emptyMap(), client.loadWorkbook().sheets.single().cells)
@@ -208,13 +182,10 @@ class WorkbookMutationContractRoutesTest {
 
     @Test
     fun `invalid sheet rename returns name error before stale revision conflict`() =
-        testWorkbookApplication {
+        testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
             val initialRevision = client.loadWorkbook().sheets.single().revision
-            val firstUpdate = client.put("/api/sheets/$sheetId/cells/A1") {
-                header("If-Match", initialRevision.toString())
-                cellBody("newer value")
-            }
+            val firstUpdate = client.patchSingleCell(workbookApplication, sheetId, "A1", "newer value")
 
             val invalidRename = client.patch("/api/sheets/$sheetId") {
                 header("If-Match", initialRevision.toString())

@@ -22,6 +22,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './src/test-support/setup.ts',
+    // The coverage suite shares one report directory and integration interactions are CPU-heavy.
+    // A single worker makes the authoritative run deterministic in this shared checkout.
+    minWorkers: 1,
+    maxWorkers: 1,
     // App integration files exercise real keyboard and focus behavior. Under coverage,
     // parallel workers can make those interactions exceed Vitest's short default.
     testTimeout: 15_000,

@@ -51,7 +51,7 @@ describe('presentation persistence', () => {
     outbox.enqueue('size-2', { ...intent, writes: secondWrites });
     secondWrites[0].size = 900;
     outbox.enqueue('reset', { ...intent, writes: [{ ...writes[0], size: null }] });
-    outbox.enqueue('cell', { kind: 'write-cells', sheetId: document.id, writes: [{ cell: { rowId: row, columnId: column }, raw: '5' }] });
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [{ sheetId: document.id, rowId: row, columnId: column, beforeRaw: null, afterRaw: '5' }] });
     outbox.enqueue('frame', { kind: 'update-sheet-position', sheetId: document.id, position: { x: 10, y: 20 } });
     outbox.enqueue('rename', { kind: 'rename-sheet', sheetId: document.id, name: 'Renamed' });
     outbox.enqueue('z', { kind: 'update-sheet-z-order', updates: [{ sheetId: document.id, zIndex: 2 }] });
@@ -62,12 +62,12 @@ describe('presentation persistence', () => {
       expect(args[args.length - 1]).toEqual({ revision });
       return { sheetId: document.id, revision: ++revision };
     };
-    const transport = new WorkbookPersistenceTransport({ writeAxisSizes: vi.fn(save), updateCellContent: vi.fn(save), updateSheetPosition: vi.fn(save), renameSheet: vi.fn(save),
+    const transport = new WorkbookPersistenceTransport({ writeAxisSizes: vi.fn(save), writeCells: vi.fn(async () => ({ sheets: [{ sheetId: document.id, revision: ++revision }] })), updateSheetPosition: vi.fn(save), renameSheet: vi.fn(save),
       updateSheetZOrder: vi.fn(async (updates) => {
         expect(updates).toEqual([{ sheetId: document.id, zIndex: 2, expectedRevision: revision }]);
         return { sheets: [{ sheetId: document.id, revision: ++revision }] };
       }),
-    }, () => 'A1');
+    });
     transport.recordRevision(document.id, revision);
     while (await outbox.executeNext(transport)) { /* drain in order */ }
     expect(received.slice(0, 3).map((args) => (args as unknown[])[1])).toEqual([writes, [{ axis: 'column', axisId: column, size: 140 }], [{ ...writes[0], size: null }]]);
@@ -81,7 +81,7 @@ describe('presentation persistence', () => {
     coordinator.recordRevision(document.id, 1);
     const pending = deferred<{ sheetId: string; revision: number }>();
     const size = vi.fn().mockReturnValue(pending.promise);
-    const transport = new WorkbookPersistenceTransport({ writeAxisSizes: size }, undefined, coordinator);
+    const transport = new WorkbookPersistenceTransport({ writeAxisSizes: size }, coordinator);
     const presentation = transport.execute({ intent, affectedSheetIds: [document.id] });
     const append = vi.fn(async () => { expect(coordinator.revision(document.id)).toBe(2); coordinator.recordRevision(document.id, 3); });
     const structure = coordinator.serialize([document.id], append);
@@ -144,7 +144,7 @@ describe('shared persistence serialization', () => {
     coordinator.recordRevision('survivor', 3);
     const size = vi.fn();
     const zOrder = vi.fn().mockResolvedValue({ sheets: [{ sheetId: 'survivor', revision: 4 }] });
-    const transport = new WorkbookPersistenceTransport({ writeAxisSizes: size, updateSheetZOrder: zOrder }, undefined, coordinator);
+    const transport = new WorkbookPersistenceTransport({ writeAxisSizes: size, updateSheetZOrder: zOrder }, coordinator);
     expect(await transport.execute({ intent, affectedSheetIds: [document.id] })).toEqual({ kind: 'missing-sheet', sheetIds: [document.id] });
     expect(size).not.toHaveBeenCalled();
     expect(await transport.execute({ intent: { kind: 'update-sheet-z-order', updates: [{ sheetId: document.id, zIndex: 1 }, { sheetId: 'survivor', zIndex: 2 }] }, affectedSheetIds: [document.id, 'survivor'] })).toEqual({ kind: 'saved', revisions: [{ sheetId: 'survivor', revision: 4 }], missingSheetIds: [document.id] });

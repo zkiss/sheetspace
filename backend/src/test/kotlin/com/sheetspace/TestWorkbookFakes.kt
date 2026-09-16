@@ -20,25 +20,34 @@ class InMemoryWorkbookStore(
     }
 
     override fun writeCells(
-        expectedRevision: ExpectedSheetRevision,
-        writes: List<CellWrite>,
-    ): SheetDocument = synchronized(this) {
-        val sheetId = SheetId(expectedRevision.sheetId)
-        val current = workbook.findSheet(sheetId)
-            ?: throw NoSuchElementException("Sheet not found: ${sheetId.value}")
-        if (current.revision != expectedRevision.revision) {
-            throw SheetRevisionConflict(sheetId.value, expectedRevision.revision, current.revision)
+        expectedRevisions: List<ExpectedSheetRevision>,
+        writes: List<SheetCellWrite>,
+    ): List<SheetDocument> = synchronized(this) {
+        val order = writes.map(SheetCellWrite::sheetId).distinct()
+        require(order.toSet() == expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet())
+        val current = order.associateWith { sheetId ->
+            workbook.findSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
         }
-        val updatedContent = writes.fold(current.tabularContent) { content, write ->
-            val address = content.addressOf(write.coordinate)
-                ?: throw IllegalArgumentException("Cell coordinate does not belong to sheet")
-            content.updateCell(address, write.content)
+        expectedRevisions.forEach { expected ->
+            val sheet = current.getValue(expected.sheetId)
+            if (sheet.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
         }
-        val updated = current
-            .updateTabularContent { updatedContent }
-            .copy(revision = current.revision + 1)
-        workbook = workbook.replaceSheet(updated)
-        updated
+        var updatedWorkbook = workbook
+        order.forEach { sheetId ->
+            val sheet = current.getValue(sheetId)
+            val updatedContent = writes.filter { it.sheetId == sheetId }.fold(sheet.tabularContent) { content, write ->
+                content.addressOf(CellCoordinate(RowId(write.rowId), ColumnId(write.columnId)))
+                    ?.let { address -> content.updateCell(address, write.raw) }
+                    ?: throw IllegalArgumentException("Cell coordinate does not belong to sheet")
+            }
+            if (updatedContent != sheet.tabularContent) {
+                updatedWorkbook = updatedWorkbook.replaceSheet(
+                    sheet.updateTabularContent { updatedContent }.copy(revision = sheet.revision + 1),
+                )
+            }
+        }
+        workbook = updatedWorkbook
+        order.map { workbook.documents.getValue(SheetId(it)) }
     }
 
     override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument = synchronized(this) {
@@ -107,3 +116,19 @@ class InMemoryWorkbookStore(
 class StatefulFakeWorkbookApplication(
     store: InMemoryWorkbookStore = InMemoryWorkbookStore(),
 ) : WorkbookApplication by DefaultWorkbookApplication(store)
+
+internal fun WorkbookApplication.writeOneCell(sheetId: String, address: String, raw: String, revision: Long): SheetDocument {
+    val sheet = loadSheet(sheetId)
+    val coordinate = sheet.tabularContent.coordinateAt(address) ?: error("Unknown test address: $address")
+    return writeCells(
+        CellPatchCommand(
+            listOf(ExpectedSheetRevision(sheetId, revision)),
+            listOf(SheetCellWrite(sheetId, coordinate.rowId.value, coordinate.columnId.value, raw)),
+        ),
+    ).single()
+}
+
+internal fun SheetDocument.cellWrite(address: String, raw: String): SheetCellWrite {
+    val coordinate = tabularContent.coordinateAt(address) ?: error("Unknown test address: $address")
+    return SheetCellWrite(id.value, coordinate.rowId.value, coordinate.columnId.value, raw)
+}

@@ -1,7 +1,8 @@
 import { applyAxisSizeWrites } from '@workbook/core/axisSizePolicy';
+import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { AxisSizeWrite } from '@workbook/core/model';
 import { vi } from 'vitest';
-import { appendColumn, appendRow, commitCellRawContent, renameSheet, validateSheetName } from '@workbook/mutations/operations';
+import { appendColumn, appendRow, renameSheet, validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type SheetDocument, type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
@@ -30,7 +31,9 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     updateSheetZOrder: vi.fn().mockImplementation(async (updates: Array<{ sheetId: string }>) => ({
       sheets: updates.map(({ sheetId }) => ({ sheetId, revision: 0 })),
     })),
-    updateCellContent: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    writeCells: vi.fn().mockImplementation(async (expectedRevisions: readonly { sheetId: string }[]) => ({
+      sheets: expectedRevisions.map(({ sheetId }) => ({ sheetId, revision: 0 })),
+    })),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0, rowId: 'row-appended' })),
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0, columnId: 'column-appended' })),
     ...overrides,
@@ -112,9 +115,19 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       }
       return { sheets: updates.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
-    updateCellContent: vi.fn().mockImplementation(async (sheetId: string, cellKey: string, raw: string) => {
-      persistedWorkbook = commitCellRawContent(persistedWorkbook, sheetId, cellKey, raw);
-      return revisionResponse(persistedWorkbook, sheetId);
+    writeCells: vi.fn().mockImplementation(async (
+      expectedRevisions: readonly { sheetId: string }[],
+      cells: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[],
+    ) => {
+      for (const cell of cells) {
+        updateSheet(cell.sheetId, (sheet) => {
+          const key = cellIdentityKey(cell);
+          const nextCells = { ...sheet.content.cells };
+          if (cell.raw.length === 0) delete nextCells[key]; else nextCells[key] = cell.raw;
+          return { ...sheet, content: { ...sheet.content, cells: nextCells } };
+        });
+      }
+      return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
       const rowId = `${sheetId}:row:${findSheetById(persistedWorkbook, sheetId)!.content.rows.length + 1}`;

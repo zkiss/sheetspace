@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SaveStatus } from '@application/core/state';
-import { cellAddressOf } from '@workbook/core/cellIdentity';
-import { cellKey } from '@workbook/core/address';
 import { findSheetById } from '@workbook/read/queries';
 import { type SheetId, type Workbook } from '@workbook/core/model';
 import type { SetWorkbook } from '@calculation/workbookCalculation';
@@ -56,11 +54,6 @@ export function useSavedSheetAutosave({
   const [snapshot, setSnapshot] = useState<OutboxSnapshot>(() => outbox.snapshot());
   const transport = useMemo(() => new WorkbookPersistenceTransport(
     resolvedApiClient,
-    (sheetId, cell) => {
-      const sheet = findSheetById(workbookRef.current, sheetId);
-      const address = sheet ? cellAddressOf(sheet.content, cell) : undefined;
-      return address ? cellKey(address) : undefined;
-    },
     coordinator,
   ), [coordinator, resolvedApiClient]);
 
@@ -126,7 +119,9 @@ export function useSavedSheetAutosave({
     if (!autosaveEnabled || !intent) return;
     const sheetIds = intent.kind === 'update-sheet-z-order'
       ? intent.updates.map(({ sheetId }) => sheetId)
-      : [intent.sheetId];
+      : intent.kind === 'write-cells'
+        ? intent.writes.map(({ sheetId }) => sheetId)
+        : [intent.sheetId];
     if (sheetIds.some((sheetId) => coordinator.isSheetMissing(sheetId))) return;
     outbox.enqueue(operationId, intent);
     pump();

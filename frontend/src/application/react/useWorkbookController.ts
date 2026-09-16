@@ -10,6 +10,7 @@ import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type CellKey } from '@workbook/core/address';
+import type { StableCellIdentity } from '@workbook/core/model';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
 import {
@@ -45,6 +46,7 @@ export type WorkbookCommands = {
   retryFailedSaves: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
+  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
 };
 
 export type WorkbookController = {
@@ -219,10 +221,11 @@ export function useWorkbookController({
     const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     const cell = currentSheet && cellIdentityAt(currentSheet.content, cellKey);
     if (!currentSheet || !cell) return;
-    const applied = applyAction({
-      kind: 'write-cells', sheetId: localSheetId, writes: [{ cell, raw }],
-    });
-    if (!applied?.changed) return;
+    writeCells([{ sheetId: localSheetId, ...cell, raw }]);
+  }
+
+  function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) {
+    applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] });
   }
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
@@ -259,6 +262,7 @@ export function useWorkbookController({
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
       updateCellContent,
+      writeCells,
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
     formulaResults,

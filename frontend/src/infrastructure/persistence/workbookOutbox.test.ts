@@ -3,6 +3,7 @@ import { deferred } from '@test-support/apiClients';
 import { WorkbookApiError, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { WorkbookOutbox } from '@infrastructure/persistence/workbookOutbox';
 import { WorkbookPersistenceTransport } from '@infrastructure/persistence/workbookPersistenceTransport';
+import { sheetDocument } from '@test-support/workbookFactories';
 
 const rename = (sheetId: string, name: string) => ({ kind: 'rename-sheet', sheetId, name } as const);
 
@@ -117,6 +118,30 @@ describe('WorkbookOutbox', () => {
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ intent: { kind: 'update-sheet-position', sheetId: 'a', position: { x: 1, y: 2 } } }));
     expect(outbox.inspect('move')).toMatchObject({ status: 'succeeded', failure: undefined });
   });
+  it('clones every cell transition at enqueue, snapshot, and transport boundaries', async () => {
+    const outbox = new WorkbookOutbox();
+    const intent = { kind: 'write-cells' as const, writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }] };
+    outbox.enqueue('cell', intent);
+    intent.writes[0].beforeRaw = 'mutated source';
+    intent.writes[0].afterRaw = 'mutated source';
+    const snapshot = outbox.snapshot()[0]!;
+    if (snapshot.intent.kind === 'write-cells') snapshot.intent.writes[0].afterRaw = 'mutated snapshot';
+
+    let delivered: unknown;
+    const execute = vi.fn(async (entry) => {
+      delivered = structuredClone(entry.intent);
+      if (entry.intent.kind === 'write-cells') entry.intent.writes[0].beforeRaw = 'mutated transport';
+      return { kind: 'saved', revisions: [] } as const;
+    });
+    await outbox.executeNext({ execute });
+
+    expect(delivered).toEqual({
+      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }],
+    });
+    expect(outbox.inspect('cell')?.intent).toEqual({
+      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }],
+    });
+  });
   it('does not expose a failed entry returned by executeNext for mutation', async () => {
     const outbox = new WorkbookOutbox();
     outbox.enqueue('move', { kind: 'update-sheet-position', sheetId: 'a', position: { x: 1, y: 2 } });
@@ -141,10 +166,145 @@ describe('WorkbookPersistenceTransport', () => {
     const transport = new WorkbookPersistenceTransport({ renameSheet, loadSheet: vi.fn().mockResolvedValue({ id: 'a', revision: 7 }) } as Partial<WorkbookApi>);
     await transport.execute({ intent: rename('a', 'new'), affectedSheetIds: ['a'] }); expect(renameSheet).toHaveBeenNthCalledWith(2, 'a', 'new', { revision: 7 }); expect(transport.revision('a')).toBe(8);
   });
-  it('does not route a multi-write intent to the single-cell API', async () => {
-    const updateCellContent = vi.fn(); const transport = new WorkbookPersistenceTransport({ updateCellContent } as Partial<WorkbookApi>);
-    const result = await transport.execute({ intent: { kind: 'write-cells', sheetId: 'a', writes: [{ cell: { rowId: 'r', columnId: 'c' }, raw: '1' }, { cell: { rowId: 'r', columnId: 'd' }, raw: '2' }] }, affectedSheetIds: ['a'] });
-    expect(result.kind).toBe('blocked'); expect(updateCellContent).not.toHaveBeenCalled();
+  it('sends a multi-sheet atomic patch with stable identities and all expected revisions', async () => {
+    const writeCells = vi.fn().mockResolvedValue({ sheets: [{ sheetId: 'a', revision: 2 }, { sheetId: 'b', revision: 4 }] });
+    const transport = new WorkbookPersistenceTransport({ writeCells } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1); transport.recordRevision('b', 3);
+    await expect(transport.execute({ intent: { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: '1' },
+      { sheetId: 'b', rowId: 'r', columnId: 'd', beforeRaw: 'old', afterRaw: null },
+    ] }, affectedSheetIds: ['a', 'b'] })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }, { sheetId: 'b', revision: 4 }] });
+    expect(writeCells).toHaveBeenCalledWith(
+      [{ sheetId: 'a', revision: 1 }, { sheetId: 'b', revision: 3 }],
+      [{ sheetId: 'a', rowId: 'r', columnId: 'c', raw: '1' }, { sheetId: 'b', rowId: 'r', columnId: 'd', raw: '' }],
+    );
+  });
+  it('accepts a lost response only when every patched cell is present at its complete after-state', async () => {
+    const sheet = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'saved', B1: 'also saved' } });
+    const writeCells = vi.fn().mockRejectedValue(new TypeError('network disconnected'));
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(sheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    await expect(transport.execute({ intent: { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'saved' },
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:2', beforeRaw: null, afterRaw: 'also saved' },
+    ] }, affectedSheetIds: ['a'] })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }] });
+    expect(writeCells).toHaveBeenCalledTimes(1);
+  });
+  it('fails after one automatic retry when consecutive conflicts preserve the before-state', async () => {
+    const conflict = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValue(conflict);
+    const beforeSheet = sheetDocument({ id: 'a', name: 'A', revision: 2 });
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(beforeSheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(2);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('does not replay a manually retried conflict after a remote touched-cell change', async () => {
+    const failure = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValue(failure);
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'remote' } });
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(remoteSheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(1);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('does not replay a manually retried ambiguous response without complete original state', async () => {
+    const failure = new TypeError('network disconnected');
+    const writeCells = vi.fn().mockRejectedValue(failure);
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'remote' } });
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(remoteSheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(1);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('keeps a failed cell write guarded when its conflict reload rejects', async () => {
+    const failure = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValue(failure);
+    const loadSheet = vi.fn().mockRejectedValue(new TypeError('reload unavailable'));
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(1);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('keeps a cell write guarded when the conflict retry response cannot be recovered', async () => {
+    const conflict = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValueOnce(conflict).mockRejectedValueOnce(new TypeError('response lost'));
+    const beforeSheet = sheetDocument({ id: 'a', name: 'A', revision: 2 });
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 3, cells: { A1: 'remote' } });
+    const loadSheet = vi.fn().mockResolvedValueOnce(beforeSheet).mockRejectedValueOnce(new TypeError('reload unavailable')).mockResolvedValueOnce(remoteSheet);
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(2);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
+  it('keeps a revalidated cell write guarded when its next response is unresolved', async () => {
+    const conflict = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValueOnce(conflict).mockRejectedValueOnce(new TypeError('response lost'));
+    const beforeSheet = sheetDocument({ id: 'a', name: 'A', revision: 2 });
+    const remoteSheet = sheetDocument({ id: 'a', name: 'A', revision: 3, cells: { A1: 'remote' } });
+    const loadSheet = vi.fn()
+      .mockResolvedValueOnce(beforeSheet)
+      .mockResolvedValueOnce(beforeSheet)
+      .mockRejectedValueOnce(new TypeError('reload unavailable'))
+      .mockResolvedValueOnce(remoteSheet);
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(2);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
   });
   it('persists surviving z-order updates before reporting a precisely missing sheet', async () => {
     const updateSheetZOrder = vi.fn()

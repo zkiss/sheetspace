@@ -140,6 +140,24 @@ export function cellInteractionReducer(
     case 'cancel':
       return state.editing ? withFocusRequest({ ...state, editing: null }, state.editing.target) : state;
     case 'clear':
+      // Clearing contents is not a selection operation. Keep a range (including
+      // a whole-row or whole-column selection) intact for subsequent navigation.
+      if (sameTarget(state.selection, action.target)) {
+        return withFocusRequest({
+          ...state,
+          editing: null,
+          referenceSelection: null,
+        }, action.target);
+      }
+      return withFocusRequest({
+        ...state,
+        selection: action.target,
+        selectionOwner: null,
+        rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
+        editing: null,
+        referenceSelection: null,
+        tabRunOriginColumnId: null,
+      }, action.target);
     case 'navigate':
       return withFocusRequest({
         ...state,

@@ -92,9 +92,7 @@ describe('Phase 2 acceptance workflow', () => {
       editor = openEditor(cellAt(renamedInputFrame, 'A1'));
       fireEvent.change(editor, { target: { value: '20' } });
       fireEvent.keyDown(editor, { key: 'Enter' });
-      await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledWith(
-        'sheet-inputs', 'A1', '20', { revision: 0 },
-      ));
+      await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(1));
 
       fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
       currentOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });

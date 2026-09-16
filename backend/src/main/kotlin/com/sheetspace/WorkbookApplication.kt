@@ -29,6 +29,11 @@ data class ColumnAppendResult(
     val columnId: ColumnId,
 )
 
+data class CellPatchCommand(
+    val expectedRevisions: List<ExpectedSheetRevision>,
+    val cells: List<SheetCellWrite>,
+)
+
 enum class WorkbookApplicationError {
     SHEET_NOT_FOUND,
     SHEET_NAME_REQUIRED,
@@ -39,7 +44,11 @@ enum class WorkbookApplicationError {
     INVALID_SHEET_Z_INDEX,
     SHEET_Z_ORDER_UPDATE_REQUIRED,
     DUPLICATE_SHEET_Z_ORDER_UPDATE,
-    INVALID_CELL_ADDRESS,
+    EMPTY_CELL_PATCH,
+    DUPLICATE_CELL_WRITE,
+    DUPLICATE_SHEET_REVISION,
+    INVALID_CELL_COORDINATE,
+    INVALID_CELL_PATCH,
     INVALID_SHEET_PRESENTATION,
 }
 
@@ -64,7 +73,7 @@ interface WorkbookApplication {
 
     fun deleteSheet(sheetId: String, expectedRevision: Long)
 
-    fun updateCell(sheetId: String, address: String, content: String, expectedRevision: Long): SheetDocument
+    fun writeCells(command: CellPatchCommand): List<SheetDocument>
 
     fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult
 
@@ -179,19 +188,35 @@ class DefaultWorkbookApplication(
         }
     }
 
-    override fun updateCell(
-        sheetId: String,
-        address: String,
-        content: String,
-        expectedRevision: Long,
-    ): SheetDocument {
-        val current = loadSheet(sheetId)
-        val coordinate = current.tabularContent.coordinateAt(address)
-            ?: reject(WorkbookApplicationError.INVALID_CELL_ADDRESS)
-        return store.writeCells(
-            ExpectedSheetRevision(sheetId, expectedRevision),
-            listOf(CellWrite(coordinate, content)),
-        )
+    override fun writeCells(command: CellPatchCommand): List<SheetDocument> {
+        if (command.cells.isEmpty()) reject(WorkbookApplicationError.EMPTY_CELL_PATCH)
+        if (command.cells.any { write ->
+                write.sheetId.toUuidBytesOrNull() == null ||
+                    write.rowId.toUuidBytesOrNull() == null ||
+                    write.columnId.toUuidBytesOrNull() == null
+            }
+        ) reject(WorkbookApplicationError.INVALID_CELL_PATCH)
+        if (command.expectedRevisions.any { it.sheetId.toUuidBytesOrNull() == null || it.revision < 0 }) {
+            reject(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
+        if (command.cells.map { Triple(it.sheetId, it.rowId, it.columnId) }.distinct().size != command.cells.size) {
+            reject(WorkbookApplicationError.DUPLICATE_CELL_WRITE)
+        }
+        if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).distinct().size != command.expectedRevisions.size) {
+            reject(WorkbookApplicationError.DUPLICATE_SHEET_REVISION)
+        }
+        val touchedSheetIds = command.cells.map(SheetCellWrite::sheetId).distinct()
+        if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != touchedSheetIds.toSet()) {
+            reject(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
+        command.cells.forEach { write ->
+            val sheet = loadSheet(write.sheetId)
+            if (RowId(write.rowId) !in sheet.tabularContent.rows || ColumnId(write.columnId) !in sheet.tabularContent.columns) {
+                reject(WorkbookApplicationError.INVALID_CELL_COORDINATE)
+            }
+        }
+        command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
+        return store.writeCells(command.expectedRevisions, command.cells)
     }
 
     override fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult {

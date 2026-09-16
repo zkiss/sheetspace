@@ -42,7 +42,7 @@ function frames() {
   };
 }
 
-const commands = { updateCellContent: vi.fn() };
+const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
 const consumed = vi.fn();
 function SelectionGrid({ sheet, replacement, replacementKey = 'C1' }: {
   sheet: ReturnType<typeof sheetDocument>;

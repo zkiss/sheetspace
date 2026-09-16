@@ -2,7 +2,6 @@ import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import { type CellKey } from '@workbook/core/address';
 
 type ApiErrorBody = {
   error?: string;
@@ -46,6 +45,17 @@ export type WorkbookBundleResponse = {
 export type SheetRevisionResponse = {
   sheetId: string;
   revision: number;
+};
+
+export type CellPatchWrite = {
+  sheetId: string;
+  rowId: string;
+  columnId: string;
+  raw: string;
+};
+
+export type CellPatchResponse = {
+  sheets: SheetRevisionResponse[];
 };
 
 export type RowAppendResponse = SheetRevisionResponse & {
@@ -212,16 +222,13 @@ export const workbookApi = {
     });
   },
 
-  updateCellContent(
-    sheetId: string,
-    cellAddress: CellKey,
-    content: string,
-    options: RevisionedMutationOptions = {},
-  ): Promise<SheetRevisionResponse> {
-    return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}/cells/${encodePathSegment(cellAddress)}`, {
-      method: 'PUT',
-      body: JSON.stringify(content),
-      headers: revisionHeaders(options),
+  writeCells(
+    expectedRevisions: readonly { sheetId: string; revision: number }[],
+    cells: readonly CellPatchWrite[],
+  ): Promise<CellPatchResponse> {
+    return requestJson<CellPatchResponse>('/api/cells', {
+      method: 'PATCH',
+      body: JSON.stringify({ expectedRevisions, cells }),
     });
   },
 

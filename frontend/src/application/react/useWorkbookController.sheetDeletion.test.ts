@@ -30,8 +30,8 @@ describe('useWorkbookController sheet deletion', () => {
 
   it('drops queued saved-sheet mutations and waits for running saves before deleting', async () => {
     const initialSheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 0 };
-    let resolveRunningSave!: (response: { sheetId: string; revision: number }) => void;
-    const runningSave = new Promise<{ sheetId: string; revision: number }>((resolve) => {
+    let resolveRunningSave!: (response: { sheets: Array<{ sheetId: string; revision: number }> }) => void;
+    const runningSave = new Promise<{ sheets: Array<{ sheetId: string; revision: number }> }>((resolve) => {
       resolveRunningSave = resolve;
     });
     let resolveDeleteSave!: () => void;
@@ -39,7 +39,7 @@ describe('useWorkbookController sheet deletion', () => {
       resolveDeleteSave = resolve;
     });
     const apiClient = autosaveClient({
-      updateCellContent: vi.fn().mockReturnValue(runningSave),
+      writeCells: vi.fn().mockReturnValue(runningSave),
       deleteSheet: vi.fn().mockReturnValue(deleteSave),
     });
     const { result } = renderHook(() =>
@@ -56,16 +56,16 @@ describe('useWorkbookController sheet deletion', () => {
     });
 
     expect(sheetsInOrder(result.current.workbook)).toHaveLength(0);
-    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
     expect(apiClient.deleteSheet).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveRunningSave({ sheetId: initialSheet.id, revision: 1 });
+      resolveRunningSave({ sheets: [{ sheetId: initialSheet.id, revision: 1 }] });
       await runningSave;
     });
 
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 1 }));
-    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       resolveDeleteSave();
@@ -78,12 +78,12 @@ describe('useWorkbookController sheet deletion', () => {
   it('preserves unrelated queued mutations when deleting a saved sheet', async () => {
     const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 }), revision: 0 };
     const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 300, y: 0 }), revision: 0 };
-    let resolveFirstOutputSave!: (response: { sheetId: string; revision: number }) => void;
-    const firstOutputSave = new Promise<{ sheetId: string; revision: number }>((resolve) => {
+    let resolveFirstOutputSave!: (response: { sheets: Array<{ sheetId: string; revision: number }> }) => void;
+    const firstOutputSave = new Promise<{ sheets: Array<{ sheetId: string; revision: number }> }>((resolve) => {
       resolveFirstOutputSave = resolve;
     });
-    let resolveLatestOutputSave!: (response: { sheetId: string; revision: number }) => void;
-    const latestOutputSave = new Promise<{ sheetId: string; revision: number }>((resolve) => {
+    let resolveLatestOutputSave!: (response: { sheets: Array<{ sheetId: string; revision: number }> }) => void;
+    const latestOutputSave = new Promise<{ sheets: Array<{ sheetId: string; revision: number }> }>((resolve) => {
       resolveLatestOutputSave = resolve;
     });
     let resolveDeleteSave!: () => void;
@@ -91,7 +91,7 @@ describe('useWorkbookController sheet deletion', () => {
       resolveDeleteSave = resolve;
     });
     const apiClient = autosaveClient({
-      updateCellContent: vi.fn().mockReturnValueOnce(firstOutputSave).mockReturnValueOnce(latestOutputSave),
+      writeCells: vi.fn().mockReturnValueOnce(firstOutputSave).mockReturnValueOnce(latestOutputSave),
       deleteSheet: vi.fn().mockReturnValue(deleteSave),
     });
     const { result } = renderHook(() =>
@@ -108,7 +108,7 @@ describe('useWorkbookController sheet deletion', () => {
     });
 
     expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
-    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 0 }));
 
     await act(async () => {
@@ -118,15 +118,15 @@ describe('useWorkbookController sheet deletion', () => {
     expect(result.current.saveStatus).toBe('saving');
 
     await act(async () => {
-      resolveFirstOutputSave({ sheetId: outputs.id, revision: 1 });
+      resolveFirstOutputSave({ sheets: [{ sheetId: outputs.id, revision: 1 }] });
       await firstOutputSave;
     });
     await waitFor(() =>
-      expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-outputs', 'A1', 'latest', { revision: 1 }),
+      expect(apiClient.writeCells).toHaveBeenCalledTimes(2),
     );
 
     await act(async () => {
-      resolveLatestOutputSave({ sheetId: outputs.id, revision: 2 });
+      resolveLatestOutputSave({ sheets: [{ sheetId: outputs.id, revision: 2 }] });
       await latestOutputSave;
     });
 

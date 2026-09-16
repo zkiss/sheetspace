@@ -9,14 +9,23 @@ import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operatio
 import { type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
 export type WorkbookOperationId = string;
-export type CellWrite = { cell: StableCellIdentity; raw: string };
+/** A stable workbook-wide cell target. The raw content is the final persisted value. */
+export type CellWrite = { sheetId: SheetId; rowId: RowId; columnId: ColumnId; raw: string };
+/** A durable cell state transition. `null` explicitly represents a sparse (absent) cell. */
+export type CellPersistenceWrite = {
+  sheetId: SheetId;
+  rowId: RowId;
+  columnId: ColumnId;
+  beforeRaw: string | null;
+  afterRaw: string | null;
+};
 
 /** Plain durable data. Operations cannot carry code, promises, state, or transport clients. */
 export type WorkbookOperation =
   | { kind: 'write-axis-sizes'; operationId: WorkbookOperationId; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
   | { kind: 'delete-sheet'; operationId: WorkbookOperationId; sheetId: SheetId }
   | { kind: 'rename-sheet'; operationId: WorkbookOperationId; sheetId: SheetId; name: string }
-  | { kind: 'write-cells'; operationId: WorkbookOperationId; sheetId: SheetId; writes: readonly CellWrite[] }
+  | { kind: 'write-cells'; operationId: WorkbookOperationId; writes: readonly CellWrite[] }
   | { kind: 'move-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'resize-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'change-sheet-z-order'; operationId: WorkbookOperationId; sheetId: SheetId; direction: SheetZOrderDirection };
@@ -33,7 +42,7 @@ export type WorkbookPersistenceIntent =
   | { kind: 'update-sheet-position'; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
-  | { kind: 'write-cells'; sheetId: SheetId; writes: readonly CellWrite[] };
+  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
 
 export type AffectedWorkbookEntities = {
   sheetIds: readonly SheetId[];
@@ -44,7 +53,7 @@ export type AffectedWorkbookEntities = {
 export type WorkbookOperationInverse =
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
   | { kind: 'rename-sheet'; sheetId: SheetId; name: string }
-  | { kind: 'write-cells'; sheetId: SheetId; writes: readonly CellWrite[] }
+  | { kind: 'write-cells'; writes: readonly CellWrite[] }
   | { kind: 'move-sheet-frame'; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'resize-sheet-frame'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'change-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] };
@@ -57,7 +66,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'unknown-sheet';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 
 export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOperation): WorkbookOperationResult {
@@ -99,28 +108,53 @@ function applyRenameSheet(workbook: Workbook, operation: Extract<WorkbookOperati
 }
 
 function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'write-cells' }>): WorkbookOperationResult {
-  const sheet = findSheetById(workbook, operation.sheetId);
-  if (!sheet) return { ok: false, reason: 'unknown-sheet' };
-  const resolved = operation.writes.map((write) => ({ write, address: cellAddressOf(sheet.content, write.cell) }));
+  const resolved = operation.writes.map((write) => {
+    const sheet = findSheetById(workbook, write.sheetId);
+    const cell = { rowId: write.rowId, columnId: write.columnId };
+    return { write, sheet, cell, address: sheet && cellAddressOf(sheet.content, cell) };
+  });
+  if (resolved.some(({ sheet }) => !sheet)) return { ok: false, reason: 'unknown-sheet' };
   if (resolved.some(({ address }) => !address)) return { ok: false, reason: 'invalid-cell' };
-  const cells = { ...sheet.content.cells };
-  const inverseWrites: CellWrite[] = [], changedWrites: CellWrite[] = [];
+  const identities = new Set<string>();
+  for (const { write } of resolved) {
+    const identity = `${write.sheetId}\u0000${write.rowId}\u0000${write.columnId}`;
+    if (identities.has(identity)) return { ok: false, reason: 'duplicate-cell' };
+    identities.add(identity);
+  }
+
+  const cellsBySheet = new Map<SheetId, Record<string, string>>();
+  const inverseWrites: CellWrite[] = [], persistenceWrites: CellPersistenceWrite[] = [];
   const impacts: { sheetId: SheetId; key: string }[] = [];
   const affected: { sheetId: SheetId; cell: StableCellIdentity }[] = [];
   for (const entry of resolved) {
+    const sheet = entry.sheet!;
     const address = entry.address!;
-    const identityKey = cellIdentityKey(entry.write.cell);
+    const identityKey = cellIdentityKey(entry.cell);
+    const cells = cellsBySheet.get(sheet.id) ?? { ...sheet.content.cells };
+    cellsBySheet.set(sheet.id, cells);
     const before = cells[identityKey];
-    const raw = formulaRawForStorage(entry.write.raw, workbook, sheet.id);
-    if ((entry.write.raw.length === 0 && before === undefined) || (entry.write.raw.length > 0 && before === raw)) continue;
-    inverseWrites.unshift({ cell: entry.write.cell, raw: before ?? '' });
-    changedWrites.push({ cell: entry.write.cell, raw: entry.write.raw.length === 0 ? '' : raw });
+    // Resolve every editor formula against the original workbook, before any write is applied.
+    const raw = entry.write.raw.length === 0 ? '' : formulaRawForStorage(entry.write.raw, workbook, sheet.id);
+    if ((raw.length === 0 && before === undefined) || (raw.length > 0 && before === raw)) continue;
+    inverseWrites.push({ ...entry.write, raw: before ?? '' });
+    persistenceWrites.push({
+      sheetId: entry.write.sheetId,
+      rowId: entry.write.rowId,
+      columnId: entry.write.columnId,
+      beforeRaw: before ?? null,
+      afterRaw: raw.length === 0 ? null : raw,
+    });
     impacts.push({ sheetId: sheet.id, key: cellKey(address) });
-    affected.push({ sheetId: sheet.id, cell: entry.write.cell });
-    if (entry.write.raw.length === 0) delete cells[identityKey]; else cells[identityKey] = raw;
+    affected.push({ sheetId: sheet.id, cell: entry.cell });
+    if (raw.length === 0) delete cells[identityKey]; else cells[identityKey] = raw;
   }
-  if (changedWrites.length === 0) return noChange(workbook);
-  return sheetSuccess(workbook, { ...sheet, content: { ...sheet.content, cells } }, { kind: 'cells', cells: impacts }, { kind: 'write-cells', sheetId: sheet.id, writes: changedWrites }, { kind: 'write-cells', sheetId: sheet.id, writes: inverseWrites }, affected);
+  if (persistenceWrites.length === 0) return noChange(workbook);
+  const documents = { ...workbook.documents };
+  for (const [sheetId, cells] of cellsBySheet) {
+    const sheet = workbook.documents[sheetId]!;
+    documents[sheetId] = { ...sheet, content: { ...sheet.content, cells } };
+  }
+  return success({ ...workbook, documents }, { kind: 'cells', cells: impacts }, { kind: 'write-cells', writes: persistenceWrites }, { sheetIds: [...new Set(affected.map(({ sheetId }) => sheetId))], cells: affected }, { kind: 'write-cells', writes: inverseWrites });
 }
 
 function applyFrameChange(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'move-sheet-frame' | 'resize-sheet-frame' }>, change: (sheet: SheetDocument) => FrameState): WorkbookOperationResult {

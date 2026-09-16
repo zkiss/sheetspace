@@ -16,6 +16,13 @@ data class CellWrite(
     val content: String,
 )
 
+data class SheetCellWrite(
+    val sheetId: String,
+    val rowId: String,
+    val columnId: String,
+    val raw: String,
+)
+
 data class SheetZOrderWrite(
     val expectedRevision: ExpectedSheetRevision,
     val zIndex: Int,
@@ -30,10 +37,7 @@ interface WorkbookStore {
 
     fun saveWorkbook(workbook: WorkbookState)
 
-    fun writeCells(
-        expectedRevision: ExpectedSheetRevision,
-        writes: List<CellWrite>,
-    ): SheetDocument
+    fun writeCells(expectedRevisions: List<ExpectedSheetRevision>, writes: List<SheetCellWrite>): List<SheetDocument>
 
     fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument
 

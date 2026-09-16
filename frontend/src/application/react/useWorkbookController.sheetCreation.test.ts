@@ -5,7 +5,6 @@ import { type SheetDocument } from '@workbook/core/model';
 import { useWorkbookController } from '@application/react/useWorkbookController';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
-import type { SheetRevisionResponse } from '@infrastructure/persistence/workbookApi';
 
 describe('useWorkbookController sheet creation', () => {
   it('keeps an in-flight create out of the canonical workbook', () => {
@@ -19,10 +18,10 @@ describe('useWorkbookController sheet creation', () => {
   it('persists edits to a saved sheet while another sheet creation remains unresolved', async () => {
     const existing = positionedSheet('sheet-saved', 'Saved', { x: 0, y: 0 });
     const createSave = deferred<SheetDocument>();
-    const cellSave = deferred<SheetRevisionResponse>();
+    const cellSave = deferred<{ sheets: Array<{ sheetId: string; revision: number }> }>();
     const apiClient = autosaveClient({
       createSheet: vi.fn().mockReturnValue(createSave.promise),
-      updateCellContent: vi.fn().mockReturnValue(cellSave.promise),
+      writeCells: vi.fn().mockReturnValue(cellSave.promise),
     });
     const { result } = renderHook(() => useWorkbookController({
       apiClient,
@@ -34,17 +33,12 @@ describe('useWorkbookController sheet creation', () => {
       result.current.commands.updateCellContent(existing.id, 'A1', 'Saved independently');
     });
 
-    expect(apiClient.updateCellContent).toHaveBeenCalledWith(
-      existing.id,
-      'A1',
-      'Saved independently',
-      { revision: 0 },
-    );
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
     expect(result.current.creatingFrames).toMatchObject([{ kind: 'creating', name: 'Creating' }]);
     expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.id)).toEqual([existing.id]);
 
     await act(async () => {
-      cellSave.resolve({ sheetId: existing.id, revision: 1 });
+      cellSave.resolve({ sheets: [{ sheetId: existing.id, revision: 1 }] });
       await cellSave.promise;
     });
 
@@ -52,7 +46,7 @@ describe('useWorkbookController sheet creation', () => {
     expect(cellRawContent(findSheetById(result.current.workbook, existing.id)!, 'A1')).toBe(
       'Saved independently',
     );
-    expect(apiClient.updateCellContent).toHaveBeenCalledTimes(1);
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
     expect(result.current.creatingFrames).toMatchObject([{ kind: 'creating', name: 'Creating' }]);
     expect(result.current.saveStatus).toBe('saving');
 

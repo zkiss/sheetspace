@@ -159,7 +159,7 @@ describe('useWorkbookController content mutations', () => {
         kind: 'cells',
         cells: [{ sheetId: 'sheet-inputs', key: 'A1' }],
     });
-    expect(apiClient.updateCellContent).toHaveBeenCalledWith('sheet-inputs', 'A1', '7', { revision: 0 });
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(1);
   });
 
   it('uses one current transition for batched change-then-restore cell actions', async () => {
@@ -189,21 +189,17 @@ describe('useWorkbookController content mutations', () => {
       kind: 'cells',
       cells: [{ sheetId: 'sheet-inputs', key: 'A1' }],
     });
-    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', '7', { revision: 0 });
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', '', { revision: 0 });
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(2));
   });
 
-  it('keeps local committed cell edits while retrying a conflicting revisioned autosave', async () => {
+  it('keeps local committed cell edits visibly failed when conflict recovery finds a changed remote cell', async () => {
     const initialSheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
     const staleServerSheet = documentWithCells(initialSheet, { A1: 'server value' }, 4);
-    const savedServerSheet = documentWithCells(initialSheet, { A1: 'Local value' }, 5);
     const apiClient = autosaveClient({
       loadSheet: vi.fn().mockResolvedValue(staleServerSheet),
-      updateCellContent: vi
+      writeCells: vi
         .fn()
-        .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict'))
-        .mockResolvedValueOnce({ sheetId: savedServerSheet.id, revision: savedServerSheet.revision }),
+        .mockRejectedValueOnce(new WorkbookApiError('sheet-revision-conflict', 409, 'sheet-revision-conflict')),
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -216,16 +212,10 @@ describe('useWorkbookController content mutations', () => {
       result.current.commands.updateCellContent('sheet-inputs', 'A1', 'Local value');
     });
 
-    await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(2));
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(1, 'sheet-inputs', 'A1', 'Local value', {
-      revision: 0,
-    });
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(1));
     expect(apiClient.loadSheet).toHaveBeenCalledWith('sheet-inputs');
-    expect(apiClient.updateCellContent).toHaveBeenNthCalledWith(2, 'sheet-inputs', 'A1', 'Local value', {
-      revision: 4,
-    });
     expect(cellRawContent(findSheetById(result.current.workbook, 'sheet-inputs')!, 'A1')).toEqual('Local value');
-    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
   });
 
   it('renames sheets through autosave with the current revision token', () => {
@@ -333,9 +323,9 @@ describe('useWorkbookController content mutations', () => {
   });
 
   it('retires queued axis and saved work when an axis conflict confirms the sheet is missing', async () => {
-    const runningCellSave = deferred<{ sheetId: string; revision: number }>();
+    const runningCellSave = deferred<{ sheets: Array<{ sheetId: string; revision: number }> }>();
     const runningAppend = deferred<RowAppendResponse>();
-    const updateCellContent = vi.fn().mockReturnValue(runningCellSave.promise);
+    const writeCells = vi.fn().mockReturnValue(runningCellSave.promise);
     const renameSheet = vi.fn();
     const appendColumn = vi.fn();
     const apiClient = autosaveClient({
@@ -343,7 +333,7 @@ describe('useWorkbookController content mutations', () => {
       appendColumn,
       loadSheet: vi.fn().mockRejectedValue(new WorkbookApiError('missing', 404, 'sheet-not-found')),
       renameSheet,
-      updateCellContent,
+      writeCells,
     });
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });
     const { result } = renderHook(() => useWorkbookController({
@@ -358,12 +348,12 @@ describe('useWorkbookController content mutations', () => {
       result.current.commands.appendColumn(sheet.id);
     });
 
-    expect(updateCellContent).toHaveBeenCalledTimes(1);
+    expect(writeCells).toHaveBeenCalledTimes(1);
     expect(renameSheet).not.toHaveBeenCalled();
     expect(appendColumn).not.toHaveBeenCalled();
 
     expect(apiClient.appendRow).not.toHaveBeenCalled();
-    runningCellSave.resolve({ sheetId: sheet.id, revision: 2 });
+    runningCellSave.resolve({ sheets: [{ sheetId: sheet.id, revision: 2 }] });
     await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith(sheet.id, { revision: 2 }));
     runningAppend.reject(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
     await waitFor(() => expect(result.current.workbook.manifest.sheetIds).toEqual([]));

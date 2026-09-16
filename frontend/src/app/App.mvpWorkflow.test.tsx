@@ -66,7 +66,7 @@ describe('App MVP workflow', () => {
       fireEvent.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append row' }));
       fireEvent.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Append column' }));
 
-      await waitFor(() => expect(apiClient.updateCellContent).toHaveBeenCalledTimes(4));
+      await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(4));
       await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledWith(inputSheetId, { revision: 0 }));
       await waitFor(() => expect(apiClient.appendColumn).toHaveBeenCalledWith(inputSheetId, { revision: 0 }));
       expect(cellAt(inputFrame, 'C1')).toHaveTextContent('15');

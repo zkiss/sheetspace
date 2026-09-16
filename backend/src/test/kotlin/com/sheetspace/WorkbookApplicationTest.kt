@@ -58,7 +58,7 @@ class WorkbookApplicationTest {
             created.revision,
             UpdateSheetCommand(position = WorkspacePosition(10.0, 20.0)),
         )
-        val edited = application.updateCell(moved.id.value, "A1", "42", moved.revision)
+        val edited = application.writeOneCell(moved.id.value, "A1", "42", moved.revision)
 
         assertSame(created.content, moved.content)
         assertSame(moved.frame, edited.frame)
@@ -69,8 +69,8 @@ class WorkbookApplicationTest {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val sheet = application.createSheet(CreateSheetCommand(name = "Inputs"))
 
-        val stored = application.updateCell(sheet.id.value, "A1", "= \n SuM ( B1 , B2 )", sheet.revision)
-        val cleared = application.updateCell(stored.id.value, "A1", "", stored.revision)
+        val stored = application.writeOneCell(sheet.id.value, "A1", "= \n SuM ( B1 , B2 )", sheet.revision)
+        val cleared = application.writeOneCell(stored.id.value, "A1", "", stored.revision)
 
         assertEquals("= \n SuM ( B1 , B2 )", stored.tabularContent.cells.getValue("A1"))
         assertFalse(cleared.tabularContent.cells.containsKey("A1"))
@@ -91,12 +91,36 @@ class WorkbookApplicationTest {
         )
         val application = DefaultWorkbookApplication(targetedStore)
 
-        val updated = application.updateCell(sheet.id.value, "A1", "42", 0)
+        val updated = application.writeOneCell(sheet.id.value, "A1", "42", 0)
 
         assertEquals("42", updated.tabularContent.cells.getValue("A1"))
-        assertEquals(1, targetedStore.targetedLoads)
+        assertEquals(3, targetedStore.targetedLoads)
         assertEquals(1, targetedStore.batchWrites)
         assertEquals(0, targetedStore.workbookLoads)
+    }
+
+    @Test
+    fun `cell batch validates every sheet before changing any sheet`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val inputs = application.createSheet(CreateSheetCommand(name = "Inputs"))
+        val outputs = application.createSheet(CreateSheetCommand(name = "Outputs"))
+        val valid = inputs.cellWrite("A1", "source")
+        val invalid = outputs.cellWrite("A1", "result").copy(rowId = "00000000-0000-0000-0000-000000000099")
+
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_COORDINATE) {
+            application.writeCells(
+                CellPatchCommand(
+                    listOf(
+                        ExpectedSheetRevision(inputs.id.value, inputs.revision),
+                        ExpectedSheetRevision(outputs.id.value, outputs.revision),
+                    ),
+                    listOf(valid, invalid),
+                ),
+            )
+        }
+
+        assertEquals(inputs, application.loadSheet(inputs.id.value))
+        assertEquals(outputs, application.loadSheet(outputs.id.value))
     }
 
     @Test
@@ -126,8 +150,13 @@ class WorkbookApplicationTest {
         assertApplicationError(WorkbookApplicationError.SHEET_UPDATE_REQUIRED) {
             application.updateSheet(sheet.id.value, sheet.revision, UpdateSheetCommand())
         }
-        assertApplicationError(WorkbookApplicationError.INVALID_CELL_ADDRESS) {
-            application.updateCell(sheet.id.value, "Z999", "outside", sheet.revision)
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_COORDINATE) {
+            application.writeCells(
+                CellPatchCommand(
+                    listOf(ExpectedSheetRevision(sheet.id.value, sheet.revision)),
+                    listOf(SheetCellWrite(sheet.id.value, "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "outside")),
+                ),
+            )
         }
         assertApplicationError(WorkbookApplicationError.INVALID_SHEET_Z_INDEX) {
             application.updateSheetZOrder(listOf(SheetZOrderUpdate(sheet.id.value, sheet.revision, 0)))
@@ -140,7 +169,7 @@ class WorkbookApplicationTest {
     fun `invalid rename wins over stale revision conflict`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
-        application.updateCell(created.id.value, "A1", "newer", created.revision)
+        application.writeOneCell(created.id.value, "A1", "newer", created.revision)
 
         assertApplicationError(WorkbookApplicationError.SHEET_NAME_REQUIRED) {
             application.updateSheet(
@@ -155,10 +184,10 @@ class WorkbookApplicationTest {
     fun `stale revision is rejected without overwriting current state`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
-        val newer = application.updateCell(created.id.value, "A1", "newer", created.revision)
+        val newer = application.writeOneCell(created.id.value, "A1", "newer", created.revision)
 
         val conflict = assertFailsWith<SheetRevisionConflict> {
-            application.updateCell(created.id.value, "A1", "stale", created.revision)
+            application.writeOneCell(created.id.value, "A1", "stale", created.revision)
         }
 
         assertEquals(newer.revision, conflict.actualRevision)
@@ -236,10 +265,10 @@ private class TargetedCellStore(
     }
 
     override fun writeCells(
-        expectedRevision: ExpectedSheetRevision,
-        writes: List<CellWrite>,
-    ): SheetDocument {
+        expectedRevisions: List<ExpectedSheetRevision>,
+        writes: List<SheetCellWrite>,
+    ): List<SheetDocument> {
         batchWrites++
-        return delegate.writeCells(expectedRevision, writes)
+        return delegate.writeCells(expectedRevisions, writes)
     }
 }
