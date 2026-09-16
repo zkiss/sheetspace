@@ -6,7 +6,7 @@ import { useCellEditing } from '@grid/useCellEditing';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 
 function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 })) {
-  const commands = { updateCellContent: vi.fn() };
+  const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
   const workbook = workbookWithSheets([sheet]);
   return {
     commands,
@@ -43,7 +43,7 @@ describe('useCellEditing', () => {
   });
 
   it('clears local interaction state when deleted sheet disappears from workbook', () => {
-    const commands = { updateCellContent: vi.fn() };
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
     const target = cellTargetAt(sheet, 'A1')!;
     const { rerender, result } = renderHook(
@@ -114,7 +114,7 @@ describe('useCellEditing', () => {
         name: outputWithoutFormula.name,
         cells: { A1: storedFormula },
       });
-      const commands = { updateCellContent: vi.fn() };
+      const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
       const workbook = workbookWithSheets([inputs, output]);
       const { result } = renderHook(() => useCellEditing({ commands, workbook }));
       const target = cellTargetAt(output, 'A1')!;
@@ -172,13 +172,51 @@ describe('useCellEditing', () => {
 
       act(() => result.current.clearCellContent(target));
 
-      expect(commands.updateCellContent).toHaveBeenCalledTimes(expectedCalls);
+      expect(commands.writeCells).toHaveBeenCalledTimes(expectedCalls);
       if (expectedCalls) {
-        expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', '');
+        expect(commands.writeCells).toHaveBeenCalledWith([{ sheetId: sheet.id, rowId: sheet.content.rows[0], columnId: sheet.content.columns[0], raw: '' }]);
       }
       expect(result.current.activeCell).toEqual(target);
       expect(result.current.editingCell).toBeNull();
       expect(result.current.keyboardFocusRequest).toMatchObject({ target });
+    });
+
+    it('clears a reversed rectangular selection with one batch and retains that selection', () => {
+      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: {
+        A1: 'left', B1: '=A1', B2: 'bottom', C2: 'outside',
+      } });
+      const { commands, result } = renderCellEditing(sheet);
+      const b2 = cellTargetAt(sheet, 'B2')!;
+      const a1 = cellTargetAt(sheet, 'A1')!;
+
+      act(() => result.current.selectCell(b2));
+      act(() => result.current.extendSelection(a1));
+      act(() => result.current.clearCellContent(a1));
+
+      expect(commands.writeCells).toHaveBeenCalledOnce();
+      expect(commands.writeCells).toHaveBeenCalledWith(expect.arrayContaining([
+        { sheetId: sheet.id, rowId: sheet.content.rows[0], columnId: sheet.content.columns[0], raw: '' },
+        { sheetId: sheet.id, rowId: sheet.content.rows[0], columnId: sheet.content.columns[1], raw: '' },
+        { sheetId: sheet.id, rowId: sheet.content.rows[1], columnId: sheet.content.columns[1], raw: '' },
+      ]));
+      expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: b2, extent: a1 });
+    });
+
+    it('clears populated cells in a selected whole column with one batch', () => {
+      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: 'top', B2: '=A1', C2: 'outside' } });
+      const { commands, result } = renderCellEditing(sheet);
+      const b1 = cellTargetAt(sheet, 'B1')!;
+      const b2 = cellTargetAt(sheet, 'B2')!;
+
+      act(() => result.current.selectAxis('columns', b1, false));
+      act(() => result.current.selectAxis('columns', b2, true));
+      act(() => result.current.clearCellContent(b2));
+
+      expect(commands.writeCells).toHaveBeenCalledOnce();
+      expect(commands.writeCells).toHaveBeenCalledWith([
+        { sheetId: sheet.id, rowId: sheet.content.rows[0], columnId: sheet.content.columns[1], raw: '' },
+        { sheetId: sheet.id, rowId: sheet.content.rows[1], columnId: sheet.content.columns[1], raw: '' },
+      ]);
     });
   });
 

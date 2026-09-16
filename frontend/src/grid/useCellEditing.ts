@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef } from 'react';
-import { cellAddressOf } from '@workbook/core/cellIdentity';
+import { cellAddressOf, cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForDisplay } from '@workbook/formula/reference';
 import { type SheetDocument, type SheetTabularProjection, type Workbook } from '@workbook/core/model';
@@ -99,10 +99,32 @@ export function useCellEditing({
   function clearCellContent(target: CellTarget) {
     dispatch({ type: 'clear', target });
     const sheet = findSheetById(workbook, target.sheetId);
-    const key = sheet && cellKeyForTarget(sheet, target);
-    if (sheet && key && cellRawContent(sheet, key)) {
-      commands.updateCellContent(target.sheetId, key, '');
-    }
+    if (!sheet) return;
+    const selection = state.rangeSelection?.anchor.sheetId === target.sheetId
+      ? state.rangeSelection
+      : null;
+    const targetAddress = cellAddressOf(sheet.content, target.cell);
+    const anchor = selection ? cellAddressOf(sheet.content, selection.anchor.cell) : targetAddress;
+    const extent = selection ? cellAddressOf(sheet.content, selection.extent.cell) : targetAddress;
+    const start = anchor && extent ? {
+      columnIndex: selection?.mode === 'rows' ? 0 : Math.min(anchor.columnIndex, extent.columnIndex),
+      rowIndex: selection?.mode === 'columns' ? 0 : Math.min(anchor.rowIndex, extent.rowIndex),
+    } : undefined;
+    const end = anchor && extent ? {
+      columnIndex: selection?.mode === 'rows' ? sheet.content.columns.length - 1 : Math.max(anchor.columnIndex, extent.columnIndex),
+      rowIndex: selection?.mode === 'columns' ? sheet.content.rows.length - 1 : Math.max(anchor.rowIndex, extent.rowIndex),
+    } : undefined;
+    const writes = Object.entries(sheet.content.cells).flatMap(([identityKey, raw]) => {
+      if (!raw) return [];
+      const identity = cellIdentityFromKey(identityKey);
+      const address = identity && cellAddressOf(sheet.content, identity);
+      if (!identity || !address || (start && end && (
+        address.columnIndex < start.columnIndex || address.columnIndex > end.columnIndex
+        || address.rowIndex < start.rowIndex || address.rowIndex > end.rowIndex
+      ))) return [];
+      return [{ sheetId: sheet.id, ...identity, raw: '' }];
+    });
+    if (writes.length > 0) commands.writeCells(writes);
   }
 
   function navigateCell(target: CellTarget, direction: CellNavigationDirection, extend = false) {

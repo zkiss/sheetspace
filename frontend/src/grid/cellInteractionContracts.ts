@@ -3,6 +3,7 @@ import type { CellKey } from '@workbook/core/address';
 
 export type CellContentCommands = {
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
+  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
 };
 
 export type CellTarget = {
