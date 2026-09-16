@@ -190,6 +190,22 @@ describe('WorkbookPersistenceTransport', () => {
     ] }, affectedSheetIds: ['a'] })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }] });
     expect(writeCells).toHaveBeenCalledTimes(1);
   });
+  it('fails after one automatic retry when consecutive conflicts preserve the before-state', async () => {
+    const conflict = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+    const writeCells = vi.fn().mockRejectedValue(conflict);
+    const beforeSheet = sheetDocument({ id: 'a', name: 'A', revision: 2 });
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(beforeSheet) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+
+    expect(writeCells).toHaveBeenCalledTimes(2);
+    expect(outbox.inspect('cell')?.status).toBe('failed');
+  });
   it('does not replay a manually retried conflict after a remote touched-cell change', async () => {
     const failure = new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
     const writeCells = vi.fn().mockRejectedValue(failure);

@@ -43,7 +43,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
       const recovered = await this.recoverUnsafeCellWrite(operationId, intent);
       if (recovered) return recovered;
     }
-    if (intent.kind === 'write-cells') return this.requestCellWrite(operationId, intent);
+    if (intent.kind === 'write-cells') return this.requestCellWrite(operationId, intent, true);
     try { return await this.request(intent); }
     catch (failure) {
       if (!isRevisionConflict(failure)) throw failure;
@@ -79,16 +79,25 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     }
     throw failure;
   }
-  private async requestCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult> {
+  private async requestCellWrite(
+    operationId: WorkbookOperationId | undefined,
+    intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>,
+    mayRetryConflict: boolean,
+  ): Promise<TransportResult> {
     try {
       const result = await this.request(intent);
       if (operationId !== undefined) this.unsafeCellWriteFailures.delete(operationId);
       return result;
     } catch (failure) {
-      return this.recoverCellWrite(operationId, intent, failure);
+      return this.recoverCellWrite(operationId, intent, failure, mayRetryConflict);
     }
   }
-  private async recoverCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>, failure: unknown): Promise<TransportResult> {
+  private async recoverCellWrite(
+    operationId: WorkbookOperationId | undefined,
+    intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>,
+    failure: unknown,
+    mayRetryConflict: boolean,
+  ): Promise<TransportResult> {
     if (!isRevisionConflict(failure) && !isAmbiguousResponse(failure)) throw failure;
     if (operationId !== undefined) this.unsafeCellWriteFailures.set(operationId, failure);
     const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
@@ -100,8 +109,8 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
       if (operationId !== undefined) this.unsafeCellWriteFailures.delete(operationId);
       return this.recordMany(sheets.map((sheet) => ({ sheetId: sheet.id, revision: sheet.revision })));
     }
-    if (isRevisionConflict(failure) && matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
-      return this.requestCellWrite(operationId, intent);
+    if (mayRetryConflict && isRevisionConflict(failure) && matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
+      return this.requestCellWrite(operationId, intent, false);
     }
     throw failure;
   }
