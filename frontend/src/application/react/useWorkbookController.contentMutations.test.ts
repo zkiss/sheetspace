@@ -89,6 +89,34 @@ async function expectQueuedAxisReconciliation(axis: 'row' | 'column') {
 }
 
 describe('useWorkbookController content mutations', () => {
+  it('undoes and redoes content with fresh feedback while leaving presentation outside history', async () => {
+    const apiClient = autosaveClient();
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: '=SUM(A1)' } });
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      result.current.commands.updateCellContent(sheet.id, 'A1', '7');
+      result.current.commands.moveSheetFrame(sheet.id, { x: 90, y: 80 });
+      result.current.commands.undo();
+    });
+
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'A1')).toBeUndefined();
+    expect(findSheetById(result.current.workbook, sheet.id)!.frame.position).toEqual({ x: 90, y: 80 });
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(true);
+    const undoFeedback = result.current.contentHistoryFeedback;
+
+    act(() => result.current.commands.redo());
+
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'A1')).toBe('7');
+    expect(result.current.formulaResults[sheet.id].B1.display).toBe('7');
+    expect(result.current.contentHistoryFeedback?.identity).not.toBe(undoFeedback?.identity);
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(3));
+  });
+
   it('keeps committed frame changes outside calculation', () => {
     const apiClient = autosaveClient();
     const sheet = sheetDocument({

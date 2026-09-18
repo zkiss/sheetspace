@@ -16,10 +16,14 @@ import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, ty
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
+  replayCellPersistenceWrites,
   type AppliedWorkbookOperation,
+  type AffectedWorkbookEntities,
+  type CellPersistenceWrite,
   type WorkbookOperation,
   type WorkbookOperationResult,
 } from '@application/core/userActions';
+import { ContentHistory } from '@application/core/contentHistory';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
@@ -44,6 +48,8 @@ export type WorkbookCommands = {
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
   retryFailedSaves: () => void;
+  undo: () => void;
+  redo: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
@@ -52,6 +58,9 @@ export type WorkbookCommands = {
 export type WorkbookController = {
   commands: WorkbookCommands;
   canRetryFailedSaves: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  contentHistoryFeedback: { identity: string; affected: AffectedWorkbookEntities; before: readonly CellPersistenceWrite[]; after: readonly CellPersistenceWrite[] } | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];
@@ -90,6 +99,11 @@ export function useWorkbookController({
   const optimisticWorkbook = useRef(workbook);
   optimisticWorkbook.current = workbook;
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
+  const contentHistoryRef = useRef<ContentHistory | undefined>(undefined);
+  contentHistoryRef.current ??= new ContentHistory();
+  const contentHistory = contentHistoryRef.current;
+  const [, setHistoryRevision] = useState(0);
+  const [contentHistoryFeedback, setContentHistoryFeedback] = useState<WorkbookController['contentHistoryFeedback']>();
   const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
     setControllerState((current) => {
       const nextWorkbook = typeof update === 'function'
@@ -170,10 +184,16 @@ export function useWorkbookController({
     return result.value;
   }
 
-  function applyAction(action: WorkbookOperationInput): AppliedWorkbookOperation | undefined {
+  function applyAction(action: WorkbookOperationInput, recordContentHistory = true): AppliedWorkbookOperation | undefined {
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
     const applied = applyResult(applyWorkbookOperation(optimisticWorkbook.current, operation));
-    if (applied?.changed) savedAutosave.enqueue(operation.operationId, applied.persistence);
+    if (applied?.changed) {
+      savedAutosave.enqueue(operation.operationId, applied.persistence);
+      if (recordContentHistory && operation.kind === 'write-cells' && applied.persistence?.kind === 'write-cells') {
+        contentHistory.record(applied.persistence.writes, applied.affected);
+        setHistoryRevision((revision) => revision + 1);
+      }
+    }
     return applied;
   }
 
@@ -228,6 +248,25 @@ export function useWorkbookController({
     applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] });
   }
 
+  function replayContentHistory(direction: 'undo' | 'redo') {
+    const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
+    if (!transaction) return;
+    const expected = direction === 'undo' ? 'after' : 'before';
+    const applied = applyResult(replayCellPersistenceWrites(optimisticWorkbook.current, transaction.writes, expected));
+    // An unavailable entry stays on its stack. This is deterministic and avoids phantom moves.
+    if (!applied?.changed || applied.persistence?.kind !== 'write-cells') return;
+    const operationId = crypto.randomUUID();
+    savedAutosave.enqueue(operationId, applied.persistence);
+    if (direction === 'undo') contentHistory.commitUndo(); else contentHistory.commitRedo();
+    setContentHistoryFeedback({
+      identity: operationId,
+      affected: applied.affected,
+      before: (applied.persistence.writes as readonly CellPersistenceWrite[]).map((write: CellPersistenceWrite) => ({ ...write })),
+      after: transaction.writes.map((write) => ({ ...write })),
+    });
+    setHistoryRevision((revision) => revision + 1);
+  }
+
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
     const localSheetId = sheetId;
     applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
@@ -261,10 +300,15 @@ export function useWorkbookController({
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
+      undo: () => replayContentHistory('undo'),
+      redo: () => replayContentHistory('redo'),
       updateCellContent,
       writeCells,
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
+    canUndo: contentHistory.canUndo,
+    canRedo: contentHistory.canRedo,
+    contentHistoryFeedback,
     formulaResults,
     retryStartupLoad,
     creatingFrames,

@@ -69,6 +69,62 @@ export type AppliedWorkbookOperation = {
 export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 
+/**
+ * Replays durable cell data without interpreting formulas again.  The caller supplies the
+ * state it expects to replace, so an undo/redo can never partially overwrite a later edit.
+ */
+export function replayCellPersistenceWrites(
+  workbook: Workbook,
+  writes: readonly CellPersistenceWrite[],
+  expected: 'before' | 'after',
+): WorkbookOperationResult {
+  const resolved = writes.map((write) => {
+    const sheet = findSheetById(workbook, write.sheetId);
+    const cell = { rowId: write.rowId, columnId: write.columnId };
+    return { write, sheet, cell, address: sheet && cellAddressOf(sheet.content, cell) };
+  });
+  if (resolved.some(({ sheet }) => !sheet)) return { ok: false, reason: 'unknown-sheet' };
+  if (resolved.some(({ address }) => !address)) return { ok: false, reason: 'invalid-cell' };
+  const identities = new Set<string>();
+  for (const { write } of resolved) {
+    const identity = `${write.sheetId}\u0000${write.rowId}\u0000${write.columnId}`;
+    if (identities.has(identity)) return { ok: false, reason: 'duplicate-cell' };
+    identities.add(identity);
+  }
+  // Validate the whole transaction before changing anything.
+  if (resolved.some(({ write, sheet, cell }) =>
+    (sheet!.content.cells[cellIdentityKey(cell)] ?? null) !== write[`${expected}Raw`],
+  )) return { ok: false, reason: 'invalid-cell' };
+
+  const cellsBySheet = new Map<SheetId, Record<string, string>>();
+  const impacts: { sheetId: SheetId; key: string }[] = [];
+  const affected: { sheetId: SheetId; cell: StableCellIdentity }[] = [];
+  const replayed: CellPersistenceWrite[] = [];
+  const target = expected === 'before' ? 'afterRaw' : 'beforeRaw';
+  for (const { write, sheet, cell, address } of resolved) {
+    const cells = cellsBySheet.get(sheet!.id) ?? { ...sheet!.content.cells };
+    cellsBySheet.set(sheet!.id, cells);
+    const key = cellIdentityKey(cell);
+    const beforeRaw = cells[key] ?? null;
+    const afterRaw = write[target];
+    if (afterRaw === null) delete cells[key]; else cells[key] = afterRaw;
+    replayed.push({ ...write, beforeRaw, afterRaw });
+    impacts.push({ sheetId: sheet!.id, key: cellKey(address!) });
+    affected.push({ sheetId: sheet!.id, cell });
+  }
+  const documents = { ...workbook.documents };
+  for (const [sheetId, cells] of cellsBySheet) {
+    const sheet = workbook.documents[sheetId]!;
+    documents[sheetId] = { ...sheet, content: { ...sheet.content, cells } };
+  }
+  return success(
+    { ...workbook, documents },
+    { kind: 'cells', cells: impacts },
+    { kind: 'write-cells', writes: replayed },
+    { sheetIds: [...new Set(affected.map(({ sheetId }) => sheetId))], cells: affected },
+  );
+}
+
 export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOperation): WorkbookOperationResult {
   switch (operation.kind) {
     case 'write-axis-sizes': return applyAxisSizes(workbook, operation);

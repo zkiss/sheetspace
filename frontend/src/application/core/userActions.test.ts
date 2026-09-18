@@ -3,6 +3,7 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
+  replayCellPersistenceWrites,
   type BackendWorkbookReconciliation,
   type CellWrite,
   type WorkbookOperation,
@@ -257,6 +258,31 @@ describe('workbook operations', () => {
     expect(first.value.persistence).toEqual(firstPersistence);
     expect(second).toMatchObject({ ok: true, value: { persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', cell, '=1+1', null)] } } });
     expect(JSON.parse(JSON.stringify(first.value.persistence))).toEqual(first.value.persistence);
+  });
+
+  it('replays a full content transaction only when every current value matches', () => {
+    const source = workbookWithSheets([
+      sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'old' } }),
+      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: '=alpha!A1' } }),
+    ]);
+    const alphaA1 = cellIdentityAt(source.documents.alpha.content, 'A1')!;
+    const betaB2 = cellIdentityAt(source.documents.beta.content, 'B2')!;
+    const applied = applyWorkbookOperation(source, {
+      kind: 'write-cells', operationId: 'original',
+      writes: [write('alpha', alphaA1, 'new'), write('beta', betaB2, '')],
+    });
+    if (!applied.ok || applied.value.persistence?.kind !== 'write-cells') throw new Error('Expected persisted cell writes.');
+
+    const restored = replayCellPersistenceWrites(applied.value.nextWorkbook, applied.value.persistence.writes, 'after');
+    expect(restored).toMatchObject({ ok: true, value: { nextWorkbook: source } });
+
+    const modified = applyWorkbookOperation(applied.value.nextWorkbook, {
+      kind: 'write-cells', operationId: 'intervening', writes: [write('alpha', alphaA1, 'later')],
+    });
+    if (!modified.ok) throw new Error('Expected intervening write.');
+    expect(replayCellPersistenceWrites(modified.value.nextWorkbook, applied.value.persistence.writes, 'after'))
+      .toEqual({ ok: false, reason: 'invalid-cell' });
+    expect(cellRawContent(modified.value.nextWorkbook.documents.alpha, 'A1')).toBe('later');
   });
 
   it('omits effective no-op writes and emits nothing when every write is a no-op', () => {
