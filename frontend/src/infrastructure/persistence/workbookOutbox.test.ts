@@ -142,6 +142,25 @@ describe('WorkbookOutbox', () => {
       kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }],
     });
   });
+  it('holds inverse cell writes behind a failed predecessor and retries its original identity', async () => {
+    const outbox = new WorkbookOutbox();
+    const original = { kind: 'write-cells' as const, writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: '7' }] };
+    const inverse = { kind: 'write-cells' as const, writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: '7', afterRaw: null }] };
+    const sent: string[] = [];
+    outbox.enqueue('original', original);
+    outbox.enqueue('undo', inverse);
+
+    await outbox.executeNext({ execute: async (entry) => { sent.push(entry.operationId); throw new Error('offline'); } });
+    expect(outbox.inspect('original')).toMatchObject({ operationId: 'original', status: 'failed' });
+    expect(await outbox.executeNext({ execute: async (entry) => { sent.push(entry.operationId); return { kind: 'saved', revisions: [] }; } })).toBeUndefined();
+
+    outbox.retry('original');
+    await outbox.executeNext({ execute: async (entry) => { sent.push(entry.operationId); return { kind: 'saved', revisions: [] }; } });
+    await outbox.executeNext({ execute: async (entry) => { sent.push(entry.operationId); return { kind: 'saved', revisions: [] }; } });
+
+    expect(sent).toEqual(['original', 'original', 'undo']);
+    expect(outbox.inspect('undo')?.intent).toEqual(inverse);
+  });
   it('does not expose a failed entry returned by executeNext for mutation', async () => {
     const outbox = new WorkbookOutbox();
     outbox.enqueue('move', { kind: 'update-sheet-position', sheetId: 'a', position: { x: 1, y: 2 } });

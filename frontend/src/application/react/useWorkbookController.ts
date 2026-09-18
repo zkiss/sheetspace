@@ -262,7 +262,7 @@ export function useWorkbookController({
       identity: operationId,
       affected: applied.affected,
       before: (applied.persistence.writes as readonly CellPersistenceWrite[]).map((write: CellPersistenceWrite) => ({ ...write })),
-      after: transaction.writes.map((write) => ({ ...write })),
+      after: (applied.persistence.writes as readonly CellPersistenceWrite[]).map((write: CellPersistenceWrite) => ({ ...write })),
     });
     setHistoryRevision((revision) => revision + 1);
   }
