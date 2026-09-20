@@ -26,7 +26,6 @@ CREATE TABLE frame_state (
     position_y REAL NOT NULL,
     frame_width REAL NOT NULL CHECK (frame_width > 0),
     frame_height REAL NOT NULL CHECK (frame_height > 0),
-    visual_scale REAL NOT NULL DEFAULT 1.0 CHECK (visual_scale >= 0.1 AND visual_scale <= 8.0),
     z_index INTEGER NOT NULL CHECK (z_index >= 1),
     FOREIGN KEY (sheet_id) REFERENCES sheet_documents(id) ON DELETE CASCADE
 );

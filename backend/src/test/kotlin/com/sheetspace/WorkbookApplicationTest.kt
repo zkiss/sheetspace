@@ -78,7 +78,20 @@ class WorkbookApplicationTest {
         assertEquals(2.0, updated.frame.visualScale)
         assertEquals(created.frame.zIndex, updated.frame.zIndex)
         assertApplicationError(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE) {
-            application.updateSheet(updated.id.value, updated.revision, UpdateSheetCommand(visualScale = 0.0))
+            application.updateSheet(
+                updated.id.value,
+                updated.revision,
+                UpdateSheetCommand(position = WorkspacePosition(99.0, 99.0), visualScale = 0.0),
+            )
+        }
+        assertEquals(updated, application.loadSheet(updated.id.value))
+
+        assertFailsWith<SheetRevisionConflict> {
+            application.updateSheet(
+                updated.id.value,
+                created.revision,
+                UpdateSheetCommand(position = WorkspacePosition(99.0, 99.0), frameSize = SheetFrameSize(1.0, 1.0), visualScale = 1.0),
+            )
         }
         assertEquals(updated, application.loadSheet(updated.id.value))
     }

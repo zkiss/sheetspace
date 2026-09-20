@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 
 const val MIN_SHEET_VISUAL_SCALE = 0.1
 const val MAX_SHEET_VISUAL_SCALE = 8.0
+const val DEFAULT_SHEET_VISUAL_SCALE = 1.0
 
 fun isValidSheetVisualScale(value: Double): Boolean =
     value.isFinite() && value in MIN_SHEET_VISUAL_SCALE..MAX_SHEET_VISUAL_SCALE
@@ -28,7 +29,7 @@ data class SheetFrameSize(
 data class FrameState(
     val position: WorkspacePosition = WorkspacePosition(),
     val size: SheetFrameSize = SheetFrameSize(),
-    val visualScale: Double = 1.0,
+    val visualScale: Double = DEFAULT_SHEET_VISUAL_SCALE,
     val zIndex: Int = 1,
 ) {
     fun isValid(): Boolean = position.isValid() && size.isValid() && isValidSheetVisualScale(visualScale) && zIndex >= 1

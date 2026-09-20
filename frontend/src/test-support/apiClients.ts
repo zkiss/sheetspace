@@ -72,6 +72,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         name: validation.name,
         position: sheet.position,
         frameSize: sheet.frameSize,
+        visualScale: sheet.visualScale,
         zIndex: sheet.zIndex ?? Math.max(0, ...existingSheets.map((existing) => existing.frame.zIndex)) + 1,
       });
       persistedWorkbook = workbookWithSheets([...existingSheets, created]);
