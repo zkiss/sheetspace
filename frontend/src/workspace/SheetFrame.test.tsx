@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetFrame } from '@workspace/SheetFrame';
-import { sheetDocument } from '@test-support/workbookFactories';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { frameProjection } from '@workbook/read/queries';
+import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
 
 afterEach(cleanup);
 
@@ -132,5 +133,93 @@ describe('SheetFrame', () => {
     expect(interactions.onScalePreview).toHaveBeenCalledWith('sheet-inputs', 1.5);
     expect(interactions.onScaleInputCancel).toHaveBeenCalledTimes(1);
     expect(interactions.onScaleCommit).not.toHaveBeenCalled();
+  });
+
+  it('keeps a scale-handle drag alive when its pointerdown precedes numeric input blur', () => {
+    const setSheetVisualScale = vi.fn();
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+    const workbook = workbookWithSheets([sheet]);
+
+    function FrameWithInteractions() {
+      const interactions = useSheetFrameInteractions({
+        commands: {
+          moveSheetFrame: vi.fn(),
+          resizeSheetFrame: vi.fn(),
+          setSheetVisualScale,
+        },
+        viewportScale: 1,
+        workbook,
+      });
+      const persistedFrame = frameProjection(sheet);
+      const frame = interactions.frameScalePreview?.sheetId === sheet.id
+        ? { ...persistedFrame, visualScale: interactions.frameScalePreview.visualScale }
+        : persistedFrame;
+
+      return (
+        <>
+          <output data-testid="scale-preview">
+            {interactions.frameScalePreview?.visualScale ?? 'none'}
+          </output>
+          <output data-testid="scale-pin">{interactions.interactionPinnedSheetId ?? 'none'}</output>
+          <SheetFrame
+            columnCount={4}
+            frame={frame}
+            isActiveSheet
+            isNavigationReveal={false}
+            onOpenSheetMenu={vi.fn()}
+            onResizeCancel={vi.fn()}
+            onResizeMove={vi.fn()}
+            onResizeStart={vi.fn()}
+            onResizeStop={vi.fn()}
+            onScaleInputCancel={interactions.cancelSheetFrameScaleInput}
+            onScalePointerCancel={interactions.cancelSheetFrameScalePointer}
+            onScaleCommit={interactions.commitSheetFrameScale}
+            onScaleMove={interactions.handleSheetFrameScaleMove}
+            onScalePreview={interactions.previewSheetFrameScale}
+            onScaleInputStart={interactions.startSheetFrameScaleInput}
+            onScaleStart={interactions.handleSheetFrameScaleStart}
+            onScaleStop={interactions.stopSheetFrameScale}
+            onSheetFrameDragCancel={vi.fn()}
+            onSheetFrameDragMove={vi.fn()}
+            onSheetFrameDragStart={vi.fn()}
+            onSheetFrameDragStop={vi.fn()}
+            onSheetFrameInteraction={vi.fn()}
+            rowCount={6}
+            viewportScale={1}
+          >
+            {() => <table aria-label="Inputs grid" />}
+          </SheetFrame>
+        </>
+      );
+    }
+
+    render(<FrameWithInteractions />);
+    const input = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
+    const scaleHandle = screen.getByTestId('sheet-frame-scale-handle');
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '150' } });
+    expect(screen.getByTestId('scale-preview')).toHaveTextContent('1.5');
+
+    // Browsers dispatch the handle pointerdown before blurring the focused input.
+    fireEvent(scaleHandle, new MouseEvent('pointerdown', {
+      bubbles: true, button: 0, clientX: 100, clientY: 0,
+    }));
+    fireEvent.blur(input);
+    expect(screen.getByTestId('scale-preview')).toHaveTextContent('1');
+    expect(screen.getByTestId('scale-pin')).toHaveTextContent('sheet-inputs');
+    expect(setSheetVisualScale).not.toHaveBeenCalled();
+
+    fireEvent(scaleHandle, new MouseEvent('pointermove', {
+      bubbles: true, clientX: 200, clientY: 0,
+    }));
+    expect(screen.getByTestId('scale-preview')).toHaveTextContent('2');
+    expect(screen.getByTestId('scale-pin')).toHaveTextContent('sheet-inputs');
+
+    fireEvent(scaleHandle, new MouseEvent('pointerup', {
+      bubbles: true, clientX: 200, clientY: 0,
+    }));
+    expect(setSheetVisualScale).toHaveBeenCalledTimes(1);
+    expect(setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
   });
 });
