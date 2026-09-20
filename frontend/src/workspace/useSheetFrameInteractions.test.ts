@@ -4,6 +4,7 @@ import type { PointerEvent } from 'react';
 import type { SheetFrameLayoutCommands, SheetFrameResizeDirection } from './workspaceContracts';
 import { Workbook } from '@workbook/core/model';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
+import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 
 function commands() {
@@ -255,5 +256,39 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
     act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 200, clientY: 0 })));
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 1);
+  });
+
+  it('pins numeric scale previews until cancellation or an explicit commit', () => {
+    const { commands: testCommands, result } = renderInteractions();
+
+    act(() => {
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.previewSheetFrameScale('sheet-inputs', 0.1);
+    });
+
+    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 0.1 });
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
+    const projectedFrame = {
+      id: 'sheet-inputs', name: 'Inputs', position: { x: -500, y: 40 }, size: { width: 240, height: 160 }, visualScale: 0.1, zIndex: 1,
+    };
+    expect([...mountedWorkspaceFrameIds({
+      frames: [projectedFrame], pins: {}, surfaceSize: { width: 800, height: 600 }, viewport: { scale: 1, x: 0, y: 0 },
+    })]).toEqual([]);
+    expect([...mountedWorkspaceFrameIds({
+      frames: [projectedFrame], pins: { interactionSheetId: result.current.interactionPinnedSheetId }, surfaceSize: { width: 800, height: 600 }, viewport: { scale: 1, x: 0, y: 0 },
+    })]).toEqual(['sheet-inputs']);
+
+    act(() => result.current.cancelSheetFrameScale());
+    expect(result.current.frameScalePreview).toBeNull();
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+    expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.previewSheetFrameScale('sheet-inputs', 2);
+      result.current.commitSheetFrameScale('sheet-inputs', 2);
+    });
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+    expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
   });
 });

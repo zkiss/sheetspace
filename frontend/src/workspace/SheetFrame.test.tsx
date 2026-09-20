@@ -22,6 +22,7 @@ describe('SheetFrame', () => {
       onScaleCommit: vi.fn(),
       onScaleMove: vi.fn(),
       onScalePreview: vi.fn(),
+      onScaleInputStart: vi.fn(),
       onScaleStart: vi.fn(),
       onScaleStop: vi.fn(),
       onSheetFrameDragCancel: vi.fn(),
@@ -68,7 +69,7 @@ describe('SheetFrame', () => {
   it('synchronizes handle commits, commits numeric previews on Enter, and cancels blur', () => {
     const interactions = {
       onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onScaleCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
       onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
     };
     const frame = testFrame();
@@ -105,5 +106,30 @@ describe('SheetFrame', () => {
     fireEvent.blur(input);
     expect(interactions.onScaleCancel).toHaveBeenCalledTimes(2);
     expect(input).toHaveValue(200);
+  });
+
+  it('cancels an in-progress numeric preview when its control unmounts', () => {
+    const interactions = {
+      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
+      onScaleCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+    };
+    const frame = testFrame();
+    const renderFrame = (isActiveSheet: boolean) => (
+      <SheetFrame columnCount={4} frame={frame} isActiveSheet={isActiveSheet} isNavigationReveal={false} {...interactions} rowCount={6} viewportScale={1}>
+        {() => <table aria-label="Inputs grid" />}
+      </SheetFrame>
+    );
+    const { rerender } = render(renderFrame(true));
+    const input = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '150' } });
+    rerender(renderFrame(false));
+
+    expect(interactions.onScaleInputStart).toHaveBeenCalledWith('sheet-inputs');
+    expect(interactions.onScalePreview).toHaveBeenCalledWith('sheet-inputs', 1.5);
+    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(1);
+    expect(interactions.onScaleCommit).not.toHaveBeenCalled();
   });
 });

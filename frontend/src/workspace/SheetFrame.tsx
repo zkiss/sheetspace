@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type MutableRefObject, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
 import { clampSheetFrameSize, clampSheetVisualScale, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
@@ -31,6 +31,7 @@ export function SheetFrame({
   onScaleStart,
   onScaleStop,
   onScalePreview,
+  onScaleInputStart,
   onScaleCommit,
   onSheetFrameDragCancel,
   onSheetFrameInteraction,
@@ -55,6 +56,7 @@ export function SheetFrame({
   onScaleStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onScaleStop: (event: PointerEvent<HTMLElement>) => void;
   onScalePreview: (sheetId: string, visualScale: number) => void;
+  onScaleInputStart: (sheetId: string) => void;
   onScaleCommit: (sheetId: string, visualScale: number) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameInteraction: () => void;
@@ -139,51 +141,18 @@ export function SheetFrame({
             role="slider"
             style={{ transform: `scale(${1 / screenScale})` }}
           />
-          <label className="sheet-frame-scale-control" style={{ transform: `scale(${1 / screenScale})` }}>
-            <span className="visually-hidden">Scale sheet {frame.name}</span>
-            <input
-              aria-label={`Scale sheet ${frame.name} percentage`}
-              inputMode="decimal"
-              onBlur={() => {
-                if (isScaleInputCancellation.current) {
-                  isScaleInputCancellation.current = false;
-                  return;
-                }
-                isScaleInputEditing.current = false;
-                setScaleInputValue(scalePercentage(frame.visualScale));
-                onScaleCancel();
-              }}
-              onChange={(event) => {
-                setScaleInputValue(event.currentTarget.value);
-                const value = Number(event.currentTarget.value);
-                if (Number.isFinite(value) && value > 0) onScalePreview(frame.id, value / 100);
-              }}
-              onFocus={() => { isScaleInputEditing.current = true; }}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  isScaleInputEditing.current = false;
-                  isScaleInputCancellation.current = true;
-                  setScaleInputValue(scalePercentage(frame.visualScale));
-                  onScaleCancel();
-                  event.currentTarget.blur();
-                }
-                if (event.key === 'Enter') {
-                  const value = Number(event.currentTarget.value);
-                  if (Number.isFinite(value) && value > 0) {
-                    isScaleInputEditing.current = false;
-                    isScaleInputCancellation.current = true;
-                    const visualScale = clampSheetVisualScale(value / 100);
-                    setScaleInputValue(scalePercentage(visualScale));
-                    onScaleCommit(frame.id, visualScale);
-                    event.currentTarget.blur();
-                  }
-                }
-              }}
-              type="number"
-              value={scaleInputValue}
-            />
-            <span aria-hidden="true">%</span>
-          </label>
+          <ScaleInput
+            frame={frame}
+            isCancellation={isScaleInputCancellation}
+            isEditing={isScaleInputEditing}
+            onScaleCancel={onScaleCancel}
+            onScaleCommit={onScaleCommit}
+            onScaleInputStart={onScaleInputStart}
+            onScalePreview={onScalePreview}
+            scaleInputValue={scaleInputValue}
+            screenScale={screenScale}
+            setScaleInputValue={setScaleInputValue}
+          />
         </>
       )}
       <header
@@ -200,6 +169,85 @@ export function SheetFrame({
         {children(bodyRef)}
       </div>
     </article>
+  );
+}
+
+function ScaleInput({
+  frame,
+  isCancellation,
+  isEditing,
+  onScaleCancel,
+  onScaleCommit,
+  onScaleInputStart,
+  onScalePreview,
+  scaleInputValue,
+  screenScale,
+  setScaleInputValue,
+}: {
+  frame: SheetFrameProjection;
+  isCancellation: MutableRefObject<boolean>;
+  isEditing: MutableRefObject<boolean>;
+  onScaleCancel: () => void;
+  onScaleCommit: (sheetId: string, visualScale: number) => void;
+  onScaleInputStart: (sheetId: string) => void;
+  onScalePreview: (sheetId: string, visualScale: number) => void;
+  scaleInputValue: string;
+  screenScale: number;
+  setScaleInputValue: (value: string) => void;
+}) {
+  const cancelRef = useRef(onScaleCancel);
+  cancelRef.current = onScaleCancel;
+  useEffect(() => () => cancelRef.current(), []);
+
+  return (
+    <label className="sheet-frame-scale-control" style={{ transform: `scale(${1 / screenScale})` }}>
+      <span className="visually-hidden">Scale sheet {frame.name}</span>
+      <input
+        aria-label={`Scale sheet ${frame.name} percentage`}
+        inputMode="decimal"
+        onBlur={() => {
+          if (isCancellation.current) {
+            isCancellation.current = false;
+            return;
+          }
+          isEditing.current = false;
+          setScaleInputValue(scalePercentage(frame.visualScale));
+          onScaleCancel();
+        }}
+        onChange={(event) => {
+          setScaleInputValue(event.currentTarget.value);
+          const value = Number(event.currentTarget.value);
+          if (Number.isFinite(value) && value > 0) onScalePreview(frame.id, value / 100);
+        }}
+        onFocus={() => {
+          isEditing.current = true;
+          onScaleInputStart(frame.id);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            isEditing.current = false;
+            isCancellation.current = true;
+            setScaleInputValue(scalePercentage(frame.visualScale));
+            onScaleCancel();
+            event.currentTarget.blur();
+          }
+          if (event.key === 'Enter') {
+            const value = Number(event.currentTarget.value);
+            if (Number.isFinite(value) && value > 0) {
+              isEditing.current = false;
+              isCancellation.current = true;
+              const visualScale = clampSheetVisualScale(value / 100);
+              setScaleInputValue(scalePercentage(visualScale));
+              onScaleCommit(frame.id, visualScale);
+              event.currentTarget.blur();
+            }
+          }
+        }}
+        type="number"
+        value={scaleInputValue}
+      />
+      <span aria-hidden="true">%</span>
+    </label>
   );
 }
 

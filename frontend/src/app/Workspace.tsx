@@ -142,6 +142,7 @@ export function Workspace({
     stopSheetFrameResize,
     stopSheetFrameScale,
     previewSheetFrameScale,
+    startSheetFrameScaleInput,
   } = useSheetFrameInteractions({
     commands,
     viewportScale: workspaceController.viewport.scale,
@@ -277,6 +278,7 @@ export function Workspace({
               onScaleCommit={commitSheetFrameScale}
               onScaleMove={handleSheetFrameScaleMove}
               onScalePreview={previewSheetFrameScale}
+              onScaleInputStart={startSheetFrameScaleInput}
               onScaleStart={handleSheetFrameScaleStart}
               onScaleStop={stopSheetFrameScale}
               onSheetFrameDragCancel={cancelSheetFrameDrag}

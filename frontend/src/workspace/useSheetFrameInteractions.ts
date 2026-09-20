@@ -22,6 +22,7 @@ export function useSheetFrameInteractions({
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
   const sheetFrameResize = useRef<SheetFrameResize | null>(null);
   const sheetFrameScale = useRef<SheetFrameScale | null>(null);
+  const numericSheetFrameScale = useRef<{ sheetId: string; startVisualScale: number } | null>(null);
   const [frameLayoutPreview, setFrameLayoutPreview] = useState<SheetFrameLayoutPreview | null>(null);
   const [frameScalePreview, setFrameScalePreview] = useState<{ sheetId: string; visualScale: number } | null>(null);
   const [interactionPinnedSheetId, setInteractionPinnedSheetId] = useState<string | null>(null);
@@ -196,6 +197,7 @@ export function useSheetFrameInteractions({
     if (event && sheetFrameScale.current?.pointerId !== event.pointerId) return;
     const current = sheetFrameScale.current;
     sheetFrameScale.current = null;
+    numericSheetFrameScale.current = null;
     setFrameScalePreview(null);
     setInteractionPinnedSheetId(null);
     if (current?.pointerId !== undefined && event?.currentTarget?.hasPointerCapture?.(current.pointerId)) {
@@ -232,13 +234,24 @@ export function useSheetFrameInteractions({
   }
 
   function previewSheetFrameScale(sheetId: string, visualScale: number) {
+    if (numericSheetFrameScale.current?.sheetId !== sheetId) return;
     setFrameScalePreview({ sheetId, visualScale: clampSheetVisualScale(visualScale) });
+  }
+
+  function startSheetFrameScaleInput(sheetId: string) {
+    const sheet = findSheetById(workbook, sheetId);
+    if (!sheet) return;
+    numericSheetFrameScale.current = { sheetId, startVisualScale: sheet.frame.visualScale };
+    setFrameScalePreview({ sheetId, visualScale: sheet.frame.visualScale });
+    setInteractionPinnedSheetId(sheetId);
   }
 
   function commitSheetFrameScale(sheetId: string, visualScale: number) {
     const sheet = findSheetById(workbook, sheetId);
     const next = clampSheetVisualScale(visualScale);
+    numericSheetFrameScale.current = null;
     setFrameScalePreview(null);
+    setInteractionPinnedSheetId(null);
     if (sheet && sheet.frame.visualScale !== next) commands.setSheetVisualScale(sheetId, next);
   }
 
@@ -266,6 +279,7 @@ export function useSheetFrameInteractions({
     stopSheetFrameResize,
     stopSheetFrameScale,
     previewSheetFrameScale,
+    startSheetFrameScaleInput,
     commitSheetFrameScale,
   };
 }
