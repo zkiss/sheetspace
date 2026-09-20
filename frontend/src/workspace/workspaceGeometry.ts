@@ -1,4 +1,4 @@
-import { SheetFrameSize, SheetFrameProjection, WorkspacePosition } from '@workbook/core/model';
+import { MAX_SHEET_VISUAL_SCALE, MIN_SHEET_VISUAL_SCALE, SheetFrameSize, SheetFrameProjection, WorkspacePosition } from '@workbook/core/model';
 import type { SheetFrameResize, WorkspaceViewport } from './workspaceContracts';
 
 export const MIN_SHEET_FRAME_WIDTH = 180;
@@ -102,6 +102,24 @@ export function workspaceDeltaFromClient(
   };
 }
 
+/** The only scale used to translate a client-space grid delta back to logical units. */
+export function effectiveSheetScreenScale(viewportScale: number, visualScale: number): number {
+  return normalizedWorkspaceZoom(viewportScale) * clampSheetVisualScale(visualScale);
+}
+
+export function clampSheetVisualScale(scale: number): number {
+  return Math.min(MAX_SHEET_VISUAL_SCALE, Math.max(MIN_SHEET_VISUAL_SCALE, finitePositiveOr(scale, 1)));
+}
+
+export function logicalDeltaFromClient(
+  startClientPoint: WorkspacePosition,
+  currentClientPoint: WorkspacePosition,
+  viewportScale: number,
+  visualScale: number,
+): WorkspacePosition {
+  return workspaceDeltaFromClient(startClientPoint, currentClientPoint, effectiveSheetScreenScale(viewportScale, visualScale));
+}
+
 export function surfaceDeltaFromClient(
   startClientPoint: WorkspacePosition,
   currentClientPoint: WorkspacePosition,
@@ -203,14 +221,15 @@ export function surfaceSize(element: HTMLElement): SheetFrameSize {
 }
 
 export function workspaceRectForFrame(
-  frame: Pick<SheetFrameProjection, 'position' | 'size'>,
+  frame: Pick<SheetFrameProjection, 'position' | 'size'> & Partial<Pick<SheetFrameProjection, 'visualScale'>>,
 ): WorkspaceTargetRect {
   const size = clampSheetFrameSize(frame.size);
+  const scale = clampSheetVisualScale(frame.visualScale ?? 1);
   return {
     left: frame.position.x,
     top: frame.position.y,
-    right: frame.position.x + size.width,
-    bottom: frame.position.y + size.height,
+    right: frame.position.x + size.width * scale,
+    bottom: frame.position.y + size.height * scale,
   };
 }
 

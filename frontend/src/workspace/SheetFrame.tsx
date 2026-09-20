@@ -2,7 +2,7 @@ import { useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObj
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
-import { clampSheetFrameSize } from '@workspace/workspaceGeometry';
+import { clampSheetFrameSize, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
 import '@workspace/SheetFrame.css';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
@@ -27,12 +27,19 @@ export function SheetFrame({
   onResizeMove,
   onResizeStart,
   onResizeStop,
+  onScaleCancel,
+  onScaleMove,
+  onScaleStart,
+  onScaleStop,
+  onScalePreview,
+  onScaleCommit,
   onSheetFrameDragCancel,
   onSheetFrameInteraction,
   onSheetFrameDragMove,
   onSheetFrameDragStart,
   onSheetFrameDragStop,
   rowCount,
+  viewportScale,
 }: {
   children: (scrollContainerRef: RefObject<HTMLDivElement>) => ReactNode;
   columnCount: number;
@@ -44,15 +51,23 @@ export function SheetFrame({
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
   onResizeStart: (sheetId: string, direction: SheetFrameResizeDirection, event: PointerEvent<HTMLElement>) => void;
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
+  onScaleCancel: (event?: PointerEvent<HTMLElement>) => void;
+  onScaleMove: (event: PointerEvent<HTMLElement>) => void;
+  onScaleStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
+  onScaleStop: (event: PointerEvent<HTMLElement>) => void;
+  onScalePreview: (sheetId: string, visualScale: number) => void;
+  onScaleCommit: (sheetId: string, visualScale: number) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameInteraction: () => void;
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
   rowCount: number;
+  viewportScale: number;
 }) {
   const frameSize = clampSheetFrameSize(frame.size);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const screenScale = effectiveSheetScreenScale(viewportScale, frame.visualScale);
 
   return (
     <article
@@ -65,6 +80,7 @@ export function SheetFrame({
       data-column-count={columnCount}
       data-frame-height={frameSize.height}
       data-frame-width={frameSize.width}
+      data-visual-scale={frame.visualScale}
       data-position-x={frame.position.x}
       data-position-y={frame.position.y}
       data-row-count={rowCount}
@@ -83,6 +99,8 @@ export function SheetFrame({
         zIndex: isNavigationReveal ? FLOATING_OVERLAY_Z_INDEX : frame.zIndex,
         width: frameSize.width,
         height: frameSize.height,
+        transform: `scale(${frame.visualScale})`,
+        transformOrigin: 'top left',
       }}
     >
       {SHEET_FRAME_RESIZE_HANDLES.map(([handle, direction]) => (
@@ -102,6 +120,44 @@ export function SheetFrame({
           role="separator"
         />
       ))}
+      {isActiveSheet && (
+        <>
+          <div
+            aria-label={`Scale sheet ${frame.name}`}
+            className="sheet-frame-scale-handle"
+            data-testid="sheet-frame-scale-handle"
+            onPointerCancel={onScaleCancel}
+            onPointerDown={(event) => onScaleStart(frame.id, event)}
+            onPointerMove={onScaleMove}
+            onPointerUp={onScaleStop}
+            role="slider"
+            style={{ transform: `scale(${1 / screenScale})` }}
+          />
+          <label className="sheet-frame-scale-control" style={{ transform: `scale(${1 / screenScale})` }}>
+            <span className="visually-hidden">Scale sheet {frame.name}</span>
+            <input
+              aria-label={`Scale sheet ${frame.name} percentage`}
+              defaultValue={Math.round(frame.visualScale * 100)}
+              inputMode="decimal"
+              onBlur={(event) => {
+                const value = Number(event.currentTarget.value);
+                if (Number.isFinite(value) && value > 0) onScaleCommit(frame.id, value / 100);
+                else onScaleCancel();
+              }}
+              onChange={(event) => {
+                const value = Number(event.currentTarget.value);
+                if (Number.isFinite(value) && value > 0) onScalePreview(frame.id, value / 100);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') { event.currentTarget.value = String(Math.round(frame.visualScale * 100)); onScaleCancel(); event.currentTarget.blur(); }
+                if (event.key === 'Enter') event.currentTarget.blur();
+              }}
+              type="number"
+            />
+            <span aria-hidden="true">%</span>
+          </label>
+        </>
+      )}
       <header
         className="sheet-frame-header"
         data-testid="sheet-frame-header"

@@ -10,6 +10,7 @@ function commands() {
   return {
     moveSheetFrame: vi.fn(),
     resizeSheetFrame: vi.fn(),
+    setSheetVisualScale: vi.fn(),
   } satisfies SheetFrameLayoutCommands;
 }
 
@@ -233,5 +234,26 @@ describe('useSheetFrameInteractions', () => {
     });
     expect(result.current.frameLayoutPreview).toBeNull();
     expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
+  });
+
+  it('previews combined-scale resizing and commits scale only when the scale handle stops', () => {
+    const workbook = workbookWithSheets([{
+      ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }),
+      frame: { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }).frame, visualScale: 0.5 },
+    }]);
+    const { commands: testCommands, result } = renderInteractions({ viewportScale: 2, workbook });
+    act(() => {
+      result.current.handleSheetFrameResizeStart('sheet-inputs', { horizontal: 1, vertical: 0 }, pointerEvent({ clientX: 0, clientY: 0 }));
+      result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 100, clientY: 0 }));
+    });
+    expect(result.current.frameLayoutPreview?.size.width).toBe(340);
+    act(() => {
+      result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0 }));
+      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 200, clientY: 0 }));
+    });
+    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 1 });
+    expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
+    act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 200, clientY: 0 })));
+    expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 1);
   });
 });

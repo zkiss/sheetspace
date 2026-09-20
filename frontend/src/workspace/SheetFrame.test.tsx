@@ -18,6 +18,12 @@ describe('SheetFrame', () => {
       onResizeMove: vi.fn(),
       onResizeStart: vi.fn(),
       onResizeStop: vi.fn(),
+      onScaleCancel: vi.fn(),
+      onScaleCommit: vi.fn(),
+      onScaleMove: vi.fn(),
+      onScalePreview: vi.fn(),
+      onScaleStart: vi.fn(),
+      onScaleStop: vi.fn(),
       onSheetFrameDragCancel: vi.fn(),
       onSheetFrameDragMove: vi.fn(),
       onSheetFrameDragStart: vi.fn(),
@@ -34,6 +40,7 @@ describe('SheetFrame', () => {
         isNavigationReveal={false}
         {...interactions}
         rowCount={6}
+        viewportScale={1}
       >
         {() => <table aria-label="Inputs grid" />}
       </SheetFrame>,

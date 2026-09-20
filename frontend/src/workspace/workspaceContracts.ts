@@ -9,6 +9,7 @@ export type PendingSheetMenu = {
 export type SheetFrameLayoutCommands = {
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
+  setSheetVisualScale: (sheetId: string, visualScale: number) => void;
 };
 
 export type WorkspaceViewport = {
@@ -38,4 +39,11 @@ export type SheetFrameResize = {
   startPosition: WorkspacePosition;
   startFrameSize: SheetFrameSize;
   direction: SheetFrameResizeDirection;
+};
+
+export type SheetFrameScale = {
+  pointerId: number;
+  sheetId: string;
+  startClientX: number;
+  startVisualScale: number;
 };

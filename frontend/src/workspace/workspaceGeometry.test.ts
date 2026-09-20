@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   addFiniteWorkspaceCoordinate,
+  effectiveSheetScreenScale,
   clampSheetFrameSize,
   clampWorkspaceZoom,
   normalizedWheelDelta,
@@ -169,6 +170,13 @@ describe('workspaceGeometry', () => {
       position: { x: 120, y: 80 },
       size: { width: 10, height: 20 },
     })).toEqual({ left: 120, top: 80, right: 300, bottom: 200 });
+  });
+
+  it('uses visual scale for rendered frame extents and composes it with viewport scale', () => {
+    expect(effectiveSheetScreenScale(2, 0.5)).toBe(1);
+    expect(workspaceRectForFrame({
+      position: { x: 120, y: 80 }, size: { width: 240, height: 160 }, visualScale: 0.5,
+    })).toEqual({ left: 120, top: 80, right: 240, bottom: 160 });
   });
 
   it('projects resized surfaces through pan and zoom into workspace bounds', () => {
