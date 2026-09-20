@@ -92,7 +92,7 @@ class DefaultWorkbookApplication(
 
     override fun loadSheet(sheetId: String): SheetDocument =
         store.loadSheet(SheetId(sheetId))
-            ?: reject(WorkbookApplicationError.SHEET_NOT_FOUND)
+            ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
 
     override fun createSheet(command: CreateSheetCommand): SheetDocument {
         validateFrameCommand(command.position, command.frameSize, command.visualScale, command.zIndex)
@@ -110,7 +110,7 @@ class DefaultWorkbookApplication(
                 )
             ) {
                 is SheetNameResult.Valid -> result.value
-                is SheetNameResult.Invalid -> reject(result.reason.applicationError)
+                is SheetNameResult.Invalid -> throw WorkbookApplicationException(result.reason.applicationError)
             }
             workbook.addSheet(createdSheet)
         }
@@ -129,7 +129,7 @@ class DefaultWorkbookApplication(
             command.frameSize == null &&
             command.visualScale == null
         ) {
-            reject(WorkbookApplicationError.SHEET_UPDATE_REQUIRED)
+            throw WorkbookApplicationException(WorkbookApplicationError.SHEET_UPDATE_REQUIRED)
         }
         validateOptionalFrameCommand(command.position, command.frameSize, command.visualScale)
 
@@ -145,7 +145,7 @@ class DefaultWorkbookApplication(
                     )
                 ) {
                     is SheetNameResult.Valid -> current.rename(result.value)
-                    is SheetNameResult.Invalid -> reject(result.reason.applicationError)
+                    is SheetNameResult.Invalid -> throw WorkbookApplicationException(result.reason.applicationError)
                 }
             }
             workbook.replaceSheet(
@@ -166,13 +166,13 @@ class DefaultWorkbookApplication(
     }
 
     override fun updateSheetZOrder(updates: List<SheetZOrderUpdate>): List<SheetDocument> {
-        if (updates.isEmpty()) reject(WorkbookApplicationError.SHEET_Z_ORDER_UPDATE_REQUIRED)
+        if (updates.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_Z_ORDER_UPDATE_REQUIRED)
         if (updates.map(SheetZOrderUpdate::sheetId).distinct().size != updates.size) {
-            reject(WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE)
+            throw WorkbookApplicationException(WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE)
         }
         updates.forEach { update ->
             loadSheet(update.sheetId)
-            if (update.zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
+            if (update.zIndex < 1) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
         }
         return store.updateSheetZOrder(
             updates.map { update ->
@@ -188,37 +188,37 @@ class DefaultWorkbookApplication(
         val id = SheetId(sheetId)
         store.updateWorkbook(ExpectedSheetRevision(sheetId, expectedRevision)) { workbook ->
             if (workbook.findSheet(id) == null) {
-                reject(WorkbookApplicationError.SHEET_NOT_FOUND)
+                throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
             }
             workbook.removeSheet(id)
         }
     }
 
     override fun writeCells(command: CellPatchCommand): List<SheetDocument> {
-        if (command.cells.isEmpty()) reject(WorkbookApplicationError.EMPTY_CELL_PATCH)
+        if (command.cells.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.EMPTY_CELL_PATCH)
         if (command.cells.any { write ->
                 write.sheetId.toUuidBytesOrNull() == null ||
                     write.rowId.toUuidBytesOrNull() == null ||
                     write.columnId.toUuidBytesOrNull() == null
             }
-        ) reject(WorkbookApplicationError.INVALID_CELL_PATCH)
+        ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         if (command.expectedRevisions.any { it.sheetId.toUuidBytesOrNull() == null || it.revision < 0 }) {
-            reject(WorkbookApplicationError.INVALID_CELL_PATCH)
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         if (command.cells.map { Triple(it.sheetId, it.rowId, it.columnId) }.distinct().size != command.cells.size) {
-            reject(WorkbookApplicationError.DUPLICATE_CELL_WRITE)
+            throw WorkbookApplicationException(WorkbookApplicationError.DUPLICATE_CELL_WRITE)
         }
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).distinct().size != command.expectedRevisions.size) {
-            reject(WorkbookApplicationError.DUPLICATE_SHEET_REVISION)
+            throw WorkbookApplicationException(WorkbookApplicationError.DUPLICATE_SHEET_REVISION)
         }
         val touchedSheetIds = command.cells.map(SheetCellWrite::sheetId).distinct()
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != touchedSheetIds.toSet()) {
-            reject(WorkbookApplicationError.INVALID_CELL_PATCH)
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         command.cells.forEach { write ->
             val sheet = loadSheet(write.sheetId)
             if (RowId(write.rowId) !in sheet.tabularContent.rows || ColumnId(write.columnId) !in sheet.tabularContent.columns) {
-                reject(WorkbookApplicationError.INVALID_CELL_COORDINATE)
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_COORDINATE)
             }
         }
         command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
@@ -247,7 +247,7 @@ class DefaultWorkbookApplication(
         val id = SheetId(sheetId)
         val updated = store.updateWorkbook(ExpectedSheetRevision(sheetId, expectedRevision)) { workbook ->
             val current = workbook.findSheet(id)
-                ?: reject(WorkbookApplicationError.SHEET_NOT_FOUND)
+                ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
             transform(workbook, current)
         }
         return updated.documents.getValue(id)
@@ -260,10 +260,10 @@ private fun validateFrameCommand(
     visualScale: Double,
     zIndex: Int?,
 ) {
-    if (!position.isValid()) reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
-    if (!frameSize.isValid()) reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
-    if (!isValidSheetVisualScale(visualScale)) reject(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE)
-    if (zIndex != null && zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
+    if (!position.isValid()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_POSITION)
+    if (!frameSize.isValid()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
+    if (!isValidSheetVisualScale(visualScale)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE)
+    if (zIndex != null && zIndex < 1) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
 }
 
 private fun validateOptionalFrameCommand(
@@ -271,9 +271,9 @@ private fun validateOptionalFrameCommand(
     frameSize: SheetFrameSize?,
     visualScale: Double?,
 ) {
-    if (position?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
-    if (frameSize?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
-    if (visualScale != null && !isValidSheetVisualScale(visualScale)) reject(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE)
+    if (position?.isValid() == false) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_POSITION)
+    if (frameSize?.isValid() == false) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
+    if (visualScale != null && !isValidSheetVisualScale(visualScale)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE)
 }
 
 private val SheetNameError.applicationError: WorkbookApplicationError
@@ -281,7 +281,3 @@ private val SheetNameError.applicationError: WorkbookApplicationError
         SheetNameError.EMPTY -> WorkbookApplicationError.SHEET_NAME_REQUIRED
         SheetNameError.DUPLICATE -> WorkbookApplicationError.SHEET_NAME_DUPLICATE
     }
-
-private fun reject(error: WorkbookApplicationError): Nothing {
-    throw WorkbookApplicationException(error)
-}
