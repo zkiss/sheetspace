@@ -18,7 +18,8 @@ describe('SheetFrame', () => {
       onResizeMove: vi.fn(),
       onResizeStart: vi.fn(),
       onResizeStop: vi.fn(),
-      onScaleCancel: vi.fn(),
+      onScaleInputCancel: vi.fn(),
+      onScalePointerCancel: vi.fn(),
       onScaleCommit: vi.fn(),
       onScaleMove: vi.fn(),
       onScalePreview: vi.fn(),
@@ -69,7 +70,7 @@ describe('SheetFrame', () => {
   it('synchronizes handle commits, commits numeric previews on Enter, and cancels blur', () => {
     const interactions = {
       onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
       onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
     };
     const frame = testFrame();
@@ -91,7 +92,7 @@ describe('SheetFrame', () => {
     fireEvent.blur(input);
     expect(interactions.onScalePreview).toHaveBeenLastCalledWith('sheet-inputs', 9.99);
     expect(interactions.onScaleCommit).not.toHaveBeenCalled();
-    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(1);
+    expect(interactions.onScaleInputCancel).toHaveBeenCalledTimes(1);
     expect(input).toHaveValue(200);
 
     fireEvent.focus(input);
@@ -104,14 +105,14 @@ describe('SheetFrame', () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
-    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(2);
+    expect(interactions.onScaleInputCancel).toHaveBeenCalledTimes(2);
     expect(input).toHaveValue(200);
   });
 
   it('cancels an in-progress numeric preview when its control unmounts', () => {
     const interactions = {
       onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
       onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
     };
     const frame = testFrame();
@@ -129,7 +130,7 @@ describe('SheetFrame', () => {
 
     expect(interactions.onScaleInputStart).toHaveBeenCalledWith('sheet-inputs');
     expect(interactions.onScalePreview).toHaveBeenCalledWith('sheet-inputs', 1.5);
-    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(1);
+    expect(interactions.onScaleInputCancel).toHaveBeenCalledTimes(1);
     expect(interactions.onScaleCommit).not.toHaveBeenCalled();
   });
 });

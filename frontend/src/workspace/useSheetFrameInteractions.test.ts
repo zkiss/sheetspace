@@ -291,4 +291,22 @@ describe('useSheetFrameInteractions', () => {
     expect(result.current.interactionPinnedSheetId).toBeNull();
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
   });
+
+  it('preserves a pointer scale session when stale numeric cancellation follows handle takeover', () => {
+    const { commands: testCommands, result } = renderInteractions();
+
+    act(() => {
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.previewSheetFrameScale('sheet-inputs', 1.5);
+      result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0, pointerId: 2 }));
+      result.current.cancelSheetFrameScaleInput('sheet-inputs');
+      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 200, clientY: 0, pointerId: 2 }));
+    });
+
+    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 2 });
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
+    act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 200, clientY: 0, pointerId: 2 })));
+    expect(testCommands.setSheetVisualScale).toHaveBeenCalledTimes(1);
+    expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
+  });
 });

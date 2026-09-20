@@ -26,11 +26,12 @@ export function SheetFrame({
   onResizeMove,
   onResizeStart,
   onResizeStop,
-  onScaleCancel,
+  onScaleInputCancel,
   onScaleMove,
   onScaleStart,
   onScaleStop,
   onScalePreview,
+  onScalePointerCancel,
   onScaleInputStart,
   onScaleCommit,
   onSheetFrameDragCancel,
@@ -51,11 +52,12 @@ export function SheetFrame({
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
   onResizeStart: (sheetId: string, direction: SheetFrameResizeDirection, event: PointerEvent<HTMLElement>) => void;
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
-  onScaleCancel: (event?: PointerEvent<HTMLElement>) => void;
+  onScaleInputCancel: (sheetId: string) => void;
   onScaleMove: (event: PointerEvent<HTMLElement>) => void;
   onScaleStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onScaleStop: (event: PointerEvent<HTMLElement>) => void;
   onScalePreview: (sheetId: string, visualScale: number) => void;
+  onScalePointerCancel: (event: PointerEvent<HTMLElement>) => void;
   onScaleInputStart: (sheetId: string) => void;
   onScaleCommit: (sheetId: string, visualScale: number) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
@@ -134,7 +136,7 @@ export function SheetFrame({
             aria-label={`Scale sheet ${frame.name}`}
             className="sheet-frame-scale-handle"
             data-testid="sheet-frame-scale-handle"
-            onPointerCancel={onScaleCancel}
+            onPointerCancel={onScalePointerCancel}
             onPointerDown={(event) => onScaleStart(frame.id, event)}
             onPointerMove={onScaleMove}
             onPointerUp={onScaleStop}
@@ -145,7 +147,7 @@ export function SheetFrame({
             frame={frame}
             isCancellation={isScaleInputCancellation}
             isEditing={isScaleInputEditing}
-            onScaleCancel={onScaleCancel}
+            onScaleCancel={() => onScaleInputCancel(frame.id)}
             onScaleCommit={onScaleCommit}
             onScaleInputStart={onScaleInputStart}
             onScalePreview={onScalePreview}

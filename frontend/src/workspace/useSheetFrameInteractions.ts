@@ -10,6 +10,10 @@ export type SheetFrameLayoutPreview = {
   size: SheetFrameSize;
 };
 
+type SheetFrameScaleSession =
+  | ({ owner: 'pointer' } & SheetFrameScale)
+  | { owner: 'numeric'; sheetId: string; startVisualScale: number };
+
 export function useSheetFrameInteractions({
   commands,
   viewportScale,
@@ -21,8 +25,7 @@ export function useSheetFrameInteractions({
 }) {
   const sheetFrameDrag = useRef<SheetFrameDrag | null>(null);
   const sheetFrameResize = useRef<SheetFrameResize | null>(null);
-  const sheetFrameScale = useRef<SheetFrameScale | null>(null);
-  const numericSheetFrameScale = useRef<{ sheetId: string; startVisualScale: number } | null>(null);
+  const sheetFrameScaleSession = useRef<SheetFrameScaleSession | null>(null);
   const [frameLayoutPreview, setFrameLayoutPreview] = useState<SheetFrameLayoutPreview | null>(null);
   const [frameScalePreview, setFrameScalePreview] = useState<{ sheetId: string; visualScale: number } | null>(null);
   const [interactionPinnedSheetId, setInteractionPinnedSheetId] = useState<string | null>(null);
@@ -193,23 +196,38 @@ export function useSheetFrameInteractions({
     event.currentTarget?.releasePointerCapture?.(event.pointerId);
   }
 
-  function cancelSheetFrameScale(event?: PointerEvent<HTMLElement>) {
-    if (event && sheetFrameScale.current?.pointerId !== event.pointerId) return;
-    const current = sheetFrameScale.current;
-    sheetFrameScale.current = null;
-    numericSheetFrameScale.current = null;
+  function clearSheetFrameScaleSession() {
+    sheetFrameScaleSession.current = null;
     setFrameScalePreview(null);
     setInteractionPinnedSheetId(null);
-    if (current?.pointerId !== undefined && event?.currentTarget?.hasPointerCapture?.(current.pointerId)) {
+  }
+
+  function cancelSheetFrameScale() {
+    clearSheetFrameScaleSession();
+  }
+
+  function cancelSheetFrameScalePointer(event: PointerEvent<HTMLElement>) {
+    const current = sheetFrameScaleSession.current;
+    if (current?.owner !== 'pointer' || current.pointerId !== event.pointerId) return;
+    clearSheetFrameScaleSession();
+    if (event.currentTarget?.hasPointerCapture?.(current.pointerId)) {
       event.currentTarget.releasePointerCapture(current.pointerId);
     }
+  }
+
+  function cancelSheetFrameScaleInput(sheetId: string) {
+    const current = sheetFrameScaleSession.current;
+    if (current?.owner !== 'numeric' || current.sheetId !== sheetId) return;
+    clearSheetFrameScaleSession();
   }
 
   function handleSheetFrameScaleStart(sheetId: string, event: PointerEvent<HTMLElement>) {
     if (event.button !== 0 && event.button !== undefined) return;
     const sheet = findSheetById(workbook, sheetId);
     if (!sheet) return;
-    sheetFrameScale.current = { pointerId: event.pointerId, sheetId, startClientX: event.clientX, startVisualScale: sheet.frame.visualScale };
+    sheetFrameScaleSession.current = {
+      owner: 'pointer', pointerId: event.pointerId, sheetId, startClientX: event.clientX, startVisualScale: sheet.frame.visualScale,
+    };
     setFrameScalePreview({ sheetId, visualScale: sheet.frame.visualScale });
     setInteractionPinnedSheetId(sheetId);
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -217,41 +235,42 @@ export function useSheetFrameInteractions({
   }
 
   function handleSheetFrameScaleMove(event: PointerEvent<HTMLElement>) {
-    const current = sheetFrameScale.current;
-    if (!current || current.pointerId !== event.pointerId) return;
+    const current = sheetFrameScaleSession.current;
+    if (current?.owner !== 'pointer' || current.pointerId !== event.pointerId) return;
     // 100 device pixels is one doubling; this keeps the drag useful at every sheet scale.
     const visualScale = clampSheetVisualScale(current.startVisualScale * Math.pow(2, (event.clientX - current.startClientX) / 100));
     setFrameScalePreview({ sheetId: current.sheetId, visualScale });
   }
 
   function stopSheetFrameScale(event: PointerEvent<HTMLElement>) {
-    const current = sheetFrameScale.current;
-    if (!current || current.pointerId !== event.pointerId) return;
+    const current = sheetFrameScaleSession.current;
+    if (current?.owner !== 'pointer' || current.pointerId !== event.pointerId) return;
     handleSheetFrameScaleMove(event);
     const visualScale = clampSheetVisualScale(current.startVisualScale * Math.pow(2, (event.clientX - current.startClientX) / 100));
     if (visualScale !== current.startVisualScale) commands.setSheetVisualScale(current.sheetId, visualScale);
-    cancelSheetFrameScale(event);
+    cancelSheetFrameScalePointer(event);
   }
 
   function previewSheetFrameScale(sheetId: string, visualScale: number) {
-    if (numericSheetFrameScale.current?.sheetId !== sheetId) return;
+    const current = sheetFrameScaleSession.current;
+    if (current?.owner !== 'numeric' || current.sheetId !== sheetId) return;
     setFrameScalePreview({ sheetId, visualScale: clampSheetVisualScale(visualScale) });
   }
 
   function startSheetFrameScaleInput(sheetId: string) {
     const sheet = findSheetById(workbook, sheetId);
     if (!sheet) return;
-    numericSheetFrameScale.current = { sheetId, startVisualScale: sheet.frame.visualScale };
+    sheetFrameScaleSession.current = { owner: 'numeric', sheetId, startVisualScale: sheet.frame.visualScale };
     setFrameScalePreview({ sheetId, visualScale: sheet.frame.visualScale });
     setInteractionPinnedSheetId(sheetId);
   }
 
   function commitSheetFrameScale(sheetId: string, visualScale: number) {
+    const current = sheetFrameScaleSession.current;
+    if (current?.owner !== 'numeric' || current.sheetId !== sheetId) return;
     const sheet = findSheetById(workbook, sheetId);
     const next = clampSheetVisualScale(visualScale);
-    numericSheetFrameScale.current = null;
-    setFrameScalePreview(null);
-    setInteractionPinnedSheetId(null);
+    clearSheetFrameScaleSession();
     if (sheet && sheet.frame.visualScale !== next) commands.setSheetVisualScale(sheetId, next);
   }
 
@@ -266,6 +285,8 @@ export function useSheetFrameInteractions({
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
     cancelSheetFrameScale,
+    cancelSheetFrameScaleInput,
+    cancelSheetFrameScalePointer,
     frameLayoutPreview,
     frameScalePreview,
     handleSheetFrameDragMove,

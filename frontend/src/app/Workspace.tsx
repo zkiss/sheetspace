@@ -127,7 +127,8 @@ export function Workspace({
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
-    cancelSheetFrameScale,
+    cancelSheetFrameScaleInput,
+    cancelSheetFrameScalePointer,
     commitSheetFrameScale,
     frameLayoutPreview,
     frameScalePreview,
@@ -274,7 +275,8 @@ export function Workspace({
               onResizeMove={handleSheetFrameResizeMove}
               onResizeStart={handleSheetFrameResizeStart}
               onResizeStop={stopSheetFrameResize}
-              onScaleCancel={cancelSheetFrameScale}
+              onScaleInputCancel={cancelSheetFrameScaleInput}
+              onScalePointerCancel={cancelSheetFrameScalePointer}
               onScaleCommit={commitSheetFrameScale}
               onScaleMove={handleSheetFrameScaleMove}
               onScalePreview={previewSheetFrameScale}
