@@ -1,4 +1,4 @@
-import { MAX_SHEET_VISUAL_SCALE, MIN_SHEET_VISUAL_SCALE, SheetFrameSize, SheetFrameProjection, WorkspacePosition } from '@workbook/core/model';
+import { clampSheetVisualScale as clampPersistedSheetVisualScale, SheetFrameSize, SheetFrameProjection, WorkspacePosition } from '@workbook/core/model';
 import type { SheetFrameResize, WorkspaceViewport } from './workspaceContracts';
 
 export const MIN_SHEET_FRAME_WIDTH = 180;
@@ -107,8 +107,9 @@ export function effectiveSheetScreenScale(viewportScale: number, visualScale: nu
   return normalizedWorkspaceZoom(viewportScale) * clampSheetVisualScale(visualScale);
 }
 
+/** Workspace geometry uses the same finite scale policy persisted by sheet commands. */
 export function clampSheetVisualScale(scale: number): number {
-  return Math.min(MAX_SHEET_VISUAL_SCALE, Math.max(MIN_SHEET_VISUAL_SCALE, finitePositiveOr(scale, 1)));
+  return clampPersistedSheetVisualScale(scale);
 }
 
 export function logicalDeltaFromClient(

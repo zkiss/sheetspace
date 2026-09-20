@@ -79,8 +79,8 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     return () => window.removeEventListener('keydown', handleHistoryShortcut);
   }, [canRedo, canUndo, commands]);
 
-  function openCreationDialog(position: WorkspacePosition, label: string) {
-    setPendingCreation({ position, label });
+  function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string) {
+    setPendingCreation({ position, viewportScale, label });
     setSheetName('');
     setError('');
   }
@@ -97,7 +97,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    const result = commands.createSheet(sheetName, pendingCreation.position);
+    const result = commands.createSheet(sheetName, pendingCreation.position, pendingCreation.viewportScale);
 
     if (!result.ok) {
       setError(validationMessage(result.reason));

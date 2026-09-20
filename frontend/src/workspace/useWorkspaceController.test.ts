@@ -94,7 +94,7 @@ describe('useWorkspaceController', () => {
       result.current.createSheetAtViewportCenter();
     });
 
-    expect(onCreateSheet).toHaveBeenCalledWith({ x: 400, y: 350 }, 'Create sheet at viewport center');
+    expect(onCreateSheet).toHaveBeenCalledWith({ x: 400, y: 350 }, 1, 'Create sheet at viewport center');
     expect(result.current.pendingSheetMenu).toBeNull();
   });
 
@@ -108,6 +108,6 @@ describe('useWorkspaceController', () => {
       result.current.createSheetAtViewportCenter();
     });
 
-    expect(onCreateSheet).toHaveBeenCalledWith({ x: 501, y: 401 }, 'Create sheet at viewport center');
+    expect(onCreateSheet).toHaveBeenCalledWith({ x: 501, y: 401 }, 1, 'Create sheet at viewport center');
   });
 });

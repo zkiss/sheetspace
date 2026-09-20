@@ -10,9 +10,23 @@ describe('useWorkbookController sheet creation', () => {
   it('keeps an in-flight create out of the canonical workbook', () => {
     const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(new Promise<SheetDocument>(() => undefined)) });
     const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: workbookWithSheets([]) }));
-    act(() => expect(result.current.commands.createSheet('Inputs', { x: 24, y: 48 })).toEqual({ ok: true, name: 'Inputs' }));
+    act(() => expect(result.current.commands.createSheet('Inputs', { x: 24, y: 48 }, 2)).toEqual({ ok: true, name: 'Inputs' }));
     expect(sheetsInOrder(result.current.workbook)).toEqual([]);
-    expect(result.current.creatingFrames).toMatchObject([{ kind: 'creating', name: 'Inputs', position: { x: 24, y: 48 } }]);
+    expect(result.current.creatingFrames).toMatchObject([{ kind: 'creating', name: 'Inputs', position: { x: 24, y: 48 }, visualScale: 0.5 }]);
+    expect(apiClient.createSheet).toHaveBeenCalledWith({ name: 'Inputs', position: { x: 24, y: 48 }, visualScale: 0.5, zIndex: 1 });
+  });
+
+  it.each([
+    [0.1, 8],
+    [8, 0.125],
+  ])('clamps the inverse viewport scale for creation at zoom %s', (viewportScale, visualScale) => {
+    const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(new Promise<SheetDocument>(() => undefined)) });
+    const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: workbookWithSheets([]) }));
+
+    act(() => { result.current.commands.createSheet('Inputs', { x: 24, y: 48 }, viewportScale); });
+
+    expect(result.current.creatingFrames[0]).toMatchObject({ visualScale, zIndex: 1 });
+    expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({ visualScale, zIndex: 1 }));
   });
 
   it('persists edits to a saved sheet while another sheet creation remains unresolved', async () => {

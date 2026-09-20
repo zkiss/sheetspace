@@ -81,7 +81,7 @@ export function Workspace({
   onClearCell: (target: CellTarget) => void;
   onCommitEdit: (session?: CellEditSession) => void;
   onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
-  onCreateSheet: (position: WorkspacePosition, label: string) => void;
+  onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;

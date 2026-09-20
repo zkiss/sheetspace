@@ -4,6 +4,11 @@ export const MIN_SHEET_VISUAL_SCALE = 0.1;
 export const MAX_SHEET_VISUAL_SCALE = 8;
 export const DEFAULT_SHEET_VISUAL_SCALE = 1;
 export function isValidSheetVisualScale(scale: number): boolean { return Number.isFinite(scale) && scale >= MIN_SHEET_VISUAL_SCALE && scale <= MAX_SHEET_VISUAL_SCALE; }
+/** Normalizes user and viewport-derived scale values to the persisted sheet-scale range. */
+export function clampSheetVisualScale(scale: number): number {
+  const finiteScale = Number.isFinite(scale) && scale > 0 ? scale : DEFAULT_SHEET_VISUAL_SCALE;
+  return Math.min(MAX_SHEET_VISUAL_SCALE, Math.max(MIN_SHEET_VISUAL_SCALE, finiteScale));
+}
 
 export type SheetId = string;
 export type RowId = string;
