@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
-import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
 import { clampSheetFrameSize, clampSheetVisualScale, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
 import '@workspace/SheetFrame.css';
 
@@ -103,7 +102,7 @@ export function SheetFrame({
       style={{
         left: frame.position.x,
         top: frame.position.y,
-        zIndex: isNavigationReveal ? FLOATING_OVERLAY_Z_INDEX : frame.zIndex,
+        zIndex: frame.zIndex,
         width: frameSize.width,
         height: frameSize.height,
         transform: `scale(${frame.visualScale})`,
