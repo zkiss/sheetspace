@@ -110,6 +110,34 @@ describe('SheetFrame', () => {
     expect(input).toHaveValue(200);
   });
 
+  it('keeps the inverse-scaled handle outside the clipped sheet body at miniature combined scale', () => {
+    const interactions = {
+      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
+      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+    };
+    const frame = { ...testFrame(), visualScale: 0.25 };
+
+    render(
+      <SheetFrame columnCount={4} frame={frame} isActiveSheet isNavigationReveal={false} {...interactions} rowCount={6} viewportScale={0.5}>
+        {() => <table aria-label="Inputs grid" />}
+      </SheetFrame>,
+    );
+
+    const body = screen.getByTestId('sheet-frame-body');
+    const controls = screen.getByTestId('sheet-frame-controls');
+    const handle = screen.getByTestId('sheet-frame-scale-handle');
+
+    expect(controls).toContainElement(handle);
+    expect(body).not.toContainElement(handle);
+    expect(handle).toHaveStyle({ transform: 'scale(8)' });
+
+    // The handle remains in the unclipped frame layer even though it protrudes
+    // beyond the clipped scroll body, so its full stable-size target is usable.
+    fireEvent.pointerDown(handle);
+    expect(interactions.onScaleStart).toHaveBeenCalledWith('sheet-inputs', expect.anything());
+  });
+
   it('cancels an in-progress numeric preview when its control unmounts', () => {
     const interactions = {
       onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),

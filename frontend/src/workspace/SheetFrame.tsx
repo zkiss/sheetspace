@@ -131,7 +131,7 @@ export function SheetFrame({
         />
       ))}
       {isActiveSheet && (
-        <>
+        <div className="sheet-frame-controls" data-testid="sheet-frame-controls">
           <div
             aria-label={`Scale sheet ${frame.name}`}
             className="sheet-frame-scale-handle"
@@ -155,7 +155,7 @@ export function SheetFrame({
             screenScale={screenScale}
             setScaleInputValue={setScaleInputValue}
           />
-        </>
+        </div>
       )}
       <header
         className="sheet-frame-header"

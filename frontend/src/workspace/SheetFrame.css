@@ -4,7 +4,11 @@
   flex-direction: column;
   border: 1px solid #bac7ce;
   border-radius: 6px;
-  overflow: hidden;
+  /*
+   * Resize and scale affordances intentionally extend beyond the frame edge.
+   * Keep this layer unclipped; the scrollable sheet body owns content clipping.
+   */
+  overflow: visible;
   background: #ffffff;
   box-shadow: 0 8px 24px rgb(23 32 42 / 12%);
   cursor: default;
@@ -33,9 +37,19 @@
   transform-origin: center;
 }
 
+.sheet-frame-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.sheet-frame-controls > * { pointer-events: auto; }
+
 .sheet-frame-scale-control {
   position: absolute;
-  z-index: 7;
+  z-index: 1;
   top: 5px;
   right: 5px;
   display: inline-flex;
@@ -130,6 +144,7 @@
   border-bottom: 1px solid #d6dee3;
   padding: 0.65rem 0.8rem;
   background: #f9fbfc;
+  border-radius: 5px 5px 0 0;
   cursor: grab;
   user-select: none;
 }
@@ -154,6 +169,7 @@
   min-height: 0;
   overflow: auto;
   background: #ffffff;
+  border-radius: 0 0 5px 5px;
 }
 
 .sheet-frame-creating { opacity: 0.72; }
