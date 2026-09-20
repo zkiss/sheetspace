@@ -145,21 +145,14 @@ export function SheetFrame({
             <input
               aria-label={`Scale sheet ${frame.name} percentage`}
               inputMode="decimal"
-              onBlur={(event) => {
+              onBlur={() => {
                 if (isScaleInputCancellation.current) {
                   isScaleInputCancellation.current = false;
                   return;
                 }
                 isScaleInputEditing.current = false;
-                const value = Number(event.currentTarget.value);
-                if (Number.isFinite(value) && value > 0) {
-                  const visualScale = clampSheetVisualScale(value / 100);
-                  setScaleInputValue(scalePercentage(visualScale));
-                  onScaleCommit(frame.id, visualScale);
-                } else {
-                  setScaleInputValue(scalePercentage(frame.visualScale));
-                  onScaleCancel();
-                }
+                setScaleInputValue(scalePercentage(frame.visualScale));
+                onScaleCancel();
               }}
               onChange={(event) => {
                 setScaleInputValue(event.currentTarget.value);
@@ -175,7 +168,17 @@ export function SheetFrame({
                   onScaleCancel();
                   event.currentTarget.blur();
                 }
-                if (event.key === 'Enter') event.currentTarget.blur();
+                if (event.key === 'Enter') {
+                  const value = Number(event.currentTarget.value);
+                  if (Number.isFinite(value) && value > 0) {
+                    isScaleInputEditing.current = false;
+                    isScaleInputCancellation.current = true;
+                    const visualScale = clampSheetVisualScale(value / 100);
+                    setScaleInputValue(scalePercentage(visualScale));
+                    onScaleCommit(frame.id, visualScale);
+                    event.currentTarget.blur();
+                  }
+                }
               }}
               type="number"
               value={scaleInputValue}

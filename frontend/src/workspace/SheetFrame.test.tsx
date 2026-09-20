@@ -65,7 +65,7 @@ describe('SheetFrame', () => {
     expect(sheetFrame).toHaveAttribute('data-row-count', '6');
   });
 
-  it('synchronizes the scale control after handle and clamped numeric commits, while cancelling invalid input', () => {
+  it('synchronizes handle commits, commits numeric previews on Enter, and cancels blur', () => {
     const interactions = {
       onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
       onScaleCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
@@ -88,13 +88,22 @@ describe('SheetFrame', () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '999' } });
     fireEvent.blur(input);
+    expect(interactions.onScalePreview).toHaveBeenLastCalledWith('sheet-inputs', 9.99);
+    expect(interactions.onScaleCommit).not.toHaveBeenCalled();
+    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(1);
+    expect(input).toHaveValue(200);
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '999' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.blur(input);
     expect(interactions.onScaleCommit).toHaveBeenLastCalledWith('sheet-inputs', 8);
     expect(input).toHaveValue(800);
 
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
-    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(1);
+    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(2);
     expect(input).toHaveValue(200);
   });
 });
