@@ -89,6 +89,75 @@ async function expectQueuedAxisReconciliation(axis: 'row' | 'column') {
 }
 
 describe('useWorkbookController content mutations', () => {
+  it('holds an undo save behind its delayed original content save', async () => {
+    const firstSave = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
+    const writeCells = vi.fn().mockReturnValueOnce(firstSave.promise).mockResolvedValue({ sheets: [{ sheetId: 'sheet-inputs', revision: 2 }] });
+    const apiClient = autosaveClient({ writeCells });
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      result.current.commands.updateCellContent(sheet.id, 'A1', '7');
+      result.current.commands.undo();
+    });
+
+    await waitFor(() => expect(writeCells).toHaveBeenCalledTimes(1));
+    expect(writeCells).toHaveBeenCalledWith(
+      [{ sheetId: sheet.id, revision: 0 }],
+      [{ sheetId: sheet.id, rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1', raw: '7' }],
+    );
+
+    await act(async () => {
+      firstSave.resolve({ sheets: [{ sheetId: sheet.id, revision: 1 }] });
+      await firstSave.promise;
+    });
+
+    await waitFor(() => expect(writeCells).toHaveBeenCalledTimes(2));
+    expect(writeCells).toHaveBeenNthCalledWith(
+      2,
+      [{ sheetId: sheet.id, revision: 1 }],
+      [{ sheetId: sheet.id, rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1', raw: '' }],
+    );
+  });
+
+  it('undoes and redoes content with fresh feedback while leaving presentation outside history', async () => {
+    const apiClient = autosaveClient();
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: '=SUM(A1)' } });
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      result.current.commands.updateCellContent(sheet.id, 'A1', '7');
+      result.current.commands.moveSheetFrame(sheet.id, { x: 90, y: 80 });
+      result.current.commands.undo();
+    });
+
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'A1')).toBeUndefined();
+    expect(findSheetById(result.current.workbook, sheet.id)!.frame.position).toEqual({ x: 90, y: 80 });
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(true);
+    const undoFeedback = result.current.contentHistoryFeedback;
+    expect(undoFeedback?.before).toMatchObject([{ raw: '7' }]);
+    expect(undoFeedback?.after).toMatchObject([{ raw: null }]);
+    expect(Object.isFrozen(undoFeedback)).toBe(true);
+    expect(Object.isFrozen(undoFeedback?.before)).toBe(true);
+    expect(Object.isFrozen(undoFeedback?.before[0]!)).toBe(true);
+
+    act(() => result.current.commands.redo());
+
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'A1')).toBe('7');
+    expect(result.current.formulaResults[sheet.id].B1.display).toBe('7');
+    expect(result.current.contentHistoryFeedback?.identity).not.toBe(undoFeedback?.identity);
+    expect(result.current.contentHistoryFeedback?.before).toMatchObject([{ raw: null }]);
+    expect(result.current.contentHistoryFeedback?.after).toMatchObject([{ raw: '7' }]);
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(3));
+  });
+
   it('keeps committed frame changes outside calculation', () => {
     const apiClient = autosaveClient();
     const sheet = sheetDocument({

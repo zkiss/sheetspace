@@ -74,6 +74,7 @@ export function SheetGrid({
   onKeyboardFocusRequestConsumed,
   navigationHighlightCellKey,
   navigationHighlightRange,
+  historyFeedbackCells,
   formulaResults,
   scrollContainerRef,
   selectionMode,
@@ -104,6 +105,7 @@ export function SheetGrid({
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
+  historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
   selectionMode?: CellSelectionMode;
@@ -204,6 +206,7 @@ export function SheetGrid({
   const navigationAddress = navigationHighlightCellKey
     ? parseCellAddress(navigationHighlightCellKey, sheet)
     : navigationHighlightRange?.start;
+  const historyAddress = parseCellAddress(historyFeedbackCells?.keys().next().value ?? null, sheet);
   // Selection may leave the rendered window. Editors, navigation targets and the
   // active resize capture owner must stay mounted throughout their interaction.
   const pinnedAddresses = [
@@ -211,6 +214,7 @@ export function SheetGrid({
     keyboardFocusAddress,
     focusIntentAddress,
     navigationAddress,
+    historyAddress,
     navigationHighlightRange?.end,
   ]
     .filter(Boolean) as CellAddress[];
@@ -342,6 +346,18 @@ export function SheetGrid({
     if (columnOffset !== undefined) scrollContainer.scrollLeft = Math.round(columnOffset);
     if (rowOffset !== undefined) scrollContainer.scrollTop = Math.round(rowOffset);
   }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, rowMetrics, rows, scrollContainerRef, sheet]);
+
+  useEffect(() => {
+    if (!historyAddress) return;
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+    const rowIndex = axisIndexForDurableIndex(rows, historyAddress.rowIndex);
+    const columnIndex = axisIndexForDurableIndex(columns, historyAddress.columnIndex);
+    const rowOffset = rowMetrics.scrollOffsetForIndex(rowIndex, Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT));
+    const columnOffset = columnMetrics.scrollOffsetForIndex(columnIndex, Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH));
+    if (columnOffset !== undefined) scrollContainer.scrollLeft = Math.round(columnOffset);
+    if (rowOffset !== undefined) scrollContainer.scrollTop = Math.round(rowOffset);
+  }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, rowMetrics, rows, columns, scrollContainerRef]);
 
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
@@ -656,6 +672,7 @@ export function SheetGrid({
               const isNavigationTarget = navigationHighlightRange
                 ? isAddressInRange(address, navigationHighlightRange)
                 : navigationHighlightCellKey === key;
+              const historyFeedback = historyFeedbackCells?.get(key);
 
               return (
                 <SheetGridCell
@@ -668,6 +685,7 @@ export function SheetGrid({
                   isActive={isActive}
                   isEditing={isEditing}
                   isNavigationTarget={isNavigationTarget}
+                  historyFeedback={historyFeedback}
                   isRangeSelected={isRangeSelected}
                   key={key}
                   registerCell={registerCell}

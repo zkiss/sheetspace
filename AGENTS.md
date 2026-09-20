@@ -51,7 +51,7 @@ The outer agent—the agent handling the user's request—owns the Git branch li
 3. Use `<bead-id>-<summary-slug>` for a Bead-backed branch and `<summary-slug>` for any other branch.
 4. Complete the work on that branch, either directly or through Devflow.
 5. Push the completed Deliverable branch.
-6. Only when the user asks, squash-merge the branch into `main` and push `main`.
+6. Only when the user asks, close bead, squash-merge the branch into `main` and push `main`.
 
 When Devflow is selected, prepare the Deliverable branch before invoking `devflow-runner`. Devflow works entirely on that branch and stops when the work is complete. It does not create, switch, push, or merge branches.
 

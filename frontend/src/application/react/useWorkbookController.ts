@@ -1,25 +1,29 @@
 import type { AxisSizeWrite } from '@workbook/core/model';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import {
   workbookApi,
   type WorkbookApi,
 } from '@infrastructure/persistence/workbookApi';
-import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
-import { type CellKey } from '@workbook/core/address';
+import { cellKey, type CellKey } from '@workbook/core/address';
 import type { StableCellIdentity } from '@workbook/core/model';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
+  replayCellPersistenceWrites,
   type AppliedWorkbookOperation,
+  type AffectedWorkbookEntities,
+  type CellPersistenceWrite,
   type WorkbookOperation,
   type WorkbookOperationResult,
 } from '@application/core/userActions';
+import { ContentHistory } from '@application/core/contentHistory';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
@@ -44,14 +48,34 @@ export type WorkbookCommands = {
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
   retryFailedSaves: () => void;
+  undo: () => void;
+  redo: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
 };
 
+export type ContentHistoryCellSnapshot = Readonly<{
+  sheetId: string;
+  rowId: string;
+  columnId: string;
+  raw: string | null;
+  display: string | null;
+}>;
+
+export type ContentHistoryFeedback = Readonly<{
+  identity: string;
+  affected: AffectedWorkbookEntities;
+  before: readonly ContentHistoryCellSnapshot[];
+  after: readonly ContentHistoryCellSnapshot[];
+}>;
+
 export type WorkbookController = {
   commands: WorkbookCommands;
   canRetryFailedSaves: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  contentHistoryFeedback: ContentHistoryFeedback | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];
@@ -65,6 +89,36 @@ type WorkbookControllerState = {
   workbook: Workbook;
   calculationRequest: CalculationRequest;
 };
+
+function contentHistorySnapshot(
+  writes: readonly CellPersistenceWrite[],
+  raw: 'beforeRaw' | 'afterRaw',
+  workbook?: Workbook,
+  formulaResults?: FormulaEvaluationSnapshot,
+): readonly ContentHistoryCellSnapshot[] {
+  return Object.freeze(writes.map((write) => {
+    const sheet = workbook && findSheetById(workbook, write.sheetId);
+    const address = sheet && cellAddressOf(sheet.content, write);
+    const value = write[raw];
+    return Object.freeze({
+      sheetId: write.sheetId,
+      rowId: write.rowId,
+      columnId: write.columnId,
+      raw: value,
+      display: address ? formulaResults?.[write.sheetId]?.[cellKey(address)]?.display ?? value : value,
+    });
+  }));
+}
+
+function contentHistoryAffectedSnapshot(affected: AffectedWorkbookEntities): AffectedWorkbookEntities {
+  return Object.freeze({
+    sheetIds: Object.freeze([...affected.sheetIds]),
+    cells: Object.freeze(affected.cells.map(({ sheetId, cell }) => Object.freeze({
+      sheetId,
+      cell: Object.freeze({ ...cell }),
+    }))),
+  });
+}
 
 export function useWorkbookController({
   apiClient,
@@ -90,6 +144,19 @@ export function useWorkbookController({
   const optimisticWorkbook = useRef(workbook);
   optimisticWorkbook.current = workbook;
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
+  const contentHistoryRef = useRef<ContentHistory | undefined>(undefined);
+  contentHistoryRef.current ??= new ContentHistory();
+  const contentHistory = contentHistoryRef.current;
+  const [, setHistoryRevision] = useState(0);
+  const [contentHistoryFeedback, setContentHistoryFeedback] = useState<WorkbookController['contentHistoryFeedback']>();
+  useEffect(() => {
+    if (!contentHistoryFeedback) return;
+    const identity = contentHistoryFeedback.identity;
+    const timeout = window.setTimeout(() => {
+      setContentHistoryFeedback((current) => current?.identity === identity ? undefined : current);
+    }, 1200);
+    return () => window.clearTimeout(timeout);
+  }, [contentHistoryFeedback]);
   const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
     setControllerState((current) => {
       const nextWorkbook = typeof update === 'function'
@@ -170,10 +237,17 @@ export function useWorkbookController({
     return result.value;
   }
 
-  function applyAction(action: WorkbookOperationInput): AppliedWorkbookOperation | undefined {
+  function applyAction(action: WorkbookOperationInput, recordContentHistory = true): AppliedWorkbookOperation | undefined {
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
     const applied = applyResult(applyWorkbookOperation(optimisticWorkbook.current, operation));
-    if (applied?.changed) savedAutosave.enqueue(operation.operationId, applied.persistence);
+    if (applied?.changed) {
+      savedAutosave.enqueue(operation.operationId, applied.persistence);
+      if (recordContentHistory && operation.kind === 'write-cells' && applied.persistence?.kind === 'write-cells') {
+        setContentHistoryFeedback(undefined);
+        contentHistory.record(applied.persistence.writes, applied.affected);
+        setHistoryRevision((revision) => revision + 1);
+      }
+    }
     return applied;
   }
 
@@ -228,6 +302,26 @@ export function useWorkbookController({
     applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] });
   }
 
+  function replayContentHistory(direction: 'undo' | 'redo') {
+    const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
+    if (!transaction) return;
+    const sourceWorkbook = optimisticWorkbook.current;
+    const expected = direction === 'undo' ? 'after' : 'before';
+    const applied = applyResult(replayCellPersistenceWrites(sourceWorkbook, transaction.writes, expected));
+    // An unavailable entry stays on its stack. This is deterministic and avoids phantom moves.
+    if (!applied?.changed || applied.persistence?.kind !== 'write-cells') return;
+    const operationId = crypto.randomUUID();
+    savedAutosave.enqueue(operationId, applied.persistence);
+    if (direction === 'undo') contentHistory.commitUndo(); else contentHistory.commitRedo();
+    setContentHistoryFeedback(Object.freeze({
+      identity: operationId,
+      affected: contentHistoryAffectedSnapshot(applied.affected),
+      before: contentHistorySnapshot(applied.persistence.writes, 'beforeRaw', sourceWorkbook, formulaResults),
+      after: contentHistorySnapshot(applied.persistence.writes, 'afterRaw'),
+    }));
+    setHistoryRevision((revision) => revision + 1);
+  }
+
   function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
     const localSheetId = sheetId;
     applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
@@ -261,10 +355,15 @@ export function useWorkbookController({
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
+      undo: () => replayContentHistory('undo'),
+      redo: () => replayContentHistory('redo'),
       updateCellContent,
       writeCells,
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
+    canUndo: contentHistory.canUndo,
+    canRedo: contentHistory.canRedo,
+    contentHistoryFeedback,
     formulaResults,
     retryStartupLoad,
     creatingFrames,

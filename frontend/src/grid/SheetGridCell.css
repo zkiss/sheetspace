@@ -30,6 +30,41 @@
   box-shadow: inset 0 0 0 2px #168b7b;
 }
 
+.sheet-grid-cell-history-insertion,
+.sheet-grid-cell-history-removal,
+.sheet-grid-cell-history-replacement {
+  position: relative;
+  z-index: 2;
+  animation: content-history-highlight 1.2s ease-out;
+  background: #fff3a3;
+  box-shadow: inset 0 0 0 2px #c99c00;
+}
+
+.sheet-grid-cell-history-insertion {
+  animation: content-history-highlight 1.2s ease-out, content-history-enter 280ms ease-out;
+}
+
+.sheet-grid-cell-history-removal::after,
+.sheet-grid-cell-history-replacement::after {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: inherit;
+  background: #fff3a3;
+  color: inherit;
+  content: attr(data-history-before);
+  pointer-events: none;
+  animation: content-history-leave 280ms ease-out forwards;
+}
+
+@keyframes content-history-highlight {
+  from { background: #ffe15a; box-shadow: inset 0 0 0 3px #a87d00; }
+  to { background: #fff3a3; box-shadow: inset 0 0 0 2px #c99c00; }
+}
+
+@keyframes content-history-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes content-history-leave { from { opacity: 1; } to { opacity: 0; } }
+
 @keyframes navigation-target-pulse {
   from {
     background: #90d8cd;
@@ -47,6 +82,19 @@
 @media (prefers-reduced-motion: reduce) {
   .sheet-grid-cell-navigation-target {
     animation: none;
+  }
+
+  .sheet-grid-cell-history-insertion,
+  .sheet-grid-cell-history-removal,
+  .sheet-grid-cell-history-replacement,
+  .sheet-grid-cell-history-removal::after,
+  .sheet-grid-cell-history-replacement::after {
+    animation: none;
+  }
+
+  .sheet-grid-cell-history-removal::after,
+  .sheet-grid-cell-history-replacement::after {
+    display: none;
   }
 }
 
