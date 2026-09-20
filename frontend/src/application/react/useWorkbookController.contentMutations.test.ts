@@ -142,16 +142,19 @@ describe('useWorkbookController content mutations', () => {
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(true);
     const undoFeedback = result.current.contentHistoryFeedback;
-    expect(undoFeedback?.before).toMatchObject([{ beforeRaw: '7', afterRaw: null }]);
-    expect(undoFeedback?.after).toMatchObject([{ beforeRaw: '7', afterRaw: null }]);
+    expect(undoFeedback?.before).toMatchObject([{ raw: '7' }]);
+    expect(undoFeedback?.after).toMatchObject([{ raw: null }]);
+    expect(Object.isFrozen(undoFeedback)).toBe(true);
+    expect(Object.isFrozen(undoFeedback?.before)).toBe(true);
+    expect(Object.isFrozen(undoFeedback?.before[0]!)).toBe(true);
 
     act(() => result.current.commands.redo());
 
     expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'A1')).toBe('7');
     expect(result.current.formulaResults[sheet.id].B1.display).toBe('7');
     expect(result.current.contentHistoryFeedback?.identity).not.toBe(undoFeedback?.identity);
-    expect(result.current.contentHistoryFeedback?.before).toMatchObject([{ beforeRaw: null, afterRaw: '7' }]);
-    expect(result.current.contentHistoryFeedback?.after).toMatchObject([{ beforeRaw: null, afterRaw: '7' }]);
+    expect(result.current.contentHistoryFeedback?.before).toMatchObject([{ raw: null }]);
+    expect(result.current.contentHistoryFeedback?.after).toMatchObject([{ raw: '7' }]);
     await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(3));
   });
 

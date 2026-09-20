@@ -55,12 +55,26 @@ export type WorkbookCommands = {
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
 };
 
+export type ContentHistoryCellSnapshot = Readonly<{
+  sheetId: string;
+  rowId: string;
+  columnId: string;
+  raw: string | null;
+}>;
+
+export type ContentHistoryFeedback = Readonly<{
+  identity: string;
+  affected: AffectedWorkbookEntities;
+  before: readonly ContentHistoryCellSnapshot[];
+  after: readonly ContentHistoryCellSnapshot[];
+}>;
+
 export type WorkbookController = {
   commands: WorkbookCommands;
   canRetryFailedSaves: boolean;
   canUndo: boolean;
   canRedo: boolean;
-  contentHistoryFeedback: { identity: string; affected: AffectedWorkbookEntities; before: readonly CellPersistenceWrite[]; after: readonly CellPersistenceWrite[] } | undefined;
+  contentHistoryFeedback: ContentHistoryFeedback | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];
@@ -74,6 +88,28 @@ type WorkbookControllerState = {
   workbook: Workbook;
   calculationRequest: CalculationRequest;
 };
+
+function contentHistorySnapshot(
+  writes: readonly CellPersistenceWrite[],
+  raw: 'beforeRaw' | 'afterRaw',
+): readonly ContentHistoryCellSnapshot[] {
+  return Object.freeze(writes.map((write) => Object.freeze({
+    sheetId: write.sheetId,
+    rowId: write.rowId,
+    columnId: write.columnId,
+    raw: write[raw],
+  })));
+}
+
+function contentHistoryAffectedSnapshot(affected: AffectedWorkbookEntities): AffectedWorkbookEntities {
+  return Object.freeze({
+    sheetIds: Object.freeze([...affected.sheetIds]),
+    cells: Object.freeze(affected.cells.map(({ sheetId, cell }) => Object.freeze({
+      sheetId,
+      cell: Object.freeze({ ...cell }),
+    }))),
+  });
+}
 
 export function useWorkbookController({
   apiClient,
@@ -258,12 +294,12 @@ export function useWorkbookController({
     const operationId = crypto.randomUUID();
     savedAutosave.enqueue(operationId, applied.persistence);
     if (direction === 'undo') contentHistory.commitUndo(); else contentHistory.commitRedo();
-    setContentHistoryFeedback({
+    setContentHistoryFeedback(Object.freeze({
       identity: operationId,
-      affected: applied.affected,
-      before: (applied.persistence.writes as readonly CellPersistenceWrite[]).map((write: CellPersistenceWrite) => ({ ...write })),
-      after: (applied.persistence.writes as readonly CellPersistenceWrite[]).map((write: CellPersistenceWrite) => ({ ...write })),
-    });
+      affected: contentHistoryAffectedSnapshot(applied.affected),
+      before: contentHistorySnapshot(applied.persistence.writes, 'beforeRaw'),
+      after: contentHistorySnapshot(applied.persistence.writes, 'afterRaw'),
+    }));
     setHistoryRevision((revision) => revision + 1);
   }
 

@@ -23,6 +23,22 @@ describe('ContentHistory', () => {
     expect(history.peekUndo()?.writes[0]?.afterRaw).toBe('second');
   });
 
+  it('does not let a retrieved transaction alter its retained replay data', () => {
+    const history = new ContentHistory();
+    history.record([write(null, 'first')], affected);
+
+    const retrieved = history.peekUndo()!;
+    retrieved.writes[0]!.afterRaw = 'mutated';
+    retrieved.affected.cells[0]!.cell.rowId = 'other-row';
+
+    expect(history.peekUndo()).toMatchObject({
+      writes: [write(null, 'first')],
+      affected,
+    });
+    history.commitUndo();
+    expect(history.peekRedo()).toMatchObject({ writes: [write(null, 'first')], affected });
+  });
+
   it('evicts the oldest entries by count and does not retain oversized entries', () => {
     const history = new ContentHistory();
     for (let index = 0; index <= CONTENT_HISTORY_MAX_ENTRIES; index += 1) {

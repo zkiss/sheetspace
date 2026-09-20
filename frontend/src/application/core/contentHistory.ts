@@ -9,6 +9,17 @@ export type ContentTransaction = {
   bytes: number;
 };
 
+function cloneTransaction(transaction: ContentTransaction): ContentTransaction {
+  return {
+    writes: transaction.writes.map((write) => ({ ...write })),
+    affected: {
+      sheetIds: [...transaction.affected.sheetIds],
+      cells: transaction.affected.cells.map(({ sheetId, cell }) => ({ sheetId, cell: { ...cell } })),
+    },
+    bytes: transaction.bytes,
+  };
+}
+
 /** Session-local, bounded history. Oversized transactions are applied but not retained. */
 export class ContentHistory {
   private undoStack: ContentTransaction[] = [];
@@ -18,15 +29,17 @@ export class ContentHistory {
 
   get canUndo() { return this.undoStack.length > 0; }
   get canRedo() { return this.redoStack.length > 0; }
-  peekUndo() { return this.undoStack[this.undoStack.length - 1]; }
-  peekRedo() { return this.redoStack[this.redoStack.length - 1]; }
+  /** Returns a copy so inspection cannot alter a transaction retained for replay. */
+  peekUndo() { const transaction = this.undoStack[this.undoStack.length - 1]; return transaction && cloneTransaction(transaction); }
+  /** Returns a copy so inspection cannot alter a transaction retained for replay. */
+  peekRedo() { const transaction = this.redoStack[this.redoStack.length - 1]; return transaction && cloneTransaction(transaction); }
 
   record(writes: readonly CellPersistenceWrite[], affected: AffectedWorkbookEntities) {
-    const transaction: ContentTransaction = {
-      writes: writes.map((write) => ({ ...write })),
-      affected: { sheetIds: [...affected.sheetIds], cells: affected.cells.map(({ sheetId, cell }) => ({ sheetId, cell: { ...cell } })) },
+    const transaction = cloneTransaction({
+      writes,
+      affected,
       bytes: new TextEncoder().encode(JSON.stringify({ writes, affected })).byteLength,
-    };
+    });
     this.clearRedo();
     if (transaction.bytes > CONTENT_HISTORY_MAX_BYTES) return;
     this.undoStack.push(transaction); this.undoBytes += transaction.bytes;
