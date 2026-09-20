@@ -27,6 +27,7 @@ private fun fixtureWorkbook(): WorkbookState {
         frame = FrameState(
             position = WorkspacePosition(420.0, 260.0),
             size = SheetFrameSize(300.0, 180.0),
+            visualScale = 0.5,
             zIndex = 2,
         ),
         content = TabularContent(
@@ -55,6 +56,7 @@ private fun fixtureWorkbook(): WorkbookState {
         frame = FrameState(
             position = WorkspacePosition(12.5, -8.25),
             size = SheetFrameSize(360.0, 240.0),
+            visualScale = 2.0,
             zIndex = 1,
         ),
         content = TabularContent(

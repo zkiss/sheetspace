@@ -43,7 +43,7 @@ export type WorkbookCommands = {
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
-  createSheet: (name: string, position: WorkspacePosition) => ValidationResult;
+  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number) => ValidationResult;
   deleteSheet: (sheetId: string) => void;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
@@ -51,6 +51,7 @@ export type WorkbookCommands = {
   undo: () => void;
   redo: () => void;
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
+  setSheetVisualScale: (sheetId: string, visualScale: number) => void;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
 };
@@ -334,6 +335,10 @@ export function useWorkbookController({
     });
   }
 
+  function setSheetVisualScale(sheetId: string, visualScale: number) {
+    applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
+  }
+
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
     applyAction({
       kind: 'change-sheet-z-order', sheetId, direction,
@@ -355,6 +360,7 @@ export function useWorkbookController({
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
+      setSheetVisualScale,
       undo: () => replayContentHistory('undo'),
       redo: () => replayContentHistory('redo'),
       updateCellContent,

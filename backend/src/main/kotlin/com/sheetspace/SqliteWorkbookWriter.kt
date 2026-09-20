@@ -126,7 +126,7 @@ internal class SqliteWorkbookWriter(
         if (current.frame != updated.frame) connection.prepareStatement(
             """
             UPDATE frame_state
-            SET position_x = ?, position_y = ?, frame_width = ?, frame_height = ?, z_index = ?
+            SET position_x = ?, position_y = ?, frame_width = ?, frame_height = ?, visual_scale = ?, z_index = ?
             WHERE sheet_id = ?
             """.trimIndent(),
         ).use { statement ->
@@ -134,8 +134,9 @@ internal class SqliteWorkbookWriter(
             statement.setDouble(2, updated.frame.position.y)
             statement.setDouble(3, updated.frame.size.width)
             statement.setDouble(4, updated.frame.size.height)
-            statement.setInt(5, updated.frame.zIndex)
-            statement.setBytes(6, updated.id.value.toUuidBytes())
+            statement.setDouble(5, updated.frame.visualScale)
+            statement.setInt(6, updated.frame.zIndex)
+            statement.setBytes(7, updated.id.value.toUuidBytes())
             statement.executeUpdate()
         }
         persistTabularChanges(updated.id, current.tabularContent, updated.tabularContent)
@@ -234,8 +235,8 @@ internal class SqliteWorkbookWriter(
         connection.prepareStatement(
             """
             INSERT INTO frame_state (
-                sheet_id, position_x, position_y, frame_width, frame_height, z_index
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                sheet_id, position_x, position_y, frame_width, frame_height, visual_scale, z_index
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
         ).use { statement ->
             statement.setBytes(1, sheet.id.value.toUuidBytes())
@@ -243,7 +244,8 @@ internal class SqliteWorkbookWriter(
             statement.setDouble(3, sheet.frame.position.y)
             statement.setDouble(4, sheet.frame.size.width)
             statement.setDouble(5, sheet.frame.size.height)
-            statement.setInt(6, sheet.frame.zIndex)
+            statement.setDouble(6, sheet.frame.visualScale)
+            statement.setInt(7, sheet.frame.zIndex)
             statement.executeUpdate()
         }
     }

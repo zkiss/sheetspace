@@ -11,6 +11,7 @@ export function sheetDocument({
   cells = {},
   columnCount = 10,
   frameSize = { width: 240, height: 160 },
+  visualScale = 1,
   id,
   name,
   presentation = { rowHeights: {}, columnWidths: {} },
@@ -24,6 +25,7 @@ export function sheetDocument({
   cells?: Record<CellKey, string>;
   columnCount?: number;
   frameSize?: { width: number; height: number };
+  visualScale?: number;
   presentation?: SheetDocument['presentation'];
   position?: WorkspacePosition;
   revision?: number;
@@ -45,7 +47,7 @@ export function sheetDocument({
     id,
     name,
     revision,
-    frame: { position, size: frameSize, zIndex },
+    frame: { position, size: frameSize, visualScale, zIndex },
     presentation,
     content,
   };
@@ -78,8 +80,9 @@ function normalizeLegacyTestOverrides(sheet: SheetDocument): SheetDocument {
     position: WorkspacePosition;
     rowCount: number;
     zIndex: number;
+    visualScale: number;
   }>;
-  const hasLegacyOverride = ['cells', 'columnCount', 'frameSize', 'position', 'rowCount', 'zIndex']
+  const hasLegacyOverride = ['cells', 'columnCount', 'frameSize', 'position', 'rowCount', 'zIndex', 'visualScale']
     .some((key) => Object.prototype.hasOwnProperty.call(overrides, key));
   if (!hasLegacyOverride) return sheet;
   return sheetDocument({
@@ -93,5 +96,6 @@ function normalizeLegacyTestOverrides(sheet: SheetDocument): SheetDocument {
     position: overrides.position ?? sheet.frame.position,
     frameSize: overrides.frameSize ?? sheet.frame.size,
     zIndex: overrides.zIndex ?? sheet.frame.zIndex,
+    visualScale: overrides.visualScale ?? sheet.frame.visualScale,
   });
 }

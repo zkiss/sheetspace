@@ -32,6 +32,7 @@ data class SheetPresentationResponse(val rowHeights: Map<String, Double>, val co
 data class FrameStateResponse(
     val position: WorkspacePosition,
     val size: SheetFrameSize,
+    val visualScale: Double,
     val zIndex: Int,
 )
 
@@ -71,6 +72,7 @@ internal object WorkbookReadTransportAdapter {
             frame = FrameStateResponse(
                 position = document.frame.position,
                 size = document.frame.size,
+                visualScale = document.frame.visualScale,
                 zIndex = document.frame.zIndex,
             ),
             presentation = SheetPresentationResponse(document.presentation.rowHeights, document.presentation.columnWidths),

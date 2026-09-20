@@ -4,6 +4,7 @@ data class CreateSheetCommand(
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
     val frameSize: SheetFrameSize = SheetFrameSize(),
+    val visualScale: Double = DEFAULT_SHEET_VISUAL_SCALE,
     val zIndex: Int? = null,
 )
 
@@ -11,6 +12,7 @@ data class UpdateSheetCommand(
     val name: String? = null,
     val position: WorkspacePosition? = null,
     val frameSize: SheetFrameSize? = null,
+    val visualScale: Double? = null,
 )
 
 data class SheetZOrderUpdate(
@@ -41,6 +43,7 @@ enum class WorkbookApplicationError {
     SHEET_UPDATE_REQUIRED,
     INVALID_SHEET_POSITION,
     INVALID_SHEET_FRAME_SIZE,
+    INVALID_SHEET_VISUAL_SCALE,
     INVALID_SHEET_Z_INDEX,
     SHEET_Z_ORDER_UPDATE_REQUIRED,
     DUPLICATE_SHEET_Z_ORDER_UPDATE,
@@ -92,7 +95,7 @@ class DefaultWorkbookApplication(
             ?: reject(WorkbookApplicationError.SHEET_NOT_FOUND)
 
     override fun createSheet(command: CreateSheetCommand): SheetDocument {
-        validateFrameCommand(command.position, command.frameSize, command.zIndex)
+        validateFrameCommand(command.position, command.frameSize, command.visualScale, command.zIndex)
 
         lateinit var createdSheet: SheetDocument
         val updated = store.updateWorkbook { workbook ->
@@ -102,6 +105,7 @@ class DefaultWorkbookApplication(
                     existingSheets = workbook.documents.values,
                     position = command.position,
                     frameSize = command.frameSize,
+                    visualScale = command.visualScale,
                     zIndex = command.zIndex,
                 )
             ) {
@@ -122,11 +126,12 @@ class DefaultWorkbookApplication(
         if (
             command.name == null &&
             command.position == null &&
-            command.frameSize == null
+            command.frameSize == null &&
+            command.visualScale == null
         ) {
             reject(WorkbookApplicationError.SHEET_UPDATE_REQUIRED)
         }
-        validateOptionalFrameCommand(command.position, command.frameSize)
+        validateOptionalFrameCommand(command.position, command.frameSize, command.visualScale)
 
         return updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
             val renamed = if (command.name == null) {
@@ -148,6 +153,7 @@ class DefaultWorkbookApplication(
                     frame.update(
                         position = command.position,
                         size = command.frameSize,
+                        visualScale = command.visualScale,
                     )
                 },
             )
@@ -251,19 +257,23 @@ class DefaultWorkbookApplication(
 private fun validateFrameCommand(
     position: WorkspacePosition,
     frameSize: SheetFrameSize,
+    visualScale: Double,
     zIndex: Int?,
 ) {
     if (!position.isValid()) reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
     if (!frameSize.isValid()) reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
+    if (!isValidSheetVisualScale(visualScale)) reject(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE)
     if (zIndex != null && zIndex < 1) reject(WorkbookApplicationError.INVALID_SHEET_Z_INDEX)
 }
 
 private fun validateOptionalFrameCommand(
     position: WorkspacePosition?,
     frameSize: SheetFrameSize?,
+    visualScale: Double?,
 ) {
     if (position?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_POSITION)
     if (frameSize?.isValid() == false) reject(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE)
+    if (visualScale != null && !isValidSheetVisualScale(visualScale)) reject(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE)
 }
 
 private val SheetNameError.applicationError: WorkbookApplicationError

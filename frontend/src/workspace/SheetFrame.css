@@ -4,7 +4,11 @@
   flex-direction: column;
   border: 1px solid #bac7ce;
   border-radius: 6px;
-  overflow: hidden;
+  /*
+   * Resize and scale affordances intentionally extend beyond the frame edge.
+   * Keep this layer unclipped; the scrollable sheet body owns content clipping.
+   */
+  overflow: visible;
   background: #ffffff;
   box-shadow: 0 8px 24px rgb(23 32 42 / 12%);
   cursor: default;
@@ -16,6 +20,52 @@
   background: transparent;
   touch-action: none;
 }
+
+.sheet-frame-scale-handle {
+  position: absolute;
+  z-index: 6;
+  right: -7px;
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #2f747e;
+  box-shadow: 0 1px 3px rgb(23 32 42 / 35%);
+  cursor: ew-resize;
+  touch-action: none;
+  transform-origin: center;
+}
+
+.sheet-frame-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.sheet-frame-controls > * { pointer-events: auto; }
+
+.sheet-frame-scale-control {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 1px solid #bac7ce;
+  border-radius: 3px;
+  background: #fff;
+  color: #17202a;
+  font-size: 12px;
+  transform-origin: top right;
+}
+
+.sheet-frame-scale-control input { width: 3.7em; border: 0; padding: 0; font: inherit; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .sheet-frame-resize-handle-top,
 .sheet-frame-resize-handle-bottom {
@@ -94,6 +144,7 @@
   border-bottom: 1px solid #d6dee3;
   padding: 0.65rem 0.8rem;
   background: #f9fbfc;
+  border-radius: 5px 5px 0 0;
   cursor: grab;
   user-select: none;
 }
@@ -118,6 +169,7 @@
   min-height: 0;
   overflow: auto;
   background: #ffffff;
+  border-radius: 0 0 5px 5px;
 }
 
 .sheet-frame-creating { opacity: 0.72; }

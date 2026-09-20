@@ -1,8 +1,7 @@
-import { useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type MutableRefObject, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
-import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
-import { clampSheetFrameSize } from '@workspace/workspaceGeometry';
+import { clampSheetFrameSize, clampSheetVisualScale, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
 import '@workspace/SheetFrame.css';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
@@ -27,12 +26,21 @@ export function SheetFrame({
   onResizeMove,
   onResizeStart,
   onResizeStop,
+  onScaleInputCancel,
+  onScaleMove,
+  onScaleStart,
+  onScaleStop,
+  onScalePreview,
+  onScalePointerCancel,
+  onScaleInputStart,
+  onScaleCommit,
   onSheetFrameDragCancel,
   onSheetFrameInteraction,
   onSheetFrameDragMove,
   onSheetFrameDragStart,
   onSheetFrameDragStop,
   rowCount,
+  viewportScale,
 }: {
   children: (scrollContainerRef: RefObject<HTMLDivElement>) => ReactNode;
   columnCount: number;
@@ -44,15 +52,32 @@ export function SheetFrame({
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
   onResizeStart: (sheetId: string, direction: SheetFrameResizeDirection, event: PointerEvent<HTMLElement>) => void;
   onResizeStop: (event: PointerEvent<HTMLElement>) => void;
+  onScaleInputCancel: (sheetId: string) => void;
+  onScaleMove: (event: PointerEvent<HTMLElement>) => void;
+  onScaleStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
+  onScaleStop: (event: PointerEvent<HTMLElement>) => void;
+  onScalePreview: (sheetId: string, visualScale: number) => void;
+  onScalePointerCancel: (event: PointerEvent<HTMLElement>) => void;
+  onScaleInputStart: (sheetId: string) => void;
+  onScaleCommit: (sheetId: string, visualScale: number) => void;
   onSheetFrameDragCancel: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameInteraction: () => void;
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
   rowCount: number;
+  viewportScale: number;
 }) {
   const frameSize = clampSheetFrameSize(frame.size);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const isScaleInputEditing = useRef(false);
+  const isScaleInputCancellation = useRef(false);
+  const [scaleInputValue, setScaleInputValue] = useState(() => scalePercentage(frame.visualScale));
+  const screenScale = effectiveSheetScreenScale(viewportScale, frame.visualScale);
+
+  useEffect(() => {
+    if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
+  }, [frame.visualScale]);
 
   return (
     <article
@@ -65,6 +90,7 @@ export function SheetFrame({
       data-column-count={columnCount}
       data-frame-height={frameSize.height}
       data-frame-width={frameSize.width}
+      data-visual-scale={frame.visualScale}
       data-position-x={frame.position.x}
       data-position-y={frame.position.y}
       data-row-count={rowCount}
@@ -80,9 +106,11 @@ export function SheetFrame({
       style={{
         left: frame.position.x,
         top: frame.position.y,
-        zIndex: isNavigationReveal ? FLOATING_OVERLAY_Z_INDEX : frame.zIndex,
+        zIndex: frame.zIndex,
         width: frameSize.width,
         height: frameSize.height,
+        transform: `scale(${frame.visualScale})`,
+        transformOrigin: 'top left',
       }}
     >
       {SHEET_FRAME_RESIZE_HANDLES.map(([handle, direction]) => (
@@ -102,6 +130,33 @@ export function SheetFrame({
           role="separator"
         />
       ))}
+      {isActiveSheet && (
+        <div className="sheet-frame-controls" data-testid="sheet-frame-controls">
+          <div
+            aria-label={`Scale sheet ${frame.name}`}
+            className="sheet-frame-scale-handle"
+            data-testid="sheet-frame-scale-handle"
+            onPointerCancel={onScalePointerCancel}
+            onPointerDown={(event) => onScaleStart(frame.id, event)}
+            onPointerMove={onScaleMove}
+            onPointerUp={onScaleStop}
+            role="slider"
+            style={{ transform: `scale(${1 / screenScale})` }}
+          />
+          <ScaleInput
+            frame={frame}
+            isCancellation={isScaleInputCancellation}
+            isEditing={isScaleInputEditing}
+            onScaleCancel={() => onScaleInputCancel(frame.id)}
+            onScaleCommit={onScaleCommit}
+            onScaleInputStart={onScaleInputStart}
+            onScalePreview={onScalePreview}
+            scaleInputValue={scaleInputValue}
+            screenScale={screenScale}
+            setScaleInputValue={setScaleInputValue}
+          />
+        </div>
+      )}
       <header
         className="sheet-frame-header"
         data-testid="sheet-frame-header"
@@ -117,4 +172,87 @@ export function SheetFrame({
       </div>
     </article>
   );
+}
+
+function ScaleInput({
+  frame,
+  isCancellation,
+  isEditing,
+  onScaleCancel,
+  onScaleCommit,
+  onScaleInputStart,
+  onScalePreview,
+  scaleInputValue,
+  screenScale,
+  setScaleInputValue,
+}: {
+  frame: SheetFrameProjection;
+  isCancellation: MutableRefObject<boolean>;
+  isEditing: MutableRefObject<boolean>;
+  onScaleCancel: () => void;
+  onScaleCommit: (sheetId: string, visualScale: number) => void;
+  onScaleInputStart: (sheetId: string) => void;
+  onScalePreview: (sheetId: string, visualScale: number) => void;
+  scaleInputValue: string;
+  screenScale: number;
+  setScaleInputValue: (value: string) => void;
+}) {
+  const cancelRef = useRef(onScaleCancel);
+  cancelRef.current = onScaleCancel;
+  useEffect(() => () => cancelRef.current(), []);
+
+  return (
+    <label className="sheet-frame-scale-control" style={{ transform: `scale(${1 / screenScale})` }}>
+      <span className="visually-hidden">Scale sheet {frame.name}</span>
+      <input
+        aria-label={`Scale sheet ${frame.name} percentage`}
+        inputMode="decimal"
+        onBlur={() => {
+          if (isCancellation.current) {
+            isCancellation.current = false;
+            return;
+          }
+          isEditing.current = false;
+          setScaleInputValue(scalePercentage(frame.visualScale));
+          onScaleCancel();
+        }}
+        onChange={(event) => {
+          setScaleInputValue(event.currentTarget.value);
+          const value = Number(event.currentTarget.value);
+          if (Number.isFinite(value) && value > 0) onScalePreview(frame.id, value / 100);
+        }}
+        onFocus={() => {
+          isEditing.current = true;
+          onScaleInputStart(frame.id);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            isEditing.current = false;
+            isCancellation.current = true;
+            setScaleInputValue(scalePercentage(frame.visualScale));
+            onScaleCancel();
+            event.currentTarget.blur();
+          }
+          if (event.key === 'Enter') {
+            const value = Number(event.currentTarget.value);
+            if (Number.isFinite(value) && value > 0) {
+              isEditing.current = false;
+              isCancellation.current = true;
+              const visualScale = clampSheetVisualScale(value / 100);
+              setScaleInputValue(scalePercentage(visualScale));
+              onScaleCommit(frame.id, visualScale);
+              event.currentTarget.blur();
+            }
+          }
+        }}
+        type="number"
+        value={scaleInputValue}
+      />
+      <span aria-hidden="true">%</span>
+    </label>
+  );
+}
+
+function scalePercentage(visualScale: number) {
+  return String(Math.round(visualScale * 100));
 }

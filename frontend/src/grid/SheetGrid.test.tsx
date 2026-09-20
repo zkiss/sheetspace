@@ -7,7 +7,7 @@ import { savedAxisIndexAtOffset, SheetGrid } from '@grid/SheetGrid';
 import { sheetDocument, sparseLargeSheetDocument } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
-import { virtualGridGeometry } from '@test-support/domGeometry';
+import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
 
 afterEach(cleanup);
 
@@ -820,6 +820,74 @@ describe('SheetGrid virtualization', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Rerender' }));
     await waitFor(() => expect(screen.getByRole('cell', { name: 'Focus B1 empty cell' })).toHaveFocus());
     expect(onConsumed).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { effectiveScale: 0.4, name: 'combined miniature scale' },
+    { effectiveScale: 1.5, name: 'combined enlarged scale' },
+  ])('converts sticky-header focus corrections to logical offsets at $name', async ({ effectiveScale }) => {
+    const sheet = tabularProjection(sparseLargeSheetDocument());
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const onConsumed = vi.fn();
+
+    function FocusHarness() {
+      const [request, setRequest] = useState<{ id: number; targetKey: string | null } | null>(null);
+      return (
+        <>
+          <button onClick={() => setRequest({ id: 1, targetKey: 'N40' })} type="button">Focus scaled cell</button>
+          <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+            <SheetGrid
+              activeCellKey={null}
+              axisProjection={axisProjection}
+              cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
+              editingCell={null}
+              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              formulaResults={{}}
+              keyboardFocusRequest={request}
+              onKeyboardFocusRequestConsumed={onConsumed}
+              navigationHighlightCellKey={null}
+              scrollContainerRef={scrollContainerRef}
+              sheet={sheet}
+            />
+          </div>
+        </>
+      );
+    }
+
+    render(<FocusHarness />);
+    const body = scrollContainerRef.current!;
+    virtualGridGeometry(body);
+    body.scrollTop = 1_000;
+    body.scrollLeft = 1_000;
+    fireEvent.scroll(body);
+    const target = await screen.findByRole('cell', { name: 'Sparse large sheet N40 empty cell' });
+    expect(screen.queryByRole('rowheader', { name: '1' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'A' })).not.toBeInTheDocument();
+
+    const containerTop = 30;
+    const containerLeft = 20;
+    const headerHeight = 26.4 * effectiveScale;
+    const headerWidth = 40 * effectiveScale;
+    body.getBoundingClientRect = () => testRect({
+      height: 160 * effectiveScale, left: containerLeft, top: containerTop, width: 240 * effectiveScale,
+    });
+    // The target is hidden by eight rendered pixels vertically and seven horizontally.
+    target.getBoundingClientRect = () => testRect({
+      height: 20,
+      left: containerLeft + headerWidth - 7 - (body.scrollLeft - 1_000) * effectiveScale,
+      top: containerTop + headerHeight - 8 - (body.scrollTop - 1_000) * effectiveScale,
+      width: 40,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus scaled cell' }));
+
+    await waitFor(() => expect(onConsumed).toHaveBeenCalledWith(1));
+    expect(body.scrollTop).toBeCloseTo(1_000 - 8 / effectiveScale);
+    expect(body.scrollLeft).toBeCloseTo(1_000 - 7 / effectiveScale);
+    expect(target).toHaveFocus();
+    expect(target.getBoundingClientRect().top).toBeCloseTo(containerTop + headerHeight);
+    expect(target.getBoundingClientRect().left).toBeCloseTo(containerLeft + headerWidth);
   });
 
   it('permanently invalidates a grid-entry request superseded by an application request', async () => {

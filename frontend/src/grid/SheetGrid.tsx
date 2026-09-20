@@ -28,6 +28,13 @@ import { getSheetCellDisplayText } from './sheetGridModel';
 import { cssRemFromPixels } from '@shared/styles/styleTokens';
 import '@grid/SheetGrid.css';
 
+function logicalUnitsPerRenderedPixel(scrollContainer: HTMLElement, rect: DOMRect) {
+  return {
+    x: rect.width ? scrollContainer.clientWidth / rect.width : 1,
+    y: rect.height ? scrollContainer.clientHeight / rect.height : 1,
+  };
+}
+
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLElement,
   scrollContainer: HTMLElement,
@@ -37,17 +44,20 @@ function ensureCellVisibleOutsideStickyHeaders(
   cell.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   const cellRect = cell.getBoundingClientRect();
   const scrollContainerRect = scrollContainer.getBoundingClientRect();
+  const logicalPerRenderedPixel = logicalUnitsPerRenderedPixel(scrollContainer, scrollContainerRect);
   const visibleTop = scrollContainerRect.top
-    + (columnHeader?.getBoundingClientRect().height ?? GRID_COLUMN_HEADER_HEIGHT);
+    + (columnHeader?.getBoundingClientRect().height ?? GRID_COLUMN_HEADER_HEIGHT / logicalPerRenderedPixel.y);
   const visibleLeft = scrollContainerRect.left
-    + (rowHeader?.getBoundingClientRect().width ?? GRID_ROW_HEADER_WIDTH);
+    + (rowHeader?.getBoundingClientRect().width ?? GRID_ROW_HEADER_WIDTH / logicalPerRenderedPixel.x);
 
   if (cellRect.top < visibleTop) {
-    scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop - (visibleTop - cellRect.top));
+    scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop
+      - (visibleTop - cellRect.top) * logicalPerRenderedPixel.y);
   }
 
   if (cellRect.left < visibleLeft) {
-    scrollContainer.scrollLeft = Math.max(0, scrollContainer.scrollLeft - (visibleLeft - cellRect.left));
+    scrollContainer.scrollLeft = Math.max(0, scrollContainer.scrollLeft
+      - (visibleLeft - cellRect.left) * logicalPerRenderedPixel.x);
   }
 }
 
@@ -396,8 +406,7 @@ export function SheetGrid({
     const rect = scrollContainer.getBoundingClientRect();
     // Pointer coordinates are screen-space while the grid may be scaled by the
     // workspace. Convert through the scroll viewport before consulting metrics.
-    const scaleX = rect.width ? scrollContainer.clientWidth / rect.width : 1;
-    const scaleY = rect.height ? scrollContainer.clientHeight / rect.height : 1;
+    const { x: scaleX, y: scaleY } = logicalUnitsPerRenderedPixel(scrollContainer, rect);
     const columnIndex = savedAxisIndexAtOffset(columns, columnMetrics,
       scrollContainer.scrollLeft + (clientX - rect.left) * scaleX - GRID_ROW_HEADER_WIDTH,
     );

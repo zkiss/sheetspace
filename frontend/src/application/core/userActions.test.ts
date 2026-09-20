@@ -93,7 +93,7 @@ describe('workbook operations', () => {
         nextWorkbook: {
           documents: {
             alpha: {
-              frame: { position: { x: 12, y: 34 }, size: { width: 500, height: 400 }, zIndex: 1 },
+              frame: { position: { x: 12, y: 34 }, size: { width: 500, height: 400 }, visualScale: 1, zIndex: 1 },
             },
           },
         },
@@ -101,6 +101,21 @@ describe('workbook operations', () => {
         calculationImpact: { kind: 'none' },
       },
     });
+  });
+
+  it('commits valid visual scale without calculation invalidation and retains it through resize', () => {
+    const scaled = applyWorkbookOperation(workbook, {
+      kind: 'set-sheet-visual-scale', operationId: 'scale', sheetId: 'alpha', visualScale: 0.5,
+    });
+    expect(scaled).toMatchObject({ ok: true, value: { calculationImpact: { kind: 'none' }, persistence: { kind: 'update-sheet-visual-scale', visualScale: 0.5 } } });
+    if (!scaled.ok) return;
+    const resized = applyWorkbookOperation(scaled.value.nextWorkbook, {
+      kind: 'resize-sheet-frame', operationId: 'resize-after-scale', sheetId: 'alpha', position: { x: 1, y: 2 }, size: { width: 320, height: 220 },
+    });
+    expect(resized).toMatchObject({ ok: true, value: { nextWorkbook: { documents: { alpha: { frame: { visualScale: 0.5 } } } } } });
+    expect(applyWorkbookOperation(workbook, {
+      kind: 'set-sheet-visual-scale', operationId: 'invalid-scale', sheetId: 'alpha', visualScale: Number.NaN,
+    })).toEqual({ ok: false, reason: 'invalid-visual-scale' });
   });
 
   it('updates every affected sheet in one z-order state transition', () => {

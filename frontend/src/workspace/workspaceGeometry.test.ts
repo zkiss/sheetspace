@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   addFiniteWorkspaceCoordinate,
+  effectiveSheetScreenScale,
   clampSheetFrameSize,
   clampWorkspaceZoom,
   normalizedWheelDelta,
@@ -171,6 +172,13 @@ describe('workspaceGeometry', () => {
     })).toEqual({ left: 120, top: 80, right: 300, bottom: 200 });
   });
 
+  it('uses visual scale for rendered frame extents and composes it with viewport scale', () => {
+    expect(effectiveSheetScreenScale(2, 0.5)).toBe(1);
+    expect(workspaceRectForFrame({
+      position: { x: 120, y: 80 }, size: { width: 240, height: 160 }, visualScale: 0.5,
+    })).toEqual({ left: 120, top: 80, right: 240, bottom: 160 });
+  });
+
   it('projects resized surfaces through pan and zoom into workspace bounds', () => {
     expect(workspaceViewportBounds(
       { width: 1000, height: 800 },
@@ -184,10 +192,10 @@ describe('workspaceGeometry', () => {
 
   it('selects intersecting and pinned frames with clamped frame sizes and overscan', () => {
     const frames = [
-      { id: 'inside', name: 'Inside', position: { x: 10, y: 10 }, size: { width: 240, height: 160 }, zIndex: 1 },
-      { id: 'edge', name: 'Edge', position: { x: -80, y: 0 }, size: { width: 20, height: 20 }, zIndex: 2 },
-      { id: 'nearby', name: 'Nearby', position: { x: 290, y: 10 }, size: { width: 240, height: 160 }, zIndex: 3 },
-      { id: 'pinned', name: 'Pinned', position: { x: 1000, y: 1000 }, size: { width: 240, height: 160 }, zIndex: 4 },
+      { id: 'inside', name: 'Inside', position: { x: 10, y: 10 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 1 },
+      { id: 'edge', name: 'Edge', position: { x: -80, y: 0 }, size: { width: 20, height: 20 }, visualScale: 1, zIndex: 2 },
+      { id: 'nearby', name: 'Nearby', position: { x: 290, y: 10 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 3 },
+      { id: 'pinned', name: 'Pinned', position: { x: 1000, y: 1000 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 4 },
     ];
     const viewport = { left: 0, top: 0, right: 100, bottom: 100 };
 
@@ -207,12 +215,31 @@ describe('workspaceGeometry', () => {
           direction: { horizontal: -1, vertical: -1 },
           startFrameSize: { width: 240, height: 160 },
           startPosition: { x: 120, y: 80 },
+          startVisualScale: 1,
         },
         { x: 100, y: 80 },
       ),
     ).toEqual({
       frameSize: { width: 180, height: 120 },
       position: { x: 180, y: 120 },
+    });
+  });
+
+  it('keeps scaled opposite edges fixed for left and top resizing', () => {
+    const resize = {
+      direction: { horizontal: -1, vertical: -1 } as const,
+      startFrameSize: { width: 240, height: 160 },
+      startPosition: { x: 120, y: 80 },
+      startVisualScale: 0.5,
+    };
+
+    expect(resizeSheetFrame(resize, { x: 100, y: 80 })).toEqual({
+      frameSize: { width: 180, height: 120 },
+      position: { x: 150, y: 100 },
+    });
+    expect(resizeSheetFrame(resize, { x: 1_000, y: 1_000 })).toEqual({
+      frameSize: { width: 180, height: 120 },
+      position: { x: 150, y: 100 },
     });
   });
 

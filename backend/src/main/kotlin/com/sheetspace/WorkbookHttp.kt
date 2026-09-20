@@ -29,6 +29,7 @@ data class CreateSheetRequest(
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
     val frameSize: SheetFrameSize = SheetFrameSize(),
+    val visualScale: Double = DEFAULT_SHEET_VISUAL_SCALE,
     val zIndex: Int? = null,
 )
 
@@ -37,6 +38,7 @@ data class UpdateSheetRequest(
     val name: String? = null,
     val position: WorkspacePosition? = null,
     val frameSize: SheetFrameSize? = null,
+    val visualScale: Double? = null,
 )
 
 @Serializable
@@ -130,6 +132,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                         name = request.name,
                         position = request.position,
                         frameSize = request.frameSize,
+                        visualScale = request.visualScale,
                         zIndex = request.zIndex,
                     ),
                 )
@@ -155,6 +158,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                         name = request.name,
                         position = request.position,
                         frameSize = request.frameSize,
+                        visualScale = request.visualScale,
                     ),
                 )
                 call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
@@ -291,6 +295,8 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.INVALID_SHEET_POSITION -> HttpStatusCode.BadRequest to "invalid-sheet-position"
         WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE ->
             HttpStatusCode.BadRequest to "invalid-sheet-frame-size"
+        WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE ->
+            HttpStatusCode.BadRequest to "invalid-sheet-visual-scale"
         WorkbookApplicationError.INVALID_SHEET_Z_INDEX -> HttpStatusCode.BadRequest to "invalid-sheet-z-index"
         WorkbookApplicationError.SHEET_Z_ORDER_UPDATE_REQUIRED ->
             HttpStatusCode.BadRequest to "sheet-z-order-update-required"

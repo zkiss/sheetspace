@@ -1,6 +1,6 @@
 import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
-import { WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
+import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 
 type ApiErrorBody = {
@@ -26,6 +26,7 @@ export type SheetDocumentResponse = {
   frame: {
     position: WorkspacePosition;
     size: SheetFrameSize;
+    visualScale: number;
     zIndex: number;
   };
   presentation: SheetPresentation;
@@ -160,12 +161,13 @@ export const workbookApi = {
   },
 
   createSheet(
-    sheet: { name: string; position: WorkspacePosition; frameSize?: SheetFrameSize; zIndex?: number },
+    sheet: { name: string; position: WorkspacePosition; frameSize?: SheetFrameSize; visualScale?: number; zIndex?: number },
   ): Promise<SheetDocument> {
     const requestBody = {
       name: sheet.name,
       position: sheet.position,
       ...(sheet.frameSize === undefined ? {} : { frameSize: sheet.frameSize }),
+      ...(sheet.visualScale === undefined ? {} : { visualScale: sheet.visualScale }),
       ...(sheet.zIndex === undefined ? {} : { zIndex: sheet.zIndex }),
     };
 
@@ -212,6 +214,16 @@ export const workbookApi = {
       method: 'PATCH',
       body: JSON.stringify({ position, frameSize }),
       headers: revisionHeaders(options),
+    });
+  },
+
+  updateSheetVisualScale(
+    sheetId: string,
+    visualScale: number,
+    options: RevisionedMutationOptions = {},
+  ): Promise<SheetRevisionResponse> {
+    return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}`, {
+      method: 'PATCH', body: JSON.stringify({ visualScale }), headers: revisionHeaders(options),
     });
   },
 
@@ -319,6 +331,9 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       || (overrides.length > 0 && !validAxisSizeWrites({ ...document.content, cells: {} }, overrides))) {
     invalidReadContract('invalid sheet presentation override');
   }
+  if (!document.frame || !isValidSheetVisualScale(document.frame.visualScale)) {
+    invalidReadContract('invalid sheet visual scale');
+  }
 
   return {
     presentation: { rowHeights: { ...presentation.rowHeights }, columnWidths: { ...presentation.columnWidths } },
@@ -328,6 +343,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
     frame: {
       position: { ...document.frame.position },
       size: { ...document.frame.size },
+      visualScale: document.frame.visualScale,
       zIndex: document.frame.zIndex,
     },
     content: {

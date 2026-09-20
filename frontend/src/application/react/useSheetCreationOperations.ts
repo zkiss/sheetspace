@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { SaveStatus } from '@application/core/state';
 import type { CreatingSheetFrame } from '@application/core/sheetCreationState';
-import { DEFAULT_SHEET_FRAME_SIZE, type SheetDocument, type Workbook, type WorkspacePosition } from '@workbook/core/model';
+import { clampSheetVisualScale, DEFAULT_SHEET_FRAME_SIZE, type SheetDocument, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 import { sheetsInOrder } from '@workbook/read/queries';
 import { validateSheetName } from '@workbook/mutations/operations';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
@@ -24,7 +24,7 @@ export function useSheetCreationOperations({
   const creatingFramesRef = useRef(creatingFrames);
   creatingFramesRef.current = creatingFrames;
 
-  const createSheet = useCallback((name: string, position: WorkspacePosition) => {
+  const createSheet = useCallback((name: string, position: WorkspacePosition, viewportScale = 1) => {
     const workbook = currentWorkbook();
     const validation = validateSheetName(name, sheetsInOrder(workbook));
     if (!validation.ok) return validation;
@@ -33,9 +33,10 @@ export function useSheetCreationOperations({
     const operationKey = crypto.randomUUID();
     reservedNames.current.add(validation.name);
     const zIndex = Math.max(0, ...sheetsInOrder(workbook).map((sheet) => sheet.frame.zIndex), ...creatingFramesRef.current.map((frame) => frame.zIndex)) + 1;
+    const visualScale = clampSheetVisualScale(1 / viewportScale);
     const creatingFrame: CreatingSheetFrame = {
       kind: 'creating', operationKey, name: validation.name, position,
-      size: DEFAULT_SHEET_FRAME_SIZE, zIndex,
+      size: DEFAULT_SHEET_FRAME_SIZE, visualScale, zIndex,
     };
     creatingFramesRef.current = [...creatingFramesRef.current, creatingFrame];
     setCreatingFrames((frames) => [...frames, creatingFrame]);
@@ -43,7 +44,7 @@ export function useSheetCreationOperations({
 
     if (autosaveEnabled) {
       const request = resolvedApiClient.createSheet ?? workbookApi.createSheet;
-      void request({ name: validation.name, position }).then((sheet: SheetDocument) => {
+      void request({ name: validation.name, position, visualScale, zIndex }).then((sheet: SheetDocument) => {
         const removeFrame = (frames: CreatingSheetFrame[]) => frames.filter((frame) => frame.operationKey !== operationKey);
         creatingFramesRef.current = removeFrame(creatingFramesRef.current);
         setCreatingFrames(removeFrame);

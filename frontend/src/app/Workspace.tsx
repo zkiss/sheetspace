@@ -81,7 +81,7 @@ export function Workspace({
   onClearCell: (target: CellTarget) => void;
   onCommitEdit: (session?: CellEditSession) => void;
   onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
-  onCreateSheet: (position: WorkspacePosition, label: string) => void;
+  onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
@@ -127,14 +127,23 @@ export function Workspace({
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
+    cancelSheetFrameScaleInput,
+    cancelSheetFrameScalePointer,
+    commitSheetFrameScale,
     frameLayoutPreview,
+    frameScalePreview,
     handleSheetFrameDragMove,
     handleSheetFrameDragStart,
     handleSheetFrameResizeMove,
     handleSheetFrameResizeStart,
+    handleSheetFrameScaleMove,
+    handleSheetFrameScaleStart,
     interactionPinnedSheetId,
     stopSheetFrameDrag,
     stopSheetFrameResize,
+    stopSheetFrameScale,
+    previewSheetFrameScale,
+    startSheetFrameScaleInput,
   } = useSheetFrameInteractions({
     commands,
     viewportScale: workspaceController.viewport.scale,
@@ -142,9 +151,10 @@ export function Workspace({
   });
   const projectedFrames = sheets.map((sheet) => {
     const frame = frameProjection(sheet);
-    return frameLayoutPreview?.sheetId === sheet.id
+    const layout = frameLayoutPreview?.sheetId === sheet.id
       ? { ...frame, position: frameLayoutPreview.position, size: frameLayoutPreview.size }
       : frame;
+    return frameScalePreview?.sheetId === sheet.id ? { ...layout, visualScale: frameScalePreview.visualScale } : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
   const navigationRevealSheetId = navigationHighlight?.kind === 'cell'
@@ -265,12 +275,21 @@ export function Workspace({
               onResizeMove={handleSheetFrameResizeMove}
               onResizeStart={handleSheetFrameResizeStart}
               onResizeStop={stopSheetFrameResize}
+              onScaleInputCancel={cancelSheetFrameScaleInput}
+              onScalePointerCancel={cancelSheetFrameScalePointer}
+              onScaleCommit={commitSheetFrameScale}
+              onScaleMove={handleSheetFrameScaleMove}
+              onScalePreview={previewSheetFrameScale}
+              onScaleInputStart={startSheetFrameScaleInput}
+              onScaleStart={handleSheetFrameScaleStart}
+              onScaleStop={stopSheetFrameScale}
               onSheetFrameDragCancel={cancelSheetFrameDrag}
               onSheetFrameInteraction={workspaceController.closeSheetMenu}
               onSheetFrameDragMove={handleSheetFrameDragMove}
               onSheetFrameDragStart={handleSheetFrameDragStart}
               onSheetFrameDragStop={stopSheetFrameDrag}
               rowCount={axisProjection.rows.length}
+              viewportScale={workspaceController.viewport.scale}
             >
               {(scrollContainerRef) => (
                 <SheetGrid

@@ -63,8 +63,12 @@ describe('formula reference navigation', () => {
     modifierClick(screen.getByRole('button', { name: "'Sales 2026'!A1, reference" }), 'meta');
 
     expect(screen.getByRole('cell', { name: 'Sales 2026 A1 cell' })).toHaveFocus();
-    expect(screen.getByRole('article', { name: 'Sheet Sales 2026' })).toHaveAttribute('data-navigation-reveal', 'true');
-    expect(screen.getByRole('article', { name: 'Sheet Sales 2026' })).toHaveAttribute('data-z-index', '2');
+    const revealedFrame = screen.getByRole('article', { name: 'Sheet Sales 2026' });
+    const overlappingFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    expect(revealedFrame).toHaveAttribute('data-navigation-reveal', 'true');
+    expect(revealedFrame).toHaveAttribute('data-z-index', '2');
+    expect(revealedFrame).toHaveStyle({ zIndex: '2' });
+    expect(overlappingFrame).toHaveStyle({ zIndex: '9' });
   });
 
   it('reports a broken reference without selecting a similarly named sheet', () => {

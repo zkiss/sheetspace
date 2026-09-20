@@ -17,7 +17,7 @@ import {
 export function useWorkspaceController({
   onCreateSheet,
 }: {
-  onCreateSheet: (position: WorkspacePosition, label: string) => void;
+  onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
@@ -136,7 +136,7 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();
-    onCreateSheet(sheetFramePosition(workspacePointAtViewportCenter(workspace, viewport)), 'Create sheet at viewport center');
+    onCreateSheet(sheetFramePosition(workspacePointAtViewportCenter(workspace, viewport)), viewport.scale, 'Create sheet at viewport center');
   }
 
   function handleWorkspaceContextMenu(event: MouseEvent<HTMLElement>) {
@@ -146,7 +146,7 @@ export function useWorkspaceController({
       { x: event.clientX, y: event.clientY },
       event.currentTarget,
       viewport,
-    )), 'Create sheet here');
+    )), viewport.scale, 'Create sheet here');
   }
 
   return {

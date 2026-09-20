@@ -65,6 +65,38 @@ class WorkbookApplicationTest {
     }
 
     @Test
+    fun `scale-only updates are revisioned and preserve the rest of frame layout`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val created = application.createSheet(
+            CreateSheetCommand(name = "Inputs", position = WorkspacePosition(10.0, 20.0), frameSize = SheetFrameSize(320.0, 220.0), visualScale = 0.5),
+        )
+
+        val updated = application.updateSheet(created.id.value, created.revision, UpdateSheetCommand(visualScale = 2.0))
+
+        assertEquals(WorkspacePosition(10.0, 20.0), updated.frame.position)
+        assertEquals(SheetFrameSize(320.0, 220.0), updated.frame.size)
+        assertEquals(2.0, updated.frame.visualScale)
+        assertEquals(created.frame.zIndex, updated.frame.zIndex)
+        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE) {
+            application.updateSheet(
+                updated.id.value,
+                updated.revision,
+                UpdateSheetCommand(position = WorkspacePosition(99.0, 99.0), visualScale = 0.0),
+            )
+        }
+        assertEquals(updated, application.loadSheet(updated.id.value))
+
+        assertFailsWith<SheetRevisionConflict> {
+            application.updateSheet(
+                updated.id.value,
+                created.revision,
+                UpdateSheetCommand(position = WorkspacePosition(99.0, 99.0), frameSize = SheetFrameSize(1.0, 1.0), visualScale = 1.0),
+            )
+        }
+        assertEquals(updated, application.loadSheet(updated.id.value))
+    }
+
+    @Test
     fun `cell updates preserve raw content and empty content removes cell`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val sheet = application.createSheet(CreateSheetCommand(name = "Inputs"))

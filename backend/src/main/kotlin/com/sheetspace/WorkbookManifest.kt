@@ -60,6 +60,7 @@ fun createSheetDocument(
     existingSheets: Collection<SheetDocument> = emptyList(),
     position: WorkspacePosition = WorkspacePosition(),
     frameSize: SheetFrameSize = SheetFrameSize(),
+    visualScale: Double = 1.0,
     zIndex: Int? = null,
 ): SheetNameResult<SheetDocument> {
     return when (val validation = validateSheetName(name, existingSheets)) {
@@ -71,6 +72,7 @@ fun createSheetDocument(
                 frame = FrameState(
                     position = position,
                     size = frameSize,
+                    visualScale = visualScale,
                     zIndex = zIndex ?: nextSheetZIndex(existingSheets),
                 ),
             ),

@@ -1,4 +1,4 @@
-import { SheetFrameSize, SheetFrameProjection, WorkspacePosition } from '@workbook/core/model';
+import { clampSheetVisualScale as clampPersistedSheetVisualScale, SheetFrameSize, SheetFrameProjection, WorkspacePosition } from '@workbook/core/model';
 import type { SheetFrameResize, WorkspaceViewport } from './workspaceContracts';
 
 export const MIN_SHEET_FRAME_WIDTH = 180;
@@ -102,6 +102,25 @@ export function workspaceDeltaFromClient(
   };
 }
 
+/** The only scale used to translate a client-space grid delta back to logical units. */
+export function effectiveSheetScreenScale(viewportScale: number, visualScale: number): number {
+  return normalizedWorkspaceZoom(viewportScale) * clampSheetVisualScale(visualScale);
+}
+
+/** Workspace geometry uses the same finite scale policy persisted by sheet commands. */
+export function clampSheetVisualScale(scale: number): number {
+  return clampPersistedSheetVisualScale(scale);
+}
+
+export function logicalDeltaFromClient(
+  startClientPoint: WorkspacePosition,
+  currentClientPoint: WorkspacePosition,
+  viewportScale: number,
+  visualScale: number,
+): WorkspacePosition {
+  return workspaceDeltaFromClient(startClientPoint, currentClientPoint, effectiveSheetScreenScale(viewportScale, visualScale));
+}
+
 export function surfaceDeltaFromClient(
   startClientPoint: WorkspacePosition,
   currentClientPoint: WorkspacePosition,
@@ -203,14 +222,15 @@ export function surfaceSize(element: HTMLElement): SheetFrameSize {
 }
 
 export function workspaceRectForFrame(
-  frame: Pick<SheetFrameProjection, 'position' | 'size'>,
+  frame: Pick<SheetFrameProjection, 'position' | 'size'> & Partial<Pick<SheetFrameProjection, 'visualScale'>>,
 ): WorkspaceTargetRect {
   const size = clampSheetFrameSize(frame.size);
+  const scale = clampSheetVisualScale(frame.visualScale ?? 1);
   return {
     left: frame.position.x,
     top: frame.position.y,
-    right: frame.position.x + size.width,
-    bottom: frame.position.y + size.height,
+    right: frame.position.x + size.width * scale,
+    bottom: frame.position.y + size.height * scale,
   };
 }
 
@@ -315,7 +335,7 @@ function finiteOr(value: number, fallback = 0): number {
 }
 
 export function resizeSheetFrame(
-  resize: Pick<SheetFrameResize, 'startFrameSize' | 'startPosition' | 'direction'>,
+  resize: Pick<SheetFrameResize, 'startFrameSize' | 'startPosition' | 'startVisualScale' | 'direction'>,
   delta: WorkspacePosition,
 ) {
   const nextFrameSize = clampSheetFrameSize({
@@ -327,11 +347,11 @@ export function resizeSheetFrame(
     position: {
       x:
         resize.direction.horizontal < 0
-          ? Math.round(resize.startPosition.x + resize.startFrameSize.width - nextFrameSize.width)
+          ? resize.startPosition.x + (resize.startFrameSize.width - nextFrameSize.width) * resize.startVisualScale
           : resize.startPosition.x,
       y:
         resize.direction.vertical < 0
-          ? Math.round(resize.startPosition.y + resize.startFrameSize.height - nextFrameSize.height)
+          ? resize.startPosition.y + (resize.startFrameSize.height - nextFrameSize.height) * resize.startVisualScale
           : resize.startPosition.y,
     },
     frameSize: nextFrameSize,

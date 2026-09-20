@@ -7,5 +7,6 @@ export type CreatingSheetFrame = {
   name: string;
   position: WorkspacePosition;
   size: typeof DEFAULT_SHEET_FRAME_SIZE;
+  visualScale: number;
   zIndex: number;
 };
