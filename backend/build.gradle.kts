@@ -68,10 +68,18 @@ tasks.jacocoTestCoverageVerification {
     )
     violationRules {
         rule {
-            element = "CLASS"
-            includes = listOf("com.sheetspace.HealthService")
-            limit {
-                minimum = "0.90".toBigDecimal()
+            element = "BUNDLE"
+            listOf(
+                "INSTRUCTION",
+                "BRANCH",
+                "LINE",
+                "METHOD",
+                "CLASS",
+            ).forEach { counter ->
+                limit {
+                    this.counter = counter
+                    minimum = "0.95".toBigDecimal()
+                }
             }
         }
     }
