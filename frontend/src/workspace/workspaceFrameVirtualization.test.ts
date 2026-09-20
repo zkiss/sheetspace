@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mountedWorkspaceFrameIds, workspaceFramePinIds } from '@workspace/workspaceFrameVirtualization';
 
 const frames = [
-  { id: 'visible', name: 'Visible', position: { x: 40, y: 40 }, size: { width: 240, height: 160 }, zIndex: 2 },
-  { id: 'offscreen', name: 'Offscreen', position: { x: 1800, y: 1200 }, size: { width: 240, height: 160 }, zIndex: 5 },
+  { id: 'visible', name: 'Visible', position: { x: 40, y: 40 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 2 },
+  { id: 'offscreen', name: 'Offscreen', position: { x: 1800, y: 1200 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 5 },
 ];
 
 describe('workspaceFrameVirtualization', () => {

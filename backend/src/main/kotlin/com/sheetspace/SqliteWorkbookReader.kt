@@ -46,7 +46,7 @@ internal class SqliteWorkbookReader(
         val document = connection.prepareStatement(
             """
             SELECT d.id, d.name, d.revision,
-                   f.position_x, f.position_y, f.frame_width, f.frame_height, f.z_index
+                   f.position_x, f.position_y, f.frame_width, f.frame_height, f.visual_scale, f.z_index
             FROM sheet_documents d
             JOIN frame_state f ON f.sheet_id = d.id
             WHERE d.id = ?
@@ -69,6 +69,7 @@ internal class SqliteWorkbookReader(
                             rs.getDouble("frame_width"),
                             rs.getDouble("frame_height"),
                         ),
+                        visualScale = rs.getDouble("visual_scale"),
                         zIndex = rs.getInt("z_index"),
                     ),
                 )

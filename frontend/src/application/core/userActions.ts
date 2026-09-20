@@ -6,7 +6,7 @@ import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
-import { type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
+import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
 export type WorkbookOperationId = string;
 /** A stable workbook-wide cell target. The raw content is the final persisted value. */
@@ -28,6 +28,7 @@ export type WorkbookOperation =
   | { kind: 'write-cells'; operationId: WorkbookOperationId; writes: readonly CellWrite[] }
   | { kind: 'move-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'resize-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
+  | { kind: 'set-sheet-visual-scale'; operationId: WorkbookOperationId; sheetId: SheetId; visualScale: number }
   | { kind: 'change-sheet-z-order'; operationId: WorkbookOperationId; sheetId: SheetId; direction: SheetZOrderDirection };
 
 /** These originate in backend responses and are not optimistic durable operations. */
@@ -41,6 +42,7 @@ export type WorkbookPersistenceIntent =
   | { kind: 'rename-sheet'; sheetId: SheetId; name: string }
   | { kind: 'update-sheet-position'; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
+  | { kind: 'update-sheet-visual-scale'; sheetId: SheetId; visualScale: number }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
   | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
 
@@ -56,6 +58,7 @@ export type WorkbookOperationInverse =
   | { kind: 'write-cells'; writes: readonly CellWrite[] }
   | { kind: 'move-sheet-frame'; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'resize-sheet-frame'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
+  | { kind: 'set-sheet-visual-scale'; sheetId: SheetId; visualScale: number }
   | { kind: 'change-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] };
 
 export type AppliedWorkbookOperation = {
@@ -66,7 +69,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'unknown-sheet';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-visual-scale' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 
 /**
@@ -132,7 +135,8 @@ export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOp
     case 'rename-sheet': return applyRenameSheet(workbook, operation);
     case 'write-cells': return applyCellWrites(workbook, operation);
     case 'move-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position }));
-    case 'resize-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ position: operation.position, size: operation.size, zIndex: sheet.frame.zIndex }));
+    case 'resize-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position, size: operation.size }));
+    case 'set-sheet-visual-scale': return applyVisualScaleChange(workbook, operation);
     case 'change-sheet-z-order': return applyZOrderChange(workbook, operation);
   }
 }
@@ -221,6 +225,17 @@ function applyFrameChange(workbook: Workbook, operation: Extract<WorkbookOperati
   const persistence: WorkbookPersistenceIntent = operation.kind === 'move-sheet-frame' ? { kind: 'update-sheet-position', sheetId: sheet.id, position: frame.position } : { kind: 'update-sheet-frame-layout', sheetId: sheet.id, position: frame.position, size: frame.size };
   const inverse: WorkbookOperationInverse = operation.kind === 'move-sheet-frame' ? { kind: 'move-sheet-frame', sheetId: sheet.id, position: sheet.frame.position } : { kind: 'resize-sheet-frame', sheetId: sheet.id, position: sheet.frame.position, size: sheet.frame.size };
   return sheetSuccess(workbook, { ...sheet, frame }, { kind: 'none' }, persistence, inverse);
+}
+
+function applyVisualScaleChange(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'set-sheet-visual-scale' }>): WorkbookOperationResult {
+  const sheet = findSheetById(workbook, operation.sheetId);
+  if (!sheet) return { ok: false, reason: 'unknown-sheet' };
+  if (!isValidSheetVisualScale(operation.visualScale)) return { ok: false, reason: 'invalid-visual-scale' };
+  if (operation.visualScale === sheet.frame.visualScale) return noChange(workbook);
+  const frame = { ...sheet.frame, visualScale: operation.visualScale };
+  return sheetSuccess(workbook, { ...sheet, frame }, { kind: 'none' },
+    { kind: 'update-sheet-visual-scale', sheetId: sheet.id, visualScale: operation.visualScale },
+    { kind: 'set-sheet-visual-scale', sheetId: sheet.id, visualScale: sheet.frame.visualScale });
 }
 
 function applyZOrderChange(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'change-sheet-z-order' }>): WorkbookOperationResult {

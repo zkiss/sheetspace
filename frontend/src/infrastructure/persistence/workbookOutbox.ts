@@ -150,18 +150,20 @@ function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceInte
     case 'rename-sheet': return { ...intent };
     case 'update-sheet-position': return { ...intent, position: { ...intent.position } };
     case 'update-sheet-frame-layout': return { ...intent, position: { ...intent.position }, size: { ...intent.size } };
+    case 'update-sheet-visual-scale': return { ...intent };
     case 'update-sheet-z-order': return { ...intent, updates: intent.updates.map((update) => ({ ...update })) };
     case 'write-cells': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
   }
 }
 function policyFor(intent: WorkbookPersistenceIntent): OutboxEntry['policy'] {
-  return intent.kind === 'update-sheet-position' || intent.kind === 'update-sheet-frame-layout'
+  return intent.kind === 'update-sheet-position' || intent.kind === 'update-sheet-frame-layout' || intent.kind === 'update-sheet-visual-scale'
     ? 'replace-queued'
     : 'append';
 }
 function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
   if (intent.kind === 'update-sheet-position') return `position:${intent.sheetId}`;
   if (intent.kind === 'update-sheet-frame-layout') return `layout:${intent.sheetId}`;
+  if (intent.kind === 'update-sheet-visual-scale') return `visual-scale:${intent.sheetId}`;
   return undefined;
 }
 function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {

@@ -107,6 +107,11 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         ...sheet,
         frame: { ...sheet.frame, position, size: frameSize },
       })), sheetId)),
+    updateSheetVisualScale: vi.fn().mockImplementation(async (sheetId: string, visualScale: number) =>
+      revisionResponse(updateSheet(sheetId, (sheet) => ({
+        ...sheet,
+        frame: { ...sheet.frame, visualScale },
+      })), sheetId)),
     updateSheetZOrder: vi.fn().mockImplementation(async (
       updates: Array<{ sheetId: string; zIndex: number }>,
     ) => {

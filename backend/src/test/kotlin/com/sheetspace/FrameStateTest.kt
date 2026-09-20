@@ -11,6 +11,9 @@ class FrameStateTest {
         assertTrue(FrameState().isValid())
         assertFalse(FrameState(position = WorkspacePosition(Double.NaN, 0.0)).isValid())
         assertFalse(FrameState(size = SheetFrameSize(0.0, 1.0)).isValid())
+        assertFalse(FrameState(visualScale = 0.0).isValid())
+        assertFalse(FrameState(visualScale = Double.POSITIVE_INFINITY).isValid())
+        assertFalse(FrameState(visualScale = MAX_SHEET_VISUAL_SCALE + 0.1).isValid())
         assertFalse(FrameState(zIndex = 0).isValid())
     }
 
@@ -26,5 +29,17 @@ class FrameStateTest {
             original.copy(position = WorkspacePosition(8.0, 9.0)),
             original.update(position = WorkspacePosition(8.0, 9.0)),
         )
+    }
+
+    @Test
+    fun `frame update changes visual scale without changing other layout fields`() {
+        val original = FrameState(
+            position = WorkspacePosition(1.0, 2.0),
+            size = SheetFrameSize(300.0, 200.0),
+            visualScale = 0.5,
+            zIndex = 4,
+        )
+
+        assertEquals(original.copy(visualScale = 2.0), original.update(visualScale = 2.0))
     }
 }

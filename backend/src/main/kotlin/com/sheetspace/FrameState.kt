@@ -2,6 +2,12 @@ package com.sheetspace
 
 import kotlinx.serialization.Serializable
 
+const val MIN_SHEET_VISUAL_SCALE = 0.1
+const val MAX_SHEET_VISUAL_SCALE = 8.0
+
+fun isValidSheetVisualScale(value: Double): Boolean =
+    value.isFinite() && value in MIN_SHEET_VISUAL_SCALE..MAX_SHEET_VISUAL_SCALE
+
 @Serializable
 data class WorkspacePosition(
     val x: Double = 0.0,
@@ -22,17 +28,20 @@ data class SheetFrameSize(
 data class FrameState(
     val position: WorkspacePosition = WorkspacePosition(),
     val size: SheetFrameSize = SheetFrameSize(),
+    val visualScale: Double = 1.0,
     val zIndex: Int = 1,
 ) {
-    fun isValid(): Boolean = position.isValid() && size.isValid() && zIndex >= 1
+    fun isValid(): Boolean = position.isValid() && size.isValid() && isValidSheetVisualScale(visualScale) && zIndex >= 1
 
     fun update(
         position: WorkspacePosition? = null,
         size: SheetFrameSize? = null,
+        visualScale: Double? = null,
         zIndex: Int? = null,
     ): FrameState = copy(
         position = position ?: this.position,
         size = size ?: this.size,
+        visualScale = visualScale ?: this.visualScale,
         zIndex = zIndex ?: this.zIndex,
     )
 }

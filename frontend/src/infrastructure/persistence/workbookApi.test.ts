@@ -25,6 +25,7 @@ function expectedDocument(response: SheetDocumentResponse): SheetDocument {
     frame: {
       position: { ...response.frame.position },
       size: { ...response.frame.size },
+      visualScale: response.frame.visualScale,
       zIndex: response.frame.zIndex,
     },
     content: {
@@ -180,6 +181,13 @@ describe('workbook API read decoding', () => {
       expect.objectContaining({ code: 'invalid-workbook-read-contract' }),
     );
   });
+
+  it.each([0, -1, Number.POSITIVE_INFINITY, 8.1])('rejects invalid sheet visual scale %s', (visualScale) => {
+    expect(() => decodeSheetDocument({
+      ...inputsResponse,
+      frame: { ...inputsResponse.frame, visualScale },
+    } as SheetDocumentResponse)).toThrowError(expect.objectContaining({ code: 'invalid-workbook-read-contract' }));
+  });
 });
 
 describe('workbook API mutations', () => {
@@ -225,6 +233,7 @@ describe('workbook API mutations', () => {
     await workbookApi.renameSheet('sheet-1', 'Renamed');
     await workbookApi.updateSheetPosition('sheet-1', { x: 48, y: 96 });
     await workbookApi.updateSheetFrameLayout('sheet-1', { x: 48, y: 96 }, { width: 320, height: 220 });
+    await workbookApi.updateSheetVisualScale('sheet-1', 0.5);
     await workbookApi.updateSheetZOrder([
       { sheetId: 'sheet-1', expectedRevision: 2, zIndex: 3 },
       { sheetId: 'sheet-2', expectedRevision: 4, zIndex: 1 },
@@ -241,7 +250,10 @@ describe('workbook API mutations', () => {
       body: JSON.stringify({ position: { x: 48, y: 96 }, frameSize: { width: 320, height: 220 } }),
       headers: { 'Content-Type': 'application/json' },
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/workbook/sheet-z-order', {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/sheets/sheet-1', {
+      method: 'PATCH', body: JSON.stringify({ visualScale: 0.5 }), headers: { 'Content-Type': 'application/json' },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/workbook/sheet-z-order', {
       method: 'PATCH',
       body: JSON.stringify({ updates: [
         { sheetId: 'sheet-1', expectedRevision: 2, zIndex: 3 },

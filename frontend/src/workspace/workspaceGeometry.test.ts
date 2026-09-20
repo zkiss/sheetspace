@@ -184,10 +184,10 @@ describe('workspaceGeometry', () => {
 
   it('selects intersecting and pinned frames with clamped frame sizes and overscan', () => {
     const frames = [
-      { id: 'inside', name: 'Inside', position: { x: 10, y: 10 }, size: { width: 240, height: 160 }, zIndex: 1 },
-      { id: 'edge', name: 'Edge', position: { x: -80, y: 0 }, size: { width: 20, height: 20 }, zIndex: 2 },
-      { id: 'nearby', name: 'Nearby', position: { x: 290, y: 10 }, size: { width: 240, height: 160 }, zIndex: 3 },
-      { id: 'pinned', name: 'Pinned', position: { x: 1000, y: 1000 }, size: { width: 240, height: 160 }, zIndex: 4 },
+      { id: 'inside', name: 'Inside', position: { x: 10, y: 10 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 1 },
+      { id: 'edge', name: 'Edge', position: { x: -80, y: 0 }, size: { width: 20, height: 20 }, visualScale: 1, zIndex: 2 },
+      { id: 'nearby', name: 'Nearby', position: { x: 290, y: 10 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 3 },
+      { id: 'pinned', name: 'Pinned', position: { x: 1000, y: 1000 }, size: { width: 240, height: 160 }, visualScale: 1, zIndex: 4 },
     ];
     const viewport = { left: 0, top: 0, right: 100, bottom: 100 };
 
