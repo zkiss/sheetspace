@@ -129,6 +129,7 @@ export function useSheetFrameInteractions({
       startClientY: event.clientY,
       startPosition: sheet.frame.position,
       startFrameSize: sheet.frame.size,
+      startVisualScale: sheet.frame.visualScale,
       direction,
     };
     setInteractionPinnedSheetId(sheetId);
@@ -149,7 +150,7 @@ export function useSheetFrameInteractions({
       { x: resize.startClientX, y: resize.startClientY },
       { x: event.clientX, y: event.clientY },
       viewportScale,
-      sheet.frame.visualScale,
+      resize.startVisualScale,
     ));
     setFrameLayoutPreview({
       sheetId: resize.sheetId,
@@ -170,7 +171,7 @@ export function useSheetFrameInteractions({
       { x: resize.startClientX, y: resize.startClientY },
       { x: event.clientX, y: event.clientY },
       viewportScale,
-      sheet.frame.visualScale,
+      resize.startVisualScale,
     ));
 
     if (

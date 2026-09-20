@@ -258,6 +258,37 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 1);
   });
 
+  it('keeps the opposite scaled corner fixed while resizing from the top left', () => {
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });
+    const workbook = workbookWithSheets([{
+      ...sheet,
+      frame: { ...sheet.frame, visualScale: 0.5 },
+    }]);
+    const { commands: testCommands, result } = renderInteractions({ viewportScale: 2, workbook });
+
+    act(() => {
+      result.current.handleSheetFrameResizeStart(
+        'sheet-inputs',
+        { horizontal: -1, vertical: -1 },
+        pointerEvent({ clientX: 0, clientY: 0 }),
+      );
+      result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 40, clientY: 30 }));
+    });
+
+    expect(result.current.frameLayoutPreview).toEqual({
+      sheetId: 'sheet-inputs',
+      position: { x: 30, y: 35 },
+      size: { width: 200, height: 130 },
+    });
+
+    act(() => result.current.stopSheetFrameResize(pointerEvent({ clientX: 40, clientY: 30 })));
+    expect(testCommands.resizeSheetFrame).toHaveBeenCalledWith(
+      'sheet-inputs',
+      { x: 30, y: 35 },
+      { width: 200, height: 130 },
+    );
+  });
+
   it('pins numeric scale previews until cancellation or an explicit commit', () => {
     const { commands: testCommands, result } = renderInteractions();
 

@@ -334,7 +334,7 @@ function finiteOr(value: number, fallback = 0): number {
 }
 
 export function resizeSheetFrame(
-  resize: Pick<SheetFrameResize, 'startFrameSize' | 'startPosition' | 'direction'>,
+  resize: Pick<SheetFrameResize, 'startFrameSize' | 'startPosition' | 'startVisualScale' | 'direction'>,
   delta: WorkspacePosition,
 ) {
   const nextFrameSize = clampSheetFrameSize({
@@ -346,11 +346,11 @@ export function resizeSheetFrame(
     position: {
       x:
         resize.direction.horizontal < 0
-          ? Math.round(resize.startPosition.x + resize.startFrameSize.width - nextFrameSize.width)
+          ? resize.startPosition.x + (resize.startFrameSize.width - nextFrameSize.width) * resize.startVisualScale
           : resize.startPosition.x,
       y:
         resize.direction.vertical < 0
-          ? Math.round(resize.startPosition.y + resize.startFrameSize.height - nextFrameSize.height)
+          ? resize.startPosition.y + (resize.startFrameSize.height - nextFrameSize.height) * resize.startVisualScale
           : resize.startPosition.y,
     },
     frameSize: nextFrameSize,

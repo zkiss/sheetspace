@@ -215,12 +215,31 @@ describe('workspaceGeometry', () => {
           direction: { horizontal: -1, vertical: -1 },
           startFrameSize: { width: 240, height: 160 },
           startPosition: { x: 120, y: 80 },
+          startVisualScale: 1,
         },
         { x: 100, y: 80 },
       ),
     ).toEqual({
       frameSize: { width: 180, height: 120 },
       position: { x: 180, y: 120 },
+    });
+  });
+
+  it('keeps scaled opposite edges fixed for left and top resizing', () => {
+    const resize = {
+      direction: { horizontal: -1, vertical: -1 } as const,
+      startFrameSize: { width: 240, height: 160 },
+      startPosition: { x: 120, y: 80 },
+      startVisualScale: 0.5,
+    };
+
+    expect(resizeSheetFrame(resize, { x: 100, y: 80 })).toEqual({
+      frameSize: { width: 180, height: 120 },
+      position: { x: 150, y: 100 },
+    });
+    expect(resizeSheetFrame(resize, { x: 1_000, y: 1_000 })).toEqual({
+      frameSize: { width: 180, height: 120 },
+      position: { x: 150, y: 100 },
     });
   });
 
