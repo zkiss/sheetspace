@@ -340,4 +340,40 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledTimes(1);
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
   });
+
+  it('keeps drag and resize ownership when stale numeric cancellation follows their takeover', () => {
+    const { commands: testCommands, result } = renderInteractions();
+
+    act(() => {
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.previewSheetFrameScale('sheet-inputs', 1.5);
+      result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 120, pointerId: 2 }));
+      result.current.cancelSheetFrameScaleInput('sheet-inputs');
+      result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150, pointerId: 2 }));
+    });
+
+    expect(result.current.frameScalePreview).toBeNull();
+    expect(result.current.frameLayoutPreview).toMatchObject({ position: { x: 50, y: 50 } });
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
+    act(() => result.current.stopSheetFrameDrag(pointerEvent({ clientX: 140, clientY: 150, pointerId: 2 })));
+    expect(testCommands.moveSheetFrame).toHaveBeenCalledWith('sheet-inputs', { x: 50, y: 50 });
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+
+    act(() => {
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.handleSheetFrameResizeStart(
+        'sheet-inputs', { horizontal: 1, vertical: 1 }, pointerEvent({ clientX: 100, clientY: 120, pointerId: 3 }),
+      );
+      result.current.cancelSheetFrameScaleInput('sheet-inputs');
+      result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 140, clientY: 150, pointerId: 3 }));
+    });
+
+    expect(result.current.frameLayoutPreview).toMatchObject({ size: { width: 280, height: 190 } });
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
+    act(() => result.current.stopSheetFrameResize(pointerEvent({ clientX: 140, clientY: 150, pointerId: 3 })));
+    expect(testCommands.resizeSheetFrame).toHaveBeenCalledWith(
+      'sheet-inputs', { x: 10, y: 20 }, { width: 280, height: 190 },
+    );
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+  });
 });
