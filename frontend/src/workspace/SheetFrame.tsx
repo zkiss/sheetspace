@@ -1,8 +1,8 @@
-import { useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
-import { clampSheetFrameSize, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
+import { clampSheetFrameSize, clampSheetVisualScale, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
 import '@workspace/SheetFrame.css';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
@@ -67,7 +67,14 @@ export function SheetFrame({
 }) {
   const frameSize = clampSheetFrameSize(frame.size);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const isScaleInputEditing = useRef(false);
+  const isScaleInputCancellation = useRef(false);
+  const [scaleInputValue, setScaleInputValue] = useState(() => scalePercentage(frame.visualScale));
   const screenScale = effectiveSheetScreenScale(viewportScale, frame.visualScale);
+
+  useEffect(() => {
+    if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
+  }, [frame.visualScale]);
 
   return (
     <article
@@ -137,22 +144,41 @@ export function SheetFrame({
             <span className="visually-hidden">Scale sheet {frame.name}</span>
             <input
               aria-label={`Scale sheet ${frame.name} percentage`}
-              defaultValue={Math.round(frame.visualScale * 100)}
               inputMode="decimal"
               onBlur={(event) => {
+                if (isScaleInputCancellation.current) {
+                  isScaleInputCancellation.current = false;
+                  return;
+                }
+                isScaleInputEditing.current = false;
                 const value = Number(event.currentTarget.value);
-                if (Number.isFinite(value) && value > 0) onScaleCommit(frame.id, value / 100);
-                else onScaleCancel();
+                if (Number.isFinite(value) && value > 0) {
+                  const visualScale = clampSheetVisualScale(value / 100);
+                  setScaleInputValue(scalePercentage(visualScale));
+                  onScaleCommit(frame.id, visualScale);
+                } else {
+                  setScaleInputValue(scalePercentage(frame.visualScale));
+                  onScaleCancel();
+                }
               }}
               onChange={(event) => {
+                setScaleInputValue(event.currentTarget.value);
                 const value = Number(event.currentTarget.value);
                 if (Number.isFinite(value) && value > 0) onScalePreview(frame.id, value / 100);
               }}
+              onFocus={() => { isScaleInputEditing.current = true; }}
               onKeyDown={(event) => {
-                if (event.key === 'Escape') { event.currentTarget.value = String(Math.round(frame.visualScale * 100)); onScaleCancel(); event.currentTarget.blur(); }
+                if (event.key === 'Escape') {
+                  isScaleInputEditing.current = false;
+                  isScaleInputCancellation.current = true;
+                  setScaleInputValue(scalePercentage(frame.visualScale));
+                  onScaleCancel();
+                  event.currentTarget.blur();
+                }
                 if (event.key === 'Enter') event.currentTarget.blur();
               }}
               type="number"
+              value={scaleInputValue}
             />
             <span aria-hidden="true">%</span>
           </label>
@@ -173,4 +199,8 @@ export function SheetFrame({
       </div>
     </article>
   );
+}
+
+function scalePercentage(visualScale: number) {
+  return String(Math.round(visualScale * 100));
 }

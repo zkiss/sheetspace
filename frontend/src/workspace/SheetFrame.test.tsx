@@ -64,4 +64,37 @@ describe('SheetFrame', () => {
     expect(sheetFrame).toHaveAttribute('data-column-count', '4');
     expect(sheetFrame).toHaveAttribute('data-row-count', '6');
   });
+
+  it('synchronizes the scale control after handle and clamped numeric commits, while cancelling invalid input', () => {
+    const interactions = {
+      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
+      onScaleCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+    };
+    const frame = testFrame();
+    const renderFrame = (currentFrame = frame) => (
+      <SheetFrame columnCount={4} frame={currentFrame} isActiveSheet isNavigationReveal={false} {...interactions} rowCount={6} viewportScale={1}>
+        {() => <table aria-label="Inputs grid" />}
+      </SheetFrame>
+    );
+    const { rerender } = render(renderFrame());
+    const input = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
+
+    fireEvent.pointerDown(screen.getByTestId('sheet-frame-scale-handle'));
+    fireEvent.pointerUp(screen.getByTestId('sheet-frame-scale-handle'));
+    rerender(renderFrame({ ...frame, visualScale: 2 }));
+    expect(input).toHaveValue(200);
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '999' } });
+    fireEvent.blur(input);
+    expect(interactions.onScaleCommit).toHaveBeenLastCalledWith('sheet-inputs', 8);
+    expect(input).toHaveValue(800);
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(interactions.onScaleCancel).toHaveBeenCalledTimes(1);
+    expect(input).toHaveValue(200);
+  });
 });
