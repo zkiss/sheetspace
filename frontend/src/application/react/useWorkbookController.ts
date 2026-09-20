@@ -1,15 +1,15 @@
 import type { AxisSizeWrite } from '@workbook/core/model';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import {
   workbookApi,
   type WorkbookApi,
 } from '@infrastructure/persistence/workbookApi';
-import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
-import { type CellKey } from '@workbook/core/address';
+import { cellKey, type CellKey } from '@workbook/core/address';
 import type { StableCellIdentity } from '@workbook/core/model';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
@@ -60,6 +60,7 @@ export type ContentHistoryCellSnapshot = Readonly<{
   rowId: string;
   columnId: string;
   raw: string | null;
+  display: string | null;
 }>;
 
 export type ContentHistoryFeedback = Readonly<{
@@ -92,13 +93,21 @@ type WorkbookControllerState = {
 function contentHistorySnapshot(
   writes: readonly CellPersistenceWrite[],
   raw: 'beforeRaw' | 'afterRaw',
+  workbook?: Workbook,
+  formulaResults?: FormulaEvaluationSnapshot,
 ): readonly ContentHistoryCellSnapshot[] {
-  return Object.freeze(writes.map((write) => Object.freeze({
-    sheetId: write.sheetId,
-    rowId: write.rowId,
-    columnId: write.columnId,
-    raw: write[raw],
-  })));
+  return Object.freeze(writes.map((write) => {
+    const sheet = workbook && findSheetById(workbook, write.sheetId);
+    const address = sheet && cellAddressOf(sheet.content, write);
+    const value = write[raw];
+    return Object.freeze({
+      sheetId: write.sheetId,
+      rowId: write.rowId,
+      columnId: write.columnId,
+      raw: value,
+      display: address ? formulaResults?.[write.sheetId]?.[cellKey(address)]?.display ?? value : value,
+    });
+  }));
 }
 
 function contentHistoryAffectedSnapshot(affected: AffectedWorkbookEntities): AffectedWorkbookEntities {
@@ -140,6 +149,14 @@ export function useWorkbookController({
   const contentHistory = contentHistoryRef.current;
   const [, setHistoryRevision] = useState(0);
   const [contentHistoryFeedback, setContentHistoryFeedback] = useState<WorkbookController['contentHistoryFeedback']>();
+  useEffect(() => {
+    if (!contentHistoryFeedback) return;
+    const identity = contentHistoryFeedback.identity;
+    const timeout = window.setTimeout(() => {
+      setContentHistoryFeedback((current) => current?.identity === identity ? undefined : current);
+    }, 1200);
+    return () => window.clearTimeout(timeout);
+  }, [contentHistoryFeedback]);
   const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
     setControllerState((current) => {
       const nextWorkbook = typeof update === 'function'
@@ -226,6 +243,7 @@ export function useWorkbookController({
     if (applied?.changed) {
       savedAutosave.enqueue(operation.operationId, applied.persistence);
       if (recordContentHistory && operation.kind === 'write-cells' && applied.persistence?.kind === 'write-cells') {
+        setContentHistoryFeedback(undefined);
         contentHistory.record(applied.persistence.writes, applied.affected);
         setHistoryRevision((revision) => revision + 1);
       }
@@ -287,8 +305,9 @@ export function useWorkbookController({
   function replayContentHistory(direction: 'undo' | 'redo') {
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
+    const sourceWorkbook = optimisticWorkbook.current;
     const expected = direction === 'undo' ? 'after' : 'before';
-    const applied = applyResult(replayCellPersistenceWrites(optimisticWorkbook.current, transaction.writes, expected));
+    const applied = applyResult(replayCellPersistenceWrites(sourceWorkbook, transaction.writes, expected));
     // An unavailable entry stays on its stack. This is deterministic and avoids phantom moves.
     if (!applied?.changed || applied.persistence?.kind !== 'write-cells') return;
     const operationId = crypto.randomUUID();
@@ -297,7 +316,7 @@ export function useWorkbookController({
     setContentHistoryFeedback(Object.freeze({
       identity: operationId,
       affected: contentHistoryAffectedSnapshot(applied.affected),
-      before: contentHistorySnapshot(applied.persistence.writes, 'beforeRaw'),
+      before: contentHistorySnapshot(applied.persistence.writes, 'beforeRaw', sourceWorkbook, formulaResults),
       after: contentHistorySnapshot(applied.persistence.writes, 'afterRaw'),
     }));
     setHistoryRevision((revision) => revision + 1);

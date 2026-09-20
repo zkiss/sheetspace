@@ -44,6 +44,7 @@ export function SheetGridCell({
   isActive,
   isEditing,
   isNavigationTarget = false,
+  historyFeedback,
   isRangeSelected = false,
   cellInteraction,
   editorInteraction,
@@ -59,6 +60,7 @@ export function SheetGridCell({
   isActive: boolean;
   isEditing: boolean;
   isNavigationTarget?: boolean;
+  historyFeedback?: { before: string | null; beforeDisplay: string | null; after: string | null };
   isRangeSelected?: boolean;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
@@ -108,11 +110,13 @@ export function SheetGridCell({
         isRangeSelected ? ' sheet-grid-cell-range-selected' : ''
       }${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
         isEditing ? ' sheet-grid-cell-editing' : ''
-      }`}
+      }${historyFeedback ? ` sheet-grid-cell-history-${historyFeedback.before === null ? 'insertion' : historyFeedback.after === null ? 'removal' : 'replacement'}` : ''}`}
       data-active-cell={isActive ? 'true' : undefined}
       data-cell-key={cellKey}
       data-editing-cell={isEditing ? 'true' : undefined}
       data-navigation-highlight={isNavigationTarget ? 'true' : undefined}
+      data-history-feedback={historyFeedback ? 'true' : undefined}
+      data-history-before={historyFeedback?.beforeDisplay ?? undefined}
       data-reference-selected={isRangeSelected ? 'true' : undefined}
       data-testid="sheet-grid-cell"
       onClick={(event) => {

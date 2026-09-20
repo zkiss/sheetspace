@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import './App.css';
 import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
@@ -34,7 +34,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRetryFailedSaves, commands, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -63,6 +63,21 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     commands,
     workbook,
   });
+
+  useEffect(() => {
+    const handleHistoryShortcut = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('textarea, input, [contenteditable="true"]')) return;
+      const redo = key === 'y' || event.shiftKey;
+      if (redo ? !canRedo : !canUndo) return;
+      event.preventDefault();
+      if (redo) commands.redo(); else commands.undo();
+    };
+    window.addEventListener('keydown', handleHistoryShortcut);
+    return () => window.removeEventListener('keydown', handleHistoryShortcut);
+  }, [canRedo, canUndo, commands]);
 
   function openCreationDialog(position: WorkspacePosition, label: string) {
     setPendingCreation({ position, label });
@@ -131,7 +146,10 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       <Workspace
         activeCell={activeCell}
         canRetryFailedSaves={canRetryFailedSaves}
+        canRedo={canRedo}
+        canUndo={canUndo}
         commands={commands}
+        contentHistoryFeedback={contentHistoryFeedback}
         creatingAxes={creatingAxes}
         creatingFrames={creatingFrames}
         editingCell={editingCell}

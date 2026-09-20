@@ -17,20 +17,28 @@ function saveStatusText(status: SaveStatus) {
 
 export function WorkspaceToolbar({
   canRetryFailedSaves,
+  canRedo,
+  canUndo,
   onCreateSheet,
+  onRedo,
   onPanWorkspace,
   onResetViewport,
   onRetryFailedSaves,
+  onUndo,
   onZoomWorkspace,
   saveStatus,
   sheetCount,
   viewport,
 }: {
   canRetryFailedSaves: boolean;
+  canRedo: boolean;
+  canUndo: boolean;
   onCreateSheet: () => void;
+  onRedo: () => void;
   onPanWorkspace: (deltaX: number, deltaY: number) => void;
   onResetViewport: () => void;
   onRetryFailedSaves: () => void;
+  onUndo: () => void;
   onZoomWorkspace: (factor: number) => void;
   saveStatus: SaveStatus;
   sheetCount: number;
@@ -56,6 +64,10 @@ export function WorkspaceToolbar({
         ) : null}
       </div>
       <div className="workspace-toolbar-actions">
+        <div className="workspace-history-controls" aria-label="Edit history">
+          <button type="button" aria-label="Undo" disabled={!canUndo} onClick={onUndo} title="Undo (Ctrl/Cmd-Z)">Undo</button>
+          <button type="button" aria-label="Redo" disabled={!canRedo} onClick={onRedo} title="Redo (Ctrl/Cmd-Shift-Z)">Redo</button>
+        </div>
         <div className="workspace-viewport-controls" aria-label="Workspace viewport controls">
           <button type="button" aria-label="Pan workspace left" onClick={() => onPanWorkspace(-WORKSPACE_PAN_STEP, 0)}>
             ←

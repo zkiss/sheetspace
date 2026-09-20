@@ -1,7 +1,8 @@
+import { useEffect } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
-import type { CellRange } from '@workbook/core/address';
-import { addressRangeOf } from '@workbook/core/cellIdentity';
+import { cellKey, type CellRange } from '@workbook/core/address';
+import { addressRangeOf, cellAddressOf } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
@@ -30,11 +31,15 @@ import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
+import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
 
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
+  canRedo,
+  canUndo,
   commands,
+  contentHistoryFeedback,
   editingCell,
   formulaResults,
   keyboardFocusRequest,
@@ -64,7 +69,10 @@ export function Workspace({
 }: {
   activeCell: CellTarget | null;
   canRetryFailedSaves: boolean;
+  canRedo: boolean;
+  canUndo: boolean;
   commands: WorkbookCommands;
+  contentHistoryFeedback: import('@application/react/useWorkbookController').ContentHistoryFeedback | undefined;
   editingCell: CellEditSession | null;
   formulaResults: FormulaEvaluationSnapshot;
   keyboardFocusRequest: CellFocusRequest | null;
@@ -102,6 +110,11 @@ export function Workspace({
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
     : undefined;
   const workspaceController = useWorkspaceController({ onCreateSheet });
+  useEffect(() => {
+    if (!contentHistoryFeedback || editingCell) return;
+    const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
+    if (destination) workspaceController.navigateToTarget(workspaceRectForFrame(destination.frame));
+  }, [contentHistoryFeedback?.identity]);
   const {
     navigateReference,
     navigationHighlight,
@@ -165,9 +178,13 @@ export function Workspace({
         onPanWorkspace={workspaceController.panWorkspace}
         onResetViewport={workspaceController.resetViewport}
         onRetryFailedSaves={onRetryFailedSaves}
+        onRedo={commands.redo}
+        onUndo={commands.undo}
         onZoomWorkspace={workspaceController.zoomWorkspaceBy}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
+        canRedo={canRedo && !editingCell}
+        canUndo={canUndo && !editingCell}
         sheetCount={sheets.length}
         viewport={workspaceController.viewport}
       />
@@ -230,6 +247,9 @@ export function Workspace({
             && navigationHighlight.sheetId === sheet.id
             ? addressRangeOf(sheet.content, navigationHighlight.range)
             : undefined;
+          const historyFeedbackCells = contentHistoryFeedback
+            ? historyCellsForSheet(contentHistoryFeedback, sheet)
+            : undefined;
 
           return (
             <SheetFrame
@@ -286,6 +306,7 @@ export function Workspace({
                   onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
                   navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                   navigationHighlightRange={navigationHighlightRange}
+                  historyFeedbackCells={historyFeedbackCells}
                   scrollContainerRef={scrollContainerRef}
                   selectedRange={selectedRange}
                   selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
@@ -300,6 +321,29 @@ export function Workspace({
       </WorkspaceSurface>
     </>
   );
+}
+
+function historyCellsForSheet(
+  feedback: import('@application/react/useWorkbookController').ContentHistoryFeedback,
+  sheet: SheetDocument,
+) {
+  const beforeByIdentity = new Map(feedback.before.map((cell) => [
+    `${cell.sheetId}:${cell.rowId}:${cell.columnId}`,
+    cell,
+  ]));
+  const cells = new Map<string, { before: string | null; beforeDisplay: string | null; after: string | null }>();
+  for (const after of feedback.after) {
+    if (after.sheetId !== sheet.id) continue;
+    const address = cellAddressOf(sheet.content, after);
+    if (!address) continue;
+    const before = beforeByIdentity.get(`${after.sheetId}:${after.rowId}:${after.columnId}`);
+    cells.set(cellKey(address), {
+      before: before?.raw ?? null,
+      beforeDisplay: before?.display ?? null,
+      after: after.raw,
+    });
+  }
+  return cells;
 }
 
 function selectionAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
