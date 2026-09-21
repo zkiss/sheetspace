@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
 import {
+  cellKeyForTarget,
   cellInteractionReducer,
+  cellTargetAt,
   EMPTY_CELL_INTERACTION_STATE,
+  sameTarget,
 } from '@grid/cellInteraction';
+import { sheetDocument } from '@test-support/workbookFactories';
 
 const a1: CellTarget = {
   sheetId: 'sheet-inputs',
@@ -129,5 +133,100 @@ describe('selection gesture owners', () => {
     expect(cellInteractionReducer(shifted, { type: 'extend-selection', target: a1, gesture: { owner: gesture.owner } })).toBe(shifted);
     const pruned = cellInteractionReducer(shifted, { type: 'prune-sheets', sheetIds: new Set() });
     expect(pruned.selectionOwner).toBeNull();
+  });
+});
+
+describe('cell interaction lifecycle boundaries', () => {
+  it('keeps an existing range while clearing its active cell and creates one for another cell', () => {
+    const ranged = cellInteractionReducer(
+      cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 }),
+      { type: 'extend-selection', target: b1 },
+    );
+
+    const clearedActive = cellInteractionReducer(ranged, { type: 'clear', target: b1 });
+    expect(clearedActive.rangeSelection).toEqual(ranged.rangeSelection);
+    expect(clearedActive.focusRequest).toMatchObject({ target: b1 });
+
+    const clearedElsewhere = cellInteractionReducer(clearedActive, { type: 'clear', target: a2 });
+    expect(clearedElsewhere.rangeSelection).toEqual({ mode: 'cells', anchor: a2, extent: a2 });
+    expect(clearedElsewhere.selection).toEqual(a2);
+  });
+
+  it('updates drafts only while editing and acknowledges only the current focus request', () => {
+    expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'update-draft', draft: 'ignored' }))
+      .toBe(EMPTY_CELL_INTERACTION_STATE);
+    expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'cancel' }))
+      .toBe(EMPTY_CELL_INTERACTION_STATE);
+
+    const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'start-edit', session: { target: a1, draft: 'before' },
+    });
+    const updated = cellInteractionReducer(editing, { type: 'update-draft', draft: 'after' });
+    expect(updated.editing?.draft).toBe('after');
+    expect(cellInteractionReducer(updated, { type: 'commit' }).editing).toBeNull();
+    const navigated = cellInteractionReducer(updated, { type: 'navigate', target: b1 });
+    expect(cellInteractionReducer(navigated, { type: 'acknowledge-focus', requestId: 999 })).toBe(navigated);
+    expect(cellInteractionReducer(navigated, { type: 'acknowledge-focus', requestId: 1 }).focusRequest).toBeNull();
+  });
+
+  it('prunes all state associated with removed sheets while retaining surviving state', () => {
+    const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 });
+    const editing = cellInteractionReducer(selected, { type: 'start-edit', session: { target: a1, draft: 'draft' } });
+    const focused = cellInteractionReducer(editing, { type: 'cancel' });
+    const retained = cellInteractionReducer(focused, { type: 'prune-sheets', sheetIds: new Set(['sheet-inputs']) });
+    expect(retained.selection).toEqual(a1);
+    expect(retained.editing).toBeNull();
+    expect(retained.focusRequest).toMatchObject({ target: a1 });
+
+    const removed = cellInteractionReducer(focused, { type: 'prune-sheets', sheetIds: new Set() });
+    expect(removed.selection).toBeNull();
+    expect(removed.rangeSelection).toBeNull();
+    expect(removed.editing).toBeNull();
+    expect(removed.focusRequest).toBeNull();
+
+    const stillEditing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'start-edit', session: { target: a1, draft: 'draft' },
+    });
+    expect(cellInteractionReducer(stillEditing, {
+      type: 'prune-sheets', sheetIds: new Set(['sheet-inputs']),
+    }).editing).toEqual(stillEditing.editing);
+  });
+
+  it('retains reference navigation only while its referenced sheet survives pruning', () => {
+    const reference: ReferenceNavigationTarget = { kind: 'cell', target: a1 };
+    const selectedReference = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'select-reference', target: reference,
+    });
+    expect(cellInteractionReducer(selectedReference, {
+      type: 'prune-sheets', sheetIds: new Set(['sheet-inputs']),
+    }).referenceSelection).toEqual(reference);
+    expect(cellInteractionReducer(selectedReference, {
+      type: 'prune-sheets', sheetIds: new Set(['other-sheet']),
+    }).referenceSelection).toBeNull();
+  });
+
+  it('maps durable cell identities to addresses only on their owning sheet', () => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
+    const durableA1 = cellTargetAt(sheet, 'A1')!;
+    expect(cellTargetAt(sheet, 'B2')).toEqual({
+      sheetId: 'sheet-inputs',
+      cell: { rowId: 'sheet-inputs:row:2', columnId: 'sheet-inputs:column:2' },
+    });
+    expect(cellTargetAt(sheet, 'C1')).toBeUndefined();
+    expect(cellKeyForTarget(sheet, durableA1)).toBe('A1');
+    expect(cellKeyForTarget(sheet, { ...durableA1, sheetId: 'other-sheet' })).toBeNull();
+    expect(cellKeyForTarget(sheet, {
+      sheetId: sheet.id,
+      cell: { rowId: 'missing-row', columnId: 'missing-column' },
+    })).toBeNull();
+    expect(cellKeyForTarget(sheet, null)).toBeNull();
+    expect(sameTarget(a1, { ...a1 })).toBe(true);
+    expect(sameTarget(a1, b1)).toBe(false);
+    expect(sameTarget(a1, null)).toBe(false);
+    expect(sameTarget(null, null)).toBe(false);
+
+    const projection = { id: sheet.id, name: sheet.name, revision: sheet.revision, ...sheet.content };
+    expect(cellTargetAt(projection, 'A1')).toEqual(durableA1);
+    expect(cellKeyForTarget(projection, durableA1)).toBe('A1');
   });
 });
