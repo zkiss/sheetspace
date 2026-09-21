@@ -391,6 +391,48 @@ describe('useWorkbookController content mutations', () => {
     });
   });
 
+  it('reloads and retries an axis append after a revision conflict', async () => {
+    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 2 };
+    const refreshed = { ...sheet, revision: 7 };
+    const appendRow = vi.fn()
+      .mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'))
+      .mockResolvedValueOnce({ sheetId: sheet.id, revision: 8, rowCount: 21, rowId: 'server-row' });
+    const apiClient = autosaveClient({ appendRow, loadSheet: vi.fn().mockResolvedValue(refreshed) });
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => result.current.commands.appendRow(sheet.id));
+
+    await waitFor(() => expect(apiClient.loadSheet).toHaveBeenCalledWith(sheet.id));
+    await waitFor(() => expect(appendRow).toHaveBeenLastCalledWith(sheet.id, { revision: 7 }));
+    await waitFor(() => expect(result.current.creatingAxes[sheet.id]).toBeUndefined());
+    expect(findSheetById(result.current.workbook, sheet.id)?.content.rows).toContain('server-row');
+    expect(result.current.saveStatus).toBe('saved');
+  });
+
+  it('does not queue axis creation when persistence is disabled or the sheet is unknown', () => {
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 });
+    const offline = renderHook(() => useWorkbookController({
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+    const onlineClient = autosaveClient();
+    const online = renderHook(() => useWorkbookController({
+      apiClient: onlineClient,
+      initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      offline.result.current.commands.appendRow(sheet.id);
+      online.result.current.commands.appendColumn('missing-sheet');
+    });
+
+    expect(offline.result.current.creatingAxes).toEqual({});
+    expect(online.result.current.creatingAxes).toEqual({});
+    expect(onlineClient.appendColumn).not.toHaveBeenCalled();
+  });
+
   it('retires queued axis and saved work when an axis conflict confirms the sheet is missing', async () => {
     const runningCellSave = deferred<{ sheets: Array<{ sheetId: string; revision: number }> }>();
     const runningAppend = deferred<RowAppendResponse>();

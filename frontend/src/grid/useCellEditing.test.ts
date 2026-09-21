@@ -81,6 +81,24 @@ describe('useCellEditing', () => {
     expect(commands.writeCells).not.toHaveBeenCalled();
   });
 
+  it('abandons a pending edit when its sheet disappears before the commit', () => {
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const target = cellTargetAt(sheet, 'A1')!;
+    const { rerender, result } = renderHook(
+      ({ workbook }) => useCellEditing({ commands, workbook }),
+      { initialProps: { workbook: workbookWithSheets([sheet]) } },
+    );
+
+    act(() => result.current.startEditingCell(target, 'draft'));
+    const session = result.current.editingCell!;
+    rerender({ workbook: workbookWithSheets([]) });
+    act(() => result.current.commitActiveEdit(session));
+
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
+    expect(result.current.editingCell).toBeNull();
+  });
+
   it('keeps selection on the edge cell while keyboard navigation requests focus', () => {
     const { result, sheet } = renderCellEditing();
     const a1 = {
