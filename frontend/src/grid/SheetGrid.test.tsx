@@ -166,6 +166,42 @@ describe('SheetGrid creating axis slots', () => {
     expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'C1') }), expect.objectContaining({ owner: expect.any(Symbol) }));
   });
 
+  it('cancels a mounted grid drag when selection ownership moves to another sheet', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-stale-drag', name: 'Stale drag' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = {
+      clear: vi.fn(), extend: vi.fn(), focusSelection: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(),
+    };
+
+    const view = render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey={null} activeSheetId={sheet.id} axisProjection={axisProjection} cellInteraction={cellInteraction}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+    const grid = screen.getByTestId('sheet-grid');
+    const a1 = screen.getByRole('cell', { name: 'Stale drag A1 empty cell' });
+    firePointer(a1, 'pointerdown', { button: 0, clientX: 50, clientY: 40, pointerId: 22 });
+
+    view.rerender(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey={null} activeSheetId="other-sheet" axisProjection={axisProjection} cellInteraction={cellInteraction}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+    firePointer(grid, 'pointermove', { clientX: 130, clientY: 40, pointerId: 22 });
+    firePointer(grid, 'pointerup', { clientX: 130, clientY: 40, pointerId: 22 });
+
+    expect(cellInteraction.select).toHaveBeenCalledTimes(1);
+    expect(cellInteraction.extend).not.toHaveBeenCalled();
+    expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['Escape', (grid: HTMLElement) => fireEvent.keyDown(grid, { key: 'Escape' })],
     ['window focus loss', () => fireEvent(window, new Event('blur'))],
