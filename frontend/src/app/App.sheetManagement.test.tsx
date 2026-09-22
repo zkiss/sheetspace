@@ -25,6 +25,17 @@ describe('App sheet management integration', () => {
     expect(frame).toHaveStyle({ left: '267px', top: '317px' });
   });
 
+  it('renders validation feedback in the create dialog', async () => {
+    const user = userEvent.setup();
+    render(<App initialWorkbook={workbookWithSheets([])} apiClient={persistedWorkbookClient()} />);
+
+    await user.click(screen.getByRole('button', { name: /new sheet/i }));
+    await user.click(screen.getByRole('button', { name: /^create$/i }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/required/i);
+    expect(screen.getByLabelText(/sheet name/i)).toHaveAttribute('aria-describedby', 'sheet-name-error');
+  });
+
   it('wires the rename dialog to the selected workbook sheet', async () => {
     const user = userEvent.setup();
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 });

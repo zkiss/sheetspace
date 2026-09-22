@@ -61,9 +61,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
       return this.request(intent);
     }
   }
-  private async recoverUnsafeCellWrite(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult | undefined> {
-    if (operationId === undefined) return undefined;
-    if (!this.unsafeCellWriteFailures.has(operationId)) return undefined;
+  private async recoverUnsafeCellWrite(operationId: WorkbookOperationId, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult | undefined> {
     const failure = this.unsafeCellWriteFailures.get(operationId);
     const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
     const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);

@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef } from 'react';
 import { cellAddressOf, cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForDisplay } from '@workbook/formula/reference';
-import { type SheetDocument, type SheetTabularProjection, type Workbook } from '@workbook/core/model';
+import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import type {
   SelectionGesture,
   CellEditSession,
@@ -19,11 +19,11 @@ import {
 } from '@grid/cellInteraction';
 
 function adjacentTarget(
-  sheet: SheetDocument | SheetTabularProjection,
+  sheet: SheetDocument,
   target: CellTarget,
   delta: { columnIndex: number; rowIndex: number },
 ): CellTarget | undefined {
-  const content = 'content' in sheet ? sheet.content : sheet;
+  const content = sheet.content;
   const address = cellAddressOf(content, target.cell);
   if (!address) return undefined;
   const rowIndex = Math.min(content.rows.length - 1, Math.max(0, address.rowIndex + delta.rowIndex));
@@ -65,10 +65,7 @@ export function useCellEditing({
     const currentCell = cellRawContent(sheet, key);
     const currentRaw = currentCell ?? '';
     const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook, sheet.id) : currentRaw;
-    if (
-      currentEditValue !== session.draft
-      || (currentCell && currentRaw.length === 0 && session.draft.length === 0)
-    ) {
+    if (currentEditValue !== session.draft) {
       const draftSignature = draftKey(session);
       if (committedDrafts.current.has(draftSignature)) return;
       committedDrafts.current.add(draftSignature);

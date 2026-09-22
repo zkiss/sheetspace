@@ -33,6 +33,25 @@ describe('savedAxisIndexAtOffset', () => {
     expect(savedAxisIndexAtOffset(entries, metrics, 0)).toBe(1);
     expect(savedAxisIndexAtOffset(entries, metrics, 65)).toBe(2);
   });
+
+  it('rejects invalid offsets and chooses a deterministic saved neighbour for sparse metrics', () => {
+    const projection = tabularProjection(sheetDocument({ id: 'sparse-axis-targeting', name: 'Sparse axis targeting' }));
+    const entries = projectGridAxes(projection, {
+      rows: [
+        { kind: 'creating', operationId: 'before', boundary: 0 },
+        { kind: 'creating', operationId: 'middle', boundary: 1 },
+      ],
+      columns: [],
+    }).rows;
+    const metrics = createGridAxisMetrics(entries, 20);
+
+    expect(savedAxisIndexAtOffset(entries, metrics, Number.NaN)).toBeUndefined();
+    expect(savedAxisIndexAtOffset([], createGridAxisMetrics([], 20), 0)).toBeUndefined();
+    // The pending slot between A and B has no durable address. At its midpoint,
+    // preserve the earlier saved axis rather than inventing a temporary target.
+    expect(savedAxisIndexAtOffset(entries, metrics, 25)).toBe(1);
+    expect(savedAxisIndexAtOffset(entries, metrics, 45)).toBe(1);
+  });
 });
 
 function firePointer(
@@ -46,6 +65,53 @@ function firePointer(
 }
 
 describe('SheetGrid creating axis slots', () => {
+  it('does not start a selection from controls, non-primary pointers, or cells without a durable target', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-pointer-guards', name: 'Pointer guards' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = { clear: vi.fn(), extend: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() };
+
+    render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <button type="button">Outside control</button>
+        <SheetGrid activeCellKey={null} axisProjection={axisProjection} cellInteraction={cellInteraction}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+
+    const grid = screen.getByTestId('sheet-grid');
+    const a1 = screen.getByRole('cell', { name: 'Pointer guards A1 empty cell' });
+    firePointer(a1, 'pointerdown', { button: 2, pointerId: 41 });
+    firePointer(grid, 'pointerdown', { button: 0, pointerId: 42 });
+    firePointer(screen.getByRole('button', { name: 'Outside control' }), 'pointerdown', { button: 0, pointerId: 43 });
+
+    expect(cellInteraction.select).not.toHaveBeenCalled();
+    expect(cellInteraction.extend).not.toHaveBeenCalled();
+  });
+
+  it('keeps invalid focus and navigation keys inert instead of acknowledging a phantom cell', async () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-invalid-focus', name: 'Invalid focus' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const consumed = vi.fn();
+
+    render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey="ZZ999" axisProjection={axisProjection}
+          cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={{ id: 9, targetKey: 'ZZ999' }} onKeyboardFocusRequestConsumed={consumed}
+          navigationHighlightCellKey="ZZ999" scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+
+    await act(async () => {});
+    expect(consumed).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sheet-grid')).toHaveAttribute('tabindex', '0');
+  });
+
   it('preserves a cell drag extent after the browser click following pointer release', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'sheet-drag', name: 'Drag' }));
     const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
@@ -164,6 +230,42 @@ describe('SheetGrid creating axis slots', () => {
     expect(cellInteraction.select).toHaveBeenCalledTimes(1);
     expect(cellInteraction.select).toHaveBeenLastCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'A1') }), expect.objectContaining({ owner: expect.any(Symbol) }));
     expect(cellInteraction.extend).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'C1') }), expect.objectContaining({ owner: expect.any(Symbol) }));
+  });
+
+  it('cancels a mounted grid drag when selection ownership moves to another sheet', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-stale-drag', name: 'Stale drag' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = {
+      clear: vi.fn(), extend: vi.fn(), focusSelection: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(),
+    };
+
+    const view = render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey={null} activeSheetId={sheet.id} axisProjection={axisProjection} cellInteraction={cellInteraction}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+    const grid = screen.getByTestId('sheet-grid');
+    const a1 = screen.getByRole('cell', { name: 'Stale drag A1 empty cell' });
+    firePointer(a1, 'pointerdown', { button: 0, clientX: 50, clientY: 40, pointerId: 22 });
+
+    view.rerender(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey={null} activeSheetId="other-sheet" axisProjection={axisProjection} cellInteraction={cellInteraction}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+    firePointer(grid, 'pointermove', { clientX: 130, clientY: 40, pointerId: 22 });
+    firePointer(grid, 'pointerup', { clientX: 130, clientY: 40, pointerId: 22 });
+
+    expect(cellInteraction.select).toHaveBeenCalledTimes(1);
+    expect(cellInteraction.extend).not.toHaveBeenCalled();
+    expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
   });
 
   it.each([

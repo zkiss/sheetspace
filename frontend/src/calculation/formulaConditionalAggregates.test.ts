@@ -144,4 +144,45 @@ describe('conditional aggregate formula functions', () => {
     expect(results.A1).toMatchObject({ kind: 'number', value: 2 });
     expect(results.A2).toMatchObject({ kind: 'number', value: 9 });
   });
+
+  it('rejects mismatched runtime ranges and a non-finite matching sum', () => {
+    const sheet = sheetDocument({
+      id: 'sheet-1',
+      name: 'Inputs',
+      cells: {
+        A1: '1', A2: '2',
+        B1: '1e308', B2: '1e308',
+        C1: '=SUMIF(A1:A2, ">=0", B1)',
+        C2: '=SUMIF(A1:A2, ">=0", B1:B2)',
+      },
+    });
+
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([sheet])))['sheet-1'];
+
+    expect(results.C1).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.C2).toMatchObject({ kind: 'error', error: '#VALUE!' });
+  });
+
+  it('resolves grouped canonical ranges and rejects missing or mismatched stable targets', () => {
+    const sheet = sheetDocument({
+      id: 'sheet-1',
+      name: 'Inputs',
+      cells: {
+        A1: '1', A2: '2',
+        B1: '10', B2: '20',
+        C1: '=SUMIF((@[sheet-1:column:1,sheet-1:row:1]:@[sheet-1:column:1,sheet-1:row:2]), ">0", (@[sheet-1:column:2,sheet-1:row:1]:@[sheet-1:column:2,sheet-1:row:2]))',
+        C2: '=SUMIF(@[sheet-1:column:1,sheet-1:row:1]:@[sheet-1:column:1,sheet-1:row:2], ">0", @[sheet-1:column:2,sheet-1:row:1])',
+        C3: '=COUNTIF(@[missing-column,missing-row], 1)',
+        C4: '=SUMIF(@[missing-column,missing-row], 1)',
+        C5: '=SUMIF(@[sheet-1:column:1,sheet-1:row:1], 1, @[missing-column,missing-row])',
+      },
+    });
+
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([sheet])))['sheet-1'];
+
+    expect(results.C1).toMatchObject({ kind: 'number', value: 30 });
+    for (const key of ['C2', 'C3', 'C4', 'C5']) {
+      expect(results[key]).toMatchObject({ kind: 'error' });
+    }
+  });
 });

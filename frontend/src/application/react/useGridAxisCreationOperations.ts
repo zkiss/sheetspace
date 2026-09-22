@@ -101,7 +101,6 @@ class GridAxisCreationQueue {
     return this.entries.some((entry) => entry.sheetId === sheetId && this.running.has(entry.operationId));
   }
   private resolveIdleWaiters(sheetId: string) {
-    if (this.hasRunningSheetEntry(sheetId)) return;
     const ready = this.idleWaiters.filter((waiter) => waiter.sheetId === sheetId);
     this.idleWaiters = this.idleWaiters.filter((waiter) => waiter.sheetId !== sheetId);
     ready.forEach(({ resolve }) => resolve());

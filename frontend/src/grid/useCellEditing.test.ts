@@ -21,7 +21,10 @@ describe('useCellEditing', () => {
     const b1 = cellTargetAt(sheet, 'B1')!;
     const c1 = cellTargetAt(sheet, 'C1')!;
     const d1 = cellTargetAt(sheet, 'D1')!;
-    const a1 = cellTargetAt(sheet, 'A1')!;
+    const a1 = {
+      sheetId: sheet.id,
+      cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! },
+    };
 
     act(() => result.current.selectCell(b1));
     act(() => result.current.navigateCell(b1, 'right', true));
@@ -61,6 +64,70 @@ describe('useCellEditing', () => {
     expect(result.current.activeCell).toBeNull();
     expect(result.current.keyboardFocusRequest).toBeNull();
     expect(result.current.editingCell).toBeNull();
+  });
+
+  it('ignores editing, clearing, and navigation requests for a missing sheet', () => {
+    const { commands, result } = renderCellEditing();
+    const missing = { sheetId: 'missing', cell: { rowId: 'row-1', columnId: 'column-1' } };
+
+    act(() => {
+      result.current.startEditingCell(missing);
+      result.current.clearCellContent(missing);
+      result.current.navigateCell(missing, 'right');
+    });
+
+    expect(result.current.editingCell).toBeNull();
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
+    expect(commands.writeCells).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate or write from a stale cell identity in an existing sheet', () => {
+    const { commands, result, sheet } = renderCellEditing();
+    const stale = { sheetId: sheet.id, cell: { rowId: 'removed-row', columnId: 'removed-column' } };
+
+    act(() => {
+      result.current.navigateCell(stale, 'right');
+      result.current.clearCellContent(stale);
+    });
+
+    expect(result.current.activeCell).toEqual(stale);
+    expect(result.current.keyboardFocusRequest).toMatchObject({ target: stale });
+    expect(commands.writeCells).not.toHaveBeenCalled();
+  });
+
+  it('abandons a pending edit when its sheet disappears before the commit', () => {
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+    const target = cellTargetAt(sheet, 'A1')!;
+    const { rerender, result } = renderHook(
+      ({ workbook }) => useCellEditing({ commands, workbook }),
+      { initialProps: { workbook: workbookWithSheets([sheet]) } },
+    );
+
+    act(() => result.current.startEditingCell(target, 'draft'));
+    const session = result.current.editingCell!;
+    rerender({ workbook: workbookWithSheets([]) });
+    act(() => result.current.commitActiveEdit(session));
+
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
+    expect(result.current.editingCell).toBeNull();
+  });
+
+  it('keeps selection on the edge cell while keyboard navigation requests focus', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = {
+      sheetId: sheet.id,
+      cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! },
+    };
+
+    act(() => {
+      result.current.selectCell(a1);
+      result.current.navigateCell(a1, 'left');
+      result.current.navigateCell(a1, 'up', true);
+    });
+
+    expect(result.current.activeCell).toEqual(a1);
+    expect(result.current.keyboardFocusRequest).toMatchObject({ target: a1 });
   });
 
   describe('edit persistence', () => {
@@ -218,6 +285,22 @@ describe('useCellEditing', () => {
         { sheetId: sheet.id, rowId: sheet.content.rows[1], columnId: sheet.content.columns[1], raw: '' },
       ]);
     });
+
+    it('clears populated cells in a selected whole row with one batch', () => {
+      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { A2: 'left', B2: '=A1', B1: 'outside' } });
+      const { commands, result } = renderCellEditing(sheet);
+      const a2 = cellTargetAt(sheet, 'A2')!;
+      const b2 = cellTargetAt(sheet, 'B2')!;
+
+      act(() => result.current.selectAxis('rows', a2, false));
+      act(() => result.current.selectAxis('rows', b2, true));
+      act(() => result.current.clearCellContent(b2));
+
+      expect(commands.writeCells).toHaveBeenCalledWith([
+        { sheetId: sheet.id, rowId: sheet.content.rows[1], columnId: sheet.content.columns[0], raw: '' },
+        { sheetId: sheet.id, rowId: sheet.content.rows[1], columnId: sheet.content.columns[1], raw: '' },
+      ]);
+    });
   });
 
   describe('commit navigation', () => {
@@ -266,6 +349,48 @@ describe('useCellEditing', () => {
       expect(commands.updateCellContent).toHaveBeenNthCalledWith(2, sheet.id, 'B1', 'Second');
       expect(result.current.activeCell).toEqual(a2);
       expect(result.current.keyboardFocusRequest).toMatchObject({ target: a2 });
+    });
+
+    it('commits but does not navigate when the edited cell is removed before navigation', () => {
+      const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+      const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+      const a1 = cellTargetAt(sheet, 'A1')!;
+      const { rerender, result } = renderHook(
+        ({ workbook }) => useCellEditing({ commands, workbook }),
+        { initialProps: { workbook: workbookWithSheets([sheet]) } },
+      );
+      const session = { target: a1, draft: 'draft' };
+
+      rerender({ workbook: workbookWithSheets([]) });
+      act(() => result.current.commitEditAndNavigate(session, 'tab'));
+
+      expect(commands.updateCellContent).not.toHaveBeenCalled();
+      expect(result.current.activeCell).toBeNull();
+      expect(result.current.editingCell).toBeNull();
+    });
+
+    it('uses the edited column when the tab-run origin column was removed', () => {
+      const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+      const original = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+      const a1 = cellTargetAt(original, 'A1')!;
+      const b1 = cellTargetAt(original, 'B1')!;
+      const revised = {
+        ...original,
+        content: { ...original.content, columns: original.content.columns.slice(1) },
+      };
+      const { rerender, result } = renderHook(
+        ({ workbook }) => useCellEditing({ commands, workbook }),
+        { initialProps: { workbook: workbookWithSheets([original]) } },
+      );
+
+      act(() => result.current.commitEditAndNavigate({ target: a1, draft: 'first' }, 'tab'));
+      rerender({ workbook: workbookWithSheets([revised]) });
+      act(() => result.current.commitEditAndNavigate({ target: b1, draft: 'second' }, 'enter'));
+
+      expect(result.current.activeCell).toEqual({
+        sheetId: revised.id,
+        cell: { rowId: revised.content.rows[1], columnId: revised.content.columns[0] },
+      });
     });
   });
 });

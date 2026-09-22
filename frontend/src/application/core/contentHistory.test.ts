@@ -37,6 +37,18 @@ describe('ContentHistory', () => {
     });
     history.commitUndo();
     expect(history.peekRedo()).toMatchObject({ writes: [write(null, 'first')], affected });
+    history.commitRedo();
+    expect(history.peekUndo()).toMatchObject({ writes: [write(null, 'first')], affected });
+  });
+
+  it('leaves empty undo and redo stacks unchanged when commits have no transaction', () => {
+    const history = new ContentHistory();
+
+    history.commitUndo();
+    history.commitRedo();
+
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
   });
 
   it('evicts the oldest entries by count and does not retain oversized entries', () => {

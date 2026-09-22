@@ -60,6 +60,21 @@ describe('sheet grid model', () => {
         metaKey: false,
       }),
     ).toEqual({ kind: 'start-edit', initialValue: 'x' });
+
+    const base = {
+      altKey: false,
+      ctrlKey: false,
+      isActive: true,
+      isCellTarget: true,
+      metaKey: false,
+    };
+    expect(gridCellKeyboardAction({ ...base, key: 'Enter' })).toEqual({ kind: 'start-edit' });
+    expect(gridCellKeyboardAction({ ...base, key: 'F2' })).toEqual({ kind: 'start-edit' });
+    expect(gridCellKeyboardAction({ ...base, key: 'ArrowLeft' })).toEqual({ kind: 'navigate', direction: 'left' });
+    expect(gridCellKeyboardAction({ ...base, key: 'ArrowUp' })).toEqual({ kind: 'navigate', direction: 'up' });
+    expect(gridCellKeyboardAction({ ...base, key: 'ArrowDown' })).toEqual({ kind: 'navigate', direction: 'down' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Backspace' })).toEqual({ kind: 'clear-cell' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Escape' })).toEqual({ kind: 'none' });
   });
 
   it('ignores inactive cells, nested editor events, and modified key commands', () => {
@@ -75,5 +90,7 @@ describe('sheet grid model', () => {
     expect(gridCellKeyboardAction(inactive)).toEqual({ kind: 'none' });
     expect(gridCellKeyboardAction({ ...inactive, isActive: true, isCellTarget: false })).toEqual({ kind: 'none' });
     expect(gridCellKeyboardAction({ ...inactive, isActive: true, ctrlKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...inactive, isActive: true, altKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...inactive, isActive: true, metaKey: true })).toEqual({ kind: 'none' });
   });
 });

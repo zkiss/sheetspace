@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
-import { appendColumn, appendRow, commitCellRawContent, createEmptyWorkbook, moveSheetZOrder, renameSheet, validateSheetName } from '@workbook/mutations/operations';
+import { appendColumn, appendRow, commitCellRawContent, createEmptyWorkbook, moveSheetZOrder, normalizeSheetZOrder, renameSheet, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, sheetsInOrder } from '@workbook/read/queries';
 import type { SheetDocument } from '@workbook/core/model';
 
@@ -46,6 +46,40 @@ describe('workbookOperations', () => {
     expect(renamed.name).toBe('Renamed');
     expect(renamed.content).toBe(original.content);
     expect(cellRawContent(renamed, 'A1')).toBe(" =SUM( 'Old Name'!A1 )\n");
+  });
+
+  it('rejects unknown-sheet and invalid rename requests', () => {
+    const first = sheet('sheet-1', 'Inputs');
+    const second = sheet('sheet-2', 'Outputs');
+    const workbook = workbookWithSheets([first, second]);
+
+    expect(renameSheet(workbook, 'missing', 'Renamed')).toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(renameSheet(workbook, first.id, 'Outputs')).toEqual({ ok: false, reason: 'duplicate' });
+  });
+
+  it('supports every bounded z-order direction and normalizes sparse indexes', () => {
+    const workbook = workbookWithSheets([
+      sheetDocument({ id: 'a', name: 'A', zIndex: 10 }),
+      sheetDocument({ id: 'b', name: 'B', zIndex: 20 }),
+      sheetDocument({ id: 'c', name: 'C', zIndex: 30 }),
+    ]);
+
+    expect(moveSheetZOrder(workbook, 'missing', 'top')).toEqual({ ok: false, reason: 'unknown-sheet' });
+    for (const [sheetId, direction] of [['a', 'top'], ['c', 'bottom'], ['b', 'down']] as const) {
+      expect(moveSheetZOrder(workbook, sheetId, direction).ok).toBe(true);
+    }
+    const normalized = normalizeSheetZOrder(workbook);
+    expect(sheetsInOrder(normalized).map((candidate) => candidate.frame.zIndex)).toEqual([1, 2, 3]);
+    expect(normalizeSheetZOrder(normalized)).toBe(normalized);
+
+    const withOrphan = {
+      ...normalized,
+      documents: {
+        ...normalized.documents,
+        orphan: sheetDocument({ id: 'orphan', name: 'Orphan', zIndex: 50 }),
+      },
+    };
+    expect(normalizeSheetZOrder(withOrphan).documents.orphan.frame.zIndex).toBe(50);
   });
 
   it('appends stable identities without changing content or earlier order', () => {

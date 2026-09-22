@@ -388,4 +388,33 @@ describe('workbook operations', () => {
     expect(applyBackendWorkbookReconciliation(workbook, action)).toEqual({ ok: false, reason });
     expect(workbook).toEqual(before);
   });
+
+  it.each([
+    ['an unknown visual scale sheet', { kind: 'set-sheet-visual-scale', operationId: 'scale', sheetId: 'missing', visualScale: 1 } satisfies WorkbookOperation, 'unknown-sheet'],
+    ['an invalid visual scale', { kind: 'set-sheet-visual-scale', operationId: 'scale', sheetId: 'alpha', visualScale: Infinity } satisfies WorkbookOperation, 'invalid-visual-scale'],
+    ['an unknown axis-size sheet', { kind: 'write-axis-sizes', operationId: 'sizes', sheetId: 'missing', writes: [] } satisfies WorkbookOperation, 'unknown-sheet'],
+    ['an invalid axis-size identity', { kind: 'write-axis-sizes', operationId: 'sizes', sheetId: 'alpha', writes: [{ axis: 'row', axisId: 'missing', size: 20 }] } satisfies WorkbookOperation, 'invalid-axis-size'],
+    ['an unknown z-order sheet', { kind: 'change-sheet-z-order', operationId: 'z', sheetId: 'missing', direction: 'top' } satisfies WorkbookOperation, 'unknown-sheet'],
+  ])('rejects remaining invalid operation boundaries', (_label, action, reason) => {
+    expect(applyWorkbookOperation(workbook, action as WorkbookOperation)).toEqual({ ok: false, reason });
+  });
+
+  it('rejects reconciliation for an unknown sheet', () => {
+    expect(applyBackendWorkbookReconciliation(workbook, { kind: 'append-row', sheetId: 'missing', rowId: 'row' }))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+  });
+
+  it('leaves unchanged frame, scale, axis, and z-order operations as no-ops', () => {
+    const rowId = alpha.content.rows[0]!;
+    const unchanged = [
+      { kind: 'move-sheet-frame', operationId: 'move', sheetId: 'alpha', position: alpha.frame.position },
+      { kind: 'resize-sheet-frame', operationId: 'resize', sheetId: 'alpha', position: alpha.frame.position, size: alpha.frame.size },
+      { kind: 'set-sheet-visual-scale', operationId: 'scale', sheetId: 'alpha', visualScale: alpha.frame.visualScale },
+      { kind: 'write-axis-sizes', operationId: 'axis', sheetId: 'alpha', writes: [{ axis: 'row', axisId: rowId, size: null }] },
+      { kind: 'change-sheet-z-order', operationId: 'z', sheetId: 'alpha', direction: 'bottom' },
+    ] satisfies WorkbookOperation[];
+    for (const operation of unchanged) {
+      expect(applyWorkbookOperation(workbook, operation)).toMatchObject({ ok: true, value: { changed: false, nextWorkbook: workbook } });
+    }
+  });
 });

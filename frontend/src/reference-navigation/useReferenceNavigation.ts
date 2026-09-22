@@ -85,8 +85,8 @@ export function useReferenceNavigation({
 
     const range = normalizedRange(reference, targetSheet);
     if (!range) return;
-    const stableRange = stableRangeAt(targetSheet.content, range);
-    if (!stableRange) return;
+    // normalizedRange only returns addresses resolved from this same durable content.
+    const stableRange = stableRangeAt(targetSheet.content, range)!;
     const target: ReferenceNavigationTarget = reference.target.kind === 'range'
       ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
