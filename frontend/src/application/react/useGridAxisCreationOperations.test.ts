@@ -3,16 +3,18 @@ import { useCallback, useRef, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
-import { WorkbookApiError, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
+import { WorkbookApiError, workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import type { SetWorkbook } from '@calculation/workbookCalculation';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 
 function renderAxisOperations({
   autosaveEnabled = true,
   apiClient = {},
+  useDefaultApi = false,
 }: {
   autosaveEnabled?: boolean;
   apiClient?: Partial<WorkbookApi>;
+  useDefaultApi?: boolean;
 } = {}) {
   const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 3 };
   const coordinator = new WorkbookPersistenceCoordinator();
@@ -30,7 +32,7 @@ function renderAxisOperations({
       currentWorkbook: () => workbookRef.current,
       persistenceCoordinator: coordinator,
       reconcile,
-      resolvedApiClient: { ...apiClient, appendRow },
+      resolvedApiClient: useDefaultApi ? apiClient : { ...apiClient, appendRow },
       setWorkbook,
     });
   });
@@ -38,6 +40,24 @@ function renderAxisOperations({
 }
 
 describe('useGridAxisCreationOperations', () => {
+  it('uses the default row and column APIs when callers do not override them', async () => {
+    const appendRow = vi.spyOn(workbookApi, 'appendRow')
+      .mockResolvedValue({ sheetId: 'sheet-inputs', revision: 4, rowCount: 21, rowId: 'default-row' });
+    const appendColumn = vi.spyOn(workbookApi, 'appendColumn')
+      .mockResolvedValue({ sheetId: 'sheet-inputs', revision: 5, columnCount: 11, columnId: 'default-column' });
+    const { hook, reconcile, sheet } = renderAxisOperations({ useDefaultApi: true });
+
+    act(() => hook.result.current.appendRow(sheet.id));
+    await waitFor(() => expect(appendRow).toHaveBeenCalledWith(sheet.id, { revision: 3 }));
+    act(() => hook.result.current.appendColumn(sheet.id));
+    await waitFor(() => expect(appendColumn).toHaveBeenCalledWith(sheet.id, { revision: 4 }));
+
+    expect(reconcile).toHaveBeenCalledWith({ kind: 'append-row', sheetId: sheet.id, rowId: 'default-row' });
+    expect(reconcile).toHaveBeenCalledWith({ kind: 'append-column', sheetId: sheet.id, columnId: 'default-column' });
+    appendRow.mockRestore();
+    appendColumn.mockRestore();
+  });
+
   it('does not create an axis while autosave is disabled or for an unknown sheet', () => {
     const offline = renderAxisOperations({ autosaveEnabled: false });
     const online = renderAxisOperations();
@@ -132,5 +152,17 @@ describe('useGridAxisCreationOperations', () => {
     expect(appendRow).toHaveBeenCalledTimes(1);
     expect(coordinator.isSheetMissing(sheet.id)).toBe(true);
     expect(hook.result.current.saveStatus).toBe('saved');
+  });
+
+  it('propagates a non-missing reload failure after a revision conflict', async () => {
+    const appendRow = vi.fn().mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
+    const loadSheet = vi.fn().mockRejectedValue(new WorkbookApiError('unavailable', 503, 'service-unavailable'));
+    const { hook, sheet } = renderAxisOperations({ apiClient: { appendRow, loadSheet } });
+
+    act(() => hook.result.current.appendRow(sheet.id));
+
+    await waitFor(() => expect(loadSheet).toHaveBeenCalledWith(sheet.id));
+    await waitFor(() => expect(hook.result.current.saveStatus).toBe('failed'));
+    expect(appendRow).toHaveBeenCalledOnce();
   });
 });

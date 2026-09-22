@@ -81,6 +81,20 @@ describe('useCellEditing', () => {
     expect(commands.writeCells).not.toHaveBeenCalled();
   });
 
+  it('does not navigate or write from a stale cell identity in an existing sheet', () => {
+    const { commands, result, sheet } = renderCellEditing();
+    const stale = { sheetId: sheet.id, cell: { rowId: 'removed-row', columnId: 'removed-column' } };
+
+    act(() => {
+      result.current.navigateCell(stale, 'right');
+      result.current.clearCellContent(stale);
+    });
+
+    expect(result.current.activeCell).toEqual(stale);
+    expect(result.current.keyboardFocusRequest).toMatchObject({ target: stale });
+    expect(commands.writeCells).not.toHaveBeenCalled();
+  });
+
   it('abandons a pending edit when its sheet disappears before the commit', () => {
     const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
