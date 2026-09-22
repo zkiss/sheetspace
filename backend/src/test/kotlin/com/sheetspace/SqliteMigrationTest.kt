@@ -38,11 +38,14 @@ class SqliteMigrationTest {
                             "sheet_rows",
                             "sheet_columns",
                             "cells",
+                            "row_format_presentation",
+                            "column_format_presentation",
+                            "cell_format_presentation",
                         ),
                     ),
                 )
                 assertEquals(
-                    2,
+                    3,
                     connection.createStatement().use { statement ->
                         statement.executeQuery("SELECT COUNT(*) FROM flyway_schema_history").use { result ->
                             result.next()
