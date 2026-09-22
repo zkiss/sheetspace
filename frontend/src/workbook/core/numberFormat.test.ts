@@ -5,9 +5,11 @@ import {
   DEFAULT_NUMBER_FORMAT,
   DEFAULT_PERCENT_FORMAT,
   emptySheetFormatOverrides,
+  applyFormatWrites,
   isValidNumberFormat,
   isValidNumberFormatPrecision,
   resolveNumberFormat,
+  validFormatWrites,
 } from '@workbook/core/numberFormat';
 
 describe('number format policy', () => {
@@ -56,5 +58,25 @@ describe('number format policy', () => {
     expect(resolveNumberFormat(overrides, identity)).toEqual(DEFAULT_NUMBER_FORMAT);
     delete overrides.columns[identity.columnId];
     expect(resolveNumberFormat(overrides, identity)).toEqual(APPLICATION_DEFAULT_NUMBER_FORMAT);
+  });
+
+  it('validates and applies sparse writes at each durable scope', () => {
+    const row = 'row-a'; const column = 'column-a'; const cell = cellIdentityKey({ rowId: row, columnId: column });
+    const writes = [
+      { scope: 'row', targetId: row, numberFormat: { kind: 'percent', precision: 1 } },
+      { scope: 'column', targetId: column, numberFormat: { kind: 'number', precision: 2 } },
+      { scope: 'cell', targetId: cell, numberFormat: { kind: 'general' } },
+    ] as const;
+    expect(validFormatWrites({ rows: [row], columns: [column] }, writes)).toBe(true);
+    expect(applyFormatWrites(undefined, writes)).toEqual({
+      rows: { [row]: { numberFormat: { kind: 'percent', precision: 1 } } },
+      columns: { [column]: { numberFormat: { kind: 'number', precision: 2 } } },
+      cells: { [cell]: { numberFormat: { kind: 'general' } } },
+    });
+    expect(validFormatWrites({ rows: [row], columns: [column] }, [])).toBe(false);
+    expect(validFormatWrites({ rows: [row], columns: [column] }, [...writes, writes[0]])).toBe(false);
+    expect(validFormatWrites({ rows: [row], columns: [column] }, [{ scope: 'cell', targetId: 'bad', numberFormat: null }])).toBe(false);
+    expect(validFormatWrites({ rows: [row], columns: [column] }, [{ scope: 'row', targetId: row, numberFormat: { kind: 'number', precision: 12 } }])).toBe(false);
+    expect(applyFormatWrites(applyFormatWrites(undefined, writes), [{ scope: 'cell', targetId: cell, numberFormat: null }])).toEqual(expect.objectContaining({ cells: {} }));
   });
 });

@@ -10,6 +10,57 @@ import kotlin.test.assertEquals
 
 class PresentationMutationRoutesTest {
     @Test
+    fun `format overrides round trip at every scope and explicit general survives`() = testWorkbookApplication { _ ->
+        val initial = client.createSheet()
+        val row = initial.content.rows[0]
+        val column = initial.content.columns[0]
+        val cell = "$row\u0000$column"
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"formatWrites":[{"scope":"row","targetId":"$row","numberFormat":{"kind":"percent","precision":3}},{"scope":"column","targetId":"$column","numberFormat":{"kind":"number","precision":2}},{"scope":"cell","targetId":"$cell","numberFormat":{"kind":"general"}}]}""")
+        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(SheetRevisionResponse(initial.id, 1), response.decodeBody())
+        val expected = SheetFormatOverrides(
+            rows = mapOf(row to CellFormat(NumberFormat("percent", 3))),
+            columns = mapOf(column to CellFormat(NumberFormat("number", 2))),
+            cells = mapOf(cell to CellFormat(NumberFormat("general"))),
+        )
+        assertEquals(expected, client.get("/api/sheets/${initial.id}").decodeBody<SheetDocumentResponse>().presentation.formatOverrides)
+        val removed = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "1")
+            jsonBody("""{"formatWrites":[{"scope":"row","targetId":"$row","numberFormat":null}]}""")
+        }
+        assertEquals(SheetRevisionResponse(initial.id, 2), removed.decodeBody())
+        assertEquals(expected.copy(rows = emptyMap()), client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>().documents.single().presentation.formatOverrides)
+    }
+
+    @Test
+    fun `format validation rejects malformed duplicate foreign and stale batches atomically`() = testWorkbookApplication { _ ->
+        val initial = client.createSheet()
+        val row = initial.content.rows[0]
+        val column = initial.content.columns[0]
+        val valid = """{"scope":"row","targetId":"$row","numberFormat":{"kind":"number","precision":1}}"""
+        val invalidBodies = listOf(
+            """{"formatWrites":[]}""",
+            """{"formatWrites":[$valid,$valid]}""",
+            """{"formatWrites":[{"scope":"unknown","targetId":"$row","numberFormat":null}]}""",
+            """{"formatWrites":[{"scope":"row","targetId":"foreign-row","numberFormat":null}]}""",
+            """{"formatWrites":[{"scope":"cell","targetId":"$row\\u0000missing","numberFormat":null}]}""",
+            """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"general","precision":2}}]}""",
+            """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"number","precision":11}}]}""",
+        )
+        invalidBodies.forEach { body ->
+            val response = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody(body) }
+            assertEquals(HttpStatusCode.BadRequest, response.status, response.bodyAsText())
+            assertEquals(initial, client.get("/api/sheets/${initial.id}").decodeBody())
+        }
+        client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("""{"formatWrites":[$valid]}""") }
+        val stale = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("""{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":null}]}""") }
+        assertEquals(HttpStatusCode.Conflict, stale.status)
+        assertEquals(1, client.get("/api/sheets/${initial.id}").decodeBody<SheetDocumentResponse>().revision)
+    }
+    @Test
     fun `fresh reads expose empty presentation and sizing and removal use revision contract`() = testWorkbookApplication { _ ->
         val initial = client.createSheet()
         assertEquals(SheetPresentationResponse(emptyMap(), emptyMap()), initial.presentation)
