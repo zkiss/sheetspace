@@ -64,6 +64,62 @@ describe('useGridAxisCreationOperations', () => {
     expect(hook.result.current.saveStatus).toBe('saved');
   });
 
+  it('uses the column operation and reconciles its server axis id', async () => {
+    const appendColumn = vi.fn().mockResolvedValue({ sheetId: 'sheet-inputs', revision: 4, columnCount: 11, columnId: 'server-column' });
+    const { hook, reconcile, sheet } = renderAxisOperations({ apiClient: { appendColumn } });
+
+    act(() => hook.result.current.appendColumn(sheet.id));
+
+    await waitFor(() => expect(appendColumn).toHaveBeenCalledWith(sheet.id, { revision: 3 }));
+    await waitFor(() => expect(hook.result.current.saveStatus).toBe('saved'));
+    expect(reconcile).toHaveBeenCalledWith({ kind: 'append-column', sheetId: sheet.id, columnId: 'server-column' });
+  });
+
+  it('suppresses queued and future appends while a sheet deletion is prepared', async () => {
+    let resolveAppend!: (value: { sheetId: string; revision: number; rowCount: number; rowId: string }) => void;
+    const appendRow = vi.fn(() => new Promise<typeof resolveAppend extends (value: infer T) => void ? T : never>((resolve) => { resolveAppend = resolve; }));
+    const { hook, sheet } = renderAxisOperations({ apiClient: { appendRow } });
+
+    act(() => hook.result.current.appendRow(sheet.id));
+    await waitFor(() => expect(appendRow).toHaveBeenCalledOnce());
+    let deletion: Promise<void> | undefined;
+    act(() => { deletion = hook.result.current.prepareSheetDeletion(sheet.id); });
+    act(() => resolveAppend({ sheetId: sheet.id, revision: 4, rowCount: 21, rowId: 'server-row' }));
+    await deletion;
+    act(() => hook.result.current.appendRow(sheet.id));
+
+    expect(appendRow).toHaveBeenCalledOnce();
+    await waitFor(() => expect(hook.result.current.saveStatus).toBe('saved'));
+  });
+
+  it('supersedes a failed append when a later append for the same sheet succeeds', async () => {
+    const appendRow = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({ sheetId: 'sheet-inputs', revision: 4, rowCount: 21, rowId: 'server-row' });
+    const { hook, sheet } = renderAxisOperations({ apiClient: { appendRow } });
+
+    act(() => hook.result.current.appendRow(sheet.id));
+    await waitFor(() => expect(hook.result.current.saveStatus).toBe('failed'));
+    act(() => hook.result.current.appendRow(sheet.id));
+    await waitFor(() => expect(appendRow).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(hook.result.current.saveStatus).toBe('saved'));
+  });
+
+  it('does not issue a queued request after its sheet becomes missing', async () => {
+    let release!: () => void;
+    const appendRow = vi.fn();
+    const { coordinator, hook, sheet } = renderAxisOperations({ apiClient: { appendRow } });
+    const predecessor = coordinator.serialize([sheet.id], () => new Promise<void>((resolve) => { release = resolve; }));
+
+    act(() => hook.result.current.appendRow(sheet.id));
+    act(() => coordinator.confirmSheetMissing(sheet.id));
+    release();
+    await predecessor;
+    await waitFor(() => expect(hook.result.current.saveStatus).toBe('saved'));
+
+    expect(appendRow).not.toHaveBeenCalled();
+  });
+
   it('cancels a conflict retry when reloading confirms the sheet is missing', async () => {
     const appendRow = vi.fn().mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
     const loadSheet = vi.fn().mockRejectedValue(new WorkbookApiError('missing', 404, 'sheet-not-found'));

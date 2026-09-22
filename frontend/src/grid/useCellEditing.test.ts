@@ -336,5 +336,47 @@ describe('useCellEditing', () => {
       expect(result.current.activeCell).toEqual(a2);
       expect(result.current.keyboardFocusRequest).toMatchObject({ target: a2 });
     });
+
+    it('commits but does not navigate when the edited cell is removed before navigation', () => {
+      const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+      const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
+      const a1 = cellTargetAt(sheet, 'A1')!;
+      const { rerender, result } = renderHook(
+        ({ workbook }) => useCellEditing({ commands, workbook }),
+        { initialProps: { workbook: workbookWithSheets([sheet]) } },
+      );
+      const session = { target: a1, draft: 'draft' };
+
+      rerender({ workbook: workbookWithSheets([]) });
+      act(() => result.current.commitEditAndNavigate(session, 'tab'));
+
+      expect(commands.updateCellContent).not.toHaveBeenCalled();
+      expect(result.current.activeCell).toBeNull();
+      expect(result.current.editingCell).toBeNull();
+    });
+
+    it('uses the edited column when the tab-run origin column was removed', () => {
+      const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+      const original = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+      const a1 = cellTargetAt(original, 'A1')!;
+      const b1 = cellTargetAt(original, 'B1')!;
+      const revised = {
+        ...original,
+        content: { ...original.content, columns: original.content.columns.slice(1) },
+      };
+      const { rerender, result } = renderHook(
+        ({ workbook }) => useCellEditing({ commands, workbook }),
+        { initialProps: { workbook: workbookWithSheets([original]) } },
+      );
+
+      act(() => result.current.commitEditAndNavigate({ target: a1, draft: 'first' }, 'tab'));
+      rerender({ workbook: workbookWithSheets([revised]) });
+      act(() => result.current.commitEditAndNavigate({ target: b1, draft: 'second' }, 'enter'));
+
+      expect(result.current.activeCell).toEqual({
+        sheetId: revised.id,
+        cell: { rowId: revised.content.rows[1], columnId: revised.content.columns[0] },
+      });
+    });
   });
 });
