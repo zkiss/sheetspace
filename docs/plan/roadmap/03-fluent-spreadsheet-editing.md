@@ -55,6 +55,16 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 - Restore detailed editing automatically when the sheet becomes legible again.
 - Respect reduced-motion preferences in selection and focus transitions.
 
+#### Number-format semantics
+
+Number format is one inherited property with three values: General, Number, and Percent. A missing property means inherit; General is a stored value, so assigning it at a cell can suppress a Number or Percent inherited from its row or column. Resolution uses durable cell, row, and column identities in the order cell, row, column, application default. Each appearance property resolves separately as more formatting properties are added.
+
+The application default is General. Selecting Number without a prior precision uses 2 decimal places; selecting Percent uses 0. Number and Percent accept integer precision from 0 through 10 inclusive. They use an invariant `.` decimal separator without digit grouping, round to the requested decimal places using decimal half-away-from-zero rounding, and normalize a result that rounds to negative zero to unsigned zero. Percent multiplies a finite numeric value by 100 before rounding and appends `%`.
+
+Formatting derives display text only. General retains the Phase 2 formula display contract: numbers use ECMAScript `Number::toString(10)` output and negative zero displays as `0`. Number and Percent use the same formatting path for numeric non-formula cells and numeric formula results. Text retains its raw text, blank displays empty, booleans display `TRUE` or `FALSE`, and errors display their exact token; none are numerically coerced. Non-finite numeric values cannot result from valid cell classification or formula evaluation, but a defensive display call falls back to General instead of throwing or decorating the value.
+
+Raw cell content, formula text and values, editing, clipboard operations, dependency tracking, and calculation remain unchanged. Row and column defaults stay sparse rather than creating cell overrides, and blank cells may carry an explicit cell override for future content. Number formatting is presentation state and does not enter cell-content undo history.
+
 ## Completion Signal
 
 - A user can enter and revise a medium-sized table without relying on repeated pointer-driven single-cell edits.

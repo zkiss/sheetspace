@@ -31,3 +31,16 @@ export type SheetZOrderDirection = 'up' | 'down' | 'top' | 'bottom';
 
 export type SheetPresentation = { rowHeights: Record<RowId, number>; columnWidths: Record<ColumnId, number> };
 export type AxisSizeWrite = { axis: 'row' | 'column'; axisId: string; size: number | null };
+
+export type NumberFormat =
+  | { kind: 'general' }
+  | { kind: 'number'; precision: number }
+  | { kind: 'percent'; precision: number };
+
+/** A missing property inherits; an explicit default-valued property remains an override. */
+export type CellFormat = { numberFormat?: NumberFormat };
+export type SheetFormatOverrides = {
+  rows: Record<RowId, CellFormat>;
+  columns: Record<ColumnId, CellFormat>;
+  cells: Record<CellIdentityKey, CellFormat>;
+};

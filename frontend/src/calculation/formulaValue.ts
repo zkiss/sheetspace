@@ -1,4 +1,6 @@
 import type { CellKey } from '@workbook/core/address';
+import { APPLICATION_DEFAULT_NUMBER_FORMAT } from '@workbook/core/numberFormat';
+import type { NumberFormat } from '@workbook/core/model';
 import type { FormulaErrorCode } from '@workbook/formula/syntax';
 
 export type FormulaScalarValue =
@@ -59,13 +61,20 @@ export function classifyCellValue(raw: string): FormulaScalarValue {
   return { kind: 'text', value: raw };
 }
 
-export function displayFormulaValue(value: FormulaScalarValue): FormulaDisplayResult {
+export function displayRawCellValue(raw: string, format: NumberFormat = APPLICATION_DEFAULT_NUMBER_FORMAT): FormulaDisplayResult {
+  return displayFormulaValue(classifyCellValue(raw), format);
+}
+
+export function displayFormulaValue(
+  value: FormulaScalarValue,
+  format: NumberFormat = APPLICATION_DEFAULT_NUMBER_FORMAT,
+): FormulaDisplayResult {
   switch (value.kind) {
     case 'number':
       return {
         kind: 'number',
         value: value.value,
-        display: Object.is(value.value, -0) ? '0' : String(value.value),
+        display: formatNumber(value.value, format),
       };
     case 'text':
       return { ...value, display: value.value };
@@ -76,4 +85,19 @@ export function displayFormulaValue(value: FormulaScalarValue): FormulaDisplayRe
     case 'error':
       return { ...value, display: value.error };
   }
+}
+
+function formatNumber(value: number, format: NumberFormat): string {
+  if (format.kind === 'general' || !Number.isFinite(value)) return Object.is(value, -0) ? '0' : String(value);
+
+  const scaled = format.kind === 'percent' ? value * 100 : value;
+  if (!Number.isFinite(scaled)) return Object.is(value, -0) ? '0' : String(value);
+
+  const display = new Intl.NumberFormat('en-US', {
+    useGrouping: false,
+    minimumFractionDigits: format.precision,
+    maximumFractionDigits: format.precision,
+  }).format(scaled);
+  const normalized = /^-0(?:\.0+)?$/.test(display) ? display.slice(1) : display;
+  return format.kind === 'percent' ? `${normalized}%` : normalized;
 }
