@@ -39,7 +39,7 @@ interface WorkbookStore {
 
     fun writeCells(expectedRevisions: List<ExpectedSheetRevision>, writes: List<SheetCellWrite>): List<SheetDocument>
 
-    fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument
+    fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>, formatWrites: List<FormatWrite> = emptyList()): SheetDocument
 
     fun updateSheetZOrder(writes: List<SheetZOrderWrite>): List<SheetDocument>
 

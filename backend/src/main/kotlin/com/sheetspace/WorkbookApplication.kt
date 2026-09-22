@@ -70,7 +70,7 @@ interface WorkbookApplication {
 
     fun updateSheet(sheetId: String, expectedRevision: Long, command: UpdateSheetCommand): SheetDocument
 
-    fun writePresentation(sheetId: String, expectedRevision: Long, writes: List<AxisSizeWrite>): SheetDocument
+    fun writePresentation(sheetId: String, expectedRevision: Long, writes: List<AxisSizeWrite>, formatWrites: List<FormatWrite> = emptyList()): SheetDocument
 
     fun updateSheetZOrder(updates: List<SheetZOrderUpdate>): List<SheetDocument>
 
@@ -160,9 +160,9 @@ class DefaultWorkbookApplication(
         }
     }
 
-    override fun writePresentation(sheetId: String, expectedRevision: Long, writes: List<AxisSizeWrite>): SheetDocument {
+    override fun writePresentation(sheetId: String, expectedRevision: Long, writes: List<AxisSizeWrite>, formatWrites: List<FormatWrite>): SheetDocument {
         loadSheet(sheetId)
-        return store.writePresentation(ExpectedSheetRevision(sheetId, expectedRevision), writes)
+        return store.writePresentation(ExpectedSheetRevision(sheetId, expectedRevision), writes, formatWrites)
     }
 
     override fun updateSheetZOrder(updates: List<SheetZOrderUpdate>): List<SheetDocument> {

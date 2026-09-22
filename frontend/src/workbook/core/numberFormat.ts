@@ -11,6 +11,29 @@ export function emptySheetFormatOverrides(): SheetFormatOverrides {
   return { rows: {}, columns: {}, cells: {} };
 }
 
+export function validFormatWrites(content: { rows: string[]; columns: string[] }, writes: readonly { scope: string; targetId: string; numberFormat: unknown }[]): boolean {
+  if (!Array.isArray(writes) || writes.length === 0) return false;
+  const targets = new Set<string>();
+  return writes.every((write) => {
+    if (!write || !['row', 'column', 'cell'].includes(write.scope) || typeof write.targetId !== 'string') return false;
+    const ids = write.scope === 'cell' ? write.targetId.split('\u0000') : [write.targetId];
+    const belongs = write.scope === 'row' ? content.rows.includes(write.targetId) : write.scope === 'column' ? content.columns.includes(write.targetId) : ids.length === 2 && content.rows.includes(ids[0]) && content.columns.includes(ids[1]);
+    const key = `${write.scope}\u0000${write.targetId}`;
+    if (!belongs || targets.has(key) || (write.numberFormat !== null && !isValidNumberFormat(write.numberFormat))) return false;
+    targets.add(key); return true;
+  });
+}
+
+export function applyFormatWrites(overrides: SheetFormatOverrides | undefined, writes: readonly { scope: 'row' | 'column' | 'cell'; targetId: string; numberFormat: NumberFormat | null }[]): SheetFormatOverrides {
+  const next = overrides ?? emptySheetFormatOverrides();
+  const result = { rows: { ...next.rows }, columns: { ...next.columns }, cells: { ...next.cells } };
+  for (const write of writes) {
+    const target = write.scope === 'row' ? result.rows : write.scope === 'column' ? result.columns : result.cells;
+    if (write.numberFormat === null) delete target[write.targetId]; else target[write.targetId] = { numberFormat: { ...write.numberFormat } };
+  }
+  return result;
+}
+
 export function isValidNumberFormat(value: unknown): value is NumberFormat {
   if (!isRecord(value) || typeof value.kind !== 'string') return false;
   if (value.kind === 'general') return hasOnlyKeys(value, ['kind']);

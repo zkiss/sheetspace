@@ -29,8 +29,9 @@ export type ValidationResult = { ok: true; name: string } | { ok: false; reason:
 export type MutationResult<T> = { ok: true; value: T } | { ok: false; reason: 'empty' | 'duplicate' | 'unknown-sheet' };
 export type SheetZOrderDirection = 'up' | 'down' | 'top' | 'bottom';
 
-export type SheetPresentation = { rowHeights: Record<RowId, number>; columnWidths: Record<ColumnId, number> };
+export type SheetPresentation = { rowHeights: Record<RowId, number>; columnWidths: Record<ColumnId, number>; formatOverrides?: SheetFormatOverrides };
 export type AxisSizeWrite = { axis: 'row' | 'column'; axisId: string; size: number | null };
+export type FormatWrite = { scope: 'row' | 'column' | 'cell'; targetId: string; numberFormat: NumberFormat | null };
 
 export type NumberFormat =
   | { kind: 'general' }

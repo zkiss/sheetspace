@@ -71,11 +71,11 @@ class SqliteWorkbookStore internal constructor(
         }
     }
 
-    override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument =
+    override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>, formatWrites: List<FormatWrite>): SheetDocument =
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
-                SqliteWorkbookWriter(conn, reader).writePresentation(expectedRevision, writes)
+                SqliteWorkbookWriter(conn, reader).writePresentation(expectedRevision, writes, formatWrites)
             }
         }
 

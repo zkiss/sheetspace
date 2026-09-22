@@ -83,6 +83,11 @@ internal class SqliteWorkbookReader(
             presentation = SheetPresentation(
                 rowHeights = loadSizes(sheetId, "row_presentation", "row_id", "height"),
                 columnWidths = loadSizes(sheetId, "column_presentation", "column_id", "width"),
+                formatOverrides = SheetFormatOverrides(
+                    rows = loadFormats(sheetId, "row_format_presentation", "row_id", true),
+                    columns = loadFormats(sheetId, "column_format_presentation", "column_id", true),
+                    cells = loadFormats(sheetId, "cell_format_presentation", "cell_key", false),
+                ),
             ),
             content = TabularContent(
                 rows = loadRows(sheetId),
@@ -116,6 +121,18 @@ internal class SqliteWorkbookReader(
                     while (rs.next()) put(rs.getBytes(idColumn).toUuidString(), rs.getDouble(sizeColumn))
                 }
             }
+        }
+
+    private fun loadFormats(sheetId: SheetId, table: String, idColumn: String, binaryId: Boolean): Map<String, CellFormat> =
+        connection.prepareStatement("SELECT $idColumn, format_kind, precision FROM $table WHERE sheet_id = ?").use { statement ->
+            statement.setBytes(1, sheetId.value.toUuidBytes())
+            statement.executeQuery().use { rs -> buildMap {
+                while (rs.next()) {
+                    val id = if (binaryId) rs.getBytes(idColumn).toUuidString() else rs.getString(idColumn)
+                    val precision = rs.getObject("precision")?.let { rs.getInt("precision") }
+                    put(id, CellFormat(NumberFormat(rs.getString("format_kind"), precision)))
+                }
+            } }
         }
 
     private fun loadRows(sheetId: SheetId): List<RowId> =
