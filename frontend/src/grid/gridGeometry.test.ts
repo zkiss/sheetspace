@@ -43,4 +43,14 @@ describe('gridGeometry', () => {
     expect(rangeFitsSheetViewport({ start: { rowIndex: 2, columnIndex: 2 }, end: { rowIndex: 3, columnIndex: 3 } }, sheet)).toBe(true);
   });
 
+  it('falls back to the grid origin and zero-sized extents for missing axes', () => {
+    const sheet = positionedSheet('small', 'Small', { x: 0, y: 0 });
+
+    expect(sheetContentOffsetForCell({ rowIndex: 999, columnIndex: 999 }, sheet)).toEqual({ x: 0, y: 0 });
+    expect(rangeFitsSheetViewport({
+      start: { rowIndex: 999, columnIndex: 999 },
+      end: { rowIndex: 1_000, columnIndex: 1_000 },
+    }, sheet)).toBe(true);
+  });
+
 });

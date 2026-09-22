@@ -4,6 +4,7 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetCellNodeId } from '@calculation/nodeIdentity';
+import type { CalculationProjection } from '@workbook/read/calculationProjection';
 
 describe('formula evaluator boundary outcomes', () => {
   it('reports parse, reference, type, division, and unknown-function failures independently', () => {
@@ -95,5 +96,59 @@ describe('formula evaluator boundary outcomes', () => {
       A1: { kind: 'error', error: '#CYCLE!' },
       A2: { kind: 'error', error: '#CYCLE!' },
     });
+  });
+
+  it('propagates nested operand errors and validates canonical and grouped reference boundaries', () => {
+    const sheet = sheetDocument({
+      id: 'inputs',
+      name: 'Inputs',
+      cells: {
+        A1: '2', A2: '3',
+        B1: '=-(1/0)',
+        B2: '=1+(1/0)',
+        B3: '=Z999:Z1000',
+        B4: '=@[inputs:column:1,inputs:row:1]',
+        B5: '=@[missing-column,missing-row]',
+        B6: '=COUNTIF((@[inputs:column:1,inputs:row:1]:@[inputs:column:1,inputs:row:2]), ">0")',
+        B7: '=COUNTIF(@[inputs:column:1,inputs:row:1]:@[missing-column,missing-row], ">0")',
+      },
+    });
+
+    const values = evaluateFormulaCells(calculationProjection(workbookWithSheets([sheet]))).inputs;
+
+    expect(values).toMatchObject({
+      B1: { kind: 'error', error: '#DIV/0!' },
+      B2: { kind: 'error', error: '#DIV/0!' },
+      B3: { kind: 'error', error: '#REF!' },
+      B4: { kind: 'number', value: 2 },
+      B5: { kind: 'error', error: '#REF!' },
+      B6: { kind: 'number', value: 2 },
+      B7: { kind: 'error', error: '#REF!' },
+    });
+  });
+
+  it('keeps malformed durable keys out of snapshots while reporting their raw observer keys', () => {
+    const malformed: CalculationProjection = {
+      sheets: [{
+        id: 'malformed',
+        rows: ['row-1'],
+        columns: ['column-1'],
+        cells: {
+          malformed: '=1',
+          ['missing-row\0column-1']: '=2',
+          ['row-1\0missing-column']: '=3',
+        },
+      }],
+    };
+    const observed: string[] = [];
+
+    const values = new FormulaEvaluator(
+      malformed,
+      new Map(),
+      (_sheetId, key) => observed.push(key),
+    ).evaluate();
+
+    expect(values).toEqual({ malformed: {} });
+    expect(observed).toEqual(['malformed', 'missing-row\0column-1', 'row-1\0missing-column']);
   });
 });

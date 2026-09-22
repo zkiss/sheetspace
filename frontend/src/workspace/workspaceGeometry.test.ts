@@ -71,6 +71,15 @@ describe('workspaceGeometry', () => {
     expect(zoomFactorFromWheelDelta(0)).toBe(1);
   });
 
+  it('normalizes invalid factors and saturates exact multiplication limits', () => {
+    expect(zoomScaleBy(2, 0)).toBe(0.1);
+    expect(zoomScaleBy(2, Number.POSITIVE_INFINITY)).toBe(8);
+    expect(zoomScaleBy(2, Number.NaN)).toBe(2);
+    expect(zoomScaleBy(2, -1)).toBe(2);
+    expect(zoomScaleBy(Number.MIN_VALUE, Number.MIN_VALUE)).toBe(0.1);
+    expect(zoomScaleBy(Number.MAX_VALUE, Number.MAX_VALUE)).toBe(8);
+  });
+
   it('saturates large finite wheel deltas at the zoom limits in their original direction', () => {
     const pageHeight = 1000;
     const zoomOutFactor = zoomFactorFromWheelDelta(normalizedWheelDelta(1_000_000, 2, pageHeight));

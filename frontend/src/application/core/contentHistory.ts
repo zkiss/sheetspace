@@ -50,6 +50,6 @@ export class ContentHistory {
 
   private clearRedo() { this.redoStack = []; this.redoBytes = 0; }
   private pushUndo(transaction: ContentTransaction) { this.undoStack.push(transaction); this.undoBytes += transaction.bytes; this.trimUndo(); }
-  private pushRedo(transaction: ContentTransaction) { this.redoStack.push(transaction); this.redoBytes += transaction.bytes; while (this.redoStack.length > CONTENT_HISTORY_MAX_ENTRIES || this.redoBytes > CONTENT_HISTORY_MAX_BYTES) { const evicted = this.redoStack.shift()!; this.redoBytes -= evicted.bytes; } }
+  private pushRedo(transaction: ContentTransaction) { this.redoStack.push(transaction); this.redoBytes += transaction.bytes; }
   private trimUndo() { while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || this.undoBytes > CONTENT_HISTORY_MAX_BYTES) { const evicted = this.undoStack.shift()!; this.undoBytes -= evicted.bytes; } }
 }
