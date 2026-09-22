@@ -5,8 +5,22 @@ import { type SheetDocument } from '@workbook/core/model';
 import { useWorkbookController } from '@application/react/useWorkbookController';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import { workbookApi } from '@infrastructure/persistence/workbookApi';
 
 describe('useWorkbookController sheet creation', () => {
+  it('rejects invalid and reserved names before issuing another create request', () => {
+    const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(new Promise<SheetDocument>(() => undefined)) });
+    const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: workbookWithSheets([]) }));
+
+    act(() => {
+      expect(result.current.commands.createSheet('   ', { x: 0, y: 0 })).toMatchObject({ ok: false });
+      expect(result.current.commands.createSheet('Inputs', { x: 0, y: 0 })).toEqual({ ok: true, name: 'Inputs' });
+      expect(result.current.commands.createSheet('Inputs', { x: 10, y: 10 })).toEqual({ ok: false, reason: 'duplicate' });
+    });
+
+    expect(apiClient.createSheet).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps an in-flight create out of the canonical workbook', () => {
     const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(new Promise<SheetDocument>(() => undefined)) });
     const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: workbookWithSheets([]) }));
@@ -89,6 +103,43 @@ describe('useWorkbookController sheet creation', () => {
     await act(async () => { resolve(returned); await pending; });
     await waitFor(() => expect(result.current.creatingFrames).toEqual([]));
     expect(sheetsInOrder(result.current.workbook)).toEqual([returned]);
+  });
+
+  it('discards a successful duplicate document returned by the server', async () => {
+    const existing = positionedSheet('sheet-existing', 'Existing', { x: 0, y: 0 });
+    const pending = deferred<SheetDocument>();
+    const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(pending.promise) });
+    const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: workbookWithSheets([existing]) }));
+
+    act(() => { result.current.commands.createSheet('New', { x: 24, y: 48 }); });
+    await act(async () => {
+      pending.resolve({ ...existing, name: 'Unexpected duplicate' });
+      await pending.promise;
+    });
+
+    await waitFor(() => expect(result.current.creatingFrames).toEqual([]));
+    expect(sheetsInOrder(result.current.workbook)).toEqual([existing]);
+  });
+
+  it('retains a local placeholder without persistence when autosave is disabled', () => {
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([]) }));
+
+    act(() => { result.current.commands.createSheet('Local', { x: 1, y: 2 }); });
+
+    expect(result.current.creatingFrames).toMatchObject([{ name: 'Local', position: { x: 1, y: 2 } }]);
+    expect(result.current.saveStatus).toBe('saving');
+  });
+
+  it('uses the default create API when the partial client omits it', async () => {
+    const returned = positionedSheet('default-created', 'Default', { x: 1, y: 2 });
+    const request = vi.spyOn(workbookApi, 'createSheet').mockResolvedValue(returned);
+    const { result } = renderHook(() => useWorkbookController({ apiClient: {}, initialWorkbook: workbookWithSheets([]) }));
+
+    act(() => { result.current.commands.createSheet('Default', { x: 1, y: 2 }); });
+    await waitFor(() => expect(result.current.creatingFrames).toEqual([]));
+
+    expect(request).toHaveBeenCalledOnce();
+    request.mockRestore();
   });
 
   it('removes a failed placeholder without changing saved sheets', async () => {

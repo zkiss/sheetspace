@@ -67,6 +67,123 @@ function renderInteractions({
 }
 
 describe('useSheetFrameInteractions', () => {
+  it('ignores missing sheets, undefined-button non-primary starts, and stale handlers', () => {
+    const { commands: testCommands, result } = renderInteractions({ workbook: workbookWithSheets([]) });
+    const undefinedButton = pointerEvent({ clientX: 1, clientY: 2 }) as unknown as { button?: number };
+    delete undefinedButton.button;
+
+    act(() => {
+      result.current.handleSheetFrameDragStart('missing', undefinedButton as PointerEvent<HTMLElement>);
+      result.current.handleSheetFrameResizeStart('missing', { horizontal: 1, vertical: 1 }, undefinedButton as PointerEvent<HTMLElement>);
+      result.current.handleSheetFrameScaleStart('missing', undefinedButton as PointerEvent<HTMLElement>);
+      result.current.startSheetFrameScaleInput('missing');
+      result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.stopSheetFrameDrag(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.cancelSheetFrameDrag(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.stopSheetFrameResize(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.cancelSheetFrameResize(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.stopSheetFrameScale(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.cancelSheetFrameScalePointer(pointerEvent({ clientX: 2, clientY: 3 }));
+      result.current.previewSheetFrameScale('missing', 2);
+      result.current.cancelSheetFrameScaleInput('missing');
+      result.current.commitSheetFrameScale('missing', 2);
+    });
+
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+    expect(testCommands.moveSheetFrame).not.toHaveBeenCalled();
+    expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
+    expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
+  });
+
+  it('abandons previews and commits when an active sheet disappears', () => {
+    const sheetWorkbook = workbookWithSheets([positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 })]);
+    const emptyWorkbook = workbookWithSheets([]);
+    const testCommands = commands();
+    const { result, rerender } = renderHook(
+      ({ workbook }: { workbook: Workbook }) => useSheetFrameInteractions({ commands: testCommands, viewportScale: 1, workbook }),
+      { initialProps: { workbook: sheetWorkbook } },
+    );
+
+    act(() => result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 0, clientY: 0 })));
+    rerender({ workbook: emptyWorkbook });
+    act(() => result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 10, clientY: 10 })));
+    expect(result.current.frameLayoutPreview).toBeNull();
+
+    rerender({ workbook: sheetWorkbook });
+    act(() => result.current.handleSheetFrameResizeStart(
+      'sheet-inputs', { horizontal: 1, vertical: 1 }, pointerEvent({ clientX: 0, clientY: 0 }),
+    ));
+    rerender({ workbook: emptyWorkbook });
+    act(() => {
+      result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 10, clientY: 10 }));
+      result.current.stopSheetFrameResize(pointerEvent({ clientX: 10, clientY: 10 }));
+    });
+    expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
+
+    rerender({ workbook: sheetWorkbook });
+    act(() => result.current.startSheetFrameScaleInput('sheet-inputs'));
+    rerender({ workbook: emptyWorkbook });
+    act(() => result.current.commitSheetFrameScale('sheet-inputs', 2));
+    expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
+  });
+
+  it('keeps scale ownership against stale events and releases captured cancellation', () => {
+    const { commands: testCommands, result } = renderInteractions();
+    act(() => result.current.handleSheetFrameScaleStart(
+      'sheet-inputs', pointerEvent({ clientX: 100, clientY: 0, pointerId: 1 }),
+    ));
+
+    const stale = pointerEvent({ clientX: 200, clientY: 0, pointerId: 2 });
+    act(() => {
+      result.current.handleSheetFrameScaleMove(stale);
+      result.current.stopSheetFrameScale(stale);
+      result.current.cancelSheetFrameScalePointer(stale);
+    });
+    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 1 });
+
+    const cancel = pointerEvent({ clientX: 100, clientY: 0, pointerId: 1 });
+    cancel.currentTarget.hasPointerCapture = vi.fn().mockReturnValue(true);
+    act(() => result.current.cancelSheetFrameScalePointer(cancel));
+    expect(cancel.currentTarget.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(result.current.frameScalePreview).toBeNull();
+    expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
+  });
+
+  it('does not save an unchanged pointer or numeric scale and cancels on Escape', () => {
+    const { commands: testCommands, result } = renderInteractions();
+
+    act(() => {
+      result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0 }));
+      result.current.stopSheetFrameScale(pointerEvent({ clientX: 100, clientY: 0 }));
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.commitSheetFrameScale('sheet-inputs', 1);
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+    expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-primary resize and cancels the owned numeric input', () => {
+    const { commands: testCommands, result } = renderInteractions();
+    act(() => {
+      result.current.handleSheetFrameResizeStart(
+        'sheet-inputs', { horizontal: 1, vertical: 1 }, pointerEvent({ button: 2, clientX: 0, clientY: 0 }),
+      );
+      result.current.handleSheetFrameScaleStart(
+        'sheet-inputs', pointerEvent({ button: 2, clientX: 0, clientY: 0 }),
+      );
+      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.cancelSheetFrameScaleInput('sheet-inputs');
+    });
+
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+    expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
+  });
+
   it('previews scaled drag movement and commits the final frame position once', () => {
     const { commands: testCommands, result } = renderInteractions({ viewportScale: 2 });
 

@@ -26,4 +26,24 @@ describe('stableCellIdentity', () => {
     });
     expect(addressRangeOf(content, stable!)).toEqual(positional);
   });
+
+  it('rejects malformed keys and unresolved cell or range endpoints', () => {
+    const content = sheetDocument({ id: 'sheet-1', name: 'Inputs', rowCount: 2, columnCount: 2 }).content;
+
+    expect(cellIdentityFromKey('missing-separator')).toBeUndefined();
+    expect(cellIdentityFromKey('\0column')).toBeUndefined();
+    expect(cellIdentityFromKey('row\0')).toBeUndefined();
+    expect(cellIdentityAt(content, 'Z999')).toBeUndefined();
+    expect(cellIdentityAt(content, { rowIndex: 0, columnIndex: 99 })).toBeUndefined();
+    expect(cellIdentityAt(content, { rowIndex: 99, columnIndex: 0 })).toBeUndefined();
+    expect(cellAddressOf(content, { rowId: 'missing', columnId: content.columns[0]! })).toBeUndefined();
+    expect(cellAddressOf(content, { rowId: content.rows[0]!, columnId: 'missing' })).toBeUndefined();
+    expect(stableRangeAt(content, {
+      start: { rowIndex: 0, columnIndex: 0 }, end: { rowIndex: 99, columnIndex: 0 },
+    })).toBeUndefined();
+    expect(addressRangeOf(content, {
+      start: { rowId: content.rows[0]!, columnId: content.columns[0]! },
+      end: { rowId: 'missing', columnId: content.columns[0]! },
+    })).toBeUndefined();
+  });
 });

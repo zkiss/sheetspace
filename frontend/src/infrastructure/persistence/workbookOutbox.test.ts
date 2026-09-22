@@ -465,4 +465,118 @@ describe('WorkbookPersistenceTransport', () => {
     })).resolves.toEqual({ kind: 'missing-sheet', sheetIds: ['a', 'b'] });
     expect(updateSheetZOrder).not.toHaveBeenCalled();
   });
+
+  it('propagates an ordinary API failure without attempting conflict recovery', async () => {
+    const failure = new WorkbookApiError('server error', 500, 'server-error');
+    const loadSheet = vi.fn();
+    const transport = new WorkbookPersistenceTransport({
+      writeCells: vi.fn().mockRejectedValue(failure),
+      loadSheet,
+    } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+
+    await expect(transport.execute({
+      intent: { kind: 'write-cells', writes: [
+        { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+      ] },
+      affectedSheetIds: ['a'],
+    })).rejects.toBe(failure);
+    expect(loadSheet).not.toHaveBeenCalled();
+  });
+
+  it('recovers an untracked ambiguous cell response from its complete remote after-state', async () => {
+    const saved = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'local' } });
+    const transport = new WorkbookPersistenceTransport({
+      writeCells: vi.fn().mockRejectedValue(new TypeError('response lost')),
+      loadSheet: vi.fn().mockResolvedValue(saved),
+    } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+
+    await expect(transport.execute({
+      intent: { kind: 'write-cells', writes: [
+        { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+      ] },
+      affectedSheetIds: ['a'],
+    })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }] });
+  });
+
+  it('reports a missing sheet while recovering a failed cell response', async () => {
+    const transport = new WorkbookPersistenceTransport({
+      writeCells: vi.fn().mockRejectedValue(new TypeError('response lost')),
+      loadSheet: vi.fn().mockRejectedValue(new WorkbookApiError('missing', 404, 'sheet-not-found')),
+    } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+
+    await expect(transport.execute({
+      intent: { kind: 'write-cells', writes: [
+        { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+      ] },
+      affectedSheetIds: ['a'],
+    })).resolves.toEqual({ kind: 'missing-sheet', sheetIds: ['a'] });
+  });
+
+  it('revalidates a guarded before-state before a successful manual retry', async () => {
+    const before = sheetDocument({ id: 'a', name: 'A', revision: 2 });
+    const writeCells = vi.fn()
+      .mockRejectedValueOnce(new TypeError('response lost'))
+      .mockResolvedValueOnce({ sheets: [{ sheetId: 'a', revision: 3 }] });
+    const transport = new WorkbookPersistenceTransport({
+      writeCells,
+      loadSheet: vi.fn().mockResolvedValue(before),
+    } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(writeCells).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts a guarded operation when manual retry finds its complete after-state', async () => {
+    const after = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'local' } });
+    const writeCells = vi.fn().mockRejectedValue(new TypeError('response lost'));
+    const loadSheet = vi.fn()
+      .mockResolvedValueOnce(sheetDocument({ id: 'a', name: 'A', revision: 1, cells: { A1: 'remote' } }))
+      .mockResolvedValueOnce(after);
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'local' },
+    ] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('cell');
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(writeCells).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves blocked and newly missing outcomes while filtering a known-missing z-order target', async () => {
+    const { WorkbookPersistenceCoordinator } = await import('@infrastructure/persistence/workbookPersistenceCoordinator');
+    const blockedCoordinator = new WorkbookPersistenceCoordinator();
+    blockedCoordinator.confirmSheetMissing('known-missing');
+    const blocked = new WorkbookPersistenceTransport({ updateSheetZOrder: vi.fn() } as Partial<WorkbookApi>, blockedCoordinator);
+    const intent = {
+      kind: 'update-sheet-z-order' as const,
+      updates: [{ sheetId: 'known-missing', zIndex: 1 }, { sheetId: 'live', zIndex: 2 }],
+    };
+
+    await expect(blocked.execute({ intent, affectedSheetIds: ['known-missing', 'live'] }))
+      .resolves.toEqual({ kind: 'blocked', reason: 'Missing revision for a z-order update.' });
+
+    const missingCoordinator = new WorkbookPersistenceCoordinator();
+    missingCoordinator.confirmSheetMissing('known-missing');
+    const missing = new WorkbookPersistenceTransport({
+      updateSheetZOrder: vi.fn().mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict')),
+      loadSheet: vi.fn().mockRejectedValue(new WorkbookApiError('missing', 404, 'sheet-not-found')),
+    } as Partial<WorkbookApi>, missingCoordinator);
+    missing.recordRevision('live', 1);
+
+    await expect(missing.execute({ intent, affectedSheetIds: ['known-missing', 'live'] }))
+      .resolves.toEqual({ kind: 'missing-sheet', sheetIds: ['known-missing', 'live'] });
+  });
 });
