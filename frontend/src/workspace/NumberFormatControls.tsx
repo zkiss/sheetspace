@@ -39,7 +39,10 @@ export function selectionFormatControlState(sheet: SheetDocument | undefined, se
   const local = targets.map((target) => (target.scope === 'row' ? overrides?.rows : target.scope === 'column' ? overrides?.columns : overrides?.cells)?.[target.targetId]?.numberFormat);
   const effective = effectiveFormats(sheet, selection);
   const same = (formats: readonly (NumberFormat | undefined)[]) => formats.every((format) => JSON.stringify(format) === JSON.stringify(formats[0]));
-  return { format: same(local) ? local[0] ?? (same(effective) ? effective[0]! : null) : null, hasLocalOverrides: local.some(Boolean) };
+  return {
+    format: same(local) && same(effective) ? local[0] ?? effective[0]! : null,
+    hasLocalOverrides: local.some(Boolean),
+  };
 }
 
 function effectiveFormats(sheet: SheetDocument, selection: FormatSelection): readonly NumberFormat[] {

@@ -38,4 +38,23 @@ describe('number format selection controls', () => {
     expect(selectionFormatControlState(formatted, selection).format).toBeNull();
     expect(selectionFormatControlState(undefined, selection)).toEqual({ format: null, hasLocalOverrides: false });
   });
+
+  it('reports mixed effective formats for a whole-axis selection with a cell exception', () => {
+    const columnId = sheet.content.columns[0]!;
+    const exceptionalCell = cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId });
+    const formatted = {
+      ...sheet,
+      presentation: {
+        ...sheet.presentation,
+        formatOverrides: {
+          rows: {},
+          columns: { [columnId]: { numberFormat: { kind: 'number' as const, precision: 2 } } },
+          cells: { [exceptionalCell]: { numberFormat: { kind: 'percent' as const, precision: 0 } } },
+        },
+      },
+    };
+    const columnSelection = { ...selection, mode: 'columns' as const, extent: selection.anchor };
+
+    expect(selectionFormatControlState(formatted, columnSelection)).toEqual({ format: null, hasLocalOverrides: true });
+  });
 });
