@@ -30,6 +30,7 @@ import type { WorkbookCommands } from '@application/react/useWorkbookController'
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
+import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
 
@@ -197,6 +198,11 @@ export function Workspace({
         canUndo={canUndo && !editingCell}
         sheetCount={sheets.length}
         viewport={workspaceController.viewport}
+      />
+      <NumberFormatControls
+        onWrite={(writes) => selectedSheet && writes.length > 0 && commands.writeNumberFormats(selectedSheet.id, writes)}
+        selection={selectionRange}
+        sheet={selectedSheet}
       />
 
       <FormulaReferenceInspection

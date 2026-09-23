@@ -29,6 +29,23 @@ describe('sheet grid model', () => {
     expect(getSheetCellDisplayText({ cellKey: 'C1', formulaResults, sheet })).toBe('');
   });
 
+  it('formats numeric raw content and evaluated formula values from sparse presentation overrides', () => {
+    const document = sheetDocument({
+      id: 'formats',
+      name: 'Formats',
+      cells: { A1: '1.25', B1: '=A1' },
+      presentation: {
+        rowHeights: {}, columnWidths: {},
+        formatOverrides: { rows: {}, columns: { 'formats:column:1': { numberFormat: { kind: 'percent', precision: 1 } } }, cells: {} },
+      },
+    });
+    const sheet = tabularProjection(document);
+    const formulaResults: FormulaEvaluationSnapshot = { [sheet.id]: { B1: { kind: 'number', value: 1.25, display: '1.25' } } };
+
+    expect(getSheetCellDisplayText({ cellKey: 'A1', formulaResults, presentation: document.presentation, sheet })).toBe('125.0%');
+    expect(getSheetCellDisplayText({ cellKey: 'B1', formulaResults, presentation: document.presentation, sheet })).toBe('1.25');
+  });
+
   it('maps active cell keyboard input to spreadsheet intents', () => {
     expect(
       gridCellKeyboardAction({

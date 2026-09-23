@@ -1,6 +1,8 @@
 import { cellRawContent } from '@workbook/read/queries';
-import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
-import { type SheetTabularProjection } from '@workbook/core/model';
+import { displayFormulaValue, displayRawCellValue, type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { resolveNumberFormat } from '@workbook/core/numberFormat';
+import { type SheetPresentation, type SheetTabularProjection } from '@workbook/core/model';
 import type { CellNavigationDirection } from './cellInteractionContracts';
 
 export type ColumnHeader = {
@@ -17,13 +19,20 @@ export type GridCellKeyboardAction =
 export function getSheetCellDisplayText({
   cellKey,
   formulaResults,
+  presentation,
   sheet,
 }: {
   cellKey: string;
   formulaResults: FormulaEvaluationSnapshot;
+  presentation?: SheetPresentation;
   sheet: SheetTabularProjection;
 }) {
-  return formulaResults[sheet.id]?.[cellKey]?.display ?? cellRawContent(sheet, cellKey) ?? '';
+  const identity = cellIdentityAt(sheet, cellKey);
+  const format = identity ? resolveNumberFormat(presentation?.formatOverrides ?? { rows: {}, columns: {}, cells: {} }, identity) : undefined;
+  const formulaResult = formulaResults[sheet.id]?.[cellKey];
+  if (formulaResult) return displayFormulaValue(formulaResult, format).display;
+  const raw = cellRawContent(sheet, cellKey);
+  return raw === undefined ? '' : displayRawCellValue(raw, format).display;
 }
 
 export function gridCellKeyboardAction({

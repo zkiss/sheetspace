@@ -687,7 +687,7 @@ export function SheetGrid({
                 <SheetGridCell
                   cellKey={key}
                   columnIndex={column.durableIndex + 2}
-                  displayText={getSheetCellDisplayText({ cellKey: key, formulaResults, sheet })}
+                  displayText={getSheetCellDisplayText({ cellKey: key, formulaResults, presentation, sheet })}
                   editingCell={editingCell}
                   cellInteraction={cellInteraction}
                   editorInteraction={editorInteraction}
