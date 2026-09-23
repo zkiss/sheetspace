@@ -50,10 +50,13 @@ class InMemoryWorkbookStore(
         order.map { workbook.documents.getValue(SheetId(it)) }
     }
 
-    override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>): SheetDocument = synchronized(this) {
+    override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>, formatWrites: List<FormatWrite>): SheetDocument = synchronized(this) {
         val current = workbook.findSheet(SheetId(expectedRevision.sheetId)) ?: throw NoSuchElementException("Sheet not found")
         if (current.revision != expectedRevision.revision) throw SheetRevisionConflict(expectedRevision.sheetId, expectedRevision.revision, current.revision)
-        val updated = current.copy(presentation = validatedPresentationWrites(current, writes), revision = current.revision + 1)
+        if (writes.isEmpty() && formatWrites.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_PRESENTATION)
+        val sized = if (writes.isEmpty()) current.presentation else validatedPresentationWrites(current, writes)
+        val formatted = if (formatWrites.isEmpty()) sized else validatedFormatWrites(current.copy(presentation = sized), formatWrites)
+        val updated = current.copy(presentation = formatted, revision = current.revision + 1)
         workbook = workbook.replaceSheet(updated)
         updated
     }

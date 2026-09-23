@@ -14,7 +14,12 @@ describe('App formula composition', () => {
     const formulaCell = screen.getByRole('cell', { name: 'Outputs A1 cell' });
     expect(formulaCell).toHaveTextContent('#REF!');
     await user.click(formulaCell);
+    const numberFormats = screen.getByLabelText('Number formatting');
     const inspection = screen.getByRole('region', { name: 'Selected formula' });
+    const surface = document.querySelector('.workspace-surface');
+
+    expect(numberFormats.compareDocumentPosition(inspection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(inspection.compareDocumentPosition(surface!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(inspection).toHaveTextContent('=SUM(Inputs!A1:A2, #REF!B2)');
     expect(within(inspection).getByLabelText('Inputs!A1:A2, reference')).toHaveAttribute('data-navigable', 'true');
     expect(within(inspection).getByLabelText('#REF!B2, broken reference')).toHaveAttribute('data-navigable', 'false');

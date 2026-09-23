@@ -1,4 +1,5 @@
-import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
+import type { AxisSizeWrite, FormatWrite, SheetPresentation } from '@workbook/core/model';
+import { isValidNumberFormat, validFormatWrites } from '@workbook/core/numberFormat';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
@@ -149,6 +150,11 @@ export const workbookApi = {
   writeAxisSizes(sheetId: string, writes: readonly AxisSizeWrite[], options: RevisionedMutationOptions = {}): Promise<SheetRevisionResponse> {
     return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}/presentation`, {
       method: 'PATCH', body: JSON.stringify({ writes }), headers: revisionHeaders(options),
+    });
+  },
+  writeNumberFormats(sheetId: string, writes: readonly FormatWrite[], options: RevisionedMutationOptions = {}): Promise<SheetRevisionResponse> {
+    return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}/presentation`, {
+      method: 'PATCH', body: JSON.stringify({ formatWrites: writes }), headers: revisionHeaders(options),
     });
   },
 
@@ -335,8 +341,21 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
     invalidReadContract('invalid sheet visual scale');
   }
 
+  const formats = presentation.formatOverrides;
+  if (formats !== undefined && (!formats || ['rows', 'columns', 'cells'].some((scope) => !formats[scope as keyof typeof formats] || typeof formats[scope as keyof typeof formats] !== 'object' || Array.isArray(formats[scope as keyof typeof formats]))
+      || Object.values(formats.rows).some((format) => !format || !isValidNumberFormat(format.numberFormat))
+      || Object.values(formats.columns).some((format) => !format || !isValidNumberFormat(format.numberFormat))
+      || Object.values(formats.cells).some((format) => !format || !isValidNumberFormat(format.numberFormat)))) invalidReadContract('invalid number format overrides');
+  if (formats !== undefined) {
+    const formatWrites = [
+      ...Object.entries(formats.rows).map(([targetId, format]) => ({ scope: 'row' as const, targetId, numberFormat: format.numberFormat })),
+      ...Object.entries(formats.columns).map(([targetId, format]) => ({ scope: 'column' as const, targetId, numberFormat: format.numberFormat })),
+      ...Object.entries(formats.cells).map(([targetId, format]) => ({ scope: 'cell' as const, targetId, numberFormat: format.numberFormat })),
+    ];
+    if (formatWrites.length > 0 && !validFormatWrites(document.content, formatWrites)) invalidReadContract('invalid number format overrides');
+  }
   return {
-    presentation: { rowHeights: { ...presentation.rowHeights }, columnWidths: { ...presentation.columnWidths } },
+    presentation: { rowHeights: { ...presentation.rowHeights }, columnWidths: { ...presentation.columnWidths }, ...(formats === undefined ? {} : { formatOverrides: { rows: { ...formats.rows }, columns: { ...formats.columns }, cells: { ...formats.cells } } }) },
     id: document.id,
     name: document.name,
     revision: document.revision,

@@ -1,6 +1,8 @@
 import { applyAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { AxisSizeWrite } from '@workbook/core/model';
+import { applyFormatWrites } from '@workbook/core/numberFormat';
+import type { FormatWrite } from '@workbook/core/model';
 import { vi } from 'vitest';
 import { appendColumn, appendRow, renameSheet, validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -21,6 +23,7 @@ export function deferred<T>() {
 export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
   return {
     writeAxisSizes: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
+    writeNumberFormats: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0 })),
     loadWorkbook: vi.fn().mockResolvedValue(workbookWithSheets([])),
     loadSheet: vi.fn(),
     createSheet: vi.fn(),
@@ -57,6 +60,8 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
   return {
     writeAxisSizes: vi.fn().mockImplementation(async (sheetId: string, writes: readonly AxisSizeWrite[]) =>
       revisionResponse(updateSheet(sheetId, (sheet) => ({ ...sheet, presentation: applyAxisSizeWrites(sheet.presentation, writes) })), sheetId)),
+    writeNumberFormats: vi.fn().mockImplementation(async (sheetId: string, writes: readonly FormatWrite[]) =>
+      revisionResponse(updateSheet(sheetId, (sheet) => ({ ...sheet, presentation: { ...sheet.presentation, formatOverrides: applyFormatWrites(sheet.presentation.formatOverrides, writes) } })), sheetId)),
     loadWorkbook: vi.fn().mockImplementation(async () => persistedWorkbook),
     loadSheet: vi.fn().mockImplementation(async (sheetId: string) => {
       const sheet = findSheetById(persistedWorkbook, sheetId);

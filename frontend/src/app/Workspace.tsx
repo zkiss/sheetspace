@@ -30,6 +30,7 @@ import type { WorkbookCommands } from '@application/react/useWorkbookController'
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
+import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
 
@@ -56,6 +57,7 @@ export function Workspace({
   onSelectCell,
   onExtendSelection,
   onFocusSelection,
+  onRestoreGridFocus,
   onSelectAxis,
   onSelectReferenceTarget,
   onStartEdit,
@@ -89,6 +91,7 @@ export function Workspace({
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
   onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
+  onRestoreGridFocus: () => void;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
@@ -197,6 +200,15 @@ export function Workspace({
         canUndo={canUndo && !editingCell}
         sheetCount={sheets.length}
         viewport={workspaceController.viewport}
+      />
+      <NumberFormatControls
+        onWrite={(writes) => {
+          if (!selectedSheet || writes.length === 0) return;
+          commands.writeNumberFormats(selectedSheet.id, writes);
+          onRestoreGridFocus();
+        }}
+        selection={selectionRange}
+        sheet={selectedSheet}
       />
 
       <FormulaReferenceInspection

@@ -120,6 +120,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   }
   private async request(intent: WorkbookPersistenceIntent): Promise<TransportResult> {
     if (intent.kind === 'write-axis-sizes') return this.record(await this.method('writeAxisSizes')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
+    if (intent.kind === 'write-number-formats') return this.record(await this.method('writeNumberFormats')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-cells') {
       const expectedRevisions = [...new Set(intent.writes.map(({ sheetId }) => sheetId))].map((sheetId) => {
         const revision = this.revision(sheetId);

@@ -55,6 +55,17 @@ describe('cellInteractionReducer', () => {
     expect(entered.tabRunOriginColumnId).toBeNull();
   });
 
+  it('restores focus to the stable selection without changing its range or mode', () => {
+    const ranged = cellInteractionReducer(
+      cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select-axis', mode: 'columns', target: a1, extend: false }),
+      { type: 'select-axis', mode: 'columns', target: b1, extend: true },
+    );
+    const restored = cellInteractionReducer(ranged, { type: 'focus-current-selection' });
+    expect(restored.selection).toEqual(b1);
+    expect(restored.rangeSelection).toEqual(ranged.rangeSelection);
+    expect(restored.focusRequest).toMatchObject({ target: b1 });
+  });
+
   it('stores delivered reference ranges separately from editable-cell selection', () => {
     const reference: ReferenceNavigationTarget = {
       kind: 'range',

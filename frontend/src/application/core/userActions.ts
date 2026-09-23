@@ -1,5 +1,7 @@
 import { applyAxisSizeWrites, validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import type { AxisSizeWrite } from '@workbook/core/model';
+import { applyFormatWrites, emptySheetFormatOverrides, validFormatWrites } from '@workbook/core/numberFormat';
+import type { FormatWrite } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
@@ -23,6 +25,7 @@ export type CellPersistenceWrite = {
 /** Plain durable data. Operations cannot carry code, promises, state, or transport clients. */
 export type WorkbookOperation =
   | { kind: 'write-axis-sizes'; operationId: WorkbookOperationId; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
+  | { kind: 'write-number-formats'; operationId: WorkbookOperationId; sheetId: SheetId; writes: readonly FormatWrite[] }
   | { kind: 'delete-sheet'; operationId: WorkbookOperationId; sheetId: SheetId }
   | { kind: 'rename-sheet'; operationId: WorkbookOperationId; sheetId: SheetId; name: string }
   | { kind: 'write-cells'; operationId: WorkbookOperationId; writes: readonly CellWrite[] }
@@ -38,6 +41,7 @@ export type BackendWorkbookReconciliation =
 
 export type WorkbookPersistenceIntent =
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
+  | { kind: 'write-number-formats'; sheetId: SheetId; writes: readonly FormatWrite[] }
   | { kind: 'delete-sheet'; sheetId: SheetId }
   | { kind: 'rename-sheet'; sheetId: SheetId; name: string }
   | { kind: 'update-sheet-position'; sheetId: SheetId; position: WorkspacePosition }
@@ -54,6 +58,7 @@ export type AffectedWorkbookEntities = {
 /** Inverse data is operation-ID free; an undo operation receives a new durable ID later. */
 export type WorkbookOperationInverse =
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
+  | { kind: 'write-number-formats'; sheetId: SheetId; writes: readonly FormatWrite[] }
   | { kind: 'rename-sheet'; sheetId: SheetId; name: string }
   | { kind: 'write-cells'; writes: readonly CellWrite[] }
   | { kind: 'move-sheet-frame'; sheetId: SheetId; position: WorkspacePosition }
@@ -69,7 +74,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-visual-scale' | 'unknown-sheet';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 
 /**
@@ -131,6 +136,7 @@ export function replayCellPersistenceWrites(
 export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOperation): WorkbookOperationResult {
   switch (operation.kind) {
     case 'write-axis-sizes': return applyAxisSizes(workbook, operation);
+    case 'write-number-formats': return applyNumberFormats(workbook, operation);
     case 'delete-sheet': return applyDeleteSheet(workbook, operation);
     case 'rename-sheet': return applyRenameSheet(workbook, operation);
     case 'write-cells': return applyCellWrites(workbook, operation);
@@ -271,4 +277,18 @@ function applyAxisSizes(workbook: Workbook, operation: Extract<WorkbookOperation
   return sheetSuccess(workbook, { ...sheet, presentation: applyAxisSizeWrites(sheet.presentation, writes) }, { kind: 'none' },
     { kind: 'write-axis-sizes', sheetId: sheet.id, writes: writes.map((write) => ({ ...write })) },
     { kind: 'write-axis-sizes', sheetId: sheet.id, writes: inverse });
+}
+
+function applyNumberFormats(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'write-number-formats' }>): WorkbookOperationResult {
+  const sheet = findSheetById(workbook, operation.sheetId);
+  if (!sheet) return { ok: false, reason: 'unknown-sheet' };
+  if (!validFormatWrites(sheet.content, operation.writes)) return { ok: false, reason: 'invalid-number-format' };
+  const current = sheet.presentation.formatOverrides ?? emptySheetFormatOverrides();
+  const previous = (write: FormatWrite) => (write.scope === 'row' ? current.rows : write.scope === 'column' ? current.columns : current.cells)[write.targetId]?.numberFormat ?? null;
+  const writes = operation.writes.filter((write) => JSON.stringify(previous(write)) !== JSON.stringify(write.numberFormat));
+  if (writes.length === 0) return noChange(workbook);
+  const inverse = writes.map((write) => ({ ...write, numberFormat: previous(write) }));
+  return sheetSuccess(workbook, { ...sheet, presentation: { ...sheet.presentation, formatOverrides: applyFormatWrites(current, writes) } }, { kind: 'none' },
+    { kind: 'write-number-formats', sheetId: sheet.id, writes: writes.map((write) => ({ ...write, numberFormat: write.numberFormat && { ...write.numberFormat } })) },
+    { kind: 'write-number-formats', sheetId: sheet.id, writes: inverse });
 }

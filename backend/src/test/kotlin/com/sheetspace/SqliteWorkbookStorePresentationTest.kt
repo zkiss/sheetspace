@@ -2,11 +2,140 @@ package com.sheetspace
 
 import java.nio.file.Files
 import java.sql.DriverManager
+import java.sql.SQLException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class SqliteWorkbookStorePresentationTest {
+    @Test
+    fun `format policy supports all valid scopes and rejects every invalid variant`() {
+        val document = testDocument(TEST_SHEET_1, "Formats")
+        val row = document.tabularContent.rows[0].value
+        val column = document.tabularContent.columns[0].value
+        val cell = "$row\u0000$column"
+        val writes = listOf(
+            FormatWrite("row", row, NumberFormat("general")),
+            FormatWrite("column", column, NumberFormat("number", 0)),
+            FormatWrite("cell", cell, NumberFormat("percent", 10)),
+        )
+        val formatted = validatedFormatWrites(document, writes)
+        assertEquals(writes.map { it.targetId }.toSet(), (formatted.formatOverrides.rows.keys + formatted.formatOverrides.columns.keys + formatted.formatOverrides.cells.keys).toSet())
+        assertEquals(SheetPresentation(), validatedFormatWrites(document.copy(presentation = formatted), writes.map { it.copy(numberFormat = null) }))
+        listOf(
+            emptyList(),
+            listOf(writes[0], writes[0].copy(numberFormat = null)),
+            listOf(FormatWrite("row", "missing", null)),
+            listOf(FormatWrite("cell", row, null)),
+            listOf(FormatWrite("other", row, null)),
+            listOf(FormatWrite("row", row, NumberFormat("general", 0))),
+            listOf(FormatWrite("row", row, NumberFormat("number", null))),
+            listOf(FormatWrite("row", row, NumberFormat("percent", 11))),
+            listOf(FormatWrite("row", row, NumberFormat("currency", 2))),
+        ).forEach { invalid -> assertFailsWith<WorkbookApplicationException> { validatedFormatWrites(document, invalid) } }
+    }
+
+    @Test
+    fun `sparse formats persist through reopen and removals preserve other scopes`() {
+        val path = Files.createTempFile("sheetspace-format", ".db")
+        val initial = testDocument(TEST_SHEET_1, "Formats")
+        val row = initial.tabularContent.rows[0].value
+        val column = initial.tabularContent.columns[0].value
+        val cell = "$row\u0000$column"
+        val writes = listOf(
+            FormatWrite("row", row, NumberFormat("percent", 4)),
+            FormatWrite("column", column, NumberFormat("number", 1)),
+            FormatWrite("cell", cell, NumberFormat("general")),
+        )
+        try {
+            SqliteWorkbookStore(path).use { store ->
+                store.saveWorkbook(testWorkbookOf(initial))
+                assertEquals(1, store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), writes).revision)
+            }
+            SqliteWorkbookStore(path).use { store ->
+                val stored = store.loadSheet(initial.id)!!
+                assertEquals(SheetFormatOverrides(
+                    mapOf(row to CellFormat(NumberFormat("percent", 4))),
+                    mapOf(column to CellFormat(NumberFormat("number", 1))),
+                    mapOf(cell to CellFormat(NumberFormat("general"))),
+                ), stored.presentation.formatOverrides)
+                val removed = store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 1), emptyList(), listOf(FormatWrite("row", row, null)))
+                assertEquals(2, removed.revision)
+                assertEquals(emptyMap(), removed.presentation.formatOverrides.rows)
+                assertEquals(NumberFormat("general"), removed.presentation.formatOverrides.cells[cell]?.numberFormat)
+            }
+        } finally { Files.deleteIfExists(path) }
+    }
+
+    @Test
+    fun `format validation fails before any database mutation`() = withSqliteStore { store ->
+        val initial = testDocument(TEST_SHEET_1, "Formats")
+        val foreign = testDocument(TEST_SHEET_2, "Foreign")
+        store.saveWorkbook(testWorkbookOf(initial, foreign))
+        val row = initial.tabularContent.rows[0].value
+        val column = initial.tabularContent.columns[0].value
+        val valid = FormatWrite("row", row, NumberFormat("number", 2))
+        listOf(
+            FormatWrite("row", row, NumberFormat("general", 1)),
+            FormatWrite("row", row, NumberFormat("percent", -1)),
+            FormatWrite("column", row, null),
+            FormatWrite("cell", "$row\u0000missing", null),
+            FormatWrite("row", foreign.tabularContent.rows[0].value, null),
+            FormatWrite("unknown", column, null),
+        ).forEach { invalid ->
+            assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid, invalid)) }
+            assertEquals(initial, store.loadSheet(initial.id))
+        }
+        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), emptyList()) }
+        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid, valid.copy(numberFormat = null))) }
+        store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(AxisSizeWrite("column", column, 120.0)), listOf(valid))
+        assertFailsWith<SheetRevisionConflict> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid.copy(numberFormat = null))) }
+    }
+
+    @Test
+    fun `sqlite failure after an earlier format write rolls back every format and revision after reopen`() {
+        val databasePath = Files.createTempFile("sheetspace-format-batch-", ".sqlite")
+        try {
+            SqliteWorkbookStore(databasePath).use { store ->
+                val initial = testDocument(TEST_SHEET_1, "Formats")
+                val row = initial.tabularContent.rows[0].value
+                val column = initial.tabularContent.columns[0].value
+                store.saveWorkbook(testWorkbookOf(initial))
+                DriverManager.getConnection(store.jdbcUrl).use { connection ->
+                    connection.createStatement().use { statement ->
+                        statement.execute(
+                            """
+                            CREATE TRIGGER fail_cell_format_write
+                            BEFORE INSERT ON cell_format_presentation
+                            BEGIN
+                                SELECT RAISE(ABORT, 'injected format failure');
+                            END
+                            """.trimIndent(),
+                        )
+                    }
+                }
+
+                assertFailsWith<SQLException> {
+                    store.writePresentation(
+                        ExpectedSheetRevision(TEST_SHEET_1, 0),
+                        emptyList(),
+                        listOf(
+                            FormatWrite("row", row, NumberFormat("number", 2)),
+                            FormatWrite("cell", "$row\u0000$column", NumberFormat("percent", 1)),
+                        ),
+                    )
+                }
+            }
+
+            SqliteWorkbookStore(databasePath).use { reopened ->
+                val stored = reopened.loadSheet(SheetId(TEST_SHEET_1))!!
+                assertEquals(SheetPresentation(), stored.presentation)
+                assertEquals(0, stored.revision)
+            }
+        } finally {
+            Files.deleteIfExists(databasePath)
+        }
+    }
     @Test
     fun `sizes and targeted removal survive database reopen with cells and frame intact`() {
         val path = Files.createTempFile("sheetspace-presentation", ".db")
@@ -107,7 +236,12 @@ class SqliteWorkbookStorePresentationTest {
     fun `aggregate creation and replacement retain sparse presentation`() = withSqliteStore { store ->
         val initial = testDocument(TEST_SHEET_1, "Sizes")
         val row = initial.tabularContent.rows[0].value
-        val sized = initial.copy(presentation = SheetPresentation(rowHeights = mapOf(row to 1000.0)))
+        val column = initial.tabularContent.columns[0].value
+        val cell = "$row\u0000$column"
+        val sized = initial.copy(presentation = SheetPresentation(
+            rowHeights = mapOf(row to 1000.0),
+            formatOverrides = SheetFormatOverrides(cells = mapOf(cell to CellFormat(NumberFormat("general")))),
+        ))
         store.saveWorkbook(testWorkbookOf(sized))
         assertEquals(sized, store.loadSheet(initial.id))
         store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) { workbook -> workbook.replaceSheet(sized.copy(presentation = SheetPresentation())) }

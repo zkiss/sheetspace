@@ -19,7 +19,7 @@ import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class PresentationWriteRequest(val writes: List<AxisSizeWrite>)
+data class PresentationWriteRequest(val writes: List<AxisSizeWrite> = emptyList(), val formatWrites: List<FormatWrite> = emptyList())
 
 @Serializable
 data class HealthResponse(val status: String, val service: String)
@@ -170,7 +170,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             val request = call.receiveRequest<PresentationWriteRequest>() ?: return@patch
             val expectedRevision = call.expectedSheetRevision() ?: return@patch
             call.respondApplicationResult {
-                val sheet = workbookApplication.writePresentation(sheetId, expectedRevision, request.writes)
+                val sheet = workbookApplication.writePresentation(sheetId, expectedRevision, request.writes, request.formatWrites)
                 call.respond(SheetRevisionResponse(sheet.id.value, sheet.revision))
             }
         }

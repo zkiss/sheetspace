@@ -191,6 +191,7 @@ export function useCellEditing({
     selectCell: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'select', target, gesture }),
     extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
     focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
+    focusCurrentSelection: () => dispatch({ type: 'focus-current-selection' }),
     selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
       if (!gesture || gesture.start) commitActiveEdit();
       dispatch({ type: 'select-axis', mode, target, extend, gesture });

@@ -26,7 +26,7 @@ data class SheetDocumentResponse(
 )
 
 @Serializable
-data class SheetPresentationResponse(val rowHeights: Map<String, Double>, val columnWidths: Map<String, Double>)
+data class SheetPresentationResponse(val rowHeights: Map<String, Double>, val columnWidths: Map<String, Double>, val formatOverrides: SheetFormatOverrides = SheetFormatOverrides())
 
 @Serializable
 data class FrameStateResponse(
@@ -75,7 +75,7 @@ internal object WorkbookReadTransportAdapter {
                 visualScale = document.frame.visualScale,
                 zIndex = document.frame.zIndex,
             ),
-            presentation = SheetPresentationResponse(document.presentation.rowHeights, document.presentation.columnWidths),
+            presentation = SheetPresentationResponse(document.presentation.rowHeights, document.presentation.columnWidths, document.presentation.formatOverrides),
             content = TabularContentResponse(
                 kind = "tabular",
                 rows = tabular.rows.map { it.value },
