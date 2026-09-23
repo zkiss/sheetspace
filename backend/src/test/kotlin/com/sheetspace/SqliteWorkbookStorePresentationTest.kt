@@ -2,6 +2,7 @@ package com.sheetspace
 
 import java.nio.file.Files
 import java.sql.DriverManager
+import java.sql.SQLException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -89,6 +90,51 @@ class SqliteWorkbookStorePresentationTest {
         assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid, valid.copy(numberFormat = null))) }
         store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(AxisSizeWrite("column", column, 120.0)), listOf(valid))
         assertFailsWith<SheetRevisionConflict> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid.copy(numberFormat = null))) }
+    }
+
+    @Test
+    fun `sqlite failure after an earlier format write rolls back every format and revision after reopen`() {
+        val databasePath = Files.createTempFile("sheetspace-format-batch-", ".sqlite")
+        try {
+            SqliteWorkbookStore(databasePath).use { store ->
+                val initial = testDocument(TEST_SHEET_1, "Formats")
+                val row = initial.tabularContent.rows[0].value
+                val column = initial.tabularContent.columns[0].value
+                store.saveWorkbook(testWorkbookOf(initial))
+                DriverManager.getConnection(store.jdbcUrl).use { connection ->
+                    connection.createStatement().use { statement ->
+                        statement.execute(
+                            """
+                            CREATE TRIGGER fail_cell_format_write
+                            BEFORE INSERT ON cell_format_presentation
+                            BEGIN
+                                SELECT RAISE(ABORT, 'injected format failure');
+                            END
+                            """.trimIndent(),
+                        )
+                    }
+                }
+
+                assertFailsWith<SQLException> {
+                    store.writePresentation(
+                        ExpectedSheetRevision(TEST_SHEET_1, 0),
+                        emptyList(),
+                        listOf(
+                            FormatWrite("row", row, NumberFormat("number", 2)),
+                            FormatWrite("cell", "$row\u0000$column", NumberFormat("percent", 1)),
+                        ),
+                    )
+                }
+            }
+
+            SqliteWorkbookStore(databasePath).use { reopened ->
+                val stored = reopened.loadSheet(SheetId(TEST_SHEET_1))!!
+                assertEquals(SheetPresentation(), stored.presentation)
+                assertEquals(0, stored.revision)
+            }
+        } finally {
+            Files.deleteIfExists(databasePath)
+        }
     }
     @Test
     fun `sizes and targeted removal survive database reopen with cells and frame intact`() {

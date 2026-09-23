@@ -84,4 +84,21 @@ describe('NumberFormatControls rendering', () => {
 
     expect(onWrite).toHaveBeenCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'percent', precision: 0 } }]);
   });
+
+  it('does not write while a precision edit is empty', () => {
+    const onWrite = vi.fn();
+    const targetId = cellIdentityKey({ rowId, columnId: firstColumnId });
+    const formattedSheet = {
+      ...sheet,
+      presentation: {
+        ...sheet.presentation,
+        formatOverrides: { rows: {}, columns: {}, cells: { [targetId]: { numberFormat: { kind: 'number' as const, precision: 2 } } } },
+      },
+    };
+    render(<NumberFormatControls sheet={formattedSheet} selection={selection} onWrite={onWrite} />);
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Number format precision' }), { target: { value: '' } });
+
+    expect(onWrite).not.toHaveBeenCalled();
+  });
 });

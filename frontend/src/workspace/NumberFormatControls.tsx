@@ -97,7 +97,7 @@ export function NumberFormatControls({
           value={precision}
           onChange={(event) => {
             if (state.format?.kind !== 'number' && state.format?.kind !== 'percent') return;
-            const next = Number(event.target.value);
+            const next = event.target.valueAsNumber;
             if (!Number.isInteger(next) || next < NUMBER_FORMAT_PRECISION_LIMITS.min || next > NUMBER_FORMAT_PRECISION_LIMITS.max) return;
             write({ ...state.format, precision: next });
           }}
