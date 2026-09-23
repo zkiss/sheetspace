@@ -41,6 +41,7 @@ export type CellInteractionAction =
   | { type: 'cancel' }
   | { type: 'clear'; target: CellTarget }
   | { type: 'navigate'; target: CellTarget }
+  | { type: 'traverse-range'; target: CellTarget }
   | { type: 'commit-tab'; target: CellTarget; originColumnId: string }
   | { type: 'commit-enter'; target: CellTarget }
   | { type: 'focus-current-selection' }
@@ -165,6 +166,23 @@ export function cellInteractionReducer(
         selection: action.target,
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
+        editing: null,
+        referenceSelection: null,
+        tabRunOriginColumnId: null,
+      }, action.target);
+    case 'traverse-range':
+      // Tab and Enter move the active cell inside an already-selected
+      // rectangle. Keep its stable bounds so the next traversal can wrap.
+      // Callers only issue this for a valid multi-cell selection; falling back
+      // to ordinary navigation keeps queued or stale actions deterministic.
+      if (state.rangeSelection?.mode !== 'cells'
+        || state.rangeSelection.anchor.sheetId !== action.target.sheetId) {
+        return cellInteractionReducer(state, { type: 'navigate', target: action.target });
+      }
+      return withFocusRequest({
+        ...state,
+        selection: action.target,
+        selectionOwner: null,
         editing: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,

@@ -148,6 +148,58 @@ describe('useCellEditing', () => {
     expect(commands.writeCells).not.toHaveBeenCalled();
   });
 
+  it('keeps a rectangular range through repeated forward and reverse traversal', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+    const c2 = cellTargetAt(sheet, 'C2')!;
+    const b1 = cellTargetAt(sheet, 'B1')!;
+    const c1 = cellTargetAt(sheet, 'C1')!;
+    const a2 = cellTargetAt(sheet, 'A2')!;
+    const b2 = cellTargetAt(sheet, 'B2')!;
+
+    act(() => result.current.selectCell(a1));
+    act(() => result.current.extendSelection(c2));
+    act(() => result.current.navigateKeyboardCell(a1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(b1);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c2 });
+
+    act(() => result.current.navigateKeyboardCell(b1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(c1);
+    act(() => result.current.navigateKeyboardCell(c1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(a2);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c2 });
+
+    act(() => result.current.navigateKeyboardCell(a2, { key: 'Tab', shift: true }));
+    expect(result.current.activeCell).toEqual(c1);
+    act(() => result.current.navigateKeyboardCell(c1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(a2);
+    act(() => result.current.navigateKeyboardCell(a2, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(b2);
+    act(() => result.current.navigateKeyboardCell(b2, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(c2);
+    act(() => result.current.navigateKeyboardCell(c2, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(a1);
+    act(() => result.current.navigateKeyboardCell(a1, { key: 'Tab', shift: true }));
+    expect(result.current.activeCell).toEqual(c2);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c2 });
+  });
+
+  it.each([
+    ['rows', 'Tab', 'B2', 'A2'],
+    ['columns', 'Enter', 'B2', 'B1'],
+  ] as const)('collapses a whole-%s selection to a cell when Shift+%s traverses', (mode, key, from, expected) => {
+    const { result, sheet } = renderCellEditing();
+    const start = cellTargetAt(sheet, from)!;
+    const destination = cellTargetAt(sheet, expected)!;
+
+    act(() => result.current.selectAxis(mode, start, false));
+    act(() => result.current.navigateKeyboardCell(start, { key, shift: true }));
+
+    expect(result.current.activeCell).toEqual(destination);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: destination, extent: destination });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ target: destination });
+  });
+
   it('does not claim unsupported Alt keyboard navigation', () => {
     const { result, sheet } = renderCellEditing();
     const a1 = cellTargetAt(sheet, 'A1')!;

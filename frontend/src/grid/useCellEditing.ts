@@ -146,9 +146,24 @@ export function useCellEditing({
     if (!sheet) return false;
     const next = resolveCellNavigation(sheet, target, state.rangeSelection, request);
     if (!next) return false;
-    dispatch(request.shift
-      ? { type: 'extend-selection', target: next, requestFocus: true }
-      : { type: 'navigate', target: next });
+    const selection = state.rangeSelection;
+    const traversesRectangle = (request.key === 'Tab' || request.key === 'Enter')
+      && selection?.mode === 'cells'
+      && selection.anchor.sheetId === sheet.id
+      && selection.extent.sheetId === sheet.id
+      && (() => {
+        const anchor = cellAddressOf(sheet.content, selection.anchor.cell);
+        const extent = cellAddressOf(sheet.content, selection.extent.cell);
+        return Boolean(anchor && extent
+          && (anchor.rowIndex !== extent.rowIndex || anchor.columnIndex !== extent.columnIndex));
+      })();
+    // Whole-axis traversal deliberately uses ordinary navigation. In
+    // particular, Shift must not retain row/column selection semantics.
+    dispatch(traversesRectangle
+      ? { type: 'traverse-range', target: next }
+      : request.shift && selection?.mode === 'cells'
+        ? { type: 'extend-selection', target: next, requestFocus: true }
+        : { type: 'navigate', target: next });
     return true;
   }
 
