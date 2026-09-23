@@ -9,9 +9,11 @@ import type {
   CellSelectionMode,
   CellContentCommands,
   CellNavigationDirection,
+  CellNavigationRequest,
   CellTarget,
   ReferenceNavigationTarget,
 } from './cellInteractionContracts';
+import { resolveCellNavigation } from './cellNavigation';
 import {
   cellInteractionReducer,
   cellKeyForTarget,
@@ -139,6 +141,17 @@ export function useCellEditing({
       : { type: 'navigate', target: next });
   }
 
+  function navigateKeyboardCell(target: CellTarget, request: CellNavigationRequest) {
+    const sheet = findSheetById(workbook, target.sheetId);
+    if (!sheet) return false;
+    const next = resolveCellNavigation(sheet, target, state.rangeSelection, request);
+    if (!next) return false;
+    dispatch(request.shift
+      ? { type: 'extend-selection', target: next, requestFocus: true }
+      : { type: 'navigate', target: next });
+    return true;
+  }
+
   function commitEditAndNavigate(session: CellEditSession, direction: 'tab' | 'enter') {
     const sheet = findSheetById(workbook, session.target.sheetId);
     const address = sheet && cellAddressOf(sheet.content, session.target.cell);
@@ -185,6 +198,7 @@ export function useCellEditing({
     acknowledgeKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'acknowledge-focus', requestId }),
     keyboardFocusRequest: state.focusRequest,
     navigateCell,
+    navigateKeyboardCell,
     referenceSelection: state.referenceSelection,
     selectionRange: state.rangeSelection,
     selectionOwner: state.selectionOwner,

@@ -130,6 +130,33 @@ describe('useCellEditing', () => {
     expect(result.current.keyboardFocusRequest).toMatchObject({ target: a1 });
   });
 
+  it('extends keyboard jumps without issuing any content command', () => {
+    const populated = sheetDocument({ id: 'navigation', name: 'Navigation', cells: { A1: 'first', B1: '=A1', C1: 'last' } });
+    const { commands, result } = renderCellEditing(populated);
+    const a1 = cellTargetAt(populated, 'A1')!;
+    const c1 = cellTargetAt(populated, 'C1')!;
+
+    act(() => result.current.selectCell(a1));
+    let claimed = false;
+    act(() => { claimed = result.current.navigateKeyboardCell(a1, { key: 'ArrowRight', command: true, shift: true }); });
+
+    expect(claimed).toBe(true);
+    expect(result.current.activeCell).toEqual(c1);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c1 });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ target: c1 });
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
+    expect(commands.writeCells).not.toHaveBeenCalled();
+  });
+
+  it('does not claim unsupported Alt keyboard navigation', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+    act(() => result.current.selectCell(a1));
+
+    expect(result.current.navigateKeyboardCell(a1, { key: 'Home', alt: true })).toBe(false);
+    expect(result.current.activeCell).toEqual(a1);
+  });
+
   describe('edit persistence', () => {
     it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
       for (const [raw, draft] of [['', 'Region'], ['', '=SUM(B1:B2)'], ['', ''], ['Region', 'Region'], ['=SUM(B1:B2)', '=SUM(B1:B2)']]) {
