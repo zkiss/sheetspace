@@ -28,14 +28,14 @@ describe('App number formatting workflow', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'number');
     await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(1));
     const a1 = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-    expect(a1).toHaveTextContent('1');
+    expect(a1).toHaveTextContent('1.23');
     await waitFor(() => expect(a1).toHaveFocus());
     expect(screen.getByRole('cell', { name: 'Inputs A2 empty cell' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('cell', { name: 'Inputs B1 cell' })).not.toHaveAttribute('aria-selected', 'true');
 
     const persisted = await apiClient.loadWorkbook();
     expect(persisted.documents.inputs.presentation.formatOverrides?.columns[sheet.content.columns[0]!]?.numberFormat)
-      .toEqual({ kind: 'number', precision: 0 });
+      .toEqual({ kind: 'number', precision: 2 });
     expect(persisted.documents.inputs.presentation.formatOverrides?.cells).toEqual({});
 
     await user.click(screen.getByRole('button', { name: 'Inherit' }));

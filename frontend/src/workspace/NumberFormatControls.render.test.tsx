@@ -30,7 +30,7 @@ describe('NumberFormatControls rendering', () => {
     render(<NumberFormatControls sheet={formattedSheet} selection={selection} onWrite={onWrite} />);
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'number');
-    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'number', precision: 0 } }]);
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'number', precision: 2 } }]);
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'general');
     expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'general' } }]);

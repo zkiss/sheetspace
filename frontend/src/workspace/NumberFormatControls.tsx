@@ -75,7 +75,7 @@ export function NumberFormatControls({
         <select aria-label="Number format" disabled={disabled} value={selectedKind} onChange={(event) => {
           const kind = event.target.value;
           if (kind === 'general') write(GENERAL_NUMBER_FORMAT);
-          if (kind === 'number' || kind === 'percent') write({ kind, precision: state.format?.kind === kind ? state.format.precision : 0 });
+          if (kind === 'number' || kind === 'percent') write({ kind, precision: state.format?.kind === kind ? state.format.precision : kind === 'number' ? 2 : 0 });
         }}>
           {selectedKind === 'mixed' ? <option value="mixed">Mixed</option> : null}
           <option value="general">General</option>
