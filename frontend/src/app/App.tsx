@@ -48,6 +48,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     editingCell,
     extendSelection,
     focusSelection,
+    focusCurrentSelection,
     acknowledgeKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
@@ -168,6 +169,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onSelectCell={selectCell}
         onExtendSelection={extendSelection}
         onFocusSelection={focusSelection}
+        onRestoreGridFocus={focusCurrentSelection}
         onSelectAxis={selectAxis}
         onSelectReferenceTarget={selectReferenceTarget}
         onStartEdit={startEditingCell}

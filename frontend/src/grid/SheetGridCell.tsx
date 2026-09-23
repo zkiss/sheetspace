@@ -43,6 +43,7 @@ export function SheetGridCell({
   editingCell,
   isActive,
   isEditing,
+  isFocusTarget = false,
   isNavigationTarget = false,
   historyFeedback,
   isRangeSelected = false,
@@ -59,6 +60,7 @@ export function SheetGridCell({
   editingCell: CellEditSession | null;
   isActive: boolean;
   isEditing: boolean;
+  isFocusTarget?: boolean;
   isNavigationTarget?: boolean;
   historyFeedback?: { before: string | null; beforeDisplay: string | null; after: string | null };
   isRangeSelected?: boolean;
@@ -135,7 +137,10 @@ export function SheetGridCell({
         if (target) cellInteraction.startEditing(target);
       }}
       onFocus={() => {
-        if (!isActive) {
+        // Application focus requests return focus to an existing stable
+        // selection (for example after using presentation controls). They must
+        // not convert an axis/range selection into a single-cell selection.
+        if (!isActive && !isFocusTarget) {
           const target = cellTargetAt(sheet, cellKey);
           if (target) cellInteraction.select(target);
         }

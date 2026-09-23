@@ -43,6 +43,7 @@ export type CellInteractionAction =
   | { type: 'navigate'; target: CellTarget }
   | { type: 'commit-tab'; target: CellTarget; originColumnId: string }
   | { type: 'commit-enter'; target: CellTarget }
+  | { type: 'focus-current-selection' }
   | { type: 'acknowledge-focus'; requestId: number }
   | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> };
 
@@ -188,6 +189,11 @@ export function cellInteractionReducer(
         referenceSelection: null,
         tabRunOriginColumnId: null,
       }, action.target);
+    case 'focus-current-selection':
+      // Formatting and other presentation commands can temporarily move native
+      // focus to a toolbar control. Restore the already-stable selection without
+      // changing its range, mode, or ownership.
+      return state.selection ? withFocusRequest(state, state.selection) : state;
     case 'acknowledge-focus':
       return state.focusRequest?.id === action.requestId ? { ...state, focusRequest: null } : state;
     case 'prune-sheets': {

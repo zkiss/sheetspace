@@ -693,6 +693,7 @@ export function SheetGrid({
                   editorInteraction={editorInteraction}
                   isActive={isActive}
                   isEditing={isEditing}
+                  isFocusTarget={focusIntent?.targetKey === key}
                   isNavigationTarget={isNavigationTarget}
                   historyFeedback={historyFeedback}
                   isRangeSelected={isRangeSelected}
