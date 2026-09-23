@@ -7,10 +7,14 @@ import { App } from './App';
 
 afterEach(cleanup);
 
-function pointerDown(element: Element, clientX: number, clientY: number) {
-  const event = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX, clientY });
-  Object.defineProperty(event, 'pointerId', { value: 17 });
-  fireEvent(element, event);
+function selectColumn(element: Element, clientX: number, clientY: number) {
+  const pointerEvent = (type: 'pointerdown' | 'pointerup') => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY });
+    Object.defineProperty(event, 'pointerId', { value: 17 });
+    fireEvent(element, event);
+  };
+  pointerEvent('pointerdown');
+  pointerEvent('pointerup');
 }
 
 describe('App number formatting workflow', () => {
@@ -20,7 +24,7 @@ describe('App number formatting workflow', () => {
     const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
 
-    pointerDown(screen.getByRole('columnheader', { name: /^A / }), 50, 10);
+    selectColumn(screen.getByRole('columnheader', { name: /^A / }), 50, 10);
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'number');
     await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(1));
     const a1 = screen.getByRole('cell', { name: 'Inputs A1 cell' });
