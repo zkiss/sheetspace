@@ -33,6 +33,8 @@ describe('formula reference navigation', () => {
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999:CV10000, reference' }));
+    expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CU9999 empty cell' }))
+      .toHaveAttribute('data-navigation-highlight', 'true');
 
     await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
     body.scrollTop = 9_998 * 26.4;
@@ -40,7 +42,6 @@ describe('formula reference navigation', () => {
     fireEvent.scroll(body);
     const target = await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
     expect(target).toHaveFocus();
-    expect(target).toHaveAttribute('data-navigation-highlight', 'true');
     expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CV10000 empty cell' })).toHaveAttribute('data-reference-selected', 'true');
     expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
   });

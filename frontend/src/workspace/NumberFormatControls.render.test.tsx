@@ -32,9 +32,14 @@ describe('NumberFormatControls rendering', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'number');
     expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'number', precision: 0 } }]);
 
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'general');
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'general' } }]);
+
     const precision = screen.getByRole('spinbutton', { name: 'Number format precision' });
+    fireEvent.change(precision, { target: { value: '1.5' } });
+    expect(onWrite).toHaveBeenCalledTimes(2);
     fireEvent.change(precision, { target: { value: '99' } });
-    expect(onWrite).toHaveBeenCalledTimes(1);
+    expect(onWrite).toHaveBeenCalledTimes(2);
     fireEvent.change(precision, { target: { value: '2' } });
     expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'percent', precision: 2 } }]);
 
