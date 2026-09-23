@@ -25,6 +25,16 @@ describe('number format presentation persistence', () => {
     expect(decoded.presentation.formatOverrides).toEqual(response.presentation.formatOverrides);
     expect(decoded.presentation.formatOverrides?.rows).not.toBe(response.presentation.formatOverrides.rows);
     expect(() => decodeSheetDocument({ ...document, presentation: { ...document.presentation, formatOverrides: { rows: [], columns: {}, cells: {} } } } as unknown as SheetDocumentResponse)).toThrow(/Invalid workbook read contract/);
+    const validFormat = { numberFormat: { kind: 'general' as const } };
+    for (const overrides of [
+      { rows: { foreign: validFormat }, columns: {}, cells: {} },
+      { rows: {}, columns: { foreign: validFormat }, cells: {} },
+      { rows: {}, columns: {}, cells: { malformed: validFormat } },
+      { rows: {}, columns: {}, cells: { [cellIdentityKey({ rowId: 'foreign', columnId: column })]: validFormat } },
+      { rows: {}, columns: {}, cells: { [cellIdentityKey({ rowId: row, columnId: 'foreign' })]: validFormat } },
+    ]) {
+      expect(() => decodeSheetDocument({ ...document, presentation: { ...document.presentation, formatOverrides: overrides } } as unknown as SheetDocumentResponse)).toThrow(/Invalid workbook read contract/);
+    }
   });
 
   it('clones, orders, retains, and retries format-write payloads through transport', async () => {
