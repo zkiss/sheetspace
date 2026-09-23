@@ -73,4 +73,15 @@ describe('NumberFormatControls rendering', () => {
     expect(screen.getByRole('combobox', { name: 'Number format' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reset to default' })).toBeDisabled();
   });
+
+  it('defaults Percent to zero decimal places when changing from General', async () => {
+    const user = userEvent.setup();
+    const onWrite = vi.fn();
+    const targetId = cellIdentityKey({ rowId, columnId: firstColumnId });
+    render(<NumberFormatControls sheet={sheet} selection={selection} onWrite={onWrite} />);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'percent');
+
+    expect(onWrite).toHaveBeenCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'percent', precision: 0 } }]);
+  });
 });
