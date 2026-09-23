@@ -65,6 +65,7 @@
 
 .number-format-controls {
   display: flex;
+  grid-row: 2;
   align-items: end;
   gap: 0.5rem;
   border-bottom: 1px solid #d6dee3;
