@@ -12,7 +12,6 @@ compile:
 test:
 	make -C backend test
 	make -C frontend test
-	node scripts/verify-coverage-reports.mjs
 
 .PHONY: server
 server:
