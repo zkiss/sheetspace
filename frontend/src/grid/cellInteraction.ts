@@ -133,7 +133,7 @@ export function cellInteractionReducer(
         selectionOwner: null,
         // Editing the active member of a rectangular selection must not lose
         // that rectangle: Tab/Enter commits traverse its existing bounds.
-        rangeSelection: preservesRectangularRange(state.rangeSelection, action.session.target)
+        rangeSelection: preservesRectangularRange(state, action.session.target)
           ? state.rangeSelection
           : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
         editing: action.session,
@@ -238,7 +238,13 @@ export function cellInteractionReducer(
   }
 }
 
-function preservesRectangularRange(selection: CellSelection | null, target: CellTarget) {
+function preservesRectangularRange(state: CellInteractionState, target: CellTarget) {
+  // A live pointer gesture owns its selection until it releases. Starting an
+  // edit from another context replaces that selection, so a stale move/RAF
+  // callback cannot retain or restore its range. Keyboard-created ranges have
+  // no owner and remain available for Enter/Tab traversal.
+  if (state.selectionOwner !== null) return false;
+  const selection = state.rangeSelection;
   if (!selection || selection.mode !== 'cells' || selection.anchor.sheetId !== target.sheetId
     || selection.extent.sheetId !== target.sheetId || !sameTarget(selection.extent, target)) return false;
   return selection.anchor.cell.rowId !== selection.extent.cell.rowId
