@@ -161,7 +161,9 @@ export function useCellEditing({
     // particular, Shift must not retain row/column selection semantics.
     dispatch(traversesRectangle
       ? { type: 'traverse-range', target: next }
-      : request.shift && selection?.mode === 'cells'
+      // Shift extends selection for directional navigation only. Tab and Enter
+      // are traversal commands even when a single cell is selected.
+      : request.shift && request.key !== 'Tab' && request.key !== 'Enter' && selection?.mode === 'cells'
         ? { type: 'extend-selection', target: next, requestFocus: true }
         : { type: 'navigate', target: next });
     return true;
@@ -227,6 +229,7 @@ export function useCellEditing({
     selectCell: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'select', target, gesture }),
     extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
     focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
+    settleSelectionGesture: (owner: symbol) => dispatch({ type: 'settle-selection-gesture', gesture: { owner } }),
     focusCurrentSelection: () => dispatch({ type: 'focus-current-selection' }),
     selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
       if (!gesture || gesture.start) commitActiveEdit();

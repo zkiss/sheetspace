@@ -18,6 +18,7 @@ export type SheetGridCellInteraction = {
   select: (target: CellTarget, gesture?: SelectionGesture) => void;
   extend?: (target: CellTarget, gesture?: SelectionGesture) => void;
   focusSelection?: (target: CellTarget, gesture?: SelectionGesture) => void;
+  settleSelectionGesture?: (owner: symbol) => void;
   startEditing: (target: CellTarget, initialValue?: string) => void;
 };
 

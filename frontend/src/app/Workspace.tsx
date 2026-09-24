@@ -58,6 +58,7 @@ export function Workspace({
   onSelectCell,
   onExtendSelection,
   onFocusSelection,
+  onSettleSelectionGesture,
   onRestoreGridFocus,
   onSelectAxis,
   onSelectReferenceTarget,
@@ -93,6 +94,7 @@ export function Workspace({
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
   onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
+  onSettleSelectionGesture: (owner: symbol) => void;
   onRestoreGridFocus: () => void;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
@@ -321,6 +323,7 @@ export function Workspace({
                     select: onSelectCell,
                     extend: onExtendSelection,
                     focusSelection: onFocusSelection,
+                    settleSelectionGesture: onSettleSelectionGesture,
                     startEditing: onStartEdit,
                   }}
                   editingCell={sheetEditingCell}

@@ -453,7 +453,10 @@ export function SheetGrid({
     animationFrameRef.current = 0;
     if (drag.captureElement.hasPointerCapture?.(drag.pointerId)) drag.captureElement.releasePointerCapture(drag.pointerId);
     setDragging(false);
-    if (focusExtent && drag.target) cellInteractionRef.current.focusSelection?.(drag.target, { owner: drag.owner });
+    // The pointer owner guards only the live gesture. Focusing the completed
+    // extent clears that owner, keeping the selected rectangle editable.
+    if (focusExtent && drag.target) cellInteractionRef.current.focusSelection?.(drag.target);
+    cellInteractionRef.current.settleSelectionGesture?.(drag.owner);
   }, []);
 
   useEffect(() => {

@@ -33,6 +33,7 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
 export type CellInteractionAction =
   | { type: 'select'; target: CellTarget; gesture?: SelectionGesture }
   | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean; gesture?: SelectionGesture }
+  | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'start-edit'; session: CellEditSession }
@@ -89,6 +90,11 @@ export function cellInteractionReducer(
       };
       return action.requestFocus ? withFocusRequest(extended, action.target) : extended;
     }
+    case 'settle-selection-gesture':
+      // A completed pointer gesture leaves a stable range available for editing
+      // and Tab/Enter traversal. Retain the owner only while callbacks from the
+      // live gesture must be rejected.
+      return { ...state, selectionOwner: null };
     case 'select-axis': {
       const canExtend = action.extend
         && state.rangeSelection?.mode === action.mode
@@ -241,8 +247,8 @@ export function cellInteractionReducer(
 function preservesRectangularRange(state: CellInteractionState, target: CellTarget) {
   // A live pointer gesture owns its selection until it releases. Starting an
   // edit from another context replaces that selection, so a stale move/RAF
-  // callback cannot retain or restore its range. Keyboard-created ranges have
-  // no owner and remain available for Enter/Tab traversal.
+  // callback cannot retain or restore its range. Completed pointer and
+  // keyboard-created ranges remain available for Enter/Tab traversal.
   if (state.selectionOwner !== null) return false;
   const selection = state.rangeSelection;
   if (!selection || selection.mode !== 'cells' || selection.anchor.sheetId !== target.sheetId
