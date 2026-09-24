@@ -33,7 +33,7 @@ export default defineConfig({
       provider: 'v8',
       // Concurrent Vitest processes otherwise share coverage/.tmp and can remove
       // each other's intermediate V8 payloads before report generation.
-      reportsDirectory: `coverage-${process.pid}`,
+      reportsDirectory: `coverage/${process.pid}`,
       reporter: ['text', 'html', 'json', 'lcov', 'cobertura'],
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
