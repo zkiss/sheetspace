@@ -122,5 +122,8 @@ describe('sheet grid model', () => {
     expect(gridCellKeyboardAction({ ...base, key: 'Tab', shiftKey: true })).toEqual(
       { kind: 'navigate', request: { key: 'Tab', command: false, shift: true } },
     );
+    expect(gridCellKeyboardAction({ ...base, key: 'Enter', shiftKey: true })).toEqual(
+      { kind: 'navigate', request: { key: 'Enter', command: false, shift: true } },
+    );
   });
 });

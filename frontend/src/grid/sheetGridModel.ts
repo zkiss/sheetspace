@@ -61,7 +61,7 @@ export function gridCellKeyboardAction({
   }
 
   if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown'
-    || key === 'Home' || key === 'End' || key === 'Tab') {
+    || key === 'Home' || key === 'End' || key === 'Tab' || (key === 'Enter' && shiftKey)) {
     return {
       kind: 'navigate',
       request: { key, command: ctrlKey || metaKey, shift: shiftKey },

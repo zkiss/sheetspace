@@ -77,6 +77,11 @@ describe('SheetGridCell', () => {
       key: 'ArrowDown', command: true, shift: true,
     });
 
+    fireEvent.keyDown(keyboardCell, { key: 'Enter', shiftKey: true });
+    expect(navigateKeyboard).toHaveBeenCalledWith(target, {
+      key: 'Enter', command: false, shift: true,
+    });
+
     fireEvent.keyDown(cell, { key: 'Backspace' });
     expect(props.cellInteraction.clear).toHaveBeenCalledWith(target);
   });
