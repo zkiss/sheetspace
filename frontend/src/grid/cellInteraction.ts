@@ -131,7 +131,11 @@ export function cellInteractionReducer(
         ...state,
         selection: action.session.target,
         selectionOwner: null,
-        rangeSelection: { mode: 'cells', anchor: action.session.target, extent: action.session.target },
+        // Editing the active member of a rectangular selection must not lose
+        // that rectangle: Tab/Enter commits traverse its existing bounds.
+        rangeSelection: preservesRectangularRange(state.rangeSelection, action.session.target)
+          ? state.rangeSelection
+          : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
         editing: action.session,
         referenceSelection: null,
       };
@@ -232,6 +236,13 @@ export function cellInteractionReducer(
       };
     }
   }
+}
+
+function preservesRectangularRange(selection: CellSelection | null, target: CellTarget) {
+  if (!selection || selection.mode !== 'cells' || selection.anchor.sheetId !== target.sheetId
+    || selection.extent.sheetId !== target.sheetId || !sameTarget(selection.extent, target)) return false;
+  return selection.anchor.cell.rowId !== selection.extent.cell.rowId
+    || selection.anchor.cell.columnId !== selection.extent.cell.columnId;
 }
 
 function withFocusRequest(state: CellInteractionState, target: CellTarget): CellInteractionState {

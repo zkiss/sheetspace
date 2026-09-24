@@ -3,7 +3,7 @@ import { displayFormulaValue, displayRawCellValue, type FormulaEvaluationSnapsho
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { resolveNumberFormat } from '@workbook/core/numberFormat';
 import { type SheetPresentation, type SheetTabularProjection } from '@workbook/core/model';
-import type { CellNavigationDirection } from './cellInteractionContracts';
+import type { CellNavigationRequest } from './cellInteractionContracts';
 
 export type ColumnHeader = {
   index: number;
@@ -14,7 +14,7 @@ export type GridCellKeyboardAction =
   | { kind: 'none' }
   | { kind: 'start-edit'; initialValue?: string }
   | { kind: 'clear-cell' }
-  | { kind: 'navigate'; direction: CellNavigationDirection };
+  | { kind: 'navigate'; request: CellNavigationRequest };
 
 export function getSheetCellDisplayText({
   cellKey,
@@ -42,6 +42,7 @@ export function gridCellKeyboardAction({
   isCellTarget,
   key,
   metaKey,
+  shiftKey = false,
 }: {
   altKey: boolean;
   ctrlKey: boolean;
@@ -49,36 +50,29 @@ export function gridCellKeyboardAction({
   isCellTarget: boolean;
   key: string;
   metaKey: boolean;
+  shiftKey?: boolean;
 }): GridCellKeyboardAction {
-  if (!isCellTarget || !isActive || altKey || ctrlKey || metaKey) {
+  if (!isCellTarget || !isActive || altKey) {
     return { kind: 'none' };
   }
 
-  if (key === 'Enter' || key === 'F2') {
+  if ((key === 'Enter' || key === 'F2') && !ctrlKey && !metaKey && !shiftKey) {
     return { kind: 'start-edit' };
   }
 
-  if (key === 'ArrowLeft') {
-    return { kind: 'navigate', direction: 'left' };
+  if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown'
+    || key === 'Home' || key === 'End' || key === 'Tab') {
+    return {
+      kind: 'navigate',
+      request: { key, command: ctrlKey || metaKey, shift: shiftKey },
+    };
   }
 
-  if (key === 'ArrowRight') {
-    return { kind: 'navigate', direction: 'right' };
-  }
-
-  if (key === 'ArrowUp') {
-    return { kind: 'navigate', direction: 'up' };
-  }
-
-  if (key === 'ArrowDown') {
-    return { kind: 'navigate', direction: 'down' };
-  }
-
-  if (key === 'Backspace' || key === 'Delete') {
+  if ((key === 'Backspace' || key === 'Delete') && !ctrlKey && !metaKey && !shiftKey) {
     return { kind: 'clear-cell' };
   }
 
-  if (key.length === 1) {
+  if (key.length === 1 && !ctrlKey && !metaKey && !shiftKey) {
     return { kind: 'start-edit', initialValue: key };
   }
 

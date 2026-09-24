@@ -67,6 +67,16 @@ describe('SheetGridCell', () => {
     fireEvent.keyDown(cell, { key: 'ArrowRight' });
     expect(props.cellInteraction.navigate).toHaveBeenCalledWith(target, 'right');
 
+    const navigateKeyboard = vi.fn(() => true);
+    renderCell({
+      cellInteraction: { ...props.cellInteraction, navigateKeyboard },
+    });
+    const keyboardCell = screen.getAllByRole('cell', { name: 'Inputs A1 empty cell' })[1];
+    fireEvent.keyDown(keyboardCell, { key: 'ArrowDown', ctrlKey: true, shiftKey: true });
+    expect(navigateKeyboard).toHaveBeenCalledWith(target, {
+      key: 'ArrowDown', command: true, shift: true,
+    });
+
     fireEvent.keyDown(cell, { key: 'Backspace' });
     expect(props.cellInteraction.clear).toHaveBeenCalledWith(target);
   });
@@ -102,11 +112,15 @@ describe('SheetGridCell', () => {
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledWith(
       { ...editingCell, draft: 'Updated' },
-      'enter',
+      { key: 'Enter', shift: false },
     );
 
     fireEvent.keyDown(editor, { key: 'Escape' });
     expect(props.editorInteraction.cancel).toHaveBeenCalled();
+
+    fireEvent.keyDown(editor, { key: 'ArrowLeft', ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(editor, { key: 'Home' });
+    expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledTimes(1);
   });
 
   it('anchors multiline editor sizing to the cell with documented maximum dimensions', () => {

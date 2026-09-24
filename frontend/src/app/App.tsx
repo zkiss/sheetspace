@@ -52,6 +52,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     acknowledgeKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
+    navigateKeyboardCell,
     referenceSelection,
     selectionRange,
     selectionOwner,
@@ -164,6 +165,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onCreateSheet={openCreationDialog}
         onEditValueChange={updateEditingCellValue}
         onNavigateCell={navigateCell}
+        onNavigateKeyboardCell={navigateKeyboardCell}
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}

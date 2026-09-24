@@ -1,7 +1,7 @@
 import { KeyboardEvent, type CSSProperties } from 'react';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
-import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellTarget } from './cellInteractionContracts';
+import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellNavigationRequest, CellTarget } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { GRID_CELL_HEIGHT } from '@grid/gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';
@@ -14,6 +14,7 @@ export const CELL_EDITOR_MAX_HEIGHT = '12rem';
 export type SheetGridCellInteraction = {
   clear: (target: CellTarget) => void;
   navigate: (target: CellTarget, direction: CellNavigationDirection, extend?: boolean) => void;
+  navigateKeyboard?: (target: CellTarget, request: CellNavigationRequest) => boolean;
   select: (target: CellTarget, gesture?: SelectionGesture) => void;
   extend?: (target: CellTarget, gesture?: SelectionGesture) => void;
   focusSelection?: (target: CellTarget, gesture?: SelectionGesture) => void;
@@ -23,7 +24,7 @@ export type SheetGridCellInteraction = {
 export type SheetGridCellEditorInteraction = {
   cancel: () => void;
   commit: (session?: CellEditSession) => void;
-  commitAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
+  commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
   updateValue: (value: string) => void;
 };
 
@@ -81,6 +82,7 @@ export function SheetGridCell({
       isCellTarget: event.target === event.currentTarget,
       key: event.key,
       metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
     });
 
     if (action.kind === 'none') {
@@ -90,8 +92,17 @@ export function SheetGridCell({
     event.preventDefault();
 
     if (action.kind === 'navigate') {
-      if (event.shiftKey) cellInteraction.navigate(target, action.direction, true);
-      else cellInteraction.navigate(target, action.direction);
+      if (cellInteraction.navigateKeyboard) {
+        if (!cellInteraction.navigateKeyboard(target, action.request)) return;
+        return;
+      }
+      const directions = {
+        ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+      } as const;
+      const direction = directions[action.request.key as keyof typeof directions];
+      if (!direction) return;
+      if (action.request.shift) cellInteraction.navigate(target, direction, true);
+      else cellInteraction.navigate(target, direction);
       return;
     }
 
@@ -191,16 +202,22 @@ export function SheetGridCellEditor({
       onChange={(event) => interaction.updateValue(event.target.value)}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey) {
           event.preventDefault();
           event.stopPropagation();
-          interaction.commitAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'enter');
+          interaction.commitAndNavigate(
+            { ...editingCell, draft: event.currentTarget.value },
+            { key: 'Enter', shift: event.shiftKey },
+          );
         }
 
-        if (event.key === 'Tab' && !event.shiftKey) {
+        if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
           event.preventDefault();
           event.stopPropagation();
-          interaction.commitAndNavigate({ ...editingCell, draft: event.currentTarget.value }, 'tab');
+          interaction.commitAndNavigate(
+            { ...editingCell, draft: event.currentTarget.value },
+            { key: 'Tab', shift: event.shiftKey },
+          );
         }
 
         if (event.key === 'Escape') {
