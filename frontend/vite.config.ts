@@ -31,6 +31,9 @@ export default defineConfig({
     testTimeout: 15_000,
     coverage: {
       provider: 'v8',
+      // Concurrent Vitest processes otherwise share coverage/.tmp and can remove
+      // each other's intermediate V8 payloads before report generation.
+      reportsDirectory: `coverage-${process.pid}`,
       reporter: ['text', 'html', 'json', 'lcov', 'cobertura'],
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
