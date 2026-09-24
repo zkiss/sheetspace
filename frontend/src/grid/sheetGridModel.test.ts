@@ -56,7 +56,7 @@ describe('sheet grid model', () => {
         key: 'ArrowRight',
         metaKey: false,
       }),
-    ).toEqual({ kind: 'navigate', direction: 'right' });
+    ).toEqual({ kind: 'navigate', request: { key: 'ArrowRight', command: false, shift: false } });
     expect(
       gridCellKeyboardAction({
         altKey: false,
@@ -87,14 +87,14 @@ describe('sheet grid model', () => {
     };
     expect(gridCellKeyboardAction({ ...base, key: 'Enter' })).toEqual({ kind: 'start-edit' });
     expect(gridCellKeyboardAction({ ...base, key: 'F2' })).toEqual({ kind: 'start-edit' });
-    expect(gridCellKeyboardAction({ ...base, key: 'ArrowLeft' })).toEqual({ kind: 'navigate', direction: 'left' });
-    expect(gridCellKeyboardAction({ ...base, key: 'ArrowUp' })).toEqual({ kind: 'navigate', direction: 'up' });
-    expect(gridCellKeyboardAction({ ...base, key: 'ArrowDown' })).toEqual({ kind: 'navigate', direction: 'down' });
+    expect(gridCellKeyboardAction({ ...base, key: 'ArrowLeft' })).toEqual({ kind: 'navigate', request: { key: 'ArrowLeft', command: false, shift: false } });
+    expect(gridCellKeyboardAction({ ...base, key: 'ArrowUp' })).toEqual({ kind: 'navigate', request: { key: 'ArrowUp', command: false, shift: false } });
+    expect(gridCellKeyboardAction({ ...base, key: 'ArrowDown' })).toEqual({ kind: 'navigate', request: { key: 'ArrowDown', command: false, shift: false } });
     expect(gridCellKeyboardAction({ ...base, key: 'Backspace' })).toEqual({ kind: 'clear-cell' });
     expect(gridCellKeyboardAction({ ...base, key: 'Escape' })).toEqual({ kind: 'none' });
   });
 
-  it('ignores inactive cells, nested editor events, and modified key commands', () => {
+  it('ignores inactive cells, nested editor events, and unrelated modified commands', () => {
     const inactive = {
       altKey: false,
       ctrlKey: false,
@@ -109,5 +109,30 @@ describe('sheet grid model', () => {
     expect(gridCellKeyboardAction({ ...inactive, isActive: true, ctrlKey: true })).toEqual({ kind: 'none' });
     expect(gridCellKeyboardAction({ ...inactive, isActive: true, altKey: true })).toEqual({ kind: 'none' });
     expect(gridCellKeyboardAction({ ...inactive, isActive: true, metaKey: true })).toEqual({ kind: 'none' });
+  });
+
+  it('routes keyboard navigation modifiers through the navigation model', () => {
+    const base = { altKey: false, ctrlKey: false, isActive: true, isCellTarget: true, metaKey: false };
+    expect(gridCellKeyboardAction({ ...base, key: 'Home', shiftKey: true })).toEqual(
+      { kind: 'navigate', request: { key: 'Home', command: false, shift: true } },
+    );
+    expect(gridCellKeyboardAction({ ...base, key: 'ArrowDown', ctrlKey: true })).toEqual(
+      { kind: 'navigate', request: { key: 'ArrowDown', command: true, shift: false } },
+    );
+    expect(gridCellKeyboardAction({ ...base, key: 'Tab', shiftKey: true })).toEqual(
+      { kind: 'navigate', request: { key: 'Tab', command: false, shift: true } },
+    );
+    expect(gridCellKeyboardAction({ ...base, key: 'Enter', shiftKey: true })).toEqual(
+      { kind: 'navigate', request: { key: 'Enter', command: false, shift: true } },
+    );
+  });
+
+  it('leaves command-modified traversal shortcuts to the browser', () => {
+    const base = { altKey: false, ctrlKey: false, isActive: true, isCellTarget: true, metaKey: false };
+
+    expect(gridCellKeyboardAction({ ...base, key: 'Tab', ctrlKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Tab', metaKey: true, shiftKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Enter', ctrlKey: true, shiftKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Enter', metaKey: true, shiftKey: true })).toEqual({ kind: 'none' });
   });
 });

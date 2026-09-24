@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from '@grid/SheetGridCell';
 import type { CellEditSession } from './cellInteractionContracts';
@@ -67,6 +67,21 @@ describe('SheetGridCell', () => {
     fireEvent.keyDown(cell, { key: 'ArrowRight' });
     expect(props.cellInteraction.navigate).toHaveBeenCalledWith(target, 'right');
 
+    const navigateKeyboard = vi.fn(() => true);
+    renderCell({
+      cellInteraction: { ...props.cellInteraction, navigateKeyboard },
+    });
+    const keyboardCell = screen.getAllByRole('cell', { name: 'Inputs A1 empty cell' })[1];
+    fireEvent.keyDown(keyboardCell, { key: 'ArrowDown', ctrlKey: true, shiftKey: true });
+    expect(navigateKeyboard).toHaveBeenCalledWith(target, {
+      key: 'ArrowDown', command: true, shift: true,
+    });
+
+    fireEvent.keyDown(keyboardCell, { key: 'Enter', shiftKey: true });
+    expect(navigateKeyboard).toHaveBeenCalledWith(target, {
+      key: 'Enter', command: false, shift: true,
+    });
+
     fireEvent.keyDown(cell, { key: 'Backspace' });
     expect(props.cellInteraction.clear).toHaveBeenCalledWith(target);
   });
@@ -81,6 +96,25 @@ describe('SheetGridCell', () => {
     fireEvent.click(cell, { detail: 1 });
 
     expect(props.cellInteraction.select).not.toHaveBeenCalled();
+  });
+
+  it('does not claim command-modified Tab and Enter shortcuts', () => {
+    const navigateKeyboard = vi.fn(() => true);
+    renderCell({ cellInteraction: { clear: vi.fn(), navigate: vi.fn(), navigateKeyboard, select: vi.fn(), startEditing: vi.fn() } });
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    for (const options of [
+      { key: 'Tab', ctrlKey: true },
+      { key: 'Tab', metaKey: true, shiftKey: true },
+      { key: 'Enter', ctrlKey: true, shiftKey: true },
+      { key: 'Enter', metaKey: true, shiftKey: true },
+    ]) {
+      const event = createEvent.keyDown(cell, options);
+      fireEvent(cell, event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+
+    expect(navigateKeyboard).not.toHaveBeenCalled();
   });
 
   it('renders the editor and commits or cancels editor keyboard actions', () => {
@@ -102,11 +136,15 @@ describe('SheetGridCell', () => {
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledWith(
       { ...editingCell, draft: 'Updated' },
-      'enter',
+      { key: 'Enter', shift: false },
     );
 
     fireEvent.keyDown(editor, { key: 'Escape' });
     expect(props.editorInteraction.cancel).toHaveBeenCalled();
+
+    fireEvent.keyDown(editor, { key: 'ArrowLeft', ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(editor, { key: 'Home' });
+    expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledTimes(1);
   });
 
   it('anchors multiline editor sizing to the cell with documented maximum dimensions', () => {

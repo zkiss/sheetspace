@@ -9,9 +9,11 @@ import type {
   CellSelectionMode,
   CellContentCommands,
   CellNavigationDirection,
+  CellNavigationRequest,
   CellTarget,
   ReferenceNavigationTarget,
 } from './cellInteractionContracts';
+import { resolveCellNavigation } from './cellNavigation';
 import {
   cellInteractionReducer,
   cellKeyForTarget,
@@ -139,38 +141,73 @@ export function useCellEditing({
       : { type: 'navigate', target: next });
   }
 
-  function commitEditAndNavigate(session: CellEditSession, direction: 'tab' | 'enter') {
-    const sheet = findSheetById(workbook, session.target.sheetId);
-    const address = sheet && cellAddressOf(sheet.content, session.target.cell);
-    if (!sheet || !address) {
-      commitActiveEdit(session);
-      return;
-    }
+  function navigateKeyboardCell(target: CellTarget, request: CellNavigationRequest) {
+    const sheet = findSheetById(workbook, target.sheetId);
+    if (!sheet) return false;
+    const next = resolveCellNavigation(sheet, target, state.rangeSelection, request);
+    if (!next) return false;
+    const selection = state.rangeSelection;
+    const traversesRectangle = (request.key === 'Tab' || request.key === 'Enter')
+      && selection?.mode === 'cells'
+      && selection.anchor.sheetId === sheet.id
+      && selection.extent.sheetId === sheet.id
+      && (() => {
+        const anchor = cellAddressOf(sheet.content, selection.anchor.cell);
+        const extent = cellAddressOf(sheet.content, selection.extent.cell);
+        return Boolean(anchor && extent
+          && (anchor.rowIndex !== extent.rowIndex || anchor.columnIndex !== extent.columnIndex));
+      })();
+    // Whole-axis traversal deliberately uses ordinary navigation. In
+    // particular, Shift must not retain row/column selection semantics.
+    dispatch(traversesRectangle
+      ? { type: 'traverse-range', target: next }
+      // Shift extends selection for directional navigation only. Tab and Enter
+      // are traversal commands even when a single cell is selected.
+      : request.shift && request.key !== 'Tab' && request.key !== 'Enter' && selection?.mode === 'cells'
+        ? { type: 'extend-selection', target: next, requestFocus: true }
+        : { type: 'navigate', target: next });
+    return true;
+  }
+
+  function commitEditAndNavigate(
+    session: CellEditSession,
+    request: Pick<CellNavigationRequest, 'key' | 'shift'> | 'tab' | 'enter',
+  ) {
+    const normalizedRequest = typeof request === 'string'
+      ? { key: request === 'tab' ? 'Tab' as const : 'Enter' as const }
+      : request;
     commitSession(session);
-
-    if (direction === 'tab') {
-      const next = adjacentTarget(sheet, session.target, { columnIndex: 1, rowIndex: 0 });
-      if (next) {
-        dispatch({
-          type: 'commit-tab',
-          target: next,
-          originColumnId: state.tabRunOriginColumnId ?? session.target.cell.columnId,
-        });
-      }
+    const sheet = findSheetById(workbook, session.target.sheetId);
+    const selection = state.rangeSelection;
+    const hasRectangle = Boolean(sheet && selection?.mode === 'cells'
+      && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id
+      && (() => {
+        const anchor = cellAddressOf(sheet.content, selection.anchor.cell);
+        const extent = cellAddressOf(sheet.content, selection.extent.cell);
+        return anchor && extent && (anchor.rowIndex !== extent.rowIndex || anchor.columnIndex !== extent.columnIndex);
+      })());
+    if (!sheet || normalizedRequest.shift || hasRectangle) {
+      navigateKeyboardCell(session.target, normalizedRequest);
       return;
     }
 
+    // A single-cell edit retains established fill-across behavior: Enter after
+    // a run of Tab commits continues on the next row at the run's origin.
+    if (normalizedRequest.key === 'Tab') {
+      const next = adjacentTarget(sheet, session.target, { columnIndex: 1, rowIndex: 0 });
+      if (next) dispatch({
+        type: 'commit-tab',
+        target: next,
+        originColumnId: state.tabRunOriginColumnId ?? session.target.cell.columnId,
+      });
+      return;
+    }
     const originColumnId = state.tabRunOriginColumnId ?? session.target.cell.columnId;
     const originColumnIndex = sheet.content.columns.indexOf(originColumnId);
-    const originTarget = originColumnIndex < 0
-      ? session.target
-      : {
-          sheetId: sheet.id,
-          cell: {
-            rowId: session.target.cell.rowId,
-            columnId: sheet.content.columns[originColumnIndex],
-          },
-        };
+    const originTarget = originColumnIndex < 0 ? session.target : {
+      sheetId: sheet.id,
+      cell: { rowId: session.target.cell.rowId, columnId: sheet.content.columns[originColumnIndex] },
+    };
     const next = adjacentTarget(sheet, originTarget, { columnIndex: 0, rowIndex: 1 });
     if (next) dispatch({ type: 'commit-enter', target: next });
   }
@@ -185,12 +222,14 @@ export function useCellEditing({
     acknowledgeKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'acknowledge-focus', requestId }),
     keyboardFocusRequest: state.focusRequest,
     navigateCell,
+    navigateKeyboardCell,
     referenceSelection: state.referenceSelection,
     selectionRange: state.rangeSelection,
     selectionOwner: state.selectionOwner,
     selectCell: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'select', target, gesture }),
     extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
     focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
+    settleSelectionGesture: (owner: symbol) => dispatch({ type: 'settle-selection-gesture', gesture: { owner } }),
     focusCurrentSelection: () => dispatch({ type: 'focus-current-selection' }),
     selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
       if (!gesture || gesture.start) commitActiveEdit();

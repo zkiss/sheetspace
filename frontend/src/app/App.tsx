@@ -48,10 +48,12 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     editingCell,
     extendSelection,
     focusSelection,
+    settleSelectionGesture,
     focusCurrentSelection,
     acknowledgeKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
+    navigateKeyboardCell,
     referenceSelection,
     selectionRange,
     selectionOwner,
@@ -164,11 +166,13 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onCreateSheet={openCreationDialog}
         onEditValueChange={updateEditingCellValue}
         onNavigateCell={navigateCell}
+        onNavigateKeyboardCell={navigateKeyboardCell}
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
         onExtendSelection={extendSelection}
         onFocusSelection={focusSelection}
+        onSettleSelectionGesture={settleSelectionGesture}
         onRestoreGridFocus={focusCurrentSelection}
         onSelectAxis={selectAxis}
         onSelectReferenceTarget={selectReferenceTarget}

@@ -98,6 +98,35 @@ describe('cellInteractionReducer', () => {
     expect(crossed.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: a1 });
   });
 
+  it('retains completed rectangular ranges but replaces a live pointer gesture when editing its active cell', () => {
+    const unownedRange = cellInteractionReducer(
+      cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 }),
+      { type: 'extend-selection', target: b1 },
+    );
+    const retained = cellInteractionReducer(unownedRange, {
+      type: 'start-edit', session: { target: b1, draft: 'Draft' },
+    });
+    expect(retained.rangeSelection).toEqual(unownedRange.rangeSelection);
+
+    const owner = Symbol('pointer-drag');
+    const ownedRange = cellInteractionReducer(
+      cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1, gesture: { owner } }),
+      { type: 'extend-selection', target: b1, gesture: { owner } },
+    );
+    const replaced = cellInteractionReducer(ownedRange, {
+      type: 'start-edit', session: { target: b1, draft: 'Draft' },
+    });
+    expect(replaced.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: b1 });
+
+    const settledRange = cellInteractionReducer(ownedRange, {
+      type: 'settle-selection-gesture', gesture: { owner },
+    });
+    const retainedPointerRange = cellInteractionReducer(settledRange, {
+      type: 'start-edit', session: { target: b1, draft: 'Draft' },
+    });
+    expect(retainedPointerRange.rangeSelection).toEqual(ownedRange.rangeSelection);
+  });
+
   it('requests focus only for keyboard range extension', () => {
     const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: b1 });
     const pointerExtended = cellInteractionReducer(selected, { type: 'extend-selection', target: a2 });

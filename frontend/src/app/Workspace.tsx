@@ -52,11 +52,13 @@ export function Workspace({
   onCreateSheet,
   onEditValueChange,
   onNavigateCell,
+  onNavigateKeyboardCell,
   onOpenRenameDialog,
   onRetryFailedSaves,
   onSelectCell,
   onExtendSelection,
   onFocusSelection,
+  onSettleSelectionGesture,
   onRestoreGridFocus,
   onSelectAxis,
   onSelectReferenceTarget,
@@ -82,15 +84,17 @@ export function Workspace({
   onCancelEdit: () => void;
   onClearCell: (target: CellTarget) => void;
   onCommitEdit: (session?: CellEditSession) => void;
-  onCommitEditAndNavigate: (session: CellEditSession, direction: 'tab' | 'enter') => void;
+  onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
+  onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
   onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
+  onSettleSelectionGesture: (owner: symbol) => void;
   onRestoreGridFocus: () => void;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
@@ -315,9 +319,11 @@ export function Workspace({
                   cellInteraction={{
                     clear: onClearCell,
                     navigate: onNavigateCell,
+                    navigateKeyboard: onNavigateKeyboardCell,
                     select: onSelectCell,
                     extend: onExtendSelection,
                     focusSelection: onFocusSelection,
+                    settleSelectionGesture: onSettleSelectionGesture,
                     startEditing: onStartEdit,
                   }}
                   editingCell={sheetEditingCell}

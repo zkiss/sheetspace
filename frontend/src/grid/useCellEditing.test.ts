@@ -130,6 +130,85 @@ describe('useCellEditing', () => {
     expect(result.current.keyboardFocusRequest).toMatchObject({ target: a1 });
   });
 
+  it('extends keyboard jumps without issuing any content command', () => {
+    const populated = sheetDocument({ id: 'navigation', name: 'Navigation', cells: { A1: 'first', B1: '=A1', C1: 'last' } });
+    const { commands, result } = renderCellEditing(populated);
+    const a1 = cellTargetAt(populated, 'A1')!;
+    const c1 = cellTargetAt(populated, 'C1')!;
+
+    act(() => result.current.selectCell(a1));
+    let claimed = false;
+    act(() => { claimed = result.current.navigateKeyboardCell(a1, { key: 'ArrowRight', command: true, shift: true }); });
+
+    expect(claimed).toBe(true);
+    expect(result.current.activeCell).toEqual(c1);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c1 });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ target: c1 });
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
+    expect(commands.writeCells).not.toHaveBeenCalled();
+  });
+
+  it('keeps a rectangular range through repeated forward and reverse traversal', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+    const c2 = cellTargetAt(sheet, 'C2')!;
+    const b1 = cellTargetAt(sheet, 'B1')!;
+    const c1 = cellTargetAt(sheet, 'C1')!;
+    const a2 = cellTargetAt(sheet, 'A2')!;
+    const b2 = cellTargetAt(sheet, 'B2')!;
+
+    act(() => result.current.selectCell(a1));
+    act(() => result.current.extendSelection(c2));
+    act(() => result.current.navigateKeyboardCell(a1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(b1);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c2 });
+
+    act(() => result.current.navigateKeyboardCell(b1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(c1);
+    act(() => result.current.navigateKeyboardCell(c1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(a2);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c2 });
+
+    act(() => result.current.navigateKeyboardCell(a2, { key: 'Tab', shift: true }));
+    expect(result.current.activeCell).toEqual(c1);
+    act(() => result.current.navigateKeyboardCell(c1, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(a2);
+    act(() => result.current.navigateKeyboardCell(a2, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(b2);
+    act(() => result.current.navigateKeyboardCell(b2, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(c2);
+    act(() => result.current.navigateKeyboardCell(c2, { key: 'Tab' }));
+    expect(result.current.activeCell).toEqual(a1);
+    act(() => result.current.navigateKeyboardCell(a1, { key: 'Tab', shift: true }));
+    expect(result.current.activeCell).toEqual(c2);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c2 });
+  });
+
+  it.each([
+    ['rows', 'Tab', 'B2', 'A2'],
+    ['columns', 'Enter', 'B2', 'B1'],
+  ] as const)('collapses a whole-%s selection to a cell when Shift+%s traverses', (mode, key, from, expected) => {
+    const { result, sheet } = renderCellEditing();
+    const start = cellTargetAt(sheet, from)!;
+    const destination = cellTargetAt(sheet, expected)!;
+
+    act(() => result.current.selectAxis(mode, start, false));
+    act(() => result.current.navigateKeyboardCell(start, { key, shift: true }));
+
+    expect(result.current.activeCell).toEqual(destination);
+    expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: destination, extent: destination });
+    expect(result.current.keyboardFocusRequest).toMatchObject({ target: destination });
+  });
+
+  it('does not claim unsupported Alt keyboard navigation', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+    act(() => result.current.selectCell(a1));
+
+    expect(result.current.navigateKeyboardCell(a1, { key: 'Home', alt: true })).toBe(false);
+    expect(result.current.activeCell).toEqual(a1);
+  });
+
   describe('edit persistence', () => {
     it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
       for (const [raw, draft] of [['', 'Region'], ['', '=SUM(B1:B2)'], ['', ''], ['Region', 'Region'], ['=SUM(B1:B2)', '=SUM(B1:B2)']]) {
@@ -304,6 +383,43 @@ describe('useCellEditing', () => {
   });
 
   describe('commit navigation', () => {
+    it.each([
+      ['Tab', { key: 'Tab' as const, shift: true }, 'A2'],
+      ['Enter', { key: 'Enter' as const, shift: true }, 'B1'],
+    ])('commits with Shift+%s without expanding a single-cell selection', (_key, request, expectedKey) => {
+      const { commands, result, sheet } = renderCellEditing();
+      const b2 = cellTargetAt(sheet, 'B2')!;
+      const expected = cellTargetAt(sheet, expectedKey)!;
+      const session = { target: b2, draft: 'revised' };
+
+      act(() => {
+        result.current.selectCell(b2);
+        result.current.startEditingCell(b2, session.draft);
+        result.current.commitEditAndNavigate(session, request);
+      });
+
+      expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'B2', session.draft);
+      expect(result.current.activeCell).toEqual(expected);
+      expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: expected, extent: expected });
+    });
+
+    it('preserves a settled pointer range through editing and Tab traversal', () => {
+      const { commands, result, sheet } = renderCellEditing();
+      const a1 = cellTargetAt(sheet, 'A1')!;
+      const c1 = cellTargetAt(sheet, 'C1')!;
+      const owner = Symbol('pointer');
+
+      act(() => result.current.selectCell(a1, { owner, start: true }));
+      act(() => result.current.extendSelection(c1, { owner }));
+      act(() => result.current.settleSelectionGesture(owner));
+      act(() => result.current.startEditingCell(c1, 'pointer draft'));
+      act(() => result.current.commitEditAndNavigate({ target: c1, draft: 'pointer draft' }, 'tab'));
+
+      expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'C1', 'pointer draft');
+      expect(result.current.activeCell).toEqual(a1);
+      expect(result.current.selectionRange).toEqual({ mode: 'cells', anchor: a1, extent: c1 });
+    });
+
     it('commits with Tab and selects the adjacent cell to the right', () => {
       const { commands, result, sheet } = renderCellEditing();
       const a1 = cellTargetAt(sheet, 'A1')!;

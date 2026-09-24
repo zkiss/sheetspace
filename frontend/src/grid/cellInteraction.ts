@@ -33,6 +33,7 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
 export type CellInteractionAction =
   | { type: 'select'; target: CellTarget; gesture?: SelectionGesture }
   | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean; gesture?: SelectionGesture }
+  | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'start-edit'; session: CellEditSession }
@@ -41,6 +42,7 @@ export type CellInteractionAction =
   | { type: 'cancel' }
   | { type: 'clear'; target: CellTarget }
   | { type: 'navigate'; target: CellTarget }
+  | { type: 'traverse-range'; target: CellTarget }
   | { type: 'commit-tab'; target: CellTarget; originColumnId: string }
   | { type: 'commit-enter'; target: CellTarget }
   | { type: 'focus-current-selection' }
@@ -88,6 +90,11 @@ export function cellInteractionReducer(
       };
       return action.requestFocus ? withFocusRequest(extended, action.target) : extended;
     }
+    case 'settle-selection-gesture':
+      // A completed pointer gesture leaves a stable range available for editing
+      // and Tab/Enter traversal. Retain the owner only while callbacks from the
+      // live gesture must be rejected.
+      return { ...state, selectionOwner: null };
     case 'select-axis': {
       const canExtend = action.extend
         && state.rangeSelection?.mode === action.mode
@@ -130,7 +137,11 @@ export function cellInteractionReducer(
         ...state,
         selection: action.session.target,
         selectionOwner: null,
-        rangeSelection: { mode: 'cells', anchor: action.session.target, extent: action.session.target },
+        // Editing the active member of a rectangular selection must not lose
+        // that rectangle: Tab/Enter commits traverse its existing bounds.
+        rangeSelection: preservesRectangularRange(state, action.session.target)
+          ? state.rangeSelection
+          : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
         editing: action.session,
         referenceSelection: null,
       };
@@ -165,6 +176,23 @@ export function cellInteractionReducer(
         selection: action.target,
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
+        editing: null,
+        referenceSelection: null,
+        tabRunOriginColumnId: null,
+      }, action.target);
+    case 'traverse-range':
+      // Tab and Enter move the active cell inside an already-selected
+      // rectangle. Keep its stable bounds so the next traversal can wrap.
+      // Callers only issue this for a valid multi-cell selection; falling back
+      // to ordinary navigation keeps queued or stale actions deterministic.
+      if (state.rangeSelection?.mode !== 'cells'
+        || state.rangeSelection.anchor.sheetId !== action.target.sheetId) {
+        return cellInteractionReducer(state, { type: 'navigate', target: action.target });
+      }
+      return withFocusRequest({
+        ...state,
+        selection: action.target,
+        selectionOwner: null,
         editing: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,
@@ -214,6 +242,19 @@ export function cellInteractionReducer(
       };
     }
   }
+}
+
+function preservesRectangularRange(state: CellInteractionState, target: CellTarget) {
+  // A live pointer gesture owns its selection until it releases. Starting an
+  // edit from another context replaces that selection, so a stale move/RAF
+  // callback cannot retain or restore its range. Completed pointer and
+  // keyboard-created ranges remain available for Enter/Tab traversal.
+  if (state.selectionOwner !== null) return false;
+  const selection = state.rangeSelection;
+  if (!selection || selection.mode !== 'cells' || selection.anchor.sheetId !== target.sheetId
+    || selection.extent.sheetId !== target.sheetId || !sameTarget(selection.extent, target)) return false;
+  return selection.anchor.cell.rowId !== selection.extent.cell.rowId
+    || selection.anchor.cell.columnId !== selection.extent.cell.columnId;
 }
 
 function withFocusRequest(state: CellInteractionState, target: CellTarget): CellInteractionState {

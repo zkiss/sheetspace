@@ -33,5 +33,16 @@ export type CellEditSession = {
 
 export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
 
+/** A normalized keyboard movement request, kept independent of DOM events. */
+export type CellNavigationKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown'
+  | 'Home' | 'End' | 'Tab' | 'Enter';
+
+export type CellNavigationRequest = {
+  key: CellNavigationKey;
+  shift?: boolean;
+  command?: boolean;
+  alt?: boolean;
+};
+
 // A start establishes a fresh pointer owner; continuations must match it.
 export type SelectionGesture = { owner: symbol; start?: boolean };
