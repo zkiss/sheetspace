@@ -60,8 +60,11 @@ export function gridCellKeyboardAction({
     return { kind: 'start-edit' };
   }
 
-  if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown'
-    || key === 'Home' || key === 'End' || key === 'Tab' || (key === 'Enter' && shiftKey)) {
+  const isDirectionalNavigationKey = key === 'ArrowLeft' || key === 'ArrowRight'
+    || key === 'ArrowUp' || key === 'ArrowDown' || key === 'Home' || key === 'End';
+  const isUnmodifiedTraversalKey = !ctrlKey && !metaKey
+    && (key === 'Tab' || (key === 'Enter' && shiftKey));
+  if (isDirectionalNavigationKey || isUnmodifiedTraversalKey) {
     return {
       kind: 'navigate',
       request: { key, command: ctrlKey || metaKey, shift: shiftKey },

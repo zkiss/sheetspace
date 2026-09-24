@@ -126,4 +126,13 @@ describe('sheet grid model', () => {
       { kind: 'navigate', request: { key: 'Enter', command: false, shift: true } },
     );
   });
+
+  it('leaves command-modified traversal shortcuts to the browser', () => {
+    const base = { altKey: false, ctrlKey: false, isActive: true, isCellTarget: true, metaKey: false };
+
+    expect(gridCellKeyboardAction({ ...base, key: 'Tab', ctrlKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Tab', metaKey: true, shiftKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Enter', ctrlKey: true, shiftKey: true })).toEqual({ kind: 'none' });
+    expect(gridCellKeyboardAction({ ...base, key: 'Enter', metaKey: true, shiftKey: true })).toEqual({ kind: 'none' });
+  });
 });
