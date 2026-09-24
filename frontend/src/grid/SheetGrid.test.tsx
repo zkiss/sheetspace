@@ -388,7 +388,7 @@ describe('SheetGrid creating axis slots', () => {
 
     expect(cellInteraction.focusSelection).toHaveBeenCalledWith(expect.objectContaining({
       cell: cellIdentityAt(sheet, 'B1'), sheetId: sheet.id,
-    }), expect.objectContaining({ owner: expect.any(Symbol) }));
+    }));
     expect(cellInteraction.select).toHaveBeenCalledTimes(1);
   });
 
