@@ -102,6 +102,18 @@ describe('useWorkbookController paste', () => {
     expect(apiClient.writeCells).not.toHaveBeenCalled();
   });
 
+  it('rejects a missing paste destination without changing the workbook', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const workbook = workbookWithSheets([sheet]);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+
+    act(() => {
+      expect(result.current.commands.pasteCells(sheet.id, 'ZZ999', { ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 1, rows: [['value']] } } }))
+        .toEqual({ ok: false, reason: 'invalid-destination' });
+    });
+    expect(result.current.workbook).toBe(workbook);
+  });
+
   it('rejects a later untranslatable internal formula without partially pasting or emitting side effects', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', cells: { A1: 'first', B1: 'second' } });
     const destination = sheetDocument({ id: 'destination', name: 'Destination', cells: { B2: 'old first', C2: 'old second' } });

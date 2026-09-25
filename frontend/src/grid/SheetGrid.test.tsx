@@ -54,6 +54,57 @@ describe('savedAxisIndexAtOffset', () => {
   });
 });
 
+describe('SheetGrid clipboard routing', () => {
+  function renderClipboardGrid(clipboardInteraction?: ComponentProps<typeof SheetGrid>['clipboardInteraction']) {
+    const sheet = tabularProjection(sheetDocument({ id: 'clipboard-routing', name: 'Clipboard routing' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey="A1" axisProjection={axisProjection}
+          cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
+          clipboardInteraction={clipboardInteraction}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
+      </div>,
+    );
+    return screen.getByTestId('sheet-grid');
+  }
+
+  function clipboardData(initial: Record<string, string> = {}) {
+    const values = new Map(Object.entries(initial));
+    return {
+      getData: (type: string) => values.get(type) ?? '',
+      setData: (type: string, value: string) => { values.set(type, value); },
+      get types() { return [...values.keys()]; },
+    };
+  }
+
+  it('writes both clipboard representations and routes an empty plain-text payload', () => {
+    const copy = vi.fn(() => ({ text: 'A\tB', marker: 'sheetspace:marker' }));
+    const paste = vi.fn();
+    const grid = renderClipboardGrid({ copy, paste });
+    const copied = clipboardData();
+
+    expect(fireEvent.copy(grid, { clipboardData: copied })).toBe(false);
+    expect(copied.getData('text/plain')).toBe('A\tB');
+    expect(copied.getData('application/x-sheetspace-clipboard')).toBe('sheetspace:marker');
+
+    expect(fireEvent.paste(grid, { clipboardData: clipboardData({ 'text/plain': '' }) })).toBe(false);
+    expect(paste).toHaveBeenCalledWith({ text: '', marker: undefined });
+  });
+
+  it('leaves unsupported clipboard data and unavailable copy operations browser-native', () => {
+    const paste = vi.fn();
+    const grid = renderClipboardGrid({ copy: () => undefined, paste });
+
+    expect(fireEvent.copy(grid, { clipboardData: clipboardData() })).toBe(true);
+    expect(fireEvent.paste(grid, { clipboardData: clipboardData() })).toBe(true);
+    expect(paste).not.toHaveBeenCalled();
+  });
+});
+
 function firePointer(
   element: Element,
   type: string,

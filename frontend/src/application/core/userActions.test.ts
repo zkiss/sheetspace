@@ -463,4 +463,43 @@ describe('paste preparation', () => {
     });
     expect(result).toEqual({ ok: false, reason: 'invalid-paste-footprint' });
   });
+
+  it('rejects malformed parser output, invalid destinations, and invalid internal source snapshots before writing', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const workbook = workbookWithSheets([sheet]);
+    const destination = cellIdentityAt(sheet.content, 'A1')!;
+    const grid = { rowCount: 1, columnCount: 1, rows: [['value']] };
+
+    expect(preparePasteCellWrites(workbook, sheet.id, destination, { ok: false, reason: 'malformed-tsv' }))
+      .toEqual({ ok: false, reason: 'malformed-tsv' });
+    expect(preparePasteCellWrites(workbook, 'missing', destination, { ok: true, value: { kind: 'external', grid } }))
+      .toEqual({ ok: false, reason: 'invalid-destination' });
+    expect(preparePasteCellWrites(workbook, sheet.id, destination, {
+      ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 1, rows: [] } },
+    })).toEqual({ ok: false, reason: 'invalid-paste-footprint' });
+    expect(preparePasteCellWrites(workbook, sheet.id, destination, {
+      ok: true,
+      value: {
+        kind: 'internal', grid,
+        source: { sheetId: 'missing', dimensions: { rowCount: 1, columnCount: 1 }, cells: [[{ identity: destination, raw: 'value' }]] },
+      },
+    })).toEqual({ ok: false, reason: 'invalid-internal-source' });
+    expect(preparePasteCellWrites(workbook, sheet.id, destination, {
+      ok: true,
+      value: {
+        kind: 'internal', grid,
+        source: { sheetId: sheet.id, dimensions: { rowCount: 2, columnCount: 1 }, cells: [[{ identity: destination, raw: 'value' }]] },
+      },
+    })).toEqual({ ok: false, reason: 'invalid-internal-source' });
+    expect(preparePasteCellWrites(workbook, sheet.id, destination, {
+      ok: true,
+      value: {
+        kind: 'internal', grid,
+        source: {
+          sheetId: sheet.id, dimensions: { rowCount: 1, columnCount: 1 },
+          cells: [[{ identity: { rowId: 'missing-row', columnId: 'missing-column' }, raw: 'value' }]],
+        },
+      },
+    })).toEqual({ ok: false, reason: 'invalid-internal-source' });
+  });
 });

@@ -10,6 +10,8 @@ describe('TSV clipboard codec', () => {
     expect(text).toBe('left\t\t\n\t\t\nbottom\t\t');
     expect(decodeTsv(text)).toEqual({ ok: true, value: { rowCount: 3, columnCount: 3, rows: [['left', '', ''], ['', '', ''], ['bottom', '', '']] } });
     expect(decodeTsv('')).toEqual({ ok: true, value: { rowCount: 1, columnCount: 1, rows: [['']] } });
+    expect(encodeTsv('scalar')).toBe('scalar');
+    expect(decodeTsv('one\ttwo\nthree')).toEqual({ ok: true, value: { rowCount: 2, columnCount: 2, rows: [['one', 'two'], ['three', '']] } });
   });
 
   it('handles LF and CRLF records plus quoted tabs, quotes, and embedded newlines', () => {
@@ -22,6 +24,7 @@ describe('TSV clipboard codec', () => {
     expect(decodeTsv('"unterminated')).toEqual({ ok: false, reason: 'malformed-tsv' });
     expect(decodeTsv('"quoted"tail')).toEqual({ ok: false, reason: 'malformed-tsv' });
     expect(decodeTsv('bare\rreturn')).toEqual({ ok: false, reason: 'malformed-tsv' });
+    expect(decodeTsv('prefix"quoted"')).toEqual({ ok: false, reason: 'malformed-tsv' });
   });
 });
 
@@ -48,6 +51,30 @@ describe('clipboard payload provenance', () => {
     const store = new ClipboardPayloadStore();
     const copied = store.copy(workbook, { mode: 'rows', anchor: cellTargetAt(sheet, 'B1')!, extent: cellTargetAt(sheet, 'A2')! });
     expect(copied).toMatchObject({ ok: true, value: { text: 'a\tb\nc\td' } });
+    const columns = store.copy(workbook, { mode: 'columns', anchor: cellTargetAt(sheet, 'A2')!, extent: cellTargetAt(sheet, 'B1')! });
+    expect(columns).toMatchObject({ ok: true, value: { text: 'a\tb\nc\td' } });
+  });
+
+  it('rejects unknown and non-finite selections while treating an untracked marker as external text', () => {
+    const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2 });
+    const other = sheetDocument({ id: 'other', name: 'Other' });
+    const workbook = workbookWithSheets([sheet, other]);
+    const store = new ClipboardPayloadStore();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+
+    expect(store.copy(workbook, { mode: 'cells', anchor: { ...a1, sheetId: 'missing' }, extent: { ...a1, sheetId: 'missing' } }))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(store.copy(workbook, { mode: 'cells', anchor: a1, extent: { ...cellTargetAt(other, 'A1')!, sheetId: other.id } }))
+      .toEqual({ ok: false, reason: 'invalid-selection' });
+    expect(store.copy(workbook, { mode: 'cells', anchor: a1, extent: { sheetId: sheet.id, cell: { rowId: 'missing', columnId: 'missing' } } }))
+      .toEqual({ ok: false, reason: 'invalid-selection' });
+    expect(store.parse(workbook, { text: 'outside', marker: 'sheetspace:not-owned' }))
+      .toMatchObject({ ok: true, value: { kind: 'external', grid: { rows: [['outside']] } } });
+    const copied = store.copy(workbook, { mode: 'cells', anchor: a1, extent: a1 });
+    if (!copied.ok) throw new Error('copy failed');
+    expect(store.parse(workbookWithSheets([other]), copied.value)).toMatchObject({ ok: true, value: { kind: 'external' } });
+    const withoutColumn = { ...sheet, content: { ...sheet.content, columns: sheet.content.columns.slice(1) } };
+    expect(store.parse(workbookWithSheets([withoutColumn, other]), copied.value)).toMatchObject({ ok: true, value: { kind: 'external' } });
   });
 
   it('only trusts the latest exact marker, text, dimensions, and surviving source identities', () => {
