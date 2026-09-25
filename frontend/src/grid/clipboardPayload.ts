@@ -33,6 +33,7 @@ export function decodeTsv(text: string): TsvDecodeResult {
   let field = '';
   let quoted = false;
   let afterQuote = false;
+  let recordTerminated = false;
 
   const finishField = () => { row.push(field); field = ''; afterQuote = false; };
   const finishRow = () => { finishField(); rows.push(row); row = []; };
@@ -46,23 +47,26 @@ export function decodeTsv(text: string): TsvDecodeResult {
       continue;
     }
     if (afterQuote && character !== '\t' && character !== '\n' && character !== '\r') return { ok: false, reason: 'malformed-tsv' };
-    if (character === '\t') { finishField(); continue; }
-    if (character === '\n') { finishRow(); continue; }
+    if (character === '\t') { finishField(); recordTerminated = false; continue; }
+    if (character === '\n') { finishRow(); recordTerminated = true; continue; }
     if (character === '\r') {
       if (text[index + 1] !== '\n') return { ok: false, reason: 'malformed-tsv' };
       index += 1;
       finishRow();
+      recordTerminated = true;
       continue;
     }
     if (character === '"') {
       if (field.length > 0) return { ok: false, reason: 'malformed-tsv' };
       quoted = true;
+      recordTerminated = false;
       continue;
     }
     field += character;
+    recordTerminated = false;
   }
   if (quoted) return { ok: false, reason: 'malformed-tsv' };
-  finishRow();
+  if (!recordTerminated) finishRow();
   const columnCount = Math.max(1, ...rows.map((candidate) => candidate.length));
   const rectangularRows = rows.map((candidate) => Array.from({ length: columnCount }, (_, index) => candidate[index] ?? ''));
   return { ok: true, value: { rows: rectangularRows, rowCount: rectangularRows.length, columnCount } };

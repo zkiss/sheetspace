@@ -20,6 +20,12 @@ describe('TSV clipboard codec', () => {
     expect(decodeTsv('"a\tb"\t"a""b"\r\n"one\ntwo"\t')).toEqual({ ok: true, value: { rowCount: 2, columnCount: 2, rows: [['a\tb', 'a"b'], ['one\ntwo', '']] } });
   });
 
+  it('does not manufacture a blank row for a terminal LF or CRLF record delimiter', () => {
+    const expected = { ok: true, value: { rowCount: 1, columnCount: 2, rows: [['A', 'B']] } };
+    expect(decodeTsv('A\tB\n')).toEqual(expected);
+    expect(decodeTsv('A\tB\r\n')).toEqual(expected);
+  });
+
   it('makes malformed quoting an explicit failure', () => {
     expect(decodeTsv('"unterminated')).toEqual({ ok: false, reason: 'malformed-tsv' });
     expect(decodeTsv('"quoted"tail')).toEqual({ ok: false, reason: 'malformed-tsv' });
