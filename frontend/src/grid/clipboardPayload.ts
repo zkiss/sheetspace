@@ -1,25 +1,19 @@
 import type { CellSelection } from './cellInteractionContracts';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
-import type { SheetDocument, StableCellIdentity, Workbook } from '@workbook/core/model';
+import type { SheetDocument, Workbook } from '@workbook/core/model';
 import { findSheetById } from '@workbook/read/queries';
 import { formulaRawForDisplay } from '@workbook/formula/reference';
+import type {
+  ClipboardDimensions,
+  ClipboardGrid,
+  ClipboardParseResult,
+  ClipboardSourceSnapshot,
+} from '@application/core/clipboardPayload';
 
-export type TsvGrid = { rows: readonly (readonly string[])[]; rowCount: number; columnCount: number };
-export type TsvDecodeResult = { ok: true; value: TsvGrid } | { ok: false; reason: 'malformed-tsv' };
+export type TsvDecodeResult = { ok: true; value: ClipboardGrid } | { ok: false; reason: 'malformed-tsv' };
 export type ClipboardMarker = string;
 
 export type ClipboardCopy = { text: string; marker: ClipboardMarker; dimensions: ClipboardDimensions };
-export type ClipboardDimensions = { rowCount: number; columnCount: number };
-export type ClipboardParseResult =
-  | { ok: true; value: { kind: 'external'; grid: TsvGrid } }
-  | { ok: true; value: { kind: 'internal'; grid: TsvGrid; source: ClipboardSourceSnapshot } }
-  | { ok: false; reason: 'malformed-tsv' };
-export type ClipboardSourceSnapshot = {
-  sheetId: string;
-  dimensions: ClipboardDimensions;
-  cells: readonly (readonly ClipboardSourceCell[])[];
-};
-export type ClipboardSourceCell = { identity: StableCellIdentity; raw: string };
 export type ClipboardCopyResult = { ok: true; value: ClipboardCopy } | { ok: false; reason: 'invalid-selection' | 'unknown-sheet' };
 
 /**
@@ -141,7 +135,7 @@ function sourceStillValid(workbook: Workbook, source: ClipboardSourceSnapshot): 
     sheet.content.rows.includes(cell.identity.rowId) && sheet.content.columns.includes(cell.identity.columnId)));
 }
 
-function sameDimensions(grid: TsvGrid, dimensions: ClipboardDimensions): boolean {
+function sameDimensions(grid: ClipboardGrid, dimensions: ClipboardDimensions): boolean {
   return grid.rowCount === dimensions.rowCount && grid.columnCount === dimensions.columnCount;
 }
 

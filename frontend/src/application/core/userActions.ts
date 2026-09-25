@@ -8,6 +8,7 @@ import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import type { ClipboardParseResult } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
 import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
@@ -78,16 +79,6 @@ export type AppliedWorkbookOperation = {
 export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
-export type ClipboardGrid = { rows: readonly (readonly string[])[]; rowCount: number; columnCount: number };
-export type ClipboardSourceSnapshot = {
-  sheetId: SheetId;
-  dimensions: { rowCount: number; columnCount: number };
-  cells: readonly (readonly { identity: StableCellIdentity; raw: string }[])[];
-};
-export type ClipboardParseResult =
-  | { ok: true; value: { kind: 'external'; grid: ClipboardGrid } }
-  | { ok: true; value: { kind: 'internal'; grid: ClipboardGrid; source: ClipboardSourceSnapshot } }
-  | { ok: false; reason: 'malformed-tsv' };
 export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
 export type PastePreparationResult = { ok: true; writes: readonly CellWrite[] } | { ok: false; reason: PastePreparationFailureReason };
 

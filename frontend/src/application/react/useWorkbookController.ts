@@ -23,8 +23,8 @@ import {
   type CellPersistenceWrite,
   type WorkbookOperation,
   type WorkbookOperationResult,
-  type ClipboardParseResult,
 } from '@application/core/userActions';
+import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
