@@ -3,8 +3,8 @@ import { copyCanonicalFormula, formulaRawToCanonical, formulaRawToDisplay, formu
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('canonical formula references', () => {
-  const source = sheetDocument({ id: 'source', name: 'Source', columnCount: 4, rowCount: 4 });
-  const destination = sheetDocument({ id: 'destination', name: 'Destination', columnCount: 4, rowCount: 4 });
+  const source = sheetDocument({ id: 'source', name: 'Source', columnCount: 4, rowCount: 5 });
+  const destination = sheetDocument({ id: 'destination', name: 'Destination', columnCount: 4, rowCount: 5 });
   const workbook = workbookWithSheets([source, destination]);
   const resolver = workbookFormulaReferenceResolver(workbook, 'source');
 
@@ -72,6 +72,24 @@ describe('canonical formula references', () => {
       ok: true,
       raw: `=@[destination:column:2,destination:row:2]+source!@[source:column:2,source:row:2]`,
     });
+  });
+
+  it('copies mixed anchors and every range endpoint using one source-to-destination delta', () => {
+    const copied = copyCanonicalFormula(
+      formulaRawToCanonical('=A1+$C$1+Source!A1+Source!$A$1+A1:$B2', resolver),
+      { columnId: 'source:column:2', rowId: 'source:row:2' },
+      { columnId: 'destination:column:4', rowId: 'destination:row:5' },
+      resolver,
+      { sourceSheetId: 'source', destinationSheetId: 'destination' },
+    );
+
+    expect(copied).toEqual({
+      ok: true,
+      raw: '=@[destination:column:3,destination:row:4]+@[$destination:column:3,$destination:row:1]+source!@[source:column:3,source:row:4]+source!@[$source:column:1,$source:row:1]+@[destination:column:3,destination:row:4]:@[$destination:column:2,destination:row:5]',
+    });
+    if (!copied.ok) throw new Error('copy should resolve');
+    expect(formulaRawToDisplay(copied.raw, workbookFormulaReferenceResolver(workbook, 'destination')))
+      .toBe('=C4+$C$1+Source!C4+Source!$A$1+C4:$B5');
   });
 
   it('uses shared syntax recovery and preserves qualifier-adjacent formatting', () => {

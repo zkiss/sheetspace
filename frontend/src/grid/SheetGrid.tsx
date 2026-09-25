@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type PointerEvent, type RefObject } from 'react';
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
 import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
@@ -92,6 +92,7 @@ export function SheetGrid({
   sheet,
   selectedRange,
   onSelectAxis,
+  clipboardInteraction,
   presentation,
   logicalSelection,
   onWriteAxisSizes,
@@ -124,6 +125,11 @@ export function SheetGrid({
   sheet: SheetTabularProjection;
   selectedRange?: CellRange;
   onSelectAxis?: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
+  /** Clipboard operations are owned by the application, while this grid owns DOM routing. */
+  clipboardInteraction?: {
+    copy: () => { text: string; marker: string } | undefined;
+    paste: (clipboard: { text: string; marker?: string }) => void;
+  };
 }) {
   const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
   // The application owns request lifetime, so it may keep a request prop present
@@ -579,6 +585,30 @@ export function SheetGrid({
     finishDrag(event.pointerId);
   }
 
+  function isNativeEditorEvent(event: ClipboardEvent<HTMLDivElement>) {
+    return (event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]');
+  }
+
+  function copySelection(event: ClipboardEvent<HTMLDivElement>) {
+    if (isNativeEditorEvent(event)) return;
+    const copied = clipboardInteraction?.copy();
+    if (!copied) return;
+    event.clipboardData.setData('text/plain', copied.text);
+    event.clipboardData.setData('application/x-sheetspace-clipboard', copied.marker);
+    event.preventDefault();
+  }
+
+  function pasteSelection(event: ClipboardEvent<HTMLDivElement>) {
+    if (isNativeEditorEvent(event)) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!text && !event.clipboardData.types.includes('text/plain')) return;
+    clipboardInteraction?.paste({
+      text,
+      marker: event.clipboardData.getData('application/x-sheetspace-clipboard') || undefined,
+    });
+    event.preventDefault();
+  }
+
   return (
     <div
       aria-label={`${sheet.name} grid`}
@@ -597,6 +627,8 @@ export function SheetGrid({
       onKeyDown={(event) => {
         if (event.key === 'Escape') finishDrag();
       }}
+      onCopy={copySelection}
+      onPaste={pasteSelection}
       onPointerDownCapture={beginDrag}
       onPointerMove={moveDrag}
       onPointerUp={completeDrag}
