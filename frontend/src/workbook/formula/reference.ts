@@ -90,7 +90,7 @@ export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, des
     for (const endpoint of match.endpoints) {
       const address = endpoint.coordinate && resolver.addressOf(originalSheet, endpoint.coordinate);
       if (!address) return { ok: false, reason: 'unresolved-coordinate' };
-      const coordinate = resolver.coordinateAt(resultSheet, { columnIndex: endpoint.anchors.column ? address.columnIndex : address.columnIndex + target.columnIndex - origin.columnIndex, rowIndex: endpoint.anchors.row ? address.rowIndex : address.rowIndex + target.rowIndex - origin.rowIndex });
+      const coordinate = resolver.coordinateAt(resultSheet, translateCopyAddress(address, endpoint.anchors, origin, target));
       if (!coordinate) return { ok: false, reason: 'unresolved-coordinate' };
       edits.push({ ...endpoint.sourceSpan, value: formatCanonical(coordinate, endpoint.anchors) });
     }
@@ -119,6 +119,13 @@ function targetSheet(qualifier: FormulaQualifier, current: SheetId): SheetId | u
 function rawTargetSheet(qualifier: FormulaQualifier, resolver: FormulaReferenceResolver): SheetId | undefined { return qualifier.kind === 'explicit' ? resolver.sheetByQualifier(qualifier.sheetId) : targetSheet(qualifier, resolver.currentSheetId); }
 function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `@[${anchors.column ? '$' : ''}${coordinate.columnId},${anchors.row ? '$' : ''}${coordinate.rowId}]`; }
 function formatA1(address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${columnIndexToLabel(address.columnIndex)}${anchors.row ? '$' : ''}${address.rowIndex + 1}`; }
+/** Applies one copy delta while preserving anchors independently on each axis. */
+function translateCopyAddress(address: CellAddress, anchors: FormulaAxisAnchor, source: CellAddress, destination: CellAddress): CellAddress {
+  return {
+    columnIndex: anchors.column ? address.columnIndex : address.columnIndex + destination.columnIndex - source.columnIndex,
+    rowIndex: anchors.row ? address.rowIndex : address.rowIndex + destination.rowIndex - source.rowIndex,
+  };
+}
 function displaySpan(sourceSpan: FormulaSourceSpan, edits: readonly Edit[]): FormulaSourceSpan {
   const changeBefore = edits.filter((edit) => edit.end <= sourceSpan.start)
     .reduce((total, edit) => total + edit.value.length - (edit.end - edit.start), 0);
