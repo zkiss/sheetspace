@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, type CellRange } from '@workbook/core/address';
@@ -33,6 +33,7 @@ import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 
 export function Workspace({
   activeCell,
@@ -107,6 +108,7 @@ export function Workspace({
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
   workbook: Workbook;
 }) {
+  const clipboard = useRef(new ClipboardPayloadStore());
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
@@ -187,6 +189,23 @@ export function Workspace({
   const menuSheet = workspaceController.pendingSheetMenu
     ? sheets.find((sheet) => sheet.id === workspaceController.pendingSheetMenu!.sheetId)
     : undefined;
+
+  function copyGridSelection() {
+    const selection = selectionRange ?? (activeCell
+      ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
+      : undefined);
+    if (!selection) return undefined;
+    const copied = clipboard.current.copy(workbook, selection);
+    return copied.ok ? copied.value : undefined;
+  }
+
+  function pasteGridSelection(clipboardData: { text: string; marker?: string }) {
+    if (!activeCell) return;
+    const destination = findSheetById(workbook, activeCell.sheetId);
+    const destinationKey = destination && cellKeyForTarget(destination, activeCell);
+    if (!destination || !destinationKey) return;
+    commands.pasteCells(destination.id, destinationKey, clipboard.current.parse(workbook, clipboardData));
+  }
 
   return (
     <>
@@ -348,6 +367,7 @@ export function Workspace({
                   selectedRange={selectedRange}
                   selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
                   onSelectAxis={onSelectAxis}
+                  clipboardInteraction={{ copy: copyGridSelection, paste: pasteGridSelection }}
                   sheet={tabular}
                 />
               )}
