@@ -183,7 +183,7 @@ export function prepareMoveCellWrites(
     return { ok: false, reason: 'invalid-destination' };
   }
   if (!sourceSheet
-    || source.dimensions.rowCount < 1 || source.dimensions.columnCount < 1
+    || !validMoveDimensions(source.dimensions)
     || source.cells.length !== source.dimensions.rowCount
     || source.cells.some((row) => row.length !== source.dimensions.columnCount)) {
     return { ok: false, reason: 'invalid-move-source' };
@@ -195,10 +195,21 @@ export function prepareMoveCellWrites(
     || destinationColumn + source.dimensions.columnCount > destinationSheet.content.columns.length) {
     return { ok: false, reason: 'invalid-move-footprint' };
   }
-  // Validate every source identity before reading live contents.
-  for (const row of source.cells) {
-    for (const cell of row) {
-      if (!cellAddressOf(sourceSheet.content, cell.identity)) {
+  // The snapshot must still describe one contiguous rectangle in source order.
+  const sourceOrigin = source.cells[0]![0]!.identity;
+  const sourceRow = sourceSheet.content.rows.indexOf(sourceOrigin.rowId);
+  const sourceColumn = sourceSheet.content.columns.indexOf(sourceOrigin.columnId);
+  if (sourceRow < 0 || sourceColumn < 0
+    || sourceRow + source.dimensions.rowCount > sourceSheet.content.rows.length
+    || sourceColumn + source.dimensions.columnCount > sourceSheet.content.columns.length) {
+    return { ok: false, reason: 'invalid-move-source' };
+  }
+  for (let rowOffset = 0; rowOffset < source.dimensions.rowCount; rowOffset += 1) {
+    for (let columnOffset = 0; columnOffset < source.dimensions.columnCount; columnOffset += 1) {
+      const cell = source.cells[rowOffset]![columnOffset]!;
+      if (cell.identity.rowId !== sourceSheet.content.rows[sourceRow + rowOffset]
+        || cell.identity.columnId !== sourceSheet.content.columns[sourceColumn + columnOffset]
+        || typeof cell.raw !== 'string') {
         return { ok: false, reason: 'invalid-move-source' };
       }
     }
@@ -448,6 +459,11 @@ function noChange(workbook: Workbook): WorkbookOperationResult {
   return { ok: true, value: { nextWorkbook: workbook, changed: false, calculationImpact: { kind: 'none' }, persistence: undefined, affected: { sheetIds: [], cells: [] }, inverse: undefined } };
 }
 function affectedSheets(...sheetIds: SheetId[]): AffectedWorkbookEntities { return { sheetIds, cells: [] }; }
+
+function validMoveDimensions(dimensions: ClipboardSourceSnapshot['dimensions']): boolean {
+  return Number.isSafeInteger(dimensions.rowCount) && dimensions.rowCount > 0
+    && Number.isSafeInteger(dimensions.columnCount) && dimensions.columnCount > 0;
+}
 
 function applyAxisSizes(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'write-axis-sizes' }>): WorkbookOperationResult {
   const sheet = findSheetById(workbook, operation.sheetId);

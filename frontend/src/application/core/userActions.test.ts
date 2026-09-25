@@ -585,12 +585,28 @@ describe('range move preparation', () => {
 
     expect(prepareMoveCellWrites(workbook, 'missing', cellIdentityAt(input.content, 'A1')!, source)).toEqual({ ok: false, reason: 'invalid-destination' });
     expect(prepareMoveCellWrites(workbook, input.id, { rowId: 'gone', columnId: 'gone' }, source)).toEqual({ ok: false, reason: 'invalid-destination' });
-    expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'B2')!, { ...source, dimensions: { rowCount: 2, columnCount: 2 }, cells: [[source.cells[0]![0]!, source.cells[0]![0]!], [source.cells[0]![0]!, source.cells[0]![0]!]] })).toEqual({ ok: false, reason: 'invalid-move-footprint' });
+    expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'A1')!, { ...source, dimensions: { rowCount: 2, columnCount: 2 }, cells: [[source.cells[0]![0]!, source.cells[0]![0]!], [source.cells[0]![0]!, source.cells[0]![0]!]] })).toEqual({ ok: false, reason: 'invalid-move-source' });
     expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'B2')!, malformed)).toEqual({ ok: false, reason: 'invalid-move-source' });
     expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'B2')!, missingCell)).toEqual({ ok: false, reason: 'invalid-move-source' });
     expect(prepareMoveCellWrites(changedWorkbook, input.id, cellIdentityAt(input.content, 'B2')!, source)).toEqual({ ok: false, reason: 'stale-move-source' });
     expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'B2')!, { ...source, sheetId: 'missing' })).toEqual({ ok: false, reason: 'invalid-move-source' });
     expect(workbook).toEqual(originalWorkbook);
     expect(source).toEqual(originalSnapshot);
+  });
+
+  it('rejects noncontiguous snapshots, unsafe dimensions, and destination overflows', () => {
+    const input = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 3, cells: { A1: 'one', B1: 'two', C1: 'three' } });
+    const workbook = workbookWithSheets([input]);
+    const source = snapshot(input, 'A1', 1, 2);
+    const noncontiguous = structuredClone(source);
+    noncontiguous.cells[0]![1]!.identity = cellIdentityAt(input.content, 'C1')!;
+
+    expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'A2')!, noncontiguous))
+      .toEqual({ ok: false, reason: 'invalid-move-source' });
+    expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'A2')!, {
+      ...source, dimensions: { rowCount: 1.5, columnCount: 2 },
+    })).toEqual({ ok: false, reason: 'invalid-move-source' });
+    expect(prepareMoveCellWrites(workbook, input.id, cellIdentityAt(input.content, 'C2')!, source))
+      .toEqual({ ok: false, reason: 'invalid-move-footprint' });
   });
 });
