@@ -3,6 +3,7 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
+  preparePasteCellWrites,
   replayCellPersistenceWrites,
   type BackendWorkbookReconciliation,
   type CellWrite,
@@ -416,5 +417,50 @@ describe('workbook operations', () => {
     for (const operation of unchanged) {
       expect(applyWorkbookOperation(workbook, operation)).toMatchObject({ ok: true, value: { changed: false, nextWorkbook: workbook } });
     }
+  });
+});
+
+describe('paste preparation', () => {
+  it('materializes blanks and translates an internal canonical formula at its matching source coordinate', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', cells: { A1: '=B1', B1: '4' } });
+    const destination = sheetDocument({ id: 'destination', name: 'Destination', cells: { B2: 'old' } });
+    const sourceWorkbook = workbookWithSheets([source, destination]);
+    const result = preparePasteCellWrites(
+      sourceWorkbook,
+      destination.id,
+      cellIdentityAt(destination.content, 'B2')!,
+      {
+        ok: true,
+        value: {
+          kind: 'internal',
+          grid: { rowCount: 1, columnCount: 2, rows: [['=B1', '']] },
+          source: {
+            sheetId: source.id,
+            dimensions: { rowCount: 1, columnCount: 2 },
+            cells: [[
+              { identity: cellIdentityAt(source.content, 'A1')!, raw: '=@[source:column:2,source:row:1]' },
+              { identity: cellIdentityAt(source.content, 'B1')!, raw: '' },
+            ]],
+          },
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      writes: [
+        write(destination.id, cellIdentityAt(destination.content, 'B2')!, '=@[destination:column:3,destination:row:2]'),
+        write(destination.id, cellIdentityAt(destination.content, 'C2')!, ''),
+      ],
+    });
+  });
+
+  it('rejects an out-of-bounds footprint before generating a partial write', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+    const result = preparePasteCellWrites(workbookWithSheets([sheet]), sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
+      ok: true,
+      value: { kind: 'external', grid: { rowCount: 1, columnCount: 2, rows: [['one', 'two']] } },
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid-paste-footprint' });
   });
 });

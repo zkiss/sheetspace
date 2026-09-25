@@ -7,6 +7,7 @@ import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
+import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
 import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
@@ -76,6 +77,92 @@ export type AppliedWorkbookOperation = {
 };
 export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
+/** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
+export type ClipboardGrid = { rows: readonly (readonly string[])[]; rowCount: number; columnCount: number };
+export type ClipboardSourceSnapshot = {
+  sheetId: SheetId;
+  dimensions: { rowCount: number; columnCount: number };
+  cells: readonly (readonly { identity: StableCellIdentity; raw: string }[])[];
+};
+export type ClipboardParseResult =
+  | { ok: true; value: { kind: 'external'; grid: ClipboardGrid } }
+  | { ok: true; value: { kind: 'internal'; grid: ClipboardGrid; source: ClipboardSourceSnapshot } }
+  | { ok: false; reason: 'malformed-tsv' };
+export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
+export type PastePreparationResult = { ok: true; writes: readonly CellWrite[] } | { ok: false; reason: PastePreparationFailureReason };
+
+/**
+ * Validates and materializes a clipboard range before handing it to the normal single write
+ * operation. Keeping this separate means a bad footprint or formula can never partially paste.
+ */
+export function preparePasteCellWrites(
+  workbook: Workbook,
+  destinationSheetId: SheetId,
+  destination: StableCellIdentity,
+  clipboard: ClipboardParseResult,
+): PastePreparationResult {
+  if (!clipboard.ok) return clipboard;
+  const destinationSheet = findSheetById(workbook, destinationSheetId);
+  if (!destinationSheet || !cellAddressOf(destinationSheet.content, destination)) {
+    return { ok: false, reason: 'invalid-destination' };
+  }
+  const { grid } = clipboard.value;
+  if (grid.rowCount < 1 || grid.columnCount < 1 || grid.rows.length !== grid.rowCount
+    || grid.rows.some((row) => row.length !== grid.columnCount)) {
+    return { ok: false, reason: 'invalid-paste-footprint' };
+  }
+  const destinationRow = destinationSheet.content.rows.indexOf(destination.rowId);
+  const destinationColumn = destinationSheet.content.columns.indexOf(destination.columnId);
+  if (destinationRow < 0 || destinationColumn < 0
+    || destinationRow + grid.rowCount > destinationSheet.content.rows.length
+    || destinationColumn + grid.columnCount > destinationSheet.content.columns.length) {
+    return { ok: false, reason: 'invalid-paste-footprint' };
+  }
+
+  const source = clipboard.value.kind === 'internal' ? clipboard.value.source : undefined;
+  if (source && (source.dimensions.rowCount !== grid.rowCount || source.dimensions.columnCount !== grid.columnCount
+    || source.cells.length !== grid.rowCount || source.cells.some((row) => row.length !== grid.columnCount))) {
+    return { ok: false, reason: 'invalid-internal-source' };
+  }
+  const sourceSheet = source && findSheetById(workbook, source.sheetId);
+  if (source && !sourceSheet) return { ok: false, reason: 'invalid-internal-source' };
+
+  const writes: CellWrite[] = [];
+  const targetIdentities = new Set<string>();
+  const sourceIdentities = new Set<string>();
+  const resolver = workbookFormulaReferenceResolver(workbook, destinationSheetId);
+  for (let rowOffset = 0; rowOffset < grid.rowCount; rowOffset += 1) {
+    for (let columnOffset = 0; columnOffset < grid.columnCount; columnOffset += 1) {
+      const rowId = destinationSheet.content.rows[destinationRow + rowOffset]!;
+      const columnId = destinationSheet.content.columns[destinationColumn + columnOffset]!;
+      const targetIdentity = `${destinationSheetId}\u0000${rowId}\u0000${columnId}`;
+      if (targetIdentities.has(targetIdentity)) return { ok: false, reason: 'invalid-paste-footprint' };
+      targetIdentities.add(targetIdentity);
+      let raw = grid.rows[rowOffset]![columnOffset]!;
+      if (source) {
+        const sourceCell = source.cells[rowOffset]![columnOffset]!;
+        const sourceIdentity = `${source.sheetId}\u0000${sourceCell.identity.rowId}\u0000${sourceCell.identity.columnId}`;
+        if (sourceIdentities.has(sourceIdentity)) return { ok: false, reason: 'invalid-internal-source' };
+        sourceIdentities.add(sourceIdentity);
+        const sourceAddress = cellAddressOf(sourceSheet!.content, sourceCell.identity);
+        if (!sourceAddress) return { ok: false, reason: 'invalid-internal-source' };
+        if (sourceCell.raw.startsWith('=')) {
+          const transformed = copyCanonicalFormula(
+            sourceCell.raw,
+            sourceCell.identity,
+            { rowId, columnId },
+            resolver,
+            { sourceSheetId: source.sheetId, destinationSheetId },
+          );
+          if (!transformed.ok) return { ok: false, reason: 'formula-transform-failed' };
+          raw = transformed.raw;
+        } else raw = sourceCell.raw;
+      }
+      writes.push({ sheetId: destinationSheetId, rowId, columnId, raw });
+    }
+  }
+  return { ok: true, writes };
+}
 
 /**
  * Replays durable cell data without interpreting formulas again.  The caller supplies the
