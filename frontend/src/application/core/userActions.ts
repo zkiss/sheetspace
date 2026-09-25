@@ -8,7 +8,7 @@ import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
-import type { ClipboardParseResult } from './clipboardPayload';
+import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
 import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
@@ -81,6 +81,16 @@ export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperatio
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
 export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
 export type PastePreparationResult = { ok: true; writes: readonly CellWrite[] } | { ok: false; reason: PastePreparationFailureReason };
+export type MovePreparationFailureReason = 'invalid-destination' | 'invalid-move-footprint' | 'invalid-move-source' | 'stale-move-source';
+export type MoveCellIdentityMapping = {
+  source: { sheetId: SheetId; cell: StableCellIdentity };
+  destination: { sheetId: SheetId; cell: StableCellIdentity };
+};
+export type MovePreparationResult = {
+  ok: true;
+  writes: readonly CellWrite[];
+  mappings: readonly MoveCellIdentityMapping[];
+} | { ok: false; reason: MovePreparationFailureReason };
 
 /**
  * Validates and materializes a clipboard range before handing it to the normal single write
@@ -153,6 +163,104 @@ export function preparePasteCellWrites(
     }
   }
   return { ok: true, writes };
+}
+
+/**
+ * Plans a cut/move as one unique final write set. Moved raw text stays
+ * verbatim (no copy transform); recalculation follows from new locations.
+ * Cutting alone changes nothing: staleness is checked against live contents
+ * so a changed source can never be cleared by a stale snapshot.
+ */
+export function prepareMoveCellWrites(
+  workbook: Workbook,
+  destinationSheetId: SheetId,
+  destination: StableCellIdentity,
+  source: ClipboardSourceSnapshot,
+): MovePreparationResult {
+  const destinationSheet = findSheetById(workbook, destinationSheetId);
+  const sourceSheet = findSheetById(workbook, source.sheetId);
+  if (!destinationSheet || !cellAddressOf(destinationSheet.content, destination)) {
+    return { ok: false, reason: 'invalid-destination' };
+  }
+  if (!sourceSheet
+    || source.dimensions.rowCount < 1 || source.dimensions.columnCount < 1
+    || source.cells.length !== source.dimensions.rowCount
+    || source.cells.some((row) => row.length !== source.dimensions.columnCount)) {
+    return { ok: false, reason: 'invalid-move-source' };
+  }
+  const destinationRow = destinationSheet.content.rows.indexOf(destination.rowId);
+  const destinationColumn = destinationSheet.content.columns.indexOf(destination.columnId);
+  if (destinationRow < 0 || destinationColumn < 0
+    || destinationRow + source.dimensions.rowCount > destinationSheet.content.rows.length
+    || destinationColumn + source.dimensions.columnCount > destinationSheet.content.columns.length) {
+    return { ok: false, reason: 'invalid-move-footprint' };
+  }
+  // Validate every source identity before reading live contents.
+  for (const row of source.cells) {
+    for (const cell of row) {
+      if (!cellAddressOf(sourceSheet.content, cell.identity)) {
+        return { ok: false, reason: 'invalid-move-source' };
+      }
+    }
+  }
+  // Stale snapshot must leave both sides unchanged.
+  for (const row of source.cells) {
+    for (const cell of row) {
+      const live = sourceSheet.content.cells[cellIdentityKey(cell.identity)] ?? '';
+      if (live !== cell.raw) return { ok: false, reason: 'stale-move-source' };
+    }
+  }
+
+  const destinationCells: StableCellIdentity[] = [];
+  for (let rowOffset = 0; rowOffset < source.dimensions.rowCount; rowOffset += 1) {
+    for (let columnOffset = 0; columnOffset < source.dimensions.columnCount; columnOffset += 1) {
+      const rowId = destinationSheet.content.rows[destinationRow + rowOffset]!;
+      const columnId = destinationSheet.content.columns[destinationColumn + columnOffset]!;
+      destinationCells.push({ rowId, columnId });
+    }
+  }
+  const sourceKeys = source.cells.flatMap((row) => row.map((cell) =>
+    `${source.sheetId}\u0000${cell.identity.rowId}\u0000${cell.identity.columnId}`));
+  if (new Set(sourceKeys).size !== sourceKeys.length) return { ok: false, reason: 'invalid-move-source' };
+
+  // Same-origin no-op: identical ordered identity set → exact contents kept.
+  const destinationKeys = destinationCells.map(({ rowId, columnId }) =>
+    `${destinationSheetId}\u0000${rowId}\u0000${columnId}`);
+  if (new Set(destinationKeys).size !== destinationKeys.length) return { ok: false, reason: 'invalid-move-footprint' };
+  const mappings: MoveCellIdentityMapping[] = [];
+  for (let index = 0; index < destinationCells.length; index += 1) {
+    const sourceCell = source.cells[Math.floor(index / source.dimensions.columnCount)]![index % source.dimensions.columnCount]!;
+    mappings.push({
+      source: { sheetId: source.sheetId, cell: { ...sourceCell.identity } },
+      destination: { sheetId: destinationSheetId, cell: { ...destinationCells[index]! } },
+    });
+  }
+  if (destinationSheetId === source.sheetId
+    && destinationKeys.length === sourceKeys.length
+    && destinationKeys.every((key, index) => key === sourceKeys[index])) {
+    return { ok: true, writes: [], mappings };
+  }
+
+  const destinationKeySet = new Set(destinationKeys);
+  const writes: CellWrite[] = [];
+  let flat = 0;
+  for (let rowOffset = 0; rowOffset < source.dimensions.rowCount; rowOffset += 1) {
+    for (let columnOffset = 0; columnOffset < source.dimensions.columnCount; columnOffset += 1) {
+      const target = destinationCells[flat]!;
+      const snapshotCell = source.cells[rowOffset]![columnOffset]!;
+      writes.push({ sheetId: destinationSheetId, rowId: target.rowId, columnId: target.columnId, raw: snapshotCell.raw });
+      flat += 1;
+    }
+  }
+  // Overlapping destination wins; only non-overlapping source cells clear.
+  for (const row of source.cells) {
+    for (const cell of row) {
+      const key = `${source.sheetId}\u0000${cell.identity.rowId}\u0000${cell.identity.columnId}`;
+      if (destinationKeySet.has(key)) continue;
+      writes.push({ sheetId: source.sheetId, rowId: cell.identity.rowId, columnId: cell.identity.columnId, raw: '' });
+    }
+  }
+  return { ok: true, writes, mappings };
 }
 
 /**
