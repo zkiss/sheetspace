@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useWorkbookController } from '@application/react/useWorkbookController';
+import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { cellRawContent, findSheetById } from '@workbook/read/queries';
@@ -95,6 +97,42 @@ describe('useWorkbookController paste', () => {
     });
 
     expect(result.current.workbook).toBe(workbook);
+    expect(result.current.canUndo).toBe(false);
+    expect(calculate).not.toHaveBeenCalled();
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+  });
+
+  it('rejects a later untranslatable internal formula without partially pasting or emitting side effects', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', cells: { A1: 'first', B1: 'second' } });
+    const destination = sheetDocument({ id: 'destination', name: 'Destination', cells: { B2: 'old first', C2: 'old second' } });
+    const workbook = workbookWithSheets([source, destination]);
+    const clipboard = {
+      ok: true,
+      value: {
+        kind: 'internal',
+        grid: { rowCount: 1, columnCount: 2, rows: [['first', '=broken']] },
+        source: {
+          sheetId: source.id,
+          dimensions: { rowCount: 1, columnCount: 2 },
+          cells: [[
+            { identity: cellIdentityAt(source.content, 'A1')!, raw: 'first' },
+            { identity: cellIdentityAt(source.content, 'B1')!, raw: '=#REF!@[source:column:1,source:row:1]' },
+          ]],
+        },
+      },
+    } satisfies ClipboardParseResult;
+    const apiClient = autosaveClient();
+    const calculate = vi.fn();
+    const { result } = renderHook(() => useWorkbookController({ apiClient, calculationObserver: calculate, initialWorkbook: workbook }));
+    calculate.mockClear();
+
+    act(() => {
+      expect(result.current.commands.pasteCells(destination.id, 'B2', clipboard)).toEqual({ ok: false, reason: 'formula-transform-failed' });
+    });
+
+    expect(result.current.workbook).toBe(workbook);
+    expect(cellRawContent(findSheetById(result.current.workbook, destination.id)!, 'B2')).toBe('old first');
+    expect(cellRawContent(findSheetById(result.current.workbook, destination.id)!, 'C2')).toBe('old second');
     expect(result.current.canUndo).toBe(false);
     expect(calculate).not.toHaveBeenCalled();
     expect(apiClient.writeCells).not.toHaveBeenCalled();
