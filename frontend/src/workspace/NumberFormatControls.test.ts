@@ -71,9 +71,37 @@ describe('number format selection controls', () => {
       },
     };
     expect(selectionAppearanceControlState(styled, { ...selection, extent: selection.anchor })).toMatchObject({
-      fontWeight: { value: 'bold', hasLocalOverrides: false },
-      fillColor: { value: 'none', hasLocalOverrides: true },
-      horizontalAlignment: { value: 'general', hasLocalOverrides: false },
+      fontWeight: { value: 'bold', localOverrideState: 'inherited', hasLocalOverrides: false },
+      fillColor: { value: 'none', localOverrideState: 'explicit', hasLocalOverrides: true },
+      horizontalAlignment: { value: 'general', localOverrideState: 'inherited', hasLocalOverrides: false },
     });
+  });
+
+  it.each(['cells', 'rows', 'columns'] as const)('distinguishes mixed effective values from mixed local provenance for %s selections', (mode) => {
+    const first = cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! });
+    const second = cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[1]! });
+    const localOverrides = mode === 'cells'
+      ? { rows: { [sheet.content.rows[0]!]: { fontWeight: 'normal' as const } }, columns: {}, cells: { [first]: { fontWeight: 'normal' as const } } }
+      : mode === 'rows'
+        ? { rows: { [sheet.content.rows[0]!]: { fontWeight: 'normal' as const } }, columns: {}, cells: {} }
+        : { rows: {}, columns: { [sheet.content.columns[0]!]: { fontWeight: 'normal' as const } }, cells: {} };
+    const mixedColourOverrides = mode === 'cells'
+      ? { rows: {}, columns: {}, cells: { [first]: { fontWeight: 'bold' as const, textColor: '#ff0000' as const }, [second]: { textColor: '#00ff00' as const } } }
+      : mode === 'rows'
+        ? { rows: { [sheet.content.rows[0]!]: { fontWeight: 'bold' as const, textColor: '#ff0000' as const }, [sheet.content.rows[1]!]: { textColor: '#00ff00' as const } }, columns: {}, cells: {} }
+        : { rows: {}, columns: { [sheet.content.columns[0]!]: { fontWeight: 'bold' as const, textColor: '#ff0000' as const }, [sheet.content.columns[1]!]: { textColor: '#00ff00' as const } }, cells: {} };
+    const mixedEffective = {
+      ...sheet, presentation: { ...sheet.presentation, formatOverrides: mixedColourOverrides },
+    };
+    expect(selectionAppearanceControlState(mixedEffective, { ...selection, mode }).fontWeight)
+      .toMatchObject({ value: null, localOverrideState: 'mixed' });
+    expect(selectionAppearanceControlState(mixedEffective, { ...selection, mode }).textColor)
+      .toMatchObject({ value: null, localOverrideState: 'mixed' });
+
+    const mixedLocal = {
+      ...sheet, presentation: { ...sheet.presentation, formatOverrides: localOverrides },
+    };
+    expect(selectionAppearanceControlState(mixedLocal, { ...selection, mode }).fontWeight)
+      .toMatchObject({ value: 'normal', localOverrideState: 'mixed' });
   });
 });

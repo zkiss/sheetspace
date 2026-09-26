@@ -9,7 +9,15 @@ type FormatSelection = {
 };
 
 type FormatControlState = { format: NumberFormat | null; hasLocalOverrides: boolean };
-export type AppearanceControlState = { [Property in keyof CellAppearance]-?: { value: NonNullable<CellAppearance[Property]> | null; hasLocalOverrides: boolean } };
+type LocalOverrideState = 'inherited' | 'explicit' | 'mixed';
+type AppearancePropertyControlState<Value> = {
+  /** The common effective value, or null when the selection has mixed values. */
+  value: Value | null;
+  /** Whether the selected targets inherit, explicitly set, or mix local values. */
+  localOverrideState: LocalOverrideState;
+  hasLocalOverrides: boolean;
+};
+export type AppearanceControlState = { [Property in keyof CellAppearance]-?: AppearancePropertyControlState<NonNullable<CellAppearance[Property]>> };
 
 export function selectionFormatWrites(
   sheet: SheetDocument | undefined,
@@ -87,7 +95,9 @@ export function selectionAppearanceControlState(sheet: SheetDocument | undefined
     fontWeight: 'normal', horizontalAlignment: 'general', textColor: 'automatic', fillColor: 'none',
   } as const;
   const targets = selectionFormatWrites(sheet, selection, GENERAL_NUMBER_FORMAT);
-  const empty = Object.fromEntries(Object.keys(defaults).map((property) => [property, { value: null, hasLocalOverrides: false }]));
+  const empty = Object.fromEntries(Object.keys(defaults).map((property) => [property, {
+    value: null, localOverrideState: 'inherited', hasLocalOverrides: false,
+  }]));
   if (!sheet || !selection || targets.length === 0) return empty as AppearanceControlState;
   const overrides = sheet.presentation.formatOverrides;
   const same = (values: readonly unknown[]) => values.every((value) => JSON.stringify(value) === JSON.stringify(values[0]));
@@ -95,8 +105,21 @@ export function selectionAppearanceControlState(sheet: SheetDocument | undefined
     const typedProperty = property as keyof typeof defaults;
     const local = targets.map((target) => (target.scope === 'row' ? overrides?.rows : target.scope === 'column' ? overrides?.columns : overrides?.cells)?.[target.targetId]?.[typedProperty]);
     const effective = effectivePropertyValues(sheet, selection, typedProperty, applicationDefault);
-    return [property, { value: same(local) && same(effective) ? (local[0] ?? effective[0]!) : null, hasLocalOverrides: local.some((value) => value !== undefined) }];
+    const localOverrideState: LocalOverrideState = local.every((value) => value === undefined)
+      ? 'inherited'
+      : same(local) ? 'explicit' : 'mixed';
+    return [property, {
+      value: same(effective) ? effective[0]! : null,
+      localOverrideState,
+      hasLocalOverrides: localOverrideState !== 'inherited',
+    }];
   })) as AppearanceControlState;
+}
+
+function appearanceStateLabel(label: string, state: AppearancePropertyControlState<unknown>) {
+  const effective = state.value === null ? 'mixed effective values' : 'one effective value';
+  const local = state.localOverrideState === 'mixed' ? 'mixed local overrides' : state.localOverrideState === 'explicit' ? 'explicit local override' : 'inherited';
+  return `${label}: ${effective}; ${local}`;
 }
 
 export function NumberFormatControls({
@@ -149,7 +172,7 @@ export function NumberFormatControls({
       </label>
       <button type="button" disabled={disabled || !state.hasLocalOverrides} onClick={() => write(null)}>Inherit</button>
       <button type="button" disabled={disabled} onClick={() => write(GENERAL_NUMBER_FORMAT)}>Reset to default</button>
-      <button type="button" aria-pressed={appearance.fontWeight.value === 'bold'} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>Bold</button>
+      <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>Bold</button>
       <button type="button" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance({ fontWeight: null })}>Inherit font weight</button>
       <label>
         Horizontal alignment
@@ -161,14 +184,16 @@ export function NumberFormatControls({
       <button type="button" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })}>Inherit horizontal alignment</button>
       <label>
         Text colour
-        <input aria-label="Text colour" disabled={disabled} type="color" value={appearance.textColor.value?.startsWith('#') ? appearance.textColor.value : '#000000'} onChange={(event) => writeAppearance({ textColor: event.target.value as `#${string}` })} />
+        <input aria-label="Text colour" aria-describedby="text-colour-state" data-local-override-state={appearance.textColor.localOverrideState} data-mixed={appearance.textColor.value === null || appearance.textColor.localOverrideState === 'mixed' || undefined} disabled={disabled} type="color" value={appearance.textColor.value?.startsWith('#') ? appearance.textColor.value : '#000000'} onChange={(event) => writeAppearance({ textColor: event.target.value as `#${string}` })} />
       </label>
+      <output id="text-colour-state">{appearanceStateLabel('Text colour', appearance.textColor)}</output>
       <button type="button" disabled={disabled} onClick={() => writeAppearance({ textColor: 'automatic' })}>Automatic text colour</button>
       <button type="button" disabled={disabled || !appearance.textColor.hasLocalOverrides} onClick={() => writeAppearance({ textColor: null })}>Inherit text colour</button>
       <label>
         Fill colour
-        <input aria-label="Fill colour" disabled={disabled} type="color" value={appearance.fillColor.value?.startsWith('#') ? appearance.fillColor.value : '#ffffff'} onChange={(event) => writeAppearance({ fillColor: event.target.value as `#${string}` })} />
+        <input aria-label="Fill colour" aria-describedby="fill-colour-state" data-local-override-state={appearance.fillColor.localOverrideState} data-mixed={appearance.fillColor.value === null || appearance.fillColor.localOverrideState === 'mixed' || undefined} disabled={disabled} type="color" value={appearance.fillColor.value?.startsWith('#') ? appearance.fillColor.value : '#ffffff'} onChange={(event) => writeAppearance({ fillColor: event.target.value as `#${string}` })} />
       </label>
+      <output id="fill-colour-state">{appearanceStateLabel('Fill colour', appearance.fillColor)}</output>
       <button type="button" disabled={disabled} onClick={() => writeAppearance({ fillColor: 'none' })}>No fill</button>
       <button type="button" disabled={disabled || !appearance.fillColor.hasLocalOverrides} onClick={() => writeAppearance({ fillColor: null })}>Inherit fill colour</button>
     </div>
