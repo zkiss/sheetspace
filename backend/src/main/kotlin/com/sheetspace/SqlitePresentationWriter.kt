@@ -17,27 +17,38 @@ internal class SqlitePresentationWriter(private val connection: Connection) {
                 if (write.size != null) statement.setDouble(3, write.size)
                 statement.executeUpdate()
             }
-        }
+    }
     }
 
     fun persistChanges(sheetId: SheetId, before: SheetPresentation, after: SheetPresentation) {
         val writes = changes("row", before.rowHeights, after.rowHeights) +
             changes("column", before.columnWidths, after.columnWidths)
         apply(sheetId, writes)
-        applyFormats(sheetId, formatChanges(before.formatOverrides, after.formatOverrides))
+        applyFormatChanges(sheetId, before.formatOverrides, after.formatOverrides)
     }
 
     fun applyFormats(sheetId: SheetId, writes: List<FormatWrite>) {
-        writes.forEach { write ->
-            val (table, idColumn) = when (write.scope) { "row" -> "row_format_presentation" to "row_id"; "column" -> "column_format_presentation" to "column_id"; else -> "cell_format_presentation" to "cell_key" }
-            val sql = if (write.numberFormat == null) "DELETE FROM $table WHERE sheet_id = ? AND $idColumn = ?" else "INSERT INTO $table (sheet_id, $idColumn, format_kind, precision) VALUES (?, ?, ?, ?) ON CONFLICT(sheet_id, $idColumn) DO UPDATE SET format_kind = excluded.format_kind, precision = excluded.precision"
-            connection.prepareStatement(sql).use { statement ->
-                statement.setBytes(1, sheetId.value.toUuidBytes())
-                if (write.scope == "cell") statement.setString(2, write.targetId) else statement.setBytes(2, write.targetId.toUuidBytes())
-                if (write.numberFormat != null) { statement.setString(3, write.numberFormat.kind); if (write.numberFormat.precision == null) statement.setObject(4, null) else statement.setInt(4, write.numberFormat.precision) }
-                statement.executeUpdate()
+        error("Appearance writes must be applied through validated presentation changes")
+    }
+
+    private fun applyFormatChanges(sheetId: SheetId, before: SheetFormatOverrides, after: SheetFormatOverrides) {
+        listOf("row" to before.rows to after.rows, "column" to before.columns to after.columns, "cell" to before.cells to after.cells).forEach { (scopeBefore, afterMap) ->
+            val (scope, beforeMap) = scopeBefore
+            (beforeMap.keys + afterMap.keys).forEach { id ->
+                if (beforeMap[id] != afterMap[id]) applyFormat(sheetId, scope, id, afterMap[id])
             }
         }
+    }
+
+    private fun applyFormat(sheetId: SheetId, scope: String, targetId: String, after: CellFormat?) {
+            val (table, idColumn) = when (scope) { "row" -> "row_format_presentation" to "row_id"; "column" -> "column_format_presentation" to "column_id"; else -> "cell_format_presentation" to "cell_key" }
+            val sql = if (after == null || after == CellFormat()) "DELETE FROM $table WHERE sheet_id = ? AND $idColumn = ?" else "INSERT INTO $table (sheet_id, $idColumn, format_kind, precision, font_weight, horizontal_alignment, text_color, fill_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sheet_id, $idColumn) DO UPDATE SET format_kind = excluded.format_kind, precision = excluded.precision, font_weight = excluded.font_weight, horizontal_alignment = excluded.horizontal_alignment, text_color = excluded.text_color, fill_color = excluded.fill_color"
+            connection.prepareStatement(sql).use { statement ->
+                statement.setBytes(1, sheetId.value.toUuidBytes())
+                if (scope == "cell") statement.setString(2, targetId) else statement.setBytes(2, targetId.toUuidBytes())
+                if (after != null && after != CellFormat()) { statement.setString(3, after.numberFormat?.kind); statement.setObject(4, after.numberFormat?.precision); statement.setString(5, after.fontWeight); statement.setString(6, after.horizontalAlignment); statement.setString(7, after.textColor); statement.setString(8, after.fillColor) }
+                statement.executeUpdate()
+            }
     }
 
     private fun changes(axis: String, before: Map<String, Double>, after: Map<String, Double>): List<AxisSizeWrite> =
@@ -45,9 +56,4 @@ internal class SqlitePresentationWriter(private val connection: Connection) {
             if (before[id] == after[id]) null else AxisSizeWrite(axis, id, after[id])
         }
 
-    private fun formatChanges(before: SheetFormatOverrides, after: SheetFormatOverrides): List<FormatWrite> =
-        listOf("row" to before.rows to after.rows, "column" to before.columns to after.columns, "cell" to before.cells to after.cells).flatMap { (scopeBefore, afterMap) ->
-            val (scope, beforeMap) = scopeBefore
-            (beforeMap.keys + afterMap.keys).mapNotNull { id -> if (beforeMap[id] == afterMap[id]) null else FormatWrite(scope, id, afterMap[id]?.numberFormat) }
-        }
 }
