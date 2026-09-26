@@ -96,10 +96,12 @@ export function SheetGrid({
   presentation,
   logicalSelection,
   onWriteAxisSizes,
+  pendingCutCells,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
+  pendingCutCells?: ReadonlySet<string>;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -128,7 +130,9 @@ export function SheetGrid({
   /** Clipboard operations are owned by the application, while this grid owns DOM routing. */
   clipboardInteraction?: {
     copy: () => { text: string; marker: string } | undefined;
+    cut?: () => { text: string; marker: string } | undefined;
     paste: (clipboard: { text: string; marker?: string }) => void;
+    cancelCut?: () => void;
   };
 }) {
   const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
@@ -598,6 +602,15 @@ export function SheetGrid({
     event.preventDefault();
   }
 
+  function cutSelection(event: ClipboardEvent<HTMLDivElement>) {
+    if (isNativeEditorEvent(event)) return;
+    const cut = clipboardInteraction?.cut?.();
+    if (!cut) return;
+    event.clipboardData.setData('text/plain', cut.text);
+    event.clipboardData.setData('application/x-sheetspace-clipboard', cut.marker);
+    event.preventDefault();
+  }
+
   function pasteSelection(event: ClipboardEvent<HTMLDivElement>) {
     if (isNativeEditorEvent(event)) return;
     const text = event.clipboardData.getData('text/plain');
@@ -625,9 +638,10 @@ export function SheetGrid({
         if (next && !event.currentTarget.contains(next)) finishDrag();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') finishDrag();
+        if (event.key === 'Escape') { finishDrag(); clipboardInteraction?.cancelCut?.(); }
       }}
       onCopy={copySelection}
+      onCut={cutSelection}
       onPaste={pasteSelection}
       onPointerDownCapture={beginDrag}
       onPointerMove={moveDrag}
@@ -731,7 +745,8 @@ export function SheetGrid({
                   isFocusTarget={focusIntent?.targetKey === key}
                   isNavigationTarget={isNavigationTarget}
                   historyFeedback={historyFeedback}
-                  isRangeSelected={isRangeSelected}
+                   isRangeSelected={isRangeSelected}
+                   isPendingCut={pendingCutCells?.has(key)}
                   key={key}
                   registerCell={registerCell}
                   sheet={sheet}

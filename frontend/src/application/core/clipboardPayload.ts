@@ -12,4 +12,5 @@ export type ClipboardSourceSnapshot = {
 export type ClipboardParseResult =
   | { ok: true; value: { kind: 'external'; grid: ClipboardGrid } }
   | { ok: true; value: { kind: 'internal'; grid: ClipboardGrid; source: ClipboardSourceSnapshot } }
+  | { ok: true; value: { kind: 'cut'; grid: ClipboardGrid; source: ClipboardSourceSnapshot } }
   | { ok: false; reason: 'malformed-tsv' };

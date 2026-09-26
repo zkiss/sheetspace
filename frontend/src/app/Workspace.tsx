@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, type CellRange } from '@workbook/core/address';
@@ -109,6 +109,7 @@ export function Workspace({
   workbook: Workbook;
 }) {
   const clipboard = useRef(new ClipboardPayloadStore());
+  const [, setClipboardRevision] = useState(0);
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
@@ -199,12 +200,31 @@ export function Workspace({
     return copied.ok ? copied.value : undefined;
   }
 
+  function cutGridSelection() {
+    const selection = selectionRange ?? (activeCell
+      ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
+      : undefined);
+    if (!selection) return undefined;
+    const cut = clipboard.current.cut(workbook, selection);
+    if (cut.ok) setClipboardRevision((revision) => revision + 1);
+    return cut.ok ? cut.value : undefined;
+  }
+
+  function cancelPendingCut() {
+    clipboard.current.cancelCut();
+    setClipboardRevision((revision) => revision + 1);
+  }
+
   function pasteGridSelection(clipboardData: { text: string; marker?: string }) {
     if (!activeCell) return;
     const destination = findSheetById(workbook, activeCell.sheetId);
     const destinationKey = destination && cellKeyForTarget(destination, activeCell);
     if (!destination || !destinationKey) return;
-    commands.pasteCells(destination.id, destinationKey, clipboard.current.parse(workbook, clipboardData));
+    const parsed = clipboard.current.parse(workbook, clipboardData);
+    if (parsed.ok && parsed.value.kind === 'cut') {
+      const moved = commands.moveCells(destination.id, destinationKey, parsed.value.source);
+      if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source') cancelPendingCut();
+    } else commands.pasteCells(destination.id, destinationKey, parsed);
   }
 
   return (
@@ -292,9 +312,15 @@ export function Workspace({
             && navigationHighlight.sheetId === sheet.id
             ? addressRangeOf(sheet.content, navigationHighlight.range)
             : undefined;
-          const historyFeedbackCells = contentHistoryFeedback
-            ? historyCellsForSheet(contentHistoryFeedback, sheet)
-            : undefined;
+           const historyFeedbackCells = contentHistoryFeedback
+             ? historyCellsForSheet(contentHistoryFeedback, sheet)
+             : undefined;
+           const pendingCutCells = clipboard.current.pendingCutSource?.sheetId === sheet.id
+             ? new Set(clipboard.current.pendingCutSource.cells.flatMap((row) => row.map((cell) => {
+                 const address = cellAddressOf(sheet.content, cell.identity);
+                 return address && cellKey(address);
+               })).filter((key): key is string => Boolean(key)))
+             : undefined;
 
           return (
             <SheetFrame
@@ -332,7 +358,8 @@ export function Workspace({
                   activeSheetId={activeCell?.sheetId ?? null}
                   selectionOwner={selectionOwner}
                   axisProjection={axisProjection}
-                  presentation={sheet.presentation}
+                   presentation={sheet.presentation}
+                   pendingCutCells={pendingCutCells}
                   logicalSelection={selectionRange}
                   onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                   cellInteraction={{
@@ -367,7 +394,7 @@ export function Workspace({
                   selectedRange={selectedRange}
                   selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
                   onSelectAxis={onSelectAxis}
-                  clipboardInteraction={{ copy: copyGridSelection, paste: pasteGridSelection }}
+                  clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
                   sheet={tabular}
                 />
               )}
