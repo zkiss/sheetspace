@@ -95,4 +95,19 @@ describe('number format policy', () => {
     expect(resolveCellAppearance(inherited, identity).textColor).toBe('automatic');
     expect(inherited.rows[identity.rowId]).toEqual({ fontWeight: 'normal', fillColor: '#112233' });
   });
+
+  it('rejects malformed appearance patches without accepting invalid explicit defaults', () => {
+    const content = { rows: ['row-a'], columns: ['column-a'] };
+    for (const properties of [
+      {},
+      { fontWeight: 'heavy' },
+      { horizontalAlignment: 'justify' },
+      { textColor: '#12345' },
+      { fillColor: 'transparent' },
+      { unexpected: 'value' },
+    ]) {
+      expect(validFormatWrites(content, [{ scope: 'row', targetId: 'row-a', properties }])).toBe(false);
+    }
+    expect(validFormatWrites(content, [{ scope: 'row', targetId: 'row-a', properties: { fontWeight: 'normal', horizontalAlignment: 'general', textColor: 'automatic', fillColor: 'none' } }])).toBe(true);
+  });
 });

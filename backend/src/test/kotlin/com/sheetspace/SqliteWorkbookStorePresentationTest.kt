@@ -6,6 +6,10 @@ import java.sql.SQLException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class SqliteWorkbookStorePresentationTest {
     @Test
@@ -21,7 +25,7 @@ class SqliteWorkbookStorePresentationTest {
         )
         val formatted = validatedFormatWrites(document, writes)
         assertEquals(writes.map { it.targetId }.toSet(), (formatted.formatOverrides.rows.keys + formatted.formatOverrides.columns.keys + formatted.formatOverrides.cells.keys).toSet())
-        assertEquals(SheetPresentation(), validatedFormatWrites(document.copy(presentation = formatted), writes.map { it.copy(numberFormat = null) }))
+        assertEquals(SheetPresentation(), validatedFormatWrites(document.copy(presentation = formatted), writes.map { it.copy(properties = mapOf("numberFormat" to JsonNull)) }))
         listOf(
             emptyList(),
             listOf(writes[0], writes[0].copy(numberFormat = null)),
@@ -33,6 +37,46 @@ class SqliteWorkbookStorePresentationTest {
             listOf(FormatWrite("row", row, NumberFormat("percent", 11))),
             listOf(FormatWrite("row", row, NumberFormat("currency", 2))),
         ).forEach { invalid -> assertFailsWith<WorkbookApplicationException> { validatedFormatWrites(document, invalid) } }
+    }
+
+    @Test
+    fun `appearance properties compose independently and validate complete patches`() {
+        val document = testDocument(TEST_SHEET_1, "Appearance")
+        val row = document.tabularContent.rows[0].value
+        val column = document.tabularContent.columns[0].value
+        val cell = "$row\u0000$column"
+        val properties = mapOf(
+            "numberFormat" to buildJsonObject { put("kind", "number"); put("precision", 2) },
+            "fontWeight" to JsonPrimitive("bold"),
+            "horizontalAlignment" to JsonPrimitive("center"),
+            "textColor" to JsonPrimitive("#123456"),
+            "fillColor" to JsonPrimitive("#abcdef"),
+        )
+        val styled = validatedFormatWrites(document, listOf(FormatWrite("cell", cell, properties = properties)))
+        assertEquals(CellFormat(NumberFormat("number", 2), "bold", "center", "#123456", "#abcdef"), styled.formatOverrides.cells[cell])
+
+        val retained = validatedFormatWrites(document.copy(presentation = styled), listOf(FormatWrite("cell", cell, properties = mapOf("numberFormat" to JsonNull, "textColor" to JsonNull))))
+        assertEquals(CellFormat(fontWeight = "bold", horizontalAlignment = "center", fillColor = "#abcdef"), retained.formatOverrides.cells[cell])
+        assertEquals(SheetPresentation(), validatedFormatWrites(document.copy(presentation = retained), listOf(FormatWrite("cell", cell, properties = mapOf("fontWeight" to JsonNull, "horizontalAlignment" to JsonNull, "fillColor" to JsonNull)))))
+
+        listOf(
+            emptyMap(),
+            mapOf("numberFormat" to buildJsonObject { put("kind", "general"); put("precision", 0) }),
+            mapOf("numberFormat" to buildJsonObject { put("kind", "number") }),
+            mapOf("numberFormat" to JsonPrimitive("number")),
+            mapOf("numberFormat" to buildJsonObject { }),
+            mapOf("numberFormat" to buildJsonObject { put("kind", buildJsonObject { }) }),
+            mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", buildJsonObject { }) }),
+            mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", -1) }),
+            mapOf("numberFormat" to buildJsonObject { put("kind", "percent"); put("precision", 11) }),
+            mapOf("fontWeight" to JsonPrimitive("heavy")),
+            mapOf("horizontalAlignment" to JsonPrimitive("justify")),
+            mapOf("textColor" to JsonPrimitive("#12345")),
+            mapOf("fillColor" to JsonPrimitive("transparent")),
+            mapOf("unknown" to JsonPrimitive("value")),
+        ).forEach { properties ->
+            assertFailsWith<WorkbookApplicationException> { validatedFormatWrites(document, listOf(FormatWrite("row", row, properties = properties))) }
+        }
     }
 
     @Test
@@ -63,6 +107,33 @@ class SqliteWorkbookStorePresentationTest {
                 assertEquals(2, removed.revision)
                 assertEquals(emptyMap(), removed.presentation.formatOverrides.rows)
                 assertEquals(NumberFormat("general"), removed.presentation.formatOverrides.cells[cell]?.numberFormat)
+            }
+        } finally { Files.deleteIfExists(path) }
+    }
+
+    @Test
+    fun `sparse appearance properties survive reopen and property removal`() {
+        val path = Files.createTempFile("sheetspace-appearance", ".db")
+        val initial = testDocument(TEST_SHEET_1, "Appearance")
+        val row = initial.tabularContent.rows[0].value
+        val column = initial.tabularContent.columns[0].value
+        val cell = "$row\u0000$column"
+        try {
+            SqliteWorkbookStore(path).use { store ->
+                store.saveWorkbook(testWorkbookOf(initial))
+                store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(
+                    FormatWrite("row", row, properties = mapOf("fontWeight" to JsonPrimitive("normal"), "fillColor" to JsonPrimitive("none"))),
+                    FormatWrite("column", column, properties = mapOf("horizontalAlignment" to JsonPrimitive("left"), "textColor" to JsonPrimitive("automatic"))),
+                    FormatWrite("cell", cell, properties = mapOf("fontWeight" to JsonPrimitive("bold"), "textColor" to JsonPrimitive("#abcdef"))),
+                ))
+            }
+            SqliteWorkbookStore(path).use { store ->
+                val stored = store.loadSheet(initial.id)!!
+                assertEquals(CellFormat(fontWeight = "normal", fillColor = "none"), stored.presentation.formatOverrides.rows[row])
+                assertEquals(CellFormat(horizontalAlignment = "left", textColor = "automatic"), stored.presentation.formatOverrides.columns[column])
+                assertEquals(CellFormat(fontWeight = "bold", textColor = "#abcdef"), stored.presentation.formatOverrides.cells[cell])
+                store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 1), emptyList(), listOf(FormatWrite("cell", cell, properties = mapOf("fontWeight" to JsonNull))))
+                assertEquals(CellFormat(textColor = "#abcdef"), store.loadSheet(initial.id)!!.presentation.formatOverrides.cells[cell])
             }
         } finally { Files.deleteIfExists(path) }
     }
