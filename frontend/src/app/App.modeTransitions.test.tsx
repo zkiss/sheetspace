@@ -1,12 +1,17 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from '@test-support/appScreen';
+import { measuredElementGeometry } from '@test-support/domGeometry';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 
 function inputsSheet() {
   return positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+}
+
+function outputsSheet() {
+  return positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 96 });
 }
 
 function scaleInput() {
@@ -38,6 +43,50 @@ describe('App rendering-mode transitions', () => {
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
     expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveAttribute('data-active-cell', 'true');
     await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
+  });
+
+  it('preserves a directional range and its active extent through settled overview', async () => {
+    const user = userEvent.setup();
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const b2 = within(frame).getByRole('cell', { name: 'Inputs B2 empty cell' });
+
+    await user.click(b2);
+    await user.keyboard('{Shift>}');
+    await user.click(a1);
+    await user.keyboard('{/Shift}');
+    expect(a1).toHaveAttribute('data-active-cell', 'true');
+    expect(b2).toHaveAttribute('data-reference-selected', 'true');
+
+    zoomWorkspace('out', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
+    expect(within(frame).queryByTestId('sheet-grid')).not.toBeInTheDocument();
+
+    zoomWorkspace('in', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+    expect(within(frame).getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveAttribute('data-reference-selected', 'true');
+  });
+
+  it('does not restore a stale overview focus request after another sheet takes ownership', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet(), outputsSheet()])} />);
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const outputsFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const inputsCell = within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    fireEvent.click(inputsCell);
+    inputsCell.focus();
+    zoomWorkspace('out', 6);
+    await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'overview'));
+    expect(within(inputsFrame).getByTestId('sheet-frame-body')).toHaveFocus();
+
+    fireEvent.click(within(outputsFrame).getByRole('button', { name: 'Select sheet Outputs overview' }));
+    zoomWorkspace('in', 6);
+
+    await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    expect(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+    expect(within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveFocus();
   });
 
   it('keeps a draft and the detailed owner mounted while a scale preview crosses the threshold', async () => {
@@ -83,5 +132,20 @@ describe('App rendering-mode transitions', () => {
     fireEvent.pointerUp(header, { clientX: 100, clientY: 100 });
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
     expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
+  });
+
+  it('retains a live frame interaction through zero-size culling, then releases its pin', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const surface = screen.getByTestId('workspace-surface');
+    const geometry = measuredElementGeometry(surface, { width: 800, height: 600 });
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const header = within(frame).getByTestId('sheet-frame-header');
+
+    fireEvent.pointerDown(header, { button: 0, clientX: 100, clientY: 100 });
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
+
+    fireEvent.pointerUp(header, { clientX: 100, clientY: 100 });
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 });
