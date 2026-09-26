@@ -81,3 +81,9 @@
 }
 
 .number-format-controls input { width: 4.5rem; }
+
+.number-format-controls output {
+  color: #50606d;
+  font-size: 0.75rem;
+  font-style: italic;
+}

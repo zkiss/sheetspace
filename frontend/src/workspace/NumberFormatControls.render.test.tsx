@@ -102,14 +102,14 @@ describe('NumberFormatControls rendering', () => {
     expect(onWrite).not.toHaveBeenCalled();
   });
 
-  it('makes mixed effective colours and mixed local bold provenance explicit while preserving writes', () => {
+  it('makes mixed effective and local appearance state visible while preserving writes', () => {
     const onWrite = vi.fn();
     const first = cellIdentityKey({ rowId, columnId: firstColumnId });
     const second = cellIdentityKey({ rowId, columnId: secondColumnId });
     const styled = {
       ...sheet, presentation: { ...sheet.presentation, formatOverrides: {
         rows: { [rowId]: { fontWeight: 'normal' as const } }, columns: {}, cells: {
-          [first]: { fontWeight: 'normal' as const, textColor: '#ff0000' as const, fillColor: '#00ff00' as const },
+          [first]: { fontWeight: 'normal' as const, horizontalAlignment: 'general' as const, textColor: '#ff0000' as const, fillColor: '#00ff00' as const },
           [second]: { textColor: '#0000ff' as const, fillColor: '#ffffff' as const },
         },
       } },
@@ -117,6 +117,9 @@ describe('NumberFormatControls rendering', () => {
     render(<NumberFormatControls sheet={styled} selection={{ ...selection, extent: { sheetId: sheet.id, cell: { rowId, columnId: secondColumnId } } }} onWrite={onWrite} />);
 
     expect(screen.getByRole('button', { name: /Bold: one effective value; mixed local overrides/ })).toHaveAttribute('data-mixed', 'true');
+    expect(screen.getByText('Bold: one effective value; mixed local overrides')).toBeVisible();
+    expect(screen.getByText('Horizontal alignment: one effective value; mixed local overrides')).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Horizontal alignment' })).toHaveAttribute('data-mixed', 'true');
     expect(screen.getByText('Text colour: mixed effective values; mixed local overrides')).toBeInTheDocument();
     expect(screen.getByText('Fill colour: mixed effective values; mixed local overrides')).toBeInTheDocument();
     expect(screen.getByLabelText('Text colour')).toHaveAttribute('data-mixed', 'true');

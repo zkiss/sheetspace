@@ -172,15 +172,17 @@ export function NumberFormatControls({
       </label>
       <button type="button" disabled={disabled || !state.hasLocalOverrides} onClick={() => write(null)}>Inherit</button>
       <button type="button" disabled={disabled} onClick={() => write(GENERAL_NUMBER_FORMAT)}>Reset to default</button>
-      <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>Bold</button>
+      <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby="bold-state" aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>Bold</button>
+      <output id="bold-state">{appearanceStateLabel('Bold', appearance.fontWeight)}</output>
       <button type="button" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance({ fontWeight: null })}>Inherit font weight</button>
       <label>
         Horizontal alignment
-        <select aria-label="Horizontal alignment" disabled={disabled} value={appearance.horizontalAlignment.value ?? 'mixed'} onChange={(event) => writeAppearance({ horizontalAlignment: event.target.value as 'general' | 'left' | 'center' | 'right' })}>
+        <select aria-label="Horizontal alignment" aria-describedby="horizontal-alignment-state" data-local-override-state={appearance.horizontalAlignment.localOverrideState} data-mixed={appearance.horizontalAlignment.value === null || appearance.horizontalAlignment.localOverrideState === 'mixed' || undefined} disabled={disabled} value={appearance.horizontalAlignment.value ?? 'mixed'} onChange={(event) => writeAppearance({ horizontalAlignment: event.target.value as 'general' | 'left' | 'center' | 'right' })}>
           {appearance.horizontalAlignment.value === null && <option value="mixed">Mixed</option>}
           <option value="general">General</option><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
         </select>
       </label>
+      <output id="horizontal-alignment-state">{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
       <button type="button" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })}>Inherit horizontal alignment</button>
       <label>
         Text colour
