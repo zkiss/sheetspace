@@ -9,6 +9,7 @@ import {
   isValidNumberFormat,
   isValidNumberFormatPrecision,
   resolveNumberFormat,
+  resolveCellAppearance,
   validFormatWrites,
 } from '@workbook/core/numberFormat';
 
@@ -63,9 +64,9 @@ describe('number format policy', () => {
   it('validates and applies sparse writes at each durable scope', () => {
     const row = 'row-a'; const column = 'column-a'; const cell = cellIdentityKey({ rowId: row, columnId: column });
     const writes = [
-      { scope: 'row', targetId: row, numberFormat: { kind: 'percent', precision: 1 } },
-      { scope: 'column', targetId: column, numberFormat: { kind: 'number', precision: 2 } },
-      { scope: 'cell', targetId: cell, numberFormat: { kind: 'general' } },
+      { scope: 'row', targetId: row, properties: { numberFormat: { kind: 'percent', precision: 1 } } },
+      { scope: 'column', targetId: column, properties: { numberFormat: { kind: 'number', precision: 2 } } },
+      { scope: 'cell', targetId: cell, properties: { numberFormat: { kind: 'general' } } },
     ] as const;
     expect(validFormatWrites({ rows: [row], columns: [column] }, writes)).toBe(true);
     expect(applyFormatWrites(undefined, writes)).toEqual({
@@ -75,8 +76,23 @@ describe('number format policy', () => {
     });
     expect(validFormatWrites({ rows: [row], columns: [column] }, [])).toBe(false);
     expect(validFormatWrites({ rows: [row], columns: [column] }, [...writes, writes[0]])).toBe(false);
-    expect(validFormatWrites({ rows: [row], columns: [column] }, [{ scope: 'cell', targetId: 'bad', numberFormat: null }])).toBe(false);
-    expect(validFormatWrites({ rows: [row], columns: [column] }, [{ scope: 'row', targetId: row, numberFormat: { kind: 'number', precision: 12 } }])).toBe(false);
-    expect(applyFormatWrites(applyFormatWrites(undefined, writes), [{ scope: 'cell', targetId: cell, numberFormat: null }])).toEqual(expect.objectContaining({ cells: {} }));
+    expect(validFormatWrites({ rows: [row], columns: [column] }, [{ scope: 'cell', targetId: 'bad', properties: { numberFormat: null } }])).toBe(false);
+    expect(validFormatWrites({ rows: [row], columns: [column] }, [{ scope: 'row', targetId: row, properties: { numberFormat: { kind: 'number', precision: 12 } } }])).toBe(false);
+    expect(applyFormatWrites(applyFormatWrites(undefined, writes), [{ scope: 'cell', targetId: cell, properties: { numberFormat: null } }])).toEqual(expect.objectContaining({ cells: {} }));
+  });
+
+  it('composes appearance properties independently and preserves explicit defaults', () => {
+    const identity = { rowId: 'row-a', columnId: 'column-a' };
+    const key = cellIdentityKey(identity);
+    const overrides = applyFormatWrites(undefined, [
+      { scope: 'column', targetId: identity.columnId, properties: { numberFormat: DEFAULT_NUMBER_FORMAT, fontWeight: 'bold' } },
+      { scope: 'row', targetId: identity.rowId, properties: { fontWeight: 'normal', fillColor: '#112233' } },
+      { scope: 'cell', targetId: key, properties: { textColor: '#aabbcc' } },
+    ]);
+    expect(resolveNumberFormat(overrides, identity)).toEqual(DEFAULT_NUMBER_FORMAT);
+    expect(resolveCellAppearance(overrides, identity)).toEqual({ numberFormat: DEFAULT_NUMBER_FORMAT, fontWeight: 'normal', horizontalAlignment: 'general', textColor: '#aabbcc', fillColor: '#112233' });
+    const inherited = applyFormatWrites(overrides, [{ scope: 'cell', targetId: key, properties: { textColor: null } }]);
+    expect(resolveCellAppearance(inherited, identity).textColor).toBe('automatic');
+    expect(inherited.rows[identity.rowId]).toEqual({ fontWeight: 'normal', fillColor: '#112233' });
   });
 });

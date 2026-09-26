@@ -10,7 +10,7 @@ const source = sheetDocument({ id: 'sheet-formats', name: 'Formats' });
 const document: SheetDocumentResponse = { ...source, content: { ...source.content, cells: [] } };
 const row = document.content.rows[0], column = document.content.columns[0];
 const cell = cellIdentityKey({ rowId: row, columnId: column });
-const writes: FormatWrite[] = [{ scope: 'row', targetId: row, numberFormat: { kind: 'general' } }, { scope: 'cell', targetId: cell, numberFormat: null }];
+const writes: FormatWrite[] = [{ scope: 'row', targetId: row, properties: { numberFormat: { kind: 'general' } } }, { scope: 'cell', targetId: cell, properties: { numberFormat: null } }];
 const intent = { kind: 'write-number-formats' as const, sheetId: document.id, writes };
 afterEach(() => vi.unstubAllGlobals());
 
@@ -40,7 +40,7 @@ describe('number format presentation persistence', () => {
   it('clones, orders, retains, and retries format-write payloads through transport', async () => {
     const outbox = new WorkbookOutbox();
     outbox.enqueue('one', intent);
-    writes[0].numberFormat = { kind: 'percent', precision: 9 };
+    writes[0].properties.numberFormat = { kind: 'percent', precision: 9 };
     const save = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ sheetId: document.id, revision: 4 }).mockResolvedValueOnce({ sheetId: document.id, revision: 5 });
     const transport = new WorkbookPersistenceTransport({ writeNumberFormats: save });
     transport.recordRevision(document.id, 3);
@@ -48,10 +48,10 @@ describe('number format presentation persistence', () => {
     expect(await outbox.executeNext(transport)).toBeUndefined();
     outbox.retry('one');
     await outbox.executeNext(transport);
-    outbox.enqueue('two', { ...intent, writes: [{ scope: 'column', targetId: column, numberFormat: { kind: 'number', precision: 2 } }] });
+    outbox.enqueue('two', { ...intent, writes: [{ scope: 'column', targetId: column, properties: { numberFormat: { kind: 'number', precision: 2 } } }] });
     await outbox.executeNext(transport);
-    expect(save).toHaveBeenNthCalledWith(2, document.id, [{ scope: 'row', targetId: row, numberFormat: { kind: 'general' } }, { scope: 'cell', targetId: cell, numberFormat: null }], { revision: 3 });
-    expect(save).toHaveBeenNthCalledWith(3, document.id, [{ scope: 'column', targetId: column, numberFormat: { kind: 'number', precision: 2 } }], { revision: 4 });
+    expect(save).toHaveBeenNthCalledWith(2, document.id, [{ scope: 'row', targetId: row, properties: { numberFormat: { kind: 'general' } } }, { scope: 'cell', targetId: cell, properties: { numberFormat: null } }], { revision: 3 });
+    expect(save).toHaveBeenNthCalledWith(3, document.id, [{ scope: 'column', targetId: column, properties: { numberFormat: { kind: 'number', precision: 2 } } }], { revision: 4 });
     expect(transport.revision(document.id)).toBe(5);
   });
 });

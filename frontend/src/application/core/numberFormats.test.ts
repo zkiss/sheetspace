@@ -9,9 +9,9 @@ const workbook = workbookWithSheets([sheet]);
 const row = sheet.content.rows[0], column = sheet.content.columns[0];
 const cell = cellIdentityKey({ rowId: row, columnId: column });
 const writes: FormatWrite[] = [
-  { scope: 'row', targetId: row, numberFormat: { kind: 'percent', precision: 1 } },
-  { scope: 'column', targetId: column, numberFormat: { kind: 'number', precision: 2 } },
-  { scope: 'cell', targetId: cell, numberFormat: { kind: 'general' } },
+  { scope: 'row', targetId: row, properties: { numberFormat: { kind: 'percent', precision: 1 } } },
+  { scope: 'column', targetId: column, properties: { numberFormat: { kind: 'number', precision: 2 } } },
+  { scope: 'cell', targetId: cell, properties: { numberFormat: { kind: 'general' } } },
 ];
 const apply = (values: readonly FormatWrite[], source = workbook, sheetId = sheet.id) =>
   applyWorkbookOperation(source, { kind: 'write-number-formats', operationId: 'format-op', sheetId, writes: values });
@@ -27,7 +27,7 @@ describe('number format operations', () => {
       cells: { [cell]: { numberFormat: { kind: 'general' } } },
     });
     expect(result.value.persistence).toEqual({ kind: 'write-number-formats', sheetId: sheet.id, writes });
-    expect(result.value.inverse).toEqual({ kind: 'write-number-formats', sheetId: sheet.id, writes: writes.map((write) => ({ ...write, numberFormat: null })) });
+    expect(result.value.inverse).toEqual({ kind: 'write-number-formats', sheetId: sheet.id, writes: writes.map((write) => ({ ...write, properties: { numberFormat: null } })) });
     const undone = applyWorkbookOperation(result.value.nextWorkbook, { ...result.value.inverse, operationId: 'undo' } as WorkbookOperation);
     expect(undone.ok && undone.value.nextWorkbook.documents[sheet.id].presentation.formatOverrides).toEqual({ rows: {}, columns: {}, cells: {} });
   });
@@ -39,6 +39,6 @@ describe('number format operations', () => {
     expect(unchanged.ok && unchanged.value.changed).toBe(false);
     expect(apply(writes, workbook, 'missing')).toEqual({ ok: false, reason: 'unknown-sheet' });
     expect(apply([])).toEqual({ ok: false, reason: 'invalid-number-format' });
-    expect(apply([{ scope: 'row', targetId: row, numberFormat: { kind: 'general' } }, { scope: 'row', targetId: row, numberFormat: null }])).toEqual({ ok: false, reason: 'invalid-number-format' });
+    expect(apply([{ scope: 'row', targetId: row, properties: { numberFormat: { kind: 'general' } } }, { scope: 'row', targetId: row, properties: { numberFormat: null } }])).toEqual({ ok: false, reason: 'invalid-number-format' });
   });
 });

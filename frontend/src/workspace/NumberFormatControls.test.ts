@@ -13,18 +13,18 @@ const selection = {
 describe('number format selection controls', () => {
   it('writes every durable cell in a rectangle, including blank cells', () => {
     expect(selectionFormatWrites(sheet, selection, { kind: 'number', precision: 2 })).toEqual([
-      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! }), numberFormat: { kind: 'number', precision: 2 } },
-      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[1]! }), numberFormat: { kind: 'number', precision: 2 } },
-      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[0]! }), numberFormat: { kind: 'number', precision: 2 } },
-      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[1]! }), numberFormat: { kind: 'number', precision: 2 } },
+      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
+      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[1]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
+      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[0]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
+      { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[1]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
     ]);
     expect(selectionFormatWrites(sheet, { ...selection, mode: 'rows' }, null)).toEqual([
-      { scope: 'row', targetId: sheet.content.rows[0], numberFormat: null },
-      { scope: 'row', targetId: sheet.content.rows[1], numberFormat: null },
+      { scope: 'row', targetId: sheet.content.rows[0], properties: { numberFormat: null } },
+      { scope: 'row', targetId: sheet.content.rows[1], properties: { numberFormat: null } },
     ]);
     expect(selectionFormatWrites(sheet, { ...selection, mode: 'columns' }, null)).toEqual([
-      { scope: 'column', targetId: sheet.content.columns[0], numberFormat: null },
-      { scope: 'column', targetId: sheet.content.columns[1], numberFormat: null },
+      { scope: 'column', targetId: sheet.content.columns[0], properties: { numberFormat: null } },
+      { scope: 'column', targetId: sheet.content.columns[1], properties: { numberFormat: null } },
     ]);
   });
 

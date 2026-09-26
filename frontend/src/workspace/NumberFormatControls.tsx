@@ -23,12 +23,12 @@ export function selectionFormatWrites(
   if (rowStart < 0 || rowEnd < 0 || columnStart < 0 || columnEnd < 0) return [];
   const rows = sheet.content.rows.slice(Math.min(rowStart, rowEnd), Math.max(rowStart, rowEnd) + 1);
   const columns = sheet.content.columns.slice(Math.min(columnStart, columnEnd), Math.max(columnStart, columnEnd) + 1);
-  if (selection.mode === 'rows') return rows.map((targetId) => ({ scope: 'row', targetId, numberFormat }));
-  if (selection.mode === 'columns') return columns.map((targetId) => ({ scope: 'column', targetId, numberFormat }));
+  if (selection.mode === 'rows') return rows.map((targetId) => ({ scope: 'row', targetId, properties: { numberFormat } }));
+  if (selection.mode === 'columns') return columns.map((targetId) => ({ scope: 'column', targetId, properties: { numberFormat } }));
   return rows.flatMap((rowId) => columns.map((columnId) => ({
     scope: 'cell' as const,
     targetId: cellIdentityKey({ rowId, columnId }),
-    numberFormat,
+    properties: { numberFormat },
   })));
 }
 
