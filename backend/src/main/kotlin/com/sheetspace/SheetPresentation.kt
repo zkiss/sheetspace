@@ -123,7 +123,9 @@ private fun JsonElement.stringOrNull(): String? = (this as? JsonPrimitive)?.cont
 private fun JsonElement.toNumberFormatOrNull(): NumberFormat? {
     val objectValue = this as? kotlinx.serialization.json.JsonObject ?: return null
     val kind = objectValue["kind"]?.stringOrNull() ?: return null
-    val precision = objectValue["precision"]?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+    val precision = objectValue["precision"]?.let { value ->
+        (value as? JsonPrimitive)?.takeUnless(JsonPrimitive::isString)?.content?.toIntOrNull()
+    }
     return if (objectValue.keys == if (kind == "general") setOf("kind") else setOf("kind", "precision")) NumberFormat(kind, precision) else null
 }
 

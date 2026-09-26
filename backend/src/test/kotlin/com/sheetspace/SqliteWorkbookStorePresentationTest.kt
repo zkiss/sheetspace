@@ -67,6 +67,7 @@ class SqliteWorkbookStorePresentationTest {
             mapOf("numberFormat" to buildJsonObject { }),
             mapOf("numberFormat" to buildJsonObject { put("kind", buildJsonObject { }) }),
             mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", buildJsonObject { }) }),
+            mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", "2") }),
             mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", -1) }),
             mapOf("numberFormat" to buildJsonObject { put("kind", "percent"); put("precision", 11) }),
             mapOf("fontWeight" to JsonPrimitive("heavy")),
