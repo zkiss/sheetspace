@@ -174,6 +174,7 @@ export function NumberFormatControls({
       <button type="button" disabled={disabled} onClick={() => write(GENERAL_NUMBER_FORMAT)}>Reset to default</button>
       <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby="bold-state" aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>Bold</button>
       <output id="bold-state">{appearanceStateLabel('Bold', appearance.fontWeight)}</output>
+      <button type="button" disabled={disabled} onClick={() => writeAppearance({ fontWeight: 'normal' })}>Normal weight</button>
       <button type="button" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance({ fontWeight: null })}>Inherit font weight</button>
       <label>
         Horizontal alignment

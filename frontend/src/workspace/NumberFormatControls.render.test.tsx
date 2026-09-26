@@ -138,6 +138,8 @@ describe('NumberFormatControls rendering', () => {
 
     await user.click(screen.getByRole('button', { name: /Bold: one effective value; inherited/ }));
     expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { fontWeight: 'bold' } }]);
+    await user.click(screen.getByRole('button', { name: 'Normal weight' }));
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { fontWeight: 'normal' } }]);
     await user.selectOptions(screen.getByRole('combobox', { name: 'Horizontal alignment' }), 'center');
     expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { horizontalAlignment: 'center' } }]);
     await user.click(screen.getByRole('button', { name: 'Automatic text colour' }));
