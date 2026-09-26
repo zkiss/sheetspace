@@ -22,7 +22,9 @@ export function SheetFrame({
   frame,
   isActiveSheet,
   isNavigationReveal,
+  retainDetailedBody,
   overview,
+  onDetailedFocusRestore,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -49,7 +51,11 @@ export function SheetFrame({
   frame: SheetFrameProjection;
   isActiveSheet: boolean;
   isNavigationReveal: boolean;
+  /** An editor or frame gesture cannot be unmounted by a scale preview. */
+  retainDetailedBody?: boolean;
   overview?: ReactNode;
+  /** Restores focus only after this frame handed it off while in overview. */
+  onDetailedFocusRestore?: () => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -78,12 +84,30 @@ export function SheetFrame({
   const [scaleInputValue, setScaleInputValue] = useState(() => scalePercentage(frame.visualScale));
   const screenScale = effectiveSheetScreenScale(viewportScale, frame.visualScale);
   const renderingModeRef = useRef(resolveSheetRenderingMode(screenScale));
-  const renderingMode = resolveSheetRenderingMode(screenScale, renderingModeRef.current);
-  renderingModeRef.current = renderingMode;
+  const requestedRenderingMode = resolveSheetRenderingMode(screenScale, renderingModeRef.current);
+  renderingModeRef.current = requestedRenderingMode;
+  const renderingMode = retainDetailedBody ? 'detailed' : requestedRenderingMode;
+  const previousRenderingMode = useRef(renderingMode);
+  const bodyHadFocus = useRef(false);
+  const restoreFocusOnDetail = useRef(false);
 
   useEffect(() => {
     if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
   }, [frame.visualScale]);
+
+  useEffect(() => {
+    const previousMode = previousRenderingMode.current;
+    if (previousMode === 'detailed' && renderingMode === 'overview' && bodyHadFocus.current) {
+      // The detailed grid is about to disappear. Keep focus in the frame rather
+      // than allowing the browser to strand it on document.body.
+      restoreFocusOnDetail.current = true;
+      bodyRef.current?.focus();
+    } else if (previousMode === 'overview' && renderingMode === 'detailed' && restoreFocusOnDetail.current) {
+      restoreFocusOnDetail.current = false;
+      onDetailedFocusRestore?.();
+    }
+    previousRenderingMode.current = renderingMode;
+  }, [onDetailedFocusRestore, renderingMode]);
 
   return (
     <article
@@ -175,7 +199,17 @@ export function SheetFrame({
       >
         <h2>{frame.name}</h2>
       </header>
-      <div className="sheet-frame-body" data-rendering-mode={renderingMode} data-testid="sheet-frame-body" ref={bodyRef}>
+      <div
+        className="sheet-frame-body"
+        data-rendering-mode={renderingMode}
+        data-testid="sheet-frame-body"
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) bodyHadFocus.current = false;
+        }}
+        onFocusCapture={() => { bodyHadFocus.current = true; }}
+        ref={bodyRef}
+        tabIndex={-1}
+      >
         {renderingMode === 'overview' ? overview : children(bodyRef)}
       </div>
     </article>

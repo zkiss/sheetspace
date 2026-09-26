@@ -338,6 +338,13 @@ export function Workspace({
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
                 : navigationHighlight?.sheetId === sheet.id}
+              retainDetailedBody={Boolean(sheetEditingCell || interactionPinnedSheetId === sheet.id)}
+              onDetailedFocusRestore={() => {
+                // A SheetFrame only calls this after it moved focus out of a
+                // replaced detailed body. The application remains the sole
+                // owner of request lifetime and stale-request replacement.
+                if (activeCell?.sheetId === sheet.id) onRestoreGridFocus();
+              }}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}

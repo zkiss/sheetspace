@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -191,6 +191,45 @@ describe('SheetFrame', () => {
     rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
     expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Inputs overview' })).not.toBeInTheDocument();
+  });
+
+  it('retains a detailed body for an active interaction, then hands focus through overview once', async () => {
+    const interactions = {
+      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
+      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+    };
+    const restoreFocus = vi.fn();
+    const frame = testFrame();
+    const renderFrame = (viewportScale: number, retainDetailedBody = false) => (
+      <SheetFrame
+        columnCount={4}
+        frame={frame}
+        isActiveSheet
+        isNavigationReveal={false}
+        onDetailedFocusRestore={restoreFocus}
+        overview={<button type="button">Inputs overview</button>}
+        retainDetailedBody={retainDetailedBody}
+        {...interactions}
+        rowCount={6}
+        viewportScale={viewportScale}
+      >
+        {() => <button type="button">Inputs cell</button>}
+      </SheetFrame>
+    );
+    const { rerender } = render(renderFrame(1));
+    const cell = screen.getByRole('button', { name: 'Inputs cell' });
+    cell.focus();
+
+    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE, true));
+    expect(screen.getByRole('button', { name: 'Inputs cell' })).toBeInTheDocument();
+
+    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument());
+    expect(screen.getByTestId('sheet-frame-body')).toHaveFocus();
+
+    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
+    await waitFor(() => expect(restoreFocus).toHaveBeenCalledTimes(1));
   });
 
   it('cancels an in-progress numeric preview when its control unmounts', () => {
