@@ -50,4 +50,37 @@ describe('App number formatting workflow', () => {
     expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveTextContent('1.23');
     expect(screen.getByRole('cell', { name: 'Inputs B1 cell' })).toHaveTextContent('2.46');
   });
+
+  it('persists column appearance controls, renders their effective styles, and restores them after reload', async () => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'appearance-inputs', name: 'Appearance inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.23' } });
+    const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
+    const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
+
+    selectColumn(screen.getByRole('columnheader', { name: /^A / }), 50, 10);
+    await user.click(screen.getByRole('button', { name: /Bold: one effective value; inherited/ }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Horizontal alignment' }), 'right');
+    fireEvent.change(screen.getByLabelText('Text colour'), { target: { value: '#112233' } });
+    fireEvent.change(screen.getByLabelText('Fill colour'), { target: { value: '#445566' } });
+    await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(4));
+
+    const a1 = screen.getByRole('cell', { name: 'Appearance inputs A1 cell' });
+    expect(a1).toHaveFocus();
+    expect(a1).toHaveStyle({ backgroundColor: '#445566', color: '#112233', fontWeight: 'bold', textAlign: 'right' });
+    const persisted = await apiClient.loadWorkbook();
+    expect(persisted.documents[sheet.id]!.presentation.formatOverrides).toEqual({
+      rows: {},
+      columns: {
+        [sheet.content.columns[0]!]: {
+          fontWeight: 'bold', horizontalAlignment: 'right', textColor: '#112233', fillColor: '#445566',
+        },
+      },
+      cells: {},
+    });
+
+    view.unmount();
+    render(<App initialWorkbook={persisted} apiClient={apiClient} />);
+    expect(screen.getByRole('cell', { name: 'Appearance inputs A1 cell' }))
+      .toHaveStyle({ backgroundColor: '#445566', color: '#112233', fontWeight: 'bold', textAlign: 'right' });
+  });
 });

@@ -5,7 +5,7 @@ import { projectGridAxes } from '@grid/gridAxisProjection';
 import { createGridAxisMetrics } from './gridAxisMetrics';
 import { savedAxisIndexAtOffset, SheetGrid } from '@grid/SheetGrid';
 import { sheetDocument, sparseLargeSheetDocument } from '@test-support/workbookFactories';
-import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
 import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
 
@@ -51,6 +51,52 @@ describe('savedAxisIndexAtOffset', () => {
     // preserve the earlier saved axis rather than inventing a temporary target.
     expect(savedAxisIndexAtOffset(entries, metrics, 25)).toBe(1);
     expect(savedAxisIndexAtOffset(entries, metrics, 45)).toBe(1);
+  });
+});
+
+describe('SheetGrid appearance rendering', () => {
+  it('composes row, column, and cell appearance overrides without obscuring selection feedback after remount', () => {
+    const document = sheetDocument({ id: 'appearance-grid', name: 'Appearance grid', rowCount: 2, columnCount: 2 });
+    const [firstRow] = document.content.rows;
+    const [firstColumn] = document.content.columns;
+    const firstCell = cellIdentityAt(tabularProjection(document), 'A1')!;
+    const styledDocument: typeof document = {
+      ...document,
+      presentation: {
+        ...document.presentation,
+        formatOverrides: {
+          rows: { [firstRow!]: { fontWeight: 'bold', horizontalAlignment: 'left', textColor: '#112233' } },
+          columns: { [firstColumn!]: { fillColor: '#445566' } },
+          cells: { [cellIdentityKey(firstCell)]: { fontWeight: 'normal', horizontalAlignment: 'right', fillColor: 'none' } },
+        },
+      },
+    };
+    const styled = tabularProjection(styledDocument);
+    const axisProjection = projectGridAxes(styled, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const renderGrid = () => render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid activeCellKey="A1" axisProjection={axisProjection}
+          cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
+          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null} presentation={styledDocument.presentation} scrollContainerRef={scrollContainerRef} sheet={styled} />
+      </div>,
+    );
+
+    const view = renderGrid();
+    const a1 = screen.getByRole('cell', { name: 'Appearance grid A1 empty cell' });
+    const b1 = screen.getByRole('cell', { name: 'Appearance grid B1 empty cell' });
+    const a2 = screen.getByRole('cell', { name: 'Appearance grid A2 empty cell' });
+    expect(a1).toHaveAttribute('aria-selected', 'true');
+    expect(a1).toHaveStyle({ backgroundColor: '#ffffff', color: '#112233', fontWeight: 'normal', textAlign: 'right' });
+    expect(b1).toHaveStyle({ color: '#112233', fontWeight: 'bold', textAlign: 'left' });
+    expect(a2).toHaveStyle({ backgroundColor: '#445566' });
+
+    view.unmount();
+    renderGrid();
+    expect(screen.getByRole('cell', { name: 'Appearance grid A1 empty cell' }))
+      .toHaveStyle({ backgroundColor: '#ffffff', color: '#112233', fontWeight: 'normal', textAlign: 'right' });
   });
 });
 
