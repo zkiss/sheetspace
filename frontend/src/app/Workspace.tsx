@@ -114,7 +114,8 @@ export function Workspace({
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   // This belongs to the workspace rather than a SheetFrame: overview selection
   // can replace the logical owner while the original frame remains miniature.
-  const [hasDisplacedGridFocus, setHasDisplacedGridFocus] = useState(false);
+  // Keep the intended owner so an initially-overview sheet can request focus too.
+  const [pendingGridFocusSheetId, setPendingGridFocusSheetId] = useState<string | null>(null);
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
@@ -199,10 +200,10 @@ export function Workspace({
   }, []);
 
   const handleDetailedBodyAvailable = useCallback((sheetId: string) => {
-    if (!hasDisplacedGridFocus || activeCell?.sheetId !== sheetId) return;
-    setHasDisplacedGridFocus(false);
+    if (pendingGridFocusSheetId !== sheetId || activeCell?.sheetId !== sheetId) return;
+    setPendingGridFocusSheetId(null);
     onRestoreGridFocus();
-  }, [activeCell?.sheetId, hasDisplacedGridFocus, onRestoreGridFocus]);
+  }, [activeCell?.sheetId, onRestoreGridFocus, pendingGridFocusSheetId]);
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
@@ -362,14 +363,18 @@ export function Workspace({
               retainDetailedBody={Boolean(
                 sheetEditingCell || interactionPinnedSheetId === sheet.id || gridInteractionSheetIds.has(sheet.id),
               )}
-              onDetailedFocusDisplaced={() => setHasDisplacedGridFocus(true)}
+              onDetailedFocusDisplaced={() => setPendingGridFocusSheetId(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
-                  onSelect={() => {
-                    if (overviewSelectionTarget) onSelectCell(overviewSelectionTarget);
-                  }}
+                   onSelect={() => {
+                     if (!overviewSelectionTarget) return;
+                     // Selecting an overview explicitly asks to enter a grid that
+                     // is absent now. Retarget any displaced-grid handoff to it.
+                     setPendingGridFocusSheetId(sheet.id);
+                     onSelectCell(overviewSelectionTarget);
+                   }}
                   screenScale={effectiveSheetScreenScale(workspaceController.viewport.scale, frame.visualScale)}
                   sheet={tabular}
                 />

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from '@test-support/appScreen';
 import { measuredElementGeometry } from '@test-support/domGeometry';
-import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function inputsSheet() {
   return positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
@@ -89,6 +89,54 @@ describe('App rendering-mode transitions', () => {
     expect(outputsCell).toHaveAttribute('data-active-cell', 'true');
     await waitFor(() => expect(outputsCell).toHaveFocus());
     expect(within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveFocus();
+  });
+
+  it('restores focus after selecting a sheet initially rendered as an overview', async () => {
+    const miniatureInputs = sheetDocument({
+      id: 'sheet-inputs',
+      name: 'Inputs',
+      position: { x: 48, y: 96 },
+      visualScale: 0.3,
+    });
+    render(<App initialWorkbook={workbookWithSheets([miniatureInputs])} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+
+    expect(frame).toHaveAttribute('data-rendering-mode', 'overview');
+    fireEvent.click(within(frame).getByRole('button', { name: 'Select sheet Inputs overview' }));
+    const input = scaleInput();
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
+  });
+
+  it('keeps an overview-selection focus handoff through culling and remounting', async () => {
+    const miniatureInputs = sheetDocument({
+      id: 'sheet-inputs',
+      name: 'Inputs',
+      position: { x: 48, y: 96 },
+      visualScale: 0.3,
+    });
+    render(<App initialWorkbook={workbookWithSheets([miniatureInputs])} />);
+    const surface = screen.getByTestId('workspace-surface');
+    const geometry = measuredElementGeometry(surface, { width: 800, height: 600 });
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+
+    fireEvent.click(within(frame).getByRole('button', { name: 'Select sheet Inputs overview' }));
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+    act(() => { geometry.resize({ width: 800, height: 600 }); });
+
+    const remountedFrame = await screen.findByRole('article', { name: 'Sheet Inputs' });
+    const input = scaleInput();
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(remountedFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    await waitFor(() => expect(within(remountedFrame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
   });
 
   it('keeps a draft and the detailed owner mounted while a scale preview crosses the threshold', async () => {
