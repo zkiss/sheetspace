@@ -1,0 +1,26 @@
+#!/bin/sh
+set -u
+
+script_dir="$(CDPATH= cd "$(dirname "$0")" && pwd -P)" || exit 1
+repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)" || exit 1
+cd "$repo_root" || exit 1
+
+if ratchet status 2>/dev/null | head -n 1 | grep -q '^INCOMPLETE'; then
+  prompt='Continue loop. Caveman ultra.'
+else
+  prompt='Do next bead. Subagents allowed. Caveman ultra.'
+fi
+
+opencode run --agent devflow-runner "$prompt"
+oc_status=$?
+
+if ratchet status 2>/dev/null | head -n 1 | grep -q '^COMPLETE'; then
+  printf 'Loop finished.\n'
+  exit 0
+fi
+
+printf 'Loop unfinished.\n' >&2
+if [ "$oc_status" -ne 0 ]; then
+  exit "$oc_status"
+fi
+exit 1
