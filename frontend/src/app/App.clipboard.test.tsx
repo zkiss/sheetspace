@@ -84,4 +84,26 @@ describe('App grid clipboard integration', () => {
     expect(cell('C1')).toHaveTextContent('move me');
     expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
   });
+
+  it('removes pending-cut styling when an external no-op paste replaces the clipboard', () => {
+    const sheet = {
+      ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }),
+      columnCount: 2,
+      cells: { A1: 'move me', B1: 'outside' },
+    };
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+
+    fireEvent.click(cell('A1'));
+    fireEvent.cut(cell('A1'), { clipboardData: clipboardData() });
+    expect(cell('A1')).toHaveAttribute('data-pending-cut', 'true');
+
+    fireEvent.click(cell('B1'));
+    fireEvent.paste(cell('B1'), { clipboardData: clipboardData({ 'text/plain': 'outside' }) });
+
+    expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+  });
 });

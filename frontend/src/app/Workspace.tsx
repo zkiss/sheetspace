@@ -220,7 +220,9 @@ export function Workspace({
     const destination = findSheetById(workbook, activeCell.sheetId);
     const destinationKey = destination && cellKeyForTarget(destination, activeCell);
     if (!destination || !destinationKey) return;
+    const hadPendingCut = clipboard.current.pendingCutSource !== undefined;
     const parsed = clipboard.current.parse(workbook, clipboardData);
+    if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     if (parsed.ok && parsed.value.kind === 'cut') {
       const moved = commands.moveCells(destination.id, destinationKey, parsed.value.source);
       if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source') cancelPendingCut();
