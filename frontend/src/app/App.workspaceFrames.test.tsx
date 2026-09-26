@@ -54,6 +54,14 @@ describe('App workspace and sheet frame composition', () => {
     expect(frame).toHaveStyle({ zIndex: '17' });
     expect(screen.getByText('Revenue')).toBeInTheDocument();
     expect(screen.getByText('10,000 × 100')).toBeInTheDocument();
+    expect(screen.getByTestId('sheet-overview-screen')).toHaveStyle({
+      height: '25%',
+      transform: 'scale(4)',
+      width: '25%',
+    });
+    expect(document.querySelector('[data-overview-sample-address="CV10000"]')).toHaveStyle({
+      left: '100%', top: '100%', transform: 'translate(-100%, -100%)',
+    });
     expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(document.querySelector('.sheet-grid-column-header')).not.toBeInTheDocument();

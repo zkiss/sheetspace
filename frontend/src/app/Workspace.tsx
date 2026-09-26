@@ -33,7 +33,7 @@ import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
-import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import { effectiveSheetScreenScale, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 
 export function Workspace({
@@ -344,6 +344,7 @@ export function Workspace({
                   onSelect={() => {
                     if (overviewSelectionTarget) onSelectCell(overviewSelectionTarget);
                   }}
+                  screenScale={effectiveSheetScreenScale(workspaceController.viewport.scale, frame.visualScale)}
                   sheet={tabular}
                 />
               )}

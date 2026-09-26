@@ -1,14 +1,12 @@
 .sheet-overview {
   position: relative;
-  display: grid;
+  display: block;
   width: 100%;
   height: 100%;
   min-height: 100%;
-  grid-template-rows: auto 1fr auto;
-  gap: 10px;
   overflow: hidden;
   border: 0;
-  padding: 14px;
+  padding: 0;
   background: linear-gradient(145deg, #f8fbfc, #e7eff2);
   color: #17202a;
   cursor: pointer;
@@ -20,21 +18,41 @@
   outline-offset: -3px;
 }
 
+.sheet-overview-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  box-sizing: border-box;
+  grid-template-rows: auto minmax(9px, 1fr);
+  gap: 1px;
+  padding: 2px;
+  container-type: inline-size;
+  transform-origin: top left;
+}
+
 .sheet-overview-identity,
 .sheet-overview-count {
   position: relative;
   z-index: 2;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgb(248 251 252 / 90%);
 }
 
 .sheet-overview-identity {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 3px;
+  padding: 0 2px;
+  line-height: 1;
 }
 
 .sheet-overview-identity strong {
   overflow: hidden;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -42,17 +60,18 @@
 .sheet-overview-identity span,
 .sheet-overview-count {
   color: #52636b;
-  font-size: 12px;
+  font-size: 7px;
   white-space: nowrap;
 }
 
 .sheet-overview-map {
   position: relative;
   display: block;
-  min-height: 52px;
-  margin: 0 7px 0 0;
+  min-height: 9px;
+  overflow: hidden;
+  box-sizing: border-box;
   border: 1px solid #b9c9cf;
-  border-radius: 3px;
+  border-radius: 2px;
   background:
     linear-gradient(to right, rgb(47 116 126 / 10%) 1px, transparent 1px),
     linear-gradient(to bottom, rgb(47 116 126 / 10%) 1px, transparent 1px),
@@ -63,15 +82,28 @@
 .sheet-overview-sample {
   position: absolute;
   display: block;
-  max-width: 42%;
+  max-width: 55%;
   overflow: hidden;
-  padding: 1px 3px;
+  padding: 0 2px;
   border-radius: 2px;
   background: #2f747e;
   color: #fff;
-  font-size: 9px;
-  line-height: 1.3;
+  font-size: 8px;
+  line-height: 1;
   text-overflow: ellipsis;
-  transform: translateY(-50%);
   white-space: nowrap;
+}
+
+.sheet-overview-count {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+@container (max-width: 110px) {
+  .sheet-overview-identity span {
+    display: none;
+  }
 }

@@ -46,13 +46,16 @@ export function projectSheetOverview(
 export function SheetOverview({
   isActive,
   onSelect,
+  screenScale,
   sheet,
 }: {
   isActive: boolean;
   onSelect: () => void;
+  screenScale: number;
   sheet: SheetTabularProjection;
 }) {
   const samples = projectSheetOverview(sheet);
+  const overviewScale = normalizedScreenScale(screenScale);
   return (
     <button
       aria-label={`Select sheet ${sheet.name} overview`}
@@ -62,30 +65,52 @@ export function SheetOverview({
       onClick={onSelect}
       type="button"
     >
-      <span className="sheet-overview-identity">
-        <strong>{sheet.name}</strong>
-        <span>{sheet.rows.length.toLocaleString()} × {sheet.columns.length.toLocaleString()}</span>
-      </span>
-      <span aria-hidden="true" className="sheet-overview-map">
-        {samples.map((sample) => (
-          <span
-            className="sheet-overview-sample"
-            data-overview-sample-address={sample.address}
-            key={sample.address}
-            style={{ left: `${sample.columnFraction * 100}%`, top: `${sample.rowFraction * 100}%` } as CSSProperties}
-            title={`${sample.address}: ${sample.text}`}
-          >
-            {sample.text}
-          </span>
-        ))}
-      </span>
-      <span className="sheet-overview-count">
-        {samples.length === MAX_SHEET_OVERVIEW_SAMPLES ? 'Sampled values' : `${samples.length} populated`}
+      <span
+        className="sheet-overview-screen"
+        data-testid="sheet-overview-screen"
+        style={{
+          height: `${overviewScale * 100}%`,
+          transform: `scale(${1 / overviewScale})`,
+          width: `${overviewScale * 100}%`,
+        }}
+      >
+        <span className="sheet-overview-identity">
+          <strong title={sheet.name}>{sheet.name}</strong>
+          <span>{sheet.rows.length.toLocaleString()} × {sheet.columns.length.toLocaleString()}</span>
+        </span>
+        <span aria-hidden="true" className="sheet-overview-map">
+          {samples.map((sample) => (
+            <span
+              className="sheet-overview-sample"
+              data-overview-sample-address={sample.address}
+              key={sample.address}
+              style={samplePosition(sample)}
+              title={`${sample.address}: ${sample.text}`}
+            >
+              {sample.text}
+            </span>
+          ))}
+        </span>
+        <span className="sheet-overview-count">
+          {samples.length === MAX_SHEET_OVERVIEW_SAMPLES ? 'Sampled values' : `${samples.length} populated`}
+        </span>
       </span>
     </button>
   );
 }
 
+function samplePosition(sample: SheetOverviewSample): CSSProperties {
+  return {
+    left: `${sample.columnFraction * 100}%`,
+    top: `${sample.rowFraction * 100}%`,
+    transform: `translate(${-sample.columnFraction * 100}%, ${-sample.rowFraction * 100}%)`,
+  };
+}
+
 function axisFraction(index: number, count: number) {
   return count <= 1 ? 0 : index / (count - 1);
+}
+
+function normalizedScreenScale(scale: number) {
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }

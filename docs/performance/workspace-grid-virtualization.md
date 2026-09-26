@@ -60,7 +60,11 @@ Overview mode retains the frame article, title, state indicators, z-index, conte
 handles, and inverse-scaled controls. Its body contains one overview button, identity and dimension
 labels, one map, and at most 12 sparse content samples. It contains no `SheetGrid`, table, grid
 headers, cell editors, or row-by-column cell projection. Selecting the overview assigns the
-sheet's first cell to the existing logical selection model.
+sheet's first cell to the existing logical selection model. The overview's inner projection cancels
+the effective scale while reducing its layout width and height by the same factor. It therefore
+fills the miniature body without growing beyond it, while its identity, dimensions, count, and
+sample labels remain in readable screen-pixel geometry. Sample labels translate by their axis
+fractions, keeping both near and far edges inside the clipped map.
 
 The bounded-overview fixture uses a visible 10,000 × 100 sheet at effective scale `0.25`, with
 content at `A1` and `CV10000`. It mounts one frame and one overview with two samples, while detailed
