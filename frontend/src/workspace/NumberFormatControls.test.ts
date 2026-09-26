@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { selectionFormatControlState, selectionFormatWrites } from './NumberFormatControls';
+import { selectionAppearanceControlState, selectionAppearanceWrites, selectionFormatControlState, selectionFormatWrites } from './NumberFormatControls';
 
 const sheet = sheetDocument({ id: 'format-sheet', name: 'Formats', rowCount: 2, columnCount: 2 });
 const selection = {
@@ -56,5 +56,24 @@ describe('number format selection controls', () => {
     const columnSelection = { ...selection, mode: 'columns' as const, extent: selection.anchor };
 
     expect(selectionFormatControlState(formatted, columnSelection)).toEqual({ format: null, hasLocalOverrides: true });
+  });
+
+  it('writes individual appearance properties and reports their independent effective state', () => {
+    const targetId = cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! });
+    expect(selectionAppearanceWrites(sheet, { ...selection, extent: selection.anchor }, { fillColor: '#abcdef' })).toEqual([
+      { scope: 'cell', targetId, properties: { fillColor: '#abcdef' } },
+    ]);
+    const styled = {
+      ...sheet,
+      presentation: {
+        ...sheet.presentation,
+        formatOverrides: { rows: { [sheet.content.rows[0]!]: { fontWeight: 'bold' as const } }, columns: {}, cells: { [targetId]: { fillColor: 'none' as const } } },
+      },
+    };
+    expect(selectionAppearanceControlState(styled, { ...selection, extent: selection.anchor })).toMatchObject({
+      fontWeight: { value: 'bold', hasLocalOverrides: false },
+      fillColor: { value: 'none', hasLocalOverrides: true },
+      horizontalAlignment: { value: 'general', hasLocalOverrides: false },
+    });
   });
 });
