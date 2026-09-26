@@ -19,6 +19,7 @@
   z-index: 5;
   background: transparent;
   touch-action: none;
+  transform-origin: center;
 }
 
 .sheet-frame-scale-handle {

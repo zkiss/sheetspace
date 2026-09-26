@@ -114,7 +114,7 @@ describe('SheetFrame', () => {
     expect(input).toHaveValue(200);
   });
 
-  it('keeps the inverse-scaled handle outside the clipped sheet body at miniature combined scale', () => {
+  it('keeps controls at stable screen size outside the clipped body at miniature combined scale', () => {
     const interactions = {
       onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
       onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
@@ -131,15 +131,27 @@ describe('SheetFrame', () => {
     const body = screen.getByTestId('sheet-frame-body');
     const controls = screen.getByTestId('sheet-frame-controls');
     const handle = screen.getByTestId('sheet-frame-scale-handle');
+    const resizeTop = screen.getByRole('separator', { name: /from top$/ });
+    const resizeRight = screen.getByRole('separator', { name: /from right$/ });
+    const resizeCorner = screen.getByRole('separator', { name: /from bottom-right$/ });
 
     expect(controls).toContainElement(handle);
     expect(body).not.toContainElement(handle);
     expect(handle).toHaveStyle({ transform: 'scale(8)' });
+    expect(resizeTop).toHaveStyle({ transform: 'scaleY(8)' });
+    expect(resizeRight).toHaveStyle({ transform: 'scaleX(8)' });
+    expect(resizeCorner).toHaveStyle({ transform: 'scale(8)' });
 
-    // The handle remains in the unclipped frame layer even though it protrudes
-    // beyond the clipped scroll body, so its full stable-size target is usable.
+    // The controls remain in the unclipped frame layer even though they protrude
+    // beyond the clipped scroll body, so their full stable-size targets are usable.
     fireEvent.pointerDown(handle);
+    fireEvent.pointerDown(resizeCorner);
     expect(interactions.onScaleStart).toHaveBeenCalledWith('sheet-inputs', expect.anything());
+    expect(interactions.onResizeStart).toHaveBeenCalledWith(
+      'sheet-inputs',
+      { horizontal: 1, vertical: 1 },
+      expect.anything(),
+    );
   });
 
   it('switches only the frame body at the effective-scale hysteresis boundaries', () => {

@@ -135,6 +135,7 @@ export function SheetFrame({
           onPointerMove={onResizeMove}
           onPointerUp={onResizeStop}
           role="separator"
+          style={{ transform: resizeHandleTransform(handle, screenScale) }}
         />
       ))}
       {isActiveSheet && (
@@ -262,4 +263,11 @@ function ScaleInput({
 
 function scalePercentage(visualScale: number) {
   return String(Math.round(visualScale * 100));
+}
+
+function resizeHandleTransform(handle: string, screenScale: number) {
+  const inverseScreenScale = 1 / screenScale;
+  if (handle === 'top' || handle === 'bottom') return `scaleY(${inverseScreenScale})`;
+  if (handle === 'left' || handle === 'right') return `scaleX(${inverseScreenScale})`;
+  return `scale(${inverseScreenScale})`;
 }
