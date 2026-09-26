@@ -130,19 +130,25 @@ describe('SheetGrid clipboard routing', () => {
     expect(cancelCut).not.toHaveBeenCalled();
   });
 
-  it('keeps input and contenteditable clipboard events browser-native', () => {
+  it('keeps input and every editable contenteditable form browser-native', () => {
     const cut = vi.fn(() => ({ text: 'A', marker: 'sheetspace:cut' }));
     const paste = vi.fn();
-    const grid = renderClipboardGrid({ cut, copy: vi.fn(), paste });
+    const cancelCut = vi.fn();
+    const grid = renderClipboardGrid({ cut, copy: vi.fn(), paste, cancelCut });
     const input = document.createElement('input');
-    const editable = document.createElement('div');
-    editable.setAttribute('contenteditable', 'true');
-    grid.append(input, editable);
+    const bareEditable = document.createElement('div');
+    bareEditable.setAttribute('contenteditable', '');
+    const plaintextEditable = document.createElement('div');
+    plaintextEditable.setAttribute('contenteditable', 'plaintext-only');
+    grid.append(input, bareEditable, plaintextEditable);
 
     expect(fireEvent.cut(input, { clipboardData: clipboardData() })).toBe(true);
-    expect(fireEvent.paste(editable, { clipboardData: clipboardData({ 'text/plain': 'native' }) })).toBe(true);
+    expect(fireEvent.copy(bareEditable, { clipboardData: clipboardData() })).toBe(true);
+    expect(fireEvent.paste(plaintextEditable, { clipboardData: clipboardData({ 'text/plain': 'native' }) })).toBe(true);
+    fireEvent.keyDown(plaintextEditable, { key: 'Escape' });
     expect(cut).not.toHaveBeenCalled();
     expect(paste).not.toHaveBeenCalled();
+    expect(cancelCut).not.toHaveBeenCalled();
   });
 
   it('leaves an unavailable cut operation browser-native', () => {

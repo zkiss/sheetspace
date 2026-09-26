@@ -35,6 +35,16 @@ function logicalUnitsPerRenderedPixel(scrollContainer: HTMLElement, rect: DOMRec
   };
 }
 
+function isNativeEditorTarget(target: EventTarget | null) {
+  const editor = target instanceof HTMLElement
+    ? target.closest<HTMLElement>('textarea, input, [contenteditable]')
+    : null;
+  return Boolean(editor && (
+    editor.matches('textarea, input')
+    || editor.getAttribute('contenteditable')?.toLowerCase() !== 'false'
+  ));
+}
+
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLElement,
   scrollContainer: HTMLElement,
@@ -528,7 +538,7 @@ export function SheetGrid({
 
   function beginDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"], .sheet-grid-resize-handle')) return;
+    if (isNativeEditorTarget(event.target) || (event.target as HTMLElement).closest('button, a, .sheet-grid-resize-handle')) return;
     if (dragRef.current) return;
     const source = (event.target as HTMLElement).closest<HTMLElement>('[data-cell-key], [data-axis-selection-mode]');
     if (!source) return;
@@ -590,7 +600,7 @@ export function SheetGrid({
   }
 
   function isNativeEditorEvent(event: ClipboardEvent<HTMLDivElement>) {
-    return (event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]');
+    return isNativeEditorTarget(event.target);
   }
 
   function copySelection(event: ClipboardEvent<HTMLDivElement>) {
@@ -640,7 +650,7 @@ export function SheetGrid({
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           finishDrag();
-          if (!(event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]')) clipboardInteraction?.cancelCut?.();
+          if (!isNativeEditorTarget(event.target)) clipboardInteraction?.cancelCut?.();
         }
       }}
       onCopy={copySelection}
