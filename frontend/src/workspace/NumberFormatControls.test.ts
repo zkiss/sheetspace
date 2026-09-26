@@ -77,6 +77,23 @@ describe('number format selection controls', () => {
     });
   });
 
+  it('rejects incomplete appearance patches and invalid selections', () => {
+    const invalidSelection = {
+      ...selection,
+      anchor: { sheetId: sheet.id, cell: { rowId: 'missing-row', columnId: sheet.content.columns[0]! } },
+    };
+
+    expect(selectionAppearanceWrites(sheet, selection, {})).toEqual([]);
+    expect(selectionAppearanceWrites(sheet, selection, { fontWeight: 'bold', fillColor: '#abcdef' })).toEqual([]);
+    expect(selectionAppearanceWrites(sheet, invalidSelection, { fontWeight: 'bold' })).toEqual([]);
+    expect(selectionAppearanceControlState(undefined, selection).fontWeight).toEqual({
+      value: null, localOverrideState: 'inherited', hasLocalOverrides: false,
+    });
+    expect(selectionAppearanceControlState(sheet, invalidSelection).fillColor).toEqual({
+      value: null, localOverrideState: 'inherited', hasLocalOverrides: false,
+    });
+  });
+
   it.each(['cells', 'rows', 'columns'] as const)('distinguishes mixed effective values from mixed local provenance for %s selections', (mode) => {
     const first = cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! });
     const second = cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[1]! });
