@@ -49,6 +49,7 @@ class PresentationMutationRoutesTest {
             """{"formatWrites":[{"scope":"cell","targetId":"$row\\u0000missing","numberFormat":null}]}""",
             """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"general","precision":2}}]}""",
             """{"formatWrites":[{"scope":"column","targetId":"$column","properties":{"numberFormat":{"kind":"number","precision":"2"}}}]}""",
+            """{"formatWrites":[{"scope":"column","targetId":"$column","properties":{"fontWeight":"bold","fontWeight":"normal"}}]}""",
             """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"number","precision":11}}]}""",
         )
         invalidBodies.forEach { body ->
