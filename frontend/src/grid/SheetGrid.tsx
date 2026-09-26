@@ -108,11 +108,14 @@ export function SheetGrid({
   presentation,
   logicalSelection,
   onWriteAxisSizes,
+  onPointerInteractionChange,
   pendingCutCells,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
+  /** Keeps this grid mounted while a live pointer session owns it. */
+  onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
   pendingCutCells?: ReadonlySet<string>;
   activeCellKey: string | null;
   /**
@@ -194,6 +197,14 @@ export function SheetGrid({
       : null
   ), [keyboardFocusRequest?.id, keyboardFocusRequest?.targetKey]);
   const focusIntent = keyboardFocusIntent ?? gridEntryFocusIntent;
+
+  useEffect(() => {
+    const active = dragging || resize.preview !== null;
+    onPointerInteractionChange?.(sheet.id, active);
+    return () => {
+      if (active) onPointerInteractionChange?.(sheet.id, false);
+    };
+  }, [dragging, onPointerInteractionChange, resize.preview, sheet.id]);
 
   // An application request supersedes every older grid-entry request.  It is not
   // merely higher priority while present: once acknowledged, the prior entry

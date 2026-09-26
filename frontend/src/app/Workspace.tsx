@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, type CellRange } from '@workbook/core/address';
@@ -111,6 +111,7 @@ export function Workspace({
 }) {
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
+  const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
@@ -175,6 +176,7 @@ export function Workspace({
     frames: projectedFrames,
     pins: {
       editingSheetId: editingCell?.target.sheetId,
+      gridInteractionSheetIds,
       interactionSheetId: interactionPinnedSheetId,
       navigationRevealSheetId,
       pendingFocusSheetId: keyboardFocusRequest?.target.sheetId,
@@ -182,6 +184,16 @@ export function Workspace({
     surfaceSize: workspaceController.workspaceSurfaceSize,
     viewport: workspaceController.viewport,
   });
+
+  const handleGridPointerInteractionChange = useCallback((sheetId: string, active: boolean) => {
+    setGridInteractionSheetIds((current) => {
+      if (current.has(sheetId) === active) return current;
+      const next = new Set(current);
+      if (active) next.add(sheetId);
+      else next.delete(sheetId);
+      return next;
+    });
+  }, []);
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
@@ -338,7 +350,9 @@ export function Workspace({
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
                 : navigationHighlight?.sheetId === sheet.id}
-              retainDetailedBody={Boolean(sheetEditingCell || interactionPinnedSheetId === sheet.id)}
+              retainDetailedBody={Boolean(
+                sheetEditingCell || interactionPinnedSheetId === sheet.id || gridInteractionSheetIds.has(sheet.id),
+              )}
               onDetailedFocusRestore={() => {
                 // A SheetFrame only calls this after it moved focus out of a
                 // replaced detailed body. The application remains the sole
@@ -389,6 +403,7 @@ export function Workspace({
                     pendingCutCells={pendingCutCells}
                     logicalSelection={selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
+                    onPointerInteractionChange={handleGridPointerInteractionChange}
                     cellInteraction={{
                       clear: onClearCell,
                       navigate: onNavigateCell,

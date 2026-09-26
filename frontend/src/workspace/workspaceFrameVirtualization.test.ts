@@ -10,10 +10,11 @@ describe('workspaceFrameVirtualization', () => {
   it('keeps pin reasons explicit and deduplicates sheets pinned for multiple reasons', () => {
     expect([...workspaceFramePinIds({
       editingSheetId: 'offscreen',
+      gridInteractionSheetIds: new Set(['grid-drag', 'offscreen']),
       interactionSheetId: 'offscreen',
       navigationRevealSheetId: 'navigation',
       pendingFocusSheetId: null,
-    })]).toEqual(['offscreen', 'navigation']);
+    })]).toEqual(['offscreen', 'navigation', 'grid-drag']);
   });
 
   it('culls by measured transformed viewport while retaining every explicit pin category', () => {
@@ -27,6 +28,7 @@ describe('workspaceFrameVirtualization', () => {
     for (const pin of [
       { editingSheetId: 'offscreen' },
       { interactionSheetId: 'offscreen' },
+      { gridInteractionSheetIds: new Set(['offscreen']) },
       { navigationRevealSheetId: 'offscreen' },
       { pendingFocusSheetId: 'offscreen' },
     ]) {

@@ -303,6 +303,41 @@ describe('SheetGrid creating axis slots', () => {
     }), expect.objectContaining({ owner: expect.any(Symbol) }));
   });
 
+  it('reports a live selection drag so its frame can retain the detailed grid', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-pinned-drag', name: 'Pinned drag' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const onPointerInteractionChange = vi.fn();
+
+    render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid
+          activeCellKey={null}
+          axisProjection={axisProjection}
+          cellInteraction={{ clear: vi.fn(), extend: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
+          editingCell={null}
+          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}}
+          keyboardFocusRequest={null}
+          onKeyboardFocusRequestConsumed={vi.fn()}
+          onPointerInteractionChange={onPointerInteractionChange}
+          navigationHighlightCellKey={null}
+          scrollContainerRef={scrollContainerRef}
+          sheet={sheet}
+        />
+      </div>,
+    );
+
+    const grid = screen.getByTestId('sheet-grid');
+    firePointer(screen.getByRole('cell', { name: 'Pinned drag A1 empty cell' }), 'pointerdown', {
+      button: 0, clientX: 50, clientY: 40, pointerId: 31,
+    });
+    expect(onPointerInteractionChange).toHaveBeenLastCalledWith(sheet.id, true);
+
+    firePointer(grid, 'pointerup', { clientX: 50, clientY: 40, pointerId: 31 });
+    expect(onPointerInteractionChange).toHaveBeenLastCalledWith(sheet.id, false);
+  });
+
   it('extends row and column header drags in their whole-axis modes', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'sheet-axis-drag', name: 'Axis drag' }));
     const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
