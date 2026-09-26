@@ -17,6 +17,7 @@ import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
   preparePasteCellWrites,
+  prepareMoveCellWrites,
   replayCellPersistenceWrites,
   type AppliedWorkbookOperation,
   type AffectedWorkbookEntities,
@@ -50,6 +51,7 @@ export type WorkbookCommands = {
   deleteSheet: (sheetId: string) => void;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
+  moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
   retryFailedSaves: () => void;
   undo: () => void;
@@ -63,6 +65,7 @@ export type WorkbookCommands = {
 export type PasteCellsResult =
   | { ok: true; changed: boolean }
   | { ok: false; reason: 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed' };
+export type MoveCellsResult = { ok: true; changed: boolean } | { ok: false; reason: import('@application/core/userActions').MovePreparationFailureReason };
 
 export type ContentHistoryCellSnapshot = Readonly<{
   sheetId: string;
@@ -322,6 +325,17 @@ export function useWorkbookController({
     return { ok: true, changed: Boolean(applied?.changed) };
   }
 
+  function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
+    const sourceWorkbook = optimisticWorkbook.current;
+    const sheet = findSheetById(sourceWorkbook, sheetId);
+    const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
+    if (!destination) return { ok: false, reason: 'invalid-destination' };
+    const prepared = prepareMoveCellWrites(sourceWorkbook, sheetId, destination, source);
+    if (!prepared.ok) return prepared;
+    const applied = applyAction({ kind: 'write-cells', writes: prepared.writes });
+    return { ok: true, changed: Boolean(applied?.changed) };
+  }
+
   function replayContentHistory(direction: 'undo' | 'redo') {
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
@@ -377,6 +391,7 @@ export function useWorkbookController({
       createSheet,
       deleteSheet: deleteSheetCommand,
       moveSheetFrame,
+      moveCells,
       pasteCells,
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,

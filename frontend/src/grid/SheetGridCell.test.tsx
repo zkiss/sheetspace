@@ -139,12 +139,21 @@ describe('SheetGridCell', () => {
       { key: 'Enter', shift: false },
     );
 
+    fireEvent.keyDown(editor, { key: 'Tab', shiftKey: true });
+    expect(props.editorInteraction.commitAndNavigate).toHaveBeenLastCalledWith(
+      { ...editingCell, draft: 'Updated' },
+      { key: 'Tab', shift: true },
+    );
+
+    fireEvent.keyDown(editor, { key: 'Tab', ctrlKey: true });
+    expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledTimes(2);
+
     fireEvent.keyDown(editor, { key: 'Escape' });
     expect(props.editorInteraction.cancel).toHaveBeenCalled();
 
     fireEvent.keyDown(editor, { key: 'ArrowLeft', ctrlKey: true, shiftKey: true });
     fireEvent.keyDown(editor, { key: 'Home' });
-    expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledTimes(1);
+    expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledTimes(2);
   });
 
   it('anchors multiline editor sizing to the cell with documented maximum dimensions', () => {

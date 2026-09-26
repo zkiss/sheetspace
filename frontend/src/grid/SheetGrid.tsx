@@ -35,6 +35,16 @@ function logicalUnitsPerRenderedPixel(scrollContainer: HTMLElement, rect: DOMRec
   };
 }
 
+function isNativeEditorTarget(target: EventTarget | null) {
+  const editor = target instanceof HTMLElement
+    ? target.closest<HTMLElement>('textarea, input, [contenteditable]')
+    : null;
+  return Boolean(editor && (
+    editor.matches('textarea, input')
+    || editor.getAttribute('contenteditable')?.toLowerCase() !== 'false'
+  ));
+}
+
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLElement,
   scrollContainer: HTMLElement,
@@ -96,10 +106,12 @@ export function SheetGrid({
   presentation,
   logicalSelection,
   onWriteAxisSizes,
+  pendingCutCells,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
+  pendingCutCells?: ReadonlySet<string>;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -128,7 +140,9 @@ export function SheetGrid({
   /** Clipboard operations are owned by the application, while this grid owns DOM routing. */
   clipboardInteraction?: {
     copy: () => { text: string; marker: string } | undefined;
+    cut?: () => { text: string; marker: string } | undefined;
     paste: (clipboard: { text: string; marker?: string }) => void;
+    cancelCut?: () => void;
   };
 }) {
   const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
@@ -524,7 +538,7 @@ export function SheetGrid({
 
   function beginDrag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('textarea, input, button, a, [contenteditable="true"], .sheet-grid-resize-handle')) return;
+    if (isNativeEditorTarget(event.target) || (event.target as HTMLElement).closest('button, a, .sheet-grid-resize-handle')) return;
     if (dragRef.current) return;
     const source = (event.target as HTMLElement).closest<HTMLElement>('[data-cell-key], [data-axis-selection-mode]');
     if (!source) return;
@@ -586,7 +600,7 @@ export function SheetGrid({
   }
 
   function isNativeEditorEvent(event: ClipboardEvent<HTMLDivElement>) {
-    return (event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]');
+    return isNativeEditorTarget(event.target);
   }
 
   function copySelection(event: ClipboardEvent<HTMLDivElement>) {
@@ -595,6 +609,15 @@ export function SheetGrid({
     if (!copied) return;
     event.clipboardData.setData('text/plain', copied.text);
     event.clipboardData.setData('application/x-sheetspace-clipboard', copied.marker);
+    event.preventDefault();
+  }
+
+  function cutSelection(event: ClipboardEvent<HTMLDivElement>) {
+    if (isNativeEditorEvent(event)) return;
+    const cut = clipboardInteraction?.cut?.();
+    if (!cut) return;
+    event.clipboardData.setData('text/plain', cut.text);
+    event.clipboardData.setData('application/x-sheetspace-clipboard', cut.marker);
     event.preventDefault();
   }
 
@@ -625,9 +648,13 @@ export function SheetGrid({
         if (next && !event.currentTarget.contains(next)) finishDrag();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') finishDrag();
+        if (event.key === 'Escape') {
+          finishDrag();
+          if (!isNativeEditorTarget(event.target)) clipboardInteraction?.cancelCut?.();
+        }
       }}
       onCopy={copySelection}
+      onCut={cutSelection}
       onPaste={pasteSelection}
       onPointerDownCapture={beginDrag}
       onPointerMove={moveDrag}
@@ -731,7 +758,8 @@ export function SheetGrid({
                   isFocusTarget={focusIntent?.targetKey === key}
                   isNavigationTarget={isNavigationTarget}
                   historyFeedback={historyFeedback}
-                  isRangeSelected={isRangeSelected}
+                   isRangeSelected={isRangeSelected}
+                   isPendingCut={pendingCutCells?.has(key)}
                   key={key}
                   registerCell={registerCell}
                   sheet={sheet}

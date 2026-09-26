@@ -35,6 +35,47 @@ describe('TSV clipboard codec', () => {
 });
 
 describe('clipboard payload provenance', () => {
+  it('keeps a cut pending only for its exact clipboard payload, and cancels it on replacement', () => {
+    const sheet = sheetDocument({ id: 'source', name: 'Source', cells: { A1: 'one', B1: 'two' } });
+    const workbook = workbookWithSheets([sheet]);
+    const store = new ClipboardPayloadStore();
+    const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'B1')! });
+    if (!cut.ok) throw new Error('cut failed');
+
+    expect(store.pendingCutSource).toMatchObject({ sheetId: sheet.id });
+    expect(store.parse(workbook, cut.value)).toMatchObject({ ok: true, value: { kind: 'cut' } });
+    expect(store.parse(workbook, { text: 'outside' })).toMatchObject({ ok: true, value: { kind: 'external' } });
+    expect(store.pendingCutSource).toBeUndefined();
+
+    const replacement = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'A1')! });
+    if (!replacement.ok) throw new Error('replacement cut failed');
+    store.cancelCut();
+    expect(store.pendingCutSource).toBeUndefined();
+    expect(store.parse(workbook, replacement.value)).toMatchObject({ ok: true, value: { kind: 'internal' } });
+  });
+
+  it('treats a structurally stale pending cut as a cut for atomic validation', () => {
+    const sheet = sheetDocument({ id: 'source', name: 'Source', cells: { A1: 'one' } });
+    const workbook = workbookWithSheets([sheet]);
+    const store = new ClipboardPayloadStore();
+    const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'A1')! });
+    if (!cut.ok) throw new Error('cut failed');
+    const deletedSource = { ...sheet, content: { ...sheet.content, rows: sheet.content.rows.slice(1) } };
+
+    expect(store.parse(workbookWithSheets([deletedSource]), cut.value)).toMatchObject({ ok: true, value: { kind: 'cut' } });
+  });
+
+  it('does not create pending provenance for an invalid cut selection', () => {
+    const sheet = sheetDocument({ id: 'source', name: 'Source' });
+    const store = new ClipboardPayloadStore();
+    const target = cellTargetAt(sheet, 'A1')!;
+
+    expect(store.cut(workbookWithSheets([sheet]), {
+      mode: 'cells', anchor: target, extent: { ...target, sheetId: 'missing' },
+    })).toEqual({ ok: false, reason: 'invalid-selection' });
+    expect(store.pendingCutSource).toBeUndefined();
+  });
+
   it('exports raw content with formulas projected for people, while preserving canonical source raws privately', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: 'literal', B1: '' } });
     const workbook = workbookWithSheets([source]);

@@ -49,6 +49,7 @@ export function SheetGridCell({
   isNavigationTarget = false,
   historyFeedback,
   isRangeSelected = false,
+  isPendingCut = false,
   cellInteraction,
   editorInteraction,
   registerCell,
@@ -66,6 +67,7 @@ export function SheetGridCell({
   isNavigationTarget?: boolean;
   historyFeedback?: { before: string | null; beforeDisplay: string | null; after: string | null };
   isRangeSelected?: boolean;
+  isPendingCut?: boolean;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
   registerCell?: (cellKey: string, element: HTMLElement | null) => void;
@@ -132,6 +134,7 @@ export function SheetGridCell({
       data-history-feedback={historyFeedback ? 'true' : undefined}
       data-history-before={historyFeedback?.beforeDisplay ?? undefined}
       data-reference-selected={isRangeSelected ? 'true' : undefined}
+      data-pending-cut={isPendingCut ? 'true' : undefined}
       data-testid="sheet-grid-cell"
       onClick={(event) => {
         // Pointer selection is committed on pointer-down so a drag can extend it.

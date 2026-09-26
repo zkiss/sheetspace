@@ -120,3 +120,4 @@
   outline: none;
   resize: none;
 }
+.sheet-grid-cell[data-pending-cut='true'] { opacity: 0.45; outline: 2px dashed #4f7cff; outline-offset: -3px; }

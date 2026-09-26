@@ -78,8 +78,23 @@ export function decodeTsv(text: string): TsvDecodeResult {
  */
 export class ClipboardPayloadStore {
   private latest: { marker: ClipboardMarker; text: string; source: ClipboardSourceSnapshot } | undefined;
+  private pendingCut: { marker: ClipboardMarker; text: string; source: ClipboardSourceSnapshot } | undefined;
 
   copy(workbook: Workbook, selection: CellSelection): ClipboardCopyResult {
+    this.pendingCut = undefined;
+    return this.capture(workbook, selection);
+  }
+
+  cut(workbook: Workbook, selection: CellSelection): ClipboardCopyResult {
+    const captured = this.capture(workbook, selection);
+    if (captured.ok) this.pendingCut = { ...this.latest! };
+    return captured;
+  }
+
+  cancelCut() { this.pendingCut = undefined; }
+  get pendingCutSource() { return this.pendingCut?.source; }
+
+  private capture(workbook: Workbook, selection: CellSelection): ClipboardCopyResult {
     const sheet = findSheetById(workbook, selection.anchor.sheetId);
     if (!sheet) return { ok: false, reason: 'unknown-sheet' };
     const range = selectionRange(sheet, selection);
@@ -105,6 +120,12 @@ export class ClipboardPayloadStore {
     const decoded = decodeTsv(clipboard.text);
     if (!decoded.ok) return decoded;
     const snapshot = this.latest;
+    const pending = this.pendingCut;
+    if (pending && clipboard.marker === pending.marker && clipboard.text === pending.text
+      && sameDimensions(decoded.value, pending.source.dimensions)) {
+      return { ok: true, value: { kind: 'cut', grid: decoded.value, source: cloneSource(pending.source) } };
+    }
+    if (pending) this.pendingCut = undefined;
     if (!snapshot || clipboard.marker !== snapshot.marker || clipboard.text !== snapshot.text
       || !sameDimensions(decoded.value, snapshot.source.dimensions) || !sourceStillValid(workbook, snapshot.source)) {
       return { ok: true, value: { kind: 'external', grid: decoded.value } };
