@@ -106,4 +106,24 @@ describe('App grid clipboard integration', () => {
     expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
     expect(apiClient.writeCells).not.toHaveBeenCalled();
   });
+
+  it('removes pending-cut styling immediately when a grid copy replaces the cut', () => {
+    const sheet = {
+      ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }),
+      columnCount: 2,
+      cells: { A1: 'move me', B1: 'copy me' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={autosaveClient()} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+
+    fireEvent.click(cell('A1'));
+    fireEvent.cut(cell('A1'), { clipboardData: clipboardData() });
+    expect(cell('A1')).toHaveAttribute('data-pending-cut', 'true');
+
+    fireEvent.click(cell('B1'));
+    fireEvent.copy(cell('B1'), { clipboardData: clipboardData() });
+
+    expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
+  });
 });

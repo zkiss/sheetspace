@@ -196,7 +196,9 @@ export function Workspace({
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
       : undefined);
     if (!selection) return undefined;
+    const hadPendingCut = clipboard.current.pendingCutSource !== undefined;
     const copied = clipboard.current.copy(workbook, selection);
+    if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     return copied.ok ? copied.value : undefined;
   }
 
