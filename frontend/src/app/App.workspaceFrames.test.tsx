@@ -6,7 +6,21 @@ import { resizeHandle, workspaceSurface } from '@test-support/appScreen';
 import { measuredElementGeometry } from '@test-support/domGeometry';
 import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
-const { sheetFrameRenderSpy } = vi.hoisted(() => ({ sheetFrameRenderSpy: vi.fn() }));
+const { gridAxisProjectionSpy, sheetFrameRenderSpy } = vi.hoisted(() => ({
+  gridAxisProjectionSpy: vi.fn(),
+  sheetFrameRenderSpy: vi.fn(),
+}));
+
+vi.mock('@grid/gridAxisProjection', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@grid/gridAxisProjection')>();
+  return {
+    ...actual,
+    projectGridAxes(...args: Parameters<typeof actual.projectGridAxes>) {
+      gridAxisProjectionSpy();
+      return actual.projectGridAxes(...args);
+    },
+  };
+});
 
 vi.mock('@workspace/SheetFrame', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@workspace/SheetFrame')>();
@@ -36,6 +50,7 @@ function mountedDomCounts() {
 
 describe('App workspace and sheet frame composition', () => {
   it('renders and selects a sparse miniature through a bounded overview while preserving its frame shell', async () => {
+    gridAxisProjectionSpy.mockClear();
     const miniature = sheetDocument({
       cells: { A1: 'Revenue', CV10000: '900' },
       columnCount: 100,
@@ -65,12 +80,14 @@ describe('App workspace and sheet frame composition', () => {
     expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(document.querySelector('.sheet-grid-column-header')).not.toBeInTheDocument();
+    expect(gridAxisProjectionSpy).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Select sheet Miniature plan overview' }));
 
     expect(frame).toHaveAttribute('data-active-sheet', 'true');
     expect(screen.getByTestId('sheet-frame-controls')).toBeInTheDocument();
     expect(screen.getByTestId('sheet-frame-scale-handle')).toHaveStyle({ transform: 'scale(4)' });
+    expect(gridAxisProjectionSpy).not.toHaveBeenCalled();
   });
 
   it('keeps frame, grid, cell, and header DOM bounded when wholly offscreen sheets are added', async () => {

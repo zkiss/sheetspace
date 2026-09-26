@@ -302,7 +302,7 @@ export function Workspace({
           if (!mountedSheetIds.has(sheet.id)) return null;
           const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
-          const axisProjection = projectGridAxes(tabular, creatingAxes[sheet.id]);
+          const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
             ? selectionAddressRange(sheet, selectionRange)
@@ -332,7 +332,7 @@ export function Workspace({
 
           return (
             <SheetFrame
-              columnCount={axisProjection.columns.length}
+              columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
               isActiveSheet={activeCell?.sheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
@@ -367,55 +367,58 @@ export function Workspace({
               onSheetFrameDragMove={handleSheetFrameDragMove}
               onSheetFrameDragStart={handleSheetFrameDragStart}
               onSheetFrameDragStop={stopSheetFrameDrag}
-              rowCount={axisProjection.rows.length}
+              rowCount={tabular.rows.length + (creatingSheetAxes?.rows.length ?? 0)}
               viewportScale={workspaceController.viewport.scale}
             >
-              {(scrollContainerRef) => (
-                <SheetGrid
-                  activeCellKey={cellKeyForTarget(sheet, activeCell)}
-                  activeSheetId={activeCell?.sheetId ?? null}
-                  selectionOwner={selectionOwner}
-                  axisProjection={axisProjection}
-                  presentation={sheet.presentation}
-                  pendingCutCells={pendingCutCells}
-                  logicalSelection={selectionRange}
-                  onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
-                  cellInteraction={{
-                    clear: onClearCell,
-                    navigate: onNavigateCell,
-                    navigateKeyboard: onNavigateKeyboardCell,
-                    select: onSelectCell,
-                    extend: onExtendSelection,
-                    focusSelection: onFocusSelection,
-                    settleSelectionGesture: onSettleSelectionGesture,
-                    startEditing: onStartEdit,
-                  }}
-                  editingCell={sheetEditingCell}
-                  editorInteraction={{
-                    cancel: onCancelEdit,
-                    commit: onCommitEdit,
-                    commitAndNavigate: onCommitEditAndNavigate,
-                    updateValue: onEditValueChange,
-                  }}
-                  formulaResults={formulaResults}
-                  keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
-                    ? {
-                        id: keyboardFocusRequest.id,
-                        targetKey: cellKeyForTarget(sheet, keyboardFocusRequest.target),
-                      }
-                    : null}
-                  onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
-                  navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
-                  navigationHighlightRange={navigationHighlightRange}
-                  historyFeedbackCells={historyFeedbackCells}
-                  scrollContainerRef={scrollContainerRef}
-                  selectedRange={selectedRange}
-                  selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
-                  onSelectAxis={onSelectAxis}
-                  clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
-                  sheet={tabular}
-                />
-              )}
+              {(scrollContainerRef) => {
+                const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
+                return (
+                  <SheetGrid
+                    activeCellKey={cellKeyForTarget(sheet, activeCell)}
+                    activeSheetId={activeCell?.sheetId ?? null}
+                    selectionOwner={selectionOwner}
+                    axisProjection={axisProjection}
+                    presentation={sheet.presentation}
+                    pendingCutCells={pendingCutCells}
+                    logicalSelection={selectionRange}
+                    onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
+                    cellInteraction={{
+                      clear: onClearCell,
+                      navigate: onNavigateCell,
+                      navigateKeyboard: onNavigateKeyboardCell,
+                      select: onSelectCell,
+                      extend: onExtendSelection,
+                      focusSelection: onFocusSelection,
+                      settleSelectionGesture: onSettleSelectionGesture,
+                      startEditing: onStartEdit,
+                    }}
+                    editingCell={sheetEditingCell}
+                    editorInteraction={{
+                      cancel: onCancelEdit,
+                      commit: onCommitEdit,
+                      commitAndNavigate: onCommitEditAndNavigate,
+                      updateValue: onEditValueChange,
+                    }}
+                    formulaResults={formulaResults}
+                    keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
+                      ? {
+                          id: keyboardFocusRequest.id,
+                          targetKey: cellKeyForTarget(sheet, keyboardFocusRequest.target),
+                        }
+                      : null}
+                    onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
+                    navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
+                    navigationHighlightRange={navigationHighlightRange}
+                    historyFeedbackCells={historyFeedbackCells}
+                    scrollContainerRef={scrollContainerRef}
+                    selectedRange={selectedRange}
+                    selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
+                    onSelectAxis={onSelectAxis}
+                    clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
+                    sheet={tabular}
+                  />
+                );
+              }}
             </SheetFrame>
           );
         })}

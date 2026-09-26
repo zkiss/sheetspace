@@ -54,7 +54,9 @@ scale of `0.35` or lower. An overview returns to detailed mode at `0.5` or highe
 boundaries, the frame retains its current mode. A newly mounted frame starts detailed unless its
 effective scale is already `0.35` or lower. This hysteresis prevents ordinary zoom movement near
 a boundary from repeatedly mounting and unmounting the detailed grid, and makes equivalent
-viewport-scale and sheet-scale products follow the same policy.
+viewport-scale and sheet-scale products follow the same policy. Boundary comparisons use a
+relative tolerance of eight `Number.EPSILON` units, enough to absorb the rounding from the single
+scale multiplication (for example, `0.1 × 3.5`) without creating a perceptible threshold range.
 
 Overview mode retains the frame article, title, state indicators, z-index, context menu, resize
 handles, and inverse-scaled controls. Its body contains one overview button, identity and dimension
@@ -69,8 +71,10 @@ fractions, keeping both near and far edges inside the clipped map.
 The bounded-overview fixture uses a visible 10,000 × 100 sheet at effective scale `0.25`, with
 content at `A1` and `CV10000`. It mounts one frame and one overview with two samples, while detailed
 grid, cell, and header counts remain zero. Adding logical rows or columns does not add overview
-DOM; adding sparse values can add samples only up to the fixed limit. Outer frame culling still
-determines whether the frame is mounted before this body-mode policy runs.
+DOM or allocate detailed row/column axis projections; those arrays are prepared lazily only when
+the frame selects its detailed body. Frame dimension metadata comes directly from durable and
+in-progress axis counts. Adding sparse values can add samples only up to the fixed limit. Outer
+frame culling still determines whether the frame is mounted before this body-mode policy runs.
 
 ## Interaction observations
 

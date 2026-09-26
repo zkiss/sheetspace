@@ -10,6 +10,13 @@ export const SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE = 0.35;
 export const SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE = 0.5;
 
 /**
+ * Boundary comparisons allow a small multiple of Number.EPSILON. This absorbs
+ * the rounding introduced by one viewport-scale × visual-scale multiplication
+ * without making a perceptible range of nearby scales part of either boundary.
+ */
+export const SHEET_RENDERING_BOUNDARY_EPSILON_TOLERANCE = 8;
+
+/**
  * Resolve the body presentation from effective scale alone. The gap between the
  * thresholds is a hysteresis band: an already-mounted sheet retains its prior
  * mode there. A newly mounted sheet starts detailed unless it is already at or
@@ -21,7 +28,22 @@ export function resolveSheetRenderingMode(
 ): SheetRenderingMode {
   const scale = Number.isFinite(effectiveScale) && effectiveScale > 0 ? effectiveScale : 1;
   if (previousMode === 'overview') {
-    return scale >= SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE ? 'detailed' : 'overview';
+    return isAtOrAboveBoundary(scale, SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE) ? 'detailed' : 'overview';
   }
-  return scale <= SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE ? 'overview' : 'detailed';
+  return isAtOrBelowBoundary(scale, SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE) ? 'overview' : 'detailed';
+}
+
+function isAtOrBelowBoundary(scale: number, boundary: number) {
+  return scale <= boundary || isBoundaryEquivalent(scale, boundary);
+}
+
+function isAtOrAboveBoundary(scale: number, boundary: number) {
+  return scale >= boundary || isBoundaryEquivalent(scale, boundary);
+}
+
+function isBoundaryEquivalent(scale: number, boundary: number) {
+  const tolerance = Number.EPSILON
+    * Math.max(1, Math.abs(scale), Math.abs(boundary))
+    * SHEET_RENDERING_BOUNDARY_EPSILON_TOLERANCE;
+  return Math.abs(scale - boundary) <= tolerance;
 }
