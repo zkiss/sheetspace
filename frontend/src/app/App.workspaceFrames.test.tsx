@@ -4,7 +4,7 @@ import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { resizeHandle, workspaceSurface } from '@test-support/appScreen';
 import { measuredElementGeometry } from '@test-support/domGeometry';
-import { positionedSheet, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 const { sheetFrameRenderSpy } = vi.hoisted(() => ({ sheetFrameRenderSpy: vi.fn() }));
 
@@ -35,6 +35,36 @@ function mountedDomCounts() {
 }
 
 describe('App workspace and sheet frame composition', () => {
+  it('renders and selects a sparse miniature through a bounded overview while preserving its frame shell', async () => {
+    const miniature = sheetDocument({
+      cells: { A1: 'Revenue', CV10000: '900' },
+      columnCount: 100,
+      id: 'sheet-miniature',
+      name: 'Miniature plan',
+      rowCount: 10_000,
+      visualScale: 0.25,
+      zIndex: 17,
+    });
+    render(<App initialWorkbook={workbookWithSheets([miniature])} />);
+    measureWorkspace();
+
+    const frame = await screen.findByRole('article', { name: 'Sheet Miniature plan' });
+    expect(frame).toHaveAttribute('data-rendering-mode', 'overview');
+    expect(frame).toHaveAttribute('data-z-index', '17');
+    expect(frame).toHaveStyle({ zIndex: '17' });
+    expect(screen.getByText('Revenue')).toBeInTheDocument();
+    expect(screen.getByText('10,000 × 100')).toBeInTheDocument();
+    expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(document.querySelector('.sheet-grid-column-header')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select sheet Miniature plan overview' }));
+
+    expect(frame).toHaveAttribute('data-active-sheet', 'true');
+    expect(screen.getByTestId('sheet-frame-controls')).toBeInTheDocument();
+    expect(screen.getByTestId('sheet-frame-scale-handle')).toHaveStyle({ transform: 'scale(4)' });
+  });
+
   it('keeps frame, grid, cell, and header DOM bounded when wholly offscreen sheets are added', async () => {
     const visibleLarge = {
       ...sparseLargeSheetDocument({ id: 'sheet-visible', name: 'Visible' }),

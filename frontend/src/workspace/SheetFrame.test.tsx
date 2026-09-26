@@ -4,6 +4,10 @@ import { SheetFrame } from '@workspace/SheetFrame';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { frameProjection } from '@workbook/read/queries';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
+import {
+  SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE,
+  SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE,
+} from '@workspace/sheetRenderingMode';
 
 afterEach(cleanup);
 
@@ -136,6 +140,45 @@ describe('SheetFrame', () => {
     // beyond the clipped scroll body, so its full stable-size target is usable.
     fireEvent.pointerDown(handle);
     expect(interactions.onScaleStart).toHaveBeenCalledWith('sheet-inputs', expect.anything());
+  });
+
+  it('switches only the frame body at the effective-scale hysteresis boundaries', () => {
+    const interactions = {
+      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
+      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+    };
+    const frame = testFrame();
+    const renderFrame = (viewportScale: number) => (
+      <SheetFrame
+        columnCount={4}
+        frame={frame}
+        isActiveSheet
+        isNavigationReveal
+        overview={<button type="button">Inputs overview</button>}
+        {...interactions}
+        rowCount={6}
+        viewportScale={viewportScale}
+      >
+        {() => <table aria-label="Inputs grid" />}
+      </SheetFrame>
+    );
+    const { rerender } = render(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE + 0.01));
+    const sheetFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+
+    expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
+    expect(sheetFrame).toHaveClass('sheet-frame-active', 'sheet-frame-navigation-reveal');
+
+    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
+    expect(screen.queryByRole('table', { name: 'Inputs grid' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument();
+
+    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE - 0.01));
+    expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument();
+
+    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
+    expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inputs overview' })).not.toBeInTheDocument();
   });
 
   it('cancels an in-progress numeric preview when its control unmounts', () => {

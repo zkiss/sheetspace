@@ -46,6 +46,28 @@ products. Panning to the first distant sheet replaces the visible set with one f
 its stored `B2` value remains present, demonstrating that culling affects only DOM projection
 and not workbook state.
 
+## Effective-scale rendering modes
+
+Each mounted frame chooses its body from effective scale, defined as workspace viewport scale
+multiplied by the sheet's visual scale. A detailed frame enters overview mode at an effective
+scale of `0.35` or lower. An overview returns to detailed mode at `0.5` or higher. Between those
+boundaries, the frame retains its current mode. A newly mounted frame starts detailed unless its
+effective scale is already `0.35` or lower. This hysteresis prevents ordinary zoom movement near
+a boundary from repeatedly mounting and unmounting the detailed grid, and makes equivalent
+viewport-scale and sheet-scale products follow the same policy.
+
+Overview mode retains the frame article, title, state indicators, z-index, context menu, resize
+handles, and inverse-scaled controls. Its body contains one overview button, identity and dimension
+labels, one map, and at most 12 sparse content samples. It contains no `SheetGrid`, table, grid
+headers, cell editors, or row-by-column cell projection. Selecting the overview assigns the
+sheet's first cell to the existing logical selection model.
+
+The bounded-overview fixture uses a visible 10,000 × 100 sheet at effective scale `0.25`, with
+content at `A1` and `CV10000`. It mounts one frame and one overview with two samples, while detailed
+grid, cell, and header counts remain zero. Adding logical rows or columns does not add overview
+DOM; adding sparse values can add samples only up to the fixed limit. Outer frame culling still
+determines whether the frame is mounted before this body-mode policy runs.
+
 ## Interaction observations
 
 At the pre-Deliverable baseline, every logical cell was mounted and registered in a DOM-ref map.
@@ -74,6 +96,13 @@ The test named `keeps frame, grid, cell, and header DOM bounded when wholly offs
 are added` constructs the fixture, validates the pre-virtualization cardinality from its logical
 axes, measures the combined projection through the ResizeObserver test controller, pans to a
 distant sheet, and verifies retained workbook content.
+
+The same application test file includes the sparse miniature scenario. The rendering policy and
+overview projection have focused reproductions:
+
+```bash
+npm --prefix frontend test -- --run src/workspace/sheetRenderingMode.test.ts src/workspace/SheetOverview.test.tsx src/app/App.workspaceFrames.test.tsx
+```
 
 The baseline rendering structure can be inspected without changing the worktree:
 

@@ -16,11 +16,12 @@ import type {
   ReferenceNavigationTarget,
 } from '@grid/cellInteractionContracts';
 import type { SaveStatus } from '@application/core/state';
-import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
+import { cellKeyForTarget, cellTargetAt, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
+import { SheetOverview } from '@workspace/SheetOverview';
 import { CreatingSheetFrame } from '@workspace/CreatingSheetFrame';
 import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/core/sheetCreationState';
 import { SheetGrid } from '@grid/SheetGrid';
@@ -316,15 +317,18 @@ export function Workspace({
             && navigationHighlight.sheetId === sheet.id
             ? addressRangeOf(sheet.content, navigationHighlight.range)
             : undefined;
-           const historyFeedbackCells = contentHistoryFeedback
-             ? historyCellsForSheet(contentHistoryFeedback, sheet)
-             : undefined;
-           const pendingCutCells = clipboard.current.pendingCutSource?.sheetId === sheet.id
-             ? new Set(clipboard.current.pendingCutSource.cells.flatMap((row) => row.map((cell) => {
-                 const address = cellAddressOf(sheet.content, cell.identity);
-                 return address && cellKey(address);
-               })).filter((key): key is string => Boolean(key)))
-             : undefined;
+          const historyFeedbackCells = contentHistoryFeedback
+            ? historyCellsForSheet(contentHistoryFeedback, sheet)
+            : undefined;
+          const pendingCutCells = clipboard.current.pendingCutSource?.sheetId === sheet.id
+            ? new Set(clipboard.current.pendingCutSource.cells.flatMap((row) => row.map((cell) => {
+                const address = cellAddressOf(sheet.content, cell.identity);
+                return address && cellKey(address);
+              })).filter((key): key is string => Boolean(key)))
+            : undefined;
+          const overviewSelectionTarget = activeCell?.sheetId === sheet.id
+            ? activeCell
+            : cellTargetAt(tabular, 'A1');
 
           return (
             <SheetFrame
@@ -334,6 +338,15 @@ export function Workspace({
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
                 : navigationHighlight?.sheetId === sheet.id}
+              overview={(
+                <SheetOverview
+                  isActive={activeCell?.sheetId === sheet.id}
+                  onSelect={() => {
+                    if (overviewSelectionTarget) onSelectCell(overviewSelectionTarget);
+                  }}
+                  sheet={tabular}
+                />
+              )}
               key={sheet.id}
               onOpenSheetMenu={workspaceController.openSheetMenu}
               onResizeCancel={cancelSheetFrameResize}
@@ -362,8 +375,8 @@ export function Workspace({
                   activeSheetId={activeCell?.sheetId ?? null}
                   selectionOwner={selectionOwner}
                   axisProjection={axisProjection}
-                   presentation={sheet.presentation}
-                   pendingCutCells={pendingCutCells}
+                  presentation={sheet.presentation}
+                  pendingCutCells={pendingCutCells}
                   logicalSelection={selectionRange}
                   onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                   cellInteraction={{

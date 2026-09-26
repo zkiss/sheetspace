@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent, type MutableRefObject, ty
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
 import { clampSheetFrameSize, clampSheetVisualScale, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
+import { resolveSheetRenderingMode } from '@workspace/sheetRenderingMode';
 import '@workspace/SheetFrame.css';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
@@ -21,6 +22,7 @@ export function SheetFrame({
   frame,
   isActiveSheet,
   isNavigationReveal,
+  overview,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -47,6 +49,7 @@ export function SheetFrame({
   frame: SheetFrameProjection;
   isActiveSheet: boolean;
   isNavigationReveal: boolean;
+  overview?: ReactNode;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -74,6 +77,9 @@ export function SheetFrame({
   const isScaleInputCancellation = useRef(false);
   const [scaleInputValue, setScaleInputValue] = useState(() => scalePercentage(frame.visualScale));
   const screenScale = effectiveSheetScreenScale(viewportScale, frame.visualScale);
+  const renderingModeRef = useRef(resolveSheetRenderingMode(screenScale));
+  const renderingMode = resolveSheetRenderingMode(screenScale, renderingModeRef.current);
+  renderingModeRef.current = renderingMode;
 
   useEffect(() => {
     if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
@@ -94,6 +100,7 @@ export function SheetFrame({
       data-position-x={frame.position.x}
       data-position-y={frame.position.y}
       data-row-count={rowCount}
+      data-rendering-mode={renderingMode}
       data-sheet-id={frame.id}
       data-testid="sheet-frame"
       data-z-index={frame.zIndex}
@@ -167,8 +174,8 @@ export function SheetFrame({
       >
         <h2>{frame.name}</h2>
       </header>
-      <div className="sheet-frame-body" data-testid="sheet-frame-body" ref={bodyRef}>
-        {children(bodyRef)}
+      <div className="sheet-frame-body" data-rendering-mode={renderingMode} data-testid="sheet-frame-body" ref={bodyRef}>
+        {renderingMode === 'overview' ? overview : children(bodyRef)}
       </div>
     </article>
   );
