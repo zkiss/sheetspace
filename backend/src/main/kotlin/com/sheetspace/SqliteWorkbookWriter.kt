@@ -67,11 +67,11 @@ internal class SqliteWorkbookWriter(
         val current = reader.loadSheet(sheetId) ?: throw NoSuchElementException("Sheet not found: ${expected.sheetId}")
         if (current.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, current.revision)
         if (writes.isEmpty() && formatWrites.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SHEET_PRESENTATION)
+        val updatedPresentation = if (formatWrites.isNotEmpty()) validatedFormatWrites(current, formatWrites) else current.presentation
         if (writes.isNotEmpty()) validatedPresentationWrites(current, writes)
-        if (formatWrites.isNotEmpty()) validatedFormatWrites(current, formatWrites)
         incrementSheetRevision(sheetId, expected.revision)
         presentationWriter.apply(sheetId, writes)
-        presentationWriter.applyFormats(sheetId, formatWrites)
+        if (formatWrites.isNotEmpty()) presentationWriter.persistChanges(sheetId, current.presentation, updatedPresentation)
         return reader.loadSheet(sheetId) ?: error("Updated sheet disappeared: ${expected.sheetId}")
     }
 

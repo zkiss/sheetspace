@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { useWorkbookController } from '@application/react/useWorkbookController';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
-import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { cellRawContent, findSheetById } from '@workbook/read/queries';
@@ -22,6 +22,52 @@ function parsedInternalClipboard(workbook: ReturnType<typeof workbookWithSheets>
 }
 
 describe('useWorkbookController paste', () => {
+  it('keeps sparse appearance records through copy, paste, clear, move, and content undo', () => {
+    const presentation = {
+      rowHeights: {}, columnWidths: {}, formatOverrides: {
+        rows: {}, columns: {}, cells: {
+          'sheet:row:1\u0000sheet:column:1': { fontWeight: 'bold' as const },
+          'sheet:row:1\u0000sheet:column:2': { fillColor: '#abcdef' as const },
+          'sheet:row:1\u0000sheet:column:3': { textColor: '#123456' as const },
+        },
+      },
+    };
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 3, cells: { A1: 'source', B1: 'destination', C1: 'paste target' }, presentation });
+    const workbook = workbookWithSheets([sheet]);
+    const store = new ClipboardPayloadStore();
+    const copiedPayload = store.copy(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'A1')! });
+    if (!copiedPayload.ok) throw new Error('copy failed');
+    const copied = store.parse(workbook, copiedPayload.value);
+    const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'A1')! });
+    if (!cut.ok) throw new Error('cut failed');
+    const parsedCut = store.parse(workbook, cut.value);
+    if (!parsedCut.ok || parsedCut.value.kind !== 'cut') throw new Error('cut did not parse');
+    const cutSource = parsedCut.value.source;
+    const calculate = vi.fn();
+    const { result } = renderHook(() => useWorkbookController({ calculationObserver: calculate, initialWorkbook: workbook }));
+    calculate.mockClear();
+
+    act(() => expect(result.current.commands.pasteCells(sheet.id, 'C1', copied)).toEqual({ ok: true, changed: true }));
+    act(() => result.current.commands.updateCellContent(sheet.id, 'C1', ''));
+    act(() => expect(result.current.commands.moveCells(sheet.id, 'B1', cutSource)).toEqual({ ok: true, changed: true }));
+
+    const current = findSheetById(result.current.workbook, sheet.id)!;
+    expect(current.presentation).toEqual(presentation);
+    expect(cellRawContent(current, 'A1')).toBeUndefined();
+    expect(cellRawContent(current, 'B1')).toBe('source');
+    expect(cellRawContent(current, 'C1')).toBeUndefined();
+    expect(calculate).toHaveBeenCalledTimes(3);
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => result.current.commands.undo());
+    const undone = findSheetById(result.current.workbook, sheet.id)!;
+    expect(undone.presentation.formatOverrides?.cells[cellIdentityKey(cellIdentityAt(undone.content, 'A1')!)]).toEqual({ fontWeight: 'bold' });
+    expect(undone.presentation.formatOverrides?.cells[cellIdentityKey(cellIdentityAt(undone.content, 'B1')!)]).toEqual({ fillColor: '#abcdef' });
+    expect(undone.presentation.formatOverrides?.cells[cellIdentityKey(cellIdentityAt(undone.content, 'C1')!)]).toEqual({ textColor: '#123456' });
+    expect(cellRawContent(undone, 'A1')).toBe('source');
+    expect(cellRawContent(undone, 'B1')).toBe('destination');
+  });
+
   it('moves a range through one write operation and rejects invalid destinations without side effects', async () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 3, cells: { A1: 'one', B1: 'two' } });
     const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 2, columnCount: 3 });

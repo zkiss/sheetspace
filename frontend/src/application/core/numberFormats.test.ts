@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import type { FormatWrite } from '@workbook/core/model';
+import type { AppearanceWrite, FormatWrite } from '@workbook/core/model';
 import { applyWorkbookOperation, type WorkbookOperation } from './userActions';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
@@ -9,9 +9,9 @@ const workbook = workbookWithSheets([sheet]);
 const row = sheet.content.rows[0], column = sheet.content.columns[0];
 const cell = cellIdentityKey({ rowId: row, columnId: column });
 const writes: FormatWrite[] = [
-  { scope: 'row', targetId: row, numberFormat: { kind: 'percent', precision: 1 } },
-  { scope: 'column', targetId: column, numberFormat: { kind: 'number', precision: 2 } },
-  { scope: 'cell', targetId: cell, numberFormat: { kind: 'general' } },
+  { scope: 'row', targetId: row, properties: { numberFormat: { kind: 'percent', precision: 1 } } },
+  { scope: 'column', targetId: column, properties: { numberFormat: { kind: 'number', precision: 2 } } },
+  { scope: 'cell', targetId: cell, properties: { numberFormat: { kind: 'general' } } },
 ];
 const apply = (values: readonly FormatWrite[], source = workbook, sheetId = sheet.id) =>
   applyWorkbookOperation(source, { kind: 'write-number-formats', operationId: 'format-op', sheetId, writes: values });
@@ -27,7 +27,7 @@ describe('number format operations', () => {
       cells: { [cell]: { numberFormat: { kind: 'general' } } },
     });
     expect(result.value.persistence).toEqual({ kind: 'write-number-formats', sheetId: sheet.id, writes });
-    expect(result.value.inverse).toEqual({ kind: 'write-number-formats', sheetId: sheet.id, writes: writes.map((write) => ({ ...write, numberFormat: null })) });
+    expect(result.value.inverse).toEqual({ kind: 'write-number-formats', sheetId: sheet.id, writes: writes.map((write) => ({ ...write, properties: { numberFormat: null } })) });
     const undone = applyWorkbookOperation(result.value.nextWorkbook, { ...result.value.inverse, operationId: 'undo' } as WorkbookOperation);
     expect(undone.ok && undone.value.nextWorkbook.documents[sheet.id].presentation.formatOverrides).toEqual({ rows: {}, columns: {}, cells: {} });
   });
@@ -39,6 +39,58 @@ describe('number format operations', () => {
     expect(unchanged.ok && unchanged.value.changed).toBe(false);
     expect(apply(writes, workbook, 'missing')).toEqual({ ok: false, reason: 'unknown-sheet' });
     expect(apply([])).toEqual({ ok: false, reason: 'invalid-number-format' });
-    expect(apply([{ scope: 'row', targetId: row, numberFormat: { kind: 'general' } }, { scope: 'row', targetId: row, numberFormat: null }])).toEqual({ ok: false, reason: 'invalid-number-format' });
+    expect(apply([{ scope: 'row', targetId: row, properties: { numberFormat: { kind: 'general' } } }, { scope: 'row', targetId: row, properties: { numberFormat: null } }])).toEqual({ ok: false, reason: 'invalid-number-format' });
+  });
+
+  it('applies partial appearance patches to blank cells and restores every changed property with its inverse', () => {
+    const blankCell = cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[1]! });
+    const initial: FormatWrite = {
+      scope: 'cell', targetId: blankCell,
+      properties: { fontWeight: 'bold', horizontalAlignment: 'center', textColor: '#123456', fillColor: '#abcdef' },
+    };
+    const first = apply([initial]);
+    expect(first.ok).toBe(true);
+    if (!first.ok) throw new Error('failed');
+    expect(first.value.nextWorkbook.documents[sheet.id].content.cells[blankCell]).toBeUndefined();
+    expect(first.value.nextWorkbook.documents[sheet.id].presentation.formatOverrides?.cells[blankCell]).toEqual(initial.properties);
+
+    const patch: FormatWrite = {
+      scope: 'cell', targetId: blankCell,
+      properties: { fontWeight: 'normal', textColor: 'automatic', fillColor: 'none' },
+    };
+    const second = apply([patch], first.value.nextWorkbook);
+    expect(second).toMatchObject({
+      ok: true,
+      value: {
+        calculationImpact: { kind: 'none' },
+        persistence: { kind: 'write-number-formats', sheetId: sheet.id, writes: [patch] },
+        inverse: {
+          kind: 'write-number-formats', sheetId: sheet.id,
+          writes: [{ scope: 'cell', targetId: blankCell, properties: { fontWeight: 'bold', textColor: '#123456', fillColor: '#abcdef' } }],
+        },
+      },
+    });
+    if (!second.ok || second.value.inverse?.kind !== 'write-number-formats') throw new Error('missing inverse');
+    expect(second.value.nextWorkbook.documents[sheet.id].presentation.formatOverrides?.cells[blankCell]).toEqual({
+      fontWeight: 'normal', horizontalAlignment: 'center', textColor: 'automatic', fillColor: 'none',
+    });
+    const undone = applyWorkbookOperation(second.value.nextWorkbook, { ...second.value.inverse, operationId: 'undo' });
+    expect(undone.ok && undone.value.nextWorkbook.documents[sheet.id].presentation.formatOverrides?.cells[blankCell]).toEqual(initial.properties);
+  });
+
+  it('removes only requested appearance properties and atomically rejects malformed mixed batches', () => {
+    const styled = apply([{ scope: 'cell', targetId: cell, properties: { fontWeight: 'normal', textColor: 'automatic', fillColor: 'none' } }]);
+    if (!styled.ok) throw new Error('failed');
+    const removed = apply([{ scope: 'cell', targetId: cell, properties: { textColor: null } }], styled.value.nextWorkbook);
+    expect(removed.ok && removed.value.nextWorkbook.documents[sheet.id].presentation.formatOverrides?.cells[cell]).toEqual({ fontWeight: 'normal', fillColor: 'none' });
+
+    const malformed: AppearanceWrite = { scope: 'row', targetId: row, properties: { fontWeight: 'heavy' as never } };
+    expect(apply([
+      { scope: 'column', targetId: column, properties: { fillColor: '#abcdef' } },
+      malformed,
+    ], styled.value.nextWorkbook)).toEqual({ ok: false, reason: 'invalid-number-format' });
+    expect(styled.value.nextWorkbook.documents[sheet.id].presentation.formatOverrides).toEqual({
+      rows: {}, columns: {}, cells: { [cell]: { fontWeight: 'normal', textColor: 'automatic', fillColor: 'none' } },
+    });
   });
 });

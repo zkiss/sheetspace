@@ -124,13 +124,20 @@ internal class SqliteWorkbookReader(
         }
 
     private fun loadFormats(sheetId: SheetId, table: String, idColumn: String, binaryId: Boolean): Map<String, CellFormat> =
-        connection.prepareStatement("SELECT $idColumn, format_kind, precision FROM $table WHERE sheet_id = ?").use { statement ->
+        connection.prepareStatement("SELECT $idColumn, format_kind, precision, font_weight, horizontal_alignment, text_color, fill_color FROM $table WHERE sheet_id = ?").use { statement ->
             statement.setBytes(1, sheetId.value.toUuidBytes())
             statement.executeQuery().use { rs -> buildMap {
                 while (rs.next()) {
                     val id = if (binaryId) rs.getBytes(idColumn).toUuidString() else rs.getString(idColumn)
                     val precision = rs.getObject("precision")?.let { rs.getInt("precision") }
-                    put(id, CellFormat(NumberFormat(rs.getString("format_kind"), precision)))
+                    val kind = rs.getString("format_kind")
+                    put(id, CellFormat(
+                        numberFormat = kind?.let { NumberFormat(it, precision) },
+                        fontWeight = rs.getString("font_weight"),
+                        horizontalAlignment = rs.getString("horizontal_alignment"),
+                        textColor = rs.getString("text_color"),
+                        fillColor = rs.getString("fill_color"),
+                    ))
                 }
             } }
         }

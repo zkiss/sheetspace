@@ -26,6 +26,8 @@ import type { CellSelection } from './cellInteractionContracts';
 import { SheetGridHeaders } from '@grid/SheetGridHeaders';
 import { getSheetCellDisplayText } from './sheetGridModel';
 import { cssRemFromPixels } from '@shared/styles/styleTokens';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { resolveCellAppearance } from '@workbook/core/numberFormat';
 import '@grid/SheetGrid.css';
 
 function logicalUnitsPerRenderedPixel(scrollContainer: HTMLElement, rect: DOMRect) {
@@ -744,6 +746,8 @@ export function SheetGrid({
                 ? isAddressInRange(address, navigationHighlightRange)
                 : navigationHighlightCellKey === key;
               const historyFeedback = historyFeedbackCells?.get(key);
+              const identity = cellIdentityAt(sheet, key);
+              const appearance = identity ? resolveCellAppearance(presentation?.formatOverrides ?? { rows: {}, columns: {}, cells: {} }, identity) : undefined;
 
               return (
                 <SheetGridCell
@@ -764,7 +768,11 @@ export function SheetGrid({
                   registerCell={registerCell}
                   sheet={sheet}
                   style={{
+                    backgroundColor: appearance?.fillColor === 'none' ? '#ffffff' : appearance?.fillColor,
+                    color: appearance?.textColor === 'automatic' ? undefined : appearance?.textColor,
+                    fontWeight: appearance?.fontWeight,
                     height: virtualRow.size,
+                    textAlign: appearance?.horizontalAlignment === 'general' ? undefined : appearance?.horizontalAlignment,
                     lineHeight: `${virtualRow.size}px`,
                     left: virtualColumn.start,
                     minWidth: virtualColumn.size,

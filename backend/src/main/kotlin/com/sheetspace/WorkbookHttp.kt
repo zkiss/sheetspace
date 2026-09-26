@@ -10,6 +10,7 @@ import io.ktor.server.http.content.default
 import io.ktor.server.http.content.staticResources
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
@@ -17,6 +18,7 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 @Serializable
 data class PresentationWriteRequest(val writes: List<AxisSizeWrite> = emptyList(), val formatWrites: List<FormatWrite> = emptyList())
@@ -167,7 +169,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
 
         patch("/api/sheets/{sheetId}/presentation") {
             val sheetId = call.parameters["sheetId"] ?: return@patch call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
-            val request = call.receiveRequest<PresentationWriteRequest>() ?: return@patch
+            val request = call.receivePresentationWriteRequest() ?: return@patch
             val expectedRevision = call.expectedSheetRevision() ?: return@patch
             call.respondApplicationResult {
                 val sheet = workbookApplication.writePresentation(sheetId, expectedRevision, request.writes, request.formatWrites)
@@ -336,3 +338,21 @@ private suspend inline fun <reified T : Any> ApplicationCall.receiveRequest(): T
         null
     }
 }
+
+private suspend fun ApplicationCall.receivePresentationWriteRequest(): PresentationWriteRequest? {
+    return try {
+        val body = receiveText()
+        if (hasDuplicateAppearanceProperties(body)) error("Duplicate appearance property")
+        Json.decodeFromString<PresentationWriteRequest>(body)
+    } catch (exception: Exception) {
+        respondError(HttpStatusCode.BadRequest, "invalid-request")
+        null
+    }
+}
+
+/** Retain duplicate property names long enough to reject them before map decoding collapses them. */
+private fun hasDuplicateAppearanceProperties(body: String): Boolean =
+    Regex("""(?s)"properties"\s*:\s*\{((?:[^{}]|\{[^{}]*})*)}""").findAll(body).any { properties ->
+        val names = Regex(""""([^"\\]+)"\s*:""").findAll(properties.groupValues[1]).map { it.groupValues[1] }.toList()
+        names.distinct().size != names.size
+    }

@@ -146,7 +146,7 @@ function cloneEntry(entry: OutboxEntry): OutboxEntry { return { ...entry, intent
 function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceIntent {
   switch (intent.kind) {
     case 'write-axis-sizes': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
-    case 'write-number-formats': return { ...intent, writes: intent.writes.map((write) => ({ ...write, numberFormat: write.numberFormat && { ...write.numberFormat } })) };
+    case 'write-number-formats': return { ...intent, writes: intent.writes.map((write) => ({ ...write, properties: { ...write.properties, ...(write.properties.numberFormat ? { numberFormat: { ...write.properties.numberFormat } } : {}) } })) };
     case 'delete-sheet': return { ...intent };
     case 'rename-sheet': return { ...intent };
     case 'update-sheet-position': return { ...intent, position: { ...intent.position } };

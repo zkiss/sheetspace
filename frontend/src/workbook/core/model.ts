@@ -31,7 +31,10 @@ export type SheetZOrderDirection = 'up' | 'down' | 'top' | 'bottom';
 
 export type SheetPresentation = { rowHeights: Record<RowId, number>; columnWidths: Record<ColumnId, number>; formatOverrides?: SheetFormatOverrides };
 export type AxisSizeWrite = { axis: 'row' | 'column'; axisId: string; size: number | null };
-export type FormatWrite = { scope: 'row' | 'column' | 'cell'; targetId: string; numberFormat: NumberFormat | null };
+/** A write changes only the listed properties; `null` removes that local property. */
+export type AppearanceWrite = { scope: 'row' | 'column' | 'cell'; targetId: string; properties: AppearancePatch };
+/** Kept as the formatting-write name while persistence is migrated to appearance terminology. */
+export type FormatWrite = AppearanceWrite;
 
 export type NumberFormat =
   | { kind: 'general' }
@@ -39,7 +42,20 @@ export type NumberFormat =
   | { kind: 'percent'; precision: number };
 
 /** A missing property inherits; an explicit default-valued property remains an override. */
-export type CellFormat = { numberFormat?: NumberFormat };
+export type FontWeight = 'normal' | 'bold';
+export type HorizontalAlignment = 'general' | 'left' | 'center' | 'right';
+/** `automatic` and `none` are stored values, not shorthand for inheritance. */
+export type TextColor = 'automatic' | `#${string}`;
+export type FillColor = 'none' | `#${string}`;
+export type CellAppearance = {
+  numberFormat?: NumberFormat;
+  fontWeight?: FontWeight;
+  horizontalAlignment?: HorizontalAlignment;
+  textColor?: TextColor;
+  fillColor?: FillColor;
+};
+export type AppearancePatch = { [Property in keyof CellAppearance]?: CellAppearance[Property] | null };
+export type CellFormat = CellAppearance;
 export type SheetFormatOverrides = {
   rows: Record<RowId, CellFormat>;
   columns: Record<ColumnId, CellFormat>;

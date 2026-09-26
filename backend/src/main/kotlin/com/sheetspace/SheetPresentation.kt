@@ -1,6 +1,12 @@
 package com.sheetspace
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Sparse logical dimensions, independent of cells and workspace frames. */
 @Serializable
@@ -11,7 +17,13 @@ data class SheetPresentation(
 )
 
 @Serializable data class NumberFormat(val kind: String, val precision: Int? = null)
-@Serializable data class CellFormat(val numberFormat: NumberFormat? = null)
+@Serializable data class CellFormat(
+    val numberFormat: NumberFormat? = null,
+    val fontWeight: String? = null,
+    val horizontalAlignment: String? = null,
+    val textColor: String? = null,
+    val fillColor: String? = null,
+)
 @Serializable data class SheetFormatOverrides(
     val rows: Map<String, CellFormat> = emptyMap(),
     val columns: Map<String, CellFormat> = emptyMap(),
@@ -20,7 +32,13 @@ data class SheetPresentation(
 
 @Serializable
 data class AxisSizeWrite(val axis: String, val axisId: String, val size: Double?)
-@Serializable data class FormatWrite(val scope: String, val targetId: String, val numberFormat: NumberFormat?)
+/** Each map entry is a present property: JSON null removes that property locally. */
+@Serializable data class FormatWrite(
+    val scope: String,
+    val targetId: String,
+    @SerialName("numberFormat") val numberFormat: NumberFormat? = null,
+    val properties: Map<String, JsonElement> = mapOf("numberFormat" to (numberFormat?.let { format -> buildJsonObject { put("kind", format.kind); format.precision?.let { put("precision", it) } } } ?: JsonNull)),
+)
 
 object AxisSizePolicy {
     const val DEFAULT_COLUMN_WIDTH = 76.0
@@ -65,14 +83,50 @@ fun validatedFormatWrites(sheet: SheetDocument, writes: List<FormatWrite>): Shee
             "cell" -> write.targetId.split("\u0000").let { ids -> ids.size == 2 && sheet.tabularContent.rows.any { it.value == ids[0] } && sheet.tabularContent.columns.any { it.value == ids[1] } }
             else -> false
         }
-        if (!belongs || (write.numberFormat != null && !validNumberFormat(write.numberFormat))) invalidPresentation()
+        if (!belongs || !validAppearancePatch(write.properties)) invalidPresentation()
     }
     val overrides = sheet.presentation.formatOverrides.let { SheetFormatOverrides(it.rows.toMutableMap(), it.columns.toMutableMap(), it.cells.toMutableMap()) }
     writes.forEach { write ->
         val target = when (write.scope) { "row" -> overrides.rows as MutableMap; "column" -> overrides.columns as MutableMap; else -> overrides.cells as MutableMap }
-        if (write.numberFormat == null) target.remove(write.targetId) else target[write.targetId] = CellFormat(write.numberFormat)
+        val current = target[write.targetId] ?: CellFormat()
+        val next = applyAppearancePatch(current, write.properties)
+        if (next == CellFormat()) target.remove(write.targetId) else target[write.targetId] = next
     }
     return sheet.presentation.copy(formatOverrides = overrides)
+}
+
+private fun validAppearancePatch(properties: Map<String, JsonElement>): Boolean =
+    properties.isNotEmpty() && properties.all { (key, value) ->
+        value is JsonNull || when (key) {
+            "numberFormat" -> value.toNumberFormatOrNull()?.let(::validNumberFormat) == true
+            "fontWeight" -> value.stringOrNull() in setOf("normal", "bold")
+            "horizontalAlignment" -> value.stringOrNull() in setOf("general", "left", "center", "right")
+            "textColor" -> value.stringOrNull()?.let { color: String -> color == "automatic" || color.matches(Regex("#[0-9a-fA-F]{6}")) } == true
+            "fillColor" -> value.stringOrNull()?.let { color: String -> color == "none" || color.matches(Regex("#[0-9a-fA-F]{6}")) } == true
+            else -> false
+        }
+    }
+
+private fun applyAppearancePatch(format: CellFormat, properties: Map<String, JsonElement>): CellFormat {
+    fun string(name: String) = properties[name]?.let { if (it is JsonNull) null else it.stringOrNull() }
+    val number = properties["numberFormat"]?.let { if (it is JsonNull) null else it.toNumberFormatOrNull() }
+    return format.copy(
+        numberFormat = if ("numberFormat" in properties) number else format.numberFormat,
+        fontWeight = if ("fontWeight" in properties) string("fontWeight") else format.fontWeight,
+        horizontalAlignment = if ("horizontalAlignment" in properties) string("horizontalAlignment") else format.horizontalAlignment,
+        textColor = if ("textColor" in properties) string("textColor") else format.textColor,
+        fillColor = if ("fillColor" in properties) string("fillColor") else format.fillColor,
+    )
+}
+
+private fun JsonElement.stringOrNull(): String? = (this as? JsonPrimitive)?.content
+private fun JsonElement.toNumberFormatOrNull(): NumberFormat? {
+    val objectValue = this as? kotlinx.serialization.json.JsonObject ?: return null
+    val kind = objectValue["kind"]?.stringOrNull() ?: return null
+    val precision = objectValue["precision"]?.let { value ->
+        (value as? JsonPrimitive)?.takeUnless(JsonPrimitive::isString)?.content?.toIntOrNull()
+    }
+    return if (objectValue.keys == if (kind == "general") setOf("kind") else setOf("kind", "precision")) NumberFormat(kind, precision) else null
 }
 
 private fun validNumberFormat(format: NumberFormat): Boolean = when (format.kind) {
