@@ -112,6 +112,9 @@ export function Workspace({
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
+  // This belongs to the workspace rather than a SheetFrame: overview selection
+  // can replace the logical owner while the original frame remains miniature.
+  const [hasDisplacedGridFocus, setHasDisplacedGridFocus] = useState(false);
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
@@ -194,6 +197,12 @@ export function Workspace({
       return next;
     });
   }, []);
+
+  const handleDetailedBodyAvailable = useCallback((sheetId: string) => {
+    if (!hasDisplacedGridFocus || activeCell?.sheetId !== sheetId) return;
+    setHasDisplacedGridFocus(false);
+    onRestoreGridFocus();
+  }, [activeCell?.sheetId, hasDisplacedGridFocus, onRestoreGridFocus]);
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
@@ -353,12 +362,8 @@ export function Workspace({
               retainDetailedBody={Boolean(
                 sheetEditingCell || interactionPinnedSheetId === sheet.id || gridInteractionSheetIds.has(sheet.id),
               )}
-              onDetailedFocusRestore={() => {
-                // A SheetFrame only calls this after it moved focus out of a
-                // replaced detailed body. The application remains the sole
-                // owner of request lifetime and stale-request replacement.
-                if (activeCell?.sheetId === sheet.id) onRestoreGridFocus();
-              }}
+              onDetailedFocusDisplaced={() => setHasDisplacedGridFocus(true)}
+              onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}

@@ -85,7 +85,9 @@ describe('App rendering-mode transitions', () => {
     zoomWorkspace('in', 6);
 
     await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
-    expect(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+    const outputsCell = within(outputsFrame).getByRole('cell', { name: 'Outputs A1 empty cell' });
+    expect(outputsCell).toHaveAttribute('data-active-cell', 'true');
+    await waitFor(() => expect(outputsCell).toHaveFocus());
     expect(within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveFocus();
   });
 

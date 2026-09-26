@@ -199,7 +199,8 @@ describe('SheetFrame', () => {
       onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
       onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
     };
-    const restoreFocus = vi.fn();
+    const displacedFocus = vi.fn();
+    const detailedBodyAvailable = vi.fn();
     const frame = testFrame();
     const renderFrame = (viewportScale: number, retainDetailedBody = false) => (
       <SheetFrame
@@ -207,7 +208,8 @@ describe('SheetFrame', () => {
         frame={frame}
         isActiveSheet
         isNavigationReveal={false}
-        onDetailedFocusRestore={restoreFocus}
+        onDetailedFocusDisplaced={displacedFocus}
+        onDetailedBodyAvailable={detailedBodyAvailable}
         overview={<button type="button">Inputs overview</button>}
         retainDetailedBody={retainDetailedBody}
         {...interactions}
@@ -227,9 +229,10 @@ describe('SheetFrame', () => {
     rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument());
     expect(screen.getByTestId('sheet-frame-body')).toHaveFocus();
+    expect(displacedFocus).toHaveBeenCalledTimes(1);
 
     rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
-    await waitFor(() => expect(restoreFocus).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(detailedBodyAvailable).toHaveBeenCalled());
   });
 
   it('cancels an in-progress numeric preview when its control unmounts', () => {

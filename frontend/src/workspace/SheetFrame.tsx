@@ -24,7 +24,8 @@ export function SheetFrame({
   isNavigationReveal,
   retainDetailedBody,
   overview,
-  onDetailedFocusRestore,
+  onDetailedFocusDisplaced,
+  onDetailedBodyAvailable,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -54,8 +55,10 @@ export function SheetFrame({
   /** An editor or frame gesture cannot be unmounted by a scale preview. */
   retainDetailedBody?: boolean;
   overview?: ReactNode;
-  /** Restores focus only after this frame handed it off while in overview. */
-  onDetailedFocusRestore?: () => void;
+  /** Reports that replacing this detailed body displaced native grid focus. */
+  onDetailedFocusDisplaced?: () => void;
+  /** Reports that this frame has a detailed body that can accept grid focus. */
+  onDetailedBodyAvailable?: () => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -89,7 +92,6 @@ export function SheetFrame({
   const renderingMode = retainDetailedBody ? 'detailed' : requestedRenderingMode;
   const previousRenderingMode = useRef(renderingMode);
   const bodyHadFocus = useRef(false);
-  const restoreFocusOnDetail = useRef(false);
 
   useEffect(() => {
     if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
@@ -99,15 +101,14 @@ export function SheetFrame({
     const previousMode = previousRenderingMode.current;
     if (previousMode === 'detailed' && renderingMode === 'overview' && bodyHadFocus.current) {
       // The detailed grid is about to disappear. Keep focus in the frame rather
-      // than allowing the browser to strand it on document.body.
-      restoreFocusOnDetail.current = true;
+      // than allowing the browser to strand it on document.body. The workspace
+      // owns the eventual destination because overview selection may change it.
+      onDetailedFocusDisplaced?.();
       bodyRef.current?.focus();
-    } else if (previousMode === 'overview' && renderingMode === 'detailed' && restoreFocusOnDetail.current) {
-      restoreFocusOnDetail.current = false;
-      onDetailedFocusRestore?.();
     }
+    if (renderingMode === 'detailed') onDetailedBodyAvailable?.();
     previousRenderingMode.current = renderingMode;
-  }, [onDetailedFocusRestore, renderingMode]);
+  }, [onDetailedBodyAvailable, onDetailedFocusDisplaced, renderingMode]);
 
   return (
     <article
