@@ -22,6 +22,36 @@ function parsedInternalClipboard(workbook: ReturnType<typeof workbookWithSheets>
 }
 
 describe('useWorkbookController paste', () => {
+  it('moves a range through one write operation and rejects invalid destinations without side effects', async () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 3, cells: { A1: 'one', B1: 'two' } });
+    const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 2, columnCount: 3 });
+    const workbook = workbookWithSheets([source, destination]);
+    const store = new ClipboardPayloadStore();
+    const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(source, 'A1')!, extent: cellTargetAt(source, 'B1')! });
+    if (!cut.ok) throw new Error('cut failed');
+    const parsed = store.parse(workbook, cut.value);
+    if (!parsed.ok || parsed.value.kind !== 'cut') throw new Error('cut did not parse');
+    const cutSource = parsed.value.source;
+    const apiClient = autosaveClient();
+    const calculate = vi.fn();
+    const { result } = renderHook(() => useWorkbookController({ apiClient, calculationObserver: calculate, initialWorkbook: workbook }));
+    calculate.mockClear();
+
+    act(() => expect(result.current.commands.moveCells(destination.id, 'B1', cutSource)).toEqual({ ok: true, changed: true }));
+    expect(cellRawContent(findSheetById(result.current.workbook, source.id)!, 'A1')).toBeUndefined();
+    expect(cellRawContent(findSheetById(result.current.workbook, destination.id)!, 'B1')).toBe('one');
+    expect(calculate).toHaveBeenCalledOnce();
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledOnce());
+    expect(vi.mocked(apiClient.writeCells).mock.calls[0]![0]).toEqual(expect.arrayContaining([
+      { sheetId: source.id, revision: 0 }, { sheetId: destination.id, revision: 0 },
+    ]));
+
+    const moved = result.current.workbook;
+    act(() => expect(result.current.commands.moveCells(destination.id, 'ZZ999', cutSource)).toEqual({ ok: false, reason: 'invalid-destination' }));
+    act(() => expect(result.current.commands.moveCells('missing', 'A1', cutSource)).toEqual({ ok: false, reason: 'invalid-destination' }));
+    expect(result.current.workbook).toBe(moved);
+  });
+
   it('applies a parsed internal range as one content, calculation, persistence, and history transaction', async () => {
     const seed = sheetDocument({
       id: 'sheet', name: 'Sheet', rowCount: 3, columnCount: 3,

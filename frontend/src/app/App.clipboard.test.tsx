@@ -55,4 +55,33 @@ describe('App grid clipboard integration', () => {
     expect(fireEvent.paste(editor, { clipboardData: clipboardData({ 'text/plain': 'replacement' }) })).toBe(true);
     expect(apiClient.writeCells).not.toHaveBeenCalled();
   });
+
+  it('shows, cancels, and completes a pending cut without changing content until paste', async () => {
+    const sheet = {
+      ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }),
+      columnCount: 3,
+      rowCount: 2,
+      cells: { A1: 'move me' },
+    };
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+    const cut = clipboardData();
+
+    fireEvent.click(cell('A1'));
+    expect(fireEvent.cut(cell('A1'), { clipboardData: cut })).toBe(false);
+    expect(cell('A1')).toHaveAttribute('data-pending-cut', 'true');
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+    fireEvent.keyDown(cell('A1'), { key: 'Escape' });
+    expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
+
+    expect(fireEvent.cut(cell('A1'), { clipboardData: cut })).toBe(false);
+    fireEvent.click(cell('C1'));
+    expect(fireEvent.paste(cell('C1'), { clipboardData: cut })).toBe(false);
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledOnce());
+    expect(cell('A1')).toHaveTextContent('');
+    expect(cell('C1')).toHaveTextContent('move me');
+    expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
+  });
 });

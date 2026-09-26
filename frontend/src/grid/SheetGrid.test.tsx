@@ -103,6 +103,52 @@ describe('SheetGrid clipboard routing', () => {
     expect(fireEvent.paste(grid, { clipboardData: clipboardData() })).toBe(true);
     expect(paste).not.toHaveBeenCalled();
   });
+
+  it('routes cuts and cancels a pending cut with Escape outside an editor', () => {
+    const cut = vi.fn(() => ({ text: 'A', marker: 'sheetspace:cut' }));
+    const cancelCut = vi.fn();
+    const grid = renderClipboardGrid({ cut, copy: vi.fn(), paste: vi.fn(), cancelCut });
+    const copied = clipboardData();
+
+    expect(fireEvent.cut(grid, { clipboardData: copied })).toBe(false);
+    expect(copied.getData('text/plain')).toBe('A');
+    expect(copied.getData('application/x-sheetspace-clipboard')).toBe('sheetspace:cut');
+    fireEvent.keyDown(grid, { key: 'Escape' });
+    expect(cancelCut).toHaveBeenCalledOnce();
+  });
+
+  it('leaves cut and Escape in a live editor browser-native', () => {
+    const cut = vi.fn(() => ({ text: 'A', marker: 'sheetspace:cut' }));
+    const cancelCut = vi.fn();
+    const grid = renderClipboardGrid({ cut, copy: vi.fn(), paste: vi.fn(), cancelCut });
+    const editor = document.createElement('textarea');
+    grid.append(editor);
+
+    expect(fireEvent.cut(editor, { clipboardData: clipboardData() })).toBe(true);
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(cut).not.toHaveBeenCalled();
+    expect(cancelCut).not.toHaveBeenCalled();
+  });
+
+  it('keeps input and contenteditable clipboard events browser-native', () => {
+    const cut = vi.fn(() => ({ text: 'A', marker: 'sheetspace:cut' }));
+    const paste = vi.fn();
+    const grid = renderClipboardGrid({ cut, copy: vi.fn(), paste });
+    const input = document.createElement('input');
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', 'true');
+    grid.append(input, editable);
+
+    expect(fireEvent.cut(input, { clipboardData: clipboardData() })).toBe(true);
+    expect(fireEvent.paste(editable, { clipboardData: clipboardData({ 'text/plain': 'native' }) })).toBe(true);
+    expect(cut).not.toHaveBeenCalled();
+    expect(paste).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unavailable cut operation browser-native', () => {
+    const grid = renderClipboardGrid({ copy: vi.fn(), paste: vi.fn() });
+    expect(fireEvent.cut(grid, { clipboardData: clipboardData() })).toBe(true);
+  });
 });
 
 function firePointer(

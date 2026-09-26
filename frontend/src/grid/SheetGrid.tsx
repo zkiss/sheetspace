@@ -638,7 +638,10 @@ export function SheetGrid({
         if (next && !event.currentTarget.contains(next)) finishDrag();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') { finishDrag(); clipboardInteraction?.cancelCut?.(); }
+        if (event.key === 'Escape') {
+          finishDrag();
+          if (!(event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]')) clipboardInteraction?.cancelCut?.();
+        }
       }}
       onCopy={copySelection}
       onCut={cutSelection}
