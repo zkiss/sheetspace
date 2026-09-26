@@ -30,10 +30,10 @@ describe('NumberFormatControls rendering', () => {
     render(<NumberFormatControls sheet={formattedSheet} selection={selection} onWrite={onWrite} />);
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'number');
-    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'number', precision: 2 } }]);
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { numberFormat: { kind: 'number', precision: 2 } } }]);
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'general');
-    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'general' } }]);
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { numberFormat: { kind: 'general' } } }]);
 
     const precision = screen.getByRole('spinbutton', { name: 'Number format precision' });
     fireEvent.change(precision, { target: { value: '1.5' } });
@@ -41,12 +41,12 @@ describe('NumberFormatControls rendering', () => {
     fireEvent.change(precision, { target: { value: '99' } });
     expect(onWrite).toHaveBeenCalledTimes(2);
     fireEvent.change(precision, { target: { value: '2' } });
-    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'percent', precision: 2 } }]);
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { numberFormat: { kind: 'percent', precision: 2 } } }]);
 
     await user.click(screen.getByRole('button', { name: 'Inherit' }));
-    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: null }]);
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { numberFormat: null } }]);
     await user.click(screen.getByRole('button', { name: 'Reset to default' }));
-    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'general' } }]);
+    expect(onWrite).toHaveBeenLastCalledWith([{ scope: 'cell', targetId, properties: { numberFormat: { kind: 'general' } } }]);
   });
 
   it('shows mixed state and disables controls when selection cannot be formatted', () => {
@@ -82,7 +82,7 @@ describe('NumberFormatControls rendering', () => {
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'percent');
 
-    expect(onWrite).toHaveBeenCalledWith([{ scope: 'cell', targetId, numberFormat: { kind: 'percent', precision: 0 } }]);
+    expect(onWrite).toHaveBeenCalledWith([{ scope: 'cell', targetId, properties: { numberFormat: { kind: 'percent', precision: 0 } } }]);
   });
 
   it('does not write while a precision edit is empty', () => {
