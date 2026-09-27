@@ -5,7 +5,8 @@ import { type CellRange } from '@workbook/core/address';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
-import { detailedViewportScaleForSheet, rangeFitsSheetViewport, workspaceRectForSheetRange } from '@grid/gridGeometry';
+import { detailedViewportScaleForSheet, rangeFitsSheetViewport } from '@grid/gridGeometry';
+import { type WorkspaceTargetRect, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 
 const NAVIGATION_HIGHLIGHT_MS = 1200;
 const NAVIGATION_TRANSITION_MS = 180;
@@ -40,7 +41,7 @@ export function useReferenceNavigation({
   workbook,
 }: {
   navigateToTarget: (
-    target: ReturnType<typeof workspaceRectForSheetRange>,
+    target: WorkspaceTargetRect,
     options?: { forceOversized?: boolean; minimumScale?: number },
   ) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
@@ -95,7 +96,10 @@ export function useReferenceNavigation({
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     setNavigationMotion(!reduceMotion);
     navigateToTarget(
-      workspaceRectForSheetRange(range, targetSheet),
+      // Axis offsets are local to the frame's scrollport. Reveal the physical
+      // frame in the outer workspace; SheetGrid then scrolls internally to the
+      // durable range anchor while the focus request keeps the frame mounted.
+      workspaceRectForFrame(targetSheet.frame),
       {
         forceOversized: reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet),
         // The viewport scale alone is not the rendered scale for a miniature

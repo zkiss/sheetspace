@@ -40,6 +40,7 @@ describe('formula reference navigation', () => {
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
     fireEvent.scroll(body);
+    await waitFor(() => expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CU9999 empty cell' })).toHaveFocus());
     expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CV10000 empty cell' })).toHaveAttribute('data-reference-selected', 'true');
     expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
   });
@@ -131,10 +132,12 @@ describe('formula reference navigation', () => {
     await waitFor(() => expect((focus.mock.instances as unknown as HTMLElement[]).some((element) =>
       element.getAttribute('aria-label') === 'Inputs CU9999 empty cell',
     )).toBe(true));
-    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+    await waitFor(() => expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CU9999 empty cell' })).toHaveFocus());
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
     expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
   it('reports a broken reference without selecting a similarly named sheet', () => {

@@ -91,8 +91,8 @@ describe('useReferenceNavigation', () => {
       },
     });
     expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
-      left: 40,
-      top: 68.4,
+      left: 0,
+      top: 0,
     }), { forceOversized: true, minimumScale: 0.5 });
     expect(result.current.navigationHighlight).not.toBeNull();
     expect(result.current.navigationMotion).toBe(true);
@@ -128,8 +128,8 @@ describe('useReferenceNavigation', () => {
       },
     });
     expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
-      left: 40,
-      top: 68.4,
+      left: 0,
+      top: 0,
     }), { forceOversized: false, minimumScale: 0.5 });
     expect(result.current.navigationMotion).toBe(false);
   });

@@ -31,31 +31,6 @@ export function rangeFitsSheetViewport(range: CellRange, sheet: SheetDocument) {
     && extent(metrics.rows, range.start.rowIndex, range.end.rowIndex) <= availableHeight;
 }
 
-/**
- * The physical workspace rectangle occupied by a durable grid range.  This is
- * intentionally model-derived: reference navigation must be able to reveal a
- * culled overview without first mounting a grid just to inspect its DOM.
- */
-export function workspaceRectForSheetRange(range: CellRange, sheet: SheetDocument) {
-  const metrics = createSheetGridAxisMetrics(projectGridAxes(sheet.content), sheet.presentation);
-  const visualScale = clampSheetVisualScale(sheet.frame.visualScale);
-  const startX = GRID_ROW_HEADER_WIDTH + (metrics.columns.itemOffset(range.start.columnIndex) ?? 0);
-  const startY = SHEET_HEADER_HEIGHT + GRID_COLUMN_HEADER_HEIGHT
-    + (metrics.rows.itemOffset(range.start.rowIndex) ?? 0);
-  const endX = GRID_ROW_HEADER_WIDTH
-    + (metrics.columns.itemOffset(range.end.columnIndex) ?? 0)
-    + (metrics.columns.itemSize(range.end.columnIndex) ?? 0);
-  const endY = SHEET_HEADER_HEIGHT + GRID_COLUMN_HEADER_HEIGHT
-    + (metrics.rows.itemOffset(range.end.rowIndex) ?? 0)
-    + (metrics.rows.itemSize(range.end.rowIndex) ?? 0);
-  return {
-    left: sheet.frame.position.x + startX * visualScale,
-    top: sheet.frame.position.y + startY * visualScale,
-    right: sheet.frame.position.x + endX * visualScale,
-    bottom: sheet.frame.position.y + endY * visualScale,
-  };
-}
-
 /** Minimum workspace zoom that causes this sheet to enter detailed rendering. */
 export function detailedViewportScaleForSheet(sheet: SheetDocument) {
   return SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE / clampSheetVisualScale(sheet.frame.visualScale);
