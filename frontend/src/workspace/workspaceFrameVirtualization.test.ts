@@ -12,9 +12,8 @@ describe('workspaceFrameVirtualization', () => {
       editingSheetId: 'offscreen',
       gridInteractionSheetIds: new Set(['grid-drag', 'offscreen']),
       interactionSheetId: 'offscreen',
-      navigationRevealSheetId: 'navigation',
       pendingFocusSheetId: null,
-    })]).toEqual(['offscreen', 'navigation', 'grid-drag']);
+    })]).toEqual(['offscreen', 'grid-drag']);
   });
 
   it('culls by measured transformed viewport while retaining every explicit pin category', () => {
@@ -29,7 +28,6 @@ describe('workspaceFrameVirtualization', () => {
       { editingSheetId: 'offscreen' },
       { interactionSheetId: 'offscreen' },
       { gridInteractionSheetIds: new Set(['offscreen']) },
-      { navigationRevealSheetId: 'offscreen' },
       { pendingFocusSheetId: 'offscreen' },
     ]) {
       expect([...mountedWorkspaceFrameIds({ ...base, pins: pin })])
@@ -43,7 +41,7 @@ describe('workspaceFrameVirtualization', () => {
     })]).toEqual(['offscreen']);
   });
 
-  it('culls and retains navigation pins at both supported scale limits and large signed positions', () => {
+  it('culls and retains pending focus pins at both supported scale limits and large signed positions', () => {
     const base = {
       frames,
       surfaceSize: { width: 800, height: 600 },
@@ -56,7 +54,7 @@ describe('workspaceFrameVirtualization', () => {
       expect([...mountedWorkspaceFrameIds({ ...base, pins: {}, viewport })]).toEqual(['offscreen']);
       expect([...mountedWorkspaceFrameIds({
         ...base,
-        pins: { navigationRevealSheetId: 'visible' },
+        pins: { pendingFocusSheetId: 'visible' },
         viewport,
       })]).toEqual(['visible', 'offscreen']);
     }

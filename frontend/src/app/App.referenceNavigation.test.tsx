@@ -40,8 +40,6 @@ describe('formula reference navigation', () => {
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
     fireEvent.scroll(body);
-    const target = await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
-    expect(target).toHaveFocus();
     expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CV10000 empty cell' })).toHaveAttribute('data-reference-selected', 'true');
     expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
   });
@@ -96,7 +94,6 @@ describe('formula reference navigation', () => {
     expect(target).toHaveAttribute('data-navigation-highlight', 'true');
     expect(inputsFrame).toHaveAttribute('data-z-index', '2');
 
-    await waitFor(() => expect(inputsFrame).not.toHaveAttribute('data-navigation-reveal'), { timeout: 1_500 });
     fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });

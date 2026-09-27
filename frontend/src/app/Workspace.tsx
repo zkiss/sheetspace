@@ -134,8 +134,6 @@ export function Workspace({
   const {
     navigateReference,
     navigationHighlight,
-    navigationRevealSheetId,
-    releaseNavigationReveal,
     navigationMotion,
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
@@ -181,7 +179,6 @@ export function Workspace({
       editingSheetId: editingCell?.target.sheetId,
       gridInteractionSheetIds,
       interactionSheetId: interactionPinnedSheetId,
-      navigationRevealSheetId,
       pendingFocusSheetId: keyboardFocusRequest?.target.sheetId,
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
@@ -446,7 +443,6 @@ export function Workspace({
                         }
                       : null}
                     onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
-                    onNavigationTargetFocused={() => releaseNavigationReveal(sheet.id)}
                     navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                     navigationHighlightRange={navigationHighlightRange}
                     historyFeedbackCells={historyFeedbackCells}

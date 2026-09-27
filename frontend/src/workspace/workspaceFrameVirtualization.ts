@@ -10,7 +10,6 @@ export type WorkspaceFramePins = {
   editingSheetId?: string | null;
   interactionSheetId?: string | null;
   gridInteractionSheetIds?: ReadonlySet<string>;
-  navigationRevealSheetId?: string | null;
   pendingFocusSheetId?: string | null;
 };
 
@@ -19,7 +18,6 @@ export function workspaceFramePinIds(pins: WorkspaceFramePins): ReadonlySet<stri
     pins.interactionSheetId,
     pins.editingSheetId,
     pins.pendingFocusSheetId,
-    pins.navigationRevealSheetId,
     ...(pins.gridInteractionSheetIds ?? []),
   ].filter((sheetId): sheetId is string => Boolean(sheetId)));
 }
