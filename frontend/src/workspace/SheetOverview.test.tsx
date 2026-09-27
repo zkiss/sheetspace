@@ -50,4 +50,47 @@ describe('SheetOverview', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(projectSheetOverview(crowdedSheet)).toHaveLength(MAX_SHEET_OVERVIEW_SAMPLES);
   });
+
+  it('normalizes invalid screen scales and truncates values on single-cell axes', () => {
+    const longValue = 'A value that is deliberately longer than the overview sample limit';
+    const sheet = tabularProjection(sheetDocument({
+      cells: { A1: longValue },
+      columnCount: 1,
+      id: 'sheet-single-cell',
+      name: 'Single cell',
+      rowCount: 1,
+    }));
+    const { rerender } = render(
+      <SheetOverview isActive onSelect={vi.fn()} screenScale={Number.NaN} sheet={sheet} />,
+    );
+
+    expect(screen.getByTestId('sheet-overview-screen')).toHaveStyle({
+      height: '100%',
+      transform: 'scale(1)',
+      width: '100%',
+    });
+    expect(document.querySelector('[data-overview-sample-address="A1"]')).toHaveStyle({
+      left: '0%', top: '0%', transform: 'translate(0%, 0%)',
+    });
+    expect(screen.getByText(`${longValue.slice(0, 31)}…`)).toBeInTheDocument();
+
+    rerender(<SheetOverview isActive onSelect={vi.fn()} screenScale={0} sheet={sheet} />);
+    expect(screen.getByTestId('sheet-overview-screen')).toHaveStyle({ transform: 'scale(1)' });
+  });
+
+  it('clamps explicit sample limits to the overview bounds', () => {
+    const sheet = tabularProjection(sheetDocument({
+      cells: Object.fromEntries(Array.from({ length: 20 }, (_, index) => [
+        `A${index + 1}`,
+        `value-${index + 1}`,
+      ])),
+      id: 'sheet-sample-limits',
+      name: 'Sample limits',
+      rowCount: 20,
+    }));
+
+    expect(projectSheetOverview(sheet, -1)).toEqual([]);
+    expect(projectSheetOverview(sheet, 2.9)).toHaveLength(2);
+    expect(projectSheetOverview(sheet, Number.POSITIVE_INFINITY)).toHaveLength(MAX_SHEET_OVERVIEW_SAMPLES);
+  });
 });
