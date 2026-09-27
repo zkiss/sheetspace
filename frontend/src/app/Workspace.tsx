@@ -116,6 +116,29 @@ export function Workspace({
   // can replace the logical owner while the original frame remains miniature.
   // Keep the intended owner so an initially-overview sheet can request focus too.
   const [pendingGridFocusSheetId, setPendingGridFocusSheetId] = useState<string | null>(null);
+  const pendingGridFocusSheetIdRef = useRef<string | null>(null);
+  const updatePendingGridFocus = useCallback((sheetId: string | null) => {
+    pendingGridFocusSheetIdRef.current = sheetId;
+    setPendingGridFocusSheetId(sheetId);
+  }, []);
+  const cancelPendingGridFocus = useCallback(() => {
+    updatePendingGridFocus(null);
+  }, [updatePendingGridFocus]);
+  useEffect(() => {
+    function handleFocusIn(event: FocusEvent) {
+      const pendingSheetId = pendingGridFocusSheetIdRef.current;
+      const focusOwner = event.target;
+      if (!pendingSheetId || !(focusOwner instanceof Element)) return;
+      // Losing focus to body while a frame unmounts does not establish a new
+      // owner. A subsequent focusin identifies an intentional external owner.
+      if (focusOwner === document.body || focusOwner === document.documentElement) return;
+      const frame = focusOwner.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
+      if (frame?.dataset.sheetId !== pendingSheetId) cancelPendingGridFocus();
+    }
+
+    document.addEventListener('focusin', handleFocusIn, true);
+    return () => document.removeEventListener('focusin', handleFocusIn, true);
+  }, [cancelPendingGridFocus]);
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
@@ -200,13 +223,9 @@ export function Workspace({
     // A retained grid keeps an in-progress frame control usable, but is not yet
     // the focus destination. Re-evaluate after that control settles.
     if (interactionPinnedSheetId === sheetId) return;
-    setPendingGridFocusSheetId(null);
+    updatePendingGridFocus(null);
     onRestoreGridFocus();
-  }, [activeCell?.sheetId, interactionPinnedSheetId, onRestoreGridFocus, pendingGridFocusSheetId]);
-
-  const cancelPendingGridFocus = useCallback(() => {
-    setPendingGridFocusSheetId(null);
-  }, []);
+  }, [activeCell?.sheetId, interactionPinnedSheetId, onRestoreGridFocus, pendingGridFocusSheetId, updatePendingGridFocus]);
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
@@ -366,19 +385,18 @@ export function Workspace({
               retainDetailedBody={Boolean(
                 sheetEditingCell || interactionPinnedSheetId === sheet.id || gridInteractionSheetIds.has(sheet.id),
               )}
-              onDetailedFocusDisplaced={() => setPendingGridFocusSheetId(sheet.id)}
+              onDetailedFocusDisplaced={() => updatePendingGridFocus(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
-              onOverviewFocusLost={cancelPendingGridFocus}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
-                   onSelect={() => {
-                     if (!overviewSelectionTarget) return;
-                     // Selecting an overview explicitly asks to enter a grid that
-                     // is absent now. Retarget any displaced-grid handoff to it.
-                     setPendingGridFocusSheetId(sheet.id);
-                     onSelectCell(overviewSelectionTarget);
-                   }}
+                  onSelect={() => {
+                    if (!overviewSelectionTarget) return;
+                    // Selecting an overview explicitly asks to enter a grid that
+                    // is absent now. Retarget any displaced-grid handoff to it.
+                    updatePendingGridFocus(sheet.id);
+                    onSelectCell(overviewSelectionTarget);
+                  }}
                   screenScale={effectiveSheetScreenScale(workspaceController.viewport.scale, frame.visualScale)}
                   sheet={tabular}
                 />

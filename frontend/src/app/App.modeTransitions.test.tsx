@@ -141,6 +141,55 @@ describe('App rendering-mode transitions', () => {
     expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveFocus();
   });
 
+  it('cancels overview focus restoration when toolbar focus takes ownership while the frame is culled', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const surface = screen.getByTestId('workspace-surface');
+    const geometry = measuredElementGeometry(surface, { width: 800, height: 600 });
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    fireEvent.click(cell);
+    cell.focus();
+    zoomWorkspace('out', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
+
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+    const toolbarControl = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    toolbarControl.focus();
+
+    act(() => { geometry.resize({ width: 800, height: 600 }); });
+    const remountedFrame = await screen.findByRole('article', { name: 'Sheet Inputs' });
+    zoomWorkspace('in', 6);
+
+    await waitFor(() => expect(remountedFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    expect(toolbarControl).toHaveFocus();
+    expect(within(remountedFrame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveFocus();
+  });
+
+  it('cancels overview focus restoration when toolbar focus takes ownership during a retained scale interaction', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    fireEvent.click(cell);
+    cell.focus();
+    zoomWorkspace('out', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
+
+    const input = scaleInput();
+    input.focus();
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    const toolbarControl = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    toolbarControl.focus();
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
+
+    zoomWorkspace('in', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    expect(toolbarControl).toHaveFocus();
+    expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveFocus();
+  });
+
   it('keeps an overview-selection focus handoff through culling and remounting', async () => {
     const miniatureInputs = sheetDocument({
       id: 'sheet-inputs',

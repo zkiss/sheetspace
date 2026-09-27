@@ -26,7 +26,6 @@ export function SheetFrame({
   overview,
   onDetailedFocusDisplaced,
   onDetailedBodyAvailable,
-  onOverviewFocusLost,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -60,8 +59,6 @@ export function SheetFrame({
   onDetailedFocusDisplaced?: () => void;
   /** Reports that this frame has a detailed body that can accept grid focus. */
   onDetailedBodyAvailable?: () => void;
-  /** Cancels a pending grid-focus handoff after focus leaves this frame. */
-  onOverviewFocusLost?: () => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -95,7 +92,6 @@ export function SheetFrame({
   const renderingMode = retainDetailedBody ? 'detailed' : requestedRenderingMode;
   const previousRenderingMode = useRef(renderingMode);
   const bodyHadFocus = useRef(false);
-  const overviewHadFocus = useRef(false);
 
   useEffect(() => {
     if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
@@ -133,21 +129,6 @@ export function SheetFrame({
       data-sheet-id={frame.id}
       data-testid="sheet-frame"
       data-z-index={frame.zIndex}
-      onBlurCapture={(event) => {
-        const nextFocus = event.relatedTarget as Node | null;
-        // A scale control is part of this frame's focus transaction. Only an
-        // affirmative transfer beyond the frame cancels the pending handoff;
-        // null relatedTarget can result from culling/unmounting.
-        if (
-          renderingMode === 'overview'
-          && overviewHadFocus.current
-          && nextFocus
-          && !event.currentTarget.contains(nextFocus)
-        ) {
-          overviewHadFocus.current = false;
-          onOverviewFocusLost?.();
-        }
-      }}
       onContextMenu={(event) => onOpenSheetMenu(frame.id, event)}
       onPointerDown={(event) => {
         event.stopPropagation();
@@ -229,7 +210,6 @@ export function SheetFrame({
         }}
         onFocusCapture={() => {
           bodyHadFocus.current = true;
-          if (renderingMode === 'overview') overviewHadFocus.current = true;
         }}
         ref={bodyRef}
         tabIndex={-1}
