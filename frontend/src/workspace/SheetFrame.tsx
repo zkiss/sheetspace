@@ -26,7 +26,7 @@ export function SheetFrame({
   overview,
   onDetailedFocusDisplaced,
   onDetailedBodyAvailable,
-  onDetailedFocusOwnershipChange,
+  onDetailedNativeFocusReleased,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -60,8 +60,8 @@ export function SheetFrame({
   onDetailedFocusDisplaced?: () => void;
   /** Reports that this frame has a detailed body that can accept grid focus. */
   onDetailedBodyAvailable?: () => void;
-  /** Reports native focus entering or leaving the detailed grid boundary. */
-  onDetailedFocusOwnershipChange?: (owned: boolean) => void;
+  /** Reports native grid focus leaving the detailed body. */
+  onDetailedNativeFocusReleased?: () => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -210,12 +210,10 @@ export function SheetFrame({
         onBlurCapture={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
           bodyHadFocus.current = false;
-          if (renderingMode === 'detailed') onDetailedFocusOwnershipChange?.(false);
+          if (renderingMode === 'detailed') onDetailedNativeFocusReleased?.();
         }}
-        onFocusCapture={(event) => {
-          const enteredBody = !event.currentTarget.contains(event.relatedTarget as Node | null);
+        onFocusCapture={() => {
           bodyHadFocus.current = true;
-          if (enteredBody && renderingMode === 'detailed') onDetailedFocusOwnershipChange?.(true);
         }}
         ref={bodyRef}
         tabIndex={-1}

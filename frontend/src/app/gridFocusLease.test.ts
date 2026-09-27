@@ -47,6 +47,17 @@ describe('grid focus lease', () => {
     expect(pinsFocusedFrame(awaiting)).toBe(false);
   });
 
+  it('creates a deferred restoration from an explicitly observed empty lease', () => {
+    expect(reduceGridFocusLease(null, {
+      type: 'detail-displaced', observedToken: null, token: 5, target,
+    })).toEqual({ token: 5, target, sheetId: target.sheetId, phase: 'awaiting-detail' });
+
+    const newer: GridFocusLease = { token: 6, target: replacement, sheetId: replacement.sheetId, phase: 'native-owned' };
+    expect(reduceGridFocusLease(newer, {
+      type: 'detail-displaced', observedToken: null, token: 7, target,
+    })).toBe(newer);
+  });
+
   it('keeps request delivery authoritative through native focus and mode effects', () => {
     const active: GridFocusLease = { token: 6, target, sheetId: target.sheetId, phase: 'request-active', requestId: 14 };
 
@@ -67,5 +78,14 @@ describe('grid focus lease', () => {
     });
     expect(pinsFocusedFrame(consumed)).toBe(true);
     expect(activeFocusRequestId(consumed)).toBeNull();
+  });
+
+  it('limits native blur to exact native ownership', () => {
+    const native: GridFocusLease = { token: 8, target, sheetId: target.sheetId, phase: 'native-owned' };
+    const active: GridFocusLease = { ...native, phase: 'request-active', requestId: 15 };
+
+    expect(reduceGridFocusLease(native, { type: 'native-blur', token: 7 })).toBe(native);
+    expect(reduceGridFocusLease(active, { type: 'native-blur', token: 8 })).toBe(active);
+    expect(reduceGridFocusLease(native, { type: 'native-blur', token: 8 })).toBeNull();
   });
 });

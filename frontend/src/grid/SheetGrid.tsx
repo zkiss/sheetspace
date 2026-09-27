@@ -109,6 +109,7 @@ export function SheetGrid({
   logicalSelection,
   onWriteAxisSizes,
   onPointerInteractionChange,
+  onNativeFocusTarget,
   pendingCutCells,
 }: {
   presentation?: SheetPresentation;
@@ -116,6 +117,8 @@ export function SheetGrid({
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
   /** Keeps this grid mounted while a live pointer session owns it. */
   onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
+  /** Publishes native ownership only after focus reaches a concrete cell. */
+  onNativeFocusTarget?: (target: CellTarget) => void;
   pendingCutCells?: ReadonlySet<string>;
   activeCellKey: string | null;
   /**
@@ -776,6 +779,7 @@ export function SheetGrid({
                    isRangeSelected={isRangeSelected}
                    isPendingCut={pendingCutCells?.has(key)}
                   key={key}
+                  onNativeFocusTarget={onNativeFocusTarget}
                   registerCell={registerCell}
                   sheet={sheet}
                   style={{

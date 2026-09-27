@@ -105,6 +105,10 @@ describe('formula reference navigation', () => {
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
     expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed');
 
+    const requestTimeInput = within(inputsFrame).getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
+    requestTimeInput.focus();
+    expect(requestTimeInput).toHaveFocus();
+
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
     const focus = vi.spyOn(HTMLElement.prototype, 'focus');

@@ -280,14 +280,15 @@ export function Workspace({
     });
   }, [activeCell, dispatchGridFocusLease]);
 
-  const handleDetailedFocusOwnershipChange = useCallback((sheetId: string, owned: boolean) => {
-    if (!owned) {
-      endGridFocusLease();
-      return;
-    }
-    if (activeCell?.sheetId !== sheetId) return;
-    dispatchGridFocusLease({ type: 'native-focus', token: nextGridFocusToken.current++, target: activeCell });
-  }, [activeCell, dispatchGridFocusLease, endGridFocusLease]);
+  const handleDetailedNativeFocusReleased = useCallback((sheetId: string) => {
+    const lease = gridFocusLeaseRef.current;
+    if (lease?.sheetId !== sheetId || lease.phase !== 'native-owned') return;
+    dispatchGridFocusLease({ type: 'native-blur', token: lease.token });
+  }, [dispatchGridFocusLease]);
+
+  const handleDetailedNativeFocus = useCallback((target: CellTarget) => {
+    dispatchGridFocusLease({ type: 'native-focus', token: nextGridFocusToken.current++, target });
+  }, [dispatchGridFocusLease]);
 
   const handleKeyboardFocusRequestConsumed = useCallback((requestId: number) => {
     dispatchGridFocusLease({ type: 'consume-request', requestId });
@@ -457,7 +458,7 @@ export function Workspace({
               )}
               onDetailedFocusDisplaced={() => handleDetailedFocusDisplaced(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
-              onDetailedFocusOwnershipChange={(owned) => handleDetailedFocusOwnershipChange(sheet.id, owned)}
+              onDetailedNativeFocusReleased={() => handleDetailedNativeFocusReleased(sheet.id)}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
@@ -511,6 +512,7 @@ export function Workspace({
                     logicalSelection={selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
+                    onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
                       clear: onClearCell,
                       navigate: onNavigateCell,

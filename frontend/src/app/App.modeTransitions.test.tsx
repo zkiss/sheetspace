@@ -239,6 +239,37 @@ describe('App rendering-mode transitions', () => {
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
+  it('acquires focus after initial keyboard entry and restores it through overview once', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const surface = screen.getByTestId('workspace-surface');
+    const geometry = measuredElementGeometry(surface, { width: 800, height: 600 });
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const grid = within(frame).getByRole('table', { name: 'Inputs grid' });
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    grid.focus();
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await waitFor(() => expect(a1).toHaveFocus());
+
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+    expect(frame).toBeInTheDocument();
+    act(() => { geometry.resize({ width: 800, height: 600 }); });
+
+    zoomWorkspace('out', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
+    const a1FocusClaims = () => (focus.mock.instances as unknown as HTMLElement[]).filter((element) =>
+      element.getAttribute('aria-label') === 'Inputs A1 empty cell').length;
+    const claimsBeforeRestore = a1FocusClaims();
+    zoomWorkspace('in', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
+    expect(a1FocusClaims()).toBe(claimsBeforeRestore + 1);
+
+    screen.getByRole('button', { name: 'Reset workspace viewport' }).focus();
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+  });
+
   it('keeps a draft and the detailed owner mounted while a scale preview crosses the threshold', async () => {
     const user = userEvent.setup();
     render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);

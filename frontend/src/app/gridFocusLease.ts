@@ -20,6 +20,7 @@ export type GridFocusLeaseAction =
   | { type: 'consume-request'; requestId: number }
   | { type: 'cancel-request'; requestId: number }
   | { type: 'detailed-release'; token: number }
+  | { type: 'native-blur'; token: number }
   | { type: 'external-focus' };
 
 /**
@@ -39,7 +40,7 @@ export function reduceGridFocusLease(
     case 'await-detail':
       return { ...leaseBase(action.token, action.target), phase: 'awaiting-detail' };
     case 'detail-displaced':
-      if (lease?.token !== action.observedToken) return lease;
+      if ((lease?.token ?? null) !== action.observedToken) return lease;
       if (lease?.phase === 'consumed-awaiting-release') return null;
       if (lease?.phase === 'request-active') return lease;
       return { ...leaseBase(lease?.token ?? action.token, action.target), phase: 'awaiting-detail' };
@@ -60,6 +61,8 @@ export function reduceGridFocusLease(
       return lease?.token === action.token && lease.phase === 'consumed-awaiting-release'
         ? { token: lease.token, sheetId: lease.sheetId, target: lease.target, phase: 'native-owned' }
         : lease;
+    case 'native-blur':
+      return lease?.token === action.token && lease.phase === 'native-owned' ? null : lease;
     case 'external-focus':
       return null;
   }
