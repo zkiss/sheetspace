@@ -1,0 +1,109 @@
+.sheet-overview {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  background: linear-gradient(145deg, #f8fbfc, #e7eff2);
+  color: #17202a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sheet-overview:focus-visible {
+  outline: 3px solid #2f747e;
+  outline-offset: -3px;
+}
+
+.sheet-overview-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  box-sizing: border-box;
+  grid-template-rows: auto minmax(9px, 1fr);
+  gap: 1px;
+  padding: 2px;
+  container-type: inline-size;
+  transform-origin: top left;
+}
+
+.sheet-overview-identity,
+.sheet-overview-count {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgb(248 251 252 / 90%);
+}
+
+.sheet-overview-identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 3px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.sheet-overview-identity strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-overview-identity span,
+.sheet-overview-count {
+  color: #52636b;
+  font-size: 7px;
+  white-space: nowrap;
+}
+
+.sheet-overview-map {
+  position: relative;
+  display: block;
+  min-height: 9px;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid #b9c9cf;
+  border-radius: 2px;
+  background:
+    linear-gradient(to right, rgb(47 116 126 / 10%) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(47 116 126 / 10%) 1px, transparent 1px),
+    #fff;
+  background-size: 12.5% 25%;
+}
+
+.sheet-overview-sample {
+  position: absolute;
+  display: block;
+  max-width: 55%;
+  overflow: hidden;
+  padding: 0 2px;
+  border-radius: 2px;
+  background: #2f747e;
+  color: #fff;
+  font-size: 8px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-overview-count {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+@container (max-width: 110px) {
+  .sheet-overview-identity span {
+    display: none;
+  }
+}

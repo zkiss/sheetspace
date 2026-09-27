@@ -19,6 +19,7 @@
   z-index: 5;
   background: transparent;
   touch-action: none;
+  transform-origin: center;
 }
 
 .sheet-frame-scale-handle {
@@ -170,6 +171,21 @@
   overflow: auto;
   background: #ffffff;
   border-radius: 0 0 5px 5px;
+  /*
+   * A mode change replaces the body synchronously so focus and interaction
+   * ownership never depend on an animation completing.  This small surface
+   * transition only makes the replacement less abrupt.
+   */
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.sheet-frame-body[data-rendering-mode='overview'] {
+  background: #e7eff2;
+  box-shadow: inset 0 0 0 1px rgb(47 116 126 / 12%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-frame-body { transition: none; }
 }
 
 .sheet-frame-creating { opacity: 0.72; }

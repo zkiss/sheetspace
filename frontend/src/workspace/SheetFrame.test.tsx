@@ -1,9 +1,13 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { frameProjection } from '@workbook/read/queries';
+import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
+import {
+  SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE,
+} from '@workspace/sheetRenderingMode';
 
 afterEach(cleanup);
 
@@ -110,7 +114,7 @@ describe('SheetFrame', () => {
     expect(input).toHaveValue(200);
   });
 
-  it('keeps the inverse-scaled handle outside the clipped sheet body at miniature combined scale', () => {
+  it('keeps controls at stable screen size outside the clipped body at miniature combined scale', () => {
     const interactions = {
       onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
       onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
@@ -127,15 +131,108 @@ describe('SheetFrame', () => {
     const body = screen.getByTestId('sheet-frame-body');
     const controls = screen.getByTestId('sheet-frame-controls');
     const handle = screen.getByTestId('sheet-frame-scale-handle');
+    const resizeTop = screen.getByRole('separator', { name: /from top$/ });
+    const resizeRight = screen.getByRole('separator', { name: /from right$/ });
+    const resizeCorner = screen.getByRole('separator', { name: /from bottom-right$/ });
 
     expect(controls).toContainElement(handle);
     expect(body).not.toContainElement(handle);
     expect(handle).toHaveStyle({ transform: 'scale(8)' });
+    expect(resizeTop).toHaveStyle({ transform: 'scaleY(8)' });
+    expect(resizeRight).toHaveStyle({ transform: 'scaleX(8)' });
+    expect(resizeCorner).toHaveStyle({ transform: 'scale(8)' });
 
-    // The handle remains in the unclipped frame layer even though it protrudes
-    // beyond the clipped scroll body, so its full stable-size target is usable.
+    // The controls remain in the unclipped frame layer even though they protrude
+    // beyond the clipped scroll body, so their full stable-size targets are usable.
     fireEvent.pointerDown(handle);
+    fireEvent.pointerDown(resizeCorner);
     expect(interactions.onScaleStart).toHaveBeenCalledWith('sheet-inputs', expect.anything());
+    expect(interactions.onResizeStart).toHaveBeenCalledWith(
+      'sheet-inputs',
+      { horizontal: 1, vertical: 1 },
+      expect.anything(),
+    );
+  });
+
+  it('switches only the frame body at the effective-scale hysteresis boundaries', () => {
+    const interactions = {
+      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
+      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+    };
+    const frame = testFrame();
+    const renderFrame = (viewportScale: number) => (
+      <SheetFrame
+        columnCount={4}
+        frame={frame}
+        isActiveSheet
+        isNavigationReveal
+        overview={<button type="button">Inputs overview</button>}
+        {...interactions}
+        rowCount={6}
+        viewportScale={viewportScale}
+      >
+        {() => <table aria-label="Inputs grid" />}
+      </SheetFrame>
+    );
+    const { rerender } = render(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE + 0.01));
+    const sheetFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+
+    expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
+    expect(sheetFrame).toHaveClass('sheet-frame-active', 'sheet-frame-navigation-reveal');
+
+    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
+    expect(screen.queryByRole('table', { name: 'Inputs grid' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument();
+
+    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE - 0.01));
+    expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument();
+
+    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
+    expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inputs overview' })).not.toBeInTheDocument();
+  });
+
+  it('retains a detailed body for an active interaction, then hands focus through overview once', async () => {
+    const interactions = {
+      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
+      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
+      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+    };
+    const displacedFocus = vi.fn();
+    const detailedBodyAvailable = vi.fn();
+    const frame = testFrame();
+    const renderFrame = (viewportScale: number, retainDetailedBody = false) => (
+      <SheetFrame
+        columnCount={4}
+        frame={frame}
+        isActiveSheet
+        isNavigationReveal={false}
+        onDetailedFocusDisplaced={displacedFocus}
+        onDetailedBodyAvailable={detailedBodyAvailable}
+        overview={<button type="button">Inputs overview</button>}
+        retainDetailedBody={retainDetailedBody}
+        {...interactions}
+        rowCount={6}
+        viewportScale={viewportScale}
+      >
+        {() => <button type="button">Inputs cell</button>}
+      </SheetFrame>
+    );
+    const { rerender } = render(renderFrame(1));
+    const cell = screen.getByRole('button', { name: 'Inputs cell' });
+    cell.focus();
+
+    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE, true));
+    expect(screen.getByRole('button', { name: 'Inputs cell' })).toBeInTheDocument();
+
+    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument());
+    expect(screen.getByTestId('sheet-frame-body')).toHaveFocus();
+    expect(displacedFocus).toHaveBeenCalledTimes(1);
+
+    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
+    await waitFor(() => expect(detailedBodyAvailable).toHaveBeenCalled());
   });
 
   it('cancels an in-progress numeric preview when its control unmounts', () => {

@@ -1,6 +1,7 @@
 import { CellAddress, CellRange } from '@workbook/core/address';
 import { SheetDocument, WorkspacePosition } from '@workbook/core/model';
-import { clampSheetFrameSize } from '@workspace/workspaceGeometry';
+import { clampSheetFrameSize, clampSheetVisualScale } from '@workspace/workspaceGeometry';
+import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
 
 import { projectGridAxes } from './gridAxisProjection';
 import { createSheetGridAxisMetrics } from './gridAxisMetrics';
@@ -28,4 +29,9 @@ export function rangeFitsSheetViewport(range: CellRange, sheet: SheetDocument) {
   const availableHeight = frameSize.height - SHEET_HEADER_HEIGHT - GRID_COLUMN_HEADER_HEIGHT;
   return extent(metrics.columns, range.start.columnIndex, range.end.columnIndex) <= availableWidth
     && extent(metrics.rows, range.start.rowIndex, range.end.rowIndex) <= availableHeight;
+}
+
+/** Minimum workspace zoom that causes this sheet to enter detailed rendering. */
+export function detailedViewportScaleForSheet(sheet: SheetDocument) {
+  return SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE / clampSheetVisualScale(sheet.frame.visualScale);
 }

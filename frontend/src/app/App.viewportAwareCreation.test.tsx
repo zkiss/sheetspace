@@ -120,7 +120,14 @@ describe('viewport-aware sheet creation', () => {
 
     fireEvent.click(cellAt(outputs, 'A1'));
     fireEvent.click(screen.getByRole('button', { name: 'Inputs!B1, reference' }), { ctrlKey: true });
-    expect(cellAt(inputs, 'B1')).toHaveFocus();
+    expect(inputs).toHaveAttribute('data-active-sheet', 'true');
+    expect(inputs).toHaveAttribute('data-navigation-reveal', 'true');
+    // Navigation raises the effective scale to the shared detailed-entry
+    // threshold so the destination grid is immediately available.
+    expect(inputs).toHaveAttribute('data-rendering-mode', 'detailed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+    await waitFor(() => expect(cellAt(inputs, 'B1')).toHaveFocus());
     cleanupAndReload(apiClient);
 
     const reloadedInputs = await screen.findByRole('article', { name: 'Sheet Inputs' });

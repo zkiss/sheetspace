@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent, type MutableRefObject, ty
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
 import { clampSheetFrameSize, clampSheetVisualScale, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
+import { resolveSheetRenderingMode } from '@workspace/sheetRenderingMode';
 import '@workspace/SheetFrame.css';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
@@ -21,6 +22,11 @@ export function SheetFrame({
   frame,
   isActiveSheet,
   isNavigationReveal,
+  retainDetailedBody,
+  overview,
+  onDetailedFocusDisplaced,
+  onDetailedBodyAvailable,
+  onDetailedNativeFocusReleased,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -47,6 +53,15 @@ export function SheetFrame({
   frame: SheetFrameProjection;
   isActiveSheet: boolean;
   isNavigationReveal: boolean;
+  /** An editor or frame gesture cannot be unmounted by a scale preview. */
+  retainDetailedBody?: boolean;
+  overview?: ReactNode;
+  /** Reports that replacing this detailed body displaced native grid focus. */
+  onDetailedFocusDisplaced?: () => void;
+  /** Reports that this frame has a detailed body that can accept grid focus. */
+  onDetailedBodyAvailable?: () => void;
+  /** Reports native grid focus leaving the detailed body. */
+  onDetailedNativeFocusReleased?: () => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -74,10 +89,29 @@ export function SheetFrame({
   const isScaleInputCancellation = useRef(false);
   const [scaleInputValue, setScaleInputValue] = useState(() => scalePercentage(frame.visualScale));
   const screenScale = effectiveSheetScreenScale(viewportScale, frame.visualScale);
+  const renderingModeRef = useRef(resolveSheetRenderingMode(screenScale));
+  const requestedRenderingMode = resolveSheetRenderingMode(screenScale, renderingModeRef.current);
+  renderingModeRef.current = requestedRenderingMode;
+  const renderingMode = retainDetailedBody ? 'detailed' : requestedRenderingMode;
+  const previousRenderingMode = useRef(renderingMode);
+  const bodyHadFocus = useRef(false);
 
   useEffect(() => {
     if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
   }, [frame.visualScale]);
+
+  useEffect(() => {
+    const previousMode = previousRenderingMode.current;
+    if (previousMode === 'detailed' && renderingMode === 'overview' && bodyHadFocus.current) {
+      // The detailed grid is about to disappear. Keep focus in the frame rather
+      // than allowing the browser to strand it on document.body. The workspace
+      // owns the eventual destination because overview selection may change it.
+      onDetailedFocusDisplaced?.();
+      bodyRef.current?.focus();
+    }
+    if (renderingMode === 'detailed') onDetailedBodyAvailable?.();
+    previousRenderingMode.current = renderingMode;
+  }, [onDetailedBodyAvailable, onDetailedFocusDisplaced, renderingMode]);
 
   return (
     <article
@@ -94,6 +128,7 @@ export function SheetFrame({
       data-position-x={frame.position.x}
       data-position-y={frame.position.y}
       data-row-count={rowCount}
+      data-rendering-mode={renderingMode}
       data-sheet-id={frame.id}
       data-testid="sheet-frame"
       data-z-index={frame.zIndex}
@@ -128,6 +163,7 @@ export function SheetFrame({
           onPointerMove={onResizeMove}
           onPointerUp={onResizeStop}
           role="separator"
+          style={{ transform: resizeHandleTransform(handle, screenScale) }}
         />
       ))}
       {isActiveSheet && (
@@ -167,8 +203,22 @@ export function SheetFrame({
       >
         <h2>{frame.name}</h2>
       </header>
-      <div className="sheet-frame-body" data-testid="sheet-frame-body" ref={bodyRef}>
-        {children(bodyRef)}
+      <div
+        className="sheet-frame-body"
+        data-rendering-mode={renderingMode}
+        data-testid="sheet-frame-body"
+        onBlurCapture={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          bodyHadFocus.current = false;
+          if (renderingMode === 'detailed') onDetailedNativeFocusReleased?.();
+        }}
+        onFocusCapture={() => {
+          bodyHadFocus.current = true;
+        }}
+        ref={bodyRef}
+        tabIndex={-1}
+      >
+        {renderingMode === 'overview' ? overview : children(bodyRef)}
       </div>
     </article>
   );
@@ -255,4 +305,11 @@ function ScaleInput({
 
 function scalePercentage(visualScale: number) {
   return String(Math.round(visualScale * 100));
+}
+
+function resizeHandleTransform(handle: string, screenScale: number) {
+  const inverseScreenScale = 1 / screenScale;
+  if (handle === 'top' || handle === 'bottom') return `scaleY(${inverseScreenScale})`;
+  if (handle === 'left' || handle === 'right') return `scaleX(${inverseScreenScale})`;
+  return `scale(${inverseScreenScale})`;
 }

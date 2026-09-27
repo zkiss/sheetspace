@@ -108,11 +108,17 @@ export function SheetGrid({
   presentation,
   logicalSelection,
   onWriteAxisSizes,
+  onPointerInteractionChange,
+  onNativeFocusTarget,
   pendingCutCells,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
+  /** Keeps this grid mounted while a live pointer session owns it. */
+  onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
+  /** Publishes native ownership only after focus reaches a concrete cell. */
+  onNativeFocusTarget?: (target: CellTarget) => void;
   pendingCutCells?: ReadonlySet<string>;
   activeCellKey: string | null;
   /**
@@ -194,6 +200,14 @@ export function SheetGrid({
       : null
   ), [keyboardFocusRequest?.id, keyboardFocusRequest?.targetKey]);
   const focusIntent = keyboardFocusIntent ?? gridEntryFocusIntent;
+
+  useEffect(() => {
+    const active = dragging || resize.preview !== null;
+    onPointerInteractionChange?.(sheet.id, active);
+    return () => {
+      if (active) onPointerInteractionChange?.(sheet.id, false);
+    };
+  }, [dragging, onPointerInteractionChange, resize.preview, sheet.id]);
 
   // An application request supersedes every older grid-entry request.  It is not
   // merely higher priority while present: once acknowledged, the prior entry
@@ -318,6 +332,7 @@ export function SheetGrid({
     if (focusIntent.requestId !== undefined && keyboardFocusRequest?.id !== focusIntent.requestId) return;
     const registeredTarget = focusTargetRef.current;
     if (registeredTarget.key !== focusIntent.targetKey || !registeredTarget.element) return;
+    const completedIntent = focusIntent;
     registeredTarget.element.focus();
     if (scrollContainerRef.current) {
       ensureCellVisibleOutsideStickyHeaders(
@@ -327,7 +342,6 @@ export function SheetGrid({
         rowHeaderRef.current,
       );
     }
-    const completedIntent = focusIntent;
     if (completedIntent.requestId === undefined) {
       setGridEntryFocusIntent((current) => current?.id === completedIntent.id ? null : current);
     } else if (
@@ -765,6 +779,7 @@ export function SheetGrid({
                    isRangeSelected={isRangeSelected}
                    isPendingCut={pendingCutCells?.has(key)}
                   key={key}
+                  onNativeFocusTarget={onNativeFocusTarget}
                   registerCell={registerCell}
                   sheet={sheet}
                   style={{

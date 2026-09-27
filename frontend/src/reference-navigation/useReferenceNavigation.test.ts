@@ -90,7 +90,10 @@ describe('useReferenceNavigation', () => {
         end: { rowId: sheet.content.rows[19], columnId: sheet.content.columns[9] },
       },
     });
-    expect(navigateToTarget).toHaveBeenCalledWith(expect.any(Object), true);
+    expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
+      left: 0,
+      top: 0,
+    }), { forceOversized: true, minimumScale: 0.5 });
     expect(result.current.navigationHighlight).not.toBeNull();
     expect(result.current.navigationMotion).toBe(true);
 
@@ -124,7 +127,10 @@ describe('useReferenceNavigation', () => {
         cell: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] },
       },
     });
-    expect(navigateToTarget).toHaveBeenCalledWith(expect.any(Object), false);
+    expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
+      left: 0,
+      top: 0,
+    }), { forceOversized: false, minimumScale: 0.5 });
     expect(result.current.navigationMotion).toBe(false);
   });
 });

@@ -47,6 +47,7 @@ export type CellInteractionAction =
   | { type: 'commit-enter'; target: CellTarget }
   | { type: 'focus-current-selection' }
   | { type: 'acknowledge-focus'; requestId: number }
+  | { type: 'cancel-focus'; requestId: number }
   | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> };
 
 function referenceStart(target: ReferenceNavigationTarget): CellTarget {
@@ -223,6 +224,10 @@ export function cellInteractionReducer(
       // changing its range, mode, or ownership.
       return state.selection ? withFocusRequest(state, state.selection) : state;
     case 'acknowledge-focus':
+      return state.focusRequest?.id === action.requestId ? { ...state, focusRequest: null } : state;
+    case 'cancel-focus':
+      // Cancellation can race with a replacement request. Only the owner of the
+      // exact request may release its focus and virtualization pin.
       return state.focusRequest?.id === action.requestId ? { ...state, focusRequest: null } : state;
     case 'prune-sheets': {
       const keep = (target: CellTarget | null) => target && action.sheetIds.has(target.sheetId) ? target : null;

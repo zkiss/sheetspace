@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, type CellRange } from '@workbook/core/address';
@@ -16,11 +16,12 @@ import type {
   ReferenceNavigationTarget,
 } from '@grid/cellInteractionContracts';
 import type { SaveStatus } from '@application/core/state';
-import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
+import { cellKeyForTarget, cellTargetAt, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
+import { SheetOverview } from '@workspace/SheetOverview';
 import { CreatingSheetFrame } from '@workspace/CreatingSheetFrame';
 import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/core/sheetCreationState';
 import { SheetGrid } from '@grid/SheetGrid';
@@ -32,8 +33,15 @@ import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
-import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import { effectiveSheetScreenScale, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
+import {
+  activeFocusRequestId,
+  pinsFocusedFrame,
+  reduceGridFocusLease,
+  type GridFocusLease,
+  type GridFocusLeaseAction,
+} from './gridFocusLease';
 
 export function Workspace({
   activeCell,
@@ -46,6 +54,7 @@ export function Workspace({
   formulaResults,
   keyboardFocusRequest,
   onKeyboardFocusRequestConsumed,
+  onKeyboardFocusRequestCancelled,
   onCancelEdit,
   onClearCell,
   onCommitEdit,
@@ -82,6 +91,7 @@ export function Workspace({
   formulaResults: FormulaEvaluationSnapshot;
   keyboardFocusRequest: CellFocusRequest | null;
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
+  onKeyboardFocusRequestCancelled: (requestId: number) => void;
   onCancelEdit: () => void;
   onClearCell: (target: CellTarget) => void;
   onCommitEdit: (session?: CellEditSession) => void;
@@ -96,7 +106,7 @@ export function Workspace({
   onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onSettleSelectionGesture: (owner: symbol) => void;
-  onRestoreGridFocus: () => void;
+  onRestoreGridFocus: () => number | null;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
@@ -110,7 +120,57 @@ export function Workspace({
 }) {
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
+  const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [gridFocusLease, setGridFocusLease] = useState<GridFocusLease | null>(null);
+  const gridFocusLeaseRef = useRef<GridFocusLease | null>(null);
+  const nextGridFocusToken = useRef(1);
+  const dispatchGridFocusLease = useCallback((action: GridFocusLeaseAction) => {
+    const next = reduceGridFocusLease(gridFocusLeaseRef.current, action);
+    gridFocusLeaseRef.current = next;
+    setGridFocusLease(next);
+  }, []);
+  const beginPendingGridFocus = useCallback((target: CellTarget) => {
+    dispatchGridFocusLease({ type: 'await-detail', token: nextGridFocusToken.current++, target });
+  }, [dispatchGridFocusLease]);
+  const endGridFocusLease = useCallback(() => {
+    const requestId = activeFocusRequestId(gridFocusLeaseRef.current);
+    if (requestId !== null) {
+      onKeyboardFocusRequestCancelled(requestId);
+      dispatchGridFocusLease({ type: 'cancel-request', requestId });
+    } else dispatchGridFocusLease({ type: 'external-focus' });
+  }, [dispatchGridFocusLease, onKeyboardFocusRequestCancelled]);
+  useEffect(() => {
+    function handleFocusIn(event: FocusEvent) {
+      const lease = gridFocusLeaseRef.current;
+      const pendingSheetId = lease?.sheetId;
+      const focusOwner = event.target;
+      if (!pendingSheetId || !(focusOwner instanceof Element)) return;
+      // Losing focus to body while a frame unmounts does not establish a new
+      // owner. A subsequent focusin identifies an intentional external owner.
+      if (focusOwner === document.body || focusOwner === document.documentElement) return;
+      const frame = focusOwner.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
+      if (frame?.dataset.sheetId !== pendingSheetId) endGridFocusLease();
+    }
+
+    document.addEventListener('focusin', handleFocusIn, true);
+    return () => document.removeEventListener('focusin', handleFocusIn, true);
+  }, [endGridFocusLease]);
+  useLayoutEffect(() => {
+    if (!keyboardFocusRequest) return;
+    dispatchGridFocusLease({
+      type: 'adopt-request',
+      token: nextGridFocusToken.current++,
+      requestId: keyboardFocusRequest.id,
+      target: keyboardFocusRequest.target,
+    });
+  }, [dispatchGridFocusLease, keyboardFocusRequest]);
   const sheets = sheetsInOrder(workbook);
+  useEffect(() => {
+    const lease = gridFocusLeaseRef.current;
+    if (lease && !sheets.some((sheet) => sheet.id === lease.sheetId)) {
+      endGridFocusLease();
+    }
+  }, [endGridFocusLease, sheets]);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
   const selectedRaw = selectedSheet && selectedCellKey
@@ -167,20 +227,73 @@ export function Workspace({
     return frameScalePreview?.sheetId === sheet.id ? { ...layout, visualScale: frameScalePreview.visualScale } : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
-  const navigationRevealSheetId = navigationHighlight?.kind === 'cell'
-    ? navigationHighlight.target.sheetId
-    : navigationHighlight?.sheetId;
   const mountedSheetIds = mountedWorkspaceFrameIds({
     frames: projectedFrames,
     pins: {
       editingSheetId: editingCell?.target.sheetId,
+      gridInteractionSheetIds,
       interactionSheetId: interactionPinnedSheetId,
-      navigationRevealSheetId,
-      pendingFocusSheetId: keyboardFocusRequest?.target.sheetId,
+      pendingFocusSheetId: pinsFocusedFrame(gridFocusLease) ? gridFocusLease?.sheetId : undefined,
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
     viewport: workspaceController.viewport,
   });
+
+  const handleGridPointerInteractionChange = useCallback((sheetId: string, active: boolean) => {
+    setGridInteractionSheetIds((current) => {
+      if (current.has(sheetId) === active) return current;
+      const next = new Set(current);
+      if (active) next.add(sheetId);
+      else next.delete(sheetId);
+      return next;
+    });
+  }, []);
+
+  const handleDetailedBodyAvailable = useCallback((sheetId: string) => {
+    const lease = gridFocusLeaseRef.current;
+    if (lease?.sheetId !== sheetId) return;
+    if (lease.phase === 'consumed-awaiting-release') {
+      dispatchGridFocusLease({ type: 'detailed-release', token: lease.token });
+      return;
+    }
+    if (lease.phase !== 'awaiting-detail' || activeCell?.sheetId !== sheetId) return;
+    // A retained grid keeps an in-progress frame control usable, but is not yet
+    // the focus destination. Re-evaluate after that control settles.
+    if (interactionPinnedSheetId === sheetId) return;
+    const requestId = onRestoreGridFocus();
+    if (requestId === null) {
+      dispatchGridFocusLease({ type: 'external-focus' });
+      return;
+    }
+    dispatchGridFocusLease({ type: 'bind-request', token: lease.token, requestId, target: activeCell });
+  }, [activeCell, dispatchGridFocusLease, interactionPinnedSheetId, onRestoreGridFocus]);
+
+  const handleDetailedFocusDisplaced = useCallback((sheetId: string) => {
+    const lease = gridFocusLeaseRef.current;
+    const target = activeCell?.sheetId === sheetId ? activeCell : lease?.sheetId === sheetId ? lease.target : null;
+    if (!target) return;
+    dispatchGridFocusLease({
+      type: 'detail-displaced',
+      observedToken: lease?.sheetId === sheetId ? lease.token : null,
+      token: nextGridFocusToken.current++,
+      target,
+    });
+  }, [activeCell, dispatchGridFocusLease]);
+
+  const handleDetailedNativeFocusReleased = useCallback((sheetId: string) => {
+    const lease = gridFocusLeaseRef.current;
+    if (lease?.sheetId !== sheetId || lease.phase !== 'native-owned') return;
+    dispatchGridFocusLease({ type: 'native-blur', token: lease.token });
+  }, [dispatchGridFocusLease]);
+
+  const handleDetailedNativeFocus = useCallback((target: CellTarget) => {
+    dispatchGridFocusLease({ type: 'native-focus', token: nextGridFocusToken.current++, target });
+  }, [dispatchGridFocusLease]);
+
+  const handleKeyboardFocusRequestConsumed = useCallback((requestId: number) => {
+    dispatchGridFocusLease({ type: 'consume-request', requestId });
+    onKeyboardFocusRequestConsumed(requestId);
+  }, [dispatchGridFocusLease, onKeyboardFocusRequestConsumed]);
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
@@ -301,7 +414,7 @@ export function Workspace({
           if (!mountedSheetIds.has(sheet.id)) return null;
           const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
-          const axisProjection = projectGridAxes(tabular, creatingAxes[sheet.id]);
+          const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
             ? selectionAddressRange(sheet, selectionRange)
@@ -316,24 +429,54 @@ export function Workspace({
             && navigationHighlight.sheetId === sheet.id
             ? addressRangeOf(sheet.content, navigationHighlight.range)
             : undefined;
-           const historyFeedbackCells = contentHistoryFeedback
-             ? historyCellsForSheet(contentHistoryFeedback, sheet)
-             : undefined;
-           const pendingCutCells = clipboard.current.pendingCutSource?.sheetId === sheet.id
-             ? new Set(clipboard.current.pendingCutSource.cells.flatMap((row) => row.map((cell) => {
-                 const address = cellAddressOf(sheet.content, cell.identity);
-                 return address && cellKey(address);
-               })).filter((key): key is string => Boolean(key)))
-             : undefined;
+          const historyFeedbackCells = contentHistoryFeedback
+            ? historyCellsForSheet(contentHistoryFeedback, sheet)
+            : undefined;
+          const pendingCutCells = clipboard.current.pendingCutSource?.sheetId === sheet.id
+            ? new Set(clipboard.current.pendingCutSource.cells.flatMap((row) => row.map((cell) => {
+                const address = cellAddressOf(sheet.content, cell.identity);
+                return address && cellKey(address);
+              })).filter((key): key is string => Boolean(key)))
+            : undefined;
+          const overviewSelectionTarget = activeCell?.sheetId === sheet.id
+            ? undefined
+            : cellTargetAt(tabular, 'A1');
 
           return (
             <SheetFrame
-              columnCount={axisProjection.columns.length}
+              columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
               isActiveSheet={activeCell?.sheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
                 : navigationHighlight?.sheetId === sheet.id}
+              retainDetailedBody={Boolean(
+                sheetEditingCell
+                || interactionPinnedSheetId === sheet.id
+                || gridInteractionSheetIds.has(sheet.id)
+                || (gridFocusLease?.phase === 'request-active' && gridFocusLease.sheetId === sheet.id),
+              )}
+              onDetailedFocusDisplaced={() => handleDetailedFocusDisplaced(sheet.id)}
+              onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
+              onDetailedNativeFocusReleased={() => handleDetailedNativeFocusReleased(sheet.id)}
+              overview={(
+                <SheetOverview
+                  isActive={activeCell?.sheetId === sheet.id}
+                  onSelect={() => {
+                    // Selecting an overview explicitly asks to enter a grid that
+                    // is absent now. Retarget any displaced-grid handoff to it.
+                    const focusTarget = overviewSelectionTarget ?? (activeCell?.sheetId === sheet.id ? activeCell : undefined);
+                    if (focusTarget) beginPendingGridFocus(focusTarget);
+                    // The active sheet already owns the complete logical
+                    // selection. Re-selecting its active cell would collapse a
+                    // range and clear a reference selection merely to request
+                    // native focus. Only an ownership change needs an A1 fallback.
+                    if (overviewSelectionTarget) onSelectCell(overviewSelectionTarget);
+                  }}
+                  screenScale={effectiveSheetScreenScale(workspaceController.viewport.scale, frame.visualScale)}
+                  sheet={tabular}
+                />
+              )}
               key={sheet.id}
               onOpenSheetMenu={workspaceController.openSheetMenu}
               onResizeCancel={cancelSheetFrameResize}
@@ -353,55 +496,60 @@ export function Workspace({
               onSheetFrameDragMove={handleSheetFrameDragMove}
               onSheetFrameDragStart={handleSheetFrameDragStart}
               onSheetFrameDragStop={stopSheetFrameDrag}
-              rowCount={axisProjection.rows.length}
+              rowCount={tabular.rows.length + (creatingSheetAxes?.rows.length ?? 0)}
               viewportScale={workspaceController.viewport.scale}
             >
-              {(scrollContainerRef) => (
-                <SheetGrid
-                  activeCellKey={cellKeyForTarget(sheet, activeCell)}
-                  activeSheetId={activeCell?.sheetId ?? null}
-                  selectionOwner={selectionOwner}
-                  axisProjection={axisProjection}
-                   presentation={sheet.presentation}
-                   pendingCutCells={pendingCutCells}
-                  logicalSelection={selectionRange}
-                  onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
-                  cellInteraction={{
-                    clear: onClearCell,
-                    navigate: onNavigateCell,
-                    navigateKeyboard: onNavigateKeyboardCell,
-                    select: onSelectCell,
-                    extend: onExtendSelection,
-                    focusSelection: onFocusSelection,
-                    settleSelectionGesture: onSettleSelectionGesture,
-                    startEditing: onStartEdit,
-                  }}
-                  editingCell={sheetEditingCell}
-                  editorInteraction={{
-                    cancel: onCancelEdit,
-                    commit: onCommitEdit,
-                    commitAndNavigate: onCommitEditAndNavigate,
-                    updateValue: onEditValueChange,
-                  }}
-                  formulaResults={formulaResults}
-                  keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
-                    ? {
-                        id: keyboardFocusRequest.id,
-                        targetKey: cellKeyForTarget(sheet, keyboardFocusRequest.target),
-                      }
-                    : null}
-                  onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
-                  navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
-                  navigationHighlightRange={navigationHighlightRange}
-                  historyFeedbackCells={historyFeedbackCells}
-                  scrollContainerRef={scrollContainerRef}
-                  selectedRange={selectedRange}
-                  selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
-                  onSelectAxis={onSelectAxis}
-                  clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
-                  sheet={tabular}
-                />
-              )}
+              {(scrollContainerRef) => {
+                const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
+                return (
+                  <SheetGrid
+                    activeCellKey={cellKeyForTarget(sheet, activeCell)}
+                    activeSheetId={activeCell?.sheetId ?? null}
+                    selectionOwner={selectionOwner}
+                    axisProjection={axisProjection}
+                    presentation={sheet.presentation}
+                    pendingCutCells={pendingCutCells}
+                    logicalSelection={selectionRange}
+                    onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
+                    onPointerInteractionChange={handleGridPointerInteractionChange}
+                    onNativeFocusTarget={handleDetailedNativeFocus}
+                    cellInteraction={{
+                      clear: onClearCell,
+                      navigate: onNavigateCell,
+                      navigateKeyboard: onNavigateKeyboardCell,
+                      select: onSelectCell,
+                      extend: onExtendSelection,
+                      focusSelection: onFocusSelection,
+                      settleSelectionGesture: onSettleSelectionGesture,
+                      startEditing: onStartEdit,
+                    }}
+                    editingCell={sheetEditingCell}
+                    editorInteraction={{
+                      cancel: onCancelEdit,
+                      commit: onCommitEdit,
+                      commitAndNavigate: onCommitEditAndNavigate,
+                      updateValue: onEditValueChange,
+                    }}
+                    formulaResults={formulaResults}
+                    keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
+                      ? {
+                          id: keyboardFocusRequest.id,
+                          targetKey: cellKeyForTarget(sheet, keyboardFocusRequest.target),
+                        }
+                      : null}
+                    onKeyboardFocusRequestConsumed={handleKeyboardFocusRequestConsumed}
+                    navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
+                    navigationHighlightRange={navigationHighlightRange}
+                    historyFeedbackCells={historyFeedbackCells}
+                    scrollContainerRef={scrollContainerRef}
+                    selectedRange={selectedRange}
+                    selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
+                    onSelectAxis={onSelectAxis}
+                    clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
+                    sheet={tabular}
+                  />
+                );
+              }}
             </SheetFrame>
           );
         })}

@@ -70,6 +70,8 @@ describe('Phase 2 acceptance workflow', () => {
       const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
       expect(cellAt(inputFrame, 'B1')).toHaveFocus();
       expect(cellAt(inputFrame, 'B3')).toHaveAttribute('data-reference-selected', 'true');
+      // Outer navigation reveals the physical frame at the shared detailed-entry
+      // threshold; the grid scrollport reveals the referenced range internally.
       expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '-1288');
 
       fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));

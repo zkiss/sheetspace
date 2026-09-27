@@ -52,6 +52,7 @@ export function SheetGridCell({
   isPendingCut = false,
   cellInteraction,
   editorInteraction,
+  onNativeFocusTarget,
   registerCell,
   style,
   tabIndex = -1,
@@ -70,6 +71,7 @@ export function SheetGridCell({
   isPendingCut?: boolean;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
+  onNativeFocusTarget?: (target: CellTarget) => void;
   registerCell?: (cellKey: string, element: HTMLElement | null) => void;
   sheet: SheetTabularProjection;
   style?: CSSProperties;
@@ -152,13 +154,14 @@ export function SheetGridCell({
         if (target) cellInteraction.startEditing(target);
       }}
       onFocus={() => {
+        const target = cellTargetAt(sheet, cellKey);
         // Application focus requests return focus to an existing stable
         // selection (for example after using presentation controls). They must
         // not convert an axis/range selection into a single-cell selection.
         if (!isActive && !isFocusTarget) {
-          const target = cellTargetAt(sheet, cellKey);
           if (target) cellInteraction.select(target);
         }
+        if (target) onNativeFocusTarget?.(target);
       }}
       onKeyDown={handleCellKeyDown}
       ref={(cellElement) => registerCell?.(cellKey, cellElement)}
