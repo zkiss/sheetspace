@@ -70,7 +70,9 @@ describe('Phase 2 acceptance workflow', () => {
       const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
       expect(cellAt(inputFrame, 'B1')).toHaveFocus();
       expect(cellAt(inputFrame, 'B3')).toHaveAttribute('data-reference-selected', 'true');
-      expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '-1288');
+      // Reference navigation now stops at the shared detailed-entry threshold,
+      // rather than using the older range-centering viewport scale.
+      expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '-1240');
 
       fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
       let currentOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });

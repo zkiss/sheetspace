@@ -65,6 +65,10 @@ describe('gridGeometry', () => {
       start: { rowIndex: 999, columnIndex: 999 },
       end: { rowIndex: 1_000, columnIndex: 1_000 },
     }, sheet)).toBe(true);
+    expect(workspaceRectForSheetRange({
+      start: { rowIndex: 999, columnIndex: 999 },
+      end: { rowIndex: 1_000, columnIndex: 1_000 },
+    }, sheet)).toEqual({ left: 40, top: 68.4, right: 40, bottom: 68.4 });
   });
 
 });
