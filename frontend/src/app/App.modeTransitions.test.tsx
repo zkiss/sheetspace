@@ -51,7 +51,7 @@ describe('App rendering-mode transitions', () => {
     await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
   });
 
-  it('preserves a directional range and its active extent through settled overview', async () => {
+  it('preserves a directional range and its active extent when its active overview is selected', async () => {
     const user = userEvent.setup();
     render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
@@ -68,6 +68,7 @@ describe('App rendering-mode transitions', () => {
     zoomWorkspace('out', 6);
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
     expect(within(frame).queryByTestId('sheet-grid')).not.toBeInTheDocument();
+    await user.click(within(frame).getByRole('button', { name: 'Select sheet Inputs overview' }));
 
     zoomWorkspace('in', 6);
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));

@@ -81,6 +81,43 @@ describe('formula reference navigation', () => {
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
+  it('retains a deep focus request through gesture zoom into overview, then releases its pins', async () => {
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 }, visualScale: 0.25,
+      columnCount: 100, rowCount: 10_000,
+    });
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
+      cells: { A1: '=sheet-inputs!CU9999' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999, reference' }));
+
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const body = within(inputsFrame).getByTestId('sheet-frame-body');
+    virtualGridGeometry(body, { height: 160, width: 240 });
+    await waitFor(() => expect(within(inputsFrame).getByRole('table', { name: 'Inputs grid' })).toHaveFocus());
+
+    fireEvent.wheel(body, { ctrlKey: true, deltaY: 1_200, clientX: 100, clientY: 80 });
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
+    expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed');
+
+    body.scrollTop = 9_998 * 26.4;
+    body.scrollLeft = 98 * 76;
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    fireEvent.scroll(body);
+    await waitFor(() => expect((focus.mock.instances as unknown as HTMLElement[]).some((element) =>
+      element.getAttribute('aria-label') === 'Inputs CU9999 empty cell',
+    )).toBe(true));
+    await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'overview'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+  });
+
   it('navigates by stable sheet id after a quoted-name rename', async () => {
     const user = userEvent.setup();
     const inputs = { ...positionedSheet('sheet-inputs', 'Sales Q1', { x: 120, y: 80 }), cells: { A1: '7' }, zIndex: 2 };

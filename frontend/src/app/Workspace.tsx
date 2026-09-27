@@ -406,7 +406,7 @@ export function Workspace({
               })).filter((key): key is string => Boolean(key)))
             : undefined;
           const overviewSelectionTarget = activeCell?.sheetId === sheet.id
-            ? activeCell
+            ? undefined
             : cellTargetAt(tabular, 'A1');
 
           return (
@@ -418,7 +418,10 @@ export function Workspace({
                 ? navigationHighlight.target.sheetId === sheet.id
                 : navigationHighlight?.sheetId === sheet.id}
               retainDetailedBody={Boolean(
-                sheetEditingCell || interactionPinnedSheetId === sheet.id || gridInteractionSheetIds.has(sheet.id),
+                sheetEditingCell
+                || interactionPinnedSheetId === sheet.id
+                || gridInteractionSheetIds.has(sheet.id)
+                || keyboardFocusRequest?.target.sheetId === sheet.id,
               )}
               onDetailedFocusDisplaced={() => beginPendingGridFocus(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
@@ -426,11 +429,14 @@ export function Workspace({
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
                   onSelect={() => {
-                    if (!overviewSelectionTarget) return;
                     // Selecting an overview explicitly asks to enter a grid that
                     // is absent now. Retarget any displaced-grid handoff to it.
                     beginPendingGridFocus(sheet.id);
-                    onSelectCell(overviewSelectionTarget);
+                    // The active sheet already owns the complete logical
+                    // selection. Re-selecting its active cell would collapse a
+                    // range and clear a reference selection merely to request
+                    // native focus. Only an ownership change needs an A1 fallback.
+                    if (overviewSelectionTarget) onSelectCell(overviewSelectionTarget);
                   }}
                   screenScale={effectiveSheetScreenScale(workspaceController.viewport.scale, frame.visualScale)}
                   sheet={tabular}
