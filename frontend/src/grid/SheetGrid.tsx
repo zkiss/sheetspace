@@ -94,6 +94,7 @@ export function SheetGrid({
   editingCell,
   keyboardFocusRequest,
   onKeyboardFocusRequestConsumed,
+  onNavigationTargetFocused,
   navigationHighlightCellKey,
   navigationHighlightRange,
   historyFeedbackCells,
@@ -131,6 +132,8 @@ export function SheetGrid({
   editingCell: CellEditSession | null;
   keyboardFocusRequest: { id: number; targetKey: string | null } | null;
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
+  /** Releases transient frame ownership after a reference target receives focus. */
+  onNavigationTargetFocused?: () => void;
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
@@ -329,6 +332,7 @@ export function SheetGrid({
     if (focusIntent.requestId !== undefined && keyboardFocusRequest?.id !== focusIntent.requestId) return;
     const registeredTarget = focusTargetRef.current;
     if (registeredTarget.key !== focusIntent.targetKey || !registeredTarget.element) return;
+    const completedIntent = focusIntent;
     registeredTarget.element.focus();
     if (scrollContainerRef.current) {
       ensureCellVisibleOutsideStickyHeaders(
@@ -338,7 +342,11 @@ export function SheetGrid({
         rowHeaderRef.current,
       );
     }
-    const completedIntent = focusIntent;
+    const navigationTargetKey = navigationHighlightCellKey
+      ?? (navigationHighlightRange ? cellKey(navigationHighlightRange.start) : null);
+    if (completedIntent.targetKey === navigationTargetKey) {
+      onNavigationTargetFocused?.();
+    }
     if (completedIntent.requestId === undefined) {
       setGridEntryFocusIntent((current) => current?.id === completedIntent.id ? null : current);
     } else if (
@@ -348,7 +356,7 @@ export function SheetGrid({
       consumedKeyboardFocusRequestIds.current.add(completedIntent.requestId);
       onKeyboardFocusRequestConsumed(completedIntent.requestId);
     }
-  }, [editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, onKeyboardFocusRequestConsumed, scrollContainerRef, virtualColumns, virtualRows]);
+  }, [editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, navigationHighlightCellKey, navigationHighlightRange, onKeyboardFocusRequestConsumed, onNavigationTargetFocused, scrollContainerRef, virtualColumns, virtualRows]);
 
   useEffect(() => {
     if (!activeAddress || !scrollContainerRef.current) return;

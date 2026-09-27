@@ -95,10 +95,12 @@ describe('useReferenceNavigation', () => {
       top: 68.4,
     }), { forceOversized: true, minimumScale: 0.5 });
     expect(result.current.navigationHighlight).not.toBeNull();
+    expect(result.current.navigationRevealSheetId).toBe(sheet.id);
     expect(result.current.navigationMotion).toBe(true);
 
     act(() => { vi.advanceTimersByTime(1_200); });
     expect(result.current.navigationHighlight).toBeNull();
+    expect(result.current.navigationRevealSheetId).toBeNull();
     expect(result.current.navigationMotion).toBe(false);
   });
 
@@ -132,5 +134,8 @@ describe('useReferenceNavigation', () => {
       top: 68.4,
     }), { forceOversized: false, minimumScale: 0.5 });
     expect(result.current.navigationMotion).toBe(false);
+    expect(result.current.navigationRevealSheetId).toBe(sheet.id);
+    act(() => { result.current.releaseNavigationReveal(sheet.id); });
+    expect(result.current.navigationRevealSheetId).toBeNull();
   });
 });

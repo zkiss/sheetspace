@@ -48,7 +48,14 @@ export function useReferenceNavigation({
 }) {
   const [navigationHighlight, setNavigationHighlight] =
     useState<ReferenceNavigationTarget | null>(null);
+  const [navigationRevealSheetId, setNavigationRevealSheetId] = useState<string | null>(null);
+  const [releaseRevealOnFocus, setReleaseRevealOnFocus] = useState(false);
   const [navigationMotion, setNavigationMotion] = useState(false);
+
+  function releaseNavigationReveal(sheetId: string) {
+    if (!releaseRevealOnFocus) return;
+    setNavigationRevealSheetId((current) => current === sheetId ? null : current);
+  }
 
   useEffect(() => {
     if (!navigationHighlight) {
@@ -56,7 +63,11 @@ export function useReferenceNavigation({
     }
 
     const timeout = window.setTimeout(
-      () => setNavigationHighlight(null),
+      () => {
+        setNavigationHighlight(null);
+        setNavigationRevealSheetId(null);
+        setReleaseRevealOnFocus(false);
+      },
       NAVIGATION_HIGHLIGHT_MS,
     );
     return () => window.clearTimeout(timeout);
@@ -91,6 +102,10 @@ export function useReferenceNavigation({
     setNavigationHighlight(target);
 
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    // Reduced motion releases ownership at the focus handoff; animated
+    // navigation retains the established highlight/reveal lifetime.
+    setNavigationRevealSheetId(targetSheet.id);
+    setReleaseRevealOnFocus(reduceMotion);
     setNavigationMotion(!reduceMotion);
     navigateToTarget(
       workspaceRectForSheetRange(range, targetSheet),
@@ -106,6 +121,8 @@ export function useReferenceNavigation({
   return {
     navigateReference,
     navigationHighlight,
+    navigationRevealSheetId,
+    releaseNavigationReveal,
     navigationMotion,
   };
 }

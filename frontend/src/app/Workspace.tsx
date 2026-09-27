@@ -134,6 +134,8 @@ export function Workspace({
   const {
     navigateReference,
     navigationHighlight,
+    navigationRevealSheetId,
+    releaseNavigationReveal,
     navigationMotion,
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
@@ -173,9 +175,6 @@ export function Workspace({
     return frameScalePreview?.sheetId === sheet.id ? { ...layout, visualScale: frameScalePreview.visualScale } : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
-  const navigationRevealSheetId = navigationHighlight?.kind === 'cell'
-    ? navigationHighlight.target.sheetId
-    : navigationHighlight?.sheetId;
   const mountedSheetIds = mountedWorkspaceFrameIds({
     frames: projectedFrames,
     pins: {
@@ -447,6 +446,7 @@ export function Workspace({
                         }
                       : null}
                     onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
+                    onNavigationTargetFocused={() => releaseNavigationReveal(sheet.id)}
                     navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                     navigationHighlightRange={navigationHighlightRange}
                     historyFeedbackCells={historyFeedbackCells}

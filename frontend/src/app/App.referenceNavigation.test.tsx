@@ -112,8 +112,12 @@ describe('formula reference navigation', () => {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
       cells: { A1: '=SUM(sheet-inputs!CU9999:CV10000)' },
     };
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    const archive = sheetDocument({
+      id: 'sheet-archive', name: 'Archive', position: { x: 6_000, y: 4_000 }, visualScale: 0.25,
+    });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs, archive])} />);
     act(() => { setSurfaceSize(800, 600); });
+    expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999:CV10000, reference' }));
@@ -125,13 +129,15 @@ describe('formula reference navigation', () => {
     virtualGridGeometry(body, { height: 160, width: 240 });
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
     fireEvent.scroll(body);
-    const anchor = await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
-    expect(anchor).toHaveFocus();
-    expect(anchor).toHaveAttribute('data-navigation-highlight', 'true');
-    expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CV10000 empty cell' }))
-      .toHaveAttribute('data-reference-selected', 'true');
-    expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
+    await waitFor(() => expect((focus.mock.instances as unknown as HTMLElement[]).some((element) =>
+      element.getAttribute('aria-label') === 'Inputs CU9999 empty cell',
+    )).toBe(true));
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
   });
 
   it('reports a broken reference without selecting a similarly named sheet', () => {
