@@ -112,6 +112,27 @@ describe('App rendering-mode transitions', () => {
     await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
   });
 
+  it('cancels overview focus restoration after focus intentionally moves to the toolbar', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    fireEvent.click(cell);
+    cell.focus();
+    zoomWorkspace('out', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
+    expect(within(frame).getByTestId('sheet-frame-body')).toHaveFocus();
+
+    const toolbarControl = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    toolbarControl.focus();
+    expect(toolbarControl).toHaveFocus();
+
+    zoomWorkspace('in', 6);
+    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    expect(toolbarControl).toHaveFocus();
+    expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).not.toHaveFocus();
+  });
+
   it('keeps an overview-selection focus handoff through culling and remounting', async () => {
     const miniatureInputs = sheetDocument({
       id: 'sheet-inputs',

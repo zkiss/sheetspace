@@ -26,6 +26,7 @@ export function SheetFrame({
   overview,
   onDetailedFocusDisplaced,
   onDetailedBodyAvailable,
+  onOverviewFocusLost,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -59,6 +60,8 @@ export function SheetFrame({
   onDetailedFocusDisplaced?: () => void;
   /** Reports that this frame has a detailed body that can accept grid focus. */
   onDetailedBodyAvailable?: () => void;
+  /** Cancels a pending grid-focus handoff when overview focus moves elsewhere. */
+  onOverviewFocusLost?: () => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -92,6 +95,7 @@ export function SheetFrame({
   const renderingMode = retainDetailedBody ? 'detailed' : requestedRenderingMode;
   const previousRenderingMode = useRef(renderingMode);
   const bodyHadFocus = useRef(false);
+  const overviewHadFocus = useRef(false);
 
   useEffect(() => {
     if (!isScaleInputEditing.current) setScaleInputValue(scalePercentage(frame.visualScale));
@@ -205,9 +209,20 @@ export function SheetFrame({
         data-rendering-mode={renderingMode}
         data-testid="sheet-frame-body"
         onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) bodyHadFocus.current = false;
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+          bodyHadFocus.current = false;
+          // Do not treat the detailed body's unmount as an external transfer. A
+          // handoff can only be cancelled after focus has actually reached the
+          // overview, and never while detail is becoming available again.
+          if (renderingMode === 'overview' && overviewHadFocus.current) {
+            overviewHadFocus.current = false;
+            onOverviewFocusLost?.();
+          }
         }}
-        onFocusCapture={() => { bodyHadFocus.current = true; }}
+        onFocusCapture={() => {
+          bodyHadFocus.current = true;
+          if (renderingMode === 'overview') overviewHadFocus.current = true;
+        }}
         ref={bodyRef}
         tabIndex={-1}
       >

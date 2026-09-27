@@ -205,6 +205,10 @@ export function Workspace({
     onRestoreGridFocus();
   }, [activeCell?.sheetId, onRestoreGridFocus, pendingGridFocusSheetId]);
 
+  const cancelPendingGridFocus = useCallback(() => {
+    setPendingGridFocusSheetId(null);
+  }, []);
+
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
     onOpenRenameDialog(sheet);
@@ -365,6 +369,7 @@ export function Workspace({
               )}
               onDetailedFocusDisplaced={() => setPendingGridFocusSheetId(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
+              onOverviewFocusLost={cancelPendingGridFocus}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
