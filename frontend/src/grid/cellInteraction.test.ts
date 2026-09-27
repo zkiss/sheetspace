@@ -192,7 +192,7 @@ describe('cell interaction lifecycle boundaries', () => {
     expect(clearedElsewhere.selection).toEqual(a2);
   });
 
-  it('updates drafts only while editing and acknowledges only the current focus request', () => {
+  it('updates drafts and ends only the exact current focus request', () => {
     expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'update-draft', draft: 'ignored' }))
       .toBe(EMPTY_CELL_INTERACTION_STATE);
     expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'cancel' }))
@@ -206,7 +206,14 @@ describe('cell interaction lifecycle boundaries', () => {
     expect(cellInteractionReducer(updated, { type: 'commit' }).editing).toBeNull();
     const navigated = cellInteractionReducer(updated, { type: 'navigate', target: b1 });
     expect(cellInteractionReducer(navigated, { type: 'acknowledge-focus', requestId: 999 })).toBe(navigated);
+    expect(cellInteractionReducer(navigated, { type: 'cancel-focus', requestId: 999 })).toBe(navigated);
+    expect(cellInteractionReducer(navigated, { type: 'cancel-focus', requestId: 1 }).focusRequest).toBeNull();
     expect(cellInteractionReducer(navigated, { type: 'acknowledge-focus', requestId: 1 }).focusRequest).toBeNull();
+
+    const replacement = cellInteractionReducer(navigated, { type: 'navigate', target: a2 });
+    expect(replacement.focusRequest?.id).toBe(2);
+    expect(cellInteractionReducer(replacement, { type: 'cancel-focus', requestId: 1 })).toBe(replacement);
+    expect(cellInteractionReducer(replacement, { type: 'cancel-focus', requestId: 2 }).focusRequest).toBeNull();
   });
 
   it('prunes all state associated with removed sheets while retaining surviving state', () => {

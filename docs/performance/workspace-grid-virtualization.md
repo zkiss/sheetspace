@@ -105,7 +105,7 @@ explicit z-order.
 From the repository root:
 
 ```bash
-npm --prefix frontend test -- --run src/App.workspaceFrames.test.tsx
+npm --prefix frontend test -- --run src/app/App.workspaceFrames.test.tsx
 ```
 
 The test named `keeps frame, grid, cell, and header DOM bounded when wholly offscreen sheets
@@ -130,7 +130,7 @@ git show 4593931320e2:frontend/src/SheetGrid.tsx
 For the detailed-grid edge and interaction observations:
 
 ```bash
-npm --prefix frontend test -- --run src/SheetGrid.test.tsx src/App.referenceNavigation.test.tsx
+npm --prefix frontend test -- --run src/grid/SheetGrid.test.tsx src/app/App.referenceNavigation.test.tsx
 ```
 
 For model-derived range geometry and effective-scale target calculations:
@@ -140,6 +140,6 @@ npm --prefix frontend test -- --run src/grid/gridGeometry.test.ts src/workspace/
 ```
 
 Related workspace tests cover pan, zoom, surface resize, preview geometry, z-order, drag, resize,
-edit, pending-focus pinning, and pin release. `src/App.referenceNavigation.test.tsx` covers the
+edit, pending-focus pinning, and pin release. `src/app/App.referenceNavigation.test.tsx` covers the
 offscreen sequence from model-driven outer movement through frame mount, inner virtual scroll,
 focus/highlight, and navigation-pin release.

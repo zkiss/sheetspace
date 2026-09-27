@@ -36,6 +36,8 @@ import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualizatio
 import { effectiveSheetScreenScale, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 
+type GridFocusTransaction = { sheetId: string; requestId: number | null; requestObserved: boolean };
+
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -47,6 +49,7 @@ export function Workspace({
   formulaResults,
   keyboardFocusRequest,
   onKeyboardFocusRequestConsumed,
+  onKeyboardFocusRequestCancelled,
   onCancelEdit,
   onClearCell,
   onCommitEdit,
@@ -83,6 +86,7 @@ export function Workspace({
   formulaResults: FormulaEvaluationSnapshot;
   keyboardFocusRequest: CellFocusRequest | null;
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
+  onKeyboardFocusRequestCancelled: (requestId: number) => void;
   onCancelEdit: () => void;
   onClearCell: (target: CellTarget) => void;
   onCommitEdit: (session?: CellEditSession) => void;
@@ -97,7 +101,7 @@ export function Workspace({
   onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onFocusSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
   onSettleSelectionGesture: (owner: symbol) => void;
-  onRestoreGridFocus: () => void;
+  onRestoreGridFocus: () => number | null;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
@@ -115,30 +119,49 @@ export function Workspace({
   // This belongs to the workspace rather than a SheetFrame: overview selection
   // can replace the logical owner while the original frame remains miniature.
   // Keep the intended owner so an initially-overview sheet can request focus too.
-  const [pendingGridFocusSheetId, setPendingGridFocusSheetId] = useState<string | null>(null);
-  const pendingGridFocusSheetIdRef = useRef<string | null>(null);
-  const updatePendingGridFocus = useCallback((sheetId: string | null) => {
-    pendingGridFocusSheetIdRef.current = sheetId;
-    setPendingGridFocusSheetId(sheetId);
+  const [pendingGridFocus, setPendingGridFocus] = useState<GridFocusTransaction | null>(null);
+  const pendingGridFocusRef = useRef<GridFocusTransaction | null>(null);
+  const keyboardFocusRequestRef = useRef(keyboardFocusRequest);
+  keyboardFocusRequestRef.current = keyboardFocusRequest;
+  const updatePendingGridFocus = useCallback((transaction: GridFocusTransaction | null) => {
+    pendingGridFocusRef.current = transaction;
+    setPendingGridFocus(transaction);
   }, []);
-  const cancelPendingGridFocus = useCallback(() => {
-    updatePendingGridFocus(null);
+  const beginPendingGridFocus = useCallback((sheetId: string) => {
+    updatePendingGridFocus({ sheetId, requestId: null, requestObserved: false });
   }, [updatePendingGridFocus]);
+  const cancelPendingGridFocus = useCallback((requestId?: number) => {
+    if (requestId !== undefined) onKeyboardFocusRequestCancelled(requestId);
+    updatePendingGridFocus(null);
+  }, [onKeyboardFocusRequestCancelled, updatePendingGridFocus]);
   useEffect(() => {
     function handleFocusIn(event: FocusEvent) {
-      const pendingSheetId = pendingGridFocusSheetIdRef.current;
+      const request = keyboardFocusRequestRef.current;
+      const transaction = pendingGridFocusRef.current;
+      const pendingSheetId = request?.target.sheetId ?? transaction?.sheetId;
       const focusOwner = event.target;
       if (!pendingSheetId || !(focusOwner instanceof Element)) return;
       // Losing focus to body while a frame unmounts does not establish a new
       // owner. A subsequent focusin identifies an intentional external owner.
       if (focusOwner === document.body || focusOwner === document.documentElement) return;
       const frame = focusOwner.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
-      if (frame?.dataset.sheetId !== pendingSheetId) cancelPendingGridFocus();
+      if (frame?.dataset.sheetId !== pendingSheetId) cancelPendingGridFocus(request?.id);
     }
 
     document.addEventListener('focusin', handleFocusIn, true);
     return () => document.removeEventListener('focusin', handleFocusIn, true);
   }, [cancelPendingGridFocus]);
+  useEffect(() => {
+    const transaction = pendingGridFocus;
+    if (!transaction || transaction.requestId === null) return;
+    if (keyboardFocusRequest?.id === transaction.requestId) {
+      if (!transaction.requestObserved) updatePendingGridFocus({ ...transaction, requestObserved: true });
+      return;
+    }
+    // A newer request supersedes this transaction. Once the matching request
+    // has appeared, its disappearance also means another action ended it.
+    if (keyboardFocusRequest || transaction.requestObserved) updatePendingGridFocus(null);
+  }, [keyboardFocusRequest, pendingGridFocus, updatePendingGridFocus]);
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
@@ -219,13 +242,25 @@ export function Workspace({
   }, []);
 
   const handleDetailedBodyAvailable = useCallback((sheetId: string) => {
-    if (pendingGridFocusSheetId !== sheetId || activeCell?.sheetId !== sheetId) return;
+    const transaction = pendingGridFocusRef.current;
+    if (transaction?.sheetId !== sheetId || transaction.requestId !== null || activeCell?.sheetId !== sheetId) return;
     // A retained grid keeps an in-progress frame control usable, but is not yet
     // the focus destination. Re-evaluate after that control settles.
     if (interactionPinnedSheetId === sheetId) return;
-    updatePendingGridFocus(null);
-    onRestoreGridFocus();
-  }, [activeCell?.sheetId, interactionPinnedSheetId, onRestoreGridFocus, pendingGridFocusSheetId, updatePendingGridFocus]);
+    const requestId = onRestoreGridFocus();
+    if (requestId === null) {
+      updatePendingGridFocus(null);
+      return;
+    }
+    // Keep ownership across conversion into the authoritative request. This
+    // prevents detail availability from creating the same request repeatedly.
+    updatePendingGridFocus({ sheetId, requestId, requestObserved: false });
+  }, [activeCell?.sheetId, interactionPinnedSheetId, onRestoreGridFocus, updatePendingGridFocus]);
+
+  const handleKeyboardFocusRequestConsumed = useCallback((requestId: number) => {
+    if (pendingGridFocusRef.current?.requestId === requestId) updatePendingGridFocus(null);
+    onKeyboardFocusRequestConsumed(requestId);
+  }, [onKeyboardFocusRequestConsumed, updatePendingGridFocus]);
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
@@ -385,7 +420,7 @@ export function Workspace({
               retainDetailedBody={Boolean(
                 sheetEditingCell || interactionPinnedSheetId === sheet.id || gridInteractionSheetIds.has(sheet.id),
               )}
-              onDetailedFocusDisplaced={() => updatePendingGridFocus(sheet.id)}
+              onDetailedFocusDisplaced={() => beginPendingGridFocus(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
               overview={(
                 <SheetOverview
@@ -394,7 +429,7 @@ export function Workspace({
                     if (!overviewSelectionTarget) return;
                     // Selecting an overview explicitly asks to enter a grid that
                     // is absent now. Retarget any displaced-grid handoff to it.
-                    updatePendingGridFocus(sheet.id);
+                    beginPendingGridFocus(sheet.id);
                     onSelectCell(overviewSelectionTarget);
                   }}
                   screenScale={effectiveSheetScreenScale(workspaceController.viewport.scale, frame.visualScale)}
@@ -460,7 +495,7 @@ export function Workspace({
                           targetKey: cellKeyForTarget(sheet, keyboardFocusRequest.target),
                         }
                       : null}
-                    onKeyboardFocusRequestConsumed={onKeyboardFocusRequestConsumed}
+                    onKeyboardFocusRequestConsumed={handleKeyboardFocusRequestConsumed}
                     navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                     navigationHighlightRange={navigationHighlightRange}
                     historyFeedbackCells={historyFeedbackCells}

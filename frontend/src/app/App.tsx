@@ -51,6 +51,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     settleSelectionGesture,
     focusCurrentSelection,
     acknowledgeKeyboardFocusRequest,
+    cancelKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
     navigateKeyboardCell,
@@ -159,6 +160,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         formulaResults={formulaResults}
         keyboardFocusRequest={keyboardFocusRequest}
         onKeyboardFocusRequestConsumed={acknowledgeKeyboardFocusRequest}
+        onKeyboardFocusRequestCancelled={cancelKeyboardFocusRequest}
         onCancelEdit={cancelActiveEdit}
         onClearCell={clearCellContent}
         onCommitEdit={commitActiveEdit}

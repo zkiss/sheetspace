@@ -220,6 +220,7 @@ export function useCellEditing({
     commitEditAndNavigate,
     editingCell: state.editing,
     acknowledgeKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'acknowledge-focus', requestId }),
+    cancelKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'cancel-focus', requestId }),
     keyboardFocusRequest: state.focusRequest,
     navigateCell,
     navigateKeyboardCell,
@@ -230,7 +231,12 @@ export function useCellEditing({
     extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
     focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
     settleSelectionGesture: (owner: symbol) => dispatch({ type: 'settle-selection-gesture', gesture: { owner } }),
-    focusCurrentSelection: () => dispatch({ type: 'focus-current-selection' }),
+    focusCurrentSelection: () => {
+      if (!state.selection) return null;
+      const requestId = state.nextFocusRequestId;
+      dispatch({ type: 'focus-current-selection' });
+      return requestId;
+    },
     selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
       if (!gesture || gesture.start) commitActiveEdit();
       dispatch({ type: 'select-axis', mode, target, extend, gesture });

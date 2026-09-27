@@ -45,6 +45,42 @@ describe('formula reference navigation', () => {
     expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
   });
 
+  it('cancels deferred off-window focus when a toolbar control takes ownership', async () => {
+    const sparseInputs = sparseLargeSheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+    const inputs = {
+      ...sparseInputs,
+      frame: { ...sparseInputs.frame, position: { x: 4_000, y: 3_000 } },
+    };
+    const outputs = {
+      ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
+      cells: { A1: '=sheet-inputs!CU9999' },
+    };
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999, reference' }));
+
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const body = within(inputsFrame).getByTestId('sheet-frame-body');
+    virtualGridGeometry(body, { height: 160, width: 240 });
+    await waitFor(() => expect(within(inputsFrame).getByRole('table', { name: 'Inputs grid' })).toHaveFocus());
+
+    const reset = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    reset.focus();
+    await act(async () => {});
+    body.scrollTop = 9_998 * 26.4;
+    body.scrollLeft = 98 * 76;
+    fireEvent.scroll(body);
+
+    const target = await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
+    expect(reset).toHaveFocus();
+    expect(target).not.toHaveFocus();
+
+    fireEvent.click(reset);
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+  });
+
   it('navigates by stable sheet id after a quoted-name rename', async () => {
     const user = userEvent.setup();
     const inputs = { ...positionedSheet('sheet-inputs', 'Sales Q1', { x: 120, y: 80 }), cells: { A1: '7' }, zIndex: 2 };
