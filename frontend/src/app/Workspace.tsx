@@ -201,9 +201,12 @@ export function Workspace({
 
   const handleDetailedBodyAvailable = useCallback((sheetId: string) => {
     if (pendingGridFocusSheetId !== sheetId || activeCell?.sheetId !== sheetId) return;
+    // A retained grid keeps an in-progress frame control usable, but is not yet
+    // the focus destination. Re-evaluate after that control settles.
+    if (interactionPinnedSheetId === sheetId) return;
     setPendingGridFocusSheetId(null);
     onRestoreGridFocus();
-  }, [activeCell?.sheetId, onRestoreGridFocus, pendingGridFocusSheetId]);
+  }, [activeCell?.sheetId, interactionPinnedSheetId, onRestoreGridFocus, pendingGridFocusSheetId]);
 
   const cancelPendingGridFocus = useCallback(() => {
     setPendingGridFocusSheetId(null);

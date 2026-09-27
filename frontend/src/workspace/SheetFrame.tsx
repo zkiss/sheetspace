@@ -60,7 +60,7 @@ export function SheetFrame({
   onDetailedFocusDisplaced?: () => void;
   /** Reports that this frame has a detailed body that can accept grid focus. */
   onDetailedBodyAvailable?: () => void;
-  /** Cancels a pending grid-focus handoff when overview focus moves elsewhere. */
+  /** Cancels a pending grid-focus handoff after focus leaves this frame. */
   onOverviewFocusLost?: () => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
@@ -133,6 +133,21 @@ export function SheetFrame({
       data-sheet-id={frame.id}
       data-testid="sheet-frame"
       data-z-index={frame.zIndex}
+      onBlurCapture={(event) => {
+        const nextFocus = event.relatedTarget as Node | null;
+        // A scale control is part of this frame's focus transaction. Only an
+        // affirmative transfer beyond the frame cancels the pending handoff;
+        // null relatedTarget can result from culling/unmounting.
+        if (
+          renderingMode === 'overview'
+          && overviewHadFocus.current
+          && nextFocus
+          && !event.currentTarget.contains(nextFocus)
+        ) {
+          overviewHadFocus.current = false;
+          onOverviewFocusLost?.();
+        }
+      }}
       onContextMenu={(event) => onOpenSheetMenu(frame.id, event)}
       onPointerDown={(event) => {
         event.stopPropagation();
@@ -211,13 +226,6 @@ export function SheetFrame({
         onBlurCapture={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
           bodyHadFocus.current = false;
-          // Do not treat the detailed body's unmount as an external transfer. A
-          // handoff can only be cancelled after focus has actually reached the
-          // overview, and never while detail is becoming available again.
-          if (renderingMode === 'overview' && overviewHadFocus.current) {
-            overviewHadFocus.current = false;
-            onOverviewFocusLost?.();
-          }
         }}
         onFocusCapture={() => {
           bodyHadFocus.current = true;

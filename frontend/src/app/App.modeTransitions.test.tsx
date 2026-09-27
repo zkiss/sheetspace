@@ -23,6 +23,12 @@ function zoomWorkspace(direction: 'in' | 'out', times: number) {
   for (let index = 0; index < times; index += 1) fireEvent.click(button);
 }
 
+function fireGridPointer(element: Element, type: string) {
+  const event = new MouseEvent(type, { bubbles: true, button: 0, clientX: 10, clientY: 10 });
+  Object.defineProperty(event, 'pointerId', { value: 1 });
+  fireEvent(element, event);
+}
+
 describe('App rendering-mode transitions', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -92,6 +98,7 @@ describe('App rendering-mode transitions', () => {
   });
 
   it('restores focus after selecting a sheet initially rendered as an overview', async () => {
+    const user = userEvent.setup();
     const miniatureInputs = sheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
@@ -102,11 +109,12 @@ describe('App rendering-mode transitions', () => {
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
 
     expect(frame).toHaveAttribute('data-rendering-mode', 'overview');
-    fireEvent.click(within(frame).getByRole('button', { name: 'Select sheet Inputs overview' }));
+    await user.click(within(frame).getByRole('button', { name: 'Select sheet Inputs overview' }));
     const input = scaleInput();
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '100' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, '100');
+    await user.keyboard('{Enter}');
 
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
     await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
@@ -217,6 +225,23 @@ describe('App rendering-mode transitions', () => {
     expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
 
     fireEvent.pointerUp(header, { clientX: 100, clientY: 100 });
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+  });
+
+  it('retains a live grid pointer interaction through culling, then releases its pin', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const surface = screen.getByTestId('workspace-surface');
+    const geometry = measuredElementGeometry(surface, { width: 800, height: 600 });
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    fireGridPointer(a1, 'pointerdown');
+    // Let the grid's interaction effect publish the Workspace culling pin.
+    await act(async () => {});
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
+
+    fireGridPointer(a1, 'pointerup');
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 });
