@@ -218,6 +218,27 @@ describe('App rendering-mode transitions', () => {
     await waitFor(() => expect(within(remountedFrame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
   });
 
+  it('pins a natively focused detailed grid through culling until focus moves externally', async () => {
+    render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
+    const surface = screen.getByTestId('workspace-surface');
+    const geometry = measuredElementGeometry(surface, { width: 800, height: 600 });
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+
+    fireEvent.click(cell);
+    cell.focus();
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
+    expect(cell).toHaveFocus();
+
+    act(() => { geometry.resize({ width: 800, height: 600 }); });
+    expect(cell).toHaveFocus();
+    screen.getByRole('button', { name: 'Reset workspace viewport' }).focus();
+    act(() => { geometry.resize({ width: 0, height: 0 }); });
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
+  });
+
   it('keeps a draft and the detailed owner mounted while a scale preview crosses the threshold', async () => {
     const user = userEvent.setup();
     render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
@@ -292,6 +313,7 @@ describe('App rendering-mode transitions', () => {
     expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
 
     fireGridPointer(a1, 'pointerup');
+    screen.getByRole('button', { name: 'Reset workspace viewport' }).focus();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 });

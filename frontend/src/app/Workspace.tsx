@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, type CellRange } from '@workbook/core/address';
@@ -35,8 +35,13 @@ import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { effectiveSheetScreenScale, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
-
-type GridFocusTransaction = { sheetId: string; requestId: number | null; requestObserved: boolean };
+import {
+  activeFocusRequestId,
+  pinsFocusedFrame,
+  reduceGridFocusLease,
+  type GridFocusLease,
+  type GridFocusLeaseAction,
+} from './gridFocusLease';
 
 export function Workspace({
   activeCell,
@@ -116,53 +121,56 @@ export function Workspace({
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
-  // This belongs to the workspace rather than a SheetFrame: overview selection
-  // can replace the logical owner while the original frame remains miniature.
-  // Keep the intended owner so an initially-overview sheet can request focus too.
-  const [pendingGridFocus, setPendingGridFocus] = useState<GridFocusTransaction | null>(null);
-  const pendingGridFocusRef = useRef<GridFocusTransaction | null>(null);
-  const keyboardFocusRequestRef = useRef(keyboardFocusRequest);
-  keyboardFocusRequestRef.current = keyboardFocusRequest;
-  const updatePendingGridFocus = useCallback((transaction: GridFocusTransaction | null) => {
-    pendingGridFocusRef.current = transaction;
-    setPendingGridFocus(transaction);
+  const [gridFocusLease, setGridFocusLease] = useState<GridFocusLease | null>(null);
+  const gridFocusLeaseRef = useRef<GridFocusLease | null>(null);
+  const nextGridFocusToken = useRef(1);
+  const dispatchGridFocusLease = useCallback((action: GridFocusLeaseAction) => {
+    const next = reduceGridFocusLease(gridFocusLeaseRef.current, action);
+    gridFocusLeaseRef.current = next;
+    setGridFocusLease(next);
   }, []);
-  const beginPendingGridFocus = useCallback((sheetId: string) => {
-    updatePendingGridFocus({ sheetId, requestId: null, requestObserved: false });
-  }, [updatePendingGridFocus]);
-  const cancelPendingGridFocus = useCallback((requestId?: number) => {
-    if (requestId !== undefined) onKeyboardFocusRequestCancelled(requestId);
-    updatePendingGridFocus(null);
-  }, [onKeyboardFocusRequestCancelled, updatePendingGridFocus]);
+  const beginPendingGridFocus = useCallback((target: CellTarget) => {
+    dispatchGridFocusLease({ type: 'await-detail', token: nextGridFocusToken.current++, target });
+  }, [dispatchGridFocusLease]);
+  const endGridFocusLease = useCallback(() => {
+    const requestId = activeFocusRequestId(gridFocusLeaseRef.current);
+    if (requestId !== null) {
+      onKeyboardFocusRequestCancelled(requestId);
+      dispatchGridFocusLease({ type: 'cancel-request', requestId });
+    } else dispatchGridFocusLease({ type: 'external-focus' });
+  }, [dispatchGridFocusLease, onKeyboardFocusRequestCancelled]);
   useEffect(() => {
     function handleFocusIn(event: FocusEvent) {
-      const request = keyboardFocusRequestRef.current;
-      const transaction = pendingGridFocusRef.current;
-      const pendingSheetId = request?.target.sheetId ?? transaction?.sheetId;
+      const lease = gridFocusLeaseRef.current;
+      const pendingSheetId = lease?.sheetId;
       const focusOwner = event.target;
       if (!pendingSheetId || !(focusOwner instanceof Element)) return;
       // Losing focus to body while a frame unmounts does not establish a new
       // owner. A subsequent focusin identifies an intentional external owner.
       if (focusOwner === document.body || focusOwner === document.documentElement) return;
       const frame = focusOwner.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
-      if (frame?.dataset.sheetId !== pendingSheetId) cancelPendingGridFocus(request?.id);
+      if (frame?.dataset.sheetId !== pendingSheetId) endGridFocusLease();
     }
 
     document.addEventListener('focusin', handleFocusIn, true);
     return () => document.removeEventListener('focusin', handleFocusIn, true);
-  }, [cancelPendingGridFocus]);
-  useEffect(() => {
-    const transaction = pendingGridFocus;
-    if (!transaction || transaction.requestId === null) return;
-    if (keyboardFocusRequest?.id === transaction.requestId) {
-      if (!transaction.requestObserved) updatePendingGridFocus({ ...transaction, requestObserved: true });
-      return;
-    }
-    // A newer request supersedes this transaction. Once the matching request
-    // has appeared, its disappearance also means another action ended it.
-    if (keyboardFocusRequest || transaction.requestObserved) updatePendingGridFocus(null);
-  }, [keyboardFocusRequest, pendingGridFocus, updatePendingGridFocus]);
+  }, [endGridFocusLease]);
+  useLayoutEffect(() => {
+    if (!keyboardFocusRequest) return;
+    dispatchGridFocusLease({
+      type: 'adopt-request',
+      token: nextGridFocusToken.current++,
+      requestId: keyboardFocusRequest.id,
+      target: keyboardFocusRequest.target,
+    });
+  }, [dispatchGridFocusLease, keyboardFocusRequest]);
   const sheets = sheetsInOrder(workbook);
+  useEffect(() => {
+    const lease = gridFocusLeaseRef.current;
+    if (lease && !sheets.some((sheet) => sheet.id === lease.sheetId)) {
+      endGridFocusLease();
+    }
+  }, [endGridFocusLease, sheets]);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
   const selectedRaw = selectedSheet && selectedCellKey
@@ -225,7 +233,7 @@ export function Workspace({
       editingSheetId: editingCell?.target.sheetId,
       gridInteractionSheetIds,
       interactionSheetId: interactionPinnedSheetId,
-      pendingFocusSheetId: keyboardFocusRequest?.target.sheetId,
+      pendingFocusSheetId: pinsFocusedFrame(gridFocusLease) ? gridFocusLease?.sheetId : undefined,
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
     viewport: workspaceController.viewport,
@@ -242,25 +250,49 @@ export function Workspace({
   }, []);
 
   const handleDetailedBodyAvailable = useCallback((sheetId: string) => {
-    const transaction = pendingGridFocusRef.current;
-    if (transaction?.sheetId !== sheetId || transaction.requestId !== null || activeCell?.sheetId !== sheetId) return;
+    const lease = gridFocusLeaseRef.current;
+    if (lease?.sheetId !== sheetId) return;
+    if (lease.phase === 'consumed-awaiting-release') {
+      dispatchGridFocusLease({ type: 'detailed-release', token: lease.token });
+      return;
+    }
+    if (lease.phase !== 'awaiting-detail' || activeCell?.sheetId !== sheetId) return;
     // A retained grid keeps an in-progress frame control usable, but is not yet
     // the focus destination. Re-evaluate after that control settles.
     if (interactionPinnedSheetId === sheetId) return;
     const requestId = onRestoreGridFocus();
     if (requestId === null) {
-      updatePendingGridFocus(null);
+      dispatchGridFocusLease({ type: 'external-focus' });
       return;
     }
-    // Keep ownership across conversion into the authoritative request. This
-    // prevents detail availability from creating the same request repeatedly.
-    updatePendingGridFocus({ sheetId, requestId, requestObserved: false });
-  }, [activeCell?.sheetId, interactionPinnedSheetId, onRestoreGridFocus, updatePendingGridFocus]);
+    dispatchGridFocusLease({ type: 'bind-request', token: lease.token, requestId, target: activeCell });
+  }, [activeCell, dispatchGridFocusLease, interactionPinnedSheetId, onRestoreGridFocus]);
+
+  const handleDetailedFocusDisplaced = useCallback((sheetId: string) => {
+    const lease = gridFocusLeaseRef.current;
+    const target = activeCell?.sheetId === sheetId ? activeCell : lease?.sheetId === sheetId ? lease.target : null;
+    if (!target) return;
+    dispatchGridFocusLease({
+      type: 'detail-displaced',
+      observedToken: lease?.sheetId === sheetId ? lease.token : null,
+      token: nextGridFocusToken.current++,
+      target,
+    });
+  }, [activeCell, dispatchGridFocusLease]);
+
+  const handleDetailedFocusOwnershipChange = useCallback((sheetId: string, owned: boolean) => {
+    if (!owned) {
+      endGridFocusLease();
+      return;
+    }
+    if (activeCell?.sheetId !== sheetId) return;
+    dispatchGridFocusLease({ type: 'native-focus', token: nextGridFocusToken.current++, target: activeCell });
+  }, [activeCell, dispatchGridFocusLease, endGridFocusLease]);
 
   const handleKeyboardFocusRequestConsumed = useCallback((requestId: number) => {
-    if (pendingGridFocusRef.current?.requestId === requestId) updatePendingGridFocus(null);
+    dispatchGridFocusLease({ type: 'consume-request', requestId });
     onKeyboardFocusRequestConsumed(requestId);
-  }, [onKeyboardFocusRequestConsumed, updatePendingGridFocus]);
+  }, [dispatchGridFocusLease, onKeyboardFocusRequestConsumed]);
 
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
@@ -421,17 +453,19 @@ export function Workspace({
                 sheetEditingCell
                 || interactionPinnedSheetId === sheet.id
                 || gridInteractionSheetIds.has(sheet.id)
-                || keyboardFocusRequest?.target.sheetId === sheet.id,
+                || (gridFocusLease?.phase === 'request-active' && gridFocusLease.sheetId === sheet.id),
               )}
-              onDetailedFocusDisplaced={() => beginPendingGridFocus(sheet.id)}
+              onDetailedFocusDisplaced={() => handleDetailedFocusDisplaced(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
+              onDetailedFocusOwnershipChange={(owned) => handleDetailedFocusOwnershipChange(sheet.id, owned)}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
                   onSelect={() => {
                     // Selecting an overview explicitly asks to enter a grid that
                     // is absent now. Retarget any displaced-grid handoff to it.
-                    beginPendingGridFocus(sheet.id);
+                    const focusTarget = overviewSelectionTarget ?? (activeCell?.sheetId === sheet.id ? activeCell : undefined);
+                    if (focusTarget) beginPendingGridFocus(focusTarget);
                     // The active sheet already owns the complete logical
                     // selection. Re-selecting its active cell would collapse a
                     // range and clear a reference selection merely to request

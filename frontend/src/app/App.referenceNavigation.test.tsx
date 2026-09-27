@@ -81,7 +81,7 @@ describe('formula reference navigation', () => {
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
-  it('retains a deep focus request through gesture zoom into overview, then releases its pins', async () => {
+  it('retains a deep focus request through gesture zoom and does not replay it after overview release', async () => {
     const inputs = sheetDocument({
       id: 'sheet-inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 }, visualScale: 0.25,
       columnCount: 100, rowCount: 10_000,
@@ -113,6 +113,16 @@ describe('formula reference navigation', () => {
       element.getAttribute('aria-label') === 'Inputs CU9999 empty cell',
     )).toBe(true));
     await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'overview'));
+
+    const targetFocusClaims = () => (focus.mock.instances as unknown as HTMLElement[]).filter((element) =>
+      element.getAttribute('aria-label') === 'Inputs CU9999 empty cell').length;
+    expect(targetFocusClaims()).toBe(1);
+    const input = within(inputsFrame).getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '400' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    expect(targetFocusClaims()).toBe(1);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
@@ -168,7 +178,9 @@ describe('formula reference navigation', () => {
     expect(target).toHaveAttribute('data-navigation-highlight', 'true');
     expect(inputsFrame).toHaveAttribute('data-z-index', '2');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    const reset = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    reset.focus();
+    fireEvent.click(reset);
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
