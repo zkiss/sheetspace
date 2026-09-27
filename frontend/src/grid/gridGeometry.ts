@@ -1,6 +1,7 @@
 import { CellAddress, CellRange } from '@workbook/core/address';
 import { SheetDocument, WorkspacePosition } from '@workbook/core/model';
 import { clampSheetFrameSize, clampSheetVisualScale } from '@workspace/workspaceGeometry';
+import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
 
 import { projectGridAxes } from './gridAxisProjection';
 import { createSheetGridAxisMetrics } from './gridAxisMetrics';
@@ -12,9 +13,6 @@ export const GRID_CELL_HEIGHT = DEFAULT_ROW_HEIGHT;
 export const GRID_ROW_HEADER_WIDTH = 40;
 export const GRID_COLUMN_HEADER_HEIGHT = 26.4;
 export const SHEET_HEADER_HEIGHT = 42;
-// Mirrors the rendering-policy detail boundary while keeping grid model geometry
-// independent from the workspace UI mode resolver.
-const DETAILED_ENTRY_EFFECTIVE_SCALE = 0.5;
 
 export function sheetContentOffsetForCell(address: CellAddress, sheet: SheetDocument): WorkspacePosition {
   const metrics = createSheetGridAxisMetrics(projectGridAxes(sheet.content), sheet.presentation);
@@ -60,5 +58,5 @@ export function workspaceRectForSheetRange(range: CellRange, sheet: SheetDocumen
 
 /** Minimum workspace zoom that causes this sheet to enter detailed rendering. */
 export function detailedViewportScaleForSheet(sheet: SheetDocument) {
-  return DETAILED_ENTRY_EFFECTIVE_SCALE / clampSheetVisualScale(sheet.frame.visualScale);
+  return SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE / clampSheetVisualScale(sheet.frame.visualScale);
 }

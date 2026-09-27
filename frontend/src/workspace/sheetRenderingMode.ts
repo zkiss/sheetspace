@@ -1,3 +1,5 @@
+import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
+
 export type SheetRenderingMode = 'detailed' | 'overview';
 
 /**
@@ -5,9 +7,6 @@ export type SheetRenderingMode = 'detailed' | 'overview';
  * Effective scale is viewport scale multiplied by the sheet's visual scale.
  */
 export const SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE = 0.35;
-
-/** An overview returns to the detailed grid at or above this effective screen scale. */
-export const SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE = 0.5;
 
 /**
  * Boundary comparisons allow a small multiple of Number.EPSILON. This absorbs

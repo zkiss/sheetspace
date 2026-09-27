@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { frameProjection } from '@workbook/read/queries';
+import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
 import {
-  SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE,
   SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE,
 } from '@workspace/sheetRenderingMode';
 

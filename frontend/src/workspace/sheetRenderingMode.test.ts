@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
 import { effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
 import {
   resolveSheetRenderingMode,
-  SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE,
   SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE,
   type SheetRenderingMode,
 } from '@workspace/sheetRenderingMode';
