@@ -240,12 +240,15 @@ export function viewportForTarget({
   surfaceWidth,
   target,
   forceOversized = false,
+  minimumScale = MIN_WORKSPACE_ZOOM,
 }: {
   currentViewport: WorkspaceViewport;
   surfaceHeight: number;
   surfaceWidth: number;
   target: WorkspaceTargetRect;
   forceOversized?: boolean;
+  /** A model-level navigation requirement, such as detailed sheet entry. */
+  minimumScale?: number;
 }): { oversized: boolean; viewport: WorkspaceViewport } {
   if (surfaceWidth <= 0 || surfaceHeight <= 0) {
     return { oversized: false, viewport: currentViewport };
@@ -256,12 +259,15 @@ export function viewportForTarget({
   const availableWidth = Math.max(1, surfaceWidth - NAVIGATION_PADDING * 2);
   const availableHeight = Math.max(1, surfaceHeight - NAVIGATION_PADDING * 2);
   const fitScale = Math.min(availableWidth / targetWidth, availableHeight / targetHeight);
-  const oversized = forceOversized || fitScale < MIN_READABLE_CELL_SCALE;
+  const requiredScale = clampWorkspaceZoom(minimumScale);
+  const readableScale = Math.max(MIN_READABLE_CELL_SCALE, requiredScale);
+  const oversized = forceOversized || fitScale < readableScale || currentViewport.scale < requiredScale;
   const scale = oversized
-    ? Math.max(currentViewport.scale, MIN_READABLE_CELL_SCALE)
-    : fitScale < currentViewport.scale
-      ? clampWorkspaceZoom(fitScale)
-      : currentViewport.scale;
+    ? clampWorkspaceZoom(Math.max(currentViewport.scale, readableScale))
+    : clampWorkspaceZoom(Math.max(
+      requiredScale,
+      fitScale < currentViewport.scale ? fitScale : currentViewport.scale,
+    ));
 
   if (oversized) {
     return {

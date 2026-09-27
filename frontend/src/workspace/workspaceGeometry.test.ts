@@ -307,4 +307,18 @@ describe('workspaceGeometry', () => {
       viewport: { x: -52, y: -52, scale: 1 },
     });
   });
+
+  it('raises viewport scale to meet a sheet effective-detail requirement', () => {
+    const result = viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 0.2 },
+      minimumScale: 0.5 / 0.1,
+      surfaceHeight: 600,
+      surfaceWidth: 800,
+      target: { left: 1200, top: 900, right: 1238, bottom: 914 },
+    });
+
+    expect(result.oversized).toBe(true);
+    expect(result.viewport.scale).toBe(5);
+    expect(result.viewport.scale * 0.1).toBeGreaterThanOrEqual(0.5);
+  });
 });

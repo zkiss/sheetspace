@@ -5,10 +5,7 @@ import { type CellRange } from '@workbook/core/address';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
-import { rangeFitsSheetViewport } from '@grid/gridGeometry';
-import {
-  workspaceRectForFrame,
-} from '@workspace/workspaceGeometry';
+import { detailedViewportScaleForSheet, rangeFitsSheetViewport, workspaceRectForSheetRange } from '@grid/gridGeometry';
 
 const NAVIGATION_HIGHLIGHT_MS = 1200;
 const NAVIGATION_TRANSITION_MS = 180;
@@ -43,8 +40,8 @@ export function useReferenceNavigation({
   workbook,
 }: {
   navigateToTarget: (
-    target: ReturnType<typeof workspaceRectForFrame>,
-    forceOversized?: boolean,
+    target: ReturnType<typeof workspaceRectForSheetRange>,
+    options?: { forceOversized?: boolean; minimumScale?: number },
   ) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   workbook: Workbook;
@@ -96,8 +93,13 @@ export function useReferenceNavigation({
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     setNavigationMotion(!reduceMotion);
     navigateToTarget(
-      workspaceRectForFrame(targetSheet.frame),
-      reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet),
+      workspaceRectForSheetRange(range, targetSheet),
+      {
+        forceOversized: reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet),
+        // The viewport scale alone is not the rendered scale for a miniature
+        // sheet. Require enough viewport scale to cross the detail boundary.
+        minimumScale: detailedViewportScaleForSheet(targetSheet),
+      },
     );
   }
 

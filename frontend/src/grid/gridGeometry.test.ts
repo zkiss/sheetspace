@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rangeFitsSheetViewport, sheetContentOffsetForCell } from '@grid/gridGeometry';
+import { rangeFitsSheetViewport, sheetContentOffsetForCell, workspaceRectForSheetRange } from '@grid/gridGeometry';
 import { positionedSheet } from '@test-support/workbookFactories';
 
 describe('gridGeometry', () => {
@@ -41,6 +41,20 @@ describe('gridGeometry', () => {
     expect(sheetContentOffsetForCell({ rowIndex: 2, columnIndex: 2 }, sheet)).toEqual({ x: 236, y: 106 });
     expect(rangeFitsSheetViewport({ start: { rowIndex: 0, columnIndex: 0 }, end: { rowIndex: 1, columnIndex: 1 } }, sheet)).toBe(false);
     expect(rangeFitsSheetViewport({ start: { rowIndex: 2, columnIndex: 2 }, end: { rowIndex: 3, columnIndex: 3 } }, sheet)).toBe(true);
+  });
+
+  it('derives a scaled workspace range rectangle from durable axes without a grid element', () => {
+    const sheet = positionedSheet('mixed', 'Mixed', { x: 100, y: 200 });
+    sheet.frame.visualScale = 0.5;
+    sheet.presentation = {
+      rowHeights: { [sheet.content.rows[0]]: 80 },
+      columnWidths: { [sheet.content.columns[0]]: 160 },
+    };
+
+    expect(workspaceRectForSheetRange({
+      start: { rowIndex: 1, columnIndex: 1 },
+      end: { rowIndex: 2, columnIndex: 2 },
+    }, sheet)).toEqual({ left: 200, top: 274.2, right: 276, bottom: 300.6 });
   });
 
   it('falls back to the grid origin and zero-sized extents for missing axes', () => {

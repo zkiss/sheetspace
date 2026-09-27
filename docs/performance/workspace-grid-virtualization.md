@@ -92,6 +92,14 @@ visible frames to the first distant frame replaces the mounted set and still exp
 `B2` value. These observations cover edge scrolling, focus/highlight transfer, and workbook-state
 retention without requiring the destination cell or frame to be mounted in advance.
 
+Reference reveal geometry comes from the frame projection, visual scale, headers, and durable axis
+dimensions before a destination frame mounts. A miniature target raises viewport scale enough to
+reach the `0.5` detailed-entry effective scale when supported. Oversized ranges reveal their anchor
+while retaining the complete logical range highlight. The temporary navigation pin keeps a culled
+target mounted through detail entry, virtual scroll, and focus handoff; once released, the
+steady-state counts in the table apply again. Reveal does not modify frame layout, visual scale, or
+explicit z-order.
+
 ## Reproduction
 
 From the repository root:
@@ -123,6 +131,12 @@ For the detailed-grid edge and interaction observations:
 
 ```bash
 npm --prefix frontend test -- --run src/SheetGrid.test.tsx src/App.referenceNavigation.test.tsx
+```
+
+For model-derived range geometry and effective-scale target calculations:
+
+```bash
+npm --prefix frontend test -- --run src/grid/gridGeometry.test.ts src/workspace/workspaceGeometry.test.ts src/reference-navigation/useReferenceNavigation.test.ts
 ```
 
 Related workspace tests cover pan, zoom, surface resize, preview geometry, z-order, drag, resize,
