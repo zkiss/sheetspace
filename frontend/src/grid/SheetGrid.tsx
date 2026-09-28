@@ -399,10 +399,24 @@ export function SheetGrid({
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, historyAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, historyAddress.columnIndex);
-    const rowOffset = rowMetrics.scrollOffsetForIndex(rowIndex, Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT));
-    const columnOffset = columnMetrics.scrollOffsetForIndex(columnIndex, Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH));
-    if (columnOffset !== undefined) scrollContainer.scrollLeft = Math.round(columnOffset);
-    if (rowOffset !== undefined) scrollContainer.scrollTop = Math.round(rowOffset);
+    // Axis metrics begin after the sticky headers; scroll coordinates include them.
+    const rowOffset = rowMetrics.itemOffset(rowIndex);
+    const rowStart = rowOffset === undefined ? undefined : rowOffset + GRID_COLUMN_HEADER_HEIGHT;
+    const rowEnd = rowStart === undefined ? undefined : rowStart + (rowMetrics.itemSize(rowIndex) ?? 0);
+    const columnOffset = columnMetrics.itemOffset(columnIndex);
+    const columnStart = columnOffset === undefined ? undefined : columnOffset + GRID_ROW_HEADER_WIDTH;
+    const columnEnd = columnStart === undefined ? undefined : columnStart + (columnMetrics.itemSize(columnIndex) ?? 0);
+    const rowVisible = rowStart !== undefined && rowEnd !== undefined
+      && rowStart >= scrollContainer.scrollTop + GRID_COLUMN_HEADER_HEIGHT
+      && rowEnd <= scrollContainer.scrollTop + scrollContainer.clientHeight;
+    const columnVisible = columnStart !== undefined && columnEnd !== undefined
+      && columnStart >= scrollContainer.scrollLeft + GRID_ROW_HEADER_WIDTH
+      && columnEnd <= scrollContainer.scrollLeft + scrollContainer.clientWidth;
+    if (rowVisible && columnVisible) return;
+    const nextRowOffset = rowMetrics.scrollOffsetForIndex(rowIndex, Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT));
+    const nextColumnOffset = columnMetrics.scrollOffsetForIndex(columnIndex, Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH));
+    if (nextColumnOffset !== undefined) scrollContainer.scrollLeft = Math.round(nextColumnOffset);
+    if (nextRowOffset !== undefined) scrollContainer.scrollTop = Math.round(nextRowOffset);
   }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, rowMetrics, rows, columns, scrollContainerRef]);
 
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
@@ -753,13 +767,28 @@ export function SheetGrid({
               }
               const address = { columnIndex: column.durableIndex, rowIndex: row.durableIndex };
               const key = cellKey(address);
-              const isActive = activeCellKey === key;
-              const isEditing = cellKeyForTarget(sheet, editingCell?.target ?? null) === key;
-              const isRangeSelected = isAddressInRange(address, selectedRange);
+               const isActive = activeCellKey === key;
+               const isEditing = cellKeyForTarget(sheet, editingCell?.target ?? null) === key;
+               const isRangeSelected = isAddressInRange(address, selectedRange);
+               const selectionEdges = isRangeSelected && selectedRange ? [
+                 address.rowIndex === selectedRange.start.rowIndex ? 'sheet-grid-selection-top' : '',
+                 address.rowIndex === selectedRange.end.rowIndex ? 'sheet-grid-selection-bottom' : '',
+                 address.columnIndex === selectedRange.start.columnIndex ? 'sheet-grid-selection-left' : '',
+                 address.columnIndex === selectedRange.end.columnIndex ? 'sheet-grid-selection-right' : '',
+               ].filter(Boolean).join(' ') : undefined;
               const isNavigationTarget = navigationHighlightRange
                 ? isAddressInRange(address, navigationHighlightRange)
                 : navigationHighlightCellKey === key;
-              const historyFeedback = historyFeedbackCells?.get(key);
+               const historyFeedback = historyFeedbackCells?.get(key);
+               const hasHistoryNeighbor = (rowIndex: number, columnIndex: number) => Boolean(
+                 historyFeedbackCells?.has(cellKey({ rowIndex, columnIndex })),
+               );
+               const historyEdges = historyFeedback ? [
+                 !hasHistoryNeighbor(address.rowIndex - 1, address.columnIndex) ? 'sheet-grid-history-top' : '',
+                 !hasHistoryNeighbor(address.rowIndex + 1, address.columnIndex) ? 'sheet-grid-history-bottom' : '',
+                 !hasHistoryNeighbor(address.rowIndex, address.columnIndex - 1) ? 'sheet-grid-history-left' : '',
+                 !hasHistoryNeighbor(address.rowIndex, address.columnIndex + 1) ? 'sheet-grid-history-right' : '',
+               ].filter(Boolean).join(' ') : undefined;
               const identity = cellIdentityAt(sheet, key);
               const appearance = identity ? resolveCellAppearance(presentation?.formatOverrides ?? { rows: {}, columns: {}, cells: {} }, identity) : undefined;
 
@@ -775,9 +804,11 @@ export function SheetGrid({
                   isEditing={isEditing}
                   isFocusTarget={focusIntent?.targetKey === key}
                   isNavigationTarget={isNavigationTarget}
-                  historyFeedback={historyFeedback}
-                   isRangeSelected={isRangeSelected}
-                   isPendingCut={pendingCutCells?.has(key)}
+                    historyFeedback={historyFeedback}
+                    historyEdges={historyEdges}
+                    isRangeSelected={isRangeSelected}
+                    selectionEdges={selectionEdges}
+                    isPendingCut={pendingCutCells?.has(key)}
                   key={key}
                   onNativeFocusTarget={onNativeFocusTarget}
                   registerCell={registerCell}

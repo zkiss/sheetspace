@@ -10,6 +10,7 @@ export function SheetContextMenu({
   onChangeZOrder,
   onDelete,
   onRename,
+  onSetScale,
   sheet,
 }: {
   menu: PendingSheetMenu;
@@ -18,6 +19,7 @@ export function SheetContextMenu({
   onChangeZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
   onDelete: (sheetId: string) => void;
   onRename: (sheet: SheetDocument) => void;
+  onSetScale: (sheetId: string, visualScale: number) => void;
   sheet: SheetDocument;
 }) {
   return (
@@ -39,6 +41,19 @@ export function SheetContextMenu({
       <button type="button" role="menuitem" onClick={() => onAppendColumn(sheet.id)}>
         Append column
       </button>
+      <div aria-label="Display scale" className="sheet-context-menu-scale">
+        <span>Display scale</span>
+        {[0.5, 0.75, 1, 1.5].map((scale) => (
+          <button
+            aria-pressed={sheet.frame.visualScale === scale}
+            key={scale}
+            onClick={() => onSetScale(sheet.id, scale)}
+            type="button"
+          >
+            {Math.round(scale * 100)}%
+          </button>
+        ))}
+      </div>
       <button type="button" role="menuitem" onClick={() => onChangeZOrder(sheet.id, 'top')}>
         Bring to front
       </button>

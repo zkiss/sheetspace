@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS, resolveAppearanceProperty } from '@workbook/core/numberFormat';
 import type { AppearancePatch, CellAppearance, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
@@ -122,6 +123,85 @@ function appearanceStateLabel(label: string, state: AppearancePropertyControlSta
   return `${label}: ${effective}; ${local}`;
 }
 
+function FormatIcon({ kind }: { kind: 'align-left' | 'align-center' | 'align-right' | 'reset' }) {
+  if (kind === 'reset') {
+    return <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 7a5 5 0 1 1 1.4 3.5M3 3v4h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" /></svg>;
+  }
+  const lines = kind === 'align-left'
+    ? ['2', '2', '2', '2']
+    : kind === 'align-center'
+      ? ['4', '2', '4', '2']
+      : ['2', '4', '2', '4'];
+  return <svg aria-hidden="true" viewBox="0 0 16 16">
+    {lines.map((left, index) => <path d={`M${left} ${3 + index * 3}h${14 - Number(left) * 2}`} key={index} stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />)}
+  </svg>;
+}
+
+const BUILT_IN_COLOURS = ['#1f2933', '#52636b', '#2f747e', '#23855d', '#3267a8', '#73459a', '#b4456b', '#c85b27', '#c99c00', '#d84b4b'] as const;
+
+function sheetCustomColours(sheet: SheetDocument | undefined) {
+  const overrides = sheet?.presentation.formatOverrides;
+  const seen = new Set<string>();
+  for (const group of [overrides?.rows, overrides?.columns, overrides?.cells]) {
+    for (const override of Object.values(group ?? {})) {
+      for (const colour of [override.textColor, override.fillColor]) {
+        if (colour?.startsWith('#') && !BUILT_IN_COLOURS.includes(colour as typeof BUILT_IN_COLOURS[number])) seen.add(colour);
+      }
+    }
+  }
+  return [...seen].sort(comparePaletteOrder);
+}
+
+function comparePaletteOrder(first: string, second: string) {
+  const hue = (colour: string) => {
+    const value = Number.parseInt(colour.slice(1), 16);
+    const red = (value >> 16) / 255;
+    const green = ((value >> 8) & 255) / 255;
+    const blue = (value & 255) / 255;
+    const max = Math.max(red, green, blue);
+    const min = Math.min(red, green, blue);
+    if (max === min) return 361;
+    return 60 * ((max === red ? (green - blue) / (max - min) : max === green ? 2 + (blue - red) / (max - min) : 4 + (red - green) / (max - min)) + 6) % 360;
+  };
+  return hue(first) - hue(second) || first.localeCompare(second);
+}
+
+function ColourPicker({
+  ariaLabel,
+  colour,
+  customColours,
+  disabled,
+  onApply,
+}: {
+  ariaLabel: string;
+  colour: `#${string}`;
+  customColours: readonly string[];
+  disabled: boolean;
+  onApply: (colour: `#${string}`) => void;
+}) {
+  const [draft, setDraft] = useState(colour);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) setDraft(colour);
+  }, [colour, open]);
+  return (
+    <div className="colour-picker">
+      <button aria-expanded={open} aria-haspopup="dialog" aria-label={ariaLabel} className="colour-picker-trigger" disabled={disabled} onClick={() => setOpen((current) => !current)} style={{ '--colour-swatch': colour } as import('react').CSSProperties} title={ariaLabel} type="button" />
+      {open ? <div aria-label={ariaLabel} className="colour-picker-popover" role="dialog">
+        <span className="colour-picker-label">Palette</span>
+        <div className="colour-picker-swatches">
+          {BUILT_IN_COLOURS.map((swatch) => <button aria-label={`Use ${swatch}`} className="colour-picker-swatch" key={swatch} onClick={() => setDraft(swatch)} style={{ '--colour-swatch': swatch } as import('react').CSSProperties} type="button" />)}
+        </div>
+        {customColours.length ? <><span className="colour-picker-label">Sheet colours</span><div className="colour-picker-swatches">
+          {customColours.map((swatch) => <button aria-label={`Use ${swatch}`} className="colour-picker-swatch" key={swatch} onClick={() => setDraft(swatch as `#${string}`)} style={{ '--colour-swatch': swatch } as import('react').CSSProperties} type="button" />)}
+        </div></> : null}
+        <label className="colour-picker-custom">Custom<input aria-label="Custom colour" onInput={(event) => setDraft(event.currentTarget.value as `#${string}`)} type="color" value={draft} /></label>
+        <div className="colour-picker-actions"><button onClick={() => setOpen(false)} type="button">Cancel</button><button onClick={() => { onApply(draft); setOpen(false); }} type="button">Apply</button></div>
+      </div> : null}
+    </div>
+  );
+}
+
 export function NumberFormatControls({
   onWrite,
   selection,
@@ -138,21 +218,14 @@ export function NumberFormatControls({
   const writeAppearance = (properties: AppearancePatch) => onWrite(selectionAppearanceWrites(sheet, selection, properties));
   const selectedKind = state.format?.kind ?? 'mixed';
   const precision = state.format?.kind === 'general' || !state.format ? '' : String(state.format.precision);
+  const customColours = sheetCustomColours(sheet);
   return (
     <div className="number-format-controls" aria-label="Number formatting">
-      <label>
-        Format
-        <select aria-label="Number format" disabled={disabled} value={selectedKind} onChange={(event) => {
-          const kind = event.target.value;
-          if (kind === 'general') write(GENERAL_NUMBER_FORMAT);
-          if (kind === 'number' || kind === 'percent') write({ kind, precision: state.format?.kind === kind ? state.format.precision : kind === 'number' ? 2 : 0 });
-        }}>
-          {selectedKind === 'mixed' ? <option value="mixed">Mixed</option> : null}
-          <option value="general">General</option>
-          <option value="number">Number</option>
-          <option value="percent">Percent</option>
-        </select>
-      </label>
+      <div className="format-control-group" aria-label="Number format">
+        <button aria-label="General number format" aria-pressed={selectedKind === 'general'} disabled={disabled} onClick={() => write(GENERAL_NUMBER_FORMAT)} title="General number format" type="button">123</button>
+        <button aria-label="Number format" aria-pressed={selectedKind === 'number'} disabled={disabled} onClick={() => write({ kind: 'number', precision: state.format?.kind === 'number' ? state.format.precision : 2 })} title="Number format" type="button">1.2</button>
+        <button aria-label="Percent format" aria-pressed={selectedKind === 'percent'} disabled={disabled} onClick={() => write({ kind: 'percent', precision: state.format?.kind === 'percent' ? state.format.precision : 0 })} title="Percent format" type="button">%</button>
+      </div>
       <label>
         Precision
         <input
@@ -170,35 +243,25 @@ export function NumberFormatControls({
           }}
         />
       </label>
-      <button type="button" disabled={disabled || !state.hasLocalOverrides} onClick={() => write(null)}>Inherit</button>
-      <button type="button" disabled={disabled} onClick={() => write(GENERAL_NUMBER_FORMAT)}>Reset to default</button>
-      <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby="bold-state" aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>Bold</button>
+      <button aria-label="Inherit number format" disabled={disabled || !state.hasLocalOverrides} onClick={() => write(null)} title="Inherit number format" type="button"><FormatIcon kind="reset" /></button>
+      <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby="bold-state" aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>B</button>
       <output id="bold-state">{appearanceStateLabel('Bold', appearance.fontWeight)}</output>
-      <button type="button" disabled={disabled} onClick={() => writeAppearance({ fontWeight: 'normal' })}>Normal weight</button>
-      <button type="button" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance({ fontWeight: null })}>Inherit font weight</button>
-      <label>
-        Horizontal alignment
-        <select aria-label="Horizontal alignment" aria-describedby="horizontal-alignment-state" data-local-override-state={appearance.horizontalAlignment.localOverrideState} data-mixed={appearance.horizontalAlignment.value === null || appearance.horizontalAlignment.localOverrideState === 'mixed' || undefined} disabled={disabled} value={appearance.horizontalAlignment.value ?? 'mixed'} onChange={(event) => writeAppearance({ horizontalAlignment: event.target.value as 'general' | 'left' | 'center' | 'right' })}>
-          {appearance.horizontalAlignment.value === null && <option value="mixed">Mixed</option>}
-          <option value="general">General</option><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
-        </select>
-      </label>
+      <button aria-label="Inherit bold setting" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance({ fontWeight: null })} title="Inherit bold setting" type="button"><FormatIcon kind="reset" /></button>
+      <div className="format-control-group" aria-describedby="horizontal-alignment-state" aria-label="Horizontal alignment" data-local-override-state={appearance.horizontalAlignment.localOverrideState} data-mixed={appearance.horizontalAlignment.value === null || appearance.horizontalAlignment.localOverrideState === 'mixed' || undefined}>
+        <button aria-label="Align left" aria-pressed={appearance.horizontalAlignment.value === 'left'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'left' })} title="Align left" type="button"><FormatIcon kind="align-left" /></button>
+        <button aria-label="Align center" aria-pressed={appearance.horizontalAlignment.value === 'center'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'center' })} title="Align center" type="button"><FormatIcon kind="align-center" /></button>
+        <button aria-label="Align right" aria-pressed={appearance.horizontalAlignment.value === 'right'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'right' })} title="Align right" type="button"><FormatIcon kind="align-right" /></button>
+      </div>
       <output id="horizontal-alignment-state">{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
-      <button type="button" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })}>Inherit horizontal alignment</button>
-      <label>
-        Text colour
-        <input aria-label="Text colour" aria-describedby="text-colour-state" data-local-override-state={appearance.textColor.localOverrideState} data-mixed={appearance.textColor.value === null || appearance.textColor.localOverrideState === 'mixed' || undefined} disabled={disabled} type="color" value={appearance.textColor.value?.startsWith('#') ? appearance.textColor.value : '#000000'} onChange={(event) => writeAppearance({ textColor: event.target.value as `#${string}` })} />
-      </label>
+      <button aria-label="Inherit horizontal alignment" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })} title="Inherit horizontal alignment" type="button"><FormatIcon kind="reset" /></button>
+      <ColourPicker ariaLabel="Text colour" colour={appearance.textColor.value?.startsWith('#') ? appearance.textColor.value : '#1f2933'} customColours={customColours} disabled={disabled} onApply={(textColor) => writeAppearance({ textColor })} />
       <output id="text-colour-state">{appearanceStateLabel('Text colour', appearance.textColor)}</output>
-      <button type="button" disabled={disabled} onClick={() => writeAppearance({ textColor: 'automatic' })}>Automatic text colour</button>
-      <button type="button" disabled={disabled || !appearance.textColor.hasLocalOverrides} onClick={() => writeAppearance({ textColor: null })}>Inherit text colour</button>
-      <label>
-        Fill colour
-        <input aria-label="Fill colour" aria-describedby="fill-colour-state" data-local-override-state={appearance.fillColor.localOverrideState} data-mixed={appearance.fillColor.value === null || appearance.fillColor.localOverrideState === 'mixed' || undefined} disabled={disabled} type="color" value={appearance.fillColor.value?.startsWith('#') ? appearance.fillColor.value : '#ffffff'} onChange={(event) => writeAppearance({ fillColor: event.target.value as `#${string}` })} />
-      </label>
+      <button aria-label="Automatic text colour" disabled={disabled} onClick={() => writeAppearance({ textColor: 'automatic' })} title="Automatic text colour" type="button">A</button>
+      <button aria-label="Inherit text colour" disabled={disabled || !appearance.textColor.hasLocalOverrides} onClick={() => writeAppearance({ textColor: null })} title="Inherit text colour" type="button"><FormatIcon kind="reset" /></button>
+      <ColourPicker ariaLabel="Fill colour" colour={appearance.fillColor.value?.startsWith('#') ? appearance.fillColor.value : '#ffffff'} customColours={customColours} disabled={disabled} onApply={(fillColor) => writeAppearance({ fillColor })} />
       <output id="fill-colour-state">{appearanceStateLabel('Fill colour', appearance.fillColor)}</output>
-      <button type="button" disabled={disabled} onClick={() => writeAppearance({ fillColor: 'none' })}>No fill</button>
-      <button type="button" disabled={disabled || !appearance.fillColor.hasLocalOverrides} onClick={() => writeAppearance({ fillColor: null })}>Inherit fill colour</button>
+      <button aria-label="No fill" disabled={disabled} onClick={() => writeAppearance({ fillColor: 'none' })} title="No fill" type="button">X</button>
+      <button aria-label="Inherit fill colour" disabled={disabled || !appearance.fillColor.hasLocalOverrides} onClick={() => writeAppearance({ fillColor: null })} title="Inherit fill colour" type="button"><FormatIcon kind="reset" /></button>
     </div>
   );
 }

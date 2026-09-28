@@ -1,6 +1,6 @@
 .workspace-surface {
   position: relative;
-  grid-row: 4;
+  grid-row: 3;
   overflow: hidden;
   min-height: 0;
   background-color: #edf3f5;
@@ -30,13 +30,22 @@
 
 .empty-workspace {
   position: absolute;
+  z-index: 1;
   left: 50%;
   top: 50%;
   width: min(24rem, calc(100% - 2rem));
-  margin: 0;
   transform: translate(-50%, -50%);
   color: #50606d;
   text-align: center;
+}
+
+.empty-workspace p {
+  margin: 0 0 0.75rem;
+}
+
+.empty-workspace button {
+  border-color: #1c6b78;
+  background: #1c6b78;
 }
 
 @media (prefers-reduced-motion: reduce) {

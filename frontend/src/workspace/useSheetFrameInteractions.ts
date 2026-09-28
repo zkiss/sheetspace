@@ -34,7 +34,11 @@ export function useSheetFrameInteractions({
     sheetFrameInteractionSession.current = session;
     setFrameLayoutPreview(null);
     setFrameScalePreview(null);
-    setInteractionPinnedSheetId(session.owner === 'numeric-scale' ? session.sheetId : session.interaction.sheetId);
+    // Moving a miniature frame does not need its interactive grid retained.
+    // Keeping that grid mounted made its controls flash into view mid-drag.
+    setInteractionPinnedSheetId(session.owner === 'drag' ? null : session.owner === 'numeric-scale'
+      ? session.sheetId
+      : session.interaction.sheetId);
   }
 
   function clearInteractionSession() {

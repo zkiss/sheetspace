@@ -8,7 +8,9 @@ export function WorkspaceSurface({
   hasSheets,
   isPanningWorkspace,
   navigationMotion,
+  onCreateSheet,
   onContextMenu,
+  overlay,
   viewport,
   workspacePlaneRef,
   workspaceSurfaceRef,
@@ -18,7 +20,9 @@ export function WorkspaceSurface({
   hasSheets: boolean;
   isPanningWorkspace: boolean;
   navigationMotion: boolean;
-  onContextMenu: (event: MouseEvent<HTMLElement>) => void;
+  onCreateSheet?: () => void;
+  onContextMenu?: (event: MouseEvent<HTMLElement>) => void;
+  overlay?: ReactNode;
   viewport: WorkspaceViewport;
   workspacePlaneRef: RefObject<HTMLDivElement>;
   workspaceSurfaceRef: RefObject<HTMLElement>;
@@ -34,10 +38,6 @@ export function WorkspaceSurface({
       onContextMenu={onContextMenu}
       ref={workspaceSurfaceRef}
     >
-      {!hasSheets ? (
-        <p className="empty-workspace">Right-click the workspace or use New sheet to create a sheet.</p>
-      ) : null}
-
       <div
         className={`workspace-plane${navigationMotion ? ' workspace-plane-navigating' : ''}`}
         data-navigation-motion={navigationMotion ? 'smooth' : 'instant'}
@@ -51,6 +51,13 @@ export function WorkspaceSurface({
       </div>
 
       {contextMenu}
+      {overlay}
+      {!hasSheets ? (
+        <div className="empty-workspace">
+          <p>Start by placing your first sheet.</p>
+          <button onClick={onCreateSheet} type="button">Create your first sheet</button>
+        </div>
+      ) : null}
     </section>
   );
 }

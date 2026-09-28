@@ -31,9 +31,20 @@ import type { WorkbookCommands } from '@application/react/useWorkbookController'
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
-import { NumberFormatControls } from '@workspace/NumberFormatControls';
+import {
+  NumberFormatControls,
+  selectionAppearanceControlState,
+  selectionAppearanceWrites,
+  selectionFormatControlState,
+  selectionFormatWrites,
+} from '@workspace/NumberFormatControls';
+import { GENERAL_NUMBER_FORMAT } from '@workbook/core/numberFormat';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
-import { effectiveSheetScreenScale, workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import {
+  workspaceRectForFrame,
+  workspaceRectsIntersect,
+  workspaceViewportBounds,
+} from '@workspace/workspaceGeometry';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import {
   activeFocusRequestId,
@@ -181,10 +192,81 @@ export function Workspace({
     : undefined;
   const workspaceController = useWorkspaceController({ onCreateSheet });
   useEffect(() => {
+    function writeFormat(write: () => readonly import('@workbook/core/model').FormatWrite[]) {
+      if (!selectedSheet || !selectionRange || editingCell) return;
+      const writes = write();
+      if (writes.length === 0) return;
+      commands.writeNumberFormats(selectedSheet.id, writes);
+      onRestoreGridFocus();
+    }
+
+    function handleShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('textarea, input, select, [contenteditable="true"]') || event.defaultPrevented) return;
+      const key = event.key.toLowerCase();
+      const primaryModifier = event.ctrlKey || event.metaKey;
+      if (!primaryModifier && event.shiftKey && !event.altKey && key === 'n') {
+        event.preventDefault();
+        workspaceController.createSheetAtViewportCenter();
+        return;
+      }
+      if (!primaryModifier || event.altKey) return;
+
+      if (key === 'b' && !event.shiftKey) {
+        event.preventDefault();
+        const appearance = selectionAppearanceControlState(selectedSheet, selectionRange);
+        writeFormat(() => selectionAppearanceWrites(selectedSheet, selectionRange, {
+          fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold',
+        }));
+        return;
+      }
+
+      if (!event.shiftKey) return;
+      if (key === 'e' || key === 'l' || key === 'r') {
+        event.preventDefault();
+        writeFormat(() => selectionAppearanceWrites(selectedSheet, selectionRange, {
+          horizontalAlignment: key === 'e' ? 'center' : key === 'l' ? 'left' : 'right',
+        }));
+        return;
+      }
+      if (key === '0') {
+        event.preventDefault();
+        writeFormat(() => selectionFormatWrites(selectedSheet, selectionRange, GENERAL_NUMBER_FORMAT));
+        return;
+      }
+      if (key === '1' || key === '5') {
+        event.preventDefault();
+        const format = selectionFormatControlState(selectedSheet, selectionRange).format;
+        const kind = key === '1' ? 'number' : 'percent';
+        writeFormat(() => selectionFormatWrites(selectedSheet, selectionRange, {
+          kind,
+          precision: format?.kind === kind ? format.precision : kind === 'number' ? 2 : 0,
+        }));
+      }
+    }
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [commands, editingCell, onRestoreGridFocus, selectedSheet, selectionRange, workspaceController]);
+  useEffect(() => {
     if (!contentHistoryFeedback || editingCell) return;
     const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
-    if (destination) workspaceController.navigateToTarget(workspaceRectForFrame(destination.frame));
-  }, [contentHistoryFeedback?.identity]);
+    if (!destination || !workspaceController.workspaceSurfaceSize) return;
+    const viewportBounds = workspaceViewportBounds(
+      workspaceController.workspaceSurfaceSize,
+      workspaceController.viewport,
+    );
+    if (!workspaceRectsIntersect(workspaceRectForFrame(destination.frame), viewportBounds)) {
+      workspaceController.navigateToTarget(workspaceRectForFrame(destination.frame));
+    }
+  }, [
+    contentHistoryFeedback?.identity,
+    editingCell,
+    sheets,
+    workspaceController.navigateToTarget,
+    workspaceController.viewport,
+    workspaceController.workspaceSurfaceSize,
+  ]);
   const {
     navigateReference,
     navigationHighlight,
@@ -197,23 +279,14 @@ export function Workspace({
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
-    cancelSheetFrameScaleInput,
-    cancelSheetFrameScalePointer,
-    commitSheetFrameScale,
     frameLayoutPreview,
-    frameScalePreview,
     handleSheetFrameDragMove,
     handleSheetFrameDragStart,
     handleSheetFrameResizeMove,
     handleSheetFrameResizeStart,
-    handleSheetFrameScaleMove,
-    handleSheetFrameScaleStart,
     interactionPinnedSheetId,
     stopSheetFrameDrag,
     stopSheetFrameResize,
-    stopSheetFrameScale,
-    previewSheetFrameScale,
-    startSheetFrameScaleInput,
   } = useSheetFrameInteractions({
     commands,
     viewportScale: workspaceController.viewport.scale,
@@ -224,7 +297,7 @@ export function Workspace({
     const layout = frameLayoutPreview?.sheetId === sheet.id
       ? { ...frame, position: frameLayoutPreview.position, size: frameLayoutPreview.size }
       : frame;
-    return frameScalePreview?.sheetId === sheet.id ? { ...layout, visualScale: frameScalePreview.visualScale } : layout;
+    return layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
   const mountedSheetIds = mountedWorkspaceFrameIds({
@@ -347,34 +420,26 @@ export function Workspace({
   return (
     <>
       <WorkspaceToolbar
+        formatControls={selectedSheet && selectionRange ? (
+          <NumberFormatControls
+            onWrite={(writes) => {
+              if (writes.length === 0) return;
+              commands.writeNumberFormats(selectedSheet.id, writes);
+              onRestoreGridFocus();
+            }}
+            selection={selectionRange}
+            sheet={selectedSheet}
+          />
+        ) : null}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
-        onPanWorkspace={workspaceController.panWorkspace}
         onResetViewport={workspaceController.resetViewport}
         onRetryFailedSaves={onRetryFailedSaves}
         onRedo={commands.redo}
         onUndo={commands.undo}
-        onZoomWorkspace={workspaceController.zoomWorkspaceBy}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
         canRedo={canRedo && !editingCell}
         canUndo={canUndo && !editingCell}
-        sheetCount={sheets.length}
-        viewport={workspaceController.viewport}
-      />
-      <NumberFormatControls
-        onWrite={(writes) => {
-          if (!selectedSheet || writes.length === 0) return;
-          commands.writeNumberFormats(selectedSheet.id, writes);
-          onRestoreGridFocus();
-        }}
-        selection={selectionRange}
-        sheet={selectedSheet}
-      />
-
-      <FormulaReferenceInspection
-        inspection={formulaInspection}
-        key={`${activeCell?.sheetId}:${selectedCellKey}:${selectedRaw}:${formulaInspection?.raw}`}
-        onNavigate={navigateReference}
       />
 
       <WorkspaceSurface
@@ -399,13 +464,24 @@ export function Workspace({
               commands.deleteSheet(sheetId);
             }}
             onRename={handleOpenRenameDialog}
+            onSetScale={(sheetId, visualScale) => {
+              workspaceController.closeSheetMenu();
+              commands.setSheetVisualScale(sheetId, visualScale);
+            }}
             sheet={menuSheet}
           />
         ) : undefined}
         hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
         navigationMotion={navigationMotion && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
-        onContextMenu={workspaceController.handleWorkspaceContextMenu}
+        onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        overlay={(
+          <FormulaReferenceInspection
+            inspection={formulaInspection}
+            key={`${activeCell?.sheetId}:${selectedCellKey}:${selectedRaw}:${formulaInspection?.raw}`}
+            onNavigate={navigateReference}
+          />
+        )}
         viewport={workspaceController.viewport}
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
         workspacePlaneRef={workspaceController.workspacePlaneRef}
@@ -473,7 +549,6 @@ export function Workspace({
                     // native focus. Only an ownership change needs an A1 fallback.
                     if (overviewSelectionTarget) onSelectCell(overviewSelectionTarget);
                   }}
-                  screenScale={effectiveSheetScreenScale(workspaceController.viewport.scale, frame.visualScale)}
                   sheet={tabular}
                 />
               )}
@@ -483,14 +558,6 @@ export function Workspace({
               onResizeMove={handleSheetFrameResizeMove}
               onResizeStart={handleSheetFrameResizeStart}
               onResizeStop={stopSheetFrameResize}
-              onScaleInputCancel={cancelSheetFrameScaleInput}
-              onScalePointerCancel={cancelSheetFrameScalePointer}
-              onScaleCommit={commitSheetFrameScale}
-              onScaleMove={handleSheetFrameScaleMove}
-              onScalePreview={previewSheetFrameScale}
-              onScaleInputStart={startSheetFrameScaleInput}
-              onScaleStart={handleSheetFrameScaleStart}
-              onScaleStop={stopSheetFrameScale}
               onSheetFrameDragCancel={cancelSheetFrameDrag}
               onSheetFrameInteraction={workspaceController.closeSheetMenu}
               onSheetFrameDragMove={handleSheetFrameDragMove}

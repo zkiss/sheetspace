@@ -23,3 +23,35 @@
 .sheet-context-menu button:hover {
   background: #edf3f5;
 }
+
+.sheet-context-menu-scale {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.15rem;
+  border-top: 1px solid #e3eaed;
+  padding: 0.45rem;
+}
+
+.sheet-context-menu-scale span {
+  grid-column: 1 / -1;
+  padding: 0 0.35rem;
+  color: #667781;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sheet-context-menu .sheet-context-menu-scale button {
+  min-height: 1.7rem;
+  padding: 0;
+  border-radius: 3px;
+  color: #566771;
+  background: #f2f6f7;
+  font-size: 0.68rem;
+  text-align: center;
+}
+
+.sheet-context-menu .sheet-context-menu-scale button[aria-pressed='true'] {
+  color: #fff;
+  background: #287783;
+}

@@ -1,15 +1,15 @@
-import { KeyboardEvent, type CSSProperties } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type CSSProperties, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellNavigationRequest, CellTarget } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { GRID_CELL_HEIGHT } from '@grid/gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';
-import { cssRemFromPixels } from '@shared/styles/styleTokens';
 import '@grid/SheetGridCell.css';
 
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
-export const CELL_EDITOR_MAX_HEIGHT = '12rem';
+export const CELL_EDITOR_MAX_HEIGHT = '7rem';
 
 export type SheetGridCellInteraction = {
   clear: (target: CellTarget) => void;
@@ -38,6 +38,16 @@ function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
   editor.setSelectionRange(end, end);
 }
 
+function sizeEditorToContent(editor: HTMLTextAreaElement | null, minimumHeight: number) {
+  if (!editor) return;
+  moveEditorCaretToEnd(editor);
+  editor.style.height = '0px';
+  const maxHeight = Number.parseFloat(getComputedStyle(editor).maxHeight) || 192;
+  editor.style.height = `${Math.min(Math.max(minimumHeight, editor.scrollHeight), maxHeight)}px`;
+  editor.style.overflowY = editor.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  editor.style.overflowX = editor.scrollWidth > editor.clientWidth ? 'auto' : 'hidden';
+}
+
 export function SheetGridCell({
   cellKey,
   columnIndex,
@@ -48,7 +58,9 @@ export function SheetGridCell({
   isFocusTarget = false,
   isNavigationTarget = false,
   historyFeedback,
+  historyEdges,
   isRangeSelected = false,
+  selectionEdges,
   isPendingCut = false,
   cellInteraction,
   editorInteraction,
@@ -67,7 +79,9 @@ export function SheetGridCell({
   isFocusTarget?: boolean;
   isNavigationTarget?: boolean;
   historyFeedback?: { before: string | null; beforeDisplay: string | null; after: string | null };
+  historyEdges?: string;
   isRangeSelected?: boolean;
+  selectionEdges?: string;
   isPendingCut?: boolean;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
@@ -77,6 +91,7 @@ export function SheetGridCell({
   style?: CSSProperties;
   tabIndex?: number;
 }) {
+  const cellElementRef = useRef<HTMLDivElement>(null);
   function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
     const target = cellTargetAt(sheet, cellKey);
     if (!target) return;
@@ -126,7 +141,7 @@ export function SheetGridCell({
       aria-selected={isActive || isRangeSelected ? 'true' : undefined}
       className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
         isRangeSelected ? ' sheet-grid-cell-range-selected' : ''
-      }${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
+      }${selectionEdges ? ` ${selectionEdges}` : ''}${historyEdges ? ` ${historyEdges}` : ''}${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
         isEditing ? ' sheet-grid-cell-editing' : ''
       }${historyFeedback ? ` sheet-grid-cell-history-${historyFeedback.before === null ? 'insertion' : historyFeedback.after === null ? 'removal' : 'replacement'}` : ''}`}
       data-active-cell={isActive ? 'true' : undefined}
@@ -164,13 +179,17 @@ export function SheetGridCell({
         if (target) onNativeFocusTarget?.(target);
       }}
       onKeyDown={handleCellKeyDown}
-      ref={(cellElement) => registerCell?.(cellKey, cellElement)}
+       ref={(cellElement) => {
+         cellElementRef.current = cellElement;
+         registerCell?.(cellKey, cellElement);
+       }}
       role="cell"
       style={style}
       tabIndex={tabIndex}
     >
       {isEditing && editingCell ? (
         <SheetGridCellEditor
+          anchor={cellElementRef}
           editingCell={editingCell}
           cellKey={cellKey}
           interaction={editorInteraction}
@@ -184,19 +203,35 @@ export function SheetGridCell({
 }
 
 export function SheetGridCellEditor({
+  anchor,
   cellKey,
   editingCell,
   interaction,
   sheetName,
 }: {
+  anchor: RefObject<HTMLElement | null>;
   cellKey: string;
   editingCell: CellEditSession;
   interaction: SheetGridCellEditorInteraction;
   sheetName: string;
 }) {
-  const editorSizing = cellEditorSizing(editingCell.draft);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
-  return (
+  useLayoutEffect(() => {
+    const updatePosition = () => setAnchorRect(anchor.current?.getBoundingClientRect() ?? null);
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [anchor]);
+
+  if (!anchorRect) return null;
+  const editorSizing = cellEditorSizing(editingCell.draft, anchorRect.width, anchorRect.height);
+
+  const editor = (
     <textarea
       aria-label={`${sheetName} ${cellKey} editor`}
       autoFocus
@@ -208,8 +243,17 @@ export function SheetGridCellEditor({
       onBlur={(event) => interaction.commit({ ...editingCell, draft: event.currentTarget.value })}
       onChange={(event) => interaction.updateValue(event.target.value)}
       onClick={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+       onKeyDown={(event) => {
+        if (event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          const editor = event.currentTarget;
+          editor.setRangeText('\n', editor.selectionStart, editor.selectionEnd, 'end');
+          interaction.updateValue(editor.value);
+          return;
+        }
+
+        if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
           event.preventDefault();
           event.stopPropagation();
           interaction.commitAndNavigate(
@@ -233,30 +277,33 @@ export function SheetGridCellEditor({
           interaction.cancel();
         }
       }}
-      ref={moveEditorCaretToEnd}
+       ref={(element) => sizeEditorToContent(element, anchorRect.height)}
       style={{
         height: editorSizing.height,
+        left: anchorRect.left,
         maxHeight: CELL_EDITOR_MAX_HEIGHT,
-        maxWidth: CELL_EDITOR_MAX_WIDTH,
+        maxWidth: `min(${CELL_EDITOR_MAX_WIDTH}, calc(100vw - ${anchorRect.left + 12}px))`,
         overflow: 'auto',
+        top: anchorRect.top,
         width: editorSizing.width,
       }}
       value={editingCell.draft}
     />
   );
+  return createPortal(editor, document.body);
 }
 
-function cellEditorSizing(value: string) {
+function cellEditorSizing(value: string, minimumWidth: number, minimumHeight: number) {
   const lines = value.split('\n');
   const lineCount = lines.length;
   const longestLineLength = Math.max(...lines.map((line) => line.length), 0);
   const visibleLineCount = Math.min(Math.max(lineCount, 1), 8);
-  const visibleColumnCount = Math.min(Math.max(longestLineLength + 2, 12), 64);
+  const visibleColumnCount = Math.min(Math.max(longestLineLength + 2, 1), 64);
 
   return {
-    height: `min(${CELL_EDITOR_MAX_HEIGHT}, max(${cssRemFromPixels(GRID_CELL_HEIGHT)}, ${visibleLineCount * 1.45}rem))`,
+    height: `min(${CELL_EDITOR_MAX_HEIGHT}, max(${minimumHeight}px, ${visibleLineCount * 1.45}rem))`,
     multiline: lineCount > 1,
     visibleLineCount,
-    width: `min(${CELL_EDITOR_MAX_WIDTH}, max(100%, ${visibleColumnCount}ch))`,
+    width: `min(${CELL_EDITOR_MAX_WIDTH}, max(${minimumWidth}px, ${visibleColumnCount}ch))`,
   };
 }

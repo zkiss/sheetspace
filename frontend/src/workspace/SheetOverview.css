@@ -18,92 +18,67 @@
   outline-offset: -3px;
 }
 
-.sheet-overview-screen {
+.sheet-overview-texture {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   display: grid;
-  box-sizing: border-box;
-  grid-template-rows: auto minmax(9px, 1fr);
-  gap: 1px;
   padding: 2px;
-  container-type: inline-size;
-  transform-origin: top left;
 }
 
-.sheet-overview-identity,
-.sheet-overview-count {
-  position: relative;
-  z-index: 2;
-  overflow: hidden;
-  border-radius: 2px;
-  background: rgb(248 251 252 / 90%);
-}
-
-.sheet-overview-identity {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 3px;
-  padding: 0 2px;
-  line-height: 1;
-}
-
-.sheet-overview-identity strong {
-  overflow: hidden;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sheet-overview-identity span,
-.sheet-overview-count {
-  color: #52636b;
-  font-size: 7px;
-  white-space: nowrap;
-}
-
-.sheet-overview-map {
+.sheet-overview-grid {
   position: relative;
   display: block;
-  min-height: 9px;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  box-sizing: border-box;
-  border: 1px solid #b9c9cf;
+  border: 1px solid #c6d7db;
   border-radius: 2px;
   background:
-    linear-gradient(to right, rgb(47 116 126 / 10%) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(47 116 126 / 10%) 1px, transparent 1px),
+    repeating-linear-gradient(to right, transparent 0 35px, #d9e4e7 35px 36px),
+    repeating-linear-gradient(to bottom, transparent 0 19px, #d9e4e7 19px 20px),
     #fff;
-  background-size: 12.5% 25%;
+  background-position: 23px 19px, 23px 19px;
 }
 
-.sheet-overview-sample {
+.sheet-overview-corner,
+.sheet-overview-column-band,
+.sheet-overview-row-band {
   position: absolute;
-  display: block;
-  max-width: 55%;
-  overflow: hidden;
-  padding: 0 2px;
-  border-radius: 2px;
-  background: #2f747e;
-  color: #fff;
-  font-size: 8px;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: #edf3f5;
 }
 
-.sheet-overview-count {
+.sheet-overview-corner {
+  z-index: 2;
+  top: 0;
+  left: 0;
+  width: 23px;
+  height: 19px;
+  border-right: 1px solid #d1dfe3;
+  border-bottom: 1px solid #d1dfe3;
+}
+
+.sheet-overview-column-band {
+  top: 0;
+  right: 0;
+  left: 23px;
+  height: 19px;
+  border-bottom: 1px solid #d1dfe3;
+}
+
+.sheet-overview-row-band {
+  top: 19px;
+  bottom: 0;
+  left: 0;
+  width: 23px;
+  border-right: 1px solid #d1dfe3;
+}
+
+.sheet-overview-data-mark {
   position: absolute;
-  bottom: 3px;
-  left: 3px;
-  padding: 0 2px;
-  line-height: 1;
-}
-
-@container (max-width: 110px) {
-  .sheet-overview-identity span {
-    display: none;
-  }
+  z-index: 1;
+  width: 20px;
+  height: 6px;
+  border-radius: 1px;
+  background: #8eb8ae;
+  transform: translate(3px, 7px);
 }

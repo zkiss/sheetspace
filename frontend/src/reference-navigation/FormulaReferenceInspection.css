@@ -1,12 +1,17 @@
 .formula-reference-inspection {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+  z-index: 10;
   display: flex;
-  grid-row: 3;
   align-items: baseline;
   gap: 0.65rem;
-  min-width: 0;
-  border-bottom: 1px solid #d6dee3;
-  padding: 0.45rem 1rem;
-  background: #f8fafb;
+  max-width: min(42rem, calc(100% - 1.6rem));
+  border: 1px solid #d6e1e5;
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.65rem;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 0.45rem 1.3rem rgb(32 48 60 / 10%);
 }
 
 .formula-reference-inspection-label {
