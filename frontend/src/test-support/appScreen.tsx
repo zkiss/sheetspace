@@ -15,7 +15,7 @@ export async function createSheetFromToolbar(name: string) {
 
 export async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HTMLElement) {
   await user.dblClick(cell);
-  return within(cell).getByRole('textbox');
+  return screen.getByRole('textbox');
 }
 
 export function openSheetContextMenu(frame: HTMLElement, clientX = 120, clientY = 80) {
@@ -33,4 +33,3 @@ export function resizeHandle(frame: HTMLElement, handle: string) {
 
   return match;
 }
-

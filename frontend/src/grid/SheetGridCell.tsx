@@ -1,10 +1,9 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellNavigationRequest, CellTarget } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
-import { GRID_CELL_HEIGHT } from '@grid/gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';
 import '@grid/SheetGridCell.css';
 
@@ -90,7 +89,7 @@ export function SheetGridCell({
   style?: CSSProperties;
   tabIndex?: number;
 }) {
-  const cellElementRef = useRef<HTMLDivElement>(null);
+  const cellElementRef = useRef<HTMLDivElement | null>(null);
   function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
     const target = cellTargetAt(sheet, cellKey);
     if (!target) return;
@@ -217,15 +216,28 @@ export function SheetGridCellEditor({
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const hasPlacedInitialCaret = useRef(false);
+  const hasFinishedEditing = useRef(false);
+
+  const updatePosition = () => {
+    const next = anchor.current?.getBoundingClientRect() ?? null;
+    setAnchorRect((current) => sameRect(current, next) ? current : next);
+  };
 
   useLayoutEffect(() => {
-    const updatePosition = () => setAnchorRect(anchor.current?.getBoundingClientRect() ?? null);
     updatePosition();
+  });
+
+  useEffect(() => {
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
+    const observer = typeof ResizeObserver === 'undefined' || !anchor.current
+      ? null
+      : new ResizeObserver(updatePosition);
+    if (anchor.current) observer?.observe(anchor.current);
     return () => {
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
+      observer?.disconnect();
     };
   }, [anchor]);
 
@@ -251,7 +263,9 @@ export function SheetGridCellEditor({
       data-max-width={CELL_EDITOR_MAX_WIDTH}
       data-multiline-editor={editorSizing.multiline ? 'true' : undefined}
       data-visible-lines={editorSizing.visibleLineCount}
-      onBlur={(event) => interaction.commit({ ...editingCell, draft: event.currentTarget.value })}
+      onBlur={(event) => {
+        if (!hasFinishedEditing.current) interaction.commit({ ...editingCell, draft: event.currentTarget.value });
+      }}
       onChange={(event) => interaction.updateValue(event.target.value)}
       onClick={(event) => event.stopPropagation()}
        onKeyDown={(event) => {
@@ -267,10 +281,20 @@ export function SheetGridCellEditor({
         if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
           event.preventDefault();
           event.stopPropagation();
+          hasFinishedEditing.current = true;
           interaction.commitAndNavigate(
             { ...editingCell, draft: event.currentTarget.value },
             { key: 'Enter', shift: event.shiftKey },
           );
+          return;
+        }
+
+        if (event.key === 'Enter') {
+          // Only Shift+Enter is a multiline command. Other modified Enter
+          // combinations are reserved and must not insert a native newline.
+          event.preventDefault();
+          event.stopPropagation();
+          return;
         }
 
         if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -285,6 +309,7 @@ export function SheetGridCellEditor({
         if (event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
+          hasFinishedEditing.current = true;
           interaction.cancel();
         }
       }}
@@ -302,6 +327,12 @@ export function SheetGridCellEditor({
     />
   );
   return createPortal(editor, document.body);
+}
+
+function sameRect(left: DOMRect | null, right: DOMRect | null) {
+  if (!left || !right) return left === right;
+  return left.left === right.left && left.top === right.top
+    && left.width === right.width && left.height === right.height;
 }
 
 function cellEditorSizing(value: string, minimumWidth: number, minimumHeight: number) {

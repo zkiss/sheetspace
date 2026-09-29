@@ -79,7 +79,7 @@ describe('content history application integration', () => {
 
 function replaceCell(cell: HTMLElement, value: string) {
   fireEvent.doubleClick(cell);
-  const editor = within(cell).getByRole('textbox');
+  const editor = screen.getByRole('textbox');
   fireEvent.change(editor, { target: { value } });
   fireEvent.keyDown(editor, { key: 'Enter' });
 }

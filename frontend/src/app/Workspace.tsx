@@ -16,7 +16,7 @@ import type {
   ReferenceNavigationTarget,
 } from '@grid/cellInteractionContracts';
 import type { SaveStatus } from '@application/core/state';
-import { cellKeyForTarget, cellTargetAt, type CellFocusRequest } from '@grid/cellInteraction';
+import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
@@ -104,7 +104,7 @@ export function Workspace({
   onCancelEdit: () => void;
   onClearCell: (target: CellTarget) => void;
   onClearSelection: () => void;
-  onActivateSheet: (sheetId: string) => void;
+  onActivateSheet: (sheetId: string, requestFocus?: boolean) => CellTarget | undefined;
   onCommitEdit: (session?: CellEditSession) => void;
   onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
@@ -471,6 +471,7 @@ export function Workspace({
         isPanningWorkspace={workspaceController.isPanningWorkspace}
         navigationMotion={navigationMotion && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
           <FormulaReferenceInspection
             inspection={formulaInspection}
@@ -520,7 +521,6 @@ export function Workspace({
                 : navigationHighlight?.sheetId === sheet.id}
               retainDetailedBody={Boolean(
                 sheetEditingCell
-                || interactionPinnedSheetId === sheet.id
                 || gridInteractionSheetIds.has(sheet.id)
                 || (gridFocusLease?.phase === 'request-active' && gridFocusLease.sheetId === sheet.id),
               )}
@@ -530,7 +530,10 @@ export function Workspace({
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
-                  onSelect={() => onActivateSheet(sheet.id)}
+                  onSelect={() => {
+                    const target = onActivateSheet(sheet.id, false);
+                    if (target) beginPendingGridFocus(target);
+                  }}
                   sheet={tabular}
                 />
               )}
@@ -545,7 +548,7 @@ export function Workspace({
               onSheetFrameDragMove={handleSheetFrameDragMove}
               onSheetFrameDragStart={handleSheetFrameDragStart}
               onSheetFrameDragStop={stopSheetFrameDrag}
-              onSelectSheet={() => onActivateSheet(sheet.id)}
+              onSelectSheet={() => { onActivateSheet(sheet.id); }}
               rowCount={tabular.rows.length + (creatingSheetAxes?.rows.length ?? 0)}
               viewportScale={workspaceController.viewport.scale}
             >

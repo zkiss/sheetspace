@@ -48,7 +48,7 @@ describe('App grid clipboard integration', () => {
     render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
     const cell = within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByRole('cell', { name: 'Inputs A1 cell' });
     fireEvent.doubleClick(cell);
-    const editor = within(cell).getByRole('textbox');
+    const editor = screen.getByRole('textbox');
     const copied = clipboardData();
 
     expect(fireEvent.copy(editor, { clipboardData: copied })).toBe(true);

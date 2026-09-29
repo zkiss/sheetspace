@@ -150,7 +150,7 @@ export function SheetFrame({
         data-testid="sheet-frame-header"
         onPointerCancel={onSheetFrameDragCancel}
         onPointerDown={(event) => {
-          onSelectSheet();
+          if (event.button === 0) onSelectSheet();
           onSheetFrameDragStart(frame.id, event);
         }}
         onPointerMove={onSheetFrameDragMove}

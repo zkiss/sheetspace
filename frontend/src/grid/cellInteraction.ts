@@ -34,7 +34,7 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
 
 export type CellInteractionAction =
   | { type: 'select'; target: CellTarget; gesture?: SelectionGesture }
-  | { type: 'activate-sheet'; target: CellTarget }
+  | { type: 'activate-sheet'; target: CellTarget; requestFocus?: boolean }
   | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean; gesture?: SelectionGesture }
   | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
@@ -79,8 +79,8 @@ export function cellInteractionReducer(
         referenceSelection: null,
         tabRunOriginColumnId: sameTarget(state.selection, action.target) ? state.tabRunOriginColumnId : null,
       };
-    case 'activate-sheet':
-      return withFocusRequest({
+    case 'activate-sheet': {
+      const activated = {
         ...state,
         selection: action.target,
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
@@ -89,7 +89,9 @@ export function cellInteractionReducer(
         editing: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,
-      }, action.target);
+      };
+      return action.requestFocus === false ? activated : withFocusRequest(activated, action.target);
+    }
     case 'extend-selection': {
       const anchor = state.rangeSelection?.anchor;
       // A range never crosses sheets.  A new sheet starts a fresh selection.

@@ -34,11 +34,9 @@ export function useSheetFrameInteractions({
     sheetFrameInteractionSession.current = session;
     setFrameLayoutPreview(null);
     setFrameScalePreview(null);
-    // Frame transforms do not need their interactive grid retained. Keeping it
-    // mounted made miniature sheets reveal controls during a drag.
-    setInteractionPinnedSheetId(session.owner === 'resize' ? session.interaction.sheetId : session.owner === 'numeric-scale'
-      ? session.sheetId
-      : null);
+    // Keep the frame mounted for the complete pointer session. Workspace owns
+    // detailed/overview rendering separately, so this pin does not reveal a grid.
+    setInteractionPinnedSheetId(session.owner === 'numeric-scale' ? session.sheetId : session.interaction.sheetId);
   }
 
   function clearInteractionSession() {

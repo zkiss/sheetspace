@@ -4,7 +4,6 @@ import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, s
 
 const INPUT = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]';
 const NATIVE_CONTENT = `${INPUT}, [data-sheet-id], [role="menu"], button, a`;
-const PINCH_ZOOM_SENSITIVITY = 3.5;
 const SYNTHETIC_PINCH_DELTA_LIMIT = 20;
 const SYNTHETIC_PINCH_ZOOM_SENSITIVITY = 8;
 
@@ -133,7 +132,7 @@ export function useWorkspaceGestures(
         gestureScale = input.scale;
         return;
       }
-      if (gestureScale !== null) current.current.zoom(Math.pow(input.scale / gestureScale, PINCH_ZOOM_SENSITIVITY),
+      if (gestureScale !== null) current.current.zoom(input.scale / gestureScale,
         surfacePointFromClient({ x: input.clientX, y: input.clientY }, surface!));
       gestureScale = input.scale;
     }

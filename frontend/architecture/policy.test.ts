@@ -40,7 +40,10 @@ describe('final frontend policy', () => {
     expect(diagnostics({ 'src/grid/gridGeometry.ts': "import 'react';" }).map(({ code }) => code)).toContain('forbidden-external');
     expect(diagnostics({ 'src/app/View.tsx': "import 'react-dom/client';" }).map(({ code }) => code)).toContain('forbidden-external');
     expect(diagnostics({ 'src/workspace/View.tsx': "import '@tanstack/react-virtual';" }).map(({ code }) => code)).toContain('forbidden-external');
-    expect(diagnostics({ 'src/app/main.tsx': "import 'react-dom/client';", 'src/grid/View.tsx': "import '@tanstack/react-virtual';" })).toEqual([]);
+    expect(diagnostics({
+      'src/app/main.tsx': "import 'react-dom/client';",
+      'src/grid/View.tsx': "import '@tanstack/react-virtual'; import { createPortal } from 'react-dom'; export { createPortal };",
+    })).toEqual([]);
   });
 
   it('reserves the shared contract fixture for its exact API test', () => {

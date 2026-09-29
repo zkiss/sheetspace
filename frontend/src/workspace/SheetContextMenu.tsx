@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { SheetDocument, SheetZOrderDirection } from '@workbook/core/model';
+import {
+  clampSheetVisualScale,
+  MAX_SHEET_VISUAL_SCALE,
+  MIN_SHEET_VISUAL_SCALE,
+  SheetDocument,
+  SheetZOrderDirection,
+} from '@workbook/core/model';
 import type { PendingSheetMenu } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
 import '@workspace/SheetContextMenu.css';
@@ -26,7 +32,7 @@ export function SheetContextMenu({
   const [scale, setScale] = useState(String(Math.round(sheet.frame.visualScale * 100)));
   const commitScale = () => {
     const value = Number(scale);
-    if (Number.isFinite(value) && value > 0) onSetScale(sheet.id, value / 100);
+    if (Number.isFinite(value) && value > 0) onSetScale(sheet.id, clampSheetVisualScale(value / 100));
   };
   return (
     <div
@@ -50,7 +56,7 @@ export function SheetContextMenu({
       <div aria-label="Display scale" className="sheet-context-menu-scale">
         <span className="sheet-context-menu-scale-label">Display scale</span>
         <label>
-          <input aria-label="Display scale percentage" min="10" onChange={(event) => setScale(event.currentTarget.value)} onKeyDown={(event) => {
+          <input aria-label="Display scale percentage" max={MAX_SHEET_VISUAL_SCALE * 100} min={MIN_SHEET_VISUAL_SCALE * 100} onChange={(event) => setScale(event.currentTarget.value)} onKeyDown={(event) => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             commitScale();
