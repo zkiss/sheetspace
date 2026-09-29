@@ -40,7 +40,6 @@ function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
 
 function sizeEditorToContent(editor: HTMLTextAreaElement | null, minimumHeight: number) {
   if (!editor) return;
-  moveEditorCaretToEnd(editor);
   editor.style.height = '0px';
   const maxHeight = Number.parseFloat(getComputedStyle(editor).maxHeight) || 192;
   editor.style.height = `${Math.min(Math.max(minimumHeight, editor.scrollHeight), maxHeight)}px`;
@@ -216,6 +215,8 @@ export function SheetGridCellEditor({
   sheetName: string;
 }) {
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const hasPlacedInitialCaret = useRef(false);
 
   useLayoutEffect(() => {
     const updatePosition = () => setAnchorRect(anchor.current?.getBoundingClientRect() ?? null);
@@ -227,6 +228,16 @@ export function SheetGridCellEditor({
       window.removeEventListener('scroll', updatePosition, true);
     };
   }, [anchor]);
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !anchorRect) return;
+    if (!hasPlacedInitialCaret.current) {
+      moveEditorCaretToEnd(editor);
+      hasPlacedInitialCaret.current = true;
+    }
+    sizeEditorToContent(editor, anchorRect.height);
+  }, [anchorRect, editingCell.draft]);
 
   if (!anchorRect) return null;
   const editorSizing = cellEditorSizing(editingCell.draft, anchorRect.width, anchorRect.height);
@@ -277,7 +288,7 @@ export function SheetGridCellEditor({
           interaction.cancel();
         }
       }}
-       ref={(element) => sizeEditorToContent(element, anchorRect.height)}
+        ref={editorRef}
       style={{
         height: editorSizing.height,
         left: anchorRect.left,

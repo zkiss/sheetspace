@@ -5,9 +5,26 @@
   min-height: 0;
   background-color: #edf3f5;
   background-image:
-    linear-gradient(#d6e1e5 1px, transparent 1px),
-    linear-gradient(90deg, #d6e1e5 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(#c8d6db 1px, transparent 1px),
+    linear-gradient(90deg, #c8d6db 1px, transparent 1px),
+    linear-gradient(rgb(200 214 219 / var(--workspace-grid-minor-opacity)) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(200 214 219 / var(--workspace-grid-minor-opacity)) 1px, transparent 1px),
+    linear-gradient(rgb(200 214 219 / var(--workspace-grid-fine-opacity)) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(200 214 219 / var(--workspace-grid-fine-opacity)) 1px, transparent 1px);
+  background-position:
+    var(--workspace-grid-major-x) var(--workspace-grid-major-y),
+    var(--workspace-grid-major-x) var(--workspace-grid-major-y),
+    var(--workspace-grid-minor-x) var(--workspace-grid-minor-y),
+    var(--workspace-grid-minor-x) var(--workspace-grid-minor-y),
+    var(--workspace-grid-fine-x) var(--workspace-grid-fine-y),
+    var(--workspace-grid-fine-x) var(--workspace-grid-fine-y);
+  background-size:
+    var(--workspace-grid-major-size) var(--workspace-grid-major-size),
+    var(--workspace-grid-major-size) var(--workspace-grid-major-size),
+    var(--workspace-grid-minor-size) var(--workspace-grid-minor-size),
+    var(--workspace-grid-minor-size) var(--workspace-grid-minor-size),
+    var(--workspace-grid-fine-size) var(--workspace-grid-fine-size),
+    var(--workspace-grid-fine-size) var(--workspace-grid-fine-size);
   cursor: grab;
   touch-action: none;
 }

@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode, RefObject } from 'react';
+import type { CSSProperties, MouseEvent, ReactNode, RefObject } from 'react';
 import type { WorkspaceViewport } from './workspaceContracts';
 import '@workspace/WorkspaceSurface.css';
 
@@ -27,6 +27,26 @@ export function WorkspaceSurface({
   workspacePlaneRef: RefObject<HTMLDivElement>;
   workspaceSurfaceRef: RefObject<HTMLElement>;
 }) {
+  // Keep the primary grid between 40 and 80 rendered pixels. Crossing a zoom
+  // level promotes the current small grid and reveals its next subdivision.
+  const gridWorldSize = 40 * 2 ** Math.ceil(Math.log2(1 / viewport.scale));
+  const majorGridSize = gridWorldSize * viewport.scale;
+  const minorGridSize = majorGridSize / 2;
+  const fineGridSize = minorGridSize / 2;
+  const zoomPhase = Math.max(0, Math.min(1, (majorGridSize - 40) / 40));
+  const gridStyle = {
+    '--workspace-grid-major-size': `${majorGridSize}px`,
+    '--workspace-grid-major-x': `${viewport.x % majorGridSize}px`,
+    '--workspace-grid-major-y': `${viewport.y % majorGridSize}px`,
+    '--workspace-grid-minor-size': `${minorGridSize}px`,
+    '--workspace-grid-minor-x': `${viewport.x % minorGridSize}px`,
+    '--workspace-grid-minor-y': `${viewport.y % minorGridSize}px`,
+    '--workspace-grid-minor-opacity': String(0.35 + 0.65 * zoomPhase),
+    '--workspace-grid-fine-size': `${fineGridSize}px`,
+    '--workspace-grid-fine-x': `${viewport.x % fineGridSize}px`,
+    '--workspace-grid-fine-y': `${viewport.y % fineGridSize}px`,
+    '--workspace-grid-fine-opacity': String(0.35 * zoomPhase),
+  } as CSSProperties;
   return (
     <section
       aria-label="Spatial workspace"
@@ -37,6 +57,7 @@ export function WorkspaceSurface({
       data-testid="workspace-surface"
       onContextMenu={onContextMenu}
       ref={workspaceSurfaceRef}
+      style={gridStyle}
     >
       <div
         className={`workspace-plane${navigationMotion ? ' workspace-plane-navigating' : ''}`}
