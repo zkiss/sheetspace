@@ -4,6 +4,9 @@ import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, s
 
 const INPUT = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]';
 const NATIVE_CONTENT = `${INPUT}, [data-sheet-id], [role="menu"], button, a`;
+const PINCH_ZOOM_SENSITIVITY = 3.5;
+const SYNTHETIC_PINCH_DELTA_LIMIT = 20;
+const SYNTHETIC_PINCH_ZOOM_SENSITIVITY = 8;
 
 function within(target: EventTarget | null, selector: string) {
   return target instanceof Element && !!target.closest(selector);
@@ -25,6 +28,7 @@ export function useWorkspaceGestures(
     pan: (x: number, y: number) => void;
     zoom: (factor: number, origin: WorkspacePosition) => void;
     closeMenu: () => void;
+    clearSelection: () => void;
   },
 ) {
   const current = useRef(actions);
@@ -72,6 +76,8 @@ export function useWorkspaceGestures(
       if (!explicit && (event.button !== 0 || within(event.target, NATIVE_CONTENT))) return;
       if (event.pointerType === 'touch') return;
       consume(event);
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      current.current.clearSelection();
       current.current.start();
       current.current.closeMenu();
       pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
@@ -104,8 +110,11 @@ export function useWorkspaceGestures(
       consume(event);
       const size = surfaceSize(surface!);
       if (event.ctrlKey || event.metaKey) {
+        const delta = normalizedWheelDelta(event.deltaY, event.deltaMode, size.height);
         current.current.zoom(
-          zoomFactorFromWheelDelta(normalizedWheelDelta(event.deltaY, event.deltaMode, size.height)),
+          zoomFactorFromWheelDelta(event.deltaMode === WheelEvent.DOM_DELTA_PIXEL && Math.abs(delta) < SYNTHETIC_PINCH_DELTA_LIMIT
+            ? delta * SYNTHETIC_PINCH_ZOOM_SENSITIVITY
+            : delta),
           surfacePointFromClient({ x: event.clientX, y: event.clientY }, surface!),
         );
       } else {
@@ -124,7 +133,7 @@ export function useWorkspaceGestures(
         gestureScale = input.scale;
         return;
       }
-      if (gestureScale !== null) current.current.zoom(input.scale / gestureScale,
+      if (gestureScale !== null) current.current.zoom(Math.pow(input.scale / gestureScale, PINCH_ZOOM_SENSITIVITY),
         surfacePointFromClient({ x: input.clientX, y: input.clientY }, surface!));
       gestureScale = input.scale;
     }

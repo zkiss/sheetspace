@@ -15,8 +15,10 @@ import {
 } from '@workspace/workspaceGeometry';
 
 export function useWorkspaceController({
+  onClearSelection,
   onCreateSheet,
 }: {
+  onClearSelection: () => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
@@ -27,7 +29,7 @@ export function useWorkspaceController({
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
   const navigationMayBeMoving = useRef(false);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
-    start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu,
+    start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
   });
 
   useLayoutEffect(() => {

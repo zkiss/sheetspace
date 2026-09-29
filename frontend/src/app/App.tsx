@@ -43,6 +43,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     activeCell,
     cancelActiveEdit,
     clearCellContent,
+    clearSelection,
     commitActiveEdit,
     commitEditAndNavigate,
     editingCell,
@@ -51,6 +52,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     settleSelectionGesture,
     focusCurrentSelection,
     acknowledgeKeyboardFocusRequest,
+    activateSheet,
     cancelKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
@@ -149,9 +151,8 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     <main className="workspace-shell">
       <Workspace
         activeCell={activeCell}
+        onActivateSheet={activateSheet}
         canRetryFailedSaves={canRetryFailedSaves}
-        canRedo={canRedo}
-        canUndo={canUndo}
         commands={commands}
         contentHistoryFeedback={contentHistoryFeedback}
         creatingAxes={creatingAxes}
@@ -163,6 +164,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onKeyboardFocusRequestCancelled={cancelKeyboardFocusRequest}
         onCancelEdit={cancelActiveEdit}
         onClearCell={clearCellContent}
+        onClearSelection={clearSelection}
         onCommitEdit={commitActiveEdit}
         onCommitEditAndNavigate={commitEditAndNavigate}
         onCreateSheet={openCreationDialog}

@@ -37,6 +37,7 @@ export function SheetFrame({
   onSheetFrameDragMove,
   onSheetFrameDragStart,
   onSheetFrameDragStop,
+  onSelectSheet,
   rowCount,
   viewportScale,
 }: {
@@ -64,6 +65,7 @@ export function SheetFrame({
   onSheetFrameDragMove: (event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStart: (sheetId: string, event: PointerEvent<HTMLElement>) => void;
   onSheetFrameDragStop: (event: PointerEvent<HTMLElement>) => void;
+  onSelectSheet: () => void;
   rowCount: number;
   viewportScale: number;
 }) {
@@ -147,7 +149,10 @@ export function SheetFrame({
         className="sheet-frame-header"
         data-testid="sheet-frame-header"
         onPointerCancel={onSheetFrameDragCancel}
-        onPointerDown={(event) => onSheetFrameDragStart(frame.id, event)}
+        onPointerDown={(event) => {
+          onSelectSheet();
+          onSheetFrameDragStart(frame.id, event);
+        }}
         onPointerMove={onSheetFrameDragMove}
         onPointerUp={onSheetFrameDragStop}
       >

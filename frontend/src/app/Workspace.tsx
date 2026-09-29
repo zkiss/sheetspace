@@ -57,8 +57,6 @@ import {
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
-  canRedo,
-  canUndo,
   commands,
   contentHistoryFeedback,
   editingCell,
@@ -68,6 +66,8 @@ export function Workspace({
   onKeyboardFocusRequestCancelled,
   onCancelEdit,
   onClearCell,
+  onClearSelection,
+  onActivateSheet,
   onCommitEdit,
   onCommitEditAndNavigate,
   onCreateSheet,
@@ -94,8 +94,6 @@ export function Workspace({
 }: {
   activeCell: CellTarget | null;
   canRetryFailedSaves: boolean;
-  canRedo: boolean;
-  canUndo: boolean;
   commands: WorkbookCommands;
   contentHistoryFeedback: import('@application/react/useWorkbookController').ContentHistoryFeedback | undefined;
   editingCell: CellEditSession | null;
@@ -105,6 +103,8 @@ export function Workspace({
   onKeyboardFocusRequestCancelled: (requestId: number) => void;
   onCancelEdit: () => void;
   onClearCell: (target: CellTarget) => void;
+  onClearSelection: () => void;
+  onActivateSheet: (sheetId: string) => void;
   onCommitEdit: (session?: CellEditSession) => void;
   onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
@@ -190,7 +190,7 @@ export function Workspace({
   const formulaInspection = selectedSheet && selectedRaw
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
     : undefined;
-  const workspaceController = useWorkspaceController({ onCreateSheet });
+  const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet });
   useEffect(() => {
     function writeFormat(write: () => readonly import('@workbook/core/model').FormatWrite[]) {
       if (!selectedSheet || !selectionRange || editingCell) return;
@@ -280,6 +280,7 @@ export function Workspace({
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
     frameLayoutPreview,
+    frameScalePreview,
     handleSheetFrameDragMove,
     handleSheetFrameDragStart,
     handleSheetFrameResizeMove,
@@ -297,7 +298,9 @@ export function Workspace({
     const layout = frameLayoutPreview?.sheetId === sheet.id
       ? { ...frame, position: frameLayoutPreview.position, size: frameLayoutPreview.size }
       : frame;
-    return layout;
+    return frameScalePreview?.sheetId === sheet.id
+      ? { ...layout, position: frameScalePreview.position, visualScale: frameScalePreview.visualScale }
+      : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
   const mountedSheetIds = mountedWorkspaceFrameIds({
@@ -420,26 +423,19 @@ export function Workspace({
   return (
     <>
       <WorkspaceToolbar
-        formatControls={selectedSheet && selectionRange ? (
-          <NumberFormatControls
+        formatControls={<NumberFormatControls
             onWrite={(writes) => {
-              if (writes.length === 0) return;
+              if (!selectedSheet || writes.length === 0) return;
               commands.writeNumberFormats(selectedSheet.id, writes);
               onRestoreGridFocus();
             }}
             selection={selectionRange}
             sheet={selectedSheet}
-          />
-        ) : null}
+          />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
-        onResetViewport={workspaceController.resetViewport}
         onRetryFailedSaves={onRetryFailedSaves}
-        onRedo={commands.redo}
-        onUndo={commands.undo}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
-        canRedo={canRedo && !editingCell}
-        canUndo={canUndo && !editingCell}
       />
 
       <WorkspaceSurface
@@ -514,10 +510,6 @@ export function Workspace({
                 return address && cellKey(address);
               })).filter((key): key is string => Boolean(key)))
             : undefined;
-          const overviewSelectionTarget = activeCell?.sheetId === sheet.id
-            ? undefined
-            : cellTargetAt(tabular, 'A1');
-
           return (
             <SheetFrame
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
@@ -538,17 +530,7 @@ export function Workspace({
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
-                  onSelect={() => {
-                    // Selecting an overview explicitly asks to enter a grid that
-                    // is absent now. Retarget any displaced-grid handoff to it.
-                    const focusTarget = overviewSelectionTarget ?? (activeCell?.sheetId === sheet.id ? activeCell : undefined);
-                    if (focusTarget) beginPendingGridFocus(focusTarget);
-                    // The active sheet already owns the complete logical
-                    // selection. Re-selecting its active cell would collapse a
-                    // range and clear a reference selection merely to request
-                    // native focus. Only an ownership change needs an A1 fallback.
-                    if (overviewSelectionTarget) onSelectCell(overviewSelectionTarget);
-                  }}
+                  onSelect={() => onActivateSheet(sheet.id)}
                   sheet={tabular}
                 />
               )}
@@ -563,6 +545,7 @@ export function Workspace({
               onSheetFrameDragMove={handleSheetFrameDragMove}
               onSheetFrameDragStart={handleSheetFrameDragStart}
               onSheetFrameDragStop={stopSheetFrameDrag}
+              onSelectSheet={() => onActivateSheet(sheet.id)}
               rowCount={tabular.rows.length + (creatingSheetAxes?.rows.length ?? 0)}
               viewportScale={workspaceController.viewport.scale}
             >
