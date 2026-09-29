@@ -180,8 +180,7 @@
 }
 
 .colour-picker-trigger[data-colour-mode='inherited']::after {
-  border: 1px dashed #7d8d96;
-  background: linear-gradient(135deg, transparent 46%, #7d8d96 47% 53%, transparent 54%);
+  display: none;
 }
 
 .colour-picker-trigger[data-colour-mode='default']::after {
@@ -190,8 +189,20 @@
 }
 
 .colour-picker-trigger[data-colour-mode='none']::after {
-  border: 1px solid #b8c5ca;
-  background: linear-gradient(135deg, transparent 46%, #9aabb2 47% 53%, transparent 54%);
+  display: none;
+}
+
+.colour-picker-trigger[data-colour-mode='inherited'],
+.colour-picker-trigger[data-colour-mode='none'] {
+  display: grid;
+  place-items: center;
+  color: #7d8d96;
+}
+
+.colour-picker-trigger[data-colour-mode='inherited'] svg,
+.colour-picker-trigger[data-colour-mode='none'] svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .colour-picker-popover {
@@ -228,6 +239,10 @@
 }
 
 .number-format-controls .colour-picker-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
   min-width: 0;
   height: 2.25rem;
   padding: 0 0.45rem;
@@ -243,27 +258,12 @@
   box-shadow: 0 0 0 2px rgb(28 107 120 / 24%);
 }
 
-.number-format-controls .colour-picker-option-inherited::before,
-.number-format-controls .colour-picker-option-default::before,
-.number-format-controls .colour-picker-option-none::before {
-  display: inline-block;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-right: 0.35rem;
-  vertical-align: -0.12rem;
-  content: '';
+.number-format-controls .colour-picker-option svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 auto;
 }
 
-.number-format-controls .colour-picker-option-inherited::before {
-  border: 1px dashed #7d8d96;
-  background: linear-gradient(135deg, transparent 46%, #7d8d96 47% 53%, transparent 54%);
-}
-
-.number-format-controls .colour-picker-option-default::before,
-.number-format-controls .colour-picker-option-none::before {
-  border: 1px solid #7d8d96;
-  background: linear-gradient(135deg, transparent 46%, #7d8d96 47% 53%, transparent 54%);
-}
 
 .colour-picker-label {
   color: #71808a;
