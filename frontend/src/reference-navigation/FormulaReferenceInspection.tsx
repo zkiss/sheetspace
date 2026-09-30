@@ -37,7 +37,7 @@ export function FormulaReferenceInspection({
   }
 
   return (
-    <section aria-label="Selected formula" className="formula-reference-inspection">
+    <section aria-label="Selected formula" className="formula-reference-inspection" data-workspace-native-content>
       <span className="formula-reference-inspection-label">Formula</span>
       <code>
         {inspection.parts.map((part, index) =>

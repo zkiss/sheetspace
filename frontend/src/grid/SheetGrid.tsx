@@ -412,11 +412,15 @@ export function SheetGrid({
     const columnVisible = columnStart !== undefined && columnEnd !== undefined
       && columnStart >= scrollContainer.scrollLeft + GRID_ROW_HEADER_WIDTH
       && columnEnd <= scrollContainer.scrollLeft + scrollContainer.clientWidth;
-    if (rowVisible && columnVisible) return;
-    const nextRowOffset = rowMetrics.scrollOffsetForIndex(rowIndex, Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT));
-    const nextColumnOffset = columnMetrics.scrollOffsetForIndex(columnIndex, Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH));
-    if (nextColumnOffset !== undefined) scrollContainer.scrollLeft = Math.round(nextColumnOffset);
-    if (nextRowOffset !== undefined) scrollContainer.scrollTop = Math.round(nextRowOffset);
+    // Reveal each obscured axis independently; a visible axis keeps its offset.
+    if (!columnVisible) {
+      const nextColumnOffset = columnMetrics.scrollOffsetForIndex(columnIndex, Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH));
+      if (nextColumnOffset !== undefined) scrollContainer.scrollLeft = Math.round(nextColumnOffset);
+    }
+    if (!rowVisible) {
+      const nextRowOffset = rowMetrics.scrollOffsetForIndex(rowIndex, Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT));
+      if (nextRowOffset !== undefined) scrollContainer.scrollTop = Math.round(nextRowOffset);
+    }
   }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, rowMetrics, rows, columns, scrollContainerRef]);
 
   function enterGrid(event: FocusEvent<HTMLDivElement>) {

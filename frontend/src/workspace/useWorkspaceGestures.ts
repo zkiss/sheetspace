@@ -3,7 +3,7 @@ import type { WorkspacePosition } from '@workbook/core/model';
 import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, surfaceSize, zoomFactorFromWheelDelta } from './workspaceGeometry';
 
 const INPUT = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]';
-const NATIVE_CONTENT = `${INPUT}, [data-sheet-id], [role="menu"], button, a`;
+const NATIVE_CONTENT = `${INPUT}, [data-sheet-id], [data-workspace-native-content], [role="menu"], button, a`;
 const SYNTHETIC_PINCH_DELTA_LIMIT = 20;
 const SYNTHETIC_PINCH_ZOOM_SENSITIVITY = 8;
 
