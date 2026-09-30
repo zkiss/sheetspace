@@ -50,6 +50,23 @@ describe('SheetFrame compact shell', () => {
     expect(interactions.onSelectSheet).not.toHaveBeenCalled();
   });
 
+  it('keeps nested native content and consumed right-clicks out of the sheet menu', () => {
+    const interactions = props();
+    render(<SheetFrame {...interactions}>{() => <>
+      <input aria-label="Native editor" />
+      <section data-workspace-native-content><code>Native formula text</code></section>
+      <div role="menu"><span>Menu label</span></div>
+      <div onContextMenu={(event) => event.preventDefault()}>Consumed content</div>
+    </>}</SheetFrame>);
+    for (const target of [screen.getByRole('textbox'), screen.getByText('Native formula text'), screen.getByText('Menu label')]) {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      fireEvent(target, event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    fireEvent.contextMenu(screen.getByText('Consumed content'));
+    expect(interactions.onOpenSheetMenu).not.toHaveBeenCalled();
+  });
+
   it('keeps all resize targets stable in screen size and outside the clipped miniature body', () => {
     const interactions = props();
     render(<SheetFrame {...interactions} frame={{ ...interactions.frame, visualScale: 0.25 }} viewportScale={0.5}>{() => null}</SheetFrame>);

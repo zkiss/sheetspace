@@ -1,15 +1,10 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { WorkspacePosition } from '@workbook/core/model';
 import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, surfaceSize, zoomFactorFromWheelDelta } from './workspaceGeometry';
+import { isBackgroundTarget, isNativeControlTarget, isOwnedPortalTarget } from './workspaceEventPolicy';
 
-const INPUT = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]';
-const NATIVE_CONTENT = `${INPUT}, [data-sheet-id], [data-workspace-native-content], [role="menu"], button, a`;
 const SYNTHETIC_PINCH_DELTA_LIMIT = 20;
 const SYNTHETIC_PINCH_ZOOM_SENSITIVITY = 8;
-
-function within(target: EventTarget | null, selector: string) {
-  return target instanceof Element && !!target.closest(selector);
-}
 
 function consume(event: Event) {
   event.preventDefault();
@@ -56,8 +51,8 @@ export function useWorkspaceGestures(
       endPan();
     }
     function keyDown(event: KeyboardEvent) {
-      if (event.code !== 'Space' || event.altKey || event.ctrlKey || event.metaKey
-        || within(event.target, `${INPUT}, button, a, [role="menu"]`)) return;
+      if (event.defaultPrevented || event.code !== 'Space' || event.altKey || event.ctrlKey || event.metaKey
+        || isNativeControlTarget(event.target)) return;
       if (event.target !== document.body && !surface!.contains(event.target as Node)) return;
       space = true;
       consume(event);
@@ -69,10 +64,10 @@ export function useWorkspaceGestures(
       if (pan?.space) endPan();
     }
     function pointerDown(event: PointerEvent) {
-      if (pan) return;
+      if (event.defaultPrevented || pan) return;
       suppressClick = false;
       const explicit = event.button === 1 || (event.button === 0 && space);
-      if (!explicit && (event.button !== 0 || within(event.target, NATIVE_CONTENT))) return;
+      if (!explicit && (event.button !== 0 || !isBackgroundTarget(event.target, surface!))) return;
       if (event.pointerType === 'touch') return;
       consume(event);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -105,7 +100,8 @@ export function useWorkspaceGestures(
       if (pan) consume(event);
     }
     function wheel(event: WheelEvent) {
-      if (!event.ctrlKey && !event.metaKey && within(event.target, NATIVE_CONTENT)) return;
+      if (event.defaultPrevented) return;
+      if (!event.ctrlKey && !event.metaKey && !isBackgroundTarget(event.target, surface!)) return;
       consume(event);
       const size = surfaceSize(surface!);
       if (event.ctrlKey || event.metaKey) {
@@ -124,6 +120,7 @@ export function useWorkspaceGestures(
       }
     }
     function gesture(event: Event) {
+      if (event.defaultPrevented) return;
       const input = event as GestureEvent;
       if (!Number.isFinite(input.scale) || input.scale <= 0) return;
       consume(event);
@@ -137,18 +134,13 @@ export function useWorkspaceGestures(
       gestureScale = input.scale;
     }
     function gestureEnd(event: Event) {
+      if (event.defaultPrevented) return;
       if (gestureScale !== null) consume(event);
       gestureScale = null;
     }
     function visibility() { if (document.hidden) cancel(); }
-    function isOwnedPortalEvent(event: Event) {
-      if (!(event.target instanceof Element) || surface!.contains(event.target)) return false;
-      const editor = event.target.closest<HTMLElement>('[data-workspace-sheet-editor]');
-      return editor && Array.from(surface!.querySelectorAll<HTMLElement>('[data-sheet-id]'))
-        .some((frame) => frame.dataset.sheetId === editor.dataset.workspaceSheetEditor);
-    }
     function ownedPortalListener(listener: EventListener): EventListener {
-      return (event) => { if (isOwnedPortalEvent(event)) listener(event); };
+      return (event) => { if (isOwnedPortalTarget(event.target, surface!)) listener(event); };
     }
 
     const local: [string, EventListener][] = [
@@ -165,6 +157,8 @@ export function useWorkspaceGestures(
       ['wheel', ownedPortalListener(wheel as EventListener)],
       ['gesturestart', ownedPortalListener(gesture)], ['gesturechange', ownedPortalListener(gesture)],
       ['gestureend', ownedPortalListener(gestureEnd)],
+      ['contextmenu', ownedPortalListener(contextMenu)], ['click', ownedPortalListener(click as EventListener)],
+      ['auxclick', ownedPortalListener(click as EventListener)], ['dblclick', ownedPortalListener(click as EventListener)],
     ];
     local.forEach(([name, listener]) => surface.addEventListener(name, listener, { capture: true, passive: false }));
     global.forEach(([name, listener]) => window.addEventListener(name, listener, { capture: true, passive: false }));

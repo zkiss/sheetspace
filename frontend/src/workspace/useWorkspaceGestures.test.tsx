@@ -11,7 +11,7 @@ function setup() {
   function Harness() {
     controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: clearSelection });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface">
-      <div data-sheet-id="sheet" onPointerDown={childAction} onWheel={(event) => event.stopPropagation()}>
+      <div data-sheet-id="sheet" data-workspace-sheet-frame onPointerDown={childAction} onWheel={(event) => event.stopPropagation()}>
         <div role="cell" tabIndex={0} onKeyDown={childAction} onClick={childAction}>Cell</div>
         <header>Header</header><div role="separator">Resize</div>
         <textarea aria-label="Editor" onKeyDown={childAction} />

@@ -3,6 +3,7 @@ import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
 import { clampSheetFrameSize, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
 import { resolveSheetRenderingMode } from '@workspace/sheetRenderingMode';
+import { isSheetContextTarget } from './workspaceEventPolicy';
 import '@workspace/SheetFrame.css';
 
 const SHEET_FRAME_RESIZE_HANDLES: [string, SheetFrameResizeDirection][] = [
@@ -111,9 +112,12 @@ export function SheetFrame({
       data-row-count={rowCount}
       data-rendering-mode={renderingMode}
       data-sheet-id={frame.id}
+      data-workspace-sheet-frame
       data-testid="sheet-frame"
       data-z-index={frame.zIndex}
-      onContextMenu={(event) => onOpenSheetMenu(frame.id, event)}
+      onContextMenu={(event) => {
+        if (!event.defaultPrevented && isSheetContextTarget(event.target, event.currentTarget)) onOpenSheetMenu(frame.id, event);
+      }}
       onPointerDown={(event) => {
         event.stopPropagation();
         onSheetFrameInteraction();

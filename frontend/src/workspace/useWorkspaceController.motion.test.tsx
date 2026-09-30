@@ -27,7 +27,7 @@ function setup(transform = 'matrix(1.25, 0, 0, 1.25, -500, -200)') {
       viewport={controller.viewport}
       workspacePlaneRef={controller.workspacePlaneRef}
       workspaceSurfaceRef={controller.workspaceSurfaceRef}
-    ><div data-sheet-id="sheet"><div role="cell" tabIndex={0}>Cell</div></div></WorkspaceSurface>;
+    ><div data-sheet-id="sheet" data-workspace-sheet-frame><div role="cell" tabIndex={0}>Cell</div></div></WorkspaceSurface>;
   }
   render(<StrictMode><Harness /></StrictMode>);
   const surface = screen.getByTestId('workspace-surface');

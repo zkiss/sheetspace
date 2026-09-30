@@ -1,5 +1,6 @@
 import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
+import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
@@ -142,6 +143,7 @@ export function useWorkspaceController({
   }
 
   function handleWorkspaceContextMenu(event: MouseEvent<HTMLElement>) {
+    if (event.defaultPrevented || !isBackgroundTarget(event.target, event.currentTarget)) return;
     event.preventDefault();
     closeSheetMenu();
     onCreateSheet(sheetFramePosition(workspacePointFromClient(

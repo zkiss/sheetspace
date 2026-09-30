@@ -50,7 +50,7 @@ describe('viewport-aware sheet creation', () => {
     expect(updateSheetVisualScale).not.toHaveBeenCalled();
   });
 
-  it('uses the context-menu zoom captured before the dialog and removes a rejected pending frame', async () => {
+  it.each(['workspace-surface', 'workspace-plane'])('uses the %s context-menu zoom captured before the dialog and removes a rejected pending frame', async (target) => {
     const updateSheetVisualScale = vi.fn();
     const apiClient = autosaveClient({
       createSheet: vi.fn().mockRejectedValue(new Error('create failed')),
@@ -60,7 +60,9 @@ describe('viewport-aware sheet creation', () => {
     workspaceSurface().getBoundingClientRect = workspaceRect;
 
     zoomWorkspace('out');
-    fireEvent.contextMenu(workspaceSurface(), { clientX: 420, clientY: 330 });
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 420, clientY: 330 });
+    fireEvent(screen.getByTestId(target), event);
+    expect(event.defaultPrevented).toBe(true);
     zoomWorkspace('in');
     fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
