@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   clampSheetVisualScale,
   MAX_SHEET_VISUAL_SCALE,
@@ -29,7 +29,8 @@ export function SheetContextMenu({
   onSetScale: (sheetId: string, visualScale: number) => void;
   sheet: SheetDocument;
 }) {
-  const [scale, setScale] = useState(String(Math.round(sheet.frame.visualScale * 100)));
+  const [scale, setScale] = useState(String(sheet.frame.visualScale * 100));
+  useEffect(() => setScale(String(sheet.frame.visualScale * 100)), [sheet.id, sheet.frame.visualScale]);
   const commitScale = () => {
     const value = Number(scale);
     if (Number.isFinite(value) && value > 0) onSetScale(sheet.id, clampSheetVisualScale(value / 100));

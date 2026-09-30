@@ -1,6 +1,7 @@
 import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH, SheetGridCell } from '@grid/SheetGridCell';
+import { SheetGridCell } from '@grid/SheetGridCell';
+import { CELL_EDITOR_MAX_HEIGHT, CELL_EDITOR_MAX_WIDTH } from './SheetGridCellEditor';
 import type { CellEditSession } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { sheetDocument } from '@test-support/workbookFactories';
@@ -40,19 +41,39 @@ function renderCell(overrides: Partial<Parameters<typeof SheetGridCell>[0]> = {}
   };
 
   render(
-    <table>
-      <tbody>
-        <tr>
+    <div role="table">
+      <div role="row">
           <SheetGridCell {...props} columnIndex={1} />
-        </tr>
-      </tbody>
-    </table>,
+      </div>
+    </div>,
   );
 
   return props;
 }
 
 describe('SheetGridCell', () => {
+  it('extends keyboard activation without replacing a range and handles unavailable navigation deterministically', () => {
+    const extend = vi.fn();
+    const navigateKeyboard = vi.fn(() => false);
+    const props = renderCell({ cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(), extend, navigateKeyboard } });
+    const cell = screen.getByRole('cell');
+    fireEvent.click(cell, { detail: 0, shiftKey: true });
+    expect(extend).toHaveBeenCalledWith(cellTargetAt(props.sheet, 'A1'));
+    expect(props.cellInteraction.select).not.toHaveBeenCalled();
+    fireEvent.keyDown(cell, { key: 'ArrowRight' });
+    expect(navigateKeyboard).toHaveBeenCalledOnce();
+    expect(props.cellInteraction.navigate).not.toHaveBeenCalled();
+  });
+
+  it('retains shift-arrow semantics for callback-only navigation and leaves unsupported traversal untouched', () => {
+    const props = renderCell();
+    const cell = screen.getByRole('cell');
+    fireEvent.keyDown(cell, { key: 'ArrowRight', shiftKey: true });
+    expect(props.cellInteraction.navigate).toHaveBeenCalledWith(cellTargetAt(props.sheet, 'A1'), 'right', true);
+    fireEvent.keyDown(cell, { key: 'Tab' });
+    expect(props.cellInteraction.navigate).toHaveBeenCalledOnce();
+  });
+
   it('selects, starts editing, and navigates through intent callbacks', () => {
     const props = renderCell();
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
@@ -125,7 +146,10 @@ describe('SheetGridCell', () => {
     };
     const props = renderCell({ editingCell, isEditing: true });
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
-    expect(editor.style.height).toContain('1.65rem');
+    expect(editor).toHaveFocus();
+    expect(screen.getByRole('cell')).not.toContainElement(editor);
+    fireEvent.doubleClick(editor);
+    expect(props.cellInteraction.startEditing).not.toHaveBeenCalled();
 
     fireEvent.change(editor, { target: { value: 'Updated' } });
     expect(props.editorInteraction.updateValue).toHaveBeenCalledWith('Updated');
@@ -173,9 +197,9 @@ describe('SheetGridCell', () => {
     expect(editor).toHaveAttribute('data-visible-lines', '8');
     expect(editor).toHaveStyle({
       maxHeight: CELL_EDITOR_MAX_HEIGHT,
-      maxWidth: CELL_EDITOR_MAX_WIDTH,
       overflow: 'auto',
     });
+    expect(editor.style.maxWidth).toContain(CELL_EDITOR_MAX_WIDTH);
     expect(cell).toHaveClass('sheet-grid-cell', 'sheet-grid-cell-editing');
   });
 });

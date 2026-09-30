@@ -67,15 +67,10 @@ describe('App workspace and sheet frame composition', () => {
     expect(frame).toHaveAttribute('data-rendering-mode', 'overview');
     expect(frame).toHaveAttribute('data-z-index', '17');
     expect(frame).toHaveStyle({ zIndex: '17' });
-    expect(screen.getByText('Revenue')).toBeInTheDocument();
-    expect(screen.getByText('10,000 × 100')).toBeInTheDocument();
-    expect(screen.getByTestId('sheet-overview-screen')).toHaveStyle({
-      height: '25%',
-      transform: 'scale(4)',
-      width: '25%',
-    });
-    expect(document.querySelector('[data-overview-sample-address="CV10000"]')).toHaveStyle({
-      left: '100%', top: '100%', transform: 'translate(-100%, -100%)',
+    expect(screen.getByRole('heading', { name: 'Miniature plan' })).toBeInTheDocument();
+    expect(document.querySelectorAll('.sheet-overview-data-mark')).toHaveLength(2);
+    expect(document.querySelectorAll('.sheet-overview-data-mark')[1]).toHaveStyle({
+      left: 'calc(23px + 100% - 23px)', top: 'calc(19px + 100% - 19px)',
     });
     expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
@@ -85,8 +80,7 @@ describe('App workspace and sheet frame composition', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select sheet Miniature plan overview' }));
 
     expect(frame).toHaveAttribute('data-active-sheet', 'true');
-    expect(screen.getByTestId('sheet-frame-controls')).toBeInTheDocument();
-    expect(screen.getByTestId('sheet-frame-scale-handle')).toHaveStyle({ transform: 'scale(4)' });
+    expect(resizeHandle(frame, 'right')).toHaveStyle({ transform: 'scaleX(4)' });
     expect(gridAxisProjectionSpy).not.toHaveBeenCalled();
   });
 
@@ -149,6 +143,6 @@ describe('App workspace and sheet frame composition', () => {
     expect(apiClient.updateSheetFrameLayout).toHaveBeenCalledWith(
       'sheet-inputs', { x: 120, y: 80 }, { width: 320, height: 160 }, { revision: 6 },
     );
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+    await waitFor(() => expect(screen.getByRole('status', { name: 'All changes saved' })).toBeInTheDocument());
   });
 });

@@ -27,22 +27,11 @@ describe('SheetOverview', () => {
 
     render(<SheetOverview isActive={false} onSelect={onSelect} screenScale={0.25} sheet={sheet} />);
 
-    expect(screen.getByText('Large plan')).toBeInTheDocument();
-    expect(screen.getByText('10,000 × 100')).toBeInTheDocument();
-    expect(screen.getByText('Revenue forecast')).toBeInTheDocument();
-    expect(screen.getByTestId('sheet-overview-screen')).toHaveStyle({
-      height: '25%',
-      transform: 'scale(4)',
-      width: '25%',
-    });
-    expect(document.querySelectorAll('[data-overview-sample-address]')).toHaveLength(2);
-    expect(document.querySelector('[data-overview-sample-address="A1"]')).toHaveStyle({
-      left: '0%', top: '0%', transform: 'translate(0%, 0%)',
-    });
-    expect(document.querySelector('[data-overview-sample-address="CV10000"]')).toHaveStyle({
-      left: '100%', top: '100%', transform: 'translate(-100%, -100%)',
-    });
-    expect(document.querySelector('[data-overview-sample-address="CV10000"]')).toHaveTextContent('far edge');
+    expect(screen.getByRole('button', { name: 'Select sheet Large plan overview' })).toHaveAttribute('aria-pressed', 'false');
+    const marks = document.querySelectorAll('.sheet-overview-data-mark');
+    expect(marks).toHaveLength(2);
+    expect(marks[0]).toHaveStyle({ left: 'calc(23px + 0% - 0px)', top: 'calc(19px + 0% - 0px)' });
+    expect(marks[1]).toHaveStyle({ left: 'calc(23px + 100% - 23px)', top: 'calc(19px + 100% - 19px)' });
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sheet-grid-cell')).not.toBeInTheDocument();
 
@@ -51,7 +40,7 @@ describe('SheetOverview', () => {
     expect(projectSheetOverview(crowdedSheet)).toHaveLength(MAX_SHEET_OVERVIEW_SAMPLES);
   });
 
-  it('normalizes invalid screen scales and truncates values on single-cell axes', () => {
+  it('uses sheet-local texture coordinates and bounds projected text on single-cell axes', () => {
     const longValue = 'A value that is deliberately longer than the overview sample limit';
     const sheet = tabularProjection(sheetDocument({
       cells: { A1: longValue },
@@ -64,18 +53,11 @@ describe('SheetOverview', () => {
       <SheetOverview isActive onSelect={vi.fn()} screenScale={Number.NaN} sheet={sheet} />,
     );
 
-    expect(screen.getByTestId('sheet-overview-screen')).toHaveStyle({
-      height: '100%',
-      transform: 'scale(1)',
-      width: '100%',
-    });
-    expect(document.querySelector('[data-overview-sample-address="A1"]')).toHaveStyle({
-      left: '0%', top: '0%', transform: 'translate(0%, 0%)',
-    });
-    expect(screen.getByText(`${longValue.slice(0, 31)}…`)).toBeInTheDocument();
+    expect(document.querySelector('.sheet-overview-data-mark')).toHaveStyle({ left: 'calc(23px + 0% - 0px)', top: 'calc(19px + 0% - 0px)' });
+    expect(projectSheetOverview(sheet)[0].text).toBe(`${longValue.slice(0, 31)}…`);
 
     rerender(<SheetOverview isActive onSelect={vi.fn()} screenScale={0} sheet={sheet} />);
-    expect(screen.getByTestId('sheet-overview-screen')).toHaveStyle({ transform: 'scale(1)' });
+    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('clamps explicit sample limits to the overview bounds', () => {

@@ -31,16 +31,16 @@ describe('App autosave integration', () => {
     const a1 = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     await user.type(await openCellEditor(user, a1), 'Local value');
     await user.keyboard('{Enter}');
-    const retryButton = await screen.findByRole('button', { name: 'Retry failed saves' });
+    const retryButton = await screen.findByRole('button', { name: 'Save failed. Retry changes.' });
 
-    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Save failed - unsaved changes');
+    expect(retryButton).toBeEnabled();
     expect(a1).toHaveTextContent('Local value');
     await user.click(retryButton);
     await waitFor(() => expect(writeCells).toHaveBeenCalledTimes(2));
     expect(a1).toHaveTextContent('Local value');
 
     retrySave.resolve({ sheetId: 'sheet-inputs', revision: 1 });
-    await waitFor(() => expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved'));
+    await waitFor(() => expect(screen.getByRole('status', { name: 'All changes saved' })).toBeInTheDocument());
     expect(writeCells).toHaveBeenCalledTimes(2);
     expect(a1).toHaveTextContent('Local value');
   });

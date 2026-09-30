@@ -135,7 +135,7 @@ export function useCellEditing({
       : undefined);
     if (!target) return undefined;
     commitSession(state.editing);
-    if (state.selection?.sheetId === sheetId) {
+    if (state.selection?.sheetId === sheetId && cellKeyForTarget(sheet, state.selection)) {
       dispatch({ type: 'commit' });
       if (requestFocus) dispatch({ type: 'focus-current-selection' });
     } else dispatch({ type: 'activate-sheet', target, requestFocus });

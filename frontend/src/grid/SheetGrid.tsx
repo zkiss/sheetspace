@@ -16,9 +16,9 @@ import type { SelectionGesture, CellEditSession, CellSelectionMode, CellTarget }
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
 import {
   SheetGridCell,
-  type SheetGridCellEditorInteraction,
   type SheetGridCellInteraction,
 } from '@grid/SheetGridCell';
+import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import { useAxisResize } from './useAxisResize';
 import { AxisResizeHandle } from './AxisResizeHandle';
 import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
@@ -781,7 +781,8 @@ export function SheetGrid({
                 : navigationHighlightCellKey === key;
                const historyFeedback = historyFeedbackCells?.get(key);
                const hasHistoryNeighbor = (rowIndex: number, columnIndex: number) => Boolean(
-                 historyFeedbackCells?.has(cellKey({ rowIndex, columnIndex })),
+                  rowIndex >= 0 && columnIndex >= 0
+                    && historyFeedbackCells?.has(cellKey({ rowIndex, columnIndex })),
                );
                const historyEdges = historyFeedback ? [
                  !hasHistoryNeighbor(address.rowIndex - 1, address.columnIndex) ? 'sheet-grid-history-top' : '',

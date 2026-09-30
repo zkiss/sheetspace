@@ -6,9 +6,10 @@ import { measuredElementGeometry } from '@test-support/domGeometry';
 
 function setup() {
   const childAction = vi.fn();
+  const clearSelection = vi.fn();
   let controller: ReturnType<typeof useWorkspaceController>;
   function Harness() {
-    controller = useWorkspaceController({ onCreateSheet: vi.fn() });
+    controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: clearSelection });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface">
       <div data-sheet-id="sheet" onPointerDown={childAction} onWheel={(event) => event.stopPropagation()}>
         <div role="cell" tabIndex={0} onKeyDown={childAction} onClick={childAction}>Cell</div>
@@ -25,7 +26,7 @@ function setup() {
   surface.setPointerCapture = vi.fn((id) => { capture.add(id); });
   surface.hasPointerCapture = (id) => capture.has(id);
   surface.releasePointerCapture = vi.fn((id) => { capture.delete(id); });
-  return { ...view, surface, childAction, capture, state: () => controller! };
+  return { ...view, surface, childAction, clearSelection, capture, state: () => controller! };
 }
 
 function pointer(target: Element | Window, type: string, props: MouseEventInit & { pointerId?: number } = {}) {

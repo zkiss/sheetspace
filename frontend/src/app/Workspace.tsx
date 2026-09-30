@@ -135,6 +135,7 @@ export function Workspace({
   const [gridFocusLease, setGridFocusLease] = useState<GridFocusLease | null>(null);
   const gridFocusLeaseRef = useRef<GridFocusLease | null>(null);
   const nextGridFocusToken = useRef(1);
+  const revealedHistoryIdentity = useRef<string | undefined>(undefined);
   const dispatchGridFocusLease = useCallback((action: GridFocusLeaseAction) => {
     const next = reduceGridFocusLease(gridFocusLeaseRef.current, action);
     gridFocusLeaseRef.current = next;
@@ -203,7 +204,9 @@ export function Workspace({
     function handleShortcut(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target?.closest('textarea, input, select, [contenteditable="true"]') || event.defaultPrevented) return;
-      const key = event.key.toLowerCase();
+      const key = event.shiftKey && /^Digit[015]$/.test(event.code)
+        ? event.code.slice(-1)
+        : event.key.toLowerCase();
       const primaryModifier = event.ctrlKey || event.metaKey;
       if (!primaryModifier && event.shiftKey && !event.altKey && key === 'n') {
         event.preventDefault();
@@ -252,6 +255,8 @@ export function Workspace({
     if (!contentHistoryFeedback || editingCell) return;
     const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
     if (!destination || !workspaceController.workspaceSurfaceSize) return;
+    if (revealedHistoryIdentity.current === contentHistoryFeedback.identity) return;
+    revealedHistoryIdentity.current = contentHistoryFeedback.identity;
     const viewportBounds = workspaceViewportBounds(
       workspaceController.workspaceSurfaceSize,
       workspaceController.viewport,
@@ -441,6 +446,7 @@ export function Workspace({
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
+            key={menuSheet.id}
             menu={workspaceController.pendingSheetMenu}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();
@@ -521,6 +527,7 @@ export function Workspace({
                 : navigationHighlight?.sheetId === sheet.id}
               retainDetailedBody={Boolean(
                 sheetEditingCell
+                || interactionPinnedSheetId === sheet.id
                 || gridInteractionSheetIds.has(sheet.id)
                 || (gridFocusLease?.phase === 'request-active' && gridFocusLease.sheetId === sheet.id),
               )}

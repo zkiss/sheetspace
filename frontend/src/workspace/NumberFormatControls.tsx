@@ -152,7 +152,8 @@ function sheetCustomColours(sheet: SheetDocument | undefined) {
   for (const group of [overrides?.rows, overrides?.columns, overrides?.cells]) {
     for (const override of Object.values(group ?? {})) {
       for (const colour of [override.textColor, override.fillColor]) {
-        if (colour?.startsWith('#') && !BUILT_IN_COLOURS.includes(colour as typeof BUILT_IN_COLOURS[number])) seen.add(colour);
+        const normalized = colour?.toLowerCase();
+        if (normalized?.startsWith('#') && !BUILT_IN_COLOURS.includes(normalized as typeof BUILT_IN_COLOURS[number])) seen.add(normalized);
       }
     }
   }
@@ -182,27 +183,32 @@ function ColourPicker({
   onApplyInherited,
   onApplyDefault,
   defaultOptionLabel,
-  defaultMode = 'default',
   status,
+  descriptionId,
 }: {
   ariaLabel: string;
   colour: `#${string}`;
   customColours: readonly string[];
   disabled: boolean;
   onApply: (colour: `#${string}`) => void;
-  onApplyInherited?: () => void;
-  onApplyDefault?: () => void;
-  defaultOptionLabel?: string;
-  defaultMode?: 'default' | 'none';
-  status: 'colour' | 'inherited' | 'default' | 'none';
+  onApplyInherited: () => void;
+  onApplyDefault: () => void;
+  defaultOptionLabel: string;
+  status: 'colour' | 'inherited' | 'none' | 'mixed';
+  descriptionId: string;
 }) {
   const [draft, setDraft] = useState(colour);
   const [open, setOpen] = useState(false);
-  const [draftMode, setDraftMode] = useState<'colour' | 'inherited' | 'default' | 'none'>(status);
+  const [draftMode, setDraftMode] = useState<typeof status>(status);
   const [hasDraft, setHasDraft] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
-  const customPickerOpenRef = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
   useEffect(() => {
     if (!open) {
       setDraft(colour);
@@ -213,10 +219,15 @@ function ColourPicker({
   useEffect(() => {
     if (!open) return;
     const closeWhenOutside = (event: Event) => {
-      if (!customPickerOpenRef.current && event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
     };
     const closeWhenEscaped = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
     };
     document.addEventListener('pointerdown', closeWhenOutside, true);
     document.addEventListener('click', closeWhenOutside, true);
@@ -231,22 +242,22 @@ function ColourPicker({
   const previewColour = open && hasDraft ? draft : colour;
   return (
     <div className="colour-picker" ref={rootRef}>
-      <button aria-expanded={open} aria-haspopup="dialog" aria-label={`${ariaLabel}: ${previewStatus === 'inherited' ? 'inherited' : previewStatus === 'default' ? 'default' : previewStatus === 'none' ? 'no colour' : previewColour}`} className="colour-picker-trigger" data-colour-mode={previewStatus} disabled={disabled} onClick={() => setOpen((current) => !current)} style={{ '--colour-swatch': previewColour } as import('react').CSSProperties} title={ariaLabel} type="button">{previewStatus === 'inherited' ? <FormatIcon kind="reset" /> : previewStatus === 'none' ? <NoColourIcon /> : null}</button>
+      <button ref={triggerRef} aria-describedby={descriptionId} aria-expanded={open} aria-haspopup="dialog" aria-label={`${ariaLabel}: ${previewStatus === 'mixed' ? 'mixed' : previewStatus === 'inherited' ? 'inherited' : previewStatus === 'none' ? 'no colour' : previewColour}`} className="colour-picker-trigger" data-colour-mode={previewStatus} data-mixed={previewStatus === 'mixed' || undefined} disabled={disabled} onClick={() => setOpen((current) => !current)} style={{ '--colour-swatch': previewColour } as import('react').CSSProperties} title={ariaLabel} type="button">{previewStatus === 'mixed' ? '—' : previewStatus === 'inherited' ? <FormatIcon kind="reset" /> : previewStatus === 'none' ? <NoColourIcon /> : null}</button>
       {open ? <div aria-label={ariaLabel} className="colour-picker-popover" role="dialog">
-        {onApplyInherited || onApplyDefault ? <><span className="colour-picker-label">Options</span><div className="colour-picker-options">
-          {onApplyInherited ? <button aria-pressed={previewStatus === 'inherited'} className="colour-picker-option" onClick={() => { onApplyInherited(); setOpen(false); }} type="button"><FormatIcon kind="reset" />Inherit</button> : null}
-          {onApplyDefault ? <button aria-pressed={previewStatus === defaultMode} className="colour-picker-option colour-picker-option-no-colour" onClick={() => { onApplyDefault(); setOpen(false); }} type="button"><NoColourIcon />{defaultOptionLabel}</button> : null}
-        </div></> : null}
+        <span className="colour-picker-label">Options</span><div className="colour-picker-options">
+          <button aria-pressed={previewStatus === 'inherited'} className="colour-picker-option" onClick={() => { onApplyInherited(); setOpen(false); }} type="button"><FormatIcon kind="reset" />Inherit</button>
+          <button aria-pressed={previewStatus === 'none'} className="colour-picker-option colour-picker-option-no-colour" onClick={() => { onApplyDefault(); setOpen(false); }} type="button"><NoColourIcon />{defaultOptionLabel}</button>
+        </div>
         <span className="colour-picker-label">Palette</span>
         <div className="colour-picker-swatches">
           {BUILT_IN_COLOURS.map((swatch) => <button aria-label={`Use ${swatch}`} aria-pressed={previewStatus === 'colour' && previewColour.toLowerCase() === swatch.toLowerCase()} className="colour-picker-swatch" key={swatch} onClick={() => { onApply(swatch); setOpen(false); }} style={{ '--colour-swatch': swatch } as import('react').CSSProperties} type="button" />)}
         </div>
         <span className="colour-picker-label">Sheet colours</span><div className="colour-picker-swatches">
           {customColours.map((swatch) => <button aria-label={`Use ${swatch}`} aria-pressed={previewStatus === 'colour' && previewColour.toLowerCase() === swatch.toLowerCase()} className="colour-picker-swatch" key={swatch} onClick={() => { onApply(swatch as `#${string}`); setOpen(false); }} style={{ '--colour-swatch': swatch } as import('react').CSSProperties} type="button" />)}
-          {hasDraft ? <button aria-label={`Use ${draft}`} className="colour-picker-swatch" onClick={() => { onApply(draft); setOpen(false); }} style={{ '--colour-swatch': draft } as import('react').CSSProperties} type="button" /> : null}
-          <button aria-label="Add custom colour" className="colour-picker-custom-trigger" onClick={() => { customPickerOpenRef.current = true; customInputRef.current?.click(); }} type="button">+</button>
+          {hasDraft && ![...BUILT_IN_COLOURS, ...customColours].includes(draft.toLowerCase()) ? <button aria-label={`Use ${draft}`} className="colour-picker-swatch" onClick={() => { onApply(draft); setOpen(false); }} style={{ '--colour-swatch': draft } as import('react').CSSProperties} type="button" /> : null}
+          <button aria-label="Add custom colour" className="colour-picker-custom-trigger" onClick={() => { customInputRef.current?.click(); }} type="button">+</button>
         </div>
-        <input aria-label="Custom colour" className="colour-picker-custom-input" onBlur={() => { customPickerOpenRef.current = false; }} onChange={(event) => { setDraft(event.currentTarget.value as `#${string}`); setDraftMode('colour'); setHasDraft(true); }} onInput={(event) => { setDraft(event.currentTarget.value as `#${string}`); setDraftMode('colour'); setHasDraft(true); }} ref={customInputRef} type="color" value={draft} />
+        <input aria-label="Custom colour" className="colour-picker-custom-input" onChange={(event) => { setDraft(event.currentTarget.value as `#${string}`); setDraftMode('colour'); setHasDraft(true); }} onInput={(event) => { setDraft(event.currentTarget.value as `#${string}`); setDraftMode('colour'); setHasDraft(true); }} ref={customInputRef} type="color" value={draft} />
       </div> : null}
     </div>
   );
@@ -263,7 +274,7 @@ export function NumberFormatControls({
 }) {
   const state = selectionFormatControlState(sheet, selection);
   const appearance = selectionAppearanceControlState(sheet, selection);
-  const disabled = !sheet || !selection;
+  const disabled = selectionFormatWrites(sheet, selection, GENERAL_NUMBER_FORMAT).length === 0;
   const write = (format: NumberFormat | null) => onWrite(selectionFormatWrites(sheet, selection, format));
   const writeAppearance = (properties: AppearancePatch) => onWrite(selectionAppearanceWrites(sheet, selection, properties));
   const selectedKind = state.format?.kind ?? 'mixed';
@@ -301,12 +312,13 @@ export function NumberFormatControls({
         <button aria-label="Align left" aria-pressed={appearance.horizontalAlignment.value === 'left'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'left' })} title="Align left" type="button"><FormatIcon kind="align-left" /></button>
         <button aria-label="Align center" aria-pressed={appearance.horizontalAlignment.value === 'center'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'center' })} title="Align center" type="button"><FormatIcon kind="align-center" /></button>
         <button aria-label="Align right" aria-pressed={appearance.horizontalAlignment.value === 'right'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'right' })} title="Align right" type="button"><FormatIcon kind="align-right" /></button>
+        <button aria-label="Automatic alignment" aria-pressed={appearance.horizontalAlignment.value === 'general'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'general' })} title="Automatic alignment" type="button">A</button>
       </div>
       <output id="horizontal-alignment-state">{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
       <button aria-label="Inherit horizontal alignment" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })} title="Inherit horizontal alignment" type="button"><FormatIcon kind="reset" /></button>
-      <ColourPicker ariaLabel="Text colour" colour={(appearance.textColor.localValue ?? appearance.textColor.value)?.startsWith('#') ? (appearance.textColor.localValue ?? appearance.textColor.value) as `#${string}` : '#1f2933'} customColours={customColours} defaultMode="none" defaultOptionLabel="No colour" disabled={disabled} onApply={(textColor) => writeAppearance({ textColor })} onApplyInherited={() => writeAppearance({ textColor: null })} onApplyDefault={() => writeAppearance({ textColor: 'automatic' })} status={appearance.textColor.localOverrideState === 'inherited' ? 'inherited' : appearance.textColor.localValue === 'automatic' ? 'none' : 'colour'} />
+      <ColourPicker ariaLabel="Text colour" descriptionId="text-colour-state" colour={(appearance.textColor.localValue ?? appearance.textColor.value)?.startsWith('#') ? (appearance.textColor.localValue ?? appearance.textColor.value) as `#${string}` : '#1f2933'} customColours={customColours} defaultOptionLabel="No colour" disabled={disabled} onApply={(textColor) => writeAppearance({ textColor })} onApplyInherited={() => writeAppearance({ textColor: null })} onApplyDefault={() => writeAppearance({ textColor: 'automatic' })} status={appearance.textColor.localOverrideState === 'mixed' || appearance.textColor.value === null ? 'mixed' : appearance.textColor.localOverrideState === 'inherited' ? 'inherited' : appearance.textColor.localValue === 'automatic' ? 'none' : 'colour'} />
       <output id="text-colour-state">{appearanceStateLabel('Text colour', appearance.textColor)}</output>
-      <ColourPicker ariaLabel="Fill colour" colour={(appearance.fillColor.localValue ?? appearance.fillColor.value)?.startsWith('#') ? (appearance.fillColor.localValue ?? appearance.fillColor.value) as `#${string}` : '#ffffff'} customColours={customColours} defaultMode="none" defaultOptionLabel="No colour" disabled={disabled} onApply={(fillColor) => writeAppearance({ fillColor })} onApplyInherited={() => writeAppearance({ fillColor: null })} onApplyDefault={() => writeAppearance({ fillColor: 'none' })} status={appearance.fillColor.localOverrideState === 'inherited' ? 'inherited' : appearance.fillColor.localValue === 'none' ? 'none' : 'colour'} />
+      <ColourPicker ariaLabel="Fill colour" descriptionId="fill-colour-state" colour={(appearance.fillColor.localValue ?? appearance.fillColor.value)?.startsWith('#') ? (appearance.fillColor.localValue ?? appearance.fillColor.value) as `#${string}` : '#ffffff'} customColours={customColours} defaultOptionLabel="No colour" disabled={disabled} onApply={(fillColor) => writeAppearance({ fillColor })} onApplyInherited={() => writeAppearance({ fillColor: null })} onApplyDefault={() => writeAppearance({ fillColor: 'none' })} status={appearance.fillColor.localOverrideState === 'mixed' || appearance.fillColor.value === null ? 'mixed' : appearance.fillColor.localOverrideState === 'inherited' ? 'inherited' : appearance.fillColor.localValue === 'none' ? 'none' : 'colour'} />
       <output id="fill-colour-state">{appearanceStateLabel('Fill colour', appearance.fillColor)}</output>
     </div>
   );

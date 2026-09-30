@@ -17,10 +17,8 @@ describe('content history application integration', () => {
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
-    const undo = screen.getByRole('button', { name: 'Undo' });
-    const redo = screen.getByRole('button', { name: 'Redo' });
-    expect(undo).toBeDisabled();
-    expect(redo).toBeDisabled();
+    fireEvent.keyDown(a1, { key: 'z', ctrlKey: true });
+    expect(a1).toHaveTextContent('2');
 
     fireEvent.doubleClick(a1);
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
@@ -29,23 +27,18 @@ describe('content history application integration', () => {
     const a2 = within(frame).getByRole('cell', { name: 'Inputs A2 empty cell' });
     expect(a1).toHaveTextContent('7');
     expect(a2).toHaveAttribute('data-active-cell', 'true');
-    expect(undo).toBeEnabled();
-
-    fireEvent.click(undo);
+    fireEvent.keyDown(a2, { key: 'z', ctrlKey: true });
     expect(a1).toHaveTextContent('2');
     expect(a1).toHaveAttribute('data-history-feedback', 'true');
     expect(a1).toHaveAttribute('data-history-before', '7');
     expect(a1).not.toHaveAttribute('data-navigation-highlight');
     expect(a1).not.toHaveAttribute('aria-selected');
     expect(a2).toHaveAttribute('data-active-cell', 'true');
-    expect(redo).toBeEnabled();
-
-    fireEvent.click(redo);
+    fireEvent.keyDown(a2, { key: 'z', ctrlKey: true, shiftKey: true });
     expect(a1).toHaveTextContent('7');
     fireEvent.doubleClick(a2);
     const draft = screen.getByRole('textbox', { name: 'Inputs A2 editor' });
     fireEvent.change(draft, { target: { value: 'draft' } });
-    expect(undo).toBeDisabled();
     fireEvent.keyDown(draft, { key: 'z', ctrlKey: true });
     expect(draft).toHaveValue('draft');
     expect(a1).toHaveTextContent('7');
@@ -65,12 +58,12 @@ describe('content history application integration', () => {
     const b1 = within(frame).getByRole('cell', { name: 'Inputs B1 empty cell' });
 
     replaceCell(a1, 'new');
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
     expect(a1).toHaveAttribute('data-history-feedback', 'true');
     replaceCell(b1, 'next');
     expect(a1).not.toHaveAttribute('data-history-feedback');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
     expect(b1).toHaveAttribute('data-history-feedback', 'true');
     act(() => vi.advanceTimersByTime(1_200));
     expect(b1).not.toHaveAttribute('data-history-feedback');

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
+import { resetWorkspaceViewport } from '@test-support/workspaceActions';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
 import { testRect } from '@test-support/domGeometry';
@@ -74,7 +75,7 @@ describe('Phase 2 acceptance workflow', () => {
       // threshold; the grid scrollport reveals the referenced range internally.
       expect(workspaceSurface()).toHaveAttribute('data-viewport-x', '-1288');
 
-      fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+      resetWorkspaceViewport();
       let currentOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
       let editor = openEditor(cellAt(currentOutputFrame, 'A6'));
       expect(editor).toHaveValue('=SUMIF(Inputs!B1:B3, "open", Inputs!C1:C3)');
@@ -96,7 +97,7 @@ describe('Phase 2 acceptance workflow', () => {
       fireEvent.keyDown(editor, { key: 'Enter' });
       await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(1));
 
-      fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+      resetWorkspaceViewport();
       currentOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
       const currentErrorsFrame = screen.getByRole('article', { name: 'Sheet Errors' });
       expectResults(currentOutputFrame, { A1: '-15.714285714285714', A2: 'TRUE', A3: 'high', A8: '42' });
@@ -142,9 +143,7 @@ function modifierClick(reference: HTMLElement) {
 
 function openEditor(cell: HTMLElement) {
   fireEvent.doubleClick(cell);
-  const editor = cell.querySelector('textarea');
-  if (!editor) throw new Error(`Missing editor for cell ${cell.dataset.cellKey}`);
-  return editor;
+  return screen.getByRole('textbox');
 }
 
 function cellAt(frame: HTMLElement, cellKey: string) {

@@ -58,7 +58,8 @@ describe('axis resize application integration', () => {
     expect(screen.getByRole('cell', { name: 'Inputs B2 cell' })).toHaveTextContent('14');
     fireEvent.doubleClick(first);
     expect(screen.getByRole('textbox')).toHaveValue('7');
-    expect(screen.getByRole('textbox').closest('[role="cell"]')).toHaveStyle({ width: '120px', height: `${rowHeight}px` });
+    expect(first).toHaveStyle({ width: '120px', height: `${rowHeight}px` });
+    expect(first).not.toContainElement(screen.getByRole('textbox'));
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
     const frame = screen.getByTestId('sheet-frame');
     const right = within(frame).getByRole('separator', { name: 'Resize sheet Inputs from right' });

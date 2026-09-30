@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
+import { applyCustomColour } from '@test-support/workspaceActions';
 
 afterEach(cleanup);
 
@@ -25,7 +26,7 @@ describe('App number formatting workflow', () => {
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
 
     selectColumn(screen.getByRole('columnheader', { name: /^A / }), 50, 10);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Number format' }), 'number');
+    await user.click(screen.getByRole('button', { name: 'Number format' }));
     await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(1));
     const a1 = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     expect(a1).toHaveTextContent('1.23');
@@ -38,9 +39,9 @@ describe('App number formatting workflow', () => {
       .toEqual({ kind: 'number', precision: 2 });
     expect(persisted.documents.inputs.presentation.formatOverrides?.cells).toEqual({});
 
-    await user.click(screen.getByRole('button', { name: 'Inherit' }));
+    await user.click(screen.getByRole('button', { name: 'Inherit number format' }));
     await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(2));
-    await user.click(screen.getByRole('button', { name: 'Reset to default' }));
+    await user.click(screen.getByRole('button', { name: 'General number format' }));
     await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(3));
     expect((await apiClient.loadWorkbook()).documents.inputs.presentation.formatOverrides?.columns[sheet.content.columns[0]!]?.numberFormat)
       .toEqual({ kind: 'general' });
@@ -59,9 +60,9 @@ describe('App number formatting workflow', () => {
 
     selectColumn(screen.getByRole('columnheader', { name: /^A / }), 50, 10);
     await user.click(screen.getByRole('button', { name: /Bold: one effective value; inherited/ }));
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Horizontal alignment' }), 'right');
-    fireEvent.change(screen.getByLabelText('Text colour'), { target: { value: '#112233' } });
-    fireEvent.change(screen.getByLabelText('Fill colour'), { target: { value: '#445566' } });
+    await user.click(screen.getByRole('button', { name: 'Align right' }));
+    applyCustomColour('Text colour', '#112233');
+    applyCustomColour('Fill colour', '#445566');
     await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(4));
 
     const a1 = screen.getByRole('cell', { name: 'Appearance inputs A1 cell' });

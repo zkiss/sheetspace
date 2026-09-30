@@ -141,6 +141,18 @@ export function useWorkspaceGestures(
       gestureScale = null;
     }
     function visibility() { if (document.hidden) cancel(); }
+    function isOwnedPortalEvent(event: Event) {
+      if (!(event.target instanceof Element) || surface!.contains(event.target)) return false;
+      const editor = event.target.closest<HTMLElement>('[data-workspace-sheet-editor]');
+      return editor && Array.from(surface!.querySelectorAll<HTMLElement>('[data-sheet-id]'))
+        .some((frame) => frame.dataset.sheetId === editor.dataset.workspaceSheetEditor);
+    }
+    function portalPointerDown(event: PointerEvent) {
+      if (isOwnedPortalEvent(event)) pointerDown(event);
+    }
+    function portalWheel(event: WheelEvent) {
+      if (isOwnedPortalEvent(event)) wheel(event);
+    }
 
     const local: [string, EventListener][] = [
       ['wheel', wheel as EventListener], ['pointerdown', pointerDown as EventListener],
@@ -152,9 +164,10 @@ export function useWorkspaceGestures(
       ['keydown', keyDown as EventListener], ['keyup', keyUp as EventListener],
       ['pointermove', pointerMove as EventListener], ['pointerup', pointerEnd as EventListener],
       ['pointercancel', pointerEnd as EventListener], ['blur', cancel],
+      ['pointerdown', portalPointerDown as EventListener], ['wheel', portalWheel as EventListener],
     ];
     local.forEach(([name, listener]) => surface.addEventListener(name, listener, { capture: true, passive: false }));
-    global.forEach(([name, listener]) => window.addEventListener(name, listener, true));
+    global.forEach(([name, listener]) => window.addEventListener(name, listener, { capture: true, passive: false }));
     document.addEventListener('visibilitychange', visibility);
     return () => {
       local.forEach(([name, listener]) => surface.removeEventListener(name, listener, true));

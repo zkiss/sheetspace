@@ -48,5 +48,7 @@ export type SheetFrameScale = {
   startClientX: number;
   startClientY: number;
   startVisualScale: number;
+  startPosition: WorkspacePosition;
+  startFrameSize: SheetFrameSize;
   direction: SheetFrameResizeDirection;
 };

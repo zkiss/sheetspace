@@ -103,9 +103,7 @@ function openSmokeCellEditor(cell: HTMLElement) {
   // Focused interaction suites cover browser-like event sequences. This broad smoke test emits
   // one semantic event per action so parallel coverage load measures product work, not event expansion.
   fireEvent.doubleClick(cell);
-  const editor = cell.querySelector('textarea');
-  if (!editor) throw new Error(`Missing editor for cell ${cell.dataset.cellKey}`);
-  return editor;
+  return screen.getByRole('textbox');
 }
 
 function cellAt(frame: HTMLElement, cellKey: string) {

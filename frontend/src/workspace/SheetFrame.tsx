@@ -135,6 +135,7 @@ export function SheetFrame({
           data-testid="sheet-frame-resize-handle"
           key={handle}
           onPointerCancel={onResizeCancel}
+          onLostPointerCapture={onResizeCancel}
           onPointerDown={(event) => {
             onSheetFrameInteraction();
             onResizeStart(frame.id, direction, event);
@@ -149,6 +150,7 @@ export function SheetFrame({
         className="sheet-frame-header"
         data-testid="sheet-frame-header"
         onPointerCancel={onSheetFrameDragCancel}
+        onLostPointerCapture={onSheetFrameDragCancel}
         onPointerDown={(event) => {
           if (event.button === 0) onSelectSheet();
           onSheetFrameDragStart(frame.id, event);

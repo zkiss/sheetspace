@@ -80,13 +80,14 @@ export function cellInteractionReducer(
         tabRunOriginColumnId: sameTarget(state.selection, action.target) ? state.tabRunOriginColumnId : null,
       };
     case 'activate-sheet': {
-      const activated = {
+      const activated: CellInteractionState = {
         ...state,
         selection: action.target,
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
         editing: null,
+        focusRequest: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,
       };

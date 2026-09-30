@@ -12,7 +12,7 @@ function setup(transform = 'matrix(1.25, 0, 0, 1.25, -500, -200)') {
   let reveal: () => void;
   let finishMotion: () => void;
   function Harness() {
-    controller = useWorkspaceController({ onCreateSheet: vi.fn() });
+    controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() });
     const [moving, setMoving] = useState(false);
     reveal = () => {
       setMoving(true);

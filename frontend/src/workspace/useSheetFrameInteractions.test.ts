@@ -76,7 +76,6 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameDragStart('missing', undefinedButton as PointerEvent<HTMLElement>);
       result.current.handleSheetFrameResizeStart('missing', { horizontal: 1, vertical: 1 }, undefinedButton as PointerEvent<HTMLElement>);
       result.current.handleSheetFrameScaleStart('missing', undefinedButton as PointerEvent<HTMLElement>);
-      result.current.startSheetFrameScaleInput('missing');
       result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 2, clientY: 3 }));
       result.current.stopSheetFrameDrag(pointerEvent({ clientX: 2, clientY: 3 }));
       result.current.cancelSheetFrameDrag(pointerEvent({ clientX: 2, clientY: 3 }));
@@ -86,9 +85,6 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 2, clientY: 3 }));
       result.current.stopSheetFrameScale(pointerEvent({ clientX: 2, clientY: 3 }));
       result.current.cancelSheetFrameScalePointer(pointerEvent({ clientX: 2, clientY: 3 }));
-      result.current.previewSheetFrameScale('missing', 2);
-      result.current.cancelSheetFrameScaleInput('missing');
-      result.current.commitSheetFrameScale('missing', 2);
     });
 
     expect(result.current.interactionPinnedSheetId).toBeNull();
@@ -123,17 +119,18 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.resizeSheetFrame).not.toHaveBeenCalled();
 
     rerender({ workbook: sheetWorkbook });
-    act(() => result.current.startSheetFrameScaleInput('sheet-inputs'));
+    act(() => result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 0, clientY: 0 })));
     rerender({ workbook: emptyWorkbook });
-    act(() => result.current.commitSheetFrameScale('sheet-inputs', 2));
+    act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 240, clientY: 0 })));
+    expect(result.current.interactionPinnedSheetId).toBeNull();
     expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
   });
 
   it('keeps scale ownership against stale events and releases captured cancellation', () => {
     const { commands: testCommands, result } = renderInteractions();
-    act(() => result.current.handleSheetFrameScaleStart(
-      'sheet-inputs', pointerEvent({ clientX: 100, clientY: 0, pointerId: 1 }),
-    ));
+    const start = pointerEvent({ clientX: 100, clientY: 0, pointerId: 1 });
+    start.currentTarget.hasPointerCapture = vi.fn().mockReturnValue(true);
+    act(() => result.current.handleSheetFrameScaleStart('sheet-inputs', start));
 
     const stale = pointerEvent({ clientX: 200, clientY: 0, pointerId: 2 });
     act(() => {
@@ -141,25 +138,23 @@ describe('useSheetFrameInteractions', () => {
       result.current.stopSheetFrameScale(stale);
       result.current.cancelSheetFrameScalePointer(stale);
     });
-    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 1 });
+    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 1, position: { x: 10, y: 20 } });
 
     const cancel = pointerEvent({ clientX: 100, clientY: 0, pointerId: 1 });
     cancel.currentTarget.hasPointerCapture = vi.fn().mockReturnValue(true);
     act(() => result.current.cancelSheetFrameScalePointer(cancel));
-    expect(cancel.currentTarget.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(start.currentTarget.releasePointerCapture).toHaveBeenCalledWith(1);
     expect(result.current.frameScalePreview).toBeNull();
     expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
   });
 
-  it('does not save an unchanged pointer or numeric scale and cancels on Escape', () => {
+  it('does not save an unchanged pointer scale and cancels on Escape', () => {
     const { commands: testCommands, result } = renderInteractions();
 
     act(() => {
       result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0 }));
       result.current.stopSheetFrameScale(pointerEvent({ clientX: 100, clientY: 0 }));
-      result.current.startSheetFrameScaleInput('sheet-inputs');
-      result.current.commitSheetFrameScale('sheet-inputs', 1);
-      result.current.startSheetFrameScaleInput('sheet-inputs');
+      result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0 }));
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
 
@@ -167,7 +162,7 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
   });
 
-  it('rejects a non-primary resize and cancels the owned numeric input', () => {
+  it('rejects non-primary resize and scale pointers', () => {
     const { commands: testCommands, result } = renderInteractions();
     act(() => {
       result.current.handleSheetFrameResizeStart(
@@ -176,8 +171,6 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameScaleStart(
         'sheet-inputs', pointerEvent({ button: 2, clientX: 0, clientY: 0 }),
       );
-      result.current.startSheetFrameScaleInput('sheet-inputs');
-      result.current.cancelSheetFrameScaleInput('sheet-inputs');
     });
 
     expect(result.current.interactionPinnedSheetId).toBeNull();
@@ -365,13 +358,14 @@ describe('useSheetFrameInteractions', () => {
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 100, clientY: 0 }));
     });
     expect(result.current.frameLayoutPreview?.size.width).toBe(340);
+    act(() => result.current.cancelSheetFrameResize(pointerEvent({ clientX: 100, clientY: 0 })));
     act(() => {
       result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0 }));
-      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 200, clientY: 0 }));
+      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 340, clientY: 0 }));
     });
-    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 1 });
+    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 1, position: { x: 10, y: 20 } });
     expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
-    act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 200, clientY: 0 })));
+    act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 340, clientY: 0 })));
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 1);
   });
 
@@ -406,15 +400,16 @@ describe('useSheetFrameInteractions', () => {
     );
   });
 
-  it('pins numeric scale previews until cancellation or an explicit commit', () => {
+  it('pins pointer scale previews until cancellation or an explicit commit', () => {
     const { commands: testCommands, result } = renderInteractions();
 
     act(() => {
-      result.current.startSheetFrameScaleInput('sheet-inputs');
-      result.current.previewSheetFrameScale('sheet-inputs', 0.1);
+      result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 0, clientY: 0 }));
+      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: -216, clientY: 0 }));
     });
 
-    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 0.1 });
+    expect(result.current.frameScalePreview?.visualScale).toBeCloseTo(0.1);
+    expect(result.current.frameScalePreview?.position).toEqual({ x: 10, y: 20 });
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
     const projectedFrame = {
       id: 'sheet-inputs', name: 'Inputs', position: { x: -500, y: 40 }, size: { width: 240, height: 160 }, visualScale: 0.1, zIndex: 1,
@@ -432,40 +427,36 @@ describe('useSheetFrameInteractions', () => {
     expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
 
     act(() => {
-      result.current.startSheetFrameScaleInput('sheet-inputs');
-      result.current.previewSheetFrameScale('sheet-inputs', 2);
-      result.current.commitSheetFrameScale('sheet-inputs', 2);
+      result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 0, clientY: 0 }));
+      result.current.stopSheetFrameScale(pointerEvent({ clientX: 240, clientY: 0 }));
     });
     expect(result.current.interactionPinnedSheetId).toBeNull();
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
   });
 
-  it('preserves a pointer scale session when stale numeric cancellation follows handle takeover', () => {
+  it('rejects competing pointers and stale cancellation during a pointer scale session', () => {
     const { commands: testCommands, result } = renderInteractions();
 
     act(() => {
-      result.current.startSheetFrameScaleInput('sheet-inputs');
-      result.current.previewSheetFrameScale('sheet-inputs', 1.5);
       result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 0, pointerId: 2 }));
-      result.current.cancelSheetFrameScaleInput('sheet-inputs');
-      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 200, clientY: 0, pointerId: 2 }));
+      result.current.handleSheetFrameScaleStart('sheet-inputs', pointerEvent({ clientX: 300, clientY: 0, pointerId: 3 }));
+      result.current.cancelSheetFrameScalePointer(pointerEvent({ clientX: 300, clientY: 0, pointerId: 3 }));
+      result.current.handleSheetFrameScaleMove(pointerEvent({ clientX: 340, clientY: 0, pointerId: 2 }));
     });
 
-    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 2 });
+    expect(result.current.frameScalePreview).toEqual({ sheetId: 'sheet-inputs', visualScale: 2, position: { x: 10, y: 20 } });
     expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
-    act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 200, clientY: 0, pointerId: 2 })));
+    act(() => result.current.stopSheetFrameScale(pointerEvent({ clientX: 340, clientY: 0, pointerId: 2 })));
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledTimes(1);
     expect(testCommands.setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
   });
 
-  it('keeps drag and resize ownership when stale numeric cancellation follows their takeover', () => {
+  it('keeps drag and resize ownership against competing pointers', () => {
     const { commands: testCommands, result } = renderInteractions();
 
     act(() => {
-      result.current.startSheetFrameScaleInput('sheet-inputs');
-      result.current.previewSheetFrameScale('sheet-inputs', 1.5);
       result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 100, clientY: 120, pointerId: 2 }));
-      result.current.cancelSheetFrameScaleInput('sheet-inputs');
+      result.current.handleSheetFrameDragStart('sheet-inputs', pointerEvent({ clientX: 300, clientY: 300, pointerId: 3 }));
       result.current.handleSheetFrameDragMove(pointerEvent({ clientX: 140, clientY: 150, pointerId: 2 }));
     });
 
@@ -477,11 +468,12 @@ describe('useSheetFrameInteractions', () => {
     expect(result.current.interactionPinnedSheetId).toBeNull();
 
     act(() => {
-      result.current.startSheetFrameScaleInput('sheet-inputs');
       result.current.handleSheetFrameResizeStart(
         'sheet-inputs', { horizontal: 1, vertical: 1 }, pointerEvent({ clientX: 100, clientY: 120, pointerId: 3 }),
       );
-      result.current.cancelSheetFrameScaleInput('sheet-inputs');
+      result.current.handleSheetFrameResizeStart(
+        'sheet-inputs', { horizontal: -1, vertical: -1 }, pointerEvent({ clientX: 300, clientY: 300, pointerId: 4 }),
+      );
       result.current.handleSheetFrameResizeMove(pointerEvent({ clientX: 140, clientY: 150, pointerId: 3 }));
     });
 

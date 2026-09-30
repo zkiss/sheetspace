@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
+import { resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceActions';
 import { measuredElementGeometry, virtualGridGeometry } from '@test-support/domGeometry';
 import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
@@ -66,7 +67,7 @@ describe('formula reference navigation', () => {
     virtualGridGeometry(body, { height: 160, width: 240 });
     await waitFor(() => expect(within(inputsFrame).getByRole('table', { name: 'Inputs grid' })).toHaveFocus());
 
-    const reset = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    const reset = screen.getByRole('button', { name: 'New sheet' });
     reset.focus();
     await act(async () => {});
     body.scrollTop = 9_998 * 26.4;
@@ -77,7 +78,7 @@ describe('formula reference navigation', () => {
     expect(reset).toHaveFocus();
     expect(target).not.toHaveFocus();
 
-    fireEvent.click(reset);
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
@@ -105,10 +106,6 @@ describe('formula reference navigation', () => {
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
     expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed');
 
-    const requestTimeInput = within(inputsFrame).getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-    requestTimeInput.focus();
-    expect(requestTimeInput).toHaveFocus();
-
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
     const focus = vi.spyOn(HTMLElement.prototype, 'focus');
@@ -121,14 +118,12 @@ describe('formula reference navigation', () => {
     const targetFocusClaims = () => (focus.mock.instances as unknown as HTMLElement[]).filter((element) =>
       element.getAttribute('aria-label') === 'Inputs CU9999 empty cell').length;
     expect(targetFocusClaims()).toBe(1);
-    const input = within(inputsFrame).getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '400' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    screen.getByRole('button', { name: 'New sheet' }).focus();
+    setSheetScale(inputsFrame, 400);
     await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
     expect(targetFocusClaims()).toBe(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
@@ -182,9 +177,9 @@ describe('formula reference navigation', () => {
     expect(target).toHaveAttribute('data-navigation-highlight', 'true');
     expect(inputsFrame).toHaveAttribute('data-z-index', '2');
 
-    const reset = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    const reset = screen.getByRole('button', { name: 'New sheet' });
     reset.focus();
-    fireEvent.click(reset);
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
@@ -225,7 +220,7 @@ describe('formula reference navigation', () => {
     expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
     expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
