@@ -147,11 +147,8 @@ export function useWorkspaceGestures(
       return editor && Array.from(surface!.querySelectorAll<HTMLElement>('[data-sheet-id]'))
         .some((frame) => frame.dataset.sheetId === editor.dataset.workspaceSheetEditor);
     }
-    function portalPointerDown(event: PointerEvent) {
-      if (isOwnedPortalEvent(event)) pointerDown(event);
-    }
-    function portalWheel(event: WheelEvent) {
-      if (isOwnedPortalEvent(event)) wheel(event);
+    function ownedPortalListener(listener: EventListener): EventListener {
+      return (event) => { if (isOwnedPortalEvent(event)) listener(event); };
     }
 
     const local: [string, EventListener][] = [
@@ -164,7 +161,10 @@ export function useWorkspaceGestures(
       ['keydown', keyDown as EventListener], ['keyup', keyUp as EventListener],
       ['pointermove', pointerMove as EventListener], ['pointerup', pointerEnd as EventListener],
       ['pointercancel', pointerEnd as EventListener], ['blur', cancel],
-      ['pointerdown', portalPointerDown as EventListener], ['wheel', portalWheel as EventListener],
+      ['pointerdown', ownedPortalListener(pointerDown as EventListener)],
+      ['wheel', ownedPortalListener(wheel as EventListener)],
+      ['gesturestart', ownedPortalListener(gesture)], ['gesturechange', ownedPortalListener(gesture)],
+      ['gestureend', ownedPortalListener(gestureEnd)],
     ];
     local.forEach(([name, listener]) => surface.addEventListener(name, listener, { capture: true, passive: false }));
     global.forEach(([name, listener]) => window.addEventListener(name, listener, { capture: true, passive: false }));

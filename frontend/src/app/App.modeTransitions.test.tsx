@@ -163,12 +163,10 @@ describe('App rendering-mode transitions', () => {
 
     fireEvent.click(cell);
     cell.focus();
-    zoomWorkspace('out', 6);
-    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
-
     const handle = within(frame).getByRole('separator', { name: /from right$/ });
     fireEvent.pointerDown(handle, { button: 0, ctrlKey: true });
-    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
+    zoomWorkspace('out', 6);
+    expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
     const toolbarControl = screen.getByRole('button', { name: 'New sheet' });
     toolbarControl.focus();
     fireEvent.pointerCancel(handle);

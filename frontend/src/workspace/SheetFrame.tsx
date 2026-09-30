@@ -46,7 +46,7 @@ export function SheetFrame({
   frame: SheetFrameProjection;
   isActiveSheet: boolean;
   isNavigationReveal: boolean;
-  /** An editor or frame gesture cannot be unmounted by a scale preview. */
+  /** Retain an existing detailed body during editing or a gesture; never reveal one solely for a culling pin. */
   retainDetailedBody?: boolean;
   overview?: ReactNode;
   /** Reports that replacing this detailed body displaced native grid focus. */
@@ -75,8 +75,10 @@ export function SheetFrame({
   const renderingModeRef = useRef(resolveSheetRenderingMode(screenScale));
   const requestedRenderingMode = resolveSheetRenderingMode(screenScale, renderingModeRef.current);
   renderingModeRef.current = requestedRenderingMode;
-  const renderingMode = retainDetailedBody ? 'detailed' : requestedRenderingMode;
-  const previousRenderingMode = useRef(renderingMode);
+  const previousRenderingMode = useRef(requestedRenderingMode);
+  const renderingMode = retainDetailedBody && previousRenderingMode.current === 'detailed'
+    ? 'detailed'
+    : requestedRenderingMode;
   const bodyHadFocus = useRef(false);
 
   useEffect(() => {
