@@ -1,4 +1,4 @@
-import { PointerEvent, useEffect, useRef, useState } from 'react';
+import { PointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SheetFrameDrag, SheetFrameLayoutCommands, SheetFrameResize, SheetFrameResizeDirection, SheetFrameScale } from './workspaceContracts';
 import { findSheetById } from '@workbook/read/queries';
 import { type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
@@ -18,10 +18,12 @@ type SheetFrameInteractionSession = (
 
 export function useSheetFrameInteractions({
   commands,
+  interactionsEnabled = true,
   viewportScale,
   workbook,
 }: {
   commands: SheetFrameLayoutCommands;
+  interactionsEnabled?: boolean;
   viewportScale: number;
   workbook: Workbook;
 }) {
@@ -31,7 +33,7 @@ export function useSheetFrameInteractions({
   const [interactionPinnedSheetId, setInteractionPinnedSheetId] = useState<string | null>(null);
 
   function startInteraction(session: SheetFrameInteractionSession) {
-    if (sheetFrameInteractionSession.current) return false;
+    if (!interactionsEnabled || sheetFrameInteractionSession.current) return false;
     sheetFrameInteractionSession.current = session;
     setFrameLayoutPreview(null);
     setFrameScalePreview(null);
@@ -299,12 +301,16 @@ export function useSheetFrameInteractions({
     if (session && !findSheetById(workbook, session.interaction.sheetId)) clearInteractionSession();
   }, [workbook]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!interactionsEnabled) {
+      clearInteractionSession();
+      return;
+    }
     const cancel = () => cancelSheetFrameScale();
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
     window.addEventListener('blur', cancel); window.addEventListener('keydown', key, true);
     return () => { window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key, true); cancel(); };
-  }, []);
+  }, [interactionsEnabled]);
 
   return {
     cancelSheetFrameDrag,

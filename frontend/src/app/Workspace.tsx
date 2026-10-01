@@ -198,7 +198,9 @@ export function Workspace({
   const formulaInspection = selectedSheet && selectedRaw
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
     : undefined;
-  const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet });
+  // A sheet dialog takes ownership from all background transient sessions.
+  const interactionsEnabled = !sheetDialogOpen;
+  const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   useEffect(() => {
     function writeFormat(write: () => readonly import('@workbook/core/model').FormatWrite[]) {
       if (!selectedSheet || !selectionRange || editingCell) return;
@@ -209,6 +211,7 @@ export function Workspace({
     }
 
     function handleShortcut(event: KeyboardEvent) {
+      if (!interactionsEnabled) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('textarea, input, select, [contenteditable="true"]') || event.defaultPrevented) return;
       const key = event.shiftKey && /^Digit[015]$/.test(event.code)
@@ -257,7 +260,7 @@ export function Workspace({
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, onRestoreGridFocus, selectedSheet, selectionRange, workspaceController]);
+  }, [commands, editingCell, interactionsEnabled, onRestoreGridFocus, selectedSheet, selectionRange, workspaceController]);
   useEffect(() => {
     if (!contentHistoryFeedback || editingCell) return;
     const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
@@ -310,6 +313,7 @@ export function Workspace({
     stopSheetFrameResize,
   } = useSheetFrameInteractions({
     commands,
+    interactionsEnabled,
     viewportScale: workspaceController.viewport.scale,
     workbook,
   });
@@ -444,7 +448,7 @@ export function Workspace({
     <>
       <WorkspaceToolbar
         formatControls={<NumberFormatControls
-            disabled={sheetDialogOpen}
+            disabled={!interactionsEnabled}
             onWrite={(writes) => {
               if (!selectedSheet || writes.length === 0) return;
               commands.writeNumberFormats(selectedSheet.id, writes);
@@ -579,6 +583,7 @@ export function Workspace({
                 const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
                 return (
                   <SheetGrid
+                    interactionsEnabled={interactionsEnabled}
                     activeCellKey={cellKeyForTarget(sheet, activeCell)}
                     activeSheetId={activeCell?.sheetId ?? null}
                     selectionOwner={selectionOwner}

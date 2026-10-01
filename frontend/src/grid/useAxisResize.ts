@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 import type { AxisSizeWrite, SheetTabularProjection } from '@workbook/core/model';
 import { AXIS_SIZE_LIMITS } from '@workbook/core/axisSizePolicy';
 import type { CellSelection } from './cellInteractionContracts';
@@ -25,6 +25,7 @@ export function resizeTargetIds(sheet: SheetTabularProjection, axis: AxisSizeWri
 export function useAxisResize(options: {
   sheet: SheetTabularProjection; selection?: CellSelection | null; selectionOwner?: symbol | null;
   activeSheetId?: string | null; commit?: (writes: readonly AxisSizeWrite[]) => void;
+  interactionsEnabled?: boolean;
 }) {
   const latest = useRef(options);
   latest.current = options;
@@ -42,12 +43,13 @@ export function useAxisResize(options: {
   const ownsSession = () => {
     const current = session.current;
     const next = latest.current;
-    return current && current.element.isConnected && next.commit && current.sheetId === next.sheet.id && current.selection === next.selection
+    return current && next.interactionsEnabled !== false && current.element.isConnected && next.commit && current.sheetId === next.sheet.id && current.selection === next.selection
       && current.owner === next.selectionOwner && current.activeSheetId === next.activeSheetId
       && current.ids.every((id) => (current.axis === 'row' ? next.sheet.rows : next.sheet.columns).includes(id));
   };
-  useEffect(() => { if (session.current && !ownsSession()) cancel(); });
-  useEffect(() => {
+  useLayoutEffect(() => { if (session.current && !ownsSession()) cancel(); });
+  useLayoutEffect(() => {
+    if (options.interactionsEnabled === false) return;
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
     const hidden = () => { if (document.visibilityState === 'hidden') cancel(); };
     // A focused cell editor stops Escape from bubbling; cancel the resize first.
@@ -60,10 +62,10 @@ export function useAxisResize(options: {
       document.removeEventListener('visibilitychange', hidden);
       cancel();
     };
-  }, [cancel]);
+  }, [cancel, options.interactionsEnabled]);
   function start(event: PointerEvent<HTMLElement>, axis: AxisSizeWrite['axis'], id: string, initialSize: number) {
     event.stopPropagation();
-    if (event.button !== 0 || session.current || !options.commit) return;
+    if (options.interactionsEnabled === false || event.button !== 0 || session.current || !options.commit) return;
     event.preventDefault();
     const header = event.currentTarget.parentElement!;
     const rect = header.getBoundingClientRect();

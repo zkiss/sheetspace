@@ -1,4 +1,4 @@
-import { MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
 import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
@@ -17,9 +17,11 @@ import {
 export function useWorkspaceController({
   onClearSelection,
   onCreateSheet,
+  interactionsEnabled = true,
 }: {
   onClearSelection: () => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
+  interactionsEnabled?: boolean;
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
@@ -30,7 +32,7 @@ export function useWorkspaceController({
   const navigationMayBeMoving = useRef(false);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
     start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
-  });
+  }, interactionsEnabled);
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -59,7 +61,11 @@ export function useWorkspaceController({
     setPendingSheetMenu(null);
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!interactionsEnabled) {
+      closeSheetMenu();
+      return;
+    }
     if (!pendingSheetMenu) return;
     // The menu owns Escape even when focus is still in the underlying grid.
     const cancelMenu = (event: KeyboardEvent) => {
@@ -70,11 +76,12 @@ export function useWorkspaceController({
     };
     document.addEventListener('keydown', cancelMenu, true);
     return () => document.removeEventListener('keydown', cancelMenu, true);
-  }, [pendingSheetMenu]);
+  }, [pendingSheetMenu, interactionsEnabled]);
 
   function openSheetMenu(sheetId: string, event: MouseEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
+    if (!interactionsEnabled) return;
     setPendingSheetMenu({
       sheetId,
       x: event.clientX,
@@ -148,6 +155,7 @@ export function useWorkspaceController({
   }
 
   function createSheetAtViewportCenter() {
+    if (!interactionsEnabled) return;
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();

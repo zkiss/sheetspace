@@ -6,8 +6,8 @@ function setup() {
   const create = vi.fn();
   const clear = vi.fn();
   let controller: ReturnType<typeof useWorkspaceController>;
-  function Harness() {
-    controller = useWorkspaceController({ onCreateSheet: create, onClearSelection: clear });
+  function Harness({ interactionsEnabled = true }: { interactionsEnabled?: boolean }) {
+    controller = useWorkspaceController({ onCreateSheet: create, onClearSelection: clear, interactionsEnabled });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface" onContextMenu={controller.handleWorkspaceContextMenu}>
       <div data-testid="plane"><span data-testid="plane-child" /></div>
       <input data-testid="input" /><textarea data-testid="textarea" /><select data-testid="select" />
@@ -16,12 +16,15 @@ function setup() {
       <a data-testid="link" href="#">Link</a>
       <div data-testid="menu" role="menu"><span data-testid="menu-label">Menu text</span></div>
       <section data-testid="inspector" data-workspace-native-content><code data-testid="code">Formula text</code></section>
-      <article data-testid="sheet" data-sheet-id="owned" data-workspace-sheet-frame />
+      <article data-testid="sheet" data-sheet-id="owned" data-workspace-sheet-frame>
+        <header data-testid="sheet-title" onContextMenu={(event) => controller.openSheetMenu('owned', event)} />
+      </article>
       <div data-testid="consumed" onContextMenu={(event) => event.preventDefault()} />
     </section>;
   }
-  render(<Harness />);
-  return { create, clear, state: () => controller!, target: (name: string) => screen.getByTestId(name) };
+  const { rerender } = render(<Harness />);
+  return { create, clear, state: () => controller!, target: (name: string) => screen.getByTestId(name),
+    enable: (interactionsEnabled: boolean) => rerender(<Harness interactionsEnabled={interactionsEnabled} />) };
 }
 
 function contextMenu(target: Element, consumed = false) {
@@ -60,5 +63,27 @@ describe('canvas context-menu eligibility', () => {
     contextMenu(target('consumed'));
     expect(create).not.toHaveBeenCalled();
     expect(clear).not.toHaveBeenCalled();
+  });
+
+  it('retires menus at the modal boundary and suspends menu/creation starts until reenabled', () => {
+    const { create, clear, state, target, enable } = setup();
+    contextMenu(target('sheet-title'));
+    expect(state().pendingSheetMenu?.sheetId).toBe('owned');
+    enable(false);
+    expect(state().pendingSheetMenu).toBeNull();
+    // The old capture listener must not consume the dialog's Escape.
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true);
+    contextMenu(target('sheet-title'));
+    act(() => state().createSheetAtViewportCenter());
+    expect(state().pendingSheetMenu).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    enable(true);
+    contextMenu(target('sheet-title'));
+    expect(state().pendingSheetMenu?.sheetId).toBe('owned');
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(false);
+    expect(state().pendingSheetMenu).toBeNull();
+    act(() => state().createSheetAtViewportCenter());
+    expect(create).toHaveBeenCalledOnce();
   });
 });

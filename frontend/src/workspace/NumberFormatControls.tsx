@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS, resolveAppearanceProperty } from '@workbook/core/numberFormat';
 import type { AppearancePatch, CellAppearance, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
@@ -210,7 +210,7 @@ function ColourPicker({
   const rootRef = useRef<HTMLDivElement>(null);
   const customInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (disabled) {
       setOpen(false);
     }
@@ -222,8 +222,8 @@ function ColourPicker({
       setHasDraft(false);
     }
   }, [colour, open, status]);
-  useEffect(() => {
-    if (!open) return;
+  useLayoutEffect(() => {
+    if (!open || disabled) return;
     const closeWhenOutside = (event: Event) => {
       if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
     };
@@ -243,7 +243,7 @@ function ColourPicker({
       document.removeEventListener('click', closeWhenOutside, true);
       document.removeEventListener('keydown', closeWhenEscaped, true);
     };
-  }, [open]);
+  }, [open, disabled]);
   const previewStatus = open && hasDraft ? draftMode : status;
   const previewColour = open && hasDraft ? draft : colour;
   return (

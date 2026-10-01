@@ -24,6 +24,7 @@ export function useWorkspaceGestures(
     closeMenu: () => void;
     clearSelection: () => void;
   },
+  interactionsEnabled = true,
 ) {
   const current = useRef(actions);
   useLayoutEffect(() => { current.current = actions; });
@@ -31,7 +32,9 @@ export function useWorkspaceGestures(
 
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
-    if (!surface) return;
+    // Modal takeover removes capture listeners and retires this entire session
+    // before the focused dialog can dispatch its first Escape.
+    if (!surface || !interactionsEnabled) return;
     let pan: Pan | null = null;
     let space = false;
     let suppressClick = false;
@@ -178,7 +181,7 @@ export function useWorkspaceGestures(
       document.removeEventListener('visibilitychange', visibility);
       cancel();
     };
-  }, [surfaceRef]);
+  }, [surfaceRef, interactionsEnabled]);
 
   return panning;
 }

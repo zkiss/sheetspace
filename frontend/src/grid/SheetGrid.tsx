@@ -111,6 +111,7 @@ export function SheetGrid({
   presentation,
   logicalSelection,
   onWriteAxisSizes,
+  interactionsEnabled = true,
   onPointerInteractionChange,
   onNativeFocusTarget,
   pendingCutCells,
@@ -118,6 +119,7 @@ export function SheetGrid({
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
+  interactionsEnabled?: boolean;
   /** Keeps this grid mounted while a live pointer session owns it. */
   onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
   /** Publishes native ownership only after focus reaches a concrete cell. */
@@ -186,7 +188,7 @@ export function SheetGrid({
   const selectionOwnerRef = useRef(selectionOwner);
   selectionOwnerRef.current = selectionOwner;
   const { columns, rows } = axisProjection;
-  const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes });
+  const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes, interactionsEnabled });
   const projectedMetrics = useMemo(() => createSheetGridAxisMetrics(axisProjection, presentation, resize.preview),
     [rows, columns, presentation, resize.preview]);
   const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
