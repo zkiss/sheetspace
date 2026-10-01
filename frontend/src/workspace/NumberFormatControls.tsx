@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS, resolveAppearanceProperty } from '@workbook/core/numberFormat';
 import type { AppearancePatch, CellAppearance, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
@@ -22,17 +22,25 @@ type AppearancePropertyControlState<Value> = {
 };
 export type AppearanceControlState = { [Property in keyof CellAppearance]-?: AppearancePropertyControlState<NonNullable<CellAppearance[Property]>> };
 
+/** Validate endpoints without enumerating or allocating selected write targets. */
+function selectionBounds(sheet: SheetDocument | undefined, selection: FormatSelection | null) {
+  if (!sheet || !selection || selection.anchor.sheetId !== sheet.id || selection.extent.sheetId !== sheet.id) return null;
+  const rowStart = sheet.content.rows.indexOf(selection.anchor.cell.rowId);
+  const rowEnd = sheet.content.rows.indexOf(selection.extent.cell.rowId);
+  const columnStart = sheet.content.columns.indexOf(selection.anchor.cell.columnId);
+  const columnEnd = sheet.content.columns.indexOf(selection.extent.cell.columnId);
+  if (rowStart < 0 || rowEnd < 0 || columnStart < 0 || columnEnd < 0) return null;
+  return { rowStart, rowEnd, columnStart, columnEnd };
+}
+
 export function selectionFormatWrites(
   sheet: SheetDocument | undefined,
   selection: FormatSelection | null,
   numberFormat: NumberFormat | null,
 ): readonly FormatWrite[] {
-  if (!sheet || !selection || selection.anchor.sheetId !== sheet.id || selection.extent.sheetId !== sheet.id) return [];
-  const rowStart = sheet.content.rows.indexOf(selection.anchor.cell.rowId);
-  const rowEnd = sheet.content.rows.indexOf(selection.extent.cell.rowId);
-  const columnStart = sheet.content.columns.indexOf(selection.anchor.cell.columnId);
-  const columnEnd = sheet.content.columns.indexOf(selection.extent.cell.columnId);
-  if (rowStart < 0 || rowEnd < 0 || columnStart < 0 || columnEnd < 0) return [];
+  const bounds = selectionBounds(sheet, selection);
+  if (!sheet || !selection || !bounds) return [];
+  const { rowStart, rowEnd, columnStart, columnEnd } = bounds;
   const rows = sheet.content.rows.slice(Math.min(rowStart, rowEnd), Math.max(rowStart, rowEnd) + 1);
   const columns = sheet.content.columns.slice(Math.min(columnStart, columnEnd), Math.max(columnStart, columnEnd) + 1);
   if (selection.mode === 'rows') return rows.map((targetId) => ({ scope: 'row', targetId, properties: { numberFormat } }));
@@ -82,11 +90,9 @@ function effectivePropertyValues<Property extends keyof CellAppearance>(
   property: Property,
   applicationDefault: NonNullable<CellAppearance[Property]>,
 ): readonly NonNullable<CellAppearance[Property]>[] {
-  const rowStart = sheet.content.rows.indexOf(selection.anchor.cell.rowId);
-  const rowEnd = sheet.content.rows.indexOf(selection.extent.cell.rowId);
-  const columnStart = sheet.content.columns.indexOf(selection.anchor.cell.columnId);
-  const columnEnd = sheet.content.columns.indexOf(selection.extent.cell.columnId);
-  if (rowStart < 0 || rowEnd < 0 || columnStart < 0 || columnEnd < 0) return [];
+  const bounds = selectionBounds(sheet, selection);
+  if (!bounds) return [];
+  const { rowStart, rowEnd, columnStart, columnEnd } = bounds;
   const rows = selection.mode === 'columns' ? sheet.content.rows : sheet.content.rows.slice(Math.min(rowStart, rowEnd), Math.max(rowStart, rowEnd) + 1);
   const columns = selection.mode === 'rows' ? sheet.content.columns : sheet.content.columns.slice(Math.min(columnStart, columnEnd), Math.max(columnStart, columnEnd) + 1);
   const overrides = sheet.presentation.formatOverrides ?? { rows: {}, columns: {}, cells: {} };
@@ -272,14 +278,18 @@ export function NumberFormatControls({
   selection: FormatSelection | null;
   sheet: SheetDocument | undefined;
 }) {
-  const state = selectionFormatControlState(sheet, selection);
-  const appearance = selectionAppearanceControlState(sheet, selection);
-  const disabled = selectionFormatWrites(sheet, selection, GENERAL_NUMBER_FORMAT).length === 0;
+  // Frame previews, saved positions, and callback replacement do not change
+  // formatting. Invalidate on the immutable formatting inputs, not sheet.frame.
+  const { state, appearance, disabled, customColours } = useMemo(() => ({
+    state: selectionFormatControlState(sheet, selection),
+    appearance: selectionAppearanceControlState(sheet, selection),
+    disabled: selectionBounds(sheet, selection) === null,
+    customColours: sheetCustomColours(sheet),
+  }), [sheet?.id, sheet?.content, sheet?.presentation.formatOverrides, selection]);
   const write = (format: NumberFormat | null) => onWrite(selectionFormatWrites(sheet, selection, format));
   const writeAppearance = (properties: AppearancePatch) => onWrite(selectionAppearanceWrites(sheet, selection, properties));
   const selectedKind = state.format?.kind ?? 'mixed';
   const precision = state.format?.kind === 'general' || !state.format ? '' : String(state.format.precision);
-  const customColours = sheetCustomColours(sheet);
   return (
     <div className="number-format-controls" aria-label="Number formatting">
       <div className="format-control-group" aria-label="Number format">

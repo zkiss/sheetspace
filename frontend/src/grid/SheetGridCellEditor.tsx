@@ -20,7 +20,8 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   interaction: SheetGridCellEditorInteraction;
   sheetName: string;
 }) {
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const [isAnchored, setIsAnchored] = useState(false);
+  const anchorRect = useRef<DOMRect | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const hasPlacedInitialCaret = useRef(false);
   const hasFinishedEditing = useRef(false);
@@ -28,7 +29,12 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     // Ref replacement during a parent render must not unmount the focused portal.
     if (!anchor.current) return;
     const next = anchor.current.getBoundingClientRect();
-    setAnchorRect((current) => sameRect(current, next) ? current : next);
+    if (sameRect(anchorRect.current, next)) return;
+    anchorRect.current = next;
+    // Geometry belongs to the DOM, not the controlled draft. Moving an anchor
+    // must not render React (or trigger another layout-effect geometry read).
+    if (editorRef.current) placeEditor(editorRef.current, next);
+    else setIsAnchored(true);
   };
   useLayoutEffect(() => { updatePosition(); });
   useEffect(() => {
@@ -51,16 +57,16 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   }, [anchor]);
   useLayoutEffect(() => {
     const editor = editorRef.current;
-    if (!editor || !anchorRect) return;
+    if (!editor || !anchorRect.current) return;
     if (!hasPlacedInitialCaret.current) {
       editor.setSelectionRange(editor.value.length, editor.value.length);
       hasPlacedInitialCaret.current = true;
     }
-    sizeEditorToContent(editor, anchorRect.height);
-  }, [anchorRect, editingCell.draft]);
+    placeEditor(editor, anchorRect.current);
+  }, [isAnchored, editingCell.draft]);
 
-  if (!anchorRect) return null;
-  const sizing = cellEditorSizing(editingCell.draft, anchorRect.width, anchorRect.height);
+  if (!isAnchored) return null;
+  const sizing = cellEditorSizing(editingCell.draft, 0);
   return createPortal(<textarea
     aria-label={`${sheetName} ${cellKey} editor`}
     autoFocus
@@ -108,11 +114,17 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
       }
     }}
     ref={editorRef}
-    style={{ height: sizing.height, left: anchorRect.left, maxHeight: CELL_EDITOR_MAX_HEIGHT,
-      maxWidth: `min(${CELL_EDITOR_MAX_WIDTH}, calc(100vw - ${anchorRect.left + 12}px))`,
-      overflow: 'auto', top: anchorRect.top, width: sizing.width }}
+    style={{ maxHeight: CELL_EDITOR_MAX_HEIGHT, overflow: 'auto' }}
     value={editingCell.draft}
   />, document.body);
+}
+
+function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect) {
+  editor.style.left = `${rect.left}px`;
+  editor.style.top = `${rect.top}px`;
+  editor.style.maxWidth = `min(${CELL_EDITOR_MAX_WIDTH}, calc(100vw - ${rect.left + 12}px))`;
+  editor.style.width = cellEditorSizing(editor.value, rect.width).width;
+  sizeEditorToContent(editor, rect.height);
 }
 
 function sameRect(left: DOMRect | null, right: DOMRect) {
@@ -130,13 +142,12 @@ function sizeEditorToContent(editor: HTMLTextAreaElement, minimumHeight: number)
   editor.style.overflowX = editor.scrollWidth > editor.clientWidth ? 'auto' : 'hidden';
 }
 
-function cellEditorSizing(value: string, minimumWidth: number, minimumHeight: number) {
+function cellEditorSizing(value: string, minimumWidth: number) {
   const lines = value.split('\n');
   const longestLineLength = Math.max(...lines.map((line) => line.length), 0);
   const visibleLineCount = Math.min(Math.max(lines.length, 1), 8);
   const visibleColumnCount = Math.min(Math.max(longestLineLength + 2, 1), 64);
   return {
-    height: `min(${CELL_EDITOR_MAX_HEIGHT}, max(${minimumHeight}px, ${visibleLineCount * 1.45}rem))`,
     multiline: lines.length > 1, visibleLineCount,
     width: `min(${CELL_EDITOR_MAX_WIDTH}, max(${minimumWidth}px, ${visibleColumnCount}ch))`,
   };
