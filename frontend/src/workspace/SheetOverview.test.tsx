@@ -31,7 +31,7 @@ describe('SheetOverview', () => {
     const marks = document.querySelectorAll('.sheet-overview-data-mark');
     expect(marks).toHaveLength(2);
     expect(marks[0]).toHaveStyle({ left: 'calc(23px + 0% - 0px)', top: 'calc(19px + 0% - 0px)' });
-    expect(marks[1]).toHaveStyle({ left: 'calc(23px + 100% - 23px)', top: 'calc(19px + 100% - 19px)' });
+    expect(marks[1]).toHaveStyle({ left: 'calc(23px + 100% - 49px)', top: 'calc(19px + 100% - 39px)' });
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sheet-grid-cell')).not.toBeInTheDocument();
 

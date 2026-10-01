@@ -70,7 +70,7 @@ describe('App workspace and sheet frame composition', () => {
     expect(screen.getByRole('heading', { name: 'Miniature plan' })).toBeInTheDocument();
     expect(document.querySelectorAll('.sheet-overview-data-mark')).toHaveLength(2);
     expect(document.querySelectorAll('.sheet-overview-data-mark')[1]).toHaveStyle({
-      left: 'calc(23px + 100% - 23px)', top: 'calc(19px + 100% - 19px)',
+      left: 'calc(23px + 100% - 49px)', top: 'calc(19px + 100% - 39px)',
     });
     expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();

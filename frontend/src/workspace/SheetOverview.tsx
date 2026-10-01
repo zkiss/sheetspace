@@ -6,6 +6,18 @@ import '@workspace/SheetOverview.css';
 
 export const MAX_SHEET_OVERVIEW_SAMPLES = 12;
 const MAX_SAMPLE_TEXT_LENGTH = 32;
+const OVERVIEW_GEOMETRY = {
+  rowHeaderWidth: 23,
+  columnHeaderHeight: 19,
+  markWidth: 20,
+  markHeight: 6,
+  markOffsetX: 3,
+  markOffsetY: 7,
+};
+const overviewGridStyle = {
+  '--overview-row-header-width': `${OVERVIEW_GEOMETRY.rowHeaderWidth}px`,
+  '--overview-column-header-height': `${OVERVIEW_GEOMETRY.columnHeaderHeight}px`,
+} as CSSProperties;
 
 export type SheetOverviewSample = {
   address: string;
@@ -64,7 +76,7 @@ export function SheetOverview({
       type="button"
     >
       <span aria-hidden="true" className="sheet-overview-texture">
-        <span className="sheet-overview-grid">
+        <span className="sheet-overview-grid" style={overviewGridStyle}>
           <span className="sheet-overview-corner" />
           <span className="sheet-overview-column-band" />
           <span className="sheet-overview-row-band" />
@@ -82,9 +94,16 @@ export function SheetOverview({
 }
 
 function samplePosition(sample: SheetOverviewSample): CSSProperties {
+  // Interpolate over the marker's travel, not the entire data area. The far
+  // edge reserves its size, translation, and a matching inset so rounded grid
+  // corners cannot clip the mark. Single-cell axes stay at the leading inset.
+  const { rowHeaderWidth, columnHeaderHeight, markWidth, markHeight, markOffsetX, markOffsetY } = OVERVIEW_GEOMETRY;
   return {
-    left: `calc(23px + ${sample.columnFraction * 100}% - ${sample.columnFraction * 23}px)`,
-    top: `calc(19px + ${sample.rowFraction * 100}% - ${sample.rowFraction * 19}px)`,
+    left: `calc(${rowHeaderWidth}px + ${sample.columnFraction * 100}% - ${sample.columnFraction * (rowHeaderWidth + markWidth + 2 * markOffsetX)}px)`,
+    top: `calc(${columnHeaderHeight}px + ${sample.rowFraction * 100}% - ${sample.rowFraction * (columnHeaderHeight + markHeight + 2 * markOffsetY)}px)`,
+    width: markWidth,
+    height: markHeight,
+    transform: `translate(${markOffsetX}px, ${markOffsetY}px)`,
   };
 }
 

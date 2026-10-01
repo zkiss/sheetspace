@@ -37,7 +37,7 @@
     repeating-linear-gradient(to right, transparent 0 35px, #d9e4e7 35px 36px),
     repeating-linear-gradient(to bottom, transparent 0 19px, #d9e4e7 19px 20px),
     #fff;
-  background-position: 23px 19px, 23px 19px;
+  background-position: var(--overview-row-header-width) var(--overview-column-header-height);
 }
 
 .sheet-overview-corner,
@@ -51,8 +51,8 @@
   z-index: 2;
   top: 0;
   left: 0;
-  width: 23px;
-  height: 19px;
+  width: var(--overview-row-header-width);
+  height: var(--overview-column-header-height);
   border-right: 1px solid #d1dfe3;
   border-bottom: 1px solid #d1dfe3;
 }
@@ -60,25 +60,22 @@
 .sheet-overview-column-band {
   top: 0;
   right: 0;
-  left: 23px;
-  height: 19px;
+  left: var(--overview-row-header-width);
+  height: var(--overview-column-header-height);
   border-bottom: 1px solid #d1dfe3;
 }
 
 .sheet-overview-row-band {
-  top: 19px;
+  top: var(--overview-column-header-height);
   bottom: 0;
   left: 0;
-  width: 23px;
+  width: var(--overview-row-header-width);
   border-right: 1px solid #d1dfe3;
 }
 
 .sheet-overview-data-mark {
   position: absolute;
   z-index: 1;
-  width: 20px;
-  height: 6px;
   border-radius: 1px;
   background: #8eb8ae;
-  transform: translate(3px, 7px);
 }
