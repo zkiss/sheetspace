@@ -155,6 +155,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         creatingFrames={creatingFrames}
         editingCell={editingCell}
         formulaResults={formulaResults}
+        sheetDialogOpen={Boolean(pendingCreation || pendingRename)}
         keyboardFocusRequest={keyboardFocusRequest}
         onKeyboardFocusRequestConsumed={acknowledgeKeyboardFocusRequest}
         onKeyboardFocusRequestCancelled={cancelKeyboardFocusRequest}

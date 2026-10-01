@@ -270,22 +270,27 @@ function ColourPicker({
 }
 
 export function NumberFormatControls({
+  disabled: interactionDisabled = false,
   onWrite,
   selection,
   sheet,
 }: {
+  disabled?: boolean;
   onWrite: (writes: readonly FormatWrite[]) => void;
   selection: FormatSelection | null;
   sheet: SheetDocument | undefined;
 }) {
   // Frame previews, saved positions, and callback replacement do not change
   // formatting. Invalidate on the immutable formatting inputs, not sheet.frame.
-  const { state, appearance, disabled, customColours } = useMemo(() => ({
+  const { state, appearance, disabled: selectionDisabled, customColours } = useMemo(() => ({
     state: selectionFormatControlState(sheet, selection),
     appearance: selectionAppearanceControlState(sheet, selection),
     disabled: selectionBounds(sheet, selection) === null,
     customColours: sheetCustomColours(sheet),
   }), [sheet?.id, sheet?.content, sheet?.presentation.formatOverrides, selection]);
+  // Modal sheet dialogs retire palette drafts/listeners without restoring
+  // background focus. Reuse the pickers' disabled cancellation path.
+  const disabled = interactionDisabled || selectionDisabled;
   const write = (format: NumberFormat | null) => onWrite(selectionFormatWrites(sheet, selection, format));
   const writeAppearance = (properties: AppearancePatch) => onWrite(selectionAppearanceWrites(sheet, selection, properties));
   const selectedKind = state.format?.kind ?? 'mixed';

@@ -85,6 +85,7 @@ export function Workspace({
   selectionRange,
   selectionOwner,
   saveStatus,
+  sheetDialogOpen = false,
   creatingAxes,
   creatingFrames,
   workbook,
@@ -122,6 +123,7 @@ export function Workspace({
   selectionRange: CellSelection | null;
   selectionOwner?: symbol | null;
   saveStatus: SaveStatus;
+  sheetDialogOpen?: boolean;
   creatingFrames: CreatingSheetFrameState[];
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
   workbook: Workbook;
@@ -442,6 +444,7 @@ export function Workspace({
     <>
       <WorkspaceToolbar
         formatControls={<NumberFormatControls
+            disabled={sheetDialogOpen}
             onWrite={(writes) => {
               if (!selectedSheet || writes.length === 0) return;
               commands.writeNumberFormats(selectedSheet.id, writes);

@@ -23,11 +23,52 @@ function openDialog(kind: 'Create' | 'Rename', frame: HTMLElement) {
 }
 
 describe('App sheet dialog cancellation', () => {
+  it.each([
+    ['Fill colour', 'name'],
+    ['Fill colour', 'submit'],
+    ['Text colour', 'name'],
+    ['Text colour', 'cancel'],
+  ])('retires the open %s palette when Shift+N opens creation, then cancels from %s without leaking focus', (paletteName, escapeTarget) => {
+    const { apiClient, cell } = setup();
+    fireEvent.cut(cell, { clipboardData: { setData: () => undefined } });
+    const trigger = screen.getByRole('button', { name: new RegExp(`^${paletteName}:`) });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const palette = screen.getByRole('dialog', { name: paletteName });
+    fireEvent.input(within(palette).getByLabelText('Custom colour'), { target: { value: '#abcdef' } });
+    fireEvent.keyDown(trigger, { key: 'N', shiftKey: true });
+
+    const dialog = screen.getByRole('form', { name: 'Create sheet' });
+    const input = within(dialog).getByRole('textbox');
+    expect(input).toHaveFocus();
+    expect(screen.queryByRole('dialog', { name: paletteName })).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger).toBeDisabled();
+    const control = escapeTarget === 'name' ? input
+      : within(dialog).getByRole('button', { name: escapeTarget === 'submit' ? 'Create' : 'Cancel' });
+    control.focus();
+    fireEvent.change(input, { target: { value: 'Abandoned sheet' } });
+    fireEvent.keyDown(control, { key: 'Escape' });
+
+    expect(screen.queryByRole('form', { name: 'Create sheet' })).not.toBeInTheDocument();
+    expect(trigger).not.toHaveFocus();
+    expect(trigger).toBeEnabled();
+    expect(cell).toHaveAttribute('data-active-cell', 'true');
+    expect(cell).toHaveAttribute('data-pending-cut', 'true');
+    expect(apiClient.createSheet).not.toHaveBeenCalled();
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+    expect(apiClient.writeNumberFormats).not.toHaveBeenCalled();
+    fireEvent.click(trigger);
+    expect(within(screen.getByRole('dialog', { name: paletteName })).getByLabelText('Custom colour'))
+      .toHaveValue(paletteName === 'Fill colour' ? '#ffffff' : '#1f2933');
+  });
+
   it.each(['Create', 'Rename'] as const)('discards a %s draft and validation on Escape, preserving grid selection and pending cut', (kind) => {
     const { apiClient, cell, frame } = setup();
     fireEvent.cut(cell, { clipboardData: { setData: () => undefined } });
     expect(cell).toHaveAttribute('data-pending-cut', 'true');
     let dialog = openDialog(kind, frame);
+    expect(screen.getByRole('button', { name: /^Fill colour:/ })).toBeDisabled();
     let input = within(dialog).getByRole('textbox');
     expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: '' } });
@@ -35,6 +76,7 @@ describe('App sheet dialog cancellation', () => {
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Sheet name is required.');
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Fill colour:/ })).toBeEnabled();
     expect(cell).toHaveAttribute('data-active-cell', 'true');
     expect(cell).toHaveAttribute('data-pending-cut', 'true');
     expect(cell).toHaveTextContent('Original');
