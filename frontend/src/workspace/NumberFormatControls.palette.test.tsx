@@ -72,6 +72,36 @@ describe('compact colour palettes', () => {
     expect(onWrite).not.toHaveBeenCalled();
   });
 
+  it.each(['rows', 'columns'] as const)('shows one mixed indicator and retains %s scope writes', (mode) => {
+    const sheet = sheetDocument({ id: `${mode}-inputs`, name: 'Inputs', rowCount: 2, columnCount: 2 });
+    const [firstRow, secondRow] = sheet.content.rows;
+    const [firstColumn, secondColumn] = sheet.content.columns;
+    const selection = {
+      mode,
+      anchor: { sheetId: sheet.id, cell: { rowId: firstRow, columnId: firstColumn } },
+      extent: { sheetId: sheet.id, cell: { rowId: secondRow, columnId: secondColumn } },
+    };
+    const onWrite = vi.fn();
+    const styled = { ...sheet, presentation: { ...sheet.presentation, formatOverrides: {
+      rows: {}, columns: {}, cells: {
+        [cellIdentityKey({ rowId: firstRow!, columnId: firstColumn! })]: { textColor: '#112233' as const },
+        [cellIdentityKey({ rowId: secondRow!, columnId: secondColumn! })]: { textColor: '#445566' as const },
+      },
+    } } };
+    render(<NumberFormatControls sheet={styled} selection={selection} onWrite={onWrite} />);
+
+    const trigger = screen.getByRole('button', { name: 'Text colour: mixed' });
+    expect(trigger).toHaveAttribute('data-mixed', 'true');
+    expect(trigger.querySelector('.colour-picker-mixed-indicator')).toHaveTextContent('—');
+    expect(trigger.querySelector('.colour-picker-trigger-swatch')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('button', { name: 'Use #23855d' }));
+    const targetIds = mode === 'rows' ? [firstRow, secondRow] : [firstColumn, secondColumn];
+    expect(onWrite).toHaveBeenLastCalledWith(targetIds.map((targetId) => ({
+      scope: mode === 'rows' ? 'row' : 'column', targetId, properties: { textColor: '#23855d' },
+    })));
+  });
+
   it('deduplicates sheet colours case-insensitively and never duplicates a draft palette swatch', () => {
     const { sheet, selection } = scenario();
     const styled = { ...sheet, presentation: { ...sheet.presentation, formatOverrides: {

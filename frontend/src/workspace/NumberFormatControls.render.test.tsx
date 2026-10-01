@@ -135,11 +135,25 @@ describe('NumberFormatControls rendering', () => {
     expect(screen.getByText('Text colour: mixed effective values; mixed local overrides')).toBeInTheDocument();
     expect(screen.getByText('Fill colour: mixed effective values; mixed local overrides')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Text colour: mixed' })).toHaveAttribute('data-mixed', 'true');
+    const mixedTrigger = screen.getByRole('button', { name: 'Text colour: mixed' });
+    expect(mixedTrigger.querySelector('.colour-picker-mixed-indicator')).toHaveTextContent('—');
+    expect(mixedTrigger.querySelector('.colour-picker-trigger-swatch')).not.toBeInTheDocument();
     applyCustomColour('Text colour', '#abcdef');
     expect(onWrite).toHaveBeenLastCalledWith([
       { scope: 'cell', targetId: first, properties: { textColor: '#abcdef' } },
       { scope: 'cell', targetId: second, properties: { textColor: '#abcdef' } },
     ]);
+  });
+
+  it('keeps trigger and palette swatch clipping local to their buttons', () => {
+    // JSDOM cannot execute pseudo-element layout; retain the button/swatch
+    // structure that WorkspaceToolbar.css contains without clipping the picker root.
+    render(<NumberFormatControls sheet={sheet} selection={selection} onWrite={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Text colour: inherited' });
+    expect(trigger).toHaveClass('colour-picker-trigger');
+    fireEvent.click(trigger);
+    expect(screen.getByRole('dialog').parentElement).toHaveClass('colour-picker');
+    expect(screen.getByRole('button', { name: 'Use #1f2933' })).toHaveClass('colour-picker-swatch');
   });
 
   it('writes each explicit appearance default and keeps inherited colour values out of colour inputs', async () => {

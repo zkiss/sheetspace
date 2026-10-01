@@ -90,6 +90,9 @@ describe('compact workspace interactions', () => {
     render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2 })])} />);
     fireEvent.keyDown(document.body, { key: 'b', ctrlKey: true });
     expect(screen.getByRole('button', { name: /Bold:/ })).toBeDisabled();
+    for (const label of ['Text colour', 'Fill colour']) {
+      expect(screen.getByRole('button', { name: new RegExp(`^${label}:`) })).toBeDisabled();
+    }
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     fireEvent.doubleClick(cell);
     fireEvent.keyDown(document.body, { key: 'b', ctrlKey: true });

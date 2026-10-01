@@ -178,7 +178,14 @@
   background: #fff;
 }
 
-.colour-picker-trigger::after,
+.number-format-controls .colour-picker-trigger,
+.number-format-controls .colour-picker-swatch {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.colour-picker-trigger-swatch,
 .colour-picker-swatch::after {
   display: block;
   width: 100%;
@@ -188,23 +195,9 @@
   content: '';
 }
 
-.colour-picker-trigger[data-colour-mode='inherited']::after {
-  display: none;
-}
-
-.colour-picker-trigger[data-colour-mode='default']::after {
-  border: 1px solid #7d8d96;
-  background: linear-gradient(to bottom, #f7f9fa 0 46%, #7d8d96 47% 53%, #f7f9fa 54% 100%);
-}
-
-.colour-picker-trigger[data-colour-mode='none']::after {
-  display: none;
-}
-
 .colour-picker-trigger[data-colour-mode='inherited'],
-.colour-picker-trigger[data-colour-mode='none'] {
-  display: grid;
-  place-items: center;
+.colour-picker-trigger[data-colour-mode='none'],
+.colour-picker-trigger[data-colour-mode='mixed'] {
   color: #7d8d96;
 }
 
@@ -212,6 +205,10 @@
 .colour-picker-trigger[data-colour-mode='none'] svg {
   width: 1rem;
   height: 1rem;
+}
+
+.colour-picker-mixed-indicator {
+  line-height: 1;
 }
 
 .colour-picker-popover {

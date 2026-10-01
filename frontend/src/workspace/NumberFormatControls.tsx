@@ -246,9 +246,16 @@ function ColourPicker({
   }, [open, disabled]);
   const previewStatus = open && hasDraft ? draftMode : status;
   const previewColour = open && hasDraft ? draft : colour;
+  const triggerContent = previewStatus === 'mixed'
+    ? <span className="colour-picker-mixed-indicator">—</span>
+    : previewStatus === 'inherited'
+      ? <FormatIcon kind="reset" />
+      : previewStatus === 'none'
+        ? <NoColourIcon />
+        : <span aria-hidden="true" className="colour-picker-trigger-swatch" style={{ '--colour-swatch': previewColour } as import('react').CSSProperties} />;
   return (
     <div className="colour-picker" ref={rootRef}>
-      <button ref={triggerRef} aria-describedby={descriptionId} aria-expanded={open} aria-haspopup="dialog" aria-label={`${ariaLabel}: ${previewStatus === 'mixed' ? 'mixed' : previewStatus === 'inherited' ? 'inherited' : previewStatus === 'none' ? 'no colour' : previewColour}`} className="colour-picker-trigger" data-colour-mode={previewStatus} data-mixed={previewStatus === 'mixed' || undefined} disabled={disabled} onClick={() => setOpen((current) => !current)} style={{ '--colour-swatch': previewColour } as import('react').CSSProperties} title={ariaLabel} type="button">{previewStatus === 'mixed' ? '—' : previewStatus === 'inherited' ? <FormatIcon kind="reset" /> : previewStatus === 'none' ? <NoColourIcon /> : null}</button>
+      <button ref={triggerRef} aria-describedby={descriptionId} aria-expanded={open} aria-haspopup="dialog" aria-label={`${ariaLabel}: ${previewStatus === 'mixed' ? 'mixed' : previewStatus === 'inherited' ? 'inherited' : previewStatus === 'none' ? 'no colour' : previewColour}`} className="colour-picker-trigger" data-colour-mode={previewStatus} data-mixed={previewStatus === 'mixed' || undefined} disabled={disabled} onClick={() => setOpen((current) => !current)} title={ariaLabel} type="button">{triggerContent}</button>
       {open ? <div aria-label={ariaLabel} className="colour-picker-popover" role="dialog">
         <span className="colour-picker-label">Options</span><div className="colour-picker-options">
           <button aria-pressed={previewStatus === 'inherited'} className="colour-picker-option" onClick={() => { onApplyInherited(); setOpen(false); }} type="button"><FormatIcon kind="reset" />Inherit</button>
