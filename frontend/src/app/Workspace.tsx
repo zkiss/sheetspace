@@ -40,11 +40,8 @@ import {
 } from '@workspace/NumberFormatControls';
 import { GENERAL_NUMBER_FORMAT } from '@workbook/core/numberFormat';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
-import {
-  workspaceRectForFrame,
-  workspaceRectsIntersect,
-  workspaceViewportBounds,
-} from '@workspace/workspaceGeometry';
+import { workspaceViewportBounds } from '@workspace/workspaceGeometry';
+import { historyRevealTarget } from './historyRevealTarget';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import {
   activeFocusRequestId,
@@ -136,6 +133,14 @@ export function Workspace({
   const gridFocusLeaseRef = useRef<GridFocusLease | null>(null);
   const nextGridFocusToken = useRef(1);
   const revealedHistoryIdentity = useRef<string | undefined>(undefined);
+  // Keep consumption across grid culling and detailed/overview remounts.
+  const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
+  const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
+    if (gridHistoryReveals.current.identity !== identity) {
+      gridHistoryReveals.current = { identity, sheetIds: new Set() };
+    }
+    gridHistoryReveals.current.sheetIds.add(sheetId);
+  }, []);
   const dispatchGridFocusLease = useCallback((action: GridFocusLeaseAction) => {
     const next = reduceGridFocusLease(gridFocusLeaseRef.current, action);
     gridFocusLeaseRef.current = next;
@@ -256,21 +261,29 @@ export function Workspace({
     const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
     if (!destination || !workspaceController.workspaceSurfaceSize) return;
     if (revealedHistoryIdentity.current === contentHistoryFeedback.identity) return;
+    const cell = contentHistoryFeedback.after.find((cell) => cell.sheetId === destination.id)!;
+    const frameElement = Array.from(workspaceController.workspaceSurfaceRef.current?.querySelectorAll<HTMLElement>('article.sheet-frame') ?? [])
+      .find((frame) => frame.dataset.sheetId === destination.id);
+    const target = historyRevealTarget(destination, cell, frameElement?.querySelector<HTMLElement>('.sheet-frame-body') ?? null, creatingAxes[destination.id]);
+    if (!target) return;
     revealedHistoryIdentity.current = contentHistoryFeedback.identity;
     const viewportBounds = workspaceViewportBounds(
       workspaceController.workspaceSurfaceSize,
       workspaceController.viewport,
     );
-    if (!workspaceRectsIntersect(workspaceRectForFrame(destination.frame), viewportBounds)) {
-      workspaceController.navigateToTarget(workspaceRectForFrame(destination.frame));
+    if (target.left < viewportBounds.left || target.right > viewportBounds.right
+      || target.top < viewportBounds.top || target.bottom > viewportBounds.bottom) {
+      workspaceController.navigateToTarget(target);
     }
   }, [
     contentHistoryFeedback?.identity,
+    creatingAxes,
     editingCell,
     sheets,
     workspaceController.navigateToTarget,
     workspaceController.viewport,
     workspaceController.workspaceSurfaceSize,
+    workspaceController.workspaceSurfaceRef,
   ]);
   const {
     navigateReference,
@@ -601,6 +614,10 @@ export function Workspace({
                     navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                     navigationHighlightRange={navigationHighlightRange}
                     historyFeedbackCells={historyFeedbackCells}
+                    historyFeedbackIdentity={gridHistoryReveals.current.identity === contentHistoryFeedback?.identity
+                      && gridHistoryReveals.current.sheetIds.has(sheet.id)
+                      ? undefined : contentHistoryFeedback?.identity}
+                    onHistoryRevealConsumed={handleHistoryRevealConsumed}
                     scrollContainerRef={scrollContainerRef}
                     selectedRange={selectedRange}
                     selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}

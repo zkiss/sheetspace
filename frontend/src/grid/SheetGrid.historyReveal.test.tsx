@@ -18,16 +18,32 @@ function setup() {
     editorInteraction: { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
     formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null,
   };
-  const grid = (target?: string) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
-    <SheetGrid {...props} historyFeedbackCells={target ? new Map([[target, { before: 'old', beforeDisplay: 'old', after: 'new' }]]) : undefined} />
+  const grid = (target?: string, identity = 'undo-1') => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+    <SheetGrid {...props} axisProjection={projectGridAxes(sheet)} historyFeedbackIdentity={target ? identity : undefined}
+      historyFeedbackCells={target ? new Map([[target, { before: 'old', beforeDisplay: 'old', after: 'new' }]]) : undefined} />
   </div>;
   const view = render(grid());
   const viewport = scrollContainerRef.current!;
   act(() => { virtualGridGeometry(viewport); });
-  return { viewport, reveal: (target: string) => view.rerender(grid(target)) };
+  return { viewport, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)) };
 }
 
 describe('history reveal scroll-axis independence', () => {
+  it('reveals once per action, not per feedback map or axis projection allocation', () => {
+    const { viewport, reveal } = setup();
+    reveal('A1');
+    viewport.scrollLeft = 500;
+    viewport.scrollTop = 400;
+    fireEvent.scroll(viewport);
+    reveal('A1');
+    expect(viewport.scrollLeft).toBe(500);
+    expect(viewport.scrollTop).toBe(400);
+    // A genuine redo at the same address must reveal again, even before expiry.
+    reveal('A1', 'redo-2');
+    expect(viewport.scrollLeft).toBe(0);
+    expect(viewport.scrollTop).toBe(0);
+  });
+
   it.each([
     { target: 'C20', left: 100, top: 0, movesX: false, movesY: true },
     { target: 'I3', left: 0, top: 30, movesX: true, movesY: false },

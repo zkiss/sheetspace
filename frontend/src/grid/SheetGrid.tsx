@@ -6,6 +6,7 @@ import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from '@grid/gridAxisProjection';
 import { createSheetGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
+import { gridCellReveal } from './gridCellReveal';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
   GRID_CELL_HEIGHT,
@@ -97,6 +98,8 @@ export function SheetGrid({
   navigationHighlightCellKey,
   navigationHighlightRange,
   historyFeedbackCells,
+  historyFeedbackIdentity,
+  onHistoryRevealConsumed,
   formulaResults,
   scrollContainerRef,
   selectionMode,
@@ -137,6 +140,9 @@ export function SheetGrid({
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
+  /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
+  historyFeedbackIdentity?: string;
+  onHistoryRevealConsumed?: (sheetId: string, identity: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
   selectionMode?: CellSelectionMode;
@@ -158,6 +164,7 @@ export function SheetGrid({
   // while virtualization causes this effect to rerun. Remember acknowledgements
   // locally to make each request's completion edge-triggered.
   const consumedKeyboardFocusRequestIds = useRef(new Set<number>());
+  const revealedHistoryIdentity = useRef<string>();
   const gridRef = useRef<HTMLDivElement>(null);
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
@@ -394,34 +401,21 @@ export function SheetGrid({
   }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, rowMetrics, rows, scrollContainerRef, sheet]);
 
   useEffect(() => {
-    if (!historyAddress) return;
+    if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, historyAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, historyAddress.columnIndex);
-    // Axis metrics begin after the sticky headers; scroll coordinates include them.
-    const rowOffset = rowMetrics.itemOffset(rowIndex);
-    const rowStart = rowOffset === undefined ? undefined : rowOffset + GRID_COLUMN_HEADER_HEIGHT;
-    const rowEnd = rowStart === undefined ? undefined : rowStart + (rowMetrics.itemSize(rowIndex) ?? 0);
-    const columnOffset = columnMetrics.itemOffset(columnIndex);
-    const columnStart = columnOffset === undefined ? undefined : columnOffset + GRID_ROW_HEADER_WIDTH;
-    const columnEnd = columnStart === undefined ? undefined : columnStart + (columnMetrics.itemSize(columnIndex) ?? 0);
-    const rowVisible = rowStart !== undefined && rowEnd !== undefined
-      && rowStart >= scrollContainer.scrollTop + GRID_COLUMN_HEADER_HEIGHT
-      && rowEnd <= scrollContainer.scrollTop + scrollContainer.clientHeight;
-    const columnVisible = columnStart !== undefined && columnEnd !== undefined
-      && columnStart >= scrollContainer.scrollLeft + GRID_ROW_HEADER_WIDTH
-      && columnEnd <= scrollContainer.scrollLeft + scrollContainer.clientWidth;
-    // Reveal each obscured axis independently; a visible axis keeps its offset.
-    if (!columnVisible) {
-      const nextColumnOffset = columnMetrics.scrollOffsetForIndex(columnIndex, Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH));
-      if (nextColumnOffset !== undefined) scrollContainer.scrollLeft = Math.round(nextColumnOffset);
-    }
-    if (!rowVisible) {
-      const nextRowOffset = rowMetrics.scrollOffsetForIndex(rowIndex, Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT));
-      if (nextRowOffset !== undefined) scrollContainer.scrollTop = Math.round(nextRowOffset);
-    }
-  }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, rowMetrics, rows, columns, scrollContainerRef]);
+    const reveal = gridCellReveal({ rows: rowMetrics, columns: columnMetrics }, { row: rowIndex, column: columnIndex }, {
+      width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
+      left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
+    });
+    if (!reveal.row || !reveal.column) return;
+    revealedHistoryIdentity.current = historyFeedbackIdentity;
+    scrollContainer.scrollLeft = reveal.column.scroll;
+    scrollContainer.scrollTop = reveal.row.scroll;
+    onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
+  }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
 
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
