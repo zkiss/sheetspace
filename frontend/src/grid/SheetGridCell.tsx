@@ -27,6 +27,7 @@ export function SheetGridCell({
   isEditing,
   isFocusTarget = false,
   isNavigationTarget = false,
+  navigationHighlightIdentity,
   historyFeedback,
   historyEdges,
   isRangeSelected = false,
@@ -48,6 +49,7 @@ export function SheetGridCell({
   isEditing: boolean;
   isFocusTarget?: boolean;
   isNavigationTarget?: boolean;
+  navigationHighlightIdentity?: number;
   historyFeedback?: { before: string | null; beforeDisplay: string | null; after: string | null };
   historyEdges?: string;
   isRangeSelected?: boolean;
@@ -158,6 +160,9 @@ export function SheetGridCell({
       style={style}
       tabIndex={tabIndex}
     >
+      {isNavigationTarget && (
+        <span aria-hidden="true" className="sheet-grid-navigation-feedback" key={navigationHighlightIdentity} />
+      )}
       {isEditing && editingCell ? (
         <SheetGridCellEditor
           anchor={cellElementRef}

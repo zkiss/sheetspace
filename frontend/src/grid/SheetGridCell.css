@@ -47,8 +47,19 @@
 }
 
 .sheet-grid-cell-navigation-target {
-  animation: navigation-target-pulse 1.2s ease-out;
-  box-shadow: inset 0 0 0 2px #168b7b;
+  position: relative;
+}
+
+/* A keyed, non-interactive tint restarts feedback without remounting the cell
+   or drawing internal borders. Selection continues to own the perimeter. */
+.sheet-grid-navigation-feedback {
+  --target-highlight-from: rgb(61 170 114 / 35%);
+  --target-highlight-to: rgb(61 170 114 / 15%);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--target-highlight-to);
+  animation: content-history-highlight 1.2s ease-out;
 }
 
 .sheet-grid-cell-history-insertion,
@@ -92,29 +103,15 @@
 }
 
 @keyframes content-history-highlight {
-  from { background: #ffe15a; }
-  to { background: #fff3a3; }
+  from { background: var(--target-highlight-from, #ffe15a); }
+  to { background: var(--target-highlight-to, #fff3a3); }
 }
 
 @keyframes content-history-enter { from { opacity: 0; } to { opacity: 1; } }
 @keyframes content-history-leave { from { opacity: 1; } to { opacity: 0; } }
 
-@keyframes navigation-target-pulse {
-  from {
-    background: #90d8cd;
-    box-shadow:
-      inset 0 0 0 3px #087b6c,
-      0 0 0 4px rgb(22 139 123 / 30%);
-  }
-
-  to {
-    background: #ccebe6;
-    box-shadow: inset 0 0 0 2px #168b7b;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .sheet-grid-cell-navigation-target {
+  .sheet-grid-navigation-feedback {
     animation: none;
   }
 

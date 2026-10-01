@@ -103,6 +103,7 @@ describe('useReferenceNavigation', () => {
   });
 
   it('selects a durable cell without motion when reduced motion is requested', () => {
+    vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const navigateToTarget = vi.fn();
@@ -132,5 +133,34 @@ describe('useReferenceNavigation', () => {
       top: 0,
     }), { forceOversized: false, minimumScale: 0.5 });
     expect(result.current.navigationMotion).toBe(false);
+    expect(result.current.navigationHighlight).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(1_200); });
+    expect(result.current.navigationHighlight).toBeNull();
+  });
+
+  it('restarts highlight lifetime and identity on repeated navigation, then replaces the target', () => {
+    vi.useFakeTimers();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const select = vi.fn();
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget: vi.fn(), onSelectReferenceTarget: select, workbook: workbookWithSheets([sheet]),
+    }));
+    const identity = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    const target = reference({ kind: 'cell', sheetId: sheet.id, identity });
+    act(() => { result.current.navigateReference(target); });
+    const firstIdentity = result.current.navigationHighlightIdentity;
+    act(() => { vi.advanceTimersByTime(800); result.current.navigateReference(target); });
+    expect(result.current.navigationHighlightIdentity).not.toBe(firstIdentity);
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(result.current.navigationHighlight).not.toBeNull();
+    const range = { start: identity,
+      end: { rowId: sheet.content.rows[2]!, columnId: sheet.content.columns[2]! } };
+    act(() => { result.current.navigateReference(reference({ kind: 'range', sheetId: sheet.id, range })); });
+    expect(result.current.navigationHighlight).toEqual({ kind: 'range', sheetId: sheet.id, range });
+    act(() => { vi.advanceTimersByTime(1_199); });
+    expect(result.current.navigationHighlight).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(result.current.navigationHighlight).toBeNull();
+    expect(select).toHaveBeenCalledTimes(3);
   });
 });

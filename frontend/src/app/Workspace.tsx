@@ -293,6 +293,7 @@ export function Workspace({
   const {
     navigateReference,
     navigationHighlight,
+    navigationHighlightIdentity,
     navigationMotion,
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
@@ -621,6 +622,7 @@ export function Workspace({
                     onKeyboardFocusRequestConsumed={handleKeyboardFocusRequestConsumed}
                     navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                     navigationHighlightRange={navigationHighlightRange}
+                    navigationHighlightIdentity={navigationHighlightIdentity}
                     historyFeedbackCells={historyFeedbackCells}
                     historyFeedbackIdentity={gridHistoryReveals.current.identity === contentHistoryFeedback?.identity
                       && gridHistoryReveals.current.sheetIds.has(sheet.id)

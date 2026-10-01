@@ -97,6 +97,7 @@ export function SheetGrid({
   onKeyboardFocusRequestConsumed,
   navigationHighlightCellKey,
   navigationHighlightRange,
+  navigationHighlightIdentity,
   historyFeedbackCells,
   historyFeedbackIdentity,
   onHistoryRevealConsumed,
@@ -141,6 +142,8 @@ export function SheetGrid({
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
+  /** One reference-navigation action, independent of range/projection allocations. */
+  navigationHighlightIdentity?: number;
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
   /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
   historyFeedbackIdentity?: string;
@@ -167,6 +170,7 @@ export function SheetGrid({
   // locally to make each request's completion edge-triggered.
   const consumedKeyboardFocusRequestIds = useRef(new Set<number>());
   const revealedHistoryIdentity = useRef<string>();
+  const revealedNavigationIdentity = useRef<number>();
   const gridRef = useRef<HTMLDivElement>(null);
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
@@ -371,6 +375,8 @@ export function SheetGrid({
   }, [activeAddress?.columnIndex, activeAddress?.rowIndex, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
 
   useEffect(() => {
+    if (navigationHighlightIdentity !== undefined
+      && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
     if (!navigationHighlightRange && !navigationHighlightCellKey) {
       return;
     }
@@ -390,17 +396,15 @@ export function SheetGrid({
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, range.start.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, range.start.columnIndex);
-    const rowOffset = rowMetrics.scrollOffsetForIndex(
-      rowIndex,
-      Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT),
-    );
-    const columnOffset = columnMetrics.scrollOffsetForIndex(
-      columnIndex,
-      Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH),
-    );
-    if (columnOffset !== undefined) scrollContainer.scrollLeft = Math.round(columnOffset);
-    if (rowOffset !== undefined) scrollContainer.scrollTop = Math.round(rowOffset);
-  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, rowMetrics, rows, scrollContainerRef, sheet]);
+    const reveal = gridCellReveal({ rows: rowMetrics, columns: columnMetrics }, { row: rowIndex, column: columnIndex }, {
+      width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
+      left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
+    });
+    if (!reveal.row || !reveal.column) return;
+    revealedNavigationIdentity.current = navigationHighlightIdentity;
+    scrollContainer.scrollLeft = reveal.column.scroll;
+    scrollContainer.scrollTop = reveal.row.scroll;
+  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, rowMetrics, rows, scrollContainerRef, sheet]);
 
   useEffect(() => {
     if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
@@ -805,6 +809,7 @@ export function SheetGrid({
                   isEditing={isEditing}
                   isFocusTarget={focusIntent?.targetKey === key}
                   isNavigationTarget={isNavigationTarget}
+                  navigationHighlightIdentity={navigationHighlightIdentity}
                     historyFeedback={historyFeedback}
                     historyEdges={historyEdges}
                     isRangeSelected={isRangeSelected}

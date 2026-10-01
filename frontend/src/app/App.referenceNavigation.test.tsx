@@ -16,10 +16,41 @@ function setSurfaceSize(width: number, height: number) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('formula reference navigation', () => {
+  it.each([false, true])('restarts range tint and expires feedback without clearing selection (reduced motion: %s)', (reduced) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })));
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(inputs!B2:D4)' } });
+    const view = render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    const navigate = () => {
+      fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+      modifierClick(screen.getByRole('button', { name: 'Inputs!B2:D4, reference' }));
+    };
+    navigate();
+    const anchor = screen.getByRole('cell', { name: 'Inputs B2 empty cell' });
+    const center = screen.getByRole('cell', { name: 'Inputs C3 empty cell' });
+    const tint = center.querySelector('.sheet-grid-navigation-feedback');
+    expect(tint).not.toBeNull();
+    expect(anchor).toHaveFocus();
+    expect(center.className).not.toMatch(/sheet-grid-selection-(top|bottom|left|right)/);
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', reduced ? 'instant' : 'smooth');
+    act(() => { vi.advanceTimersByTime(800); });
+    navigate();
+    expect(center.querySelector('.sheet-grid-navigation-feedback')).not.toBe(tint);
+    expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toBe(anchor);
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(center).toHaveAttribute('data-navigation-highlight', 'true');
+    act(() => { vi.advanceTimersByTime(800); });
+    expect(view.container.querySelector('.sheet-grid-navigation-feedback')).toBeNull();
+    expect(center).toHaveAttribute('data-reference-selected', 'true');
+    expect(anchor).toHaveFocus();
+  });
+
   it('jumps across sheets to a distant range through a measured virtual window', async () => {
     const inputs = sparseLargeSheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
     const outputs = {
