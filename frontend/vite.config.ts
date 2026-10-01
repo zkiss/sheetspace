@@ -21,6 +21,16 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Pure contracts do not need a browser or React Testing Library. Keep DOM
+    // policy, hook, component and App tests in JSDOM, with isolated workers.
+    environmentMatchGlobs: [
+      ['architecture/**/*.test.ts', 'node'],
+      ['src/{calculation,workbook,application/core}/**/*.test.ts', 'node'],
+      ['src/grid/{cellInteraction,cellNavigation,clipboardPayload,gridAxisMetrics,gridAxisProjection,gridGeometry,sheetGridModel}.test.ts', 'node'],
+      ['src/workspace/{workspaceFrameVirtualization,sheetRenderingMode,NumberFormatControls}.test.ts', 'node'],
+      ['src/reference-navigation/formulaInspection.test.ts', 'node'],
+      ['src/app/gridFocusLease.test.ts', 'node'],
+    ],
     setupFiles: './src/test-support/setup.ts',
     // The coverage suite shares one report directory and integration interactions are CPU-heavy.
     // A single worker makes the authoritative run deterministic in this shared checkout.

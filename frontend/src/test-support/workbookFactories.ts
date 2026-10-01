@@ -7,6 +7,11 @@ export function positionedSheet(id: string, name: string, position: WorkspacePos
   return sheetDocument({ id, name, position });
 }
 
+/** Compact interaction fixtures; opt in without changing navigation/virtualization workloads. */
+export function smallSheetDocument(options: Parameters<typeof sheetDocument>[0]): SheetDocument {
+  return sheetDocument({ rowCount: 3, columnCount: 3, ...options });
+}
+
 export function sheetDocument({
   cells = {},
   columnCount = 10,

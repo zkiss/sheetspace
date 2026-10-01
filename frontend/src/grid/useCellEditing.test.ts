@@ -210,6 +210,21 @@ describe('useCellEditing', () => {
   });
 
   describe('edit persistence', () => {
+    it('discards a changed draft on cancellation without writing or changing the saved content', () => {
+      const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { B1: '2' } });
+      const { commands, result } = renderCellEditing(sheet);
+      const target = cellTargetAt(sheet, 'B1')!;
+      act(() => result.current.startEditingCell(target));
+      act(() => result.current.updateEditingCellValue('draft text'));
+      act(() => result.current.cancelActiveEdit());
+      expect(result.current.editingCell).toBeNull();
+      expect(result.current.activeCell).toEqual(target);
+      expect(commands.updateCellContent).not.toHaveBeenCalled();
+      expect(commands.writeCells).not.toHaveBeenCalled();
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell?.draft).toBe('2');
+    });
+
     it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
       for (const [raw, draft] of [['', 'Region'], ['', '=SUM(B1:B2)'], ['', ''], ['Region', 'Region'], ['=SUM(B1:B2)', '=SUM(B1:B2)']]) {
         const input = sheetDocument({ id: 'header-drafts', name: 'Header drafts', cells: { A1: raw } });

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { measuredElementGeometry } from '@test-support/domGeometry';
 import { zoomWorkspace } from '@test-support/workspaceActions';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function pointer(target: Element, type: string, clientX = 100) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 1, clientX, clientY: 100 });
@@ -14,7 +14,7 @@ function pointer(target: Element, type: string, clientX = 100) {
 describe('frame gesture rendering ownership', () => {
   it('drags an initially miniature frame without revealing a grid and keeps its capture owner through culling', async () => {
     render(<App initialWorkbook={workbookWithSheets([
-      sheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.25, position: { x: 48, y: 96 } }),
+      smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.25, position: { x: 48, y: 96 } }),
     ])} />);
     const surface = screen.getByTestId('workspace-surface');
     const geometry = measuredElementGeometry(surface, { width: 800, height: 600 });
@@ -54,7 +54,7 @@ describe('frame gesture rendering ownership', () => {
 
   it('reveals detail only when actual scale requires it, then retains that body until the drag ends', async () => {
     render(<App initialWorkbook={workbookWithSheets([
-      sheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.25 }),
+      smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.25 }),
     ])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const header = within(frame).getByTestId('sheet-frame-header');

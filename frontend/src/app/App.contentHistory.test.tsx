@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -9,7 +9,7 @@ afterEach(() => {
 
 describe('content history application integration', () => {
   it('routes workbook history around editor-local undo and preserves selection while showing formula displays', () => {
-    const sheet = sheetDocument({
+    const sheet = smallSheetDocument({
       id: 'inputs',
       name: 'Inputs',
       cells: { A1: '=1+1' },
@@ -51,7 +51,7 @@ describe('content history application integration', () => {
 
   it('expires feedback and clears it immediately when a new edit supersedes the transition', () => {
     vi.useFakeTimers();
-    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: 'old' } });
+    const sheet = smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: 'old' } });
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });

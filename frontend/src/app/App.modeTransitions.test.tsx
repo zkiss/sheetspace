@@ -5,14 +5,14 @@ import { App } from './App';
 import { openCellEditor } from '@test-support/appScreen';
 import { zoomWorkspace, setSheetScale } from '@test-support/workspaceActions';
 import { measuredElementGeometry } from '@test-support/domGeometry';
-import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function inputsSheet() {
-  return positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+  return smallSheetDocument({ id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 } });
 }
 
 function outputsSheet() {
-  return positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 96 });
+  return smallSheetDocument({ id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 96 } });
 }
 
 function fireGridPointer(element: Element, type: string) {
@@ -92,7 +92,7 @@ describe('App rendering-mode transitions', () => {
 
   it('restores focus after selecting a sheet initially rendered as an overview', async () => {
     const user = userEvent.setup();
-    const miniatureInputs = sheetDocument({
+    const miniatureInputs = smallSheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
       position: { x: 48, y: 96 },
@@ -179,7 +179,7 @@ describe('App rendering-mode transitions', () => {
   });
 
   it('keeps an overview-selection focus handoff through culling and remounting', async () => {
-    const miniatureInputs = sheetDocument({
+    const miniatureInputs = smallSheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
       position: { x: 48, y: 96 },

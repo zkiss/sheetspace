@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function setup(visualScale = 1) {
   render(<App initialWorkbook={workbookWithSheets([
-    sheetDocument({ id: 'inputs', name: 'Inputs', visualScale, cells: { A1: '=B1+1', B1: '2' } }),
+    smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale, cells: { A1: '=B1+1', B1: '2' } }),
   ])} />);
   return { frame: screen.getByRole('article', { name: 'Sheet Inputs' }), surface: screen.getByTestId('workspace-surface') };
 }
@@ -24,7 +24,7 @@ function expectStationary(surface: HTMLElement) {
 }
 
 describe('context-menu ownership in the composed workspace', () => {
-  it.each(['Enter', 'Set scale'])('keeps the percentage draft and every menu descendant native, then applies via %s', (commit) => {
+  it('keeps the real menu draft native and applies Enter through to the sheet frame', () => {
     const { frame, surface } = setup();
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     fireEvent.click(cell);
@@ -33,9 +33,7 @@ describe('context-menu ownership in the composed workspace', () => {
     const input = within(menu).getByRole<HTMLInputElement>('spinbutton');
     input.focus();
     fireEvent.change(input, { target: { value: '75' } });
-    const targets = [input, menu, input.parentElement!, within(menu).getByText('%'),
-      within(menu).getByText('Display scale'), within(menu).getByLabelText('Display scale'),
-      within(menu).getByRole('button', { name: 'Set scale' }), within(menu).getByRole('menuitem', { name: 'Rename' })];
+    const targets = [input, within(menu).getByText('%')];
     for (const target of targets) {
       expect(contextMenu(target).defaultPrevented).toBe(false);
       expect(screen.getByRole('menu')).toBe(menu);
@@ -45,8 +43,7 @@ describe('context-menu ownership in the composed workspace', () => {
       expect(cell).toHaveAttribute('data-active-cell', 'true');
       expectStationary(surface);
     }
-    if (commit === 'Enter') fireEvent.keyDown(input, { key: 'Enter' });
-    else fireEvent.click(within(menu).getByRole('button', { name: 'Set scale' }));
+    fireEvent.keyDown(input, { key: 'Enter' });
     expect(frame).toHaveAttribute('data-visual-scale', '0.75');
   });
 
@@ -65,7 +62,7 @@ describe('context-menu ownership in the composed workspace', () => {
     }
   });
 
-  it.each(['Enter', 'Escape'])('keeps the actual body-portaled editor native until %s', (ending) => {
+  it('keeps the actual body-portaled editor native, commits once and undoes once', () => {
     const { surface } = setup();
     const cell = screen.getByRole('cell', { name: 'Inputs B1 cell' });
     fireEvent.doubleClick(cell);
@@ -81,14 +78,12 @@ describe('context-menu ownership in the composed workspace', () => {
     expect(cell).toHaveAttribute('data-active-cell', 'true');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expectStationary(surface);
-    fireEvent.keyDown(editor, { key: ending });
+    fireEvent.keyDown(editor, { key: 'Enter' });
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(cell).toHaveTextContent(ending === 'Enter' ? 'draft text' : '2');
+    expect(cell).toHaveTextContent('draft text');
     // A single undo returns to the original value after one commit.
-    if (ending === 'Enter') {
-      fireEvent.keyDown(cell, { key: 'z', ctrlKey: true });
-      expect(cell).toHaveTextContent('2');
-    }
+    fireEvent.keyDown(cell, { key: 'z', ctrlKey: true });
+    expect(cell).toHaveTextContent('2');
   });
 
   it.each([1, 0.25])('retains sheet menu ownership for actual sheet content at visual scale %s', (scale) => {

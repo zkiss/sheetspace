@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useWorkspaceController } from './useWorkspaceController';
 
@@ -43,10 +43,12 @@ describe('canvas context-menu eligibility', () => {
   );
 
   it.each(['surface', 'plane'])('creates exactly once from background %s', (name) => {
-    const { create, target } = setup();
+    const { create, target, state } = setup();
+    act(() => state().zoomWorkspaceBy(1 / 1.2));
     expect(contextMenu(target(name)).defaultPrevented).toBe(true);
+    act(() => state().zoomWorkspaceBy(1.2));
     expect(create).toHaveBeenCalledOnce();
-    expect(create).toHaveBeenCalledWith({ x: 40, y: 60 }, 1, 'Create sheet here');
+    expect(create).toHaveBeenCalledWith({ x: 48, y: 72 }, 1 / 1.2, 'Create sheet here');
   });
 
   it('honors pre-consumed events and consumption by a descendant before any side effects', () => {

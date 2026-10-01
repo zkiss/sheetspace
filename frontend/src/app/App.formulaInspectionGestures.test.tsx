@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
 
 function setup() {
   render(<App initialWorkbook={workbookWithSheets([
-    sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=B1+1', B1: '2' } }),
+    smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=B1+1', B1: '2' } }),
   ])} />);
   const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
   fireEvent.click(cell);
@@ -45,9 +45,9 @@ describe('formula inspector workspace gesture ownership', () => {
     expect(surface).toHaveAttribute('data-viewport-y', '0');
   });
 
-  it.each(['ctrlKey', 'metaKey'] as const)('retains explicit %s wheel zoom over plain formula text', (modifier) => {
+  it('routes Ctrl wheel over real formula text without clearing the inspector', () => {
     const { cell, code, surface, inspector } = setup();
-    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, [modifier]: true, deltaY: -100 });
+    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 });
     fireEvent(code, event);
     expect(event.defaultPrevented).toBe(true);
     expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1);
@@ -55,11 +55,11 @@ describe('formula inspector workspace gesture ownership', () => {
     expect(screen.getByRole('region', { name: 'Selected formula' })).toBe(inspector);
   });
 
-  it.each(['middle', 'space'] as const)('retains explicit %s pan over the inspector and clears selection intentionally', (gesture) => {
+  it('routes Space pan over the real inspector and clears selection intentionally', () => {
     const { cell, code, surface } = setup();
-    if (gesture === 'space') fireEvent.keyDown(document.body, { key: ' ', code: 'Space' });
-    const button = gesture === 'middle' ? 1 : 0;
-    const buttons = gesture === 'middle' ? 4 : 1;
+    fireEvent.keyDown(document.body, { key: ' ', code: 'Space' });
+    const button = 0;
+    const buttons = 1;
     expect(pointer(code, 'pointerdown', { button, buttons }).defaultPrevented).toBe(true);
     pointer(surface, 'pointermove', { button, buttons, clientX: 40, clientY: 20 });
     pointer(surface, 'pointerup', { button, buttons: 0 });

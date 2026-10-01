@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { measuredElementGeometry } from '@test-support/domGeometry';
 
 function pointer(element: Element, type: string, options: MouseEventInit = {}) {
@@ -13,8 +13,8 @@ function pointer(element: Element, type: string, options: MouseEventInit = {}) {
 describe('compact workspace interactions', () => {
   it('restores the remembered target when a different sheet header is activated, including after pan clears focus', () => {
     render(<App initialWorkbook={workbookWithSheets([
-      sheetDocument({ id: 'inputs', name: 'Inputs' }),
-      sheetDocument({ id: 'outputs', name: 'Outputs' }),
+      smallSheetDocument({ id: 'inputs', name: 'Inputs' }),
+      smallSheetDocument({ id: 'outputs', name: 'Outputs' }),
     ])} />);
     const inputs = screen.getByRole('article', { name: 'Sheet Inputs' });
     const outputs = screen.getByRole('article', { name: 'Sheet Outputs' });
@@ -34,7 +34,7 @@ describe('compact workspace interactions', () => {
   });
 
   it('uses physical shifted digits for formatting shortcuts and leaves editor text shortcuts native', () => {
-    render(<App initialWorkbook={workbookWithSheets([sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '1.234' } })])} />);
+    render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '1.234' } })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     fireEvent.click(cell);
     fireEvent.keyDown(cell, { key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true });
@@ -55,7 +55,7 @@ describe('compact workspace interactions', () => {
   });
 
   it('formats alignment and preserves precision on repeated number shortcuts without accepting unrelated modifiers', () => {
-    render(<App initialWorkbook={workbookWithSheets([sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.2345' } })])} />);
+    render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.2345' } })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     fireEvent.click(cell);
     for (const [key, alignment] of [['e', 'center'], ['l', 'left'], ['r', 'right']]) {
@@ -87,7 +87,7 @@ describe('compact workspace interactions', () => {
   });
 
   it('does not write formatting for a cleared selection or steal active editor keyboard input', () => {
-    render(<App initialWorkbook={workbookWithSheets([sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2 })])} />);
+    render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2 })])} />);
     fireEvent.keyDown(document.body, { key: 'b', ctrlKey: true });
     expect(screen.getByRole('button', { name: /Bold:/ })).toBeDisabled();
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
@@ -98,7 +98,7 @@ describe('compact workspace interactions', () => {
   });
 
   it('zooms from the portal editor and commits its draft before a middle-button canvas pan', () => {
-    render(<App initialWorkbook={workbookWithSheets([sheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
+    render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     fireEvent.doubleClick(cell);
     const editor = screen.getByRole('textbox');
@@ -116,7 +116,7 @@ describe('compact workspace interactions', () => {
   });
 
   it('does not recenter a visible undo target or repeatedly pull the viewport back after history navigation', () => {
-    render(<App initialWorkbook={workbookWithSheets([sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 50, y: 50 }, cells: { A1: 'old' } })])} />);
+    render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 50, y: 50 }, cells: { A1: 'old' } })])} />);
     const surface = screen.getByTestId('workspace-surface');
     act(() => { measuredElementGeometry(surface, { width: 800, height: 600 }); });
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });

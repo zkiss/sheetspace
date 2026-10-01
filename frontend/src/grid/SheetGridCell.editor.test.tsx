@@ -70,11 +70,25 @@ describe('portal cell editor', () => {
 
   it.each(['Enter', 'Tab', 'Escape'])('finishes %s once without a blur re-commit', (key) => {
     const { editor, interaction } = setup();
+    editor.setSelectionRange(2, 4);
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    fireEvent(editor, menu);
+    expect(menu.defaultPrevented).toBe(false);
+    expect(screen.getByRole('textbox')).toBe(editor);
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('Draft');
+    expect([editor.selectionStart, editor.selectionEnd]).toEqual([2, 4]);
+    for (const action of Object.values(interaction)) expect(action).not.toHaveBeenCalled();
     fireEvent.keyDown(editor, { key });
     fireEvent.blur(editor);
     expect(interaction.commit).not.toHaveBeenCalled();
-    if (key === 'Escape') expect(interaction.cancel).toHaveBeenCalledOnce();
-    else expect(interaction.commitAndNavigate).toHaveBeenCalledOnce();
+    if (key === 'Escape') {
+      expect(interaction.cancel).toHaveBeenCalledOnce();
+      expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
+    } else {
+      expect(interaction.commitAndNavigate).toHaveBeenCalledOnce();
+      expect(interaction.cancel).not.toHaveBeenCalled();
+    }
   });
 
   it('commits the live value only once on ordinary external blur', () => {
