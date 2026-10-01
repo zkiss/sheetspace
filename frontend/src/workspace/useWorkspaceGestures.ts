@@ -152,7 +152,7 @@ export function useWorkspaceGestures(
     const global: [string, EventListener][] = [
       ['keydown', keyDown as EventListener], ['keyup', keyUp as EventListener],
       ['pointermove', pointerMove as EventListener], ['pointerup', pointerEnd as EventListener],
-      ['pointercancel', pointerEnd as EventListener], ['blur', cancel],
+      ['pointercancel', pointerEnd as EventListener],
       ['pointerdown', ownedPortalListener(pointerDown as EventListener)],
       ['wheel', ownedPortalListener(wheel as EventListener)],
       ['gesturestart', ownedPortalListener(gesture)], ['gesturechange', ownedPortalListener(gesture)],
@@ -162,10 +162,13 @@ export function useWorkspaceGestures(
     ];
     local.forEach(([name, listener]) => surface.addEventListener(name, listener, { capture: true, passive: false }));
     global.forEach(([name, listener]) => window.addEventListener(name, listener, { capture: true, passive: false }));
+    // Element blur does not bubble: only window focus loss should cancel ownership.
+    window.addEventListener('blur', cancel);
     document.addEventListener('visibilitychange', visibility);
     return () => {
       local.forEach(([name, listener]) => surface.removeEventListener(name, listener, true));
       global.forEach(([name, listener]) => window.removeEventListener(name, listener, true));
+      window.removeEventListener('blur', cancel);
       document.removeEventListener('visibilitychange', visibility);
       cancel();
     };

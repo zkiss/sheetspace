@@ -94,6 +94,61 @@ describe('workspace wheel and gesture routing', () => {
 });
 
 describe('workspace pointer ownership and lifecycle', () => {
+  it('ends a focused-cell Space pan on keyup before pointerup and releases capture', () => {
+    const { surface, state, capture, clearSelection } = setup();
+    const cell = screen.getByRole('cell');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: ' ', code: 'Space' });
+    pointer(cell, 'pointerdown');
+    expect(cell).not.toHaveFocus();
+    expect(clearSelection).toHaveBeenCalledOnce();
+    expect(capture.has(7)).toBe(true);
+    pointer(surface, 'pointermove', { clientX: 10 });
+    fireEvent.keyUp(document.body, { key: ' ', code: 'Space' });
+    expect(state().isPanningWorkspace).toBe(false);
+    expect(capture.size).toBe(0);
+    expect(surface.releasePointerCapture).toHaveBeenCalledWith(7);
+    pointer(surface, 'pointermove', { clientX: 30 });
+    expect(state().viewport.x).toBe(10);
+  });
+
+  it('retains held Space through cell blur and pointerup for a second focused-cell drag', () => {
+    const { surface, state, capture } = setup();
+    const cell = screen.getByRole('cell');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: ' ', code: 'Space' });
+    for (let index = 0; index < 2; index++) {
+      cell.focus();
+      expect(pointer(cell, 'pointerdown').defaultPrevented).toBe(true);
+      expect(cell).not.toHaveFocus();
+      expect(capture.has(7)).toBe(true);
+      pointer(surface, 'pointermove', { clientX: 10 });
+      pointer(surface, 'pointerup');
+      expect(capture.size).toBe(0);
+    }
+    expect(state().viewport.x).toBe(20);
+    fireEvent.keyUp(document.body, { code: 'Space' });
+    expect(pointer(cell, 'pointerdown').defaultPrevented).toBe(false);
+  });
+
+  it('ignores element blur during a pan but cancels capture and held Space on window focus loss', () => {
+    const { surface, state, capture } = setup();
+    const cell = screen.getByRole('cell');
+    cell.focus();
+    fireEvent.keyDown(cell, { code: 'Space' });
+    pointer(cell, 'pointerdown');
+    cell.focus();
+    cell.blur();
+    expect(state().isPanningWorkspace).toBe(true);
+    expect(capture.has(7)).toBe(true);
+    fireEvent(window, new Event('blur'));
+    expect(state().isPanningWorkspace).toBe(false);
+    expect(capture.size).toBe(0);
+    pointer(surface, 'pointermove', { clientX: 30 });
+    expect(state().viewport.x).toBe(0);
+    expect(pointer(cell, 'pointerdown').defaultPrevented).toBe(false);
+  });
+
   it.each(['cell', 'header', 'separator'])('Space drag owns %s before sheet handlers and suppresses its click', (kind) => {
     const { surface, state, childAction } = setup();
     const target = kind === 'header' ? screen.getByText('Header') : screen.getByRole(kind);
