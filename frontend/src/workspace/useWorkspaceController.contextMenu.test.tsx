@@ -9,7 +9,7 @@ function setup() {
   function Harness() {
     controller = useWorkspaceController({ onCreateSheet: create, onClearSelection: clear });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface" onContextMenu={controller.handleWorkspaceContextMenu}>
-      <div data-testid="plane" />
+      <div data-testid="plane"><span data-testid="plane-child" /></div>
       <input data-testid="input" /><textarea data-testid="textarea" /><select data-testid="select" />
       <div data-testid="editable" contentEditable /><div data-testid="textbox" role="textbox" />
       <button data-testid="control"><span data-testid="control-label">Control</span></button>
@@ -42,13 +42,16 @@ describe('canvas context-menu eligibility', () => {
     },
   );
 
-  it.each(['surface', 'plane'])('creates exactly once from background %s', (name) => {
-    const { create, target, state } = setup();
-    act(() => state().zoomWorkspaceBy(1 / 1.2));
+  it.each(['surface', 'plane', 'plane-child'])('never creates from background %s, before or after pan/zoom', (name) => {
+    const { create, clear, target, state } = setup();
     expect(contextMenu(target(name)).defaultPrevented).toBe(true);
-    act(() => state().zoomWorkspaceBy(1.2));
-    expect(create).toHaveBeenCalledOnce();
-    expect(create).toHaveBeenCalledWith({ x: 48, y: 72 }, 1 / 1.2, 'Create sheet here');
+    act(() => state().panWorkspace(100, -200));
+    act(() => state().zoomWorkspaceBy(1 / 1.2));
+    const viewport = state().viewport;
+    expect(contextMenu(target(name)).defaultPrevented).toBe(true);
+    expect(create).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    expect(state().viewport).toEqual(viewport);
   });
 
   it('honors pre-consumed events and consumption by a descendant before any side effects', () => {

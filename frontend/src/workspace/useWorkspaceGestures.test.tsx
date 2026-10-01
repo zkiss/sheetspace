@@ -181,7 +181,7 @@ describe('workspace pointer ownership and lifecycle', () => {
     expect(state().viewport).toEqual({ x: 40, y: 20, scale: 1 });
   });
 
-  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'visibility', 'keyup', 'buttons'])('releases pan on %s and permits a fresh gesture', (ending) => {
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'visibility', 'keyup', 'buttons', 'escape'])('releases pan on %s and permits a fresh gesture', (ending) => {
     const { surface, state, capture } = setup();
     fireEvent.keyDown(document.body, { code: 'Space' });
     pointer(surface, 'pointerdown');
@@ -196,6 +196,7 @@ describe('workspace pointer ownership and lifecycle', () => {
       fireEvent(document, new Event('visibilitychange'));
       hidden.mockRestore();
     } else if (ending === 'keyup') fireEvent.keyUp(window, { code: 'Space' });
+    else if (ending === 'escape') expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(false);
     else if (ending === 'buttons') pointer(surface, 'pointermove', { buttons: 0, clientX: 100 });
     else pointer(surface, ending);
     expect(state().isPanningWorkspace).toBe(false);
@@ -205,6 +206,35 @@ describe('workspace pointer ownership and lifecycle', () => {
     pointer(surface, 'pointerdown', { button: 1, buttons: 4 });
     pointer(surface, 'pointermove', { buttons: 4, clientX: 25 });
     expect(state().viewport.x).toBe(25);
+  });
+
+  it('leaves idle Escape native but cancels held Space without invoking grid actions', () => {
+    const { childAction, clearSelection, state } = setup();
+    const cell = screen.getByRole('cell');
+    expect(fireEvent.keyDown(cell, { key: 'Escape' })).toBe(true);
+    childAction.mockClear();
+    fireEvent.keyDown(cell, { code: 'Space' });
+    expect(fireEvent.keyDown(cell, { key: 'Escape' })).toBe(false);
+    expect(childAction).not.toHaveBeenCalled();
+    expect(clearSelection).not.toHaveBeenCalled();
+    expect(pointer(cell, 'pointerdown').defaultPrevented).toBe(false);
+    expect(state().isPanningWorkspace).toBe(false);
+  });
+
+  it('cancels a native pinch on Escape and ignores subsequent gesture changes until a new start', () => {
+    const { surface, state } = setup();
+    const gesture = (type: string, scale: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.assign(event, { scale, clientX: 100, clientY: 100 });
+      fireEvent(surface, event);
+    };
+    gesture('gesturestart', 1);
+    gesture('gesturechange', 1.5);
+    const viewport = state().viewport;
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(false);
+    gesture('gesturechange', 2);
+    gesture('gesturechange', 3);
+    expect(state().viewport).toEqual(viewport);
   });
 
   it('cleans up capture and listeners across repeated mount cycles', () => {

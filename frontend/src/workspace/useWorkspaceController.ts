@@ -1,4 +1,4 @@
-import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
+import { MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
 import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
@@ -9,7 +9,6 @@ import {
   surfaceSize as measureSurfaceSize,
   viewportForTarget,
   workspacePointAtViewportCenter,
-  workspacePointFromClient,
   type WorkspaceTargetRect,
   zoomScaleBy,
   zoomViewportAt,
@@ -59,6 +58,19 @@ export function useWorkspaceController({
   function closeSheetMenu() {
     setPendingSheetMenu(null);
   }
+
+  useEffect(() => {
+    if (!pendingSheetMenu) return;
+    // The menu owns Escape even when focus is still in the underlying grid.
+    const cancelMenu = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeSheetMenu();
+    };
+    document.addEventListener('keydown', cancelMenu, true);
+    return () => document.removeEventListener('keydown', cancelMenu, true);
+  }, [pendingSheetMenu]);
 
   function openSheetMenu(sheetId: string, event: MouseEvent<HTMLElement>) {
     event.preventDefault();
@@ -146,11 +158,6 @@ export function useWorkspaceController({
     if (event.defaultPrevented || !isBackgroundTarget(event.target, event.currentTarget)) return;
     event.preventDefault();
     closeSheetMenu();
-    onCreateSheet(sheetFramePosition(workspacePointFromClient(
-      { x: event.clientX, y: event.clientY },
-      event.currentTarget,
-      viewport,
-    )), viewport.scale, 'Create sheet here');
   }
 
   return {

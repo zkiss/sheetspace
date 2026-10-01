@@ -110,9 +110,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    setPendingCreation(null);
-    setSheetName('');
-    setError('');
+    closeDialog();
   }
 
   function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
@@ -127,9 +125,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    setPendingRename(null);
-    setSheetName('');
-    setError('');
+    closeDialog();
   }
 
   function closeDialog() {
@@ -193,7 +189,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
           error={error}
           pendingCreation={pendingCreation}
           sheetName={sheetName}
-          onCancel={() => setPendingCreation(null)}
+          onCancel={closeDialog}
           onNameChange={(name) => {
             setSheetName(name);
             setError('');

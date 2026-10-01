@@ -24,7 +24,7 @@ describe('App MVP workflow', () => {
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
 
       workspaceSurface().getBoundingClientRect = workspaceRect;
-      fireEvent.contextMenu(workspaceSurface(), { clientX: 440, clientY: 290 });
+      fireEvent.keyDown(document.body, { key: 'N', shiftKey: true });
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
       fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
@@ -83,8 +83,8 @@ describe('App MVP workflow', () => {
       expect(reloadedInputFrame).toHaveAttribute('data-row-count', '21');
       expect(reloadedInputFrame).toHaveAttribute('data-column-count', '11');
       expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', outputSheetId);
-      expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '420');
-      expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '260');
+      expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '500');
+      expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '400');
       expect(cellAt(reloadedInputFrame, 'C1')).toHaveTextContent('15');
       expect(cellAt(reloadedOutputFrame, 'A1')).toHaveTextContent('15');
 

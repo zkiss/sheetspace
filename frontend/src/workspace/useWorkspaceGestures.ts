@@ -51,6 +51,11 @@ export function useWorkspaceGestures(
       endPan();
     }
     function keyDown(event: KeyboardEvent) {
+      if (!event.defaultPrevented && event.key === 'Escape' && (pan || space || gestureScale !== null)) {
+        consume(event);
+        cancel();
+        return;
+      }
       if (event.defaultPrevented || event.code !== 'Space' || event.altKey || event.ctrlKey || event.metaKey
         || isNativeControlTarget(event.target)) return;
       if (event.target !== document.body && !surface!.contains(event.target as Node)) return;
@@ -123,6 +128,7 @@ export function useWorkspaceGestures(
       if (event.defaultPrevented) return;
       const input = event as GestureEvent;
       if (!Number.isFinite(input.scale) || input.scale <= 0) return;
+      if (event.type !== 'gesturestart' && gestureScale === null) return;
       consume(event);
       if (event.type === 'gesturestart') {
         current.current.start();

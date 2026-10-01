@@ -27,7 +27,12 @@ export function SheetDialog({
 
   return (
     <div className="dialog-backdrop" role="presentation">
-      <form aria-label={label} className="sheet-dialog" onSubmit={onSubmit}>
+      <form aria-label={label} className="sheet-dialog" onSubmit={onSubmit} onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+      }}>
         <h2>{title}</h2>
         <label htmlFor={id}>Sheet name</label>
         <input

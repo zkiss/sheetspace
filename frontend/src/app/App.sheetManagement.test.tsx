@@ -9,13 +9,13 @@ import { workspaceRect } from '@test-support/domGeometry';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('App sheet management integration', () => {
-  it('wires the workspace context menu create dialog to a sheet at the clicked coordinate', async () => {
+  it('wires the empty-workspace create dialog to a sheet at the viewport center', async () => {
     const user = userEvent.setup();
     render(<App initialWorkbook={workbookWithSheets([])} apiClient={persistedWorkbookClient()} />);
 
     workspaceSurface().getBoundingClientRect = workspaceRect;
     zoomWorkspace('in');
-    fireEvent.contextMenu(workspaceSurface(), { clientX: 240, clientY: 330 });
+    fireEvent.click(screen.getByRole('button', { name: 'Create your first sheet' }));
     expect(screen.getByRole('form', { name: /create sheet/i })).toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/sheet name/i), 'Assumptions');
@@ -23,7 +23,7 @@ describe('App sheet management integration', () => {
 
     const frame = screen.getByTestId('sheet-frame');
     expect(within(frame).getByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
-    expect(frame).toHaveStyle({ left: '267px', top: '317px' });
+    expect(frame).toHaveStyle({ left: '500px', top: '400px' });
   });
 
   it('renders validation feedback in the create dialog', async () => {

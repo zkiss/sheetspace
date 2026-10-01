@@ -2,6 +2,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { autosaveClient } from '@test-support/apiClients';
+import { zoomWorkspace } from '@test-support/workspaceActions';
 
 function setup(visualScale = 1) {
   render(<App initialWorkbook={workbookWithSheets([
@@ -24,6 +26,55 @@ function expectStationary(surface: HTMLElement) {
 }
 
 describe('context-menu ownership in the composed workspace', () => {
+  it('never creates on the canvas or plane after pan/zoom, and closes a sheet menu without clearing selection', () => {
+    const apiClient = autosaveClient();
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([
+      smallSheetDocument({ id: 'inputs', name: 'Inputs' }),
+    ])} />);
+    const surface = screen.getByTestId('workspace-surface');
+    const plane = screen.getByTestId('workspace-plane');
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    fireEvent.wheel(surface, { deltaX: 50, deltaY: 100 });
+    zoomWorkspace('out');
+    const viewport = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+    const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    fireEvent.click(cell);
+    for (const target of [surface, plane]) {
+      contextMenu(frame);
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+      expect(contextMenu(target).defaultPrevented).toBe(true);
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      expect(screen.queryByRole('form', { name: 'Create sheet' })).not.toBeInTheDocument();
+      expect(cell).toHaveAttribute('data-active-cell', 'true');
+      expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(viewport);
+    }
+    expect(apiClient.createSheet).not.toHaveBeenCalled();
+  });
+
+  it.each(['grid', 'input', 'button'])('cancels only the sheet menu when Escape comes from its %s owner', (owner) => {
+    const { frame } = setup();
+    const cell = screen.getByRole('cell', { name: 'Inputs B1 cell' });
+    fireEvent.click(cell);
+    fireEvent.cut(cell, { clipboardData: { setData: () => undefined } });
+    expect(cell).toHaveAttribute('data-pending-cut', 'true');
+    contextMenu(frame);
+    const menu = screen.getByRole('menu');
+    const input = within(menu).getByRole('spinbutton');
+    fireEvent.change(input, { target: { value: '75' } });
+    const target = owner === 'grid' ? cell : owner === 'input' ? input : within(menu).getByRole('button', { name: 'Set scale' });
+    target.focus();
+    fireEvent.keyDown(target, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(frame).toHaveAttribute('data-visual-scale', '1');
+    expect(cell).toHaveAttribute('data-active-cell', 'true');
+    expect(cell).toHaveAttribute('data-pending-cut', 'true');
+    // Once the menu is gone, the grid owns the next Escape.
+    fireEvent.keyDown(cell, { key: 'Escape' });
+    expect(cell).not.toHaveAttribute('data-pending-cut');
+    contextMenu(frame);
+    expect(within(screen.getByRole('menu')).getByRole('spinbutton')).toHaveValue(100);
+  });
+
   it('keeps the real menu draft native and applies Enter through to the sheet frame', () => {
     const { frame, surface } = setup();
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
