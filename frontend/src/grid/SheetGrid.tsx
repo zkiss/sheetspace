@@ -6,7 +6,7 @@ import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from '@grid/gridAxisProjection';
 import { createSheetGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
-import { gridCellReveal } from './gridCellReveal';
+import { gridCellReveal, gridRangeReveal } from './gridCellReveal';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
   GRID_CELL_HEIGHT,
@@ -396,7 +396,11 @@ export function SheetGrid({
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, range.start.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, range.start.columnIndex);
-    const reveal = gridCellReveal({ rows: rowMetrics, columns: columnMetrics }, { row: rowIndex, column: columnIndex }, {
+    const endRowIndex = axisIndexForDurableIndex(rows, range.end.rowIndex);
+    const endColumnIndex = axisIndexForDurableIndex(columns, range.end.columnIndex);
+    const reveal = gridRangeReveal({ rows: rowMetrics, columns: columnMetrics }, {
+      start: { row: rowIndex, column: columnIndex }, end: { row: endRowIndex, column: endColumnIndex },
+    }, {
       width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
       left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
     });
