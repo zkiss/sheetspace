@@ -136,7 +136,7 @@ export function useWorkspaceController({
 
   function navigateToTarget(
     target: WorkspaceTargetRect,
-    options: { forceOversized?: boolean; minimumScale?: number } = {},
+    options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean } = {},
   ) {
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;

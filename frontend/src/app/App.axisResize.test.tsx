@@ -79,7 +79,7 @@ describe('axis resize application integration', () => {
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     fireEvent.click(screen.getByRole('button', { name: 'Inputs!K100:L101, reference' }), { ctrlKey: true });
     expect(body.scrollLeft).toBe(160 + 9 * 76);
-    expect(body.scrollTop).toBe(Math.round(80 + 98 * 26.4));
+    expect(body.scrollTop).toBeCloseTo(80 + 98 * 26.4);
     fireEvent.scroll(body);
     const target = await within(frame).findByRole('cell', { name: 'Inputs K100 empty cell' });
     expect(target).toHaveAttribute('data-navigation-highlight', 'true');

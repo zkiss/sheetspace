@@ -25,7 +25,7 @@ function setup() {
   const view = render(grid());
   const viewport = scrollContainerRef.current!;
   act(() => { virtualGridGeometry(viewport); });
-  return { viewport, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)) };
+  return { viewport, sheet, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)) };
 }
 
 describe('history reveal scroll-axis independence', () => {
@@ -54,6 +54,8 @@ describe('history reveal scroll-axis independence', () => {
     // Cells partly covered by either sticky header still need revealing.
     { target: 'C3', left: 160, top: 30, movesX: true, movesY: false },
     { target: 'C3', left: 100, top: 60, movesX: false, movesY: true },
+    { target: 'C3', left: 160, top: 60, movesX: true, movesY: true },
+    { target: 'J30', left: 0, top: 0, movesX: true, movesY: true },
   ])('reveals $target from ($left, $top) only on obscured axes', ({ target, left, top, movesX, movesY }) => {
     const { viewport, reveal } = setup();
     viewport.scrollLeft = left;
@@ -64,5 +66,13 @@ describe('history reveal scroll-axis independence', () => {
     else expect(viewport.scrollLeft).toBe(left);
     if (movesY) expect(viewport.scrollTop).not.toBe(top);
     else expect(viewport.scrollTop).toBe(top);
+    const cell = viewport.querySelector<HTMLElement>(`[data-cell-key="${target}"]`)!;
+    const row = cell.parentElement!;
+    const visibleLeft = Number.parseFloat(cell.style.left) - viewport.scrollLeft;
+    const visibleTop = Number.parseFloat(row.style.top) - viewport.scrollTop;
+    expect(visibleLeft).toBeGreaterThanOrEqual(40);
+    expect(visibleTop).toBeGreaterThanOrEqual(26.4 - 1e-9);
+    expect(visibleLeft + Number.parseFloat(cell.style.width)).toBeLessThanOrEqual(viewport.clientWidth + 1e-9);
+    expect(visibleTop + Number.parseFloat(row.style.height)).toBeLessThanOrEqual(viewport.clientHeight + 1e-9);
   });
 });

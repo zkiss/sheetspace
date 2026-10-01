@@ -14,12 +14,15 @@ export function gridCellReveal(
     const start = offset + header;
     const end = start + itemSize;
     const visible = start >= scroll + header && end <= scroll + size;
-    const nextScroll = visible ? scroll : Math.round(axis.scrollOffsetForIndex(index, Math.max(0, size - header))!);
+    // Scroll offsets are subpixel values. Rounding upward hides the cell's leading
+    // edge under a sticky header; rounding at the grid end clips its trailing edge.
+    const nextScroll = visible ? scroll : axis.scrollOffsetForIndex(index, Math.max(0, size - header))!;
+    const revealedStart = Math.min(size, Math.max(header, start - nextScroll));
     return {
       scroll: nextScroll,
       // Oversized cells can only reveal the part within the scrollport.
-      start: Math.max(header, start - nextScroll),
-      end: Math.min(size, end - nextScroll),
+      start: revealedStart,
+      end: Math.max(revealedStart, Math.min(size, end - nextScroll)),
     };
   }
   return {

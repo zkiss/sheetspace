@@ -1,7 +1,7 @@
-import { useEffect, useRef, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
-import { clampSheetFrameSize, effectiveSheetScreenScale } from '@workspace/workspaceGeometry';
+import { clampSheetFrameSize, effectiveSheetScreenScale, SHEET_HEADER_HEIGHT } from '@workspace/workspaceGeometry';
 import { resolveSheetRenderingMode } from '@workspace/sheetRenderingMode';
 import { isSheetContextTarget } from './workspaceEventPolicy';
 import '@workspace/SheetFrame.css';
@@ -124,6 +124,7 @@ export function SheetFrame({
       }}
       onWheel={(event) => event.stopPropagation()}
       style={{
+        '--sheet-header-height': `${SHEET_HEADER_HEIGHT}px`,
         left: frame.position.x,
         top: frame.position.y,
         zIndex: frame.zIndex,
@@ -131,7 +132,7 @@ export function SheetFrame({
         height: frameSize.height,
         transform: `scale(${frame.visualScale})`,
         transformOrigin: 'top left',
-      }}
+      } as CSSProperties}
     >
       {SHEET_FRAME_RESIZE_HANDLES.map(([handle, direction]) => (
         <div

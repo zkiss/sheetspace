@@ -703,8 +703,10 @@ export function SheetGrid({
         '--grid-cell-height': cssRemFromPixels(GRID_CELL_HEIGHT),
         '--grid-cell-width': cssRemFromPixels(GRID_CELL_WIDTH),
         '--grid-row-header-width': cssRemFromPixels(GRID_ROW_HEADER_WIDTH),
-        height: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize,
-        width: GRID_ROW_HEADER_WIDTH + columnMetrics.totalSize,
+        // CSSOM scroll extents are integer pixels. Reserve the fractional tail
+        // rather than letting browser rounding make the last cell unrevealable.
+        height: Math.ceil(GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize),
+        width: Math.ceil(GRID_ROW_HEADER_WIDTH + columnMetrics.totalSize),
       } as CSSProperties}
       tabIndex={!activeCellKey || !activeIsMounted ? 0 : -1}
     >

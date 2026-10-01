@@ -137,7 +137,7 @@ describe('axis resizing', () => {
     pointer(boundary, 'lostpointercapture'); pointer(boundary, 'pointerup', 1000, 1000);
     expect(commit).not.toHaveBeenCalled();
     expect(grid).toHaveStyle({ width: '7640px' });
-    expect(parseFloat(grid.style.height)).toBeCloseTo(26426.4);
+    expect(parseFloat(grid.style.height)).toBe(Math.ceil(26426.4));
     const next = handle(axis, mode === 'rows' ? '1' : 'A');
     pointer(next, 'pointerdown'); pointer(next, 'pointerup', 20, 20);
     expect(commit).toHaveBeenCalledTimes(1);

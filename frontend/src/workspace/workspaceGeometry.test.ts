@@ -264,6 +264,20 @@ describe('workspaceGeometry', () => {
     });
   });
 
+  it.each([
+    { target: { left: 10, right: 790, top: -100, bottom: -70 }, expected: { x: 0, y: 148, scale: 1 } },
+    { target: { left: -100, right: -24, top: 5, bottom: 599 }, expected: { x: 148, y: 0, scale: 1 } },
+    { target: { left: -10, right: 770, top: 20, bottom: 40 }, expected: { x: 20, y: 0, scale: 1 } },
+    { target: { left: 30, right: 810, top: 20, bottom: 40 }, expected: { x: -20, y: 0, scale: 1 } },
+    { target: { left: 10, right: 790, top: 20, bottom: 40 }, expected: { x: 0, y: 0, scale: 1 } },
+    { target: { left: 10, right: 790, top: 900, bottom: 1900 }, expected: { x: 0, y: -900, scale: 1 } },
+  ])('reveals history without moving visible axes or changing zoom: %o', ({ target, expected }) => {
+    expect(viewportForTarget({
+      currentViewport: { x: 0, y: 0, scale: 1 }, surfaceWidth: 800, surfaceHeight: 600,
+      preserveVisibleAxes: true, target,
+    }).viewport).toEqual(expected);
+  });
+
   it('fits a large cell-target frame when readable and top-aligns it when oversized', () => {
     expect(viewportForTarget({
       currentViewport: { x: 0, y: 0, scale: 1 },

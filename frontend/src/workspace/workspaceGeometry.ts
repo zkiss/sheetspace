@@ -3,6 +3,20 @@ import type { SheetFrameResize, WorkspaceViewport } from './workspaceContracts';
 
 export const MIN_SHEET_FRAME_WIDTH = 180;
 export const MIN_SHEET_FRAME_HEIGHT = 120;
+export const SHEET_HEADER_HEIGHT = 32;
+const SHEET_FRAME_BORDER_WIDTH = 1;
+
+/** Logical body geometry, shared by the rendered frame and unmounted reveal prediction. */
+export function sheetFrameBodyGeometry(frameSize: SheetFrameSize) {
+  const size = clampSheetFrameSize(frameSize);
+  return {
+    left: SHEET_FRAME_BORDER_WIDTH,
+    top: SHEET_FRAME_BORDER_WIDTH + SHEET_HEADER_HEIGHT,
+    width: size.width - 2 * SHEET_FRAME_BORDER_WIDTH,
+    height: size.height - 2 * SHEET_FRAME_BORDER_WIDTH - SHEET_HEADER_HEIGHT,
+  };
+}
+
 export const WORKSPACE_PAN_STEP = 80;
 /** Supported scales are deliberately finite so every projected coordinate remains usable. */
 export const MIN_WORKSPACE_ZOOM = 0.1;
@@ -241,6 +255,7 @@ export function viewportForTarget({
   target,
   forceOversized = false,
   minimumScale = MIN_WORKSPACE_ZOOM,
+  preserveVisibleAxes = false,
 }: {
   currentViewport: WorkspaceViewport;
   surfaceHeight: number;
@@ -249,9 +264,37 @@ export function viewportForTarget({
   forceOversized?: boolean;
   /** A model-level navigation requirement, such as detailed sheet entry. */
   minimumScale?: number;
+  /** History feedback must not reposition a visible axis merely to add navigation padding. */
+  preserveVisibleAxes?: boolean;
 }): { oversized: boolean; viewport: WorkspaceViewport } {
   if (surfaceWidth <= 0 || surfaceHeight <= 0) {
     return { oversized: false, viewport: currentViewport };
+  }
+
+  if (preserveVisibleAxes) {
+    // Edit feedback is not reference navigation: retain the user's zoom and
+    // every already-visible axis, even when the target does not fit the usual
+    // navigation padding. Oversized targets show their leading usable portion.
+    const scale = clampWorkspaceZoom(currentViewport.scale);
+    const revealAxis = (start: number, end: number, offset: number, size: number) => {
+      const leading = start * scale + offset;
+      const trailing = end * scale + offset;
+      const extent = trailing - leading;
+      if (leading >= 0 && trailing <= size) return offset;
+      const padding = Math.min(NAVIGATION_PADDING, Math.max(0, (size - extent) / 2));
+      return finiteOr(extent > size || leading < 0
+        ? offset + padding - leading
+        : offset + size - padding - trailing);
+    };
+    return {
+      oversized: (target.right - target.left) * scale > surfaceWidth
+        || (target.bottom - target.top) * scale > surfaceHeight,
+      viewport: {
+        x: revealAxis(target.left, target.right, currentViewport.x, surfaceWidth),
+        y: revealAxis(target.top, target.bottom, currentViewport.y, surfaceHeight),
+        scale,
+      },
+    };
   }
 
   const targetWidth = Math.max(1, target.right - target.left);

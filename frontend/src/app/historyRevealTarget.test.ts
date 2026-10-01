@@ -2,21 +2,31 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { historyRevealTarget } from './historyRevealTarget';
+import { measuredElementGeometry, testRect } from '@test-support/domGeometry';
 
 describe('history cell workspace geometry', () => {
   it('predicts internal reveal for a culled sheet, including grid-end clamping and sheet scale', () => {
     const sheet = sheetDocument({ id: 'history', name: 'History', position: { x: 100, y: 200 }, visualScale: 2 });
     const target = historyRevealTarget(sheet, cellIdentityAt(sheet.content, 'J20')!, null)!;
-    expect(target.right).toBe(100 + 240 * 2);
-    expect(target.bottom).toBe(200 + 160 * 2);
+    expect(target.right).toBe(100 + 239 * 2);
+    expect(target.bottom).toBe(200 + 159 * 2);
     expect(target.left).toBe(target.right - 76 * 2);
-    // Inner scroll offsets are rounded to pixels; the final row is clipped by 0.4px.
-    expect(target.top).toBeCloseTo(468);
+    expect(target.bottom - target.top).toBeCloseTo(26.4 * 2);
   });
 
   it('uses measured scrollport geometry and preserves offsets on already visible axes', () => {
     const sheet = sheetDocument({ id: 'history', name: 'History', position: { x: 50, y: 50 } });
-    const scrollport = { clientWidth: 300, clientHeight: 180, scrollLeft: 100, scrollTop: 30, offsetTop: 48, offsetLeft: 1 } as HTMLElement;
+    const frame = document.createElement('article');
+    frame.className = 'sheet-frame';
+    const scrollport = document.createElement('div');
+    frame.append(scrollport);
+    measuredElementGeometry(scrollport, { width: 300, height: 180 });
+    // Measured body offsets can differ from the fallback. Combined sheet and
+    // viewport transforms must not turn rendered pixels into logical offsets.
+    frame.getBoundingClientRect = () => testRect({ left: 25, top: 40, width: 480, height: 400 });
+    scrollport.getBoundingClientRect = () => testRect({ left: 27, top: 136, width: 600, height: 360 });
+    scrollport.scrollLeft = 100;
+    scrollport.scrollTop = 30;
     const target = historyRevealTarget(sheet, cellIdentityAt(sheet.content, 'C3')!, scrollport)!;
     expect(target.left).toBe(50 + 1 + 40 + 152 - 100);
     expect(target.top).toBeCloseTo(50 + 48 + 26.4 + 52.8 - 30);
@@ -31,7 +41,7 @@ describe('history cell workspace geometry', () => {
       rows: [{ kind: 'creating', operationId: 'row', boundary: 0 }],
       columns: [{ kind: 'creating', operationId: 'column', boundary: 0 }],
     });
-    expect(target).toEqual({ left: 40, right: 240, top: 68.8, bottom: 160 });
+    expect(target).toEqual({ left: 41, right: 239, top: 59.4, bottom: 159 });
   });
 
   it('ignores removed history identities', () => {

@@ -135,6 +135,7 @@ export function Workspace({
   const gridFocusLeaseRef = useRef<GridFocusLease | null>(null);
   const nextGridFocusToken = useRef(1);
   const revealedHistoryIdentity = useRef<string | undefined>(undefined);
+  const pendingHistoryMeasurement = useRef<string | undefined>(undefined);
   // Keep consumption across grid culling and detailed/overview remounts.
   const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
   const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
@@ -265,20 +266,27 @@ export function Workspace({
     if (!contentHistoryFeedback || editingCell) return;
     const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
     if (!destination || !workspaceController.workspaceSurfaceSize) return;
-    if (revealedHistoryIdentity.current === contentHistoryFeedback.identity) return;
+    if (revealedHistoryIdentity.current === contentHistoryFeedback.identity
+      && pendingHistoryMeasurement.current !== contentHistoryFeedback.identity) return;
     const cell = contentHistoryFeedback.after.find((cell) => cell.sheetId === destination.id)!;
     const frameElement = Array.from(workspaceController.workspaceSurfaceRef.current?.querySelectorAll<HTMLElement>('article.sheet-frame') ?? [])
       .find((frame) => frame.dataset.sheetId === destination.id);
-    const target = historyRevealTarget(destination, cell, frameElement?.querySelector<HTMLElement>('.sheet-frame-body') ?? null, creatingAxes[destination.id]);
+    const scrollport = frameElement?.querySelector<HTMLElement>('.sheet-frame-body') ?? null;
+    if (pendingHistoryMeasurement.current === contentHistoryFeedback.identity && !scrollport) return;
+    const target = historyRevealTarget(destination, cell, scrollport, creatingAxes[destination.id]);
     if (!target) return;
     revealedHistoryIdentity.current = contentHistoryFeedback.identity;
+    pendingHistoryMeasurement.current = undefined;
     const viewportBounds = workspaceViewportBounds(
       workspaceController.workspaceSurfaceSize,
       workspaceController.viewport,
     );
     if (target.left < viewportBounds.left || target.right > viewportBounds.right
       || target.top < viewportBounds.top || target.bottom > viewportBounds.bottom) {
-      workspaceController.navigateToTarget(target);
+      workspaceController.navigateToTarget(target, { preserveVisibleAxes: true });
+      // A culled frame has no measured scrollbar/scrollport geometry yet. Refine
+      // this action once when navigation mounts it, then retire it permanently.
+      if (!scrollport) pendingHistoryMeasurement.current = contentHistoryFeedback.identity;
     }
   }, [
     contentHistoryFeedback?.identity,

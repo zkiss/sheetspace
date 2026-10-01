@@ -1,6 +1,6 @@
 import { CellAddress, CellRange } from '@workbook/core/address';
 import { SheetDocument, WorkspacePosition } from '@workbook/core/model';
-import { clampSheetFrameSize, clampSheetVisualScale } from '@workspace/workspaceGeometry';
+import { clampSheetVisualScale, sheetFrameBodyGeometry } from '@workspace/workspaceGeometry';
 import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
 
 import { projectGridAxes } from './gridAxisProjection';
@@ -12,7 +12,6 @@ export const GRID_CELL_WIDTH = DEFAULT_COLUMN_WIDTH;
 export const GRID_CELL_HEIGHT = DEFAULT_ROW_HEIGHT;
 export const GRID_ROW_HEADER_WIDTH = 40;
 export const GRID_COLUMN_HEADER_HEIGHT = 26.4;
-export const SHEET_HEADER_HEIGHT = 42;
 
 export function sheetContentOffsetForCell(address: CellAddress, sheet: SheetDocument): WorkspacePosition {
   const metrics = createSheetGridAxisMetrics(projectGridAxes(sheet.content), sheet.presentation);
@@ -21,12 +20,12 @@ export function sheetContentOffsetForCell(address: CellAddress, sheet: SheetDocu
 }
 
 export function rangeFitsSheetViewport(range: CellRange, sheet: SheetDocument) {
-  const frameSize = clampSheetFrameSize(sheet.frame.size);
+  const body = sheetFrameBodyGeometry(sheet.frame.size);
   const metrics = createSheetGridAxisMetrics(projectGridAxes(sheet.content), sheet.presentation);
   const extent = (axis: typeof metrics.rows, start: number, end: number) =>
     (axis.itemOffset(end) ?? 0) + (axis.itemSize(end) ?? 0) - (axis.itemOffset(start) ?? 0);
-  const availableWidth = frameSize.width - GRID_ROW_HEADER_WIDTH;
-  const availableHeight = frameSize.height - SHEET_HEADER_HEIGHT - GRID_COLUMN_HEADER_HEIGHT;
+  const availableWidth = body.width - GRID_ROW_HEADER_WIDTH;
+  const availableHeight = body.height - GRID_COLUMN_HEADER_HEIGHT;
   return extent(metrics.columns, range.start.columnIndex, range.end.columnIndex) <= availableWidth
     && extent(metrics.rows, range.start.rowIndex, range.end.rowIndex) <= availableHeight;
 }
