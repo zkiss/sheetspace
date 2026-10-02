@@ -87,10 +87,10 @@ describe('number format selection controls', () => {
     expect(selectionAppearanceWrites(sheet, selection, { fontWeight: 'bold', fillColor: '#abcdef' })).toEqual([]);
     expect(selectionAppearanceWrites(sheet, invalidSelection, { fontWeight: 'bold' })).toEqual([]);
     expect(selectionAppearanceControlState(undefined, selection).fontWeight).toEqual({
-      value: null, localOverrideState: 'inherited', hasLocalOverrides: false,
+      value: null, localValue: null, localOverrideState: 'inherited', hasLocalOverrides: false,
     });
     expect(selectionAppearanceControlState(sheet, invalidSelection).fillColor).toEqual({
-      value: null, localOverrideState: 'inherited', hasLocalOverrides: false,
+      value: null, localValue: null, localOverrideState: 'inherited', hasLocalOverrides: false,
     });
   });
 

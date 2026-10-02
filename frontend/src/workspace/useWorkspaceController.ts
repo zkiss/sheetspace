@@ -1,5 +1,6 @@
 import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
+import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
@@ -8,16 +9,19 @@ import {
   surfaceSize as measureSurfaceSize,
   viewportForTarget,
   workspacePointAtViewportCenter,
-  workspacePointFromClient,
   type WorkspaceTargetRect,
   zoomScaleBy,
   zoomViewportAt,
 } from '@workspace/workspaceGeometry';
 
 export function useWorkspaceController({
+  onClearSelection,
   onCreateSheet,
+  interactionsEnabled = true,
 }: {
+  onClearSelection: () => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
+  interactionsEnabled?: boolean;
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
@@ -27,8 +31,8 @@ export function useWorkspaceController({
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
   const navigationMayBeMoving = useRef(false);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
-    start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu,
-  });
+    start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
+  }, interactionsEnabled);
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -57,9 +61,27 @@ export function useWorkspaceController({
     setPendingSheetMenu(null);
   }
 
+  useLayoutEffect(() => {
+    if (!interactionsEnabled) {
+      closeSheetMenu();
+      return;
+    }
+    if (!pendingSheetMenu) return;
+    // The menu owns Escape even when focus is still in the underlying grid.
+    const cancelMenu = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeSheetMenu();
+    };
+    document.addEventListener('keydown', cancelMenu, true);
+    return () => document.removeEventListener('keydown', cancelMenu, true);
+  }, [pendingSheetMenu, interactionsEnabled]);
+
   function openSheetMenu(sheetId: string, event: MouseEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
+    if (!interactionsEnabled) return;
     setPendingSheetMenu({
       sheetId,
       x: event.clientX,
@@ -114,7 +136,7 @@ export function useWorkspaceController({
 
   function navigateToTarget(
     target: WorkspaceTargetRect,
-    options: { forceOversized?: boolean; minimumScale?: number } = {},
+    options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean } = {},
   ) {
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
@@ -133,6 +155,7 @@ export function useWorkspaceController({
   }
 
   function createSheetAtViewportCenter() {
+    if (!interactionsEnabled) return;
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();
@@ -140,13 +163,9 @@ export function useWorkspaceController({
   }
 
   function handleWorkspaceContextMenu(event: MouseEvent<HTMLElement>) {
+    if (event.defaultPrevented || !isBackgroundTarget(event.target, event.currentTarget)) return;
     event.preventDefault();
     closeSheetMenu();
-    onCreateSheet(sheetFramePosition(workspacePointFromClient(
-      { x: event.clientX, y: event.clientY },
-      event.currentTarget,
-      viewport,
-    )), viewport.scale, 'Create sheet here');
   }
 
   return {

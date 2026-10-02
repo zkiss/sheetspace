@@ -9,6 +9,7 @@ function renderSurface(hasSheets = true) {
   const surfaceRef = createRef<HTMLElement>();
   const interactions = {
     onContextMenu: vi.fn(),
+    onCreateSheet: vi.fn(),
   };
 
   render(
@@ -46,8 +47,25 @@ describe('WorkspaceSurface', () => {
   });
 
   it('shows empty guidance from current composition state', () => {
-    renderSurface(false);
+    const { interactions } = renderSurface(false);
 
-    expect(screen.getByText(/Right-click the workspace/)).toBeInTheDocument();
+    expect(screen.getByText('Start by placing your first sheet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create your first sheet' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create your first sheet' }));
+    expect(interactions.onCreateSheet).toHaveBeenCalledOnce();
+  });
+
+  it.each([0.001, 0.125, 0.5, 1, 2, 8])('aligns the animated grid to world coordinates at scale %s', (scale) => {
+    render(<WorkspaceSurface hasSheets isPanningWorkspace={false} navigationMotion={false} viewport={{ scale, x: -137, y: 89 }} workspaceSurfaceRef={createRef<HTMLElement>()} workspacePlaneRef={createRef<HTMLDivElement>()}>{null}</WorkspaceSurface>);
+    const style = screen.getByTestId('workspace-surface').style;
+    const major = Number.parseFloat(style.getPropertyValue('--workspace-grid-major-size'));
+    const minor = Number.parseFloat(style.getPropertyValue('--workspace-grid-minor-size'));
+    const fine = Number.parseFloat(style.getPropertyValue('--workspace-grid-fine-size'));
+    expect(major).toBeGreaterThanOrEqual(40);
+    expect(major).toBeLessThan(80);
+    expect(minor).toBe(major / 2);
+    expect(fine).toBe(major / 4);
+    expect(style.getPropertyValue('--workspace-grid-major-x')).toBe(`${-137 % major}px`);
+    expect(style.getPropertyValue('--workspace-grid-fine-y')).toBe(`${89 % fine}px`);
   });
 });

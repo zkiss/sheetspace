@@ -40,7 +40,10 @@ describe('final frontend policy', () => {
     expect(diagnostics({ 'src/grid/gridGeometry.ts': "import 'react';" }).map(({ code }) => code)).toContain('forbidden-external');
     expect(diagnostics({ 'src/app/View.tsx': "import 'react-dom/client';" }).map(({ code }) => code)).toContain('forbidden-external');
     expect(diagnostics({ 'src/workspace/View.tsx': "import '@tanstack/react-virtual';" }).map(({ code }) => code)).toContain('forbidden-external');
-    expect(diagnostics({ 'src/app/main.tsx': "import 'react-dom/client';", 'src/grid/View.tsx': "import '@tanstack/react-virtual';" })).toEqual([]);
+    expect(diagnostics({
+      'src/app/main.tsx': "import 'react-dom/client';",
+      'src/grid/View.tsx': "import '@tanstack/react-virtual'; import { createPortal } from 'react-dom'; export { createPortal };",
+    })).toEqual([]);
   });
 
   it('reserves the shared contract fixture for its exact API test', () => {
@@ -56,5 +59,21 @@ describe('final frontend policy', () => {
     expect(diagnostics({ 'src/app/View.tsx': "import '../test-support/helper';", 'src/test-support/helper.ts': '' }).map(({ code }) => code)).toContain('test-role-import');
     expect(diagnostics({ 'src/app/View.tsx': "import './View.test';", 'src/app/View.test.ts': '' }).map(({ code }) => code)).toContain('test-role-import');
     expect(diagnostics({ 'src/app/View.test.ts': "import '../../architecture/analyzer';", 'architecture/analyzer.ts': '' }).map(({ code }) => code)).toContain('forbidden-package-import');
+  });
+
+  it('owns isolated performance probes as tests without permitting production or tooling dependencies', () => {
+    expect(diagnostics({
+      'performance.config.ts': "import 'vite'; import './vite.config';",
+      'vite.config.ts': '',
+      'performance/ui.probe.tsx': "import 'vitest'; import 'react'; import '@workspace/View'; import '../src/test-support/helper';",
+      'src/workspace/View.tsx': '', 'src/test-support/helper.ts': '',
+    })).toEqual([]);
+    expect(diagnostics({
+      'src/app/View.tsx': "import '../../performance/ui.probe';", 'performance/ui.probe.tsx': '',
+    }).map(({ code }) => code)).toContain('test-role-import');
+    expect(diagnostics({
+      'performance/ui.probe.tsx': "import '../architecture/analyzer';", 'architecture/analyzer.ts': '',
+    }).map(({ code }) => code)).toContain('forbidden-package-import');
+    expect(diagnostics({ 'performance/unknown.ts': '' }).map(({ code }) => code)).toContain('unowned-file');
   });
 });

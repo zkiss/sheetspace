@@ -52,8 +52,6 @@ describe('App grid composition', () => {
     const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
     const inputCell = (key: string) => inputFrame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
     const outputCell = (key: string) => outputFrame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
-    const undo = screen.getByRole('button', { name: 'Undo' });
-    const redo = screen.getByRole('button', { name: 'Redo' });
 
     await user.click(inputCell('A1'));
     await user.keyboard('{ArrowRight}');
@@ -71,25 +69,25 @@ describe('App grid composition', () => {
     await user.keyboard('{Enter}');
     await waitFor(() => expect(inputCell('B2')).toHaveTextContent('entered'));
     expect(inputCell('B3')).toHaveAttribute('data-active-cell', 'true');
-    expect(undo).toBeEnabled();
-    expect(redo).toBeDisabled();
+    await user.keyboard('{Control>}z{/Control}');
+    expect(inputCell('B2')).toHaveTextContent(/^$/);
+    await user.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
+    expect(inputCell('B2')).toHaveTextContent('entered');
 
     await user.keyboard('{ArrowLeft}');
     expect(inputCell('A3')).toHaveAttribute('data-active-cell', 'true');
-    expect(undo).toBeEnabled();
-    expect(redo).toBeDisabled();
 
     await user.keyboard('{F2}discard{Escape}');
     expect(inputCell('A3')).toHaveTextContent(/^$/);
     expect(screen.queryByRole('textbox', { name: 'Inputs A3 editor' })).not.toBeInTheDocument();
-    expect(apiClient.writeCells).toHaveBeenCalledTimes(2);
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(4);
 
     await user.keyboard('{F2}Cross-sheet draft');
     await user.click(outputCell('A1'));
     await waitFor(() => expect(inputCell('A3')).toHaveTextContent('Cross-sheet draft'));
-    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(3));
-    expect(writeCells.mock.calls[2]?.[1]).toHaveLength(1);
-    expect(writeCells.mock.calls[2]?.[1]?.[0]).toMatchObject({ raw: 'Cross-sheet draft' });
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(5));
+    expect(writeCells.mock.calls[4]?.[1]).toHaveLength(1);
+    expect(writeCells.mock.calls[4]?.[1]?.[0]).toMatchObject({ raw: 'Cross-sheet draft' });
     expect(outputCell('A1')).toHaveAttribute('data-active-cell', 'true');
     expect(outputFrame).toHaveAttribute('data-active-sheet', 'true');
   });

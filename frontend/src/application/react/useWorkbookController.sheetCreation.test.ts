@@ -144,12 +144,16 @@ describe('useWorkbookController sheet creation', () => {
 
   it('removes a failed placeholder without changing saved sheets', async () => {
     const existing = positionedSheet('saved', 'Saved', { x: 0, y: 0 });
-    const apiClient = autosaveClient({ createSheet: vi.fn().mockRejectedValue(new Error('failed')) });
+    const updateSheetVisualScale = vi.fn();
+    const apiClient = autosaveClient({ createSheet: vi.fn().mockRejectedValue(new Error('failed')), updateSheetVisualScale });
     const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: workbookWithSheets([existing]) }));
-    act(() => { result.current.commands.createSheet('Inputs', { x: 24, y: 48 }); });
+    act(() => { result.current.commands.createSheet('Inputs', { x: 24, y: 48 }, 1 / 1.2); });
+    expect(result.current.creatingFrames).toMatchObject([{ name: 'Inputs', visualScale: 1.2 }]);
+    expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({ name: 'Inputs', position: { x: 24, y: 48 }, visualScale: 1.2 }));
     await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
     expect(result.current.creatingFrames).toEqual([]);
     expect(sheetsInOrder(result.current.workbook)).toEqual([existing]);
+    expect(updateSheetVisualScale).not.toHaveBeenCalled();
   });
 
   it('matches concurrent creates by operation key when they resolve out of order', async () => {

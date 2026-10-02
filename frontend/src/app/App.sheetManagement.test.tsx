@@ -2,19 +2,20 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
+import { zoomWorkspace } from '@test-support/workspaceActions';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
 import { workspaceRect } from '@test-support/domGeometry';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('App sheet management integration', () => {
-  it('wires the workspace context menu create dialog to a sheet at the clicked coordinate', async () => {
+  it('wires the empty-workspace create dialog to a sheet at the viewport center', async () => {
     const user = userEvent.setup();
     render(<App initialWorkbook={workbookWithSheets([])} apiClient={persistedWorkbookClient()} />);
 
     workspaceSurface().getBoundingClientRect = workspaceRect;
-    await user.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
-    fireEvent.contextMenu(workspaceSurface(), { clientX: 240, clientY: 330 });
+    zoomWorkspace('in');
+    fireEvent.click(screen.getByRole('button', { name: 'Create your first sheet' }));
     expect(screen.getByRole('form', { name: /create sheet/i })).toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/sheet name/i), 'Assumptions');
@@ -22,7 +23,7 @@ describe('App sheet management integration', () => {
 
     const frame = screen.getByTestId('sheet-frame');
     expect(within(frame).getByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
-    expect(frame).toHaveStyle({ left: '267px', top: '317px' });
+    expect(frame).toHaveStyle({ left: '500px', top: '400px' });
   });
 
   it('renders validation feedback in the create dialog', async () => {

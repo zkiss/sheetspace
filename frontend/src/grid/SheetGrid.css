@@ -17,6 +17,9 @@
 .sheet-grid-corner,
 .sheet-grid-column-header,
 .sheet-grid-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
   background: #f4f7f8;
   color: #50606d;
@@ -77,6 +80,7 @@
   position: absolute;
   top: 0;
   box-sizing: border-box;
+  user-select: none;
 }
 
 .sheet-grid-row-header { height: var(--grid-cell-height); }

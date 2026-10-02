@@ -126,6 +126,22 @@ export function useCellEditing({
     if (writes.length > 0) commands.writeCells(writes);
   }
 
+  function activateSheet(sheetId: string, requestFocus = true) {
+    const sheet = findSheetById(workbook, sheetId);
+    if (!sheet) return undefined;
+    const remembered = state.selectionsBySheet[sheetId];
+    const target = remembered && cellKeyForTarget(sheet, remembered) ? remembered : (sheet.content.rows[0] && sheet.content.columns[0]
+      ? { sheetId, cell: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] } }
+      : undefined);
+    if (!target) return undefined;
+    commitSession(state.editing);
+    if (state.selection?.sheetId === sheetId && cellKeyForTarget(sheet, state.selection)) {
+      dispatch({ type: 'commit' });
+      if (requestFocus) dispatch({ type: 'focus-current-selection' });
+    } else dispatch({ type: 'activate-sheet', target, requestFocus });
+    return target;
+  }
+
   function navigateCell(target: CellTarget, direction: CellNavigationDirection, extend = false) {
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet) return;
@@ -214,8 +230,10 @@ export function useCellEditing({
 
   return {
     activeCell: state.selection,
+    activateSheet,
     cancelActiveEdit: () => dispatch({ type: 'cancel' }),
     clearCellContent,
+    clearSelection: () => dispatch({ type: 'clear-selection' }),
     commitActiveEdit,
     commitEditAndNavigate,
     editingCell: state.editing,

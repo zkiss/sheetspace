@@ -46,5 +46,9 @@ export type SheetFrameScale = {
   pointerId: number;
   sheetId: string;
   startClientX: number;
+  startClientY: number;
   startVisualScale: number;
+  startPosition: WorkspacePosition;
+  startFrameSize: SheetFrameSize;
+  direction: SheetFrameResizeDirection;
 };

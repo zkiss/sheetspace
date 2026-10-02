@@ -1,4 +1,11 @@
-import { SheetDocument, SheetZOrderDirection } from '@workbook/core/model';
+import { useEffect, useState } from 'react';
+import {
+  clampSheetVisualScale,
+  MAX_SHEET_VISUAL_SCALE,
+  MIN_SHEET_VISUAL_SCALE,
+  SheetDocument,
+  SheetZOrderDirection,
+} from '@workbook/core/model';
 import type { PendingSheetMenu } from './workspaceContracts';
 import { FLOATING_OVERLAY_Z_INDEX } from '@shared/styles/styleTokens';
 import '@workspace/SheetContextMenu.css';
@@ -10,6 +17,7 @@ export function SheetContextMenu({
   onChangeZOrder,
   onDelete,
   onRename,
+  onSetScale,
   sheet,
 }: {
   menu: PendingSheetMenu;
@@ -18,8 +26,15 @@ export function SheetContextMenu({
   onChangeZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
   onDelete: (sheetId: string) => void;
   onRename: (sheet: SheetDocument) => void;
+  onSetScale: (sheetId: string, visualScale: number) => void;
   sheet: SheetDocument;
 }) {
+  const [scale, setScale] = useState(String(sheet.frame.visualScale * 100));
+  useEffect(() => setScale(String(sheet.frame.visualScale * 100)), [sheet.id, sheet.frame.visualScale]);
+  const commitScale = () => {
+    const value = Number(scale);
+    if (Number.isFinite(value) && value > 0) onSetScale(sheet.id, clampSheetVisualScale(value / 100));
+  };
   return (
     <div
       aria-label={`${sheet.name} sheet menu`}
@@ -39,6 +54,18 @@ export function SheetContextMenu({
       <button type="button" role="menuitem" onClick={() => onAppendColumn(sheet.id)}>
         Append column
       </button>
+      <div aria-label="Display scale" className="sheet-context-menu-scale">
+        <span className="sheet-context-menu-scale-label">Display scale</span>
+        <label>
+          <input aria-label="Display scale percentage" max={MAX_SHEET_VISUAL_SCALE * 100} min={MIN_SHEET_VISUAL_SCALE * 100} onChange={(event) => setScale(event.currentTarget.value)} onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            commitScale();
+          }} step="1" type="number" value={scale} />
+          <span className="sheet-context-menu-scale-unit">%</span>
+        </label>
+        <button onClick={commitScale} type="button">Set scale</button>
+      </div>
       <button type="button" role="menuitem" onClick={() => onChangeZOrder(sheet.id, 'top')}>
         Bring to front
       </button>

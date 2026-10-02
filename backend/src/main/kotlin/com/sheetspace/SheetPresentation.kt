@@ -2,6 +2,8 @@ package com.sheetspace
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -16,13 +18,18 @@ data class SheetPresentation(
     val formatOverrides: SheetFormatOverrides = SheetFormatOverrides(),
 )
 
-@Serializable data class NumberFormat(val kind: String, val precision: Int? = null)
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable data class NumberFormat(
+    val kind: String,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val precision: Int? = null,
+)
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable data class CellFormat(
-    val numberFormat: NumberFormat? = null,
-    val fontWeight: String? = null,
-    val horizontalAlignment: String? = null,
-    val textColor: String? = null,
-    val fillColor: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val numberFormat: NumberFormat? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val fontWeight: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val horizontalAlignment: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val textColor: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val fillColor: String? = null,
 )
 @Serializable data class SheetFormatOverrides(
     val rows: Map<String, CellFormat> = emptyMap(),

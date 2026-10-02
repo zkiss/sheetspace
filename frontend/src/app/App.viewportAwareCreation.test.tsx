@@ -8,8 +8,29 @@ import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-suppor
 import type { SheetDocument } from '@workbook/core/model';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import userEvent from '@testing-library/user-event';
+import { panWorkspace, zoomWorkspace, resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceActions';
 
 describe('viewport-aware sheet creation', () => {
+  it.each(['toolbar', 'empty action', 'Shift+N'])('creates only once at the visible center via %s after pan/zoom', async (intent) => {
+    const apiClient = persistedWorkbookClient();
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([])} />);
+    const surface = workspaceSurface();
+    surface.getBoundingClientRect = workspaceRect;
+    panWorkspace(-120, 60);
+    zoomWorkspace('in');
+    if (intent === 'toolbar') fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
+    else if (intent === 'empty action') fireEvent.click(screen.getByRole('button', { name: 'Create your first sheet' }));
+    else fireEvent.keyDown(document.body, { key: 'N', shiftKey: true });
+    expect(apiClient.createSheet).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Sheet name'), { target: { value: 'Centered' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledOnce());
+    expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({
+      position: { x: 620, y: 340 }, visualScale: 1 / 1.2,
+    }));
+    expect(screen.queryByRole('form')).not.toBeInTheDocument();
+  });
+
   it('retains the toolbar viewport scale through the dialog and replaces an equal pending frame without a scale save', async () => {
     const create = deferred<SheetDocument>();
     const updateSheetVisualScale = vi.fn();
@@ -22,10 +43,10 @@ describe('viewport-aware sheet creation', () => {
     ])} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+    zoomWorkspace('in');
     fireEvent.click(screen.getByRole('button', { name: /new sheet/i }));
     // The dialog owns the scale captured at the create intent, not the scale at submit time.
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+    zoomWorkspace('in');
     fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Inputs' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
 
@@ -49,7 +70,7 @@ describe('viewport-aware sheet creation', () => {
     expect(updateSheetVisualScale).not.toHaveBeenCalled();
   });
 
-  it('uses the context-menu zoom captured before the dialog and removes a rejected pending frame', async () => {
+  it('uses the empty-workspace action zoom captured before the dialog and removes a rejected pending frame', async () => {
     const updateSheetVisualScale = vi.fn();
     const apiClient = autosaveClient({
       createSheet: vi.fn().mockRejectedValue(new Error('create failed')),
@@ -58,14 +79,14 @@ describe('viewport-aware sheet creation', () => {
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([])} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace out' }));
-    fireEvent.contextMenu(workspaceSurface(), { clientX: 420, clientY: 330 });
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+    zoomWorkspace('out');
+    fireEvent.click(screen.getByRole('button', { name: 'Create your first sheet' }));
+    zoomWorkspace('in');
     fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Outputs', position: { x: 380, y: 280 }, visualScale: 1.2, zIndex: 1,
+      name: 'Outputs', position: { x: 500, y: 400 }, visualScale: 1.2, zIndex: 1,
     }));
     await waitFor(() => expect(screen.queryByTestId('creating-sheet-frame')).not.toBeInTheDocument());
     expect(screen.queryByRole('article', { name: 'Sheet Outputs' })).not.toBeInTheDocument();
@@ -78,12 +99,12 @@ describe('viewport-aware sheet creation', () => {
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([])} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+    zoomWorkspace('in');
     await createSheetFromToolbar('Inputs');
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace out' }));
-    fireEvent.contextMenu(workspaceSurface(), { clientX: 620, clientY: 430 });
+    resetWorkspaceViewport();
+    zoomWorkspace('out');
+    fireEvent.keyDown(document.body, { key: 'N', shiftKey: true });
     fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
@@ -102,10 +123,7 @@ describe('viewport-aware sheet creation', () => {
     await waitFor(() => expect(cellAt(outputs, 'A1')).toHaveTextContent('10'));
 
     fireEvent.click(cellAt(inputs, 'A1'));
-    const scaleInput = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-    await user.clear(scaleInput);
-    await user.type(scaleInput, '50');
-    await user.keyboard('{Enter}');
+    setSheetScale(inputs, 50);
     await waitFor(() => expect(apiClient.updateSheetVisualScale).toHaveBeenCalled());
     inputs = screen.getByRole('article', { name: 'Sheet Inputs' });
     const header = inputs.querySelector<HTMLElement>('[data-testid="sheet-frame-header"]')!;
@@ -126,7 +144,7 @@ describe('viewport-aware sheet creation', () => {
     // threshold so the destination grid is immediately available.
     expect(inputs).toHaveAttribute('data-rendering-mode', 'detailed');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Zoom workspace in' }));
+    zoomWorkspace('in');
     await waitFor(() => expect(cellAt(inputs, 'B1')).toHaveFocus());
     cleanupAndReload(apiClient);
 

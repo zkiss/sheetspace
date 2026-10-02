@@ -1,440 +1,154 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SheetFrame } from '@workspace/SheetFrame';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { SheetFrame } from './SheetFrame';
+import { sheetDocument } from '@test-support/workbookFactories';
 import { frameProjection } from '@workbook/read/queries';
+import { SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE } from './sheetRenderingMode';
 import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
-import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
-import {
-  SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE,
-} from '@workspace/sheetRenderingMode';
+import { useRef, type RefObject } from 'react';
+import { useWorkspaceGestures } from './useWorkspaceGestures';
 
-afterEach(cleanup);
-
-function testFrame() {
-  return frameProjection(sheetDocument({ id: 'sheet-inputs', name: 'Inputs' }));
+function props() {
+  return {
+    columnCount: 4, rowCount: 6, viewportScale: 1,
+    frame: frameProjection(sheetDocument({ id: 'sheet-inputs', name: 'Inputs' })),
+    isActiveSheet: true, isNavigationReveal: false,
+    onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(),
+    onResizeStart: vi.fn(), onResizeStop: vi.fn(), onSelectSheet: vi.fn(),
+    onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(),
+    onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
+  };
 }
 
-describe('SheetFrame', () => {
-  it('owns frame interactions while rendering supplied body content', () => {
-    const interactions = {
-      onOpenSheetMenu: vi.fn(),
-      onResizeCancel: vi.fn(),
-      onResizeMove: vi.fn(),
-      onResizeStart: vi.fn(),
-      onResizeStop: vi.fn(),
-      onScaleInputCancel: vi.fn(),
-      onScalePointerCancel: vi.fn(),
-      onScaleCommit: vi.fn(),
-      onScaleMove: vi.fn(),
-      onScalePreview: vi.fn(),
-      onScaleInputStart: vi.fn(),
-      onScaleStart: vi.fn(),
-      onScaleStop: vi.fn(),
-      onSheetFrameDragCancel: vi.fn(),
-      onSheetFrameDragMove: vi.fn(),
-      onSheetFrameDragStart: vi.fn(),
-      onSheetFrameDragStop: vi.fn(),
-      onSheetFrameInteraction: vi.fn(),
-    };
-    const frame = testFrame();
-
-    render(
-      <SheetFrame
-        columnCount={4}
-        frame={frame}
-        isActiveSheet
-        isNavigationReveal={false}
-        {...interactions}
-        rowCount={6}
-        viewportScale={1}
-      >
-        {() => <table aria-label="Inputs grid" />}
-      </SheetFrame>,
-    );
-
-    const sheetFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    fireEvent.contextMenu(sheetFrame);
-    fireEvent.pointerDown(sheetFrame);
-    fireEvent.pointerDown(screen.getByTestId('sheet-frame-header'));
-    fireEvent.pointerDown(screen.getByRole('separator', { name: /from right$/ }));
-
-    expect(interactions.onOpenSheetMenu).toHaveBeenCalledWith('sheet-inputs', expect.anything());
-    expect(interactions.onSheetFrameInteraction).toHaveBeenCalled();
-    expect(interactions.onSheetFrameDragStart).toHaveBeenCalledWith('sheet-inputs', expect.anything());
-    expect(interactions.onResizeStart).toHaveBeenCalledWith(
-      'sheet-inputs',
-      { horizontal: 1, vertical: 0 },
-      expect.anything(),
-    );
-    expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
-    expect(sheetFrame).toHaveAttribute('data-column-count', '4');
-    expect(sheetFrame).toHaveAttribute('data-row-count', '6');
-  });
-
-  it('synchronizes handle commits, commits numeric previews on Enter, and cancels blur', () => {
-    const interactions = {
-      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
-      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
-    };
-    const frame = testFrame();
-    const renderFrame = (currentFrame = frame) => (
-      <SheetFrame columnCount={4} frame={currentFrame} isActiveSheet isNavigationReveal={false} {...interactions} rowCount={6} viewportScale={1}>
-        {() => <table aria-label="Inputs grid" />}
-      </SheetFrame>
-    );
-    const { rerender } = render(renderFrame());
-    const input = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-
-    fireEvent.pointerDown(screen.getByTestId('sheet-frame-scale-handle'));
-    fireEvent.pointerUp(screen.getByTestId('sheet-frame-scale-handle'));
-    rerender(renderFrame({ ...frame, visualScale: 2 }));
-    expect(input).toHaveValue(200);
-
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '999' } });
-    fireEvent.blur(input);
-    expect(interactions.onScalePreview).toHaveBeenLastCalledWith('sheet-inputs', 9.99);
-    expect(interactions.onScaleCommit).not.toHaveBeenCalled();
-    expect(interactions.onScaleInputCancel).toHaveBeenCalledTimes(1);
-    expect(input).toHaveValue(200);
-
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '999' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    fireEvent.blur(input);
-    expect(interactions.onScaleCommit).toHaveBeenLastCalledWith('sheet-inputs', 8);
-    expect(input).toHaveValue(800);
-
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '' } });
-    fireEvent.blur(input);
-    expect(interactions.onScaleInputCancel).toHaveBeenCalledTimes(2);
-    expect(input).toHaveValue(200);
-  });
-
-  it('keeps controls at stable screen size outside the clipped body at miniature combined scale', () => {
-    const interactions = {
-      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
-      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
-    };
-    const frame = { ...testFrame(), visualScale: 0.25 };
-
-    render(
-      <SheetFrame columnCount={4} frame={frame} isActiveSheet isNavigationReveal={false} {...interactions} rowCount={6} viewportScale={0.5}>
-        {() => <table aria-label="Inputs grid" />}
-      </SheetFrame>,
-    );
-
+describe('SheetFrame compact shell', () => {
+  it('shares the body scrollport with its grid and leaves wheel defaults eligible even at edges', () => {
+    const interactions = props();
+    const actions = { start: vi.fn(), pan: vi.fn(), zoom: vi.fn(), closeMenu: vi.fn(), clearSelection: vi.fn() };
+    const parentWheel = vi.fn();
+    let scrollRef: RefObject<HTMLDivElement>;
+    function Harness() {
+      const surface = useRef<HTMLElement>(null);
+      useWorkspaceGestures(surface, actions);
+      return <section ref={surface} onWheel={parentWheel}>
+        <SheetFrame {...interactions}>{(ref) => {
+          scrollRef = ref;
+          return <div role="cell">Cell</div>;
+        }}</SheetFrame>
+      </section>;
+    }
+    render(<Harness />);
     const body = screen.getByTestId('sheet-frame-body');
-    const controls = screen.getByTestId('sheet-frame-controls');
-    const handle = screen.getByTestId('sheet-frame-scale-handle');
-    const resizeTop = screen.getByRole('separator', { name: /from top$/ });
-    const resizeRight = screen.getByRole('separator', { name: /from right$/ });
-    const resizeCorner = screen.getByRole('separator', { name: /from bottom-right$/ });
-
-    expect(controls).toContainElement(handle);
-    expect(body).not.toContainElement(handle);
-    expect(handle).toHaveStyle({ transform: 'scale(8)' });
-    expect(resizeTop).toHaveStyle({ transform: 'scaleY(8)' });
-    expect(resizeRight).toHaveStyle({ transform: 'scaleX(8)' });
-    expect(resizeCorner).toHaveStyle({ transform: 'scale(8)' });
-
-    // The controls remain in the unclipped frame layer even though they protrude
-    // beyond the clipped scroll body, so their full stable-size targets are usable.
-    fireEvent.pointerDown(handle);
-    fireEvent.pointerDown(resizeCorner);
-    expect(interactions.onScaleStart).toHaveBeenCalledWith('sheet-inputs', expect.anything());
-    expect(interactions.onResizeStart).toHaveBeenCalledWith(
-      'sheet-inputs',
-      { horizontal: 1, vertical: 1 },
-      expect.anything(),
-    );
-  });
-
-  it('switches only the frame body at the effective-scale hysteresis boundaries', () => {
-    const interactions = {
-      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
-      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
-    };
-    const frame = testFrame();
-    const renderFrame = (viewportScale: number) => (
-      <SheetFrame
-        columnCount={4}
-        frame={frame}
-        isActiveSheet
-        isNavigationReveal
-        overview={<button type="button">Inputs overview</button>}
-        {...interactions}
-        rowCount={6}
-        viewportScale={viewportScale}
-      >
-        {() => <table aria-label="Inputs grid" />}
-      </SheetFrame>
-    );
-    const { rerender } = render(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE + 0.01));
-    const sheetFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
-
-    expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
-    expect(sheetFrame).toHaveClass('sheet-frame-active', 'sheet-frame-navigation-reveal');
-
-    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
-    expect(screen.queryByRole('table', { name: 'Inputs grid' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument();
-
-    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE - 0.01));
-    expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument();
-
-    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
-    expect(screen.getByRole('table', { name: 'Inputs grid' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Inputs overview' })).not.toBeInTheDocument();
-  });
-
-  it('retains a detailed body for an active interaction, then hands focus through overview once', async () => {
-    const interactions = {
-      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
-      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
-    };
-    const displacedFocus = vi.fn();
-    const detailedBodyAvailable = vi.fn();
-    const frame = testFrame();
-    const renderFrame = (viewportScale: number, retainDetailedBody = false) => (
-      <SheetFrame
-        columnCount={4}
-        frame={frame}
-        isActiveSheet
-        isNavigationReveal={false}
-        onDetailedFocusDisplaced={displacedFocus}
-        onDetailedBodyAvailable={detailedBodyAvailable}
-        overview={<button type="button">Inputs overview</button>}
-        retainDetailedBody={retainDetailedBody}
-        {...interactions}
-        rowCount={6}
-        viewportScale={viewportScale}
-      >
-        {() => <button type="button">Inputs cell</button>}
-      </SheetFrame>
-    );
-    const { rerender } = render(renderFrame(1));
-    const cell = screen.getByRole('button', { name: 'Inputs cell' });
-    cell.focus();
-
-    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE, true));
-    expect(screen.getByRole('button', { name: 'Inputs cell' })).toBeInTheDocument();
-
-    rerender(renderFrame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Inputs overview' })).toBeInTheDocument());
-    expect(screen.getByTestId('sheet-frame-body')).toHaveFocus();
-    expect(displacedFocus).toHaveBeenCalledTimes(1);
-
-    rerender(renderFrame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
-    await waitFor(() => expect(detailedBodyAvailable).toHaveBeenCalled());
-  });
-
-  it('cancels an in-progress numeric preview when its control unmounts', () => {
-    const interactions = {
-      onOpenSheetMenu: vi.fn(), onResizeCancel: vi.fn(), onResizeMove: vi.fn(), onResizeStart: vi.fn(), onResizeStop: vi.fn(),
-      onScaleInputCancel: vi.fn(), onScalePointerCancel: vi.fn(), onScaleCommit: vi.fn(), onScaleMove: vi.fn(), onScalePreview: vi.fn(), onScaleInputStart: vi.fn(), onScaleStart: vi.fn(), onScaleStop: vi.fn(),
-      onSheetFrameDragCancel: vi.fn(), onSheetFrameDragMove: vi.fn(), onSheetFrameDragStart: vi.fn(), onSheetFrameDragStop: vi.fn(), onSheetFrameInteraction: vi.fn(),
-    };
-    const frame = testFrame();
-    const renderFrame = (isActiveSheet: boolean) => (
-      <SheetFrame columnCount={4} frame={frame} isActiveSheet={isActiveSheet} isNavigationReveal={false} {...interactions} rowCount={6} viewportScale={1}>
-        {() => <table aria-label="Inputs grid" />}
-      </SheetFrame>
-    );
-    const { rerender } = render(renderFrame(true));
-    const input = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '150' } });
-    rerender(renderFrame(false));
-
-    expect(interactions.onScaleInputStart).toHaveBeenCalledWith('sheet-inputs');
-    expect(interactions.onScalePreview).toHaveBeenCalledWith('sheet-inputs', 1.5);
-    expect(interactions.onScaleInputCancel).toHaveBeenCalledTimes(1);
-    expect(interactions.onScaleCommit).not.toHaveBeenCalled();
-  });
-
-  it('keeps a scale-handle drag alive when its pointerdown precedes numeric input blur', () => {
-    const setSheetVisualScale = vi.fn();
-    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
-    const workbook = workbookWithSheets([sheet]);
-
-    function FrameWithInteractions() {
-      const interactions = useSheetFrameInteractions({
-        commands: {
-          moveSheetFrame: vi.fn(),
-          resizeSheetFrame: vi.fn(),
-          setSheetVisualScale,
-        },
-        viewportScale: 1,
-        workbook,
-      });
-      const persistedFrame = frameProjection(sheet);
-      const frame = interactions.frameScalePreview?.sheetId === sheet.id
-        ? { ...persistedFrame, visualScale: interactions.frameScalePreview.visualScale }
-        : persistedFrame;
-
-      return (
-        <>
-          <output data-testid="scale-preview">
-            {interactions.frameScalePreview?.visualScale ?? 'none'}
-          </output>
-          <output data-testid="scale-pin">{interactions.interactionPinnedSheetId ?? 'none'}</output>
-          <SheetFrame
-            columnCount={4}
-            frame={frame}
-            isActiveSheet
-            isNavigationReveal={false}
-            onOpenSheetMenu={vi.fn()}
-            onResizeCancel={vi.fn()}
-            onResizeMove={vi.fn()}
-            onResizeStart={vi.fn()}
-            onResizeStop={vi.fn()}
-            onScaleInputCancel={interactions.cancelSheetFrameScaleInput}
-            onScalePointerCancel={interactions.cancelSheetFrameScalePointer}
-            onScaleCommit={interactions.commitSheetFrameScale}
-            onScaleMove={interactions.handleSheetFrameScaleMove}
-            onScalePreview={interactions.previewSheetFrameScale}
-            onScaleInputStart={interactions.startSheetFrameScaleInput}
-            onScaleStart={interactions.handleSheetFrameScaleStart}
-            onScaleStop={interactions.stopSheetFrameScale}
-            onSheetFrameDragCancel={vi.fn()}
-            onSheetFrameDragMove={vi.fn()}
-            onSheetFrameDragStart={vi.fn()}
-            onSheetFrameDragStop={vi.fn()}
-            onSheetFrameInteraction={vi.fn()}
-            rowCount={6}
-            viewportScale={1}
-          >
-            {() => <table aria-label="Inputs grid" />}
-          </SheetFrame>
-        </>
-      );
+    expect(scrollRef!.current).toBe(body);
+    expect(body).toHaveClass('sheet-frame-body');
+    for (const [property, value] of [['clientWidth', 100], ['clientHeight', 100], ['scrollWidth', 300], ['scrollHeight', 300]] as const) {
+      Object.defineProperty(body, property, { configurable: true, value });
     }
-
-    render(<FrameWithInteractions />);
-    const input = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-    const scaleHandle = screen.getByTestId('sheet-frame-scale-handle');
-
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '150' } });
-    expect(screen.getByTestId('scale-preview')).toHaveTextContent('1.5');
-
-    // Browsers dispatch the handle pointerdown before blurring the focused input.
-    fireEvent(scaleHandle, new MouseEvent('pointerdown', {
-      bubbles: true, button: 0, clientX: 100, clientY: 0,
-    }));
-    fireEvent.blur(input);
-    expect(screen.getByTestId('scale-preview')).toHaveTextContent('1');
-    expect(screen.getByTestId('scale-pin')).toHaveTextContent('sheet-inputs');
-    expect(setSheetVisualScale).not.toHaveBeenCalled();
-
-    fireEvent(scaleHandle, new MouseEvent('pointermove', {
-      bubbles: true, clientX: 200, clientY: 0,
-    }));
-    expect(screen.getByTestId('scale-preview')).toHaveTextContent('2');
-    expect(screen.getByTestId('scale-pin')).toHaveTextContent('sheet-inputs');
-
-    fireEvent(scaleHandle, new MouseEvent('pointerup', {
-      bubbles: true, clientX: 200, clientY: 0,
-    }));
-    expect(setSheetVisualScale).toHaveBeenCalledTimes(1);
-    expect(setSheetVisualScale).toHaveBeenCalledWith('sheet-inputs', 2);
+    // JSDOM does not execute native wheel scrolling. Exercise eligibility at
+    // representative start/interior/end offsets without emulating defaults.
+    for (const offset of [0, 100, body.scrollWidth - body.clientWidth]) {
+      body.scrollLeft = offset;
+      body.scrollTop = offset;
+      for (const [deltaMode, deltaX, deltaY] of [[0, 80, 0], [1, 0, -3], [2, 1, 1]]) {
+        const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaMode, deltaX, deltaY });
+        fireEvent(screen.getByRole('cell'), event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+    for (const target of [body, screen.getByTestId('sheet-frame-header'), screen.getByRole('separator', { name: /from right$/ })]) {
+      const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 80, deltaY: 100 });
+      fireEvent(target, event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(parentWheel).not.toHaveBeenCalled();
+    for (const action of Object.values(actions)) expect(action).not.toHaveBeenCalled();
+    expect(interactions.onSheetFrameInteraction).not.toHaveBeenCalled();
+    expect(interactions.onSelectSheet).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['header', 'sheet-frame-header', '"x":30'],
-    ['resize handle', 'sheet-frame-resize-handle', '"width":270'],
-  ])('keeps a %s interaction pinned when its pointerdown precedes numeric input blur', (_, targetTestId, expectedPreviewText) => {
-    const moveSheetFrame = vi.fn();
-    const resizeSheetFrame = vi.fn();
-    const setSheetVisualScale = vi.fn();
-    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
-    const workbook = workbookWithSheets([sheet]);
+  it('activates the sheet from its header and routes frame and resize interactions', () => {
+    const interactions = props();
+    render(<SheetFrame {...interactions}>{() => <table aria-label="Inputs grid" />}</SheetFrame>);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    fireEvent.contextMenu(frame);
+    fireEvent(screen.getByTestId('sheet-frame-header'), new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    expect(interactions.onSelectSheet).toHaveBeenCalledOnce();
+    expect(interactions.onSheetFrameDragStart).toHaveBeenCalledWith('sheet-inputs', expect.anything());
+    expect(interactions.onOpenSheetMenu).toHaveBeenCalledWith('sheet-inputs', expect.anything());
+    const right = screen.getByRole('separator', { name: /from right$/ });
+    fireEvent(right, new MouseEvent('pointerdown', { bubbles: true, ctrlKey: true }));
+    expect(interactions.onResizeStart).toHaveBeenCalledWith('sheet-inputs', { horizontal: 1, vertical: 0 }, expect.objectContaining({ ctrlKey: true }));
+    fireEvent.pointerMove(right);
+    fireEvent.pointerUp(right);
+    fireEvent.pointerCancel(right);
+    expect(interactions.onResizeMove).toHaveBeenCalledOnce();
+    expect(interactions.onResizeStop).toHaveBeenCalledOnce();
+    expect(interactions.onResizeCancel).toHaveBeenCalledOnce();
+    expect(frame).toHaveAttribute('data-column-count', '4');
+    expect(frame).toHaveAttribute('data-row-count', '6');
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+  });
 
-    function FrameWithInteractions() {
-      const interactions = useSheetFrameInteractions({
-        commands: { moveSheetFrame, resizeSheetFrame, setSheetVisualScale },
-        viewportScale: 1,
-        workbook,
-      });
-      const persistedFrame = frameProjection(sheet);
-      const frame = interactions.frameLayoutPreview?.sheetId === sheet.id
-        ? { ...persistedFrame, position: interactions.frameLayoutPreview.position, size: interactions.frameLayoutPreview.size }
-        : interactions.frameScalePreview?.sheetId === sheet.id
-          ? { ...persistedFrame, visualScale: interactions.frameScalePreview.visualScale }
-          : persistedFrame;
+  it('does not activate a sheet from a non-primary header pointer', () => {
+    const interactions = props();
+    render(<SheetFrame {...interactions}>{() => null}</SheetFrame>);
+    fireEvent(screen.getByTestId('sheet-frame-header'), new MouseEvent('pointerdown', { bubbles: true, button: 2 }));
+    expect(interactions.onSelectSheet).not.toHaveBeenCalled();
+  });
 
-      return (
-        <>
-          <output data-testid="layout-preview">{JSON.stringify(interactions.frameLayoutPreview ?? 'none')}</output>
-          <output data-testid="scale-preview">{interactions.frameScalePreview?.visualScale ?? 'none'}</output>
-          <output data-testid="interaction-pin">{interactions.interactionPinnedSheetId ?? 'none'}</output>
-          <SheetFrame
-            columnCount={4} frame={frame} isActiveSheet isNavigationReveal={false}
-            onOpenSheetMenu={vi.fn()}
-            onResizeCancel={interactions.cancelSheetFrameResize}
-            onResizeMove={interactions.handleSheetFrameResizeMove}
-            onResizeStart={interactions.handleSheetFrameResizeStart}
-            onResizeStop={interactions.stopSheetFrameResize}
-            onScaleInputCancel={interactions.cancelSheetFrameScaleInput}
-            onScalePointerCancel={interactions.cancelSheetFrameScalePointer}
-            onScaleCommit={interactions.commitSheetFrameScale}
-            onScaleMove={interactions.handleSheetFrameScaleMove}
-            onScalePreview={interactions.previewSheetFrameScale}
-            onScaleInputStart={interactions.startSheetFrameScaleInput}
-            onScaleStart={interactions.handleSheetFrameScaleStart}
-            onScaleStop={interactions.stopSheetFrameScale}
-            onSheetFrameDragCancel={interactions.cancelSheetFrameDrag}
-            onSheetFrameDragMove={interactions.handleSheetFrameDragMove}
-            onSheetFrameDragStart={interactions.handleSheetFrameDragStart}
-            onSheetFrameDragStop={interactions.stopSheetFrameDrag}
-            onSheetFrameInteraction={vi.fn()}
-            rowCount={6} viewportScale={1}
-          >
-            {() => <table aria-label="Inputs grid" />}
-          </SheetFrame>
-        </>
-      );
+  it('keeps nested native content and consumed right-clicks out of the sheet menu', () => {
+    const interactions = props();
+    render(<SheetFrame {...interactions}>{() => <>
+      <input aria-label="Native editor" />
+      <section data-workspace-native-content><code>Native formula text</code></section>
+      <div role="menu"><span>Menu label</span></div>
+      <div onContextMenu={(event) => event.preventDefault()}>Consumed content</div>
+    </>}</SheetFrame>);
+    for (const target of [screen.getByRole('textbox'), screen.getByText('Native formula text'), screen.getByText('Menu label')]) {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      fireEvent(target, event);
+      expect(event.defaultPrevented).toBe(false);
     }
+    fireEvent.contextMenu(screen.getByText('Consumed content'));
+    expect(interactions.onOpenSheetMenu).not.toHaveBeenCalled();
+  });
 
-    render(<FrameWithInteractions />);
-    const input = screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-    const target = targetTestId === 'sheet-frame-resize-handle'
-      ? screen.getByRole('separator', { name: /from bottom-right$/ })
-      : screen.getByTestId(targetTestId);
+  it('keeps all resize targets stable in screen size and outside the clipped miniature body', () => {
+    const interactions = props();
+    render(<SheetFrame {...interactions} frame={{ ...interactions.frame, visualScale: 0.25 }} viewportScale={0.5}>{() => null}</SheetFrame>);
+    const body = screen.getByTestId('sheet-frame-body');
+    for (const handle of screen.getAllByRole('separator')) expect(body).not.toContainElement(handle);
+    expect(screen.getByRole('separator', { name: /from top$/ })).toHaveStyle({ transform: 'scaleY(8)' });
+    expect(screen.getByRole('separator', { name: /from right$/ })).toHaveStyle({ transform: 'scaleX(8)' });
+    expect(screen.getByRole('separator', { name: /from bottom-right$/ })).toHaveStyle({ transform: 'scale(8)' });
+  });
 
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '150' } });
-    expect(screen.getByTestId('scale-preview')).toHaveTextContent('1.5');
+  it('switches only the body at the effective-scale hysteresis boundaries', () => {
+    const interactions = props();
+    const frame = (scale: number) => <SheetFrame {...interactions} viewportScale={scale} overview={<button>Overview</button>}>{() => <table aria-label="Inputs grid" />}</SheetFrame>;
+    const { rerender } = render(frame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE + 0.01));
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    rerender(frame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    rerender(frame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE - 0.01));
+    expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument();
+    rerender(frame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
+    expect(screen.getByRole('table')).toBeInTheDocument();
+  });
 
-    fireEvent(target, new MouseEvent('pointerdown', {
-      bubbles: true, button: 0, clientX: 100, clientY: 120,
-    }));
-    fireEvent.blur(input);
-    expect(screen.getByTestId('scale-preview')).toHaveTextContent('none');
-    expect(screen.getByTestId('interaction-pin')).toHaveTextContent('sheet-inputs');
-
-    fireEvent(target, new MouseEvent('pointermove', {
-      bubbles: true, clientX: 130, clientY: 140,
-    }));
-    expect(screen.getByTestId('layout-preview')).toHaveTextContent(expectedPreviewText);
-
-    fireEvent(target, new MouseEvent('pointerup', {
-      bubbles: true, clientX: 130, clientY: 140,
-    }));
-    expect(screen.getByTestId('interaction-pin')).toHaveTextContent('none');
-    expect(setSheetVisualScale).not.toHaveBeenCalled();
-    if (targetTestId === 'sheet-frame-header') {
-      expect(moveSheetFrame).toHaveBeenCalledTimes(1);
-    } else {
-      expect(resizeSheetFrame).toHaveBeenCalledTimes(1);
-    }
+  it('retains the detailed owner during an interaction and hands displaced focus through overview once', async () => {
+    const interactions = props();
+    const displaced = vi.fn();
+    const available = vi.fn();
+    const frame = (scale: number, retain = false) => <SheetFrame {...interactions} viewportScale={scale} retainDetailedBody={retain} onDetailedFocusDisplaced={displaced} onDetailedBodyAvailable={available} overview={<button>Overview</button>}>{() => <button>Cell</button>}</SheetFrame>;
+    const { rerender } = render(frame(1));
+    screen.getByRole('button', { name: 'Cell' }).focus();
+    rerender(frame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE, true));
+    expect(screen.getByRole('button', { name: 'Cell' })).toBeInTheDocument();
+    rerender(frame(SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE));
+    await waitFor(() => expect(screen.getByTestId('sheet-frame-body')).toHaveFocus());
+    expect(displaced).toHaveBeenCalledOnce();
+    rerender(frame(SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE));
+    expect(available).toHaveBeenCalled();
   });
 });

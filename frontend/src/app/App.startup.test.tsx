@@ -18,7 +18,7 @@ describe('App startup', () => {
     expect(screen.queryByRole('button', { name: /new sheet/i })).not.toBeInTheDocument();
     expect(await screen.findByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
     expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('status', { name: 'Save status' })).toHaveTextContent('Saved');
+    expect(screen.getByRole('status', { name: 'All changes saved' })).toBeInTheDocument();
   });
 
   it('blocks editing on startup load failure and retries into the workspace', async () => {

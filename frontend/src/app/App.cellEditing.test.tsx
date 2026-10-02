@@ -4,13 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { autosaveClient, persistedWorkbookClient } from '@test-support/apiClients';
 import { openCellEditor } from '@test-support/appScreen';
-import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('App cell editing composition', () => {
   it('commits an active edit when selection moves to another sheet', async () => {
     const user = userEvent.setup();
-    const inputs = positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
-    const outputs = positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 260 });
+    const inputs = smallSheetDocument({ id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 } });
+    const outputs = smallSheetDocument({ id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 260 } });
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
@@ -26,10 +26,10 @@ describe('App cell editing composition', () => {
 
   it('clears a reversed mixed range with Delete in one saved transaction, recalculates, and reloads', async () => {
     const user = userEvent.setup();
-    const inputs = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 }),
+    const inputs = smallSheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
       cells: { A1: '2', B1: '=A1 * 3', B2: '7', C1: '=SUM(A1:B2)' },
-    };
+    });
     const apiClient = persistedWorkbookClient(workbookWithSheets([inputs]));
     const view = render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
@@ -60,10 +60,10 @@ describe('App cell editing composition', () => {
     { key: '{Backspace}', mode: 'columnheader', header: 'A', cleared: ['A1', 'A2'] },
   ])('clears a selected $mode with Backspace while omitting blank cells', async ({ key, mode, header, cleared }) => {
     const user = userEvent.setup();
-    const inputs = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 }),
+    const inputs = smallSheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
       cells: { A1: '1', B1: '=A1 * 2', A2: '3', B2: '4' },
-    };
+    });
     const apiClient = persistedWorkbookClient(workbookWithSheets([inputs]));
     render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
@@ -80,10 +80,10 @@ describe('App cell editing composition', () => {
 
   it('leaves a blank selection unsaved and preserves native editor deletion', async () => {
     const user = userEvent.setup();
-    const inputs = {
-      ...positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 }),
+    const inputs = smallSheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
       cells: { A1: 'Retained', B1: 'Other' },
-    };
+    });
     const apiClient = autosaveClient();
     render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });

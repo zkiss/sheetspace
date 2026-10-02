@@ -6,6 +6,18 @@ import '@workspace/SheetOverview.css';
 
 export const MAX_SHEET_OVERVIEW_SAMPLES = 12;
 const MAX_SAMPLE_TEXT_LENGTH = 32;
+const OVERVIEW_GEOMETRY = {
+  rowHeaderWidth: 23,
+  columnHeaderHeight: 19,
+  markWidth: 20,
+  markHeight: 6,
+  markOffsetX: 3,
+  markOffsetY: 7,
+};
+const overviewGridStyle = {
+  '--overview-row-header-width': `${OVERVIEW_GEOMETRY.rowHeaderWidth}px`,
+  '--overview-column-header-height': `${OVERVIEW_GEOMETRY.columnHeaderHeight}px`,
+} as CSSProperties;
 
 export type SheetOverviewSample = {
   address: string;
@@ -46,16 +58,14 @@ export function projectSheetOverview(
 export function SheetOverview({
   isActive,
   onSelect,
-  screenScale,
   sheet,
 }: {
   isActive: boolean;
   onSelect: () => void;
-  screenScale: number;
+  screenScale?: number;
   sheet: SheetTabularProjection;
 }) {
   const samples = projectSheetOverview(sheet);
-  const overviewScale = normalizedScreenScale(screenScale);
   return (
     <button
       aria-label={`Select sheet ${sheet.name} overview`}
@@ -65,34 +75,18 @@ export function SheetOverview({
       onClick={onSelect}
       type="button"
     >
-      <span
-        className="sheet-overview-screen"
-        data-testid="sheet-overview-screen"
-        style={{
-          height: `${overviewScale * 100}%`,
-          transform: `scale(${1 / overviewScale})`,
-          width: `${overviewScale * 100}%`,
-        }}
-      >
-        <span className="sheet-overview-identity">
-          <strong title={sheet.name}>{sheet.name}</strong>
-          <span>{sheet.rows.length.toLocaleString()} × {sheet.columns.length.toLocaleString()}</span>
-        </span>
-        <span aria-hidden="true" className="sheet-overview-map">
+      <span aria-hidden="true" className="sheet-overview-texture">
+        <span className="sheet-overview-grid" style={overviewGridStyle}>
+          <span className="sheet-overview-corner" />
+          <span className="sheet-overview-column-band" />
+          <span className="sheet-overview-row-band" />
           {samples.map((sample) => (
             <span
-              className="sheet-overview-sample"
-              data-overview-sample-address={sample.address}
+              className="sheet-overview-data-mark"
               key={sample.address}
               style={samplePosition(sample)}
-              title={`${sample.address}: ${sample.text}`}
-            >
-              {sample.text}
-            </span>
+            />
           ))}
-        </span>
-        <span className="sheet-overview-count">
-          {samples.length === MAX_SHEET_OVERVIEW_SAMPLES ? 'Sampled values' : `${samples.length} populated`}
         </span>
       </span>
     </button>
@@ -100,17 +94,19 @@ export function SheetOverview({
 }
 
 function samplePosition(sample: SheetOverviewSample): CSSProperties {
+  // Interpolate over the marker's travel, not the entire data area. The far
+  // edge reserves its size, translation, and a matching inset so rounded grid
+  // corners cannot clip the mark. Single-cell axes stay at the leading inset.
+  const { rowHeaderWidth, columnHeaderHeight, markWidth, markHeight, markOffsetX, markOffsetY } = OVERVIEW_GEOMETRY;
   return {
-    left: `${sample.columnFraction * 100}%`,
-    top: `${sample.rowFraction * 100}%`,
-    transform: `translate(${-sample.columnFraction * 100}%, ${-sample.rowFraction * 100}%)`,
+    left: `calc(${rowHeaderWidth}px + ${sample.columnFraction * 100}% - ${sample.columnFraction * (rowHeaderWidth + markWidth + 2 * markOffsetX)}px)`,
+    top: `calc(${columnHeaderHeight}px + ${sample.rowFraction * 100}% - ${sample.rowFraction * (columnHeaderHeight + markHeight + 2 * markOffsetY)}px)`,
+    width: markWidth,
+    height: markHeight,
+    transform: `translate(${markOffsetX}px, ${markOffsetY}px)`,
   };
 }
 
 function axisFraction(index: number, count: number) {
   return count <= 1 ? 0 : index / (count - 1);
-}
-
-function normalizedScreenScale(scale: number) {
-  return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }

@@ -1,101 +1,38 @@
-import type { WorkspaceViewport } from './workspaceContracts';
+import type { ReactNode } from 'react';
 import type { SaveStatus } from '@application/core/state';
-import { WORKSPACE_PAN_STEP, WORKSPACE_ZOOM_FACTOR } from '@workspace/workspaceGeometry';
 import '@workspace/WorkspaceToolbar.css';
 
 function saveStatusText(status: SaveStatus) {
-  if (status === 'saving') {
-    return 'Saving...';
-  }
-
-  if (status === 'failed') {
-    return 'Save failed - unsaved changes';
-  }
-
-  return 'Saved';
+  if (status === 'saving') return 'Saving changes';
+  if (status === 'failed') return 'Save failed';
+  return 'All changes saved';
 }
 
 export function WorkspaceToolbar({
   canRetryFailedSaves,
-  canRedo,
-  canUndo,
+  formatControls,
   onCreateSheet,
-  onRedo,
-  onPanWorkspace,
-  onResetViewport,
   onRetryFailedSaves,
-  onUndo,
-  onZoomWorkspace,
   saveStatus,
-  sheetCount,
-  viewport,
 }: {
   canRetryFailedSaves: boolean;
-  canRedo: boolean;
-  canUndo: boolean;
+  formatControls: ReactNode;
   onCreateSheet: () => void;
-  onRedo: () => void;
-  onPanWorkspace: (deltaX: number, deltaY: number) => void;
-  onResetViewport: () => void;
   onRetryFailedSaves: () => void;
-  onUndo: () => void;
-  onZoomWorkspace: (factor: number) => void;
   saveStatus: SaveStatus;
-  sheetCount: number;
-  viewport: WorkspaceViewport;
 }) {
   return (
-    <header className="workspace-toolbar" aria-label="Workspace toolbar">
-      <div>
-        <h1>Sheetspace</h1>
-        <p>{sheetCount} sheets</p>
-        <p className={`save-status save-status-${saveStatus}`} role="status" aria-label="Save status">
-          {saveStatusText(saveStatus)}
-        </p>
-        {saveStatus === 'failed' ? (
-          <button
-            type="button"
-            disabled={!canRetryFailedSaves}
-            onClick={onRetryFailedSaves}
-            title={canRetryFailedSaves ? 'Retry retained failed save operations' : 'This creation failure cannot be retried'}
-          >
-            Retry failed saves
-          </button>
-        ) : null}
-      </div>
-      <div className="workspace-toolbar-actions">
-        <div className="workspace-history-controls" aria-label="Edit history">
-          <button type="button" aria-label="Undo" disabled={!canUndo} onClick={onUndo} title="Undo (Ctrl/Cmd-Z)">Undo</button>
-          <button type="button" aria-label="Redo" disabled={!canRedo} onClick={onRedo} title="Redo (Ctrl/Cmd-Shift-Z)">Redo</button>
-        </div>
-        <div className="workspace-viewport-controls" aria-label="Workspace viewport controls">
-          <button type="button" aria-label="Pan workspace left" onClick={() => onPanWorkspace(-WORKSPACE_PAN_STEP, 0)}>
-            ←
-          </button>
-          <button type="button" aria-label="Pan workspace right" onClick={() => onPanWorkspace(WORKSPACE_PAN_STEP, 0)}>
-            →
-          </button>
-          <button type="button" aria-label="Pan workspace up" onClick={() => onPanWorkspace(0, -WORKSPACE_PAN_STEP)}>
-            ↑
-          </button>
-          <button type="button" aria-label="Pan workspace down" onClick={() => onPanWorkspace(0, WORKSPACE_PAN_STEP)}>
-            ↓
-          </button>
-          <button type="button" aria-label="Zoom workspace out" onClick={() => onZoomWorkspace(1 / WORKSPACE_ZOOM_FACTOR)}>
-            -
-          </button>
-          <output aria-label="Workspace zoom level">{Math.round(viewport.scale * 100)}%</output>
-          <button type="button" aria-label="Zoom workspace in" onClick={() => onZoomWorkspace(WORKSPACE_ZOOM_FACTOR)}>
-            +
-          </button>
-          <button type="button" aria-label="Reset workspace viewport" onClick={onResetViewport}>
-            Reset
-          </button>
-        </div>
-        <button type="button" onClick={onCreateSheet}>
-          New sheet
-        </button>
-      </div>
-    </header>
+    <div className="workspace-chrome">
+      <header className="workspace-toolbar" aria-label="Workspace controls">
+        <button className="workspace-new-sheet" onClick={onCreateSheet} type="button">New sheet</button>
+        <div className="workspace-format-slot">{formatControls}</div>
+        <span className="save-status-indicator" data-status-text={saveStatus === 'failed' && canRetryFailedSaves ? 'Save failed. Click to retry.' : saveStatusText(saveStatus)}>
+          {saveStatus === 'failed' && canRetryFailedSaves ? (
+            <button aria-label="Save failed. Retry changes." className="save-status-dot save-status-failed" onClick={onRetryFailedSaves} type="button" />
+          ) : <span aria-hidden="true" className={`save-status-dot save-status-${saveStatus}`} />}
+          <span aria-label={saveStatusText(saveStatus)} className="save-status-announcement" role="status">{saveStatusText(saveStatus)}</span>
+        </span>
+      </header>
+    </div>
   );
 }

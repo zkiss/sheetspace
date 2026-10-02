@@ -25,6 +25,8 @@ Each sheet needs a familiar spreadsheet grid. Grid editing should feel recogniza
 - Provide undo and redo for user actions.
 - Support fill-handle workflows.
 - Support value and presentation formatting at column, row, and cell level, combining individual properties through inheritance and explicit cell overrides.
+  Row and column selections show colours set at the selected axis level, independently of cell
+  appearance; cell selections show cell colour state, including inherited values and mixed state.
 
 ## Open Decisions
 

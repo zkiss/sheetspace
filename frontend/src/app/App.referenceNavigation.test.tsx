@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
+import { resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceActions';
 import { measuredElementGeometry, virtualGridGeometry } from '@test-support/domGeometry';
 import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
@@ -15,10 +16,49 @@ function setSurfaceSize(width: number, height: number) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('formula reference navigation', () => {
+  it.each([false, true])('restarts range tint and expires feedback without clearing selection (reduced motion: %s)', (reduced) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })));
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(inputs!B2:D4)' } });
+    const view = render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    const navigate = () => {
+      fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+      modifierClick(screen.getByRole('button', { name: 'Inputs!B2:D4, reference' }));
+    };
+    navigate();
+    const anchor = screen.getByRole('cell', { name: 'Inputs B2 empty cell' });
+    const center = screen.getByRole('cell', { name: 'Inputs C3 empty cell' });
+    const tint = center.querySelector('.sheet-grid-navigation-feedback');
+    expect(tint).not.toBeNull();
+    expect(anchor).toHaveFocus();
+    expect(center.className).not.toMatch(/sheet-grid-selection-(top|bottom|left|right)/);
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', reduced ? 'instant' : 'smooth');
+    const surface = workspaceSurface();
+    const viewport = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+    fireEvent.wheel(surface, { deltaX: 80, deltaY: 100 });
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(viewport);
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', reduced ? 'instant' : 'smooth');
+    expect(anchor).toHaveFocus();
+    expect(center).toHaveAttribute('data-reference-selected', 'true');
+    expect(center.querySelector('.sheet-grid-navigation-feedback')).toBe(tint);
+    act(() => { vi.advanceTimersByTime(800); });
+    navigate();
+    expect(center.querySelector('.sheet-grid-navigation-feedback')).not.toBe(tint);
+    expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toBe(anchor);
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(center).toHaveAttribute('data-navigation-highlight', 'true');
+    act(() => { vi.advanceTimersByTime(800); });
+    expect(view.container.querySelector('.sheet-grid-navigation-feedback')).toBeNull();
+    expect(center).toHaveAttribute('data-reference-selected', 'true');
+    expect(anchor).toHaveFocus();
+  });
+
   it('jumps across sheets to a distant range through a measured virtual window', async () => {
     const inputs = sparseLargeSheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
     const outputs = {
@@ -66,7 +106,7 @@ describe('formula reference navigation', () => {
     virtualGridGeometry(body, { height: 160, width: 240 });
     await waitFor(() => expect(within(inputsFrame).getByRole('table', { name: 'Inputs grid' })).toHaveFocus());
 
-    const reset = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    const reset = screen.getByRole('button', { name: 'New sheet' });
     reset.focus();
     await act(async () => {});
     body.scrollTop = 9_998 * 26.4;
@@ -77,7 +117,7 @@ describe('formula reference navigation', () => {
     expect(reset).toHaveFocus();
     expect(target).not.toHaveFocus();
 
-    fireEvent.click(reset);
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
@@ -105,10 +145,6 @@ describe('formula reference navigation', () => {
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
     expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed');
 
-    const requestTimeInput = within(inputsFrame).getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-    requestTimeInput.focus();
-    expect(requestTimeInput).toHaveFocus();
-
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
     const focus = vi.spyOn(HTMLElement.prototype, 'focus');
@@ -121,14 +157,12 @@ describe('formula reference navigation', () => {
     const targetFocusClaims = () => (focus.mock.instances as unknown as HTMLElement[]).filter((element) =>
       element.getAttribute('aria-label') === 'Inputs CU9999 empty cell').length;
     expect(targetFocusClaims()).toBe(1);
-    const input = within(inputsFrame).getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '400' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    screen.getByRole('button', { name: 'New sheet' }).focus();
+    setSheetScale(inputsFrame, 400);
     await waitFor(() => expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
     expect(targetFocusClaims()).toBe(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
@@ -182,9 +216,9 @@ describe('formula reference navigation', () => {
     expect(target).toHaveAttribute('data-navigation-highlight', 'true');
     expect(inputsFrame).toHaveAttribute('data-z-index', '2');
 
-    const reset = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    const reset = screen.getByRole('button', { name: 'New sheet' });
     reset.focus();
-    fireEvent.click(reset);
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 
@@ -225,7 +259,7 @@ describe('formula reference navigation', () => {
     expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
     expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset workspace viewport' }));
+    resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 

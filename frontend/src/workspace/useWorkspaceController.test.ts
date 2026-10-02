@@ -16,7 +16,7 @@ describe('useWorkspaceController', () => {
     let currentController: ReturnType<typeof useWorkspaceController> | undefined;
 
     function Harness() {
-      const controller = useWorkspaceController({ onCreateSheet: vi.fn() });
+      const controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() });
       useLayoutEffect(() => {
         currentController = controller;
       });
@@ -38,7 +38,7 @@ describe('useWorkspaceController', () => {
   });
 
   it('pans, compounds multiplicative zoom around an origin, clamps zoom, and resets viewport state', () => {
-    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() }));
 
     act(() => result.current.panWorkspace(80, -40));
     expect(result.current.viewport).toEqual({ x: 80, y: -40, scale: 1 });
@@ -60,7 +60,7 @@ describe('useWorkspaceController', () => {
   });
 
   it('saturates repeated finite pans before viewport coordinates overflow', () => {
-    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() }));
 
     act(() => {
       result.current.panWorkspace(Number.MAX_VALUE, -Number.MAX_VALUE);
@@ -77,7 +77,7 @@ describe('useWorkspaceController', () => {
   });
 
   it('uses the surface center as the toolbar zoom origin', () => {
-    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn() }));
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() }));
     act(() => { result.current.workspaceSurfaceRef.current = workspaceElement(1000, 800); });
     act(() => result.current.zoomWorkspaceBy(1.2));
 
@@ -86,7 +86,7 @@ describe('useWorkspaceController', () => {
 
   it('creates sheets at the current viewport center and clears an open sheet menu', () => {
     const onCreateSheet = vi.fn();
-    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet }));
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet, onClearSelection: vi.fn() }));
 
     act(() => result.current.panWorkspace(100, 50));
     act(() => {
@@ -100,7 +100,7 @@ describe('useWorkspaceController', () => {
 
   it('rounds sheet frame placement after fractional viewport geometry is resolved', () => {
     const onCreateSheet = vi.fn();
-    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet }));
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet, onClearSelection: vi.fn() }));
 
     act(() => {
       result.current.workspaceSurfaceRef.current = workspaceElement(1001, 801);

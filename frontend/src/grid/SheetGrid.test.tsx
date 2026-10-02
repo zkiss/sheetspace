@@ -858,7 +858,7 @@ describe('SheetGrid virtualization', () => {
 
     act(() => geometry.resize({ height: 320, width: 480 }));
     await waitFor(() => expect(mountedCellKeys().length).toBeGreaterThan(initial.length));
-    expect(Number.parseFloat(grid.style.height)).toBeCloseTo(264026.4, 3);
+    expect(Number.parseFloat(grid.style.height)).toBe(Math.ceil(264026.4));
     expect(grid).toHaveStyle({ width: '7640px' });
 
     body.scrollTop = 264_000;
@@ -935,7 +935,7 @@ describe('SheetGrid virtualization', () => {
     expect(getComputedStyle(bHeader).minWidth).toBe('40px');
     expect(getComputedStyle(bHeader).width).toBe('40px');
     expect(secondRow).toHaveStyle({ height: '20px', top: '326.4px' });
-    expect(screen.getByTestId('sheet-grid')).toHaveStyle({ height: '706.4px', width: '650px' });
+    expect(screen.getByTestId('sheet-grid')).toHaveStyle({ height: '707px', width: '650px' });
   });
 
   it('allows an ordinary active cell to unmount and remount while preserving logical selection and grid entry', async () => {
@@ -1280,7 +1280,7 @@ describe('SheetGrid virtualization', () => {
     expect(columnHeaders.length).toBeLessThanOrEqual(30);
     expect(dataCells).toHaveLength(rowHeaders.length * columnHeaders.length);
     expect(dataCells.length).toBeLessThan(1_000);
-    expect(Number.parseFloat(grid.style.height)).toBeCloseTo(26.4 + 10_000 * 26.4, 3);
+    expect(Number.parseFloat(grid.style.height)).toBe(Math.ceil(26.4 + 10_000 * 26.4));
     expect(grid).toHaveStyle({ width: '7640px' });
     expect(columnHeaders[0]).toHaveStyle({ left: dataCells[0].style.left });
     expect(columnHeaders[0]).toHaveStyle({ position: 'absolute', top: '0px' });

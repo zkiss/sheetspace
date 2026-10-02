@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { addressRangeOf, cellAddressOf, stableRangeAt } from '@workbook/core/cellIdentity';
 import { findSheetById } from '@workbook/read/queries';
 import { type CellRange } from '@workbook/core/address';
@@ -47,23 +47,24 @@ export function useReferenceNavigation({
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   workbook: Workbook;
 }) {
-  const [navigationHighlight, setNavigationHighlight] =
-    useState<ReferenceNavigationTarget | null>(null);
+  const nextHighlightIdentity = useRef(1);
+  const [highlight, setHighlight] =
+    useState<{ target: ReferenceNavigationTarget; identity: number } | null>(null);
   const [navigationMotion, setNavigationMotion] = useState(false);
 
   useEffect(() => {
-    if (!navigationHighlight) {
+    if (!highlight) {
       return;
     }
 
     const timeout = window.setTimeout(
       () => {
-        setNavigationHighlight(null);
+        setHighlight(null);
       },
       NAVIGATION_HIGHLIGHT_MS,
     );
     return () => window.clearTimeout(timeout);
-  }, [navigationHighlight]);
+  }, [highlight]);
 
   useEffect(() => {
     if (!navigationMotion) {
@@ -91,7 +92,7 @@ export function useReferenceNavigation({
       ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
     onSelectReferenceTarget(target);
-    setNavigationHighlight(target);
+    setHighlight({ target, identity: nextHighlightIdentity.current++ });
 
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     setNavigationMotion(!reduceMotion);
@@ -111,7 +112,8 @@ export function useReferenceNavigation({
 
   return {
     navigateReference,
-    navigationHighlight,
+    navigationHighlight: highlight?.target ?? null,
+    navigationHighlightIdentity: highlight?.identity,
     navigationMotion,
   };
 }

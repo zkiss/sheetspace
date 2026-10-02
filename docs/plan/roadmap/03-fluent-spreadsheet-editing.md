@@ -36,7 +36,8 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 
 - Make workspace movement infinite-feeling so users can continue panning and placing sheets at any practical finite coordinate.
 - Support smooth multiplicative viewport zoom across a wide practical range, preserving the workspace point under the pointer or gesture center.
-- Adopt Figma-style navigation: wheel or two-finger scrolling pans empty canvas, pinch or Ctrl/Cmd-wheel zooms at the pointer, and Space-drag or middle-drag pans from anywhere. Preserve ordinary scrolling inside sheet grids.
+- Keep ordinary wheel and two-finger scrolling native within sheets and controls on both axes. Over canvas background it is inert, preserving navigation, selection, focus, editing, and open menus. Reaching a sheet's scroll limit or holding Space does not turn scrolling into canvas movement.
+- Pan by dragging the background, Space-dragging, or middle-dragging; zoom at the pointer with pinch or Ctrl/Cmd-wheel. Explicit gestures retain canvas ownership across sheets and owned editor portals while ordinary input respects native-content boundaries.
 - Add persistent uniform visual scale as presentation state stored separately from cells, formulas, grid dimensions, and logical frame size.
 - Create sheets at the inverse of the active viewport scale, clamped to the supported range, so a sheet created while deeply zoomed in appears at a usable screen size and becomes miniature after zooming out.
 - Add a distinct scale handle and numeric percentage control. Keep these controls usable at miniature scales and keep frame resizing a separate operation.

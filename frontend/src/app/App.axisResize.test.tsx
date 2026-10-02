@@ -58,7 +58,8 @@ describe('axis resize application integration', () => {
     expect(screen.getByRole('cell', { name: 'Inputs B2 cell' })).toHaveTextContent('14');
     fireEvent.doubleClick(first);
     expect(screen.getByRole('textbox')).toHaveValue('7');
-    expect(screen.getByRole('textbox').closest('[role="cell"]')).toHaveStyle({ width: '120px', height: `${rowHeight}px` });
+    expect(first).toHaveStyle({ width: '120px', height: `${rowHeight}px` });
+    expect(first).not.toContainElement(screen.getByRole('textbox'));
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
     const frame = screen.getByTestId('sheet-frame');
     const right = within(frame).getByRole('separator', { name: 'Resize sheet Inputs from right' });
@@ -78,7 +79,7 @@ describe('axis resize application integration', () => {
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     fireEvent.click(screen.getByRole('button', { name: 'Inputs!K100:L101, reference' }), { ctrlKey: true });
     expect(body.scrollLeft).toBe(160 + 9 * 76);
-    expect(body.scrollTop).toBe(Math.round(80 + 98 * 26.4));
+    expect(body.scrollTop).toBeCloseTo(80 + 98 * 26.4);
     fireEvent.scroll(body);
     const target = await within(frame).findByRole('cell', { name: 'Inputs K100 empty cell' });
     expect(target).toHaveAttribute('data-navigation-highlight', 'true');

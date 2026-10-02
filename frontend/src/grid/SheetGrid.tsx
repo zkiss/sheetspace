@@ -6,6 +6,7 @@ import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from '@grid/gridAxisProjection';
 import { createSheetGridAxisMetrics, type GridAxisMetrics } from './gridAxisMetrics';
+import { gridCellReveal, gridRangeReveal } from './gridCellReveal';
 import {
   GRID_COLUMN_HEADER_HEIGHT,
   GRID_CELL_HEIGHT,
@@ -16,9 +17,9 @@ import type { SelectionGesture, CellEditSession, CellSelectionMode, CellTarget }
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
 import {
   SheetGridCell,
-  type SheetGridCellEditorInteraction,
   type SheetGridCellInteraction,
 } from '@grid/SheetGridCell';
+import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import { useAxisResize } from './useAxisResize';
 import { AxisResizeHandle } from './AxisResizeHandle';
 import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
@@ -96,7 +97,10 @@ export function SheetGrid({
   onKeyboardFocusRequestConsumed,
   navigationHighlightCellKey,
   navigationHighlightRange,
+  navigationHighlightIdentity,
   historyFeedbackCells,
+  historyFeedbackIdentity,
+  onHistoryRevealConsumed,
   formulaResults,
   scrollContainerRef,
   selectionMode,
@@ -108,6 +112,7 @@ export function SheetGrid({
   presentation,
   logicalSelection,
   onWriteAxisSizes,
+  interactionsEnabled = true,
   onPointerInteractionChange,
   onNativeFocusTarget,
   pendingCutCells,
@@ -115,6 +120,7 @@ export function SheetGrid({
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
+  interactionsEnabled?: boolean;
   /** Keeps this grid mounted while a live pointer session owns it. */
   onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
   /** Publishes native ownership only after focus reaches a concrete cell. */
@@ -136,7 +142,12 @@ export function SheetGrid({
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
   navigationHighlightCellKey: string | null;
   navigationHighlightRange?: CellRange;
+  /** One reference-navigation action, independent of range/projection allocations. */
+  navigationHighlightIdentity?: number;
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
+  /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
+  historyFeedbackIdentity?: string;
+  onHistoryRevealConsumed?: (sheetId: string, identity: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
   selectionMode?: CellSelectionMode;
@@ -158,6 +169,8 @@ export function SheetGrid({
   // while virtualization causes this effect to rerun. Remember acknowledgements
   // locally to make each request's completion edge-triggered.
   const consumedKeyboardFocusRequestIds = useRef(new Set<number>());
+  const revealedHistoryIdentity = useRef<string>();
+  const revealedNavigationIdentity = useRef<number>();
   const gridRef = useRef<HTMLDivElement>(null);
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
@@ -179,7 +192,7 @@ export function SheetGrid({
   const selectionOwnerRef = useRef(selectionOwner);
   selectionOwnerRef.current = selectionOwner;
   const { columns, rows } = axisProjection;
-  const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes });
+  const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes, interactionsEnabled });
   const projectedMetrics = useMemo(() => createSheetGridAxisMetrics(axisProjection, presentation, resize.preview),
     [rows, columns, presentation, resize.preview]);
   const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
@@ -362,6 +375,8 @@ export function SheetGrid({
   }, [activeAddress?.columnIndex, activeAddress?.rowIndex, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
 
   useEffect(() => {
+    if (navigationHighlightIdentity !== undefined
+      && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
     if (!navigationHighlightRange && !navigationHighlightCellKey) {
       return;
     }
@@ -381,29 +396,36 @@ export function SheetGrid({
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, range.start.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, range.start.columnIndex);
-    const rowOffset = rowMetrics.scrollOffsetForIndex(
-      rowIndex,
-      Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT),
-    );
-    const columnOffset = columnMetrics.scrollOffsetForIndex(
-      columnIndex,
-      Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH),
-    );
-    if (columnOffset !== undefined) scrollContainer.scrollLeft = Math.round(columnOffset);
-    if (rowOffset !== undefined) scrollContainer.scrollTop = Math.round(rowOffset);
-  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, rowMetrics, rows, scrollContainerRef, sheet]);
+    const endRowIndex = axisIndexForDurableIndex(rows, range.end.rowIndex);
+    const endColumnIndex = axisIndexForDurableIndex(columns, range.end.columnIndex);
+    const reveal = gridRangeReveal({ rows: rowMetrics, columns: columnMetrics }, {
+      start: { row: rowIndex, column: columnIndex }, end: { row: endRowIndex, column: endColumnIndex },
+    }, {
+      width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
+      left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
+    });
+    if (!reveal.row || !reveal.column) return;
+    revealedNavigationIdentity.current = navigationHighlightIdentity;
+    scrollContainer.scrollLeft = reveal.column.scroll;
+    scrollContainer.scrollTop = reveal.row.scroll;
+  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, rowMetrics, rows, scrollContainerRef, sheet]);
 
   useEffect(() => {
-    if (!historyAddress) return;
+    if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, historyAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, historyAddress.columnIndex);
-    const rowOffset = rowMetrics.scrollOffsetForIndex(rowIndex, Math.max(0, scrollContainer.clientHeight - GRID_COLUMN_HEADER_HEIGHT));
-    const columnOffset = columnMetrics.scrollOffsetForIndex(columnIndex, Math.max(0, scrollContainer.clientWidth - GRID_ROW_HEADER_WIDTH));
-    if (columnOffset !== undefined) scrollContainer.scrollLeft = Math.round(columnOffset);
-    if (rowOffset !== undefined) scrollContainer.scrollTop = Math.round(rowOffset);
-  }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, rowMetrics, rows, columns, scrollContainerRef]);
+    const reveal = gridCellReveal({ rows: rowMetrics, columns: columnMetrics }, { row: rowIndex, column: columnIndex }, {
+      width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
+      left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
+    });
+    if (!reveal.row || !reveal.column) return;
+    revealedHistoryIdentity.current = historyFeedbackIdentity;
+    scrollContainer.scrollLeft = reveal.column.scroll;
+    scrollContainer.scrollTop = reveal.row.scroll;
+    onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
+  }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
 
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
@@ -685,8 +707,10 @@ export function SheetGrid({
         '--grid-cell-height': cssRemFromPixels(GRID_CELL_HEIGHT),
         '--grid-cell-width': cssRemFromPixels(GRID_CELL_WIDTH),
         '--grid-row-header-width': cssRemFromPixels(GRID_ROW_HEADER_WIDTH),
-        height: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize,
-        width: GRID_ROW_HEADER_WIDTH + columnMetrics.totalSize,
+        // CSSOM scroll extents are integer pixels. Reserve the fractional tail
+        // rather than letting browser rounding make the last cell unrevealable.
+        height: Math.ceil(GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize),
+        width: Math.ceil(GRID_ROW_HEADER_WIDTH + columnMetrics.totalSize),
       } as CSSProperties}
       tabIndex={!activeCellKey || !activeIsMounted ? 0 : -1}
     >
@@ -753,13 +777,29 @@ export function SheetGrid({
               }
               const address = { columnIndex: column.durableIndex, rowIndex: row.durableIndex };
               const key = cellKey(address);
-              const isActive = activeCellKey === key;
-              const isEditing = cellKeyForTarget(sheet, editingCell?.target ?? null) === key;
-              const isRangeSelected = isAddressInRange(address, selectedRange);
+               const isActive = activeCellKey === key;
+               const isEditing = cellKeyForTarget(sheet, editingCell?.target ?? null) === key;
+               const isRangeSelected = isAddressInRange(address, selectedRange);
+               const selectionEdges = isRangeSelected && selectedRange ? [
+                 address.rowIndex === selectedRange.start.rowIndex ? 'sheet-grid-selection-top' : '',
+                 address.rowIndex === selectedRange.end.rowIndex ? 'sheet-grid-selection-bottom' : '',
+                 address.columnIndex === selectedRange.start.columnIndex ? 'sheet-grid-selection-left' : '',
+                 address.columnIndex === selectedRange.end.columnIndex ? 'sheet-grid-selection-right' : '',
+               ].filter(Boolean).join(' ') : undefined;
               const isNavigationTarget = navigationHighlightRange
                 ? isAddressInRange(address, navigationHighlightRange)
                 : navigationHighlightCellKey === key;
-              const historyFeedback = historyFeedbackCells?.get(key);
+               const historyFeedback = historyFeedbackCells?.get(key);
+               const hasHistoryNeighbor = (rowIndex: number, columnIndex: number) => Boolean(
+                  rowIndex >= 0 && columnIndex >= 0
+                    && historyFeedbackCells?.has(cellKey({ rowIndex, columnIndex })),
+               );
+               const historyEdges = historyFeedback ? [
+                 !hasHistoryNeighbor(address.rowIndex - 1, address.columnIndex) ? 'sheet-grid-history-top' : '',
+                 !hasHistoryNeighbor(address.rowIndex + 1, address.columnIndex) ? 'sheet-grid-history-bottom' : '',
+                 !hasHistoryNeighbor(address.rowIndex, address.columnIndex - 1) ? 'sheet-grid-history-left' : '',
+                 !hasHistoryNeighbor(address.rowIndex, address.columnIndex + 1) ? 'sheet-grid-history-right' : '',
+               ].filter(Boolean).join(' ') : undefined;
               const identity = cellIdentityAt(sheet, key);
               const appearance = identity ? resolveCellAppearance(presentation?.formatOverrides ?? { rows: {}, columns: {}, cells: {} }, identity) : undefined;
 
@@ -775,9 +815,12 @@ export function SheetGrid({
                   isEditing={isEditing}
                   isFocusTarget={focusIntent?.targetKey === key}
                   isNavigationTarget={isNavigationTarget}
-                  historyFeedback={historyFeedback}
-                   isRangeSelected={isRangeSelected}
-                   isPendingCut={pendingCutCells?.has(key)}
+                  navigationHighlightIdentity={navigationHighlightIdentity}
+                    historyFeedback={historyFeedback}
+                    historyEdges={historyEdges}
+                    isRangeSelected={isRangeSelected}
+                    selectionEdges={selectionEdges}
+                    isPendingCut={pendingCutCells?.has(key)}
                   key={key}
                   onNativeFocusTarget={onNativeFocusTarget}
                   registerCell={registerCell}

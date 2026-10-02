@@ -3,24 +3,16 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { openCellEditor } from '@test-support/appScreen';
+import { zoomWorkspace, setSheetScale } from '@test-support/workspaceActions';
 import { measuredElementGeometry } from '@test-support/domGeometry';
-import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function inputsSheet() {
-  return positionedSheet('sheet-inputs', 'Inputs', { x: 48, y: 96 });
+  return smallSheetDocument({ id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 } });
 }
 
 function outputsSheet() {
-  return positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 96 });
-}
-
-function scaleInput() {
-  return screen.getByRole('spinbutton', { name: 'Scale sheet Inputs percentage' });
-}
-
-function zoomWorkspace(direction: 'in' | 'out', times: number) {
-  const button = screen.getByRole('button', { name: `Zoom workspace ${direction}` });
-  for (let index = 0; index < times; index += 1) fireEvent.click(button);
+  return smallSheetDocument({ id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 96 } });
 }
 
 function fireGridPointer(element: Element, type: string) {
@@ -100,7 +92,7 @@ describe('App rendering-mode transitions', () => {
 
   it('restores focus after selecting a sheet initially rendered as an overview', async () => {
     const user = userEvent.setup();
-    const miniatureInputs = sheetDocument({
+    const miniatureInputs = smallSheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
       position: { x: 48, y: 96 },
@@ -111,11 +103,7 @@ describe('App rendering-mode transitions', () => {
 
     expect(frame).toHaveAttribute('data-rendering-mode', 'overview');
     await user.click(within(frame).getByRole('button', { name: 'Select sheet Inputs overview' }));
-    const input = scaleInput();
-    await user.click(input);
-    await user.clear(input);
-    await user.type(input, '100');
-    await user.keyboard('{Enter}');
+    zoomWorkspace('in', 8);
 
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
     await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
@@ -132,7 +120,7 @@ describe('App rendering-mode transitions', () => {
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
     expect(within(frame).getByTestId('sheet-frame-body')).toHaveFocus();
 
-    const toolbarControl = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    const toolbarControl = screen.getByRole('button', { name: 'New sheet' });
     toolbarControl.focus();
     expect(toolbarControl).toHaveFocus();
 
@@ -156,7 +144,7 @@ describe('App rendering-mode transitions', () => {
 
     act(() => { geometry.resize({ width: 0, height: 0 }); });
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
-    const toolbarControl = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    const toolbarControl = screen.getByRole('button', { name: 'New sheet' });
     toolbarControl.focus();
 
     act(() => { geometry.resize({ width: 800, height: 600 }); });
@@ -175,14 +163,13 @@ describe('App rendering-mode transitions', () => {
 
     fireEvent.click(cell);
     cell.focus();
+    const handle = within(frame).getByRole('separator', { name: /from right$/ });
+    fireEvent.pointerDown(handle, { button: 0, ctrlKey: true });
     zoomWorkspace('out', 6);
-    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
-
-    const input = scaleInput();
-    input.focus();
-    await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'detailed'));
-    const toolbarControl = screen.getByRole('button', { name: 'Reset workspace viewport' });
+    expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
+    const toolbarControl = screen.getByRole('button', { name: 'New sheet' });
     toolbarControl.focus();
+    fireEvent.pointerCancel(handle);
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
 
     zoomWorkspace('in', 6);
@@ -192,7 +179,7 @@ describe('App rendering-mode transitions', () => {
   });
 
   it('keeps an overview-selection focus handoff through culling and remounting', async () => {
-    const miniatureInputs = sheetDocument({
+    const miniatureInputs = smallSheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
       position: { x: 48, y: 96 },
@@ -209,10 +196,7 @@ describe('App rendering-mode transitions', () => {
     act(() => { geometry.resize({ width: 800, height: 600 }); });
 
     const remountedFrame = await screen.findByRole('article', { name: 'Sheet Inputs' });
-    const input = scaleInput();
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '100' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    zoomWorkspace('in', 8);
 
     await waitFor(() => expect(remountedFrame).toHaveAttribute('data-rendering-mode', 'detailed'));
     await waitFor(() => expect(within(remountedFrame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
@@ -234,7 +218,7 @@ describe('App rendering-mode transitions', () => {
 
     act(() => { geometry.resize({ width: 800, height: 600 }); });
     expect(cell).toHaveFocus();
-    screen.getByRole('button', { name: 'Reset workspace viewport' }).focus();
+    screen.getByRole('button', { name: 'New sheet' }).focus();
     act(() => { geometry.resize({ width: 0, height: 0 }); });
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
@@ -265,7 +249,7 @@ describe('App rendering-mode transitions', () => {
     await waitFor(() => expect(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus());
     expect(a1FocusClaims()).toBe(claimsBeforeRestore + 1);
 
-    screen.getByRole('button', { name: 'Reset workspace viewport' }).focus();
+    screen.getByRole('button', { name: 'New sheet' }).focus();
     act(() => { geometry.resize({ width: 0, height: 0 }); });
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
@@ -278,7 +262,7 @@ describe('App rendering-mode transitions', () => {
     const editor = await openCellEditor(user, cell);
     await user.type(editor, 'Uncommitted draft');
 
-    fireEvent.change(scaleInput(), { target: { value: '30' } });
+    zoomWorkspace('out', 8);
 
     expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
     expect(screen.getByTestId('sheet-grid')).toBeInTheDocument();
@@ -289,11 +273,7 @@ describe('App rendering-mode transitions', () => {
     render(<App initialWorkbook={workbookWithSheets([inputsSheet()])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     fireEvent.click(within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' }));
-    const input = scaleInput();
-
-    fireEvent.focus(input);
-    fireEvent.change(input, { target: { value: '30' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    setSheetScale(frame, 30);
 
     await waitFor(() => expect(frame).toHaveAttribute('data-rendering-mode', 'overview'));
     expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
@@ -344,7 +324,7 @@ describe('App rendering-mode transitions', () => {
     expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBeInTheDocument();
 
     fireGridPointer(a1, 'pointerup');
-    screen.getByRole('button', { name: 'Reset workspace viewport' }).focus();
+    screen.getByRole('button', { name: 'New sheet' }).focus();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
 });

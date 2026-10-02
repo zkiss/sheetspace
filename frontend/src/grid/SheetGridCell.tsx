@@ -1,15 +1,11 @@
-import { KeyboardEvent, type CSSProperties } from 'react';
+import { useCallback, useRef, type KeyboardEvent, type CSSProperties } from 'react';
 import { cellRawContent } from '@workbook/read/queries';
 import { type SheetTabularProjection } from '@workbook/core/model';
 import type { SelectionGesture, CellEditSession, CellNavigationDirection, CellNavigationRequest, CellTarget } from './cellInteractionContracts';
 import { cellTargetAt } from '@grid/cellInteraction';
-import { GRID_CELL_HEIGHT } from '@grid/gridGeometry';
 import { gridCellKeyboardAction } from './sheetGridModel';
-import { cssRemFromPixels } from '@shared/styles/styleTokens';
+import { SheetGridCellEditor, type SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import '@grid/SheetGridCell.css';
-
-export const CELL_EDITOR_MAX_WIDTH = '28rem';
-export const CELL_EDITOR_MAX_HEIGHT = '12rem';
 
 export type SheetGridCellInteraction = {
   clear: (target: CellTarget) => void;
@@ -22,22 +18,6 @@ export type SheetGridCellInteraction = {
   startEditing: (target: CellTarget, initialValue?: string) => void;
 };
 
-export type SheetGridCellEditorInteraction = {
-  cancel: () => void;
-  commit: (session?: CellEditSession) => void;
-  commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
-  updateValue: (value: string) => void;
-};
-
-function moveEditorCaretToEnd(editor: HTMLTextAreaElement | null) {
-  if (!editor) {
-    return;
-  }
-
-  const end = editor.value.length;
-  editor.setSelectionRange(end, end);
-}
-
 export function SheetGridCell({
   cellKey,
   columnIndex,
@@ -47,8 +27,11 @@ export function SheetGridCell({
   isEditing,
   isFocusTarget = false,
   isNavigationTarget = false,
+  navigationHighlightIdentity,
   historyFeedback,
+  historyEdges,
   isRangeSelected = false,
+  selectionEdges,
   isPendingCut = false,
   cellInteraction,
   editorInteraction,
@@ -66,8 +49,11 @@ export function SheetGridCell({
   isEditing: boolean;
   isFocusTarget?: boolean;
   isNavigationTarget?: boolean;
+  navigationHighlightIdentity?: number;
   historyFeedback?: { before: string | null; beforeDisplay: string | null; after: string | null };
+  historyEdges?: string;
   isRangeSelected?: boolean;
+  selectionEdges?: string;
   isPendingCut?: boolean;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
@@ -77,7 +63,12 @@ export function SheetGridCell({
   style?: CSSProperties;
   tabIndex?: number;
 }) {
-  function handleCellKeyDown(event: KeyboardEvent<HTMLTableCellElement>) {
+  const cellElementRef = useRef<HTMLDivElement | null>(null);
+  const attachCell = useCallback((element: HTMLDivElement | null) => {
+    cellElementRef.current = element;
+    registerCell?.(cellKey, element);
+  }, [cellKey, registerCell]);
+  function handleCellKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const target = cellTargetAt(sheet, cellKey);
     if (!target) return;
     const action = gridCellKeyboardAction({
@@ -126,7 +117,7 @@ export function SheetGridCell({
       aria-selected={isActive || isRangeSelected ? 'true' : undefined}
       className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
         isRangeSelected ? ' sheet-grid-cell-range-selected' : ''
-      }${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
+      }${selectionEdges ? ` ${selectionEdges}` : ''}${historyEdges ? ` ${historyEdges}` : ''}${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
         isEditing ? ' sheet-grid-cell-editing' : ''
       }${historyFeedback ? ` sheet-grid-cell-history-${historyFeedback.before === null ? 'insertion' : historyFeedback.after === null ? 'removal' : 'replacement'}` : ''}`}
       data-active-cell={isActive ? 'true' : undefined}
@@ -164,13 +155,17 @@ export function SheetGridCell({
         if (target) onNativeFocusTarget?.(target);
       }}
       onKeyDown={handleCellKeyDown}
-      ref={(cellElement) => registerCell?.(cellKey, cellElement)}
+      ref={attachCell}
       role="cell"
       style={style}
       tabIndex={tabIndex}
     >
+      {isNavigationTarget && (
+        <span aria-hidden="true" className="sheet-grid-navigation-feedback" key={navigationHighlightIdentity} />
+      )}
       {isEditing && editingCell ? (
         <SheetGridCellEditor
+          anchor={cellElementRef}
           editingCell={editingCell}
           cellKey={cellKey}
           interaction={editorInteraction}
@@ -181,82 +176,4 @@ export function SheetGridCell({
       )}
     </div>
   );
-}
-
-export function SheetGridCellEditor({
-  cellKey,
-  editingCell,
-  interaction,
-  sheetName,
-}: {
-  cellKey: string;
-  editingCell: CellEditSession;
-  interaction: SheetGridCellEditorInteraction;
-  sheetName: string;
-}) {
-  const editorSizing = cellEditorSizing(editingCell.draft);
-
-  return (
-    <textarea
-      aria-label={`${sheetName} ${cellKey} editor`}
-      autoFocus
-      className="sheet-grid-cell-editor"
-      data-max-height={CELL_EDITOR_MAX_HEIGHT}
-      data-max-width={CELL_EDITOR_MAX_WIDTH}
-      data-multiline-editor={editorSizing.multiline ? 'true' : undefined}
-      data-visible-lines={editorSizing.visibleLineCount}
-      onBlur={(event) => interaction.commit({ ...editingCell, draft: event.currentTarget.value })}
-      onChange={(event) => interaction.updateValue(event.target.value)}
-      onClick={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-          event.preventDefault();
-          event.stopPropagation();
-          interaction.commitAndNavigate(
-            { ...editingCell, draft: event.currentTarget.value },
-            { key: 'Enter', shift: event.shiftKey },
-          );
-        }
-
-        if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-          event.preventDefault();
-          event.stopPropagation();
-          interaction.commitAndNavigate(
-            { ...editingCell, draft: event.currentTarget.value },
-            { key: 'Tab', shift: event.shiftKey },
-          );
-        }
-
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          interaction.cancel();
-        }
-      }}
-      ref={moveEditorCaretToEnd}
-      style={{
-        height: editorSizing.height,
-        maxHeight: CELL_EDITOR_MAX_HEIGHT,
-        maxWidth: CELL_EDITOR_MAX_WIDTH,
-        overflow: 'auto',
-        width: editorSizing.width,
-      }}
-      value={editingCell.draft}
-    />
-  );
-}
-
-function cellEditorSizing(value: string) {
-  const lines = value.split('\n');
-  const lineCount = lines.length;
-  const longestLineLength = Math.max(...lines.map((line) => line.length), 0);
-  const visibleLineCount = Math.min(Math.max(lineCount, 1), 8);
-  const visibleColumnCount = Math.min(Math.max(longestLineLength + 2, 12), 64);
-
-  return {
-    height: `min(${CELL_EDITOR_MAX_HEIGHT}, max(${cssRemFromPixels(GRID_CELL_HEIGHT)}, ${visibleLineCount * 1.45}rem))`,
-    multiline: lineCount > 1,
-    visibleLineCount,
-    width: `min(${CELL_EDITOR_MAX_WIDTH}, max(100%, ${visibleColumnCount}ch))`,
-  };
 }

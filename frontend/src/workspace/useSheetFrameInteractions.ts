@@ -1,4 +1,4 @@
-import { PointerEvent, useEffect, useRef, useState } from 'react';
+import { PointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SheetFrameDrag, SheetFrameLayoutCommands, SheetFrameResize, SheetFrameResizeDirection, SheetFrameScale } from './workspaceContracts';
 import { findSheetById } from '@workbook/read/queries';
 import { type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
@@ -10,35 +10,45 @@ export type SheetFrameLayoutPreview = {
   size: SheetFrameSize;
 };
 
-type SheetFrameInteractionSession =
+type SheetFrameInteractionSession = (
   | { owner: 'drag'; interaction: SheetFrameDrag }
   | { owner: 'resize'; interaction: SheetFrameResize }
   | { owner: 'pointer-scale'; interaction: SheetFrameScale }
-  | { owner: 'numeric-scale'; sheetId: string; startVisualScale: number };
+) & { captureElement: HTMLElement; viewportScale: number };
 
 export function useSheetFrameInteractions({
   commands,
+  interactionsEnabled = true,
   viewportScale,
   workbook,
 }: {
   commands: SheetFrameLayoutCommands;
+  interactionsEnabled?: boolean;
   viewportScale: number;
   workbook: Workbook;
 }) {
   const sheetFrameInteractionSession = useRef<SheetFrameInteractionSession | null>(null);
   const [frameLayoutPreview, setFrameLayoutPreview] = useState<SheetFrameLayoutPreview | null>(null);
-  const [frameScalePreview, setFrameScalePreview] = useState<{ sheetId: string; visualScale: number } | null>(null);
+  const [frameScalePreview, setFrameScalePreview] = useState<{ sheetId: string; visualScale: number; position: WorkspacePosition } | null>(null);
   const [interactionPinnedSheetId, setInteractionPinnedSheetId] = useState<string | null>(null);
 
   function startInteraction(session: SheetFrameInteractionSession) {
+    if (!interactionsEnabled || sheetFrameInteractionSession.current) return false;
     sheetFrameInteractionSession.current = session;
     setFrameLayoutPreview(null);
     setFrameScalePreview(null);
-    setInteractionPinnedSheetId(session.owner === 'numeric-scale' ? session.sheetId : session.interaction.sheetId);
+    // Keep the frame mounted for the complete pointer session. Workspace owns
+    // detailed/overview rendering separately, so this pin does not reveal a grid.
+    setInteractionPinnedSheetId(session.interaction.sheetId);
+    return true;
   }
 
   function clearInteractionSession() {
+    const previous = sheetFrameInteractionSession.current;
     sheetFrameInteractionSession.current = null;
+    if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
+      previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
+    }
     setFrameLayoutPreview(null);
     setFrameScalePreview(null);
     setInteractionPinnedSheetId(null);
@@ -53,14 +63,13 @@ export function useSheetFrameInteractions({
     if (!sheet) {
       return;
     }
-
-    startInteraction({ owner: 'drag', interaction: {
+    if (!startInteraction({ owner: 'drag', captureElement: event.currentTarget, viewportScale, interaction: {
       pointerId: event.pointerId,
       sheetId,
       startClientX: event.clientX,
       startClientY: event.clientY,
       startPosition: sheet.frame.position,
-    }});
+    }})) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
   }
@@ -75,7 +84,7 @@ export function useSheetFrameInteractions({
     const delta = workspaceDeltaFromClient(
       { x: drag.startClientX, y: drag.startClientY },
       { x: event.clientX, y: event.clientY },
-      viewportScale,
+      current.viewportScale,
     );
     const sheet = findSheetById(workbook, drag.sheetId);
     if (!sheet) return;
@@ -99,7 +108,7 @@ export function useSheetFrameInteractions({
     const delta = workspaceDeltaFromClient(
       { x: finishedDrag.startClientX, y: finishedDrag.startClientY },
       { x: event.clientX, y: event.clientY },
-      viewportScale,
+      current.viewportScale,
     );
     const position = {
       x: Math.round(finishedDrag.startPosition.x + delta.x),
@@ -110,14 +119,12 @@ export function useSheetFrameInteractions({
     }
 
     clearInteractionSession();
-    event.currentTarget?.releasePointerCapture?.(event.pointerId);
   }
 
   function cancelSheetFrameDrag(event: PointerEvent<HTMLElement>) {
     const current = sheetFrameInteractionSession.current;
     if (current?.owner !== 'drag' || current.interaction.pointerId !== event.pointerId) return;
     clearInteractionSession();
-    event.currentTarget?.releasePointerCapture?.(event.pointerId);
   }
 
   function handleSheetFrameResizeStart(
@@ -133,8 +140,12 @@ export function useSheetFrameInteractions({
     if (!sheet) {
       return;
     }
+    if (event.ctrlKey || event.metaKey) {
+      handleSheetFrameScaleStart(sheetId, event, direction);
+      return;
+    }
 
-    startInteraction({ owner: 'resize', interaction: {
+    if (!startInteraction({ owner: 'resize', captureElement: event.currentTarget, viewportScale, interaction: {
       pointerId: event.pointerId,
       sheetId,
       startClientX: event.clientX,
@@ -143,7 +154,7 @@ export function useSheetFrameInteractions({
       startFrameSize: sheet.frame.size,
       startVisualScale: sheet.frame.visualScale,
       direction,
-    }});
+    }})) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault();
     event.stopPropagation();
@@ -151,6 +162,10 @@ export function useSheetFrameInteractions({
 
   function handleSheetFrameResizeMove(event: PointerEvent<HTMLElement>) {
     const current = sheetFrameInteractionSession.current;
+    if (current?.owner === 'pointer-scale' && current.interaction.pointerId === event.pointerId) {
+      handleSheetFrameScaleMove(event);
+      return;
+    }
     if (current?.owner !== 'resize' || current.interaction.pointerId !== event.pointerId) {
       return;
     }
@@ -161,7 +176,7 @@ export function useSheetFrameInteractions({
     const nextLayout = resizeSheetFrame(resize, logicalDeltaFromClient(
       { x: resize.startClientX, y: resize.startClientY },
       { x: event.clientX, y: event.clientY },
-      viewportScale,
+      current.viewportScale,
       resize.startVisualScale,
     ));
     setFrameLayoutPreview({
@@ -173,6 +188,10 @@ export function useSheetFrameInteractions({
 
   function stopSheetFrameResize(event: PointerEvent<HTMLElement>) {
     const current = sheetFrameInteractionSession.current;
+    if (current?.owner === 'pointer-scale' && current.interaction.pointerId === event.pointerId) {
+      stopSheetFrameScale(event);
+      return;
+    }
     if (current?.owner !== 'resize' || current.interaction.pointerId !== event.pointerId) {
       return;
     }
@@ -183,7 +202,7 @@ export function useSheetFrameInteractions({
     const nextLayout = resizeSheetFrame(resize, logicalDeltaFromClient(
       { x: resize.startClientX, y: resize.startClientY },
       { x: event.clientX, y: event.clientY },
-      viewportScale,
+      current.viewportScale,
       resize.startVisualScale,
     ));
 
@@ -197,14 +216,16 @@ export function useSheetFrameInteractions({
     }
 
     clearInteractionSession();
-    event.currentTarget?.releasePointerCapture?.(event.pointerId);
   }
 
   function cancelSheetFrameResize(event: PointerEvent<HTMLElement>) {
     const current = sheetFrameInteractionSession.current;
+    if (current?.owner === 'pointer-scale' && current.interaction.pointerId === event.pointerId) {
+      cancelSheetFrameScalePointer(event);
+      return;
+    }
     if (current?.owner !== 'resize' || current.interaction.pointerId !== event.pointerId) return;
     clearInteractionSession();
-    event.currentTarget?.releasePointerCapture?.(event.pointerId);
   }
 
   function cancelSheetFrameScale() {
@@ -215,25 +236,17 @@ export function useSheetFrameInteractions({
     const current = sheetFrameInteractionSession.current;
     if (current?.owner !== 'pointer-scale' || current.interaction.pointerId !== event.pointerId) return;
     clearInteractionSession();
-    if (event.currentTarget?.hasPointerCapture?.(current.interaction.pointerId)) {
-      event.currentTarget.releasePointerCapture(current.interaction.pointerId);
-    }
   }
 
-  function cancelSheetFrameScaleInput(sheetId: string) {
-    const current = sheetFrameInteractionSession.current;
-    if (current?.owner !== 'numeric-scale' || current.sheetId !== sheetId) return;
-    clearInteractionSession();
-  }
-
-  function handleSheetFrameScaleStart(sheetId: string, event: PointerEvent<HTMLElement>) {
+  function handleSheetFrameScaleStart(sheetId: string, event: PointerEvent<HTMLElement>, direction: SheetFrameResizeDirection = { horizontal: 1, vertical: 0 }) {
     if (event.button !== 0 && event.button !== undefined) return;
     const sheet = findSheetById(workbook, sheetId);
     if (!sheet) return;
-    startInteraction({ owner: 'pointer-scale', interaction: {
-      pointerId: event.pointerId, sheetId, startClientX: event.clientX, startVisualScale: sheet.frame.visualScale,
-    }});
-    setFrameScalePreview({ sheetId, visualScale: sheet.frame.visualScale });
+    if (!startInteraction({ owner: 'pointer-scale', captureElement: event.currentTarget, viewportScale, interaction: {
+      pointerId: event.pointerId, sheetId, startClientX: event.clientX, startClientY: event.clientY, startVisualScale: sheet.frame.visualScale, direction,
+      startPosition: sheet.frame.position, startFrameSize: sheet.frame.size,
+    }})) return;
+    setFrameScalePreview({ sheetId, visualScale: sheet.frame.visualScale, position: sheet.frame.position });
     event.currentTarget.setPointerCapture?.(event.pointerId);
     event.preventDefault(); event.stopPropagation();
   }
@@ -241,10 +254,11 @@ export function useSheetFrameInteractions({
   function handleSheetFrameScaleMove(event: PointerEvent<HTMLElement>) {
     const current = sheetFrameInteractionSession.current;
     if (current?.owner !== 'pointer-scale' || current.interaction.pointerId !== event.pointerId) return;
-    // 100 device pixels is one doubling; this keeps the drag useful at every sheet scale.
     const scale = current.interaction;
-    const visualScale = clampSheetVisualScale(scale.startVisualScale * Math.pow(2, (event.clientX - scale.startClientX) / 100));
-    setFrameScalePreview({ sheetId: scale.sheetId, visualScale });
+    const preview = scalePreviewAtPointer(scale, event, current.viewportScale);
+    setFrameScalePreview(preview);
+    const sheet = findSheetById(workbook, scale.sheetId);
+    if (sheet) setFrameLayoutPreview({ sheetId: scale.sheetId, position: preview.position, size: sheet.frame.size });
   }
 
   function stopSheetFrameScale(event: PointerEvent<HTMLElement>) {
@@ -252,45 +266,56 @@ export function useSheetFrameInteractions({
     if (current?.owner !== 'pointer-scale' || current.interaction.pointerId !== event.pointerId) return;
     handleSheetFrameScaleMove(event);
     const scale = current.interaction;
-    const visualScale = clampSheetVisualScale(scale.startVisualScale * Math.pow(2, (event.clientX - scale.startClientX) / 100));
-    if (visualScale !== scale.startVisualScale) commands.setSheetVisualScale(scale.sheetId, visualScale);
+    const preview = scalePreviewAtPointer(scale, event, current.viewportScale);
+    const sheet = findSheetById(workbook, scale.sheetId);
+    if (preview.visualScale !== scale.startVisualScale) commands.setSheetVisualScale(scale.sheetId, preview.visualScale);
+    if (sheet && (preview.position.x !== sheet.frame.position.x || preview.position.y !== sheet.frame.position.y)) {
+      commands.moveSheetFrame(scale.sheetId, preview.position);
+    }
     cancelSheetFrameScalePointer(event);
   }
 
-  function previewSheetFrameScale(sheetId: string, visualScale: number) {
-    const current = sheetFrameInteractionSession.current;
-    if (current?.owner !== 'numeric-scale' || current.sheetId !== sheetId) return;
-    setFrameScalePreview({ sheetId, visualScale: clampSheetVisualScale(visualScale) });
-  }
-
-  function startSheetFrameScaleInput(sheetId: string) {
-    const sheet = findSheetById(workbook, sheetId);
-    if (!sheet) return;
-    startInteraction({ owner: 'numeric-scale', sheetId, startVisualScale: sheet.frame.visualScale });
-    setFrameScalePreview({ sheetId, visualScale: sheet.frame.visualScale });
-  }
-
-  function commitSheetFrameScale(sheetId: string, visualScale: number) {
-    const current = sheetFrameInteractionSession.current;
-    if (current?.owner !== 'numeric-scale' || current.sheetId !== sheetId) return;
-    const sheet = findSheetById(workbook, sheetId);
-    const next = clampSheetVisualScale(visualScale);
-    clearInteractionSession();
-    if (sheet && sheet.frame.visualScale !== next) commands.setSheetVisualScale(sheetId, next);
+  function scalePreviewAtPointer(scale: SheetFrameScale, event: PointerEvent<HTMLElement>, viewportScale: number) {
+    const delta = workspaceDeltaFromClient(
+      { x: scale.startClientX, y: scale.startClientY },
+      { x: event.clientX, y: event.clientY },
+      viewportScale,
+    );
+    const candidates = [
+      scale.direction.horizontal ? scale.startVisualScale + delta.x * scale.direction.horizontal / scale.startFrameSize.width : undefined,
+      scale.direction.vertical ? scale.startVisualScale + delta.y * scale.direction.vertical / scale.startFrameSize.height : undefined,
+    ].filter((candidate): candidate is number => candidate !== undefined);
+    const visualScale = clampSheetVisualScale(candidates.reduce((total, candidate) => total + candidate, 0) / candidates.length);
+    return {
+      sheetId: scale.sheetId,
+      visualScale,
+      position: {
+        x: scale.startPosition.x + (scale.direction.horizontal === -1 ? scale.startFrameSize.width * (scale.startVisualScale - visualScale) : 0),
+        y: scale.startPosition.y + (scale.direction.vertical === -1 ? scale.startFrameSize.height * (scale.startVisualScale - visualScale) : 0),
+      },
+    };
   }
 
   useEffect(() => {
+    const session = sheetFrameInteractionSession.current;
+    if (session && !findSheetById(workbook, session.interaction.sheetId)) clearInteractionSession();
+  }, [workbook]);
+
+  useLayoutEffect(() => {
+    if (!interactionsEnabled) {
+      clearInteractionSession();
+      return;
+    }
     const cancel = () => cancelSheetFrameScale();
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
     window.addEventListener('blur', cancel); window.addEventListener('keydown', key, true);
     return () => { window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key, true); cancel(); };
-  }, []);
+  }, [interactionsEnabled]);
 
   return {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
     cancelSheetFrameScale,
-    cancelSheetFrameScaleInput,
     cancelSheetFrameScalePointer,
     frameLayoutPreview,
     frameScalePreview,
@@ -304,8 +329,5 @@ export function useSheetFrameInteractions({
     stopSheetFrameDrag,
     stopSheetFrameResize,
     stopSheetFrameScale,
-    previewSheetFrameScale,
-    startSheetFrameScaleInput,
-    commitSheetFrameScale,
   };
 }

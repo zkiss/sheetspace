@@ -43,6 +43,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     activeCell,
     cancelActiveEdit,
     clearCellContent,
+    clearSelection,
     commitActiveEdit,
     commitEditAndNavigate,
     editingCell,
@@ -51,6 +52,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     settleSelectionGesture,
     focusCurrentSelection,
     acknowledgeKeyboardFocusRequest,
+    activateSheet,
     cancelKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
@@ -108,9 +110,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    setPendingCreation(null);
-    setSheetName('');
-    setError('');
+    closeDialog();
   }
 
   function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
@@ -125,9 +125,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    setPendingRename(null);
-    setSheetName('');
-    setError('');
+    closeDialog();
   }
 
   function closeDialog() {
@@ -149,20 +147,21 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     <main className="workspace-shell">
       <Workspace
         activeCell={activeCell}
+        onActivateSheet={activateSheet}
         canRetryFailedSaves={canRetryFailedSaves}
-        canRedo={canRedo}
-        canUndo={canUndo}
         commands={commands}
         contentHistoryFeedback={contentHistoryFeedback}
         creatingAxes={creatingAxes}
         creatingFrames={creatingFrames}
         editingCell={editingCell}
         formulaResults={formulaResults}
+        sheetDialogOpen={Boolean(pendingCreation || pendingRename)}
         keyboardFocusRequest={keyboardFocusRequest}
         onKeyboardFocusRequestConsumed={acknowledgeKeyboardFocusRequest}
         onKeyboardFocusRequestCancelled={cancelKeyboardFocusRequest}
         onCancelEdit={cancelActiveEdit}
         onClearCell={clearCellContent}
+        onClearSelection={clearSelection}
         onCommitEdit={commitActiveEdit}
         onCommitEditAndNavigate={commitEditAndNavigate}
         onCreateSheet={openCreationDialog}
@@ -191,7 +190,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
           error={error}
           pendingCreation={pendingCreation}
           sheetName={sheetName}
-          onCancel={() => setPendingCreation(null)}
+          onCancel={closeDialog}
           onNameChange={(name) => {
             setSheetName(name);
             setError('');
