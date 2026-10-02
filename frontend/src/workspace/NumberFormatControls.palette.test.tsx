@@ -83,7 +83,8 @@ describe('compact colour palettes', () => {
     };
     const onWrite = vi.fn();
     const styled = { ...sheet, presentation: { ...sheet.presentation, formatOverrides: {
-      rows: {}, columns: {}, cells: {
+      rows: mode === 'rows' ? { [firstRow!]: { textColor: '#112233' as const }, [secondRow!]: { textColor: '#445566' as const } } : {},
+      columns: mode === 'columns' ? { [firstColumn!]: { textColor: '#112233' as const }, [secondColumn!]: { textColor: '#445566' as const } } : {}, cells: {
         [cellIdentityKey({ rowId: firstRow!, columnId: firstColumn! })]: { textColor: '#112233' as const },
         [cellIdentityKey({ rowId: secondRow!, columnId: secondColumn! })]: { textColor: '#445566' as const },
       },

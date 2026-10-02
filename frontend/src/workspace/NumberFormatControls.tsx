@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS, resolveAppearanceProperty } from '@workbook/core/numberFormat';
 import type { AppearancePatch, CellAppearance, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
+import { colourControlReadout, type ColourMode } from './colourControlReadout';
+import type { AppearanceControlState, AppearancePropertyControlState, LocalOverrideState } from './appearanceControlState';
 
 type FormatSelection = {
   mode: 'cells' | 'rows' | 'columns';
@@ -10,17 +12,6 @@ type FormatSelection = {
 };
 
 type FormatControlState = { format: NumberFormat | null; hasLocalOverrides: boolean };
-type LocalOverrideState = 'inherited' | 'explicit' | 'mixed';
-type AppearancePropertyControlState<Value> = {
-  /** The common effective value, or null when the selection has mixed values. */
-  value: Value | null;
-  /** The common local override, independent of lower-precedence cell values. */
-  localValue: Value | null;
-  /** Whether the selected targets inherit, explicitly set, or mix local values. */
-  localOverrideState: LocalOverrideState;
-  hasLocalOverrides: boolean;
-};
-export type AppearanceControlState = { [Property in keyof CellAppearance]-?: AppearancePropertyControlState<NonNullable<CellAppearance[Property]>> };
 
 /** Validate endpoints without enumerating or allocating selected write targets. */
 function selectionBounds(sheet: SheetDocument | undefined, selection: FormatSelection | null) {
@@ -126,10 +117,10 @@ export function selectionAppearanceControlState(sheet: SheetDocument | undefined
   })) as AppearanceControlState;
 }
 
-function appearanceStateLabel(label: string, state: AppearancePropertyControlState<unknown>) {
+function appearanceStateLabel(label: string, state: AppearancePropertyControlState<unknown>, scopeDescription?: string) {
   const effective = state.value === null ? 'mixed effective values' : 'one effective value';
   const local = state.localOverrideState === 'mixed' ? 'mixed local overrides' : state.localOverrideState === 'explicit' ? 'explicit local override' : 'inherited';
-  return `${label}: ${effective}; ${local}`;
+  return `${label}: ${scopeDescription ? `${scopeDescription}; ` : ''}${effective}; ${local}`;
 }
 
 function FormatIcon({ kind }: { kind: 'align-left' | 'align-center' | 'align-right' | 'reset' }) {
@@ -191,6 +182,7 @@ function ColourPicker({
   defaultOptionLabel,
   status,
   descriptionId,
+  localOverrideState,
 }: {
   ariaLabel: string;
   colour: `#${string}`;
@@ -200,8 +192,9 @@ function ColourPicker({
   onApplyInherited: () => void;
   onApplyDefault: () => void;
   defaultOptionLabel: string;
-  status: 'colour' | 'inherited' | 'none' | 'mixed';
+  status: ColourMode;
   descriptionId: string;
+  localOverrideState: LocalOverrideState;
 }) {
   const [draft, setDraft] = useState(colour);
   const [open, setOpen] = useState(false);
@@ -255,7 +248,7 @@ function ColourPicker({
         : <span aria-hidden="true" className="colour-picker-trigger-swatch" style={{ '--colour-swatch': previewColour } as import('react').CSSProperties} />;
   return (
     <div className="colour-picker" ref={rootRef}>
-      <button ref={triggerRef} aria-describedby={descriptionId} aria-expanded={open} aria-haspopup="dialog" aria-label={`${ariaLabel}: ${previewStatus === 'mixed' ? 'mixed' : previewStatus === 'inherited' ? 'inherited' : previewStatus === 'none' ? 'no colour' : previewColour}`} className="colour-picker-trigger" data-colour-mode={previewStatus} data-mixed={previewStatus === 'mixed' || undefined} disabled={disabled} onClick={() => setOpen((current) => !current)} title={ariaLabel} type="button">{triggerContent}</button>
+      <button ref={triggerRef} aria-describedby={descriptionId} aria-expanded={open} aria-haspopup="dialog" aria-label={`${ariaLabel}: ${previewStatus === 'mixed' ? 'mixed' : previewStatus === 'inherited' ? 'inherited' : previewStatus === 'none' ? 'no colour' : previewColour}`} className="colour-picker-trigger" data-colour-mode={previewStatus} data-local-override-state={localOverrideState} data-mixed={previewStatus === 'mixed' || undefined} disabled={disabled} onClick={() => setOpen((current) => !current)} title={ariaLabel} type="button">{triggerContent}</button>
       {open ? <div aria-label={ariaLabel} className="colour-picker-popover" role="dialog">
         <span className="colour-picker-label">Options</span><div className="colour-picker-options">
           <button aria-pressed={previewStatus === 'inherited'} className="colour-picker-option" onClick={() => { onApplyInherited(); setOpen(false); }} type="button"><FormatIcon kind="reset" />Inherit</button>
@@ -338,10 +331,21 @@ export function NumberFormatControls({
       </div>
       <output id="horizontal-alignment-state">{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
       <button aria-label="Inherit horizontal alignment" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })} title="Inherit horizontal alignment" type="button"><FormatIcon kind="reset" /></button>
-      <ColourPicker ariaLabel="Text colour" descriptionId="text-colour-state" colour={(appearance.textColor.localValue ?? appearance.textColor.value)?.startsWith('#') ? (appearance.textColor.localValue ?? appearance.textColor.value) as `#${string}` : '#1f2933'} customColours={customColours} defaultOptionLabel="No colour" disabled={disabled} onApply={(textColor) => writeAppearance({ textColor })} onApplyInherited={() => writeAppearance({ textColor: null })} onApplyDefault={() => writeAppearance({ textColor: 'automatic' })} status={appearance.textColor.localOverrideState === 'mixed' || appearance.textColor.value === null ? 'mixed' : appearance.textColor.localOverrideState === 'inherited' ? 'inherited' : appearance.textColor.localValue === 'automatic' ? 'none' : 'colour'} />
-      <output id="text-colour-state">{appearanceStateLabel('Text colour', appearance.textColor)}</output>
-      <ColourPicker ariaLabel="Fill colour" descriptionId="fill-colour-state" colour={(appearance.fillColor.localValue ?? appearance.fillColor.value)?.startsWith('#') ? (appearance.fillColor.localValue ?? appearance.fillColor.value) as `#${string}` : '#ffffff'} customColours={customColours} defaultOptionLabel="No colour" disabled={disabled} onApply={(fillColor) => writeAppearance({ fillColor })} onApplyInherited={() => writeAppearance({ fillColor: null })} onApplyDefault={() => writeAppearance({ fillColor: 'none' })} status={appearance.fillColor.localOverrideState === 'mixed' || appearance.fillColor.value === null ? 'mixed' : appearance.fillColor.localOverrideState === 'inherited' ? 'inherited' : appearance.fillColor.localValue === 'none' ? 'none' : 'colour'} />
-      <output id="fill-colour-state">{appearanceStateLabel('Fill colour', appearance.fillColor)}</output>
+      {(['textColor', 'fillColor'] as const).map((property) => {
+        const label = property === 'textColor' ? 'Text colour' : 'Fill colour';
+        const descriptionId = property === 'textColor' ? 'text-colour-state' : 'fill-colour-state';
+        const colourState = appearance[property];
+        const readout = colourControlReadout(colourState, selection?.mode ?? 'cells', property === 'textColor' ? '#1f2933' : '#ffffff');
+        return <Fragment key={property}>
+          <ColourPicker ariaLabel={label} descriptionId={descriptionId} colour={readout.colour}
+            status={readout.status} localOverrideState={colourState.localOverrideState}
+            customColours={customColours} defaultOptionLabel="No colour" disabled={disabled}
+            onApply={(colour) => writeAppearance({ [property]: colour })}
+            onApplyInherited={() => writeAppearance({ [property]: null })}
+            onApplyDefault={() => writeAppearance({ [property]: property === 'textColor' ? 'automatic' : 'none' })} />
+          <output id={descriptionId}>{appearanceStateLabel(label, colourState, readout.scopeDescription)}</output>
+        </Fragment>;
+      })}
     </div>
   );
 }

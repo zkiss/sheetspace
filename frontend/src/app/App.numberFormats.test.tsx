@@ -5,6 +5,7 @@ import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
 import { applyCustomColour } from '@test-support/workspaceActions';
+import { cellIdentityKey } from '@workbook/core/cellIdentity';
 
 afterEach(cleanup);
 
@@ -54,7 +55,10 @@ describe('App number formatting workflow', () => {
 
   it('persists column appearance controls, renders their effective styles, and restores them after reload', async () => {
     const user = userEvent.setup();
-    const sheet = sheetDocument({ id: 'appearance-inputs', name: 'Appearance inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.23' } });
+    const baseSheet = sheetDocument({ id: 'appearance-inputs', name: 'Appearance inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.23' } });
+    const blankCellId = cellIdentityKey({ rowId: baseSheet.content.rows[1]!, columnId: baseSheet.content.columns[0]! });
+    const cellExceptions = { [blankCellId]: { textColor: '#d84b4b' as const, fillColor: '#c99c00' as const } };
+    const sheet = { ...baseSheet, presentation: { ...baseSheet.presentation, formatOverrides: { rows: {}, columns: {}, cells: cellExceptions } } };
     const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
 
@@ -64,6 +68,9 @@ describe('App number formatting workflow', () => {
     applyCustomColour('Text colour', '#112233');
     applyCustomColour('Fill colour', '#445566');
     await waitFor(() => expect(apiClient.writeNumberFormats).toHaveBeenCalledTimes(4));
+    expect(screen.getByRole('button', { name: 'Text colour: #112233' })).toHaveAttribute('data-colour-mode', 'colour');
+    expect(screen.getByRole('button', { name: 'Fill colour: #445566' })).toHaveAttribute('data-colour-mode', 'colour');
+    expect(screen.getByRole('cell', { name: 'Appearance inputs A2 empty cell' })).toHaveStyle({ color: '#d84b4b', backgroundColor: '#c99c00' });
 
     const a1 = screen.getByRole('cell', { name: 'Appearance inputs A1 cell' });
     expect(a1).toHaveFocus();
@@ -76,7 +83,7 @@ describe('App number formatting workflow', () => {
           fontWeight: 'bold', horizontalAlignment: 'right', textColor: '#112233', fillColor: '#445566',
         },
       },
-      cells: {},
+      cells: cellExceptions,
     });
 
     view.unmount();
