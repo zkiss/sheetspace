@@ -1,9 +1,12 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo } from 'react';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS, resolveAppearanceProperty } from '@workbook/core/numberFormat';
 import type { AppearancePatch, CellAppearance, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
-import { colourControlReadout, type ColourMode } from './colourControlReadout';
+import { colourControlReadout } from './colourControlReadout';
 import type { AppearanceControlState, AppearancePropertyControlState, LocalOverrideState } from './appearanceControlState';
+import { FormatIcon } from './FormatIcon';
+import { ColourPicker } from './ColourPicker';
+import { sheetCustomColours } from './colourPalette';
 
 type FormatSelection = {
   mode: 'cells' | 'rows' | 'columns';
@@ -123,152 +126,6 @@ function appearanceStateLabel(label: string, state: AppearancePropertyControlSta
   return `${label}: ${scopeDescription ? `${scopeDescription}; ` : ''}${effective}; ${local}`;
 }
 
-function FormatIcon({ kind }: { kind: 'align-left' | 'align-center' | 'align-right' | 'reset' }) {
-  if (kind === 'reset') {
-    return <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 7a5 5 0 1 1 1.4 3.5M3 3v4h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" /></svg>;
-  }
-  const lines = kind === 'align-left'
-    ? ['2', '2', '2', '2']
-    : kind === 'align-center'
-      ? ['4', '2', '4', '2']
-      : ['2', '4', '2', '4'];
-  return <svg aria-hidden="true" viewBox="0 0 16 16">
-    {lines.map((left, index) => <path d={`M${left} ${3 + index * 3}h${14 - Number(left) * 2}`} key={index} stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />)}
-  </svg>;
-}
-
-function NoColourIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 16 16"><rect height="9" rx="1" width="9" x="3.5" y="3.5" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="m3 13 10-10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" /></svg>;
-}
-
-const BUILT_IN_COLOURS = ['#1f2933', '#52636b', '#2f747e', '#23855d', '#3267a8', '#73459a', '#b4456b', '#c85b27', '#c99c00', '#d84b4b'] as const;
-
-function sheetCustomColours(sheet: SheetDocument | undefined) {
-  const overrides = sheet?.presentation.formatOverrides;
-  const seen = new Set<string>();
-  for (const group of [overrides?.rows, overrides?.columns, overrides?.cells]) {
-    for (const override of Object.values(group ?? {})) {
-      for (const colour of [override.textColor, override.fillColor]) {
-        const normalized = colour?.toLowerCase();
-        if (normalized?.startsWith('#') && !BUILT_IN_COLOURS.includes(normalized as typeof BUILT_IN_COLOURS[number])) seen.add(normalized);
-      }
-    }
-  }
-  return [...seen].sort(comparePaletteOrder);
-}
-
-function comparePaletteOrder(first: string, second: string) {
-  const hue = (colour: string) => {
-    const value = Number.parseInt(colour.slice(1), 16);
-    const red = (value >> 16) / 255;
-    const green = ((value >> 8) & 255) / 255;
-    const blue = (value & 255) / 255;
-    const max = Math.max(red, green, blue);
-    const min = Math.min(red, green, blue);
-    if (max === min) return 361;
-    return 60 * ((max === red ? (green - blue) / (max - min) : max === green ? 2 + (blue - red) / (max - min) : 4 + (red - green) / (max - min)) + 6) % 360;
-  };
-  return hue(first) - hue(second) || first.localeCompare(second);
-}
-
-function ColourPicker({
-  ariaLabel,
-  colour,
-  customColours,
-  disabled,
-  onApply,
-  onApplyInherited,
-  onApplyDefault,
-  defaultOptionLabel,
-  status,
-  descriptionId,
-  localOverrideState,
-}: {
-  ariaLabel: string;
-  colour: `#${string}`;
-  customColours: readonly string[];
-  disabled: boolean;
-  onApply: (colour: `#${string}`) => void;
-  onApplyInherited: () => void;
-  onApplyDefault: () => void;
-  defaultOptionLabel: string;
-  status: ColourMode;
-  descriptionId: string;
-  localOverrideState: LocalOverrideState;
-}) {
-  const [draft, setDraft] = useState(colour);
-  const [open, setOpen] = useState(false);
-  const [draftMode, setDraftMode] = useState<typeof status>(status);
-  const [hasDraft, setHasDraft] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const customInputRef = useRef<HTMLInputElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  useLayoutEffect(() => {
-    if (disabled) {
-      setOpen(false);
-    }
-  }, [disabled]);
-  useEffect(() => {
-    if (!open) {
-      setDraft(colour);
-      setDraftMode(status);
-      setHasDraft(false);
-    }
-  }, [colour, open, status]);
-  useLayoutEffect(() => {
-    if (!open || disabled) return;
-    const closeWhenOutside = (event: Event) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
-    };
-    const closeWhenEscaped = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-    document.addEventListener('pointerdown', closeWhenOutside, true);
-    document.addEventListener('click', closeWhenOutside, true);
-    document.addEventListener('keydown', closeWhenEscaped, true);
-    return () => {
-      document.removeEventListener('pointerdown', closeWhenOutside, true);
-      document.removeEventListener('click', closeWhenOutside, true);
-      document.removeEventListener('keydown', closeWhenEscaped, true);
-    };
-  }, [open, disabled]);
-  const previewStatus = open && hasDraft ? draftMode : status;
-  const previewColour = open && hasDraft ? draft : colour;
-  const triggerContent = previewStatus === 'mixed'
-    ? <span className="colour-picker-mixed-indicator">—</span>
-    : previewStatus === 'inherited'
-      ? <FormatIcon kind="reset" />
-      : previewStatus === 'none'
-        ? <NoColourIcon />
-        : <span aria-hidden="true" className="colour-picker-trigger-swatch" style={{ '--colour-swatch': previewColour } as import('react').CSSProperties} />;
-  return (
-    <div className="colour-picker" ref={rootRef}>
-      <button ref={triggerRef} aria-describedby={descriptionId} aria-expanded={open} aria-haspopup="dialog" aria-label={`${ariaLabel}: ${previewStatus === 'mixed' ? 'mixed' : previewStatus === 'inherited' ? 'inherited' : previewStatus === 'none' ? 'no colour' : previewColour}`} className="colour-picker-trigger" data-colour-mode={previewStatus} data-local-override-state={localOverrideState} data-mixed={previewStatus === 'mixed' || undefined} disabled={disabled} onClick={() => setOpen((current) => !current)} title={ariaLabel} type="button">{triggerContent}</button>
-      {open ? <div aria-label={ariaLabel} className="colour-picker-popover" role="dialog">
-        <span className="colour-picker-label">Options</span><div className="colour-picker-options">
-          <button aria-pressed={previewStatus === 'inherited'} className="colour-picker-option" onClick={() => { onApplyInherited(); setOpen(false); }} type="button"><FormatIcon kind="reset" />Inherit</button>
-          <button aria-pressed={previewStatus === 'none'} className="colour-picker-option colour-picker-option-no-colour" onClick={() => { onApplyDefault(); setOpen(false); }} type="button"><NoColourIcon />{defaultOptionLabel}</button>
-        </div>
-        <span className="colour-picker-label">Palette</span>
-        <div className="colour-picker-swatches">
-          {BUILT_IN_COLOURS.map((swatch) => <button aria-label={`Use ${swatch}`} aria-pressed={previewStatus === 'colour' && previewColour.toLowerCase() === swatch.toLowerCase()} className="colour-picker-swatch" key={swatch} onClick={() => { onApply(swatch); setOpen(false); }} style={{ '--colour-swatch': swatch } as import('react').CSSProperties} type="button" />)}
-        </div>
-        <span className="colour-picker-label">Sheet colours</span><div className="colour-picker-swatches">
-          {customColours.map((swatch) => <button aria-label={`Use ${swatch}`} aria-pressed={previewStatus === 'colour' && previewColour.toLowerCase() === swatch.toLowerCase()} className="colour-picker-swatch" key={swatch} onClick={() => { onApply(swatch as `#${string}`); setOpen(false); }} style={{ '--colour-swatch': swatch } as import('react').CSSProperties} type="button" />)}
-          {hasDraft && ![...BUILT_IN_COLOURS, ...customColours].includes(draft.toLowerCase()) ? <button aria-label={`Use ${draft}`} className="colour-picker-swatch" onClick={() => { onApply(draft); setOpen(false); }} style={{ '--colour-swatch': draft } as import('react').CSSProperties} type="button" /> : null}
-          <button aria-label="Add custom colour" className="colour-picker-custom-trigger" onClick={() => { customInputRef.current?.click(); }} type="button">+</button>
-        </div>
-        <input aria-label="Custom colour" className="colour-picker-custom-input" onChange={(event) => { setDraft(event.currentTarget.value as `#${string}`); setDraftMode('colour'); setHasDraft(true); }} onInput={(event) => { setDraft(event.currentTarget.value as `#${string}`); setDraftMode('colour'); setHasDraft(true); }} ref={customInputRef} type="color" value={draft} />
-      </div> : null}
-    </div>
-  );
-}
-
 export function NumberFormatControls({
   disabled: interactionDisabled = false,
   onWrite,
@@ -297,55 +154,59 @@ export function NumberFormatControls({
   const precision = state.format?.kind === 'general' || !state.format ? '' : String(state.format.precision);
   return (
     <div className="number-format-controls" aria-label="Number formatting">
-      <div className="format-control-group" aria-label="Number format">
+      <div className="format-control-group" role="group" aria-label="Number format">
         <button aria-label="General number format" aria-pressed={selectedKind === 'general'} disabled={disabled} onClick={() => write(GENERAL_NUMBER_FORMAT)} title="General number format" type="button">123</button>
         <button aria-label="Number format" aria-pressed={selectedKind === 'number'} disabled={disabled} onClick={() => write({ kind: 'number', precision: state.format?.kind === 'number' ? state.format.precision : 2 })} title="Number format" type="button">1.2</button>
         <button aria-label="Percent format" aria-pressed={selectedKind === 'percent'} disabled={disabled} onClick={() => write({ kind: 'percent', precision: state.format?.kind === 'percent' ? state.format.precision : 0 })} title="Percent format" type="button">%</button>
+        <label>
+          <span className="format-precision-label">Precision</span>
+          <input
+            aria-label="Number format precision"
+            disabled={disabled || selectedKind === 'general' || selectedKind === 'mixed'}
+            max={NUMBER_FORMAT_PRECISION_LIMITS.max}
+            min={NUMBER_FORMAT_PRECISION_LIMITS.min}
+            type="number"
+            value={precision}
+            onChange={(event) => {
+              if (state.format?.kind !== 'number' && state.format?.kind !== 'percent') return;
+              const next = event.target.valueAsNumber;
+              if (!Number.isInteger(next) || next < NUMBER_FORMAT_PRECISION_LIMITS.min || next > NUMBER_FORMAT_PRECISION_LIMITS.max) return;
+              write({ ...state.format, precision: next });
+            }}
+          />
+        </label>
+        <button aria-label="Inherit number format" disabled={disabled || !state.hasLocalOverrides} onClick={() => write(null)} title="Inherit number format" type="button"><FormatIcon kind="reset" /></button>
       </div>
-      <label>
-        Precision
-        <input
-          aria-label="Number format precision"
-          disabled={disabled || selectedKind === 'general' || selectedKind === 'mixed'}
-          max={NUMBER_FORMAT_PRECISION_LIMITS.max}
-          min={NUMBER_FORMAT_PRECISION_LIMITS.min}
-          type="number"
-          value={precision}
-          onChange={(event) => {
-            if (state.format?.kind !== 'number' && state.format?.kind !== 'percent') return;
-            const next = event.target.valueAsNumber;
-            if (!Number.isInteger(next) || next < NUMBER_FORMAT_PRECISION_LIMITS.min || next > NUMBER_FORMAT_PRECISION_LIMITS.max) return;
-            write({ ...state.format, precision: next });
-          }}
-        />
-      </label>
-      <button aria-label="Inherit number format" disabled={disabled || !state.hasLocalOverrides} onClick={() => write(null)} title="Inherit number format" type="button"><FormatIcon kind="reset" /></button>
-      <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby="bold-state" aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>B</button>
-      <output id="bold-state">{appearanceStateLabel('Bold', appearance.fontWeight)}</output>
-      <button aria-label="Inherit bold setting" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance({ fontWeight: null })} title="Inherit bold setting" type="button"><FormatIcon kind="reset" /></button>
-      <div className="format-control-group" aria-describedby="horizontal-alignment-state" aria-label="Horizontal alignment" data-local-override-state={appearance.horizontalAlignment.localOverrideState} data-mixed={appearance.horizontalAlignment.value === null || appearance.horizontalAlignment.localOverrideState === 'mixed' || undefined}>
+      <div className="format-control-group" role="group" aria-label="Bold formatting">
+        <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby="bold-state" aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => writeAppearance({ fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold' })}>B</button>
+        <output id="bold-state">{appearanceStateLabel('Bold', appearance.fontWeight)}</output>
+        <button aria-label="Inherit bold setting" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance({ fontWeight: null })} title="Inherit bold setting" type="button"><FormatIcon kind="reset" /></button>
+      </div>
+      <div className="format-control-group" role="group" aria-describedby="horizontal-alignment-state" aria-label="Horizontal alignment" data-local-override-state={appearance.horizontalAlignment.localOverrideState} data-mixed={appearance.horizontalAlignment.value === null || appearance.horizontalAlignment.localOverrideState === 'mixed' || undefined}>
         <button aria-label="Align left" aria-pressed={appearance.horizontalAlignment.value === 'left'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'left' })} title="Align left" type="button"><FormatIcon kind="align-left" /></button>
         <button aria-label="Align center" aria-pressed={appearance.horizontalAlignment.value === 'center'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'center' })} title="Align center" type="button"><FormatIcon kind="align-center" /></button>
         <button aria-label="Align right" aria-pressed={appearance.horizontalAlignment.value === 'right'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'right' })} title="Align right" type="button"><FormatIcon kind="align-right" /></button>
         <button aria-label="Automatic alignment" aria-pressed={appearance.horizontalAlignment.value === 'general'} disabled={disabled} onClick={() => writeAppearance({ horizontalAlignment: 'general' })} title="Automatic alignment" type="button">A</button>
+        <output id="horizontal-alignment-state">{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
+        <button aria-label="Inherit horizontal alignment" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })} title="Inherit horizontal alignment" type="button"><FormatIcon kind="reset" /></button>
       </div>
-      <output id="horizontal-alignment-state">{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
-      <button aria-label="Inherit horizontal alignment" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance({ horizontalAlignment: null })} title="Inherit horizontal alignment" type="button"><FormatIcon kind="reset" /></button>
-      {(['textColor', 'fillColor'] as const).map((property) => {
-        const label = property === 'textColor' ? 'Text colour' : 'Fill colour';
-        const descriptionId = property === 'textColor' ? 'text-colour-state' : 'fill-colour-state';
-        const colourState = appearance[property];
-        const readout = colourControlReadout(colourState, selection?.mode ?? 'cells', property === 'textColor' ? '#1f2933' : '#ffffff');
-        return <Fragment key={property}>
-          <ColourPicker ariaLabel={label} descriptionId={descriptionId} colour={readout.colour}
-            status={readout.status} localOverrideState={colourState.localOverrideState}
-            customColours={customColours} defaultOptionLabel="No colour" disabled={disabled}
-            onApply={(colour) => writeAppearance({ [property]: colour })}
-            onApplyInherited={() => writeAppearance({ [property]: null })}
-            onApplyDefault={() => writeAppearance({ [property]: property === 'textColor' ? 'automatic' : 'none' })} />
-          <output id={descriptionId}>{appearanceStateLabel(label, colourState, readout.scopeDescription)}</output>
-        </Fragment>;
-      })}
+      <div className="format-control-group" role="group" aria-label="Colours">
+        {(['textColor', 'fillColor'] as const).map((property) => {
+          const label = property === 'textColor' ? 'Text colour' : 'Fill colour';
+          const descriptionId = property === 'textColor' ? 'text-colour-state' : 'fill-colour-state';
+          const colourState = appearance[property];
+          const readout = colourControlReadout(colourState, selection?.mode ?? 'cells', property === 'textColor' ? '#1f2933' : '#ffffff');
+          return <Fragment key={property}>
+            <ColourPicker ariaLabel={label} purpose={property === 'textColor' ? 'text' : 'fill'} descriptionId={descriptionId} colour={readout.colour}
+              status={readout.status} localOverrideState={colourState.localOverrideState}
+              customColours={customColours} defaultOptionLabel="No colour" disabled={disabled}
+              onApply={(colour) => writeAppearance({ [property]: colour })}
+              onApplyInherited={() => writeAppearance({ [property]: null })}
+              onApplyDefault={() => writeAppearance({ [property]: property === 'textColor' ? 'automatic' : 'none' })} />
+            <output id={descriptionId}>{appearanceStateLabel(label, colourState, readout.scopeDescription)}</output>
+          </Fragment>;
+        })}
+      </div>
     </div>
   );
 }

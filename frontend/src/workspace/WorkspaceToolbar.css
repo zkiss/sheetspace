@@ -5,20 +5,26 @@
 
 .workspace-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.35rem;
   min-height: 3.1rem;
   border-bottom: 1px solid #d9e1e5;
-  padding: 0 0.75rem;
+  padding: 0.35rem 0.75rem;
   background: #fff;
 }
 
 .workspace-format-slot {
-  flex: 1;
-  min-width: 0;
+  display: contents;
+}
+
+/* Wrap whole property groups alongside creation, not inside a separate slot. */
+.workspace-format-slot .number-format-controls {
+  display: contents;
 }
 
 .workspace-new-sheet {
+  flex-shrink: 0;
   min-height: 1.9rem;
   border: 0;
   border-radius: 0.3rem;
@@ -56,6 +62,8 @@
 .save-status-dot.save-status-failed:hover { background: #d85d5d; }
 
 .save-status-indicator {
+  flex-shrink: 0;
+  margin-left: auto;
   position: relative;
   display: grid;
   place-items: center;
@@ -112,15 +120,18 @@
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  display: contents;
+  font-size: 0.76rem;
 }
 
 .format-control-group {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 1px;
-  padding-right: 0.35rem;
-  border-right: 1px solid #d9e1e5;
+  gap: 0.2rem;
+  padding-left: 0.45rem;
+  border-left: 1px solid #cbd6db;
+  white-space: nowrap;
 }
 
 .number-format-controls select,
@@ -195,6 +206,16 @@
   content: '';
 }
 
+.colour-picker-trigger-swatch {
+  display: grid;
+  place-items: center;
+}
+
+.number-format-controls .colour-picker-trigger-swatch svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
 .colour-picker-trigger[data-colour-mode='inherited'],
 .colour-picker-trigger[data-colour-mode='none'],
 .colour-picker-trigger[data-colour-mode='mixed'] {
@@ -214,11 +235,12 @@
 .colour-picker-popover {
   position: absolute;
   top: calc(100% + 0.4rem);
-  left: 0;
+  left: var(--colour-popover-offset, 0px);
   z-index: 30;
   display: grid;
   gap: 0.45rem;
-  width: 18rem;
+  width: min(18rem, calc(100vw - 1.5rem));
+  white-space: normal;
   border: 1px solid #cbd8dc;
   border-radius: 0.45rem;
   padding: 0.65rem;
@@ -227,13 +249,13 @@
 }
 
 .colour-picker-popover .colour-picker-swatches {
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.45rem;
 }
 
 .colour-picker-popover .colour-picker-swatch {
-  width: 2.25rem;
-  min-width: 2.25rem;
+  width: 100%;
+  min-width: 0;
   height: 2.25rem;
   min-height: 2.25rem;
 }
@@ -294,8 +316,8 @@
 }
 
 .number-format-controls .colour-picker-custom-trigger {
-  width: 2.25rem;
-  min-width: 2.25rem;
+  width: 100%;
+  min-width: 0;
   height: 2.25rem;
   min-height: 2.25rem;
   border: 1px solid #cbd6db;
@@ -343,6 +365,10 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+@media (max-width: 360px) {
+  .format-precision-label { display: none; }
 }
 
 @keyframes save-pulse {
