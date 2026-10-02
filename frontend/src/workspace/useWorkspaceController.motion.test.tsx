@@ -75,17 +75,37 @@ describe('interrupting displayed reference navigation motion', () => {
     expect(sample).toHaveBeenCalledOnce();
   });
 
-  it('composes batched wheel pans from the visible position and samples again for a new reveal', () => {
+  it('preserves displayed reference motion through batched ordinary scrolling', () => {
     const { surface, plane, state, sample, reveal } = setup();
+    const destination = state().viewport;
     act(() => {
       fireEvent.wheel(surface, { deltaX: 10, deltaY: 20 });
       fireEvent.wheel(surface, { deltaX: 30, deltaY: -5 });
     });
-    expect(state().viewport).toEqual({ x: -540, y: -215, scale: 1.25 });
-    expect(plane).toHaveAttribute('data-navigation-motion', 'instant');
-    expect(sample).toHaveBeenCalledOnce();
+    expect(state().viewport).toEqual(destination);
+    expect(plane).toHaveAttribute('data-navigation-motion', 'smooth');
+    expect(sample).not.toHaveBeenCalled();
     act(() => reveal());
     fireEvent.wheel(surface, { deltaX: 5, deltaY: 10 });
+    expect(state().viewport).toEqual(destination);
+    expect(plane).toHaveAttribute('data-navigation-motion', 'smooth');
+    expect(sample).not.toHaveBeenCalled();
+  });
+
+  it('composes explicit pan moves from the visible position and resamples on a new reveal', () => {
+    const { surface, state, sample, reveal } = setup();
+    pointer(surface, 'pointerdown', 1);
+    act(() => {
+      pointer(surface, 'pointermove', 1, 90, 60);
+      pointer(surface, 'pointermove', 1, 60, 65);
+    });
+    pointer(surface, 'pointerup', 1);
+    expect(state().viewport).toEqual({ x: -540, y: -215, scale: 1.25 });
+    expect(sample).toHaveBeenCalledOnce();
+    act(() => reveal());
+    pointer(surface, 'pointerdown', 1);
+    pointer(surface, 'pointermove', 1, 95, 70);
+    pointer(surface, 'pointerup', 1);
     expect(state().viewport).toEqual({ x: -505, y: -210, scale: 1.25 });
     expect(sample).toHaveBeenCalledTimes(2);
   });
@@ -123,7 +143,8 @@ describe('interrupting displayed reference navigation motion', () => {
 
   it('accepts browser matrix3d serialization of translation and scale', () => {
     const { surface, state } = setup('matrix3d(1.25, 0, 0, 0, 0, 1.25, 0, 0, 0, 0, 1, 0, -500, -200, 0, 1)');
-    fireEvent.wheel(surface, { deltaX: 10, deltaY: 20 });
+    pointer(surface, 'pointerdown', 1);
+    pointer(surface, 'pointermove', 1, 90, 60);
     expect(state().viewport).toEqual({ x: -510, y: -220, scale: 1.25 });
   });
 
@@ -131,7 +152,8 @@ describe('interrupting displayed reference navigation motion', () => {
     const { surface, state, sample, finishMotion } = setup();
     const destination = state().viewport;
     act(() => finishMotion());
-    fireEvent.wheel(surface, { deltaX: 10, deltaY: 20 });
+    pointer(surface, 'pointerdown', 1);
+    pointer(surface, 'pointermove', 1, 90, 60);
     expect(state().viewport).toEqual({ ...destination, x: destination.x - 10, y: destination.y - 20 });
     expect(sample).not.toHaveBeenCalled();
   });
@@ -140,7 +162,8 @@ describe('interrupting displayed reference navigation motion', () => {
     'keeps finite logical geometry when no usable displayed transform is available: %s', (transform) => {
       const { surface, state } = setup(transform);
       const destination = state().viewport;
-      fireEvent.wheel(surface, { deltaX: 10, deltaY: 20 });
+      pointer(surface, 'pointerdown', 1);
+      pointer(surface, 'pointermove', 1, 90, 60);
       expect(state().viewport).toEqual({ ...destination, x: destination.x - 10, y: destination.y - 20 });
     },
   );

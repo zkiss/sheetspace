@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { autosaveClient } from '@test-support/apiClients';
-import { zoomWorkspace } from '@test-support/workspaceActions';
+import { panWorkspace, zoomWorkspace } from '@test-support/workspaceActions';
 
 function setup(visualScale = 1) {
   render(<App initialWorkbook={workbookWithSheets([
@@ -34,7 +34,7 @@ describe('context-menu ownership in the composed workspace', () => {
     const surface = screen.getByTestId('workspace-surface');
     const plane = screen.getByTestId('workspace-plane');
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    fireEvent.wheel(surface, { deltaX: 50, deltaY: 100 });
+    panWorkspace(-50, -100);
     zoomWorkspace('out');
     const viewport = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
     const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
@@ -84,6 +84,15 @@ describe('context-menu ownership in the composed workspace', () => {
     const input = within(menu).getByRole<HTMLInputElement>('spinbutton');
     input.focus();
     fireEvent.change(input, { target: { value: '75' } });
+    // Ordinary background scrolling must not take over the open menu or grid.
+    for (const target of [surface, screen.getByTestId('workspace-plane')]) {
+      fireEvent.wheel(target, { deltaX: 80, deltaY: 100 });
+      expect(screen.getByRole('menu')).toBe(menu);
+      expect(input).toHaveFocus();
+      expect(input).toHaveValue(75);
+      expect(cell).toHaveAttribute('data-active-cell', 'true');
+      expectStationary(surface);
+    }
     const targets = [input, within(menu).getByText('%')];
     for (const target of targets) {
       expect(contextMenu(target).defaultPrevented).toBe(false);

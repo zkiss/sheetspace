@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { measuredElementGeometry } from '@test-support/domGeometry';
+import { panWorkspace } from '@test-support/workspaceActions';
 
 function pointer(element: Element, type: string, options: MouseEventInit = {}) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 1, ...options });
@@ -130,7 +131,7 @@ describe('compact workspace interactions', () => {
     fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
     expect(surface).toHaveAttribute('data-viewport-x', '0');
     expect(cell).toHaveClass('sheet-grid-history-top', 'sheet-grid-history-left');
-    fireEvent.wheel(surface, { deltaX: 2000 });
+    panWorkspace(-2000);
     expect(surface).toHaveAttribute('data-viewport-x', '-2000');
   });
 });

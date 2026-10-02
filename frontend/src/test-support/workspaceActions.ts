@@ -22,15 +22,25 @@ export function setSheetScale(frame: HTMLElement, percentage: number) {
   fireEvent.keyDown(input, { key: 'Enter' });
 }
 
+/** Explicit middle-button pan in screen pixels, independent of viewport scale. */
+export function panWorkspace(deltaX: number, deltaY = 0) {
+  const surface = workspaceSurface();
+  for (const [type, clientX, clientY] of [
+    ['pointerdown', 0, 0], ['pointermove', deltaX, deltaY], ['pointerup', deltaX, deltaY],
+  ] as const) {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true,
+      button: 1, buttons: type === 'pointerup' ? 0 : 4, clientX, clientY });
+    Object.defineProperty(event, 'pointerId', { value: 17 });
+    fireEvent(surface, event);
+  }
+}
+
 /** Pan back to the origin and undo the current zoom without removed UI controls. */
 export function resetWorkspaceViewport() {
   const surface = workspaceSurface();
   const scale = Number(surface.dataset.viewportScale);
   if (scale !== 1) fireEvent.wheel(surface, { ctrlKey: true, deltaY: Math.log(scale) * 500 });
-  fireEvent.wheel(surface, {
-    deltaX: Number(surface.dataset.viewportX),
-    deltaY: Number(surface.dataset.viewportY),
-  });
+  panWorkspace(-Number(surface.dataset.viewportX), -Number(surface.dataset.viewportY));
 }
 
 export function applyCustomColour(label: 'Text colour' | 'Fill colour', colour: string) {

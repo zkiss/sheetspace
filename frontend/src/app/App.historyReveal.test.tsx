@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { measuredElementGeometry, testRect, virtualGridGeometry } from '@test-support/domGeometry';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { panWorkspace } from '@test-support/workspaceActions';
 import { App } from './App';
 
 function setup(target = 'A1', visualScale = 1, variableSizes = false) {
@@ -74,13 +75,14 @@ describe('history cell reveal in the composed workspace', () => {
     { target: 'C3', left: 200, top: 90, panX: 300, panY: 200, movesX: true, movesY: true, scale: 1.5, zoom: true, variableSizes: true },
   ])('composes unobscured inner and outer undo/redo reveal: %o', ({ target, left, top, panX, panY, movesX, movesY, scale, zoom, variableSizes }) => {
     const { surface, frame, body } = setup(target, scale, variableSizes);
-    const selectedKey = frame.querySelector('[data-active-cell="true"]')?.getAttribute('data-cell-key');
     if (zoom) fireEvent.wheel(surface, { ctrlKey: true, deltaY: -50 });
     for (const redo of [false, true]) {
       body.scrollLeft = left;
       body.scrollTop = top;
       fireEvent.scroll(body);
-      fireEvent.wheel(surface, { deltaX: panX + Number(surface.dataset.viewportX), deltaY: panY + Number(surface.dataset.viewportY) });
+      panWorkspace(-panX - Number(surface.dataset.viewportX), -panY - Number(surface.dataset.viewportY));
+      // Explicit pan clears selection; history must not recreate it on reveal.
+      expect(frame.querySelector('[data-active-cell="true"]')).toBeNull();
       const beforeX = Number(surface.dataset.viewportX);
       const beforeY = Number(surface.dataset.viewportY);
       history(redo);
@@ -109,7 +111,7 @@ describe('history cell reveal in the composed workspace', () => {
         expect(body.scrollTop).toBe(top);
         expect(Number(surface.dataset.viewportY)).toBe(beforeY);
       }
-      expect(frame.querySelector('[data-active-cell="true"]')?.getAttribute('data-cell-key')).toBe(selectedKey);
+      expect(frame.querySelector('[data-active-cell="true"]')).toBeNull();
     }
   });
 
@@ -119,10 +121,10 @@ describe('history cell reveal in the composed workspace', () => {
   ])('reveals undo and redo targets hidden by a partially clipped frame on $axis', ({ axis, deltaX, deltaY }) => {
     const { surface, cell, frame } = setup();
     for (const redo of [false, true]) {
-      fireEvent.wheel(surface, {
-        deltaX: deltaX ? deltaX + Number(surface.dataset.viewportX) : 0,
-        deltaY: deltaY ? deltaY + Number(surface.dataset.viewportY) : 0,
-      });
+      panWorkspace(
+        deltaX ? -deltaX - Number(surface.dataset.viewportX) : 0,
+        deltaY ? -deltaY - Number(surface.dataset.viewportY) : 0,
+      );
       const before = Number(axis === 'x' ? surface.dataset.viewportX : surface.dataset.viewportY);
       // A sliver of the sheet still intersects the workspace.
       expect(before + Number(axis === 'x' ? frame.dataset.frameWidth : frame.dataset.frameHeight) + 50).toBeGreaterThan(0);
@@ -134,18 +136,20 @@ describe('history cell reveal in the composed workspace', () => {
       expect(Number(surface.dataset.viewportX) + 167).toBeLessThanOrEqual(800);
       expect(Number(surface.dataset.viewportY) + 109.4).toBeGreaterThanOrEqual(0);
       expect(Number(surface.dataset.viewportY) + 135.8).toBeLessThanOrEqual(600);
-      expect(within(frame).getByRole('cell', { name: 'Inputs A2 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+      expect(frame.querySelector('[data-active-cell="true"]')).toBeNull();
     }
   });
 
   it.each([0, 70])('does not move the workspace when the history cell is visible, including a clipped frame (pan=%s)', (deltaX) => {
     const { surface, cell } = setup();
-    fireEvent.wheel(surface, { deltaX });
+    if (deltaX) panWorkspace(-deltaX);
+    const selectedKey = surface.querySelector('[data-active-cell="true"]')?.getAttribute('data-cell-key');
     for (const redo of [false, true]) {
       history(redo);
       expect(cell).toHaveTextContent(redo ? 'new' : 'old');
       expect(surface).toHaveAttribute('data-viewport-x', String(-deltaX || 0));
       expect(surface).toHaveAttribute('data-viewport-y', '0');
+      expect(surface.querySelector('[data-active-cell="true"]')?.getAttribute('data-cell-key')).toBe(selectedKey);
     }
   });
 
@@ -159,7 +163,8 @@ describe('history cell reveal in the composed workspace', () => {
     body.scrollLeft = 400;
     fireEvent.scroll(body);
     expect(body.scrollTop).toBe(300);
-    fireEvent.wheel(surface, zoom ? { ctrlKey: true, deltaY: -10 } : { deltaX: 10 });
+    if (zoom) fireEvent.wheel(surface, { ctrlKey: true, deltaY: -10 });
+    else panWorkspace(-10);
     expect(body.scrollTop).toBe(300);
     expect(body.scrollLeft).toBe(400);
     history(true);
@@ -182,9 +187,9 @@ describe('history cell reveal in the composed workspace', () => {
     expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
     expect(body.scrollTop).toBe(0);
     expect(body.scrollLeft).toBe(0);
-    fireEvent.wheel(surface, { deltaX: 3000 });
+    panWorkspace(-3000);
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
-    fireEvent.wheel(surface, { deltaX: -3000 });
+    panWorkspace(3000);
     const remountedBody = within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body');
     expect(remountedBody).not.toBe(body);
     expect(remountedBody.scrollTop).toBe(0);
@@ -194,7 +199,7 @@ describe('history cell reveal in the composed workspace', () => {
   it('refines a culled target with the mounted scrollbar geometry before consuming the action', () => {
     const { surface } = setup('J20', 8);
     clearSelection(surface);
-    fireEvent.wheel(surface, { deltaX: 4000 });
+    panWorkspace(-4000);
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
     // The remount has classic 15px scrollbars on both axes. At sheet scale 8,
     // their 120px screen displacement exceeds ordinary navigation padding.
@@ -222,7 +227,7 @@ describe('history cell reveal in the composed workspace', () => {
       expect(left + 76 * 8).toBeLessThanOrEqual(800);
       expect(top + 26.4 * 8).toBeLessThanOrEqual(600);
       expect(cell).toHaveTextContent('old');
-      fireEvent.wheel(surface, { deltaX: 20 });
+      panWorkspace(-20);
       expect(Number(surface.dataset.viewportX)).toBeCloseTo(left - 50 - (1 + localLeft) * 8 - 20);
     } finally {
       width.mockRestore();

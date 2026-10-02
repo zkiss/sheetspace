@@ -39,6 +39,14 @@ describe('formula reference navigation', () => {
     expect(anchor).toHaveFocus();
     expect(center.className).not.toMatch(/sheet-grid-selection-(top|bottom|left|right)/);
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', reduced ? 'instant' : 'smooth');
+    const surface = workspaceSurface();
+    const viewport = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+    fireEvent.wheel(surface, { deltaX: 80, deltaY: 100 });
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(viewport);
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', reduced ? 'instant' : 'smooth');
+    expect(anchor).toHaveFocus();
+    expect(center).toHaveAttribute('data-reference-selected', 'true');
+    expect(center.querySelector('.sheet-grid-navigation-feedback')).toBe(tint);
     act(() => { vi.advanceTimersByTime(800); });
     navigate();
     expect(center.querySelector('.sheet-grid-navigation-feedback')).not.toBe(tint);

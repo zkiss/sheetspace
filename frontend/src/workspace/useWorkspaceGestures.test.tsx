@@ -11,7 +11,7 @@ function setup() {
   function Harness() {
     controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: clearSelection });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface">
-      <div data-sheet-id="sheet" data-workspace-sheet-frame onPointerDown={childAction} onWheel={(event) => event.stopPropagation()}>
+      <div data-sheet-id="sheet" data-workspace-sheet-frame onContextMenu={(event) => controller.openSheetMenu('sheet', event)} onPointerDown={childAction} onWheel={(event) => event.stopPropagation()}>
         <div role="cell" tabIndex={0} onKeyDown={childAction} onClick={childAction}>Cell</div>
         <header>Header</header><div role="separator">Resize</div>
         <textarea aria-label="Editor" onKeyDown={childAction} />
@@ -43,17 +43,36 @@ function wheel(target: Element, props: WheelEventInit = {}) {
 }
 
 describe('workspace wheel and gesture routing', () => {
-  it.each([[0, 32, 48], [1, 2, 3], [2, 0.04, 0.08]])('normalizes mode %s into two-axis canvas pan', (deltaMode, deltaX, deltaY) => {
+  it.each([[0, 32, 0], [1, 0, 3], [2, 0.04, 0.08]])('keeps ordinary mode %s scrolling inert on the background', (deltaMode, deltaX, deltaY) => {
     const { surface, state } = setup();
     expect(wheel(surface, { deltaMode, deltaX, deltaY }).defaultPrevented).toBe(true);
-    expect(state().viewport).toEqual({ x: -32, y: -48, scale: 1 });
+    expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
+    expect(state().navigationInterrupted).toBe(false);
   });
 
   it('leaves ordinary grid, editor and control wheel defaults alone, including grid edges', () => {
     const { state } = setup();
-    for (const target of [screen.getByRole('cell'), screen.getByRole('textbox'), screen.getByRole('button')]) {
-      expect(wheel(target, { deltaY: 100 }).defaultPrevented).toBe(false);
+    for (const target of [screen.getByRole('cell'), screen.getByText('Header'), screen.getByRole('separator'), screen.getByRole('textbox'), screen.getByRole('button')]) {
+      expect(wheel(target, { deltaX: 80, deltaY: 100 }).defaultPrevented).toBe(false);
     }
+    expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
+  });
+
+  it('preserves the menu, focused cell and selection when scrolling with Space held', () => {
+    const { surface, state, clearSelection } = setup();
+    const cell = screen.getByRole('cell');
+    cell.focus();
+    fireEvent.contextMenu(cell, { clientX: 40, clientY: 60 });
+    const menu = state().pendingSheetMenu;
+    expect(menu).not.toBeNull();
+    fireEvent.keyDown(cell, { code: 'Space' });
+    wheel(surface, { deltaX: 80, deltaY: 100 });
+    wheel(cell, { deltaX: 80, deltaY: 100 });
+    expect(state().pendingSheetMenu).toBe(menu);
+    expect(cell).toHaveFocus();
+    expect(clearSelection).not.toHaveBeenCalled();
+    expect(state().isPanningWorkspace).toBe(false);
+    expect(state().navigationInterrupted).toBe(false);
     expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
   });
 
@@ -69,6 +88,15 @@ describe('workspace wheel and gesture routing', () => {
     expect((80 - y) / scale).toBeCloseTo(80);
   });
 
+  it('preserves the small Ctrl-wheel synthetic-pinch sensitivity and pointer anchor', () => {
+    const { surface, state } = setup();
+    expect(wheel(surface, { ctrlKey: true, deltaY: -2, clientX: 120, clientY: 80 }).defaultPrevented).toBe(true);
+    const { x, y, scale } = state().viewport;
+    expect(scale).toBeCloseTo(Math.exp(16 / 500));
+    expect((120 - x) / scale).toBeCloseTo(120);
+    expect((80 - y) / scale).toBeCloseTo(80);
+  });
+
   it('composes cumulative native gesture scales without applying the full scale twice', () => {
     const { state } = setup();
     for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 1.5], ['gesturechange', 2], ['gestureend', 2]] as const) {
@@ -80,13 +108,27 @@ describe('workspace wheel and gesture routing', () => {
     expect(state().viewport).toEqual({ x: -100, y: -100, scale: 2 });
   });
 
-  it('keeps extreme repeated wheel input finite and interrupts reference motion', () => {
+  it('preserves reference motion through extreme repeated ordinary wheel input', () => {
     const { surface, state } = setup();
+    act(() => state().zoomWorkspaceBy(2));
     act(() => state().navigateToTarget({ left: 1e9, top: -1e9, right: 1e9 + 200, bottom: -1e9 + 100 }));
     expect(state().navigationInterrupted).toBe(false);
+    const destination = state().viewport;
     act(() => {
       wheel(surface, { deltaX: Number.MAX_VALUE, deltaY: -Number.MAX_VALUE, deltaMode: 2 });
       wheel(surface, { deltaX: Number.MAX_VALUE, deltaY: -Number.MAX_VALUE, deltaMode: 2 });
+    });
+    expect(Object.values(state().viewport).every(Number.isFinite)).toBe(true);
+    expect(state().viewport).toEqual(destination);
+    expect(state().navigationInterrupted).toBe(false);
+  });
+
+  it('keeps extreme explicit wheel zoom finite and interrupts reference motion', () => {
+    const { surface, state } = setup();
+    act(() => state().navigateToTarget({ left: 1e9, top: -1e9, right: 1e9 + 200, bottom: -1e9 + 100 }));
+    act(() => {
+      wheel(surface, { ctrlKey: true, deltaY: -Number.MAX_VALUE, deltaMode: 2 });
+      wheel(surface, { ctrlKey: true, deltaY: Number.MAX_VALUE, deltaMode: 2 });
     });
     expect(Object.values(state().viewport).every(Number.isFinite)).toBe(true);
     expect(state().navigationInterrupted).toBe(true);

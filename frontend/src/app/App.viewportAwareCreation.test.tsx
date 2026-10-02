@@ -8,7 +8,7 @@ import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-suppor
 import type { SheetDocument } from '@workbook/core/model';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import userEvent from '@testing-library/user-event';
-import { zoomWorkspace, resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceActions';
+import { panWorkspace, zoomWorkspace, resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceActions';
 
 describe('viewport-aware sheet creation', () => {
   it.each(['toolbar', 'empty action', 'Shift+N'])('creates only once at the visible center via %s after pan/zoom', async (intent) => {
@@ -16,7 +16,7 @@ describe('viewport-aware sheet creation', () => {
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([])} />);
     const surface = workspaceSurface();
     surface.getBoundingClientRect = workspaceRect;
-    fireEvent.wheel(surface, { deltaX: 120, deltaY: -60 });
+    panWorkspace(-120, 60);
     zoomWorkspace('in');
     if (intent === 'toolbar') fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
     else if (intent === 'empty action') fireEvent.click(screen.getByRole('button', { name: 'Create your first sheet' }));

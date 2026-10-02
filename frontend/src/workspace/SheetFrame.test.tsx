@@ -5,6 +5,8 @@ import { sheetDocument } from '@test-support/workbookFactories';
 import { frameProjection } from '@workbook/read/queries';
 import { SHEET_OVERVIEW_ENTRY_EFFECTIVE_SCALE } from './sheetRenderingMode';
 import { SHEET_DETAILED_ENTRY_EFFECTIVE_SCALE } from '@workbook/core/sheetRenderingPolicy';
+import { useRef, type RefObject } from 'react';
+import { useWorkspaceGestures } from './useWorkspaceGestures';
 
 function props() {
   return {
@@ -19,6 +21,50 @@ function props() {
 }
 
 describe('SheetFrame compact shell', () => {
+  it('shares the body scrollport with its grid and leaves wheel defaults eligible even at edges', () => {
+    const interactions = props();
+    const actions = { start: vi.fn(), pan: vi.fn(), zoom: vi.fn(), closeMenu: vi.fn(), clearSelection: vi.fn() };
+    const parentWheel = vi.fn();
+    let scrollRef: RefObject<HTMLDivElement>;
+    function Harness() {
+      const surface = useRef<HTMLElement>(null);
+      useWorkspaceGestures(surface, actions);
+      return <section ref={surface} onWheel={parentWheel}>
+        <SheetFrame {...interactions}>{(ref) => {
+          scrollRef = ref;
+          return <div role="cell">Cell</div>;
+        }}</SheetFrame>
+      </section>;
+    }
+    render(<Harness />);
+    const body = screen.getByTestId('sheet-frame-body');
+    expect(scrollRef!.current).toBe(body);
+    expect(body).toHaveClass('sheet-frame-body');
+    for (const [property, value] of [['clientWidth', 100], ['clientHeight', 100], ['scrollWidth', 300], ['scrollHeight', 300]] as const) {
+      Object.defineProperty(body, property, { configurable: true, value });
+    }
+    // JSDOM does not execute native wheel scrolling. Exercise eligibility at
+    // representative start/interior/end offsets without emulating defaults.
+    for (const offset of [0, 100, body.scrollWidth - body.clientWidth]) {
+      body.scrollLeft = offset;
+      body.scrollTop = offset;
+      for (const [deltaMode, deltaX, deltaY] of [[0, 80, 0], [1, 0, -3], [2, 1, 1]]) {
+        const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaMode, deltaX, deltaY });
+        fireEvent(screen.getByRole('cell'), event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+    for (const target of [body, screen.getByTestId('sheet-frame-header'), screen.getByRole('separator', { name: /from right$/ })]) {
+      const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 80, deltaY: 100 });
+      fireEvent(target, event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(parentWheel).not.toHaveBeenCalled();
+    for (const action of Object.values(actions)) expect(action).not.toHaveBeenCalled();
+    expect(interactions.onSheetFrameInteraction).not.toHaveBeenCalled();
+    expect(interactions.onSelectSheet).not.toHaveBeenCalled();
+  });
+
   it('activates the sheet from its header and routes frame and resize interactions', () => {
     const interactions = props();
     render(<SheetFrame {...interactions}>{() => <table aria-label="Inputs grid" />}</SheetFrame>);

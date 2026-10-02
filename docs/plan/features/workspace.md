@@ -12,8 +12,8 @@ Users should be able to navigate an infinite-feeling surface, place related shee
 - Allow sheets to have independent positions.
 - Treat the workspace as an infinite-feeling plane where users can continue panning and placing sheets at any practical finite coordinate.
 - Support smooth, pointer-centered, multiplicative zoom across a wide practical range.
-- Use Figma-style canvas inputs: wheel or two-finger scrolling pans empty canvas, pinch or Ctrl/Cmd-wheel zooms at the pointer, and Space-drag or middle-drag pans from anywhere.
-- Preserve ordinary scrolling inside a scrollable sheet unless the user invokes a canvas pan or zoom gesture.
+- Keep ordinary wheel and two-finger scrolling sheet-local; navigate the canvas through explicit pan and zoom gestures.
+- Pan by dragging the background, Space-dragging, or middle-dragging; zoom at the pointer with pinch or Ctrl/Cmd-wheel. See the [Phase 3 navigation contract](../roadmap/03-fluent-spreadsheet-editing.md#canvas-navigation-and-multi-scale-composition).
 - Persist viewport state.
 - Manage workspace-level selection and focus.
 - Support search or command-palette navigation to sheets.

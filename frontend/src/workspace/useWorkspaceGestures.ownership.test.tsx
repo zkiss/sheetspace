@@ -52,27 +52,41 @@ function gesture(target: Element, type: string, scale: number, consumed = false)
 }
 
 describe('workspace target × native-event ownership', () => {
-  it.each([...NATIVE_TARGETS, 'sheet', 'portal'])('leaves ordinary %s pointer/wheel native without canvas effects', (name) => {
+  it.each([...NATIVE_TARGETS, 'sheet', 'portal', 'foreign'])('leaves ordinary %s pointer/wheel native without canvas effects', (name) => {
     const { actions, target } = setup();
     expect(pointer(target(name), 'pointerdown').defaultPrevented).toBe(false);
-    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100 });
+    const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 80, deltaY: 100 });
     fireEvent(target(name), wheel);
     expect(wheel.defaultPrevented).toBe(false);
     for (const action of Object.values(actions)) expect(action).not.toHaveBeenCalled();
   });
 
-  it.each(['surface', 'plane'])('keeps %s ordinary pan and wheel canvas-owned', (name) => {
+  it.each(['surface', 'plane'])('keeps %s scrolling inert but still owns background pointer pan', (name) => {
     const { actions, competingAction, target } = setup();
     const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 30, deltaY: 50 });
     fireEvent(target(name), wheel);
     expect(wheel.defaultPrevented).toBe(true);
-    expect(actions.pan).toHaveBeenCalledOnce();
-    expect(actions.pan).toHaveBeenCalledWith(-30, -50);
+    for (const action of Object.values(actions)) expect(action).not.toHaveBeenCalled();
     expect(pointer(target(name), 'pointerdown').defaultPrevented).toBe(true);
     expect(actions.start).toHaveBeenCalledOnce();
     expect(actions.clearSelection).toHaveBeenCalledOnce();
     expect(actions.closeMenu).toHaveBeenCalledOnce();
     expect(competingAction).not.toHaveBeenCalled();
+  });
+
+  it('does not reinterpret ordinary wheel as pan when Space is held or blur the focused editor', () => {
+    const { actions, target } = setup();
+    const editor = target('portal');
+    const blur = vi.fn();
+    editor.addEventListener('blur', blur);
+    editor.focus();
+    fireEvent.keyDown(document.body, { code: 'Space' });
+    for (const name of OWNERS) {
+      fireEvent.wheel(target(name), { deltaX: 80, deltaY: 100 });
+    }
+    for (const action of Object.values(actions)) expect(action).not.toHaveBeenCalled();
+    expect(editor).toHaveFocus();
+    expect(blur).not.toHaveBeenCalled();
   });
 
   describe.each(OWNERS)('explicit gestures over %s', (name) => {

@@ -109,23 +109,21 @@ export function useWorkspaceGestures(
     }
     function wheel(event: WheelEvent) {
       if (event.defaultPrevented) return;
-      if (!event.ctrlKey && !event.metaKey && !isBackgroundTarget(event.target, surface!)) return;
+      if (!event.ctrlKey && !event.metaKey) {
+        // Ordinary scrolling belongs to native sheet/control scrollports. Keep
+        // background input inert, including with Space held and at sheet edges.
+        if (isBackgroundTarget(event.target, surface!)) consume(event);
+        return;
+      }
       consume(event);
       const size = surfaceSize(surface!);
-      if (event.ctrlKey || event.metaKey) {
-        const delta = normalizedWheelDelta(event.deltaY, event.deltaMode, size.height);
-        current.current.zoom(
-          zoomFactorFromWheelDelta(event.deltaMode === WheelEvent.DOM_DELTA_PIXEL && Math.abs(delta) < SYNTHETIC_PINCH_DELTA_LIMIT
-            ? delta * SYNTHETIC_PINCH_ZOOM_SENSITIVITY
-            : delta),
-          surfacePointFromClient({ x: event.clientX, y: event.clientY }, surface!),
-        );
-      } else {
-        current.current.pan(
-          -normalizedWheelDelta(event.deltaX, event.deltaMode, size.width),
-          -normalizedWheelDelta(event.deltaY, event.deltaMode, size.height),
-        );
-      }
+      const delta = normalizedWheelDelta(event.deltaY, event.deltaMode, size.height);
+      current.current.zoom(
+        zoomFactorFromWheelDelta(event.deltaMode === WheelEvent.DOM_DELTA_PIXEL && Math.abs(delta) < SYNTHETIC_PINCH_DELTA_LIMIT
+          ? delta * SYNTHETIC_PINCH_ZOOM_SENSITIVITY
+          : delta),
+        surfacePointFromClient({ x: event.clientX, y: event.clientY }, surface!),
+      );
     }
     function gesture(event: Event) {
       if (event.defaultPrevented) return;

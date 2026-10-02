@@ -33,6 +33,20 @@ describe('native pinch over portal cell editors', () => {
     expect(surface).toHaveAttribute('data-viewport-x', '0');
     expect(surface).toHaveAttribute('data-viewport-y', '0');
 
+    // Background scrolling must not trigger the pointer-pan focus takeover or
+    // commit the actual body-portaled editor through its blur handler.
+    fireEvent.wheel(surface, { deltaX: 80, deltaY: 100 });
+    fireEvent.wheel(screen.getByTestId('workspace-plane'), { deltaY: 100 });
+    expect(surface).toHaveAttribute('data-viewport-x', '0');
+    expect(surface).toHaveAttribute('data-viewport-y', '0');
+    expect(surface).toHaveAttribute('data-viewport-scale', '1');
+    expect(screen.getByRole('textbox')).toBe(editor);
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('Uncommitted draft');
+    expect([editor.selectionStart, editor.selectionEnd]).toEqual([2, 6]);
+    expect(cell).toHaveAttribute('data-active-cell', 'true');
+    expect(cell).toHaveTextContent('');
+
     for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 1.5], ['gesturechange', 2], ['gestureend', 2]] as const) {
       expect(gesture(editor, type, scale).defaultPrevented).toBe(true);
       expect(editor).toHaveFocus();
