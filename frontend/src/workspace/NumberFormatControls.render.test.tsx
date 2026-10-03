@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { NumberFormatControls } from './NumberFormatControls';
+import { NumberFormatControls } from './NumberFormatControls.testHarness';
 import { applyCustomColour } from '@test-support/workspaceActions';
 
 const sheet = sheetDocument({ id: 'format-controls', name: 'Format controls', rowCount: 1, columnCount: 2 });

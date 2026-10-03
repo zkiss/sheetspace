@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { selectionAppearanceControlState, selectionAppearanceWrites, selectionFormatControlState, selectionFormatWrites } from './NumberFormatControls';
+import { formattingSelectionControlState } from '@test-support/formattingSelectionControlState';
+import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
 
 const sheet = sheetDocument({ id: 'format-sheet', name: 'Formats', rowCount: 2, columnCount: 2 });
 const selection = {
@@ -12,17 +13,17 @@ const selection = {
 
 describe('number format selection controls', () => {
   it('writes every durable cell in a rectangle, including blank cells', () => {
-    expect(selectionFormatWrites(sheet, selection, { kind: 'number', precision: 2 })).toEqual([
+    expect(selectionFormattingWrites(sheet, selection, 'numberFormat', { kind: 'number', precision: 2 })).toEqual([
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[1]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[0]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[1]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
     ]);
-    expect(selectionFormatWrites(sheet, { ...selection, mode: 'rows' }, null)).toEqual([
+    expect(selectionFormattingWrites(sheet, { ...selection, mode: 'rows' }, 'numberFormat', null)).toEqual([
       { scope: 'row', targetId: sheet.content.rows[0], properties: { numberFormat: null } },
       { scope: 'row', targetId: sheet.content.rows[1], properties: { numberFormat: null } },
     ]);
-    expect(selectionFormatWrites(sheet, { ...selection, mode: 'columns' }, null)).toEqual([
+    expect(selectionFormattingWrites(sheet, { ...selection, mode: 'columns' }, 'numberFormat', null)).toEqual([
       { scope: 'column', targetId: sheet.content.columns[0], properties: { numberFormat: null } },
       { scope: 'column', targetId: sheet.content.columns[1], properties: { numberFormat: null } },
     ]);
@@ -34,9 +35,9 @@ describe('number format selection controls', () => {
       ...sheet.presentation,
       formatOverrides: { rows: {}, columns: { [sheet.content.columns[0]!]: { numberFormat: { kind: 'percent' as const, precision: 1 } } }, cells: { [first]: { numberFormat: { kind: 'general' as const } } } },
     } };
-    expect(selectionFormatControlState(formatted, { ...selection, extent: selection.anchor })).toEqual({ format: { kind: 'general' }, hasLocalOverrides: true });
-    expect(selectionFormatControlState(formatted, selection).format).toBeNull();
-    expect(selectionFormatControlState(undefined, selection)).toEqual({ format: null, hasLocalOverrides: false });
+    expect(formattingSelectionControlState(formatted, { ...selection, extent: selection.anchor }).format).toEqual({ format: { kind: 'general' }, hasLocalOverrides: true });
+    expect(formattingSelectionControlState(formatted, selection).format.format).toBeNull();
+    expect(formattingSelectionControlState(undefined, selection).format).toEqual({ format: null, hasLocalOverrides: false });
   });
 
   it('reports mixed effective formats for a whole-axis selection with a cell exception', () => {
@@ -55,7 +56,7 @@ describe('number format selection controls', () => {
     };
     const columnSelection = { ...selection, mode: 'columns' as const, extent: selection.anchor };
 
-    expect(selectionFormatControlState(formatted, columnSelection)).toEqual({ format: null, hasLocalOverrides: true });
+    expect(formattingSelectionControlState(formatted, columnSelection).format).toEqual({ format: null, hasLocalOverrides: true });
   });
 
   it('writes individual appearance properties and reports their independent effective state', () => {
@@ -70,7 +71,7 @@ describe('number format selection controls', () => {
         formatOverrides: { rows: { [sheet.content.rows[0]!]: { fontWeight: 'bold' as const } }, columns: {}, cells: { [targetId]: { fillColor: 'none' as const } } },
       },
     };
-    expect(selectionAppearanceControlState(styled, { ...selection, extent: selection.anchor })).toMatchObject({
+    expect(formattingSelectionControlState(styled, { ...selection, extent: selection.anchor }).appearance).toMatchObject({
       fontWeight: { value: 'bold', localOverrideState: 'inherited', hasLocalOverrides: false },
       fillColor: { value: 'none', localOverrideState: 'explicit', hasLocalOverrides: true },
       horizontalAlignment: { value: 'general', localOverrideState: 'inherited', hasLocalOverrides: false },
@@ -86,10 +87,10 @@ describe('number format selection controls', () => {
     expect(selectionAppearanceWrites(sheet, selection, {})).toEqual([]);
     expect(selectionAppearanceWrites(sheet, selection, { fontWeight: 'bold', fillColor: '#abcdef' })).toEqual([]);
     expect(selectionAppearanceWrites(sheet, invalidSelection, { fontWeight: 'bold' })).toEqual([]);
-    expect(selectionAppearanceControlState(undefined, selection).fontWeight).toEqual({
+    expect(formattingSelectionControlState(undefined, selection).appearance.fontWeight).toEqual({
       value: null, localValue: null, localOverrideState: 'inherited', hasLocalOverrides: false,
     });
-    expect(selectionAppearanceControlState(sheet, invalidSelection).fillColor).toEqual({
+    expect(formattingSelectionControlState(sheet, invalidSelection).appearance.fillColor).toEqual({
       value: null, localValue: null, localOverrideState: 'inherited', hasLocalOverrides: false,
     });
   });
@@ -110,15 +111,16 @@ describe('number format selection controls', () => {
     const mixedEffective = {
       ...sheet, presentation: { ...sheet.presentation, formatOverrides: mixedColourOverrides },
     };
-    expect(selectionAppearanceControlState(mixedEffective, { ...selection, mode }).fontWeight)
+    const effectiveAppearance = formattingSelectionControlState(mixedEffective, { ...selection, mode }).appearance;
+    expect(effectiveAppearance.fontWeight)
       .toMatchObject({ value: null, localOverrideState: 'mixed' });
-    expect(selectionAppearanceControlState(mixedEffective, { ...selection, mode }).textColor)
+    expect(effectiveAppearance.textColor)
       .toMatchObject({ value: null, localOverrideState: 'mixed' });
 
     const mixedLocal = {
       ...sheet, presentation: { ...sheet.presentation, formatOverrides: localOverrides },
     };
-    expect(selectionAppearanceControlState(mixedLocal, { ...selection, mode }).fontWeight)
+    expect(formattingSelectionControlState(mixedLocal, { ...selection, mode }).appearance.fontWeight)
       .toMatchObject({ value: 'normal', localOverrideState: 'mixed' });
   });
 });

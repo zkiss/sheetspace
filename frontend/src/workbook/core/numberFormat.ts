@@ -10,6 +10,13 @@ export const APPLICATION_DEFAULT_FONT_WEIGHT: FontWeight = 'normal';
 export const APPLICATION_DEFAULT_HORIZONTAL_ALIGNMENT: HorizontalAlignment = 'general';
 export const APPLICATION_DEFAULT_TEXT_COLOR: TextColor = 'automatic';
 export const APPLICATION_DEFAULT_FILL_COLOR: FillColor = 'none';
+export const APPLICATION_DEFAULT_APPEARANCE: Required<CellAppearance> = {
+  numberFormat: APPLICATION_DEFAULT_NUMBER_FORMAT,
+  fontWeight: APPLICATION_DEFAULT_FONT_WEIGHT,
+  horizontalAlignment: APPLICATION_DEFAULT_HORIZONTAL_ALIGNMENT,
+  textColor: APPLICATION_DEFAULT_TEXT_COLOR,
+  fillColor: APPLICATION_DEFAULT_FILL_COLOR,
+};
 
 export function emptySheetFormatOverrides(): SheetFormatOverrides {
   return { rows: {}, columns: {}, cells: {} };
@@ -46,7 +53,7 @@ export function applyFormatWrites(overrides: SheetFormatOverrides | undefined, w
   return result;
 }
 
-const appearanceProperties = ['numberFormat', 'fontWeight', 'horizontalAlignment', 'textColor', 'fillColor'] as const;
+export const appearanceProperties = ['numberFormat', 'fontWeight', 'horizontalAlignment', 'textColor', 'fillColor'] as const;
 
 export function isValidAppearancePatch(value: unknown): value is AppearancePatch {
   if (!isRecord(value)) return false;
@@ -95,7 +102,7 @@ export function isValidNumberFormatPrecision(value: unknown): value is number {
 
 /** Resolve this property independently so later format properties can use the same scope order. */
 export function resolveNumberFormat(overrides: SheetFormatOverrides, identity: StableCellIdentity): NumberFormat {
-  return resolveAppearanceProperty(overrides, identity, 'numberFormat', APPLICATION_DEFAULT_NUMBER_FORMAT);
+  return resolveAppearanceProperty(overrides, identity, 'numberFormat');
 }
 
 /** Every appearance property resolves independently in the same scope order. */
@@ -103,21 +110,35 @@ export function resolveAppearanceProperty<Property extends keyof CellAppearance>
   overrides: SheetFormatOverrides,
   identity: StableCellIdentity,
   property: Property,
-  applicationDefault: NonNullable<CellAppearance[Property]>,
 ): NonNullable<CellAppearance[Property]> {
-  return own(overrides.cells, cellIdentityKey(identity))?.[property]
-    ?? own(overrides.rows, identity.rowId)?.[property]
-    ?? own(overrides.columns, identity.columnId)?.[property]
-    ?? applicationDefault;
+  return resolvePreloadedAppearanceProperty(
+    own(overrides.cells, cellIdentityKey(identity)),
+    own(overrides.rows, identity.rowId),
+    own(overrides.columns, identity.columnId),
+    property,
+  );
+}
+
+/** Resolve records already loaded by a dense caller without changing policy ownership. */
+export function resolvePreloadedAppearanceProperty<Property extends keyof CellAppearance>(
+  cell: CellAppearance | undefined,
+  row: CellAppearance | undefined,
+  column: CellAppearance | undefined,
+  property: Property,
+): NonNullable<CellAppearance[Property]> {
+  return cell?.[property]
+    ?? row?.[property]
+    ?? column?.[property]
+    ?? APPLICATION_DEFAULT_APPEARANCE[property];
 }
 
 export function resolveCellAppearance(overrides: SheetFormatOverrides, identity: StableCellIdentity): Required<CellAppearance> {
   return {
     numberFormat: resolveNumberFormat(overrides, identity),
-    fontWeight: resolveAppearanceProperty(overrides, identity, 'fontWeight', APPLICATION_DEFAULT_FONT_WEIGHT),
-    horizontalAlignment: resolveAppearanceProperty(overrides, identity, 'horizontalAlignment', APPLICATION_DEFAULT_HORIZONTAL_ALIGNMENT),
-    textColor: resolveAppearanceProperty(overrides, identity, 'textColor', APPLICATION_DEFAULT_TEXT_COLOR),
-    fillColor: resolveAppearanceProperty(overrides, identity, 'fillColor', APPLICATION_DEFAULT_FILL_COLOR),
+    fontWeight: resolveAppearanceProperty(overrides, identity, 'fontWeight'),
+    horizontalAlignment: resolveAppearanceProperty(overrides, identity, 'horizontalAlignment'),
+    textColor: resolveAppearanceProperty(overrides, identity, 'textColor'),
+    fillColor: resolveAppearanceProperty(overrides, identity, 'fillColor'),
   };
 }
 

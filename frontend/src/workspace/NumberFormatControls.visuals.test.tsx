@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { NumberFormatControls } from './NumberFormatControls';
+import { NumberFormatControls } from './NumberFormatControls.testHarness';
 
 function scenario() {
   const sheet = sheetDocument({ id: 'visuals', name: 'Visuals', rowCount: 1, columnCount: 2 });

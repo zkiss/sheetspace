@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument } from '@test-support/workbookFactories';
 import type { CellAppearance, SheetFormatOverrides } from '@workbook/core/model';
-import { selectionAppearanceControlState } from './NumberFormatControls';
+import { formattingSelectionControlState } from '@test-support/formattingSelectionControlState';
 import { colourControlReadout } from './colourControlReadout';
 
 const sheet = sheetDocument({ id: 'colours', name: 'Colours', rowCount: 3, columnCount: 3, cells: { A1: 'populated' } });
@@ -15,9 +15,9 @@ const exceptions = { textColor: '#d84b4b', fillColor: '#c99c00' } as const;
 function states(mode: 'cells' | 'rows' | 'columns', overrides: SheetFormatOverrides, multi = false) {
   const styled = { ...sheet, presentation: { ...sheet.presentation, formatOverrides: overrides } };
   // Reverse multi-axis endpoints to exercise inclusive, order-independent selection.
-  return selectionAppearanceControlState(styled, {
+  return formattingSelectionControlState(styled, {
     mode, anchor: multi ? endpoint(2, 2) : endpoint(0, 0), extent: endpoint(0, 0),
-  });
+  }).appearance;
 }
 
 describe.each(['rows', 'columns'] as const)('%s colour readouts', (mode) => {
@@ -93,8 +93,8 @@ describe('unchanged cell colour readouts', () => {
   });
 
   it('keeps absent/invalid selection disabled-state values rather than inventing a colour', () => {
-    for (const result of [selectionAppearanceControlState(sheet, null), selectionAppearanceControlState(undefined, null),
-      selectionAppearanceControlState(sheet, { mode: 'columns', anchor: endpoint(0, 0), extent: { ...endpoint(0, 0), sheetId: 'missing' } })]) {
+    for (const { appearance: result } of [formattingSelectionControlState(sheet, null), formattingSelectionControlState(undefined, null),
+      formattingSelectionControlState(sheet, { mode: 'columns', anchor: endpoint(0, 0), extent: { ...endpoint(0, 0), sheetId: 'missing' } })]) {
       for (const property of ['textColor', 'fillColor'] as const) expect(result[property]).toEqual({ value: null, localValue: null, localOverrideState: 'inherited', hasLocalOverrides: false });
     }
   });

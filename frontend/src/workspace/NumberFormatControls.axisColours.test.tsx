@@ -4,7 +4,7 @@ import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { applyFormatWrites } from '@workbook/core/numberFormat';
 import type { CellAppearance, SheetFormatOverrides } from '@workbook/core/model';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { NumberFormatControls } from './NumberFormatControls';
+import { NumberFormatControls } from './NumberFormatControls.testHarness';
 
 function scenario(mode: 'rows' | 'columns') {
   const sheet = sheetDocument({ id: 'axis-colours', name: 'Colours', rowCount: 2, columnCount: 2 });

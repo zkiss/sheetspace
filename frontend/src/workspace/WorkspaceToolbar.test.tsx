@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
-import { NumberFormatControls } from './NumberFormatControls';
+import { NumberFormatControls } from './NumberFormatControls.testHarness';
 
 describe('compact workspace toolbar', () => {
   it('orders four cohesive formatting groups after creation, keeping precision and resets with their properties', () => {

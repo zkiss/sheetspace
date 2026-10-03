@@ -1,9 +1,9 @@
-import type { SheetDocument } from '@workbook/core/model';
+import type { SheetFormatOverrides } from '@workbook/core/model';
 
 export const BUILT_IN_COLOURS = ['#1f2933', '#52636b', '#2f747e', '#23855d', '#3267a8', '#73459a', '#b4456b', '#c85b27', '#c99c00', '#d84b4b'] as const;
 
-export function sheetCustomColours(sheet: SheetDocument | undefined) {
-  const overrides = sheet?.presentation.formatOverrides;
+/** Sheet-level derivation; callers memoize this independently from selection data. */
+export function customColoursForOverrides(overrides: SheetFormatOverrides | undefined) {
   const seen = new Set<string>();
   for (const group of [overrides?.rows, overrides?.columns, overrides?.cells]) {
     for (const override of Object.values(group ?? {})) {
