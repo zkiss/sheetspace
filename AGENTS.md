@@ -72,3 +72,12 @@ Build the requested behavior cleanly. Make every reasonable in-scope effort to f
 Take initiative when implementation exposes maintainability opportunities in the code being changed. Complete straightforward cleanup that keeps the work coherent and stays within the Deliverable. Do not defer correctness, security, regression, acceptance-criteria, or avoidable code-quality problems in the changed work.
 
 When that code could materially benefit from broader refactoring, create a follow-up refactor Bead to investigate and define a coherent approach. Record the source Deliverable, affected code, and concrete evidence, then surface the Bead ID to the user. Keep the broader refactoring outside the current Deliverable unless the user expands its scope.
+
+## Test design and UI separation
+
+Prove each behavior extensively at the lowest practical test level. Cover logic in depth with focused tests, including edge cases, error paths, and interactions between rules. Higher-level tests may use that logic directly or mock it; their purpose is to prove integration and behavior introduced at that level, not repeat the underlying logic's full test matrix.
+
+- Separate calculation, validation, data transformation, and other application logic from UI rendering and interaction code so that logic can be tested without rendering the app.
+- Keep UI tests focused on UI behavior: presentation, user interactions, focus, selection, and wiring to application logic. Prove functional rules in lower-level tests rather than expensive rendered-app suites.
+- Render only the component or smallest UI composition needed to prove the behavior. Use full-app tests for behavior that requires full-app integration.
+- Prefer deterministic control of time and animations, such as fake clocks and disabled or controlled animations. Use real-time waits or running animations only when they are necessary to prove the specific behavior under test.
