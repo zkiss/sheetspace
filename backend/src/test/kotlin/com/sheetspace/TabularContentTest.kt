@@ -9,6 +9,22 @@ import kotlin.test.assertTrue
 
 class TabularContentTest {
     @Test
+    fun `resizing retains valid coordinates and rejects invalid dimensions`() {
+        val content = TabularContent(columnCount = 2, rowCount = 2, cells = mapOf("A1" to "x"))
+        val grown = content.copy(columnCount = 3, rowCount = 3, cells = mapOf("C3" to "y"))
+        val shrunk = grown.copy(columnCount = 1, rowCount = 1, cells = emptyMap())
+
+        assertEquals("y", grown.cells.getValue("C3"))
+        assertEquals(1, shrunk.rowCount)
+        assertEquals(1, shrunk.columnCount)
+        assertEquals(content, content.copy())
+        assertNotEquals(content, grown)
+        assertNotEquals(content.hashCode(), grown.hashCode())
+        assertTrue(content.toString().contains("TabularContent"))
+        assertFailsWith<IllegalArgumentException> { content.copy(columnCount = -1) }
+        assertFailsWith<IllegalArgumentException> { content.updateCell("Z99", "x") }
+    }
+    @Test
     fun `cell bounds use tabular dimensions`() {
         val content = TabularContent(columnCount = 2, rowCount = 3)
 
