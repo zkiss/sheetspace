@@ -36,8 +36,8 @@ describe('extracted geometry and direct write evidence', () => {
     expect(formatControlState(summary)).toEqual({ format: { kind: 'general' }, hasLocalOverrides: false });
     expect(appearanceControlState(summary).fillColor.value).toBe('none');
     expect(resolve).not.toHaveBeenCalled();
-    expect(keys).toHaveBeenCalledTimes(coverage);
-    // One validation and one key/record load per effective position; no slices.
+    expect(keys).toHaveBeenCalledTimes(coverage <= 256 ? coverage : 0);
+    // One validation; dense keys only below the cutoff, no sparse keys or slices.
     expect(rowBounds).toHaveBeenCalledTimes(2);
     expect(columnBounds).toHaveBeenCalledTimes(2);
     expect(rowSlices).not.toHaveBeenCalled();

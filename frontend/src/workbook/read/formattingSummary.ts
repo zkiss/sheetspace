@@ -1,108 +1,17 @@
-import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import {
-  appearanceProperties,
-  resolvePreloadedAppearanceProperty,
-} from '@workbook/core/numberFormat';
-import type { CellAppearance, SheetFormatOverrides } from '@workbook/core/model';
+import type { SheetFormatOverrides } from '@workbook/core/model';
 import type { ValidFormattingSelection } from './formattingSelection';
+import { summarizeFormattingDense } from './formattingSummaryDense';
+import { summarizeFormattingSparse } from './formattingSummarySparse';
 
-export const formattingProperties = appearanceProperties;
-export type FormattingProperty = typeof formattingProperties[number];
-type FormattingValue<Property extends FormattingProperty> = NonNullable<CellAppearance[Property]>;
+export { formattingProperties } from './formattingSummaryTypes';
+export type { FormattingProperty, FormattingPropertySummary, FormattingSummary } from './formattingSummaryTypes';
+export { summarizeFormattingDense, summarizeFormattingSparse };
 
-export type FormattingPropertySummary<Property extends FormattingProperty> = {
-  effectiveValue: FormattingValue<Property> | null;
-  localValue: FormattingValue<Property> | null;
-  localOverrideState: 'inherited' | 'explicit' | 'mixed';
-  hasLocalOverrides: boolean;
-};
-export type FormattingSummary = { [Property in FormattingProperty]: FormattingPropertySummary<Property> };
+// Initial engineering cutoff, not a measured runtime optimum. No density scan/cache.
+export const DENSE_FORMATTING_SELECTION_LIMIT = 256;
 
-type EffectiveAccumulator = { initialized: boolean; mixed: boolean; value?: unknown; key?: string };
-type LocalAccumulator = { absent: boolean; present: boolean; mixed: boolean; value?: unknown; key?: string };
-
-/**
- * Summarizes all formatting properties in one dense traversal.  It intentionally
- * uses serialized equality for every property so number-format insertion order
- * remains observable just as it was in the previous controls.
- */
-export function summarizeFormatting(selection: ValidFormattingSelection, overrides: SheetFormatOverrides | undefined): FormattingSummary {
-  const source = overrides ?? { rows: {}, columns: {}, cells: {} };
-  const effective = Object.fromEntries(formattingProperties.map((property) => [property, { initialized: false, mixed: false }])) as Record<FormattingProperty, EffectiveAccumulator>;
-  const local = Object.fromEntries(formattingProperties.map((property) => [property, { absent: false, present: false, mixed: false }])) as Record<FormattingProperty, LocalAccumulator>;
-
-  const observe = (accumulator: EffectiveAccumulator, value: unknown) => {
-    if (accumulator.mixed) return;
-    const key = JSON.stringify(value);
-    if (!accumulator.initialized) {
-      accumulator.initialized = true;
-      accumulator.value = value;
-      accumulator.key = key;
-    } else if (accumulator.key !== key) accumulator.mixed = true;
-  };
-
-  const observeLocalValue = (property: FormattingProperty, value: unknown) => {
-    const accumulator = local[property];
-    if (value === undefined) { accumulator.absent = true; return; }
-    accumulator.present = true;
-    if (accumulator.key === undefined && accumulator.value === undefined && !accumulator.mixed) {
-      accumulator.value = value;
-      accumulator.key = JSON.stringify(value);
-    } else if (!accumulator.mixed && accumulator.key !== JSON.stringify(value)) accumulator.mixed = true;
-  };
-
-  const loadOwn = (records: Record<string, CellAppearance>, id: string) => Object.prototype.hasOwnProperty.call(records, id) ? records[id] : undefined;
-  const observeEffective = (property: FormattingProperty, cell: CellAppearance | undefined, row: CellAppearance | undefined, column: CellAppearance | undefined) => {
-    const accumulator = effective[property];
-    if (accumulator.mixed) return;
-    observe(accumulator, resolvePreloadedAppearanceProperty(cell, row, column, property));
-  };
-
-  if (selection.mode === 'cells') {
-    for (let rowIndex = selection.effectiveRowStart; rowIndex <= selection.effectiveRowEnd; rowIndex += 1) {
-      const rowId = selection.rows[rowIndex]!;
-      const row = loadOwn(source.rows, rowId);
-      for (let columnIndex = selection.effectiveColumnStart; columnIndex <= selection.effectiveColumnEnd; columnIndex += 1) {
-        const columnId = selection.columns[columnIndex]!;
-        const column = loadOwn(source.columns, columnId);
-        const cell = loadOwn(source.cells, cellIdentityKey({ rowId, columnId }));
-        for (const property of formattingProperties) {
-          observeLocalValue(property, cell?.[property]);
-          observeEffective(property, cell, row, column);
-        }
-      }
-    }
-  } else {
-    // Effective coverage is Cartesian, while local axis state is only the write axis.
-    for (let rowIndex = selection.effectiveRowStart; rowIndex <= selection.effectiveRowEnd; rowIndex += 1) {
-      const rowId = selection.rows[rowIndex]!;
-      const row = loadOwn(source.rows, rowId);
-      for (let columnIndex = selection.effectiveColumnStart; columnIndex <= selection.effectiveColumnEnd; columnIndex += 1) {
-        const columnId = selection.columns[columnIndex]!;
-        const column = loadOwn(source.columns, columnId);
-        const cell = loadOwn(source.cells, cellIdentityKey({ rowId, columnId }));
-        for (const property of formattingProperties) observeEffective(property, cell, row, column);
-      }
-    }
-    const records = selection.mode === 'rows' ? source.rows : source.columns;
-    const start = selection.mode === 'rows' ? selection.rowStart : selection.columnStart;
-    const end = selection.mode === 'rows' ? selection.rowEnd : selection.columnEnd;
-    const ids = selection.mode === 'rows' ? selection.rows : selection.columns;
-    for (let index = start; index <= end; index += 1) {
-      const record = loadOwn(records, ids[index]!);
-      for (const property of formattingProperties) observeLocalValue(property, record?.[property]);
-    }
-  }
-
-  return Object.fromEntries(formattingProperties.map((property) => {
-    const effectiveState = effective[property];
-    const localState = local[property];
-    const localOverrideState = !localState.present ? 'inherited' : localState.absent || localState.mixed ? 'mixed' : 'explicit';
-    return [property, {
-      effectiveValue: effectiveState.mixed ? null : effectiveState.value,
-      localValue: localOverrideState === 'explicit' ? localState.value : null,
-      localOverrideState,
-      hasLocalOverrides: localState.present,
-    }];
-  })) as FormattingSummary;
+export function summarizeFormatting(selection: ValidFormattingSelection, overrides: SheetFormatOverrides | undefined) {
+  return selection.effectiveSize <= DENSE_FORMATTING_SELECTION_LIMIT
+    ? summarizeFormattingDense(selection, overrides)
+    : summarizeFormattingSparse(selection, overrides);
 }

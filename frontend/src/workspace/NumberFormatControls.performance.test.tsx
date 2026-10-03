@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as identity from '@workbook/core/cellIdentity';
+import * as sparse from '@workbook/read/formattingSummarySparse';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { NumberFormatControls } from './NumberFormatControls.testHarness';
 
@@ -13,22 +14,35 @@ it('avoids write-target allocation for validity and reuses summaries through fra
     extent: { sheetId: sheet.id, cell: { rowId: sheet.content.rows[19]!, columnId: sheet.content.columns[19]! } },
   };
   const keys = vi.spyOn(identity, 'cellIdentityKey');
+  const summarize = vi.spyOn(sparse, 'summarizeFormattingSparse');
   const oldWrite = vi.fn();
   const latestWrite = vi.fn();
   const view = render(<NumberFormatControls sheet={sheet} selection={selection} onWrite={oldWrite} />);
-  // The shared dense projection visits each effective cell once; writes remain
+  // The shared sparse projection constructs no cell keys; writes remain
   // output-linear and are the only source of keys after a memo hit.
-  expect(keys).toHaveBeenCalledTimes(400);
+  expect(keys).not.toHaveBeenCalled();
+  expect(summarize).toHaveBeenCalledOnce();
+  summarize.mockClear();
   keys.mockClear();
   for (let x = 1; x <= 5; x++) view.rerender(<NumberFormatControls
     sheet={{ ...sheet, revision: x, frame: { ...sheet.frame, position: { x, y: 0 } } }} selection={selection} onWrite={latestWrite} />);
+  view.rerender(<NumberFormatControls sheet={{ ...sheet, content: { ...sheet.content, cells: { edited: 'value-only change' } } }}
+    selection={{ ...selection, anchor: { ...selection.anchor, cell: { ...selection.anchor.cell } } }} onWrite={latestWrite} />);
   expect(keys).not.toHaveBeenCalled();
+  expect(summarize).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Number format' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Number format' }));
   expect(oldWrite).not.toHaveBeenCalled();
   expect(latestWrite).toHaveBeenCalledOnce();
   expect(latestWrite.mock.calls[0]![0]).toHaveLength(400);
   expect(keys).toHaveBeenCalledTimes(400);
+  keys.mockClear();
+  fireEvent.click(screen.getByRole('button', { name: /Bold:/ }));
+  expect(oldWrite).not.toHaveBeenCalled();
+  expect(latestWrite).toHaveBeenCalledTimes(2);
+  expect(latestWrite.mock.calls[1]![0]).toHaveLength(400);
+  expect(keys).toHaveBeenCalledTimes(400);
+  expect(summarize).not.toHaveBeenCalled();
 });
 
 it('invalidates summaries on overrides, selection, axes and sheet identity, including custom palette colours', () => {
