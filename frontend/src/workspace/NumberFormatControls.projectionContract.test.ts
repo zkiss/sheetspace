@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { CellAppearance, SheetFormatOverrides } from '@workbook/core/model';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { selectionAppearanceControlState, selectionFormatControlState } from './NumberFormatControls';
+import { formattingSelectionControlState } from '@test-support/formattingSelectionControlState';
 
 const defaults: Required<CellAppearance> = {
   numberFormat: { kind: 'general' }, fontWeight: 'normal', horizontalAlignment: 'general', textColor: 'automatic', fillColor: 'none',
@@ -23,11 +23,11 @@ describe.each(['cells', 'rows', 'columns'] as const)('%s projection contract evi
   it('keeps mixed local provenance with uniform effective defaults, including the stricter number rule', () => {
     const overrides: SheetFormatOverrides = { rows: {}, columns: {}, cells: {}, [group]: { [targetIds[0]!]: defaults } };
     const source = styled(overrides);
-    const appearance = selectionAppearanceControlState(source, selection);
+    const { appearance, format } = formattingSelectionControlState(source, selection);
     for (const property of ['fontWeight', 'horizontalAlignment', 'textColor', 'fillColor'] as const) {
       expect(appearance[property]).toEqual({ value: defaults[property], localValue: null, localOverrideState: 'mixed', hasLocalOverrides: true });
     }
-    expect(selectionFormatControlState(source, selection)).toEqual({ format: null, hasLocalOverrides: true });
+    expect(format).toEqual({ format: null, hasLocalOverrides: true });
   });
 
   it('removes an apparent mixed baseline only when cells cover every effective position', () => {
@@ -37,20 +37,20 @@ describe.each(['cells', 'rows', 'columns'] as const)('%s projection contract evi
     };
     const completeSource = styled(overrides);
     const incompleteSource = styled({ ...overrides, cells: Object.fromEntries(keys.slice(1).map((key) => [key, defaults])) });
-    const complete = selectionAppearanceControlState(completeSource, selection);
-    const incomplete = selectionAppearanceControlState(incompleteSource, selection);
+    const complete = formattingSelectionControlState(completeSource, selection);
+    const incomplete = formattingSelectionControlState(incompleteSource, selection);
     for (const property of ['fontWeight', 'horizontalAlignment', 'textColor', 'fillColor'] as const) {
-      expect(complete[property].value).toEqual(defaults[property]);
-      expect(incomplete[property].value).toBeNull();
+      expect(complete.appearance[property].value).toEqual(defaults[property]);
+      expect(incomplete.appearance[property].value).toBeNull();
     }
-    expect(selectionFormatControlState(completeSource, selection).format).toEqual(mode === 'rows' ? null : defaults.numberFormat);
-    expect(selectionFormatControlState(incompleteSource, selection).format).toBeNull();
+    expect(complete.format.format).toEqual(mode === 'rows' ? null : defaults.numberFormat);
+    expect(incomplete.format.format).toBeNull();
   });
 
   it('finds a late exception for every property even on blank cells', () => {
     const source = styled({ rows: {}, columns: {}, cells: { [keys[keys.length - 1]!]: different } });
-    const appearance = selectionAppearanceControlState(source, selection);
+    const { appearance, format } = formattingSelectionControlState(source, selection);
     for (const property of ['fontWeight', 'horizontalAlignment', 'textColor', 'fillColor'] as const) expect(appearance[property].value).toBeNull();
-    expect(selectionFormatControlState(source, selection).format).toBeNull();
+    expect(format.format).toBeNull();
   });
 });

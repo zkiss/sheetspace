@@ -1,8 +1,7 @@
 import { Fragment } from 'react';
 import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS } from '@workbook/core/numberFormat';
-import type { AppearancePatch, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
-import { summarizeFormatting } from '@workbook/read/formattingSummary';
-import { validateFormattingSelection, type FormattingSelection } from '@workbook/read/formattingSelection';
+import type { AppearancePatch, FormatWrite, NumberFormat } from '@workbook/core/model';
+import type { FormattingSelection } from '@workbook/read/formattingSelection';
 import { materializeFormattingWrites } from '@workbook/read/formattingWrites';
 import { colourControlReadout } from './colourControlReadout';
 import type { AppearancePropertyControlState } from './appearanceControlState';
@@ -13,27 +12,7 @@ import {
   appearanceControlState,
   emptyAppearanceControlState,
   formatControlState,
-  type AppearanceFormattingControlState,
-  type FormatControlState,
 } from './formattingControlState';
-
-export { appearanceControlState, formatControlState } from './formattingControlState';
-export type { AppearanceFormattingControlState, FormatControlState } from './formattingControlState';
-
-
-export function selectionFormatControlState(sheet: SheetDocument | undefined, selection: FormattingSelection | null): FormatControlState {
-  const validated = validateFormattingSelection(sheet, selection);
-  if (!sheet || !validated.valid) return { format: null, hasLocalOverrides: false };
-  return formatControlState(summarizeFormatting(validated, sheet.presentation.formatOverrides));
-}
-
-
-export function selectionAppearanceControlState(sheet: SheetDocument | undefined, selection: FormattingSelection | null): AppearanceFormattingControlState {
-  const validated = validateFormattingSelection(sheet, selection);
-  if (!sheet || !validated.valid) return emptyAppearanceControlState();
-  return appearanceControlState(summarizeFormatting(validated, sheet.presentation.formatOverrides));
-}
-
 
 function appearanceStateLabel(label: string, state: AppearancePropertyControlState<unknown>, scopeDescription?: string) {
   const effective = state.value === null ? 'mixed effective values' : 'one effective value';

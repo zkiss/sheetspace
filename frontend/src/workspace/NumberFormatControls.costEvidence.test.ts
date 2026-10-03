@@ -4,7 +4,7 @@ import * as policy from '@workbook/core/numberFormat';
 import { summarizeFormatting } from '@workbook/read/formattingSummary';
 import { validateFormattingSelection } from '@workbook/read/formattingSelection';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { appearanceControlState, formatControlState } from './NumberFormatControls';
+import { appearanceControlState, formatControlState } from './formattingControlState';
 import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
 
 afterEach(() => vi.restoreAllMocks());
