@@ -10,6 +10,7 @@ import {
   isValidNumberFormatPrecision,
   resolveNumberFormat,
   resolveCellAppearance,
+  resolvePreloadedAppearanceProperty,
   validFormatWrites,
 } from '@workbook/core/numberFormat';
 
@@ -45,6 +46,14 @@ describe('number format policy', () => {
 
     overrides.cells[cellIdentityKey(identity)] = { numberFormat: { kind: 'general' } };
     expect(resolveNumberFormat(overrides, identity)).toEqual(APPLICATION_DEFAULT_NUMBER_FORMAT);
+  });
+
+  it('shares scope precedence with callers that preload appearance records', () => {
+    expect(resolvePreloadedAppearanceProperty(
+      { fontWeight: 'normal' }, { fontWeight: 'bold' }, { fontWeight: 'bold' }, 'fontWeight',
+    )).toBe('normal');
+    expect(resolvePreloadedAppearanceProperty(undefined, {}, { fillColor: '#112233' }, 'fillColor')).toBe('#112233');
+    expect(resolvePreloadedAppearanceProperty(undefined, undefined, undefined, 'horizontalAlignment')).toBe('general');
   });
 
   it('reveals the next inherited value when a local property is absent or removed', () => {

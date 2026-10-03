@@ -1,13 +1,12 @@
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import {
-  APPLICATION_DEFAULT_FILL_COLOR, APPLICATION_DEFAULT_FONT_WEIGHT,
-  APPLICATION_DEFAULT_HORIZONTAL_ALIGNMENT, APPLICATION_DEFAULT_NUMBER_FORMAT,
-  APPLICATION_DEFAULT_TEXT_COLOR,
+  appearanceProperties,
+  resolvePreloadedAppearanceProperty,
 } from '@workbook/core/numberFormat';
 import type { CellAppearance, SheetFormatOverrides } from '@workbook/core/model';
 import type { ValidFormattingSelection } from './formattingSelection';
 
-export const formattingProperties = ['numberFormat', 'fontWeight', 'horizontalAlignment', 'textColor', 'fillColor'] as const;
+export const formattingProperties = appearanceProperties;
 export type FormattingProperty = typeof formattingProperties[number];
 type FormattingValue<Property extends FormattingProperty> = NonNullable<CellAppearance[Property]>;
 
@@ -18,14 +17,6 @@ export type FormattingPropertySummary<Property extends FormattingProperty> = {
   hasLocalOverrides: boolean;
 };
 export type FormattingSummary = { [Property in FormattingProperty]: FormattingPropertySummary<Property> };
-
-const defaults: { [Property in FormattingProperty]: FormattingValue<Property> } = {
-  numberFormat: APPLICATION_DEFAULT_NUMBER_FORMAT,
-  fontWeight: APPLICATION_DEFAULT_FONT_WEIGHT,
-  horizontalAlignment: APPLICATION_DEFAULT_HORIZONTAL_ALIGNMENT,
-  textColor: APPLICATION_DEFAULT_TEXT_COLOR,
-  fillColor: APPLICATION_DEFAULT_FILL_COLOR,
-};
 
 type EffectiveAccumulator = { initialized: boolean; mixed: boolean; value?: unknown; key?: string };
 type LocalAccumulator = { absent: boolean; present: boolean; mixed: boolean; value?: unknown; key?: string };
@@ -64,7 +55,7 @@ export function summarizeFormatting(selection: ValidFormattingSelection, overrid
   const observeEffective = (property: FormattingProperty, cell: CellAppearance | undefined, row: CellAppearance | undefined, column: CellAppearance | undefined) => {
     const accumulator = effective[property];
     if (accumulator.mixed) return;
-    observe(accumulator, cell?.[property] ?? row?.[property] ?? column?.[property] ?? defaults[property]);
+    observe(accumulator, resolvePreloadedAppearanceProperty(cell, row, column, property));
   };
 
   if (selection.mode === 'cells') {
