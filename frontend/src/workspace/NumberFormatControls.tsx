@@ -1,95 +1,58 @@
 import { Fragment, useMemo } from 'react';
-import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS, resolveAppearanceProperty } from '@workbook/core/numberFormat';
-import type { AppearancePatch, CellAppearance, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
-import { validateFormattingSelection, type FormattingSelection, type ValidFormattingSelection } from '@workbook/read/formattingSelection';
+import { GENERAL_NUMBER_FORMAT, NUMBER_FORMAT_PRECISION_LIMITS } from '@workbook/core/numberFormat';
+import type { AppearancePatch, FormatWrite, NumberFormat, SheetDocument } from '@workbook/core/model';
+import { summarizeFormatting, type FormattingSummary } from '@workbook/read/formattingSummary';
+import { validateFormattingSelection, type FormattingSelection } from '@workbook/read/formattingSelection';
 import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
 import { colourControlReadout } from './colourControlReadout';
-import type { AppearanceControlState, AppearancePropertyControlState, LocalOverrideState } from './appearanceControlState';
+import type { AppearanceControlState, AppearancePropertyControlState } from './appearanceControlState';
 import { FormatIcon } from './FormatIcon';
 import { ColourPicker } from './ColourPicker';
 import { sheetCustomColours } from './colourPalette';
 
 type FormatControlState = { format: NumberFormat | null; hasLocalOverrides: boolean };
+type AppearanceFormattingControlState = Omit<AppearanceControlState, 'numberFormat'>;
 
 export function selectionFormatControlState(sheet: SheetDocument | undefined, selection: FormattingSelection | null): FormatControlState {
   const validated = validateFormattingSelection(sheet, selection);
   if (!sheet || !validated.valid) return { format: null, hasLocalOverrides: false };
-  const overrides = sheet.presentation.formatOverrides;
-  const local = localPropertyValues(validated, overrides, 'numberFormat');
-  const effective = effectiveFormats(sheet, validated);
-  const same = (formats: readonly (NumberFormat | undefined)[]) => formats.every((format) => JSON.stringify(format) === JSON.stringify(formats[0]));
+  return formatControlState(summarizeFormatting(validated, sheet.presentation.formatOverrides));
+}
+
+export function formatControlState(summary: FormattingSummary): FormatControlState {
+  const numberFormat = summary.numberFormat;
   return {
-    format: same(local) && same(effective) ? local[0] ?? effective[0]! : null,
-    hasLocalOverrides: local.some(Boolean),
+    format: numberFormat.effectiveValue === null || numberFormat.localOverrideState === 'mixed'
+      ? null
+      : numberFormat.localValue ?? numberFormat.effectiveValue,
+    hasLocalOverrides: numberFormat.hasLocalOverrides,
   };
 }
 
-function effectiveFormats(sheet: SheetDocument, selection: ValidFormattingSelection): readonly NumberFormat[] {
-  return effectivePropertyValues(sheet, selection, 'numberFormat', GENERAL_NUMBER_FORMAT) as readonly NumberFormat[];
-}
-
-function localPropertyValues<Property extends keyof CellAppearance>(
-  selection: ValidFormattingSelection,
-  overrides: SheetDocument['presentation']['formatOverrides'],
-  property: Property,
-): readonly CellAppearance[Property][] {
-  const values: CellAppearance[Property][] = [];
-  if (selection.mode === 'rows') {
-    for (let rowIndex = selection.rowStart; rowIndex <= selection.rowEnd; rowIndex += 1) values.push(overrides?.rows[selection.rows[rowIndex]!]?.[property]);
-  } else if (selection.mode === 'columns') {
-    for (let columnIndex = selection.columnStart; columnIndex <= selection.columnEnd; columnIndex += 1) values.push(overrides?.columns[selection.columns[columnIndex]!]?.[property]);
-  } else {
-    for (let rowIndex = selection.rowStart; rowIndex <= selection.rowEnd; rowIndex += 1) {
-      for (let columnIndex = selection.columnStart; columnIndex <= selection.columnEnd; columnIndex += 1) {
-        values.push(overrides?.cells[cellIdentityKey({ rowId: selection.rows[rowIndex]!, columnId: selection.columns[columnIndex]! })]?.[property]);
-      }
-    }
-  }
-  return values;
-}
-
-function effectivePropertyValues<Property extends keyof CellAppearance>(
-  sheet: SheetDocument,
-  selection: ValidFormattingSelection,
-  property: Property,
-  applicationDefault: NonNullable<CellAppearance[Property]>,
-): readonly NonNullable<CellAppearance[Property]>[] {
-  const overrides = sheet.presentation.formatOverrides ?? { rows: {}, columns: {}, cells: {} };
-  const values: NonNullable<CellAppearance[Property]>[] = [];
-  for (let rowIndex = selection.effectiveRowStart; rowIndex <= selection.effectiveRowEnd; rowIndex += 1) {
-    for (let columnIndex = selection.effectiveColumnStart; columnIndex <= selection.effectiveColumnEnd; columnIndex += 1) {
-      values.push(resolveAppearanceProperty(overrides, { rowId: selection.rows[rowIndex]!, columnId: selection.columns[columnIndex]! }, property, applicationDefault));
-    }
-  }
-  return values;
-}
-
-export function selectionAppearanceControlState(sheet: SheetDocument | undefined, selection: FormattingSelection | null): AppearanceControlState {
-  const defaults = {
-    fontWeight: 'normal', horizontalAlignment: 'general', textColor: 'automatic', fillColor: 'none',
-  } as const;
-  const empty = Object.fromEntries(Object.keys(defaults).map((property) => [property, {
-    value: null, localValue: null, localOverrideState: 'inherited', hasLocalOverrides: false,
-  }]));
+export function selectionAppearanceControlState(sheet: SheetDocument | undefined, selection: FormattingSelection | null): AppearanceFormattingControlState {
   const validated = validateFormattingSelection(sheet, selection);
-  if (!sheet || !validated.valid) return empty as AppearanceControlState;
-  const overrides = sheet.presentation.formatOverrides;
-  const same = (values: readonly unknown[]) => values.every((value) => JSON.stringify(value) === JSON.stringify(values[0]));
-  return Object.fromEntries(Object.entries(defaults).map(([property, applicationDefault]) => {
-    const typedProperty = property as keyof typeof defaults;
-    const local = localPropertyValues(validated, overrides, typedProperty);
-    const effective = effectivePropertyValues(sheet, validated, typedProperty, applicationDefault);
-    const localOverrideState: LocalOverrideState = local.every((value) => value === undefined)
-      ? 'inherited'
-      : same(local) ? 'explicit' : 'mixed';
-    return [property, {
-      value: same(effective) ? effective[0]! : null,
-      localValue: same(local) ? local[0] ?? null : null,
-      localOverrideState,
-      hasLocalOverrides: localOverrideState !== 'inherited',
-    }];
-  })) as AppearanceControlState;
+  if (!sheet || !validated.valid) return emptyAppearanceControlState();
+  return appearanceControlState(summarizeFormatting(validated, sheet.presentation.formatOverrides));
+}
+
+export function appearanceControlState(summary: FormattingSummary): AppearanceFormattingControlState {
+  const adapt = <Value,>(property: { effectiveValue: Value | null; localValue: Value | null; localOverrideState: 'inherited' | 'explicit' | 'mixed'; hasLocalOverrides: boolean }) => ({
+    value: property.effectiveValue,
+    localValue: property.localValue,
+    localOverrideState: property.localOverrideState,
+    hasLocalOverrides: property.hasLocalOverrides,
+  });
+  return {
+    fontWeight: adapt(summary.fontWeight),
+    horizontalAlignment: adapt(summary.horizontalAlignment),
+    textColor: adapt(summary.textColor),
+    fillColor: adapt(summary.fillColor),
+  };
+}
+
+function emptyAppearanceControlState(): AppearanceFormattingControlState {
+  const empty = { value: null, localValue: null, localOverrideState: 'inherited' as const, hasLocalOverrides: false };
+  return { fontWeight: empty, horizontalAlignment: empty, textColor: empty, fillColor: empty };
 }
 
 function appearanceStateLabel(label: string, state: AppearancePropertyControlState<unknown>, scopeDescription?: string) {
@@ -111,12 +74,16 @@ export function NumberFormatControls({
 }) {
   // Frame previews, saved positions, and callback replacement do not change
   // formatting. Invalidate on the immutable formatting inputs, not sheet.frame.
-  const { state, appearance, disabled: selectionDisabled, customColours } = useMemo(() => ({
-    state: selectionFormatControlState(sheet, selection),
-    appearance: selectionAppearanceControlState(sheet, selection),
-    disabled: !validateFormattingSelection(sheet, selection).valid,
-    customColours: sheetCustomColours(sheet),
-  }), [sheet?.id, sheet?.content, sheet?.presentation.formatOverrides, selection]);
+  const { state, appearance, disabled: selectionDisabled, customColours } = useMemo(() => {
+    const validated = validateFormattingSelection(sheet, selection);
+    const summary = sheet && validated.valid ? summarizeFormatting(validated, sheet.presentation.formatOverrides) : undefined;
+    return {
+      state: summary ? formatControlState(summary) : { format: null, hasLocalOverrides: false },
+      appearance: summary ? appearanceControlState(summary) : emptyAppearanceControlState(),
+      disabled: !validated.valid,
+      customColours: sheetCustomColours(sheet),
+    };
+  }, [sheet?.id, sheet?.content, sheet?.presentation.formatOverrides, selection]);
   // Modal sheet dialogs retire palette drafts/listeners without restoring
   // background focus. Reuse the pickers' disabled cancellation path.
   const disabled = interactionDisabled || selectionDisabled;

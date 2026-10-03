@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as identity from '@workbook/core/cellIdentity';
 import * as policy from '@workbook/core/numberFormat';
+import { summarizeFormatting } from '@workbook/read/formattingSummary';
+import { validateFormattingSelection } from '@workbook/read/formattingSelection';
 import { sheetDocument } from '@test-support/workbookFactories';
-import {
-  selectionAppearanceControlState, selectionFormatControlState,
-} from './NumberFormatControls';
+import { appearanceControlState, formatControlState } from './NumberFormatControls';
 import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
 
 afterEach(() => vi.restoreAllMocks());
@@ -30,13 +30,16 @@ describe('extracted geometry and direct write evidence', () => {
     const rowSlices = vi.spyOn(sheet.content.rows, 'slice');
     const columnSlices = vi.spyOn(sheet.content.columns, 'slice');
 
-    expect(selectionFormatControlState(sheet, selection)).toEqual({ format: { kind: 'general' }, hasLocalOverrides: false });
-    expect(selectionAppearanceControlState(sheet, selection).fillColor.value).toBe('none');
-    expect(resolve).toHaveBeenCalledTimes(5 * coverage);
-    expect(keys).toHaveBeenCalledTimes(5 * coverage);
-    // Each summary validates once and direct range iteration does not slice axes.
-    expect(rowBounds).toHaveBeenCalledTimes(4);
-    expect(columnBounds).toHaveBeenCalledTimes(4);
+    const validated = validateFormattingSelection(sheet, selection);
+    if (!validated.valid) throw new Error('fixture selection must validate');
+    const summary = summarizeFormatting(validated, sheet.presentation.formatOverrides);
+    expect(formatControlState(summary)).toEqual({ format: { kind: 'general' }, hasLocalOverrides: false });
+    expect(appearanceControlState(summary).fillColor.value).toBe('none');
+    expect(resolve).not.toHaveBeenCalled();
+    expect(keys).toHaveBeenCalledTimes(coverage);
+    // One validation and one key/record load per effective position; no slices.
+    expect(rowBounds).toHaveBeenCalledTimes(2);
+    expect(columnBounds).toHaveBeenCalledTimes(2);
     expect(rowSlices).not.toHaveBeenCalled();
     expect(columnSlices).not.toHaveBeenCalled();
 
