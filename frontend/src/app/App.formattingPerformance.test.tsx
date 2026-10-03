@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import * as numberFormat from '@workbook/core/numberFormat';
+import * as formattingSummary from '@workbook/read/formattingSummary';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
 
@@ -12,7 +12,7 @@ it('keeps a range and cached toolbar summaries through a real header drag and co
   })])} />);
   fireEvent.click(screen.getByRole('cell', { name: 'Inputs A1 cell' }));
   fireEvent.click(screen.getByRole('cell', { name: 'Inputs B2 cell' }), { shiftKey: true });
-  const resolve = vi.spyOn(numberFormat, 'resolveAppearanceProperty');
+  const summarize = vi.spyOn(formattingSummary, 'summarizeFormatting');
   const header = screen.getByTestId('sheet-frame-header');
   const pointer = (type: string, clientX: number) => {
     const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 1, clientX });
@@ -23,11 +23,13 @@ it('keeps a range and cached toolbar summaries through a real header drag and co
   for (let frame = 1; frame <= 5; frame++) pointer('pointermove', frame * 10);
   pointer('pointerup', 50);
   expect(screen.getByTestId('sheet-frame')).toHaveAttribute('data-position-x', '50');
-  expect(resolve).not.toHaveBeenCalled();
+  expect(summarize).not.toHaveBeenCalled();
   for (const cell of screen.getAllByRole('cell')) expect(cell).toHaveAttribute('aria-selected', 'true');
   fireEvent.click(screen.getByRole('button', { name: 'Number format' }));
   for (const [key, value] of [['A1', '1.23'], ['B1', '2.35'], ['A2', '3.46'], ['B2', '4.57']]) {
     expect(screen.getByRole('cell', { name: `Inputs ${key} cell` })).toHaveTextContent(value!);
   }
-  expect(resolve).toHaveBeenCalled();
+  // The write replaces overrides, so the next render refreshes the current
+  // projection; the shortcut itself did not run another read before writing.
+  expect(summarize).toHaveBeenCalledTimes(2);
 });

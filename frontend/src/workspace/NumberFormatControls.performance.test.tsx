@@ -16,8 +16,9 @@ it('avoids write-target allocation for validity and reuses summaries through fra
   const oldWrite = vi.fn();
   const latestWrite = vi.fn();
   const view = render(<NumberFormatControls sheet={sheet} selection={selection} onWrite={oldWrite} />);
-  // Two existing local-target passes plus five effective-property passes.
-  expect(keys).toHaveBeenCalledTimes(7 * 400);
+  // The shared dense projection visits each effective cell once; writes remain
+  // output-linear and are the only source of keys after a memo hit.
+  expect(keys).toHaveBeenCalledTimes(400);
   keys.mockClear();
   for (let x = 1; x <= 5; x++) view.rerender(<NumberFormatControls
     sheet={{ ...sheet, revision: x, frame: { ...sheet.frame, position: { x, y: 0 } } }} selection={selection} onWrite={latestWrite} />);

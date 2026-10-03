@@ -31,13 +31,11 @@ import type { WorkbookCommands } from '@application/react/useWorkbookController'
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
-import {
-  NumberFormatControls,
-  selectionAppearanceControlState,
-  selectionFormatControlState,
-} from '@workspace/NumberFormatControls';
+import { NumberFormatControls } from '@workspace/NumberFormatControls';
+import { appearanceControlState, formatControlState } from '@workspace/formattingControlState';
 import { GENERAL_NUMBER_FORMAT } from '@workbook/core/numberFormat';
-import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
+import { materializeFormattingWrites } from '@workbook/read/formattingWrites';
+import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { workspaceViewportBounds } from '@workspace/workspaceGeometry';
 import { historyRevealTarget } from './historyRevealTarget';
@@ -200,11 +198,12 @@ export function Workspace({
     : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
   const interactionsEnabled = !sheetDialogOpen;
+  const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   useEffect(() => {
     function writeFormat(write: () => readonly import('@workbook/core/model').FormatWrite[]) {
       if (!selectedSheet || !selectionRange || editingCell) return;
-      const writes = write();
+        const writes = write();
       if (writes.length === 0) return;
       commands.writeNumberFormats(selectedSheet.id, writes);
       onRestoreGridFocus();
@@ -227,40 +226,39 @@ export function Workspace({
 
       if (key === 'b' && !event.shiftKey) {
         event.preventDefault();
-        const appearance = selectionAppearanceControlState(selectedSheet, selectionRange);
-        writeFormat(() => selectionAppearanceWrites(selectedSheet, selectionRange, {
-          fontWeight: appearance.fontWeight.value === 'bold' ? 'normal' : 'bold',
-        }));
+          const appearance = formattingProjection.summary && appearanceControlState(formattingProjection.summary);
+          writeFormat(() => formattingProjection.descriptor.valid
+            ? materializeFormattingWrites(formattingProjection.descriptor, 'fontWeight', appearance?.fontWeight.value === 'bold' ? 'normal' : 'bold') : []);
         return;
       }
 
       if (!event.shiftKey) return;
       if (key === 'e' || key === 'l' || key === 'r') {
         event.preventDefault();
-        writeFormat(() => selectionAppearanceWrites(selectedSheet, selectionRange, {
-          horizontalAlignment: key === 'e' ? 'center' : key === 'l' ? 'left' : 'right',
-        }));
+          writeFormat(() => formattingProjection.descriptor.valid
+            ? materializeFormattingWrites(formattingProjection.descriptor, 'horizontalAlignment', key === 'e' ? 'center' : key === 'l' ? 'left' : 'right') : []);
         return;
       }
       if (key === '0') {
         event.preventDefault();
-        writeFormat(() => selectionFormattingWrites(selectedSheet, selectionRange, 'numberFormat', GENERAL_NUMBER_FORMAT));
+          writeFormat(() => formattingProjection.descriptor.valid
+            ? materializeFormattingWrites(formattingProjection.descriptor, 'numberFormat', GENERAL_NUMBER_FORMAT) : []);
         return;
       }
       if (key === '1' || key === '5') {
         event.preventDefault();
-        const format = selectionFormatControlState(selectedSheet, selectionRange).format;
+          const format = formattingProjection.summary ? formatControlState(formattingProjection.summary).format : null;
         const kind = key === '1' ? 'number' : 'percent';
-        writeFormat(() => selectionFormattingWrites(selectedSheet, selectionRange, 'numberFormat', {
-          kind,
-          precision: format?.kind === kind ? format.precision : kind === 'number' ? 2 : 0,
-        }));
+          writeFormat(() => formattingProjection.descriptor.valid ? materializeFormattingWrites(formattingProjection.descriptor, 'numberFormat', {
+            kind,
+            precision: format?.kind === kind ? format.precision : kind === 'number' ? 2 : 0,
+          }) : []);
       }
     }
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, interactionsEnabled, onRestoreGridFocus, selectedSheet, selectionRange, workspaceController]);
+  }, [commands, editingCell, formattingProjection, interactionsEnabled, onRestoreGridFocus, selectedSheet, selectionRange, workspaceController]);
   useEffect(() => {
     if (!contentHistoryFeedback || editingCell) return;
     const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
@@ -462,6 +460,7 @@ export function Workspace({
               commands.writeNumberFormats(selectedSheet.id, writes);
               onRestoreGridFocus();
             }}
+            projection={formattingProjection}
             selection={selectionRange}
             sheet={selectedSheet}
           />}
