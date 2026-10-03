@@ -32,9 +32,7 @@ import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
-import { appearanceControlState, formatControlState } from '@workspace/formattingControlState';
-import { GENERAL_NUMBER_FORMAT } from '@workbook/core/numberFormat';
-import { materializeFormattingWrites } from '@workbook/read/formattingWrites';
+import { formattingActionWrites, formattingShortcut } from '@workspace/formattingActions';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { workspaceViewportBounds } from '@workspace/workspaceGeometry';
@@ -201,64 +199,29 @@ export function Workspace({
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   useEffect(() => {
-    function writeFormat(write: () => readonly import('@workbook/core/model').FormatWrite[]) {
-      if (!selectedSheet || !selectionRange || editingCell) return;
-        const writes = write();
-      if (writes.length === 0) return;
-      commands.writeNumberFormats(selectedSheet.id, writes);
-      onRestoreGridFocus();
-    }
-
     function handleShortcut(event: KeyboardEvent) {
       if (!interactionsEnabled) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('textarea, input, select, [contenteditable="true"]') || event.defaultPrevented) return;
-      const key = event.shiftKey && /^Digit[015]$/.test(event.code)
-        ? event.code.slice(-1)
-        : event.key.toLowerCase();
+      const key = event.key.toLowerCase();
       const primaryModifier = event.ctrlKey || event.metaKey;
       if (!primaryModifier && event.shiftKey && !event.altKey && key === 'n') {
         event.preventDefault();
         workspaceController.createSheetAtViewportCenter();
         return;
       }
-      if (!primaryModifier || event.altKey) return;
-
-      if (key === 'b' && !event.shiftKey) {
-        event.preventDefault();
-          const appearance = formattingProjection.summary && appearanceControlState(formattingProjection.summary);
-          writeFormat(() => formattingProjection.descriptor.valid
-            ? materializeFormattingWrites(formattingProjection.descriptor, 'fontWeight', appearance?.fontWeight.value === 'bold' ? 'normal' : 'bold') : []);
-        return;
-      }
-
-      if (!event.shiftKey) return;
-      if (key === 'e' || key === 'l' || key === 'r') {
-        event.preventDefault();
-          writeFormat(() => formattingProjection.descriptor.valid
-            ? materializeFormattingWrites(formattingProjection.descriptor, 'horizontalAlignment', key === 'e' ? 'center' : key === 'l' ? 'left' : 'right') : []);
-        return;
-      }
-      if (key === '0') {
-        event.preventDefault();
-          writeFormat(() => formattingProjection.descriptor.valid
-            ? materializeFormattingWrites(formattingProjection.descriptor, 'numberFormat', GENERAL_NUMBER_FORMAT) : []);
-        return;
-      }
-      if (key === '1' || key === '5') {
-        event.preventDefault();
-          const format = formattingProjection.summary ? formatControlState(formattingProjection.summary).format : null;
-        const kind = key === '1' ? 'number' : 'percent';
-          writeFormat(() => formattingProjection.descriptor.valid ? materializeFormattingWrites(formattingProjection.descriptor, 'numberFormat', {
-            kind,
-            precision: format?.kind === kind ? format.precision : kind === 'number' ? 2 : 0,
-          }) : []);
-      }
+      const action = formattingShortcut(event);
+      if (!action) return;
+      event.preventDefault();
+      const writes = formattingActionWrites(formattingProjection, action, { editing: editingCell !== null, modal: !interactionsEnabled });
+      if (writes.length === 0 || !formattingProjection.descriptor.valid) return;
+      commands.writeNumberFormats(formattingProjection.descriptor.sheetId, writes);
+      onRestoreGridFocus();
     }
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, formattingProjection, interactionsEnabled, onRestoreGridFocus, selectedSheet, selectionRange, workspaceController]);
+  }, [commands, editingCell, formattingProjection, interactionsEnabled, onRestoreGridFocus, workspaceController]);
   useEffect(() => {
     if (!contentHistoryFeedback || editingCell) return;
     const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));

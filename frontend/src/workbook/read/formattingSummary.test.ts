@@ -32,6 +32,16 @@ function record<Property extends FormattingProperty>(property: Property, value: 
 }
 
 describe('summarizeFormatting semantics', () => {
+  it.each(['cells', 'rows', 'columns'] as const)('reports defaults and absence independently for every property at %s scope', (mode) => {
+    const { selection } = fixture(mode);
+    for (const source of [undefined, overrides()]) {
+      const summary = summarizeFormatting(selection, source);
+      for (const property of formattingProperties) expect(summary[property]).toEqual({
+        effectiveValue: applicationDefaults[property], localValue: null, localOverrideState: 'inherited', hasLocalOverrides: false,
+      });
+    }
+  });
+
   it.each(formattingProperties)('resolves inherited non-default precedence for %s', (property) => {
     const { sheet, selection } = fixture('cells');
     const source = overrides(); const [columnValue, rowValue] = propertyValues[property];

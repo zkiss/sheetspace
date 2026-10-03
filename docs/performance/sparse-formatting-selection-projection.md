@@ -53,7 +53,8 @@ Keys use stable IDs from
 | [`workbook/read/formattingWrites.ts`](../../frontend/src/workbook/read/formattingWrites.ts) | Direct single-property local write materialization |
 | [`workspace/useFormattingSelection.ts`](../../frontend/src/workspace/useFormattingSelection.ts) | Current geometry, summary and independent palette memos shared with Workspace |
 | `workspace/formattingControlState.ts`, `colourControlReadout.ts` | Number-format and appearance/readout UI adaptation |
-| `workspace/NumberFormatControls.tsx`, `ColourPicker.tsx`, `FormatIcon.tsx` | UI actions, precision, drafts, cancellation, focus, accessibility and rendering |
+| `workspace/formattingActions.ts` | Pure shared toolbar/keyboard action policy, precision validation and shortcut decoding |
+| `workspace/NumberFormatControls.tsx`, `ColourPicker.tsx`, `FormatIcon.tsx` | Control event wiring, drafts, cancellation, focus, accessibility and rendering |
 | `workspace/colourPalette.ts` | Sheet-level colour enumeration, normalization, filtering and sorting |
 | [`workbook/core/numberFormat.ts`](../../frontend/src/workbook/core/numberFormat.ts) | Exported defaults and property-by-property precedence policy |
 
@@ -127,9 +128,12 @@ built-in filtering, deduplication and hue/lexical sorting: `O(S+U log U)` work w
 containers. That work is separate from summary counters.
 
 Toolbar and keyboard receive the same descriptor/summary; caches hold data, not callbacks.
-Actions use current commands and `onWrite`. Direct writes use the descriptor without summary
-loops. Editing/modal guards, grid-focus restoration, picker cancellation/listener cleanup and
-accessible markers are unchanged. Preview input never writes; apply dispatches once; Escape
+`formattingActions.ts` shares bold toggling and number-format kind/precision policy across those
+consumers and decodes keyboard modifiers and physical shifted digits without rendering. Actions use
+current commands and `onWrite`; direct writes use the descriptor without summary loops. Pure action
+guards suppress keyboard writes while editing or in a modal, and Workspace retains native-input
+event ownership and grid-focus restoration. Picker cancellation/listener cleanup and accessible
+markers are unchanged. Preview input never writes; apply dispatches once; Escape
 restores trigger focus; outside events cancel without stealing focus. Invalid/modal-disabled
 controls retire drafts without background focus restoration. JSDOM does not validate physical
 native colour dialogs or browser layout.
@@ -257,8 +261,9 @@ unindexed full-map cost rather than pretending relevance-only work.
 Boundary tests verify dense at 255/256 positions and sparse at 257. Writers produce exactly
 `W` writes and patches, with `W` keys only for cell writes and no summary/decode work. Output-linear
 storage is intentional: a million-cell write is not constant-space. Axis writes remain `r` or
-`c` outputs. Control helpers reject empty/multi-property patches (`[]`); core commands still
-accept valid multi-property batches elsewhere.
+`c` outputs. The pure `selectionAppearanceWrites` helper rejects empty/multi-property patches (`[]`);
+rendered controls supply typed single-property writes. Core commands still accept valid
+multi-property batches elsewhere.
 
 `NumberFormatControls.costEvidence.test.ts` checks four endpoint searches, no slices, cutoff-aware
 summary key counts and separate write output counts. The 20×20 toolbar performance test now
@@ -285,9 +290,22 @@ and all three scopes, including:
   cell/row/column/default precedence as well as the effective summary, so algorithm agreement alone
   cannot hide a shared precedence bug.
 
-The original summary, projection-contract, model, picker/readout and UI integration suites remain
-separate and unchanged in behavior. No million-record adversary or browser speedup claim is needed
-to validate the aggregation math.
+Geometry and writes are tested directly in `formattingSelection.test.ts`, including all four
+endpoint failures in each scope, empty/missing axes, reversed order, explicit single-property writes
+and resets. The summary, projection-contract and colour-state suites exercise calculation and
+readout rules without rendering. `formattingActions.test.ts` covers the scope/format/action/reorder
+matrix, mixed-effective versus mixed-local action policy, precision boundaries and editing/modal
+guards. `formattingShortcuts.test.ts` independently covers modifier and physical-key decoding.
+
+React memo dependencies and independent palette invalidation are exercised with `renderHook` in
+`useFormattingSelection.memo.test.tsx` and `useFormattingSelection.palette.test.tsx`. Isolated control
+suites cover presentation, actual input/click callbacks, accessible readouts, picker drafts,
+cancellation and listener cleanup. Workspace suites retain shortcut-to-command wiring, current
+commands/focus callbacks across a memo hit and reorder, invalid-selection wiring and native input
+focus rather than repeating the functional scope matrices. App tests retain real range selection,
+header drag and scope-specific gesture/focus restoration after immutable shortcut writes. These
+integration assertions are distinct from pure policy and hook cache evidence. No million-record
+adversary or browser speedup claim is needed to validate the aggregation math.
 
 ## Historical investigation baseline
 
@@ -320,6 +338,7 @@ Run from the repository root:
 ```bash
 npm --prefix frontend test -- --run src/workbook/read/formattingSelection.test.ts src/workbook/read/formattingSummary.test.ts src/workbook/read/formattingSummary.differential.test.ts src/workbook/read/formattingSummary.scaling.test.ts src/workbook/core/numberFormat.test.ts
 npm --prefix frontend test -- --run src/workspace/NumberFormatControls.costEvidence.test.ts src/workspace/NumberFormatControls.projectionContract.test.ts src/workspace/NumberFormatControls.test.ts src/workspace/NumberFormatControls.colourState.test.ts src/workspace/NumberFormatControls.axisColours.test.tsx src/workspace/NumberFormatControls.performance.test.tsx src/workspace/NumberFormatControls.render.test.tsx src/workspace/NumberFormatControls.visuals.test.tsx src/workspace/NumberFormatControls.palette.test.tsx src/app/App.formattingPerformance.test.tsx
+npm --prefix frontend test -- --run src/workspace/formattingActions.test.ts src/workspace/formattingShortcuts.test.ts src/workspace/useFormattingSelection.memo.test.tsx src/workspace/useFormattingSelection.palette.test.tsx src/app/Workspace.formattingActions.test.tsx src/app/Workspace.formattingGuards.test.tsx src/workspace/NumberFormatControls.popoverPosition.test.tsx src/workspace/WorkspaceToolbar.test.tsx
 make test
 make compile
 ```

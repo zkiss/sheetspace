@@ -1,16 +1,16 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { smallSheetDocument } from '@test-support/workbookFactories';
-import { formattingModes, formattingSelection, observeFormattingProjection } from '@test-support/formattingProjection';
+import { formattingSelection, observeFormattingProjection } from '@test-support/formattingProjection';
 import { Workspace } from './Workspace';
 import { formattingWorkspaceProps } from '@test-support/formattingWorkspace';
 
 afterEach(() => vi.restoreAllMocks());
 
-describe.each(formattingModes)('%s formatting shortcut guards', (mode) => {
+describe('formatting shortcut event ownership', () => {
   it.each(['editing', 'modal'] as const)('disables shortcut dispatch during %s without invalidating the projection', (guard) => {
     const sheet = smallSheetDocument({ id: 'guards', name: 'Guards' });
-    const selection = formattingSelection(sheet, mode);
+    const selection = formattingSelection(sheet, 'cells');
     const props = formattingWorkspaceProps(sheet, selection);
     const work = observeFormattingProjection();
     const view = render(<Workspace {...props} />);
@@ -35,7 +35,7 @@ describe.each(formattingModes)('%s formatting shortcut guards', (mode) => {
 
   it('leaves input, textarea, select and contenteditable shortcuts native', () => {
     const sheet = smallSheetDocument({ id: 'native', name: 'Native' });
-    const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, mode));
+    const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells'));
     const work = observeFormattingProjection();
     render(<><Workspace {...props} /><input aria-label="Native input" /><textarea aria-label="Native textarea" />
       <select aria-label="Native select"><option>Option</option></select>
@@ -50,6 +50,17 @@ describe.each(formattingModes)('%s formatting shortcut guards', (mode) => {
       expect(owner).toHaveFocus();
     }
     work.expectCalls(0, 0, 0);
+    expect(props.commands.writeNumberFormats).not.toHaveBeenCalled();
+    expect(props.onRestoreGridFocus).not.toHaveBeenCalled();
+  });
+
+  it('does not take a shortcut already prevented by another event owner', () => {
+    const sheet = smallSheetDocument({ id: 'prevented', name: 'Prevented' });
+    const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells'));
+    render(<Workspace {...props} />);
+    const event = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true });
+    event.preventDefault();
+    fireEvent(document.body, event);
     expect(props.commands.writeNumberFormats).not.toHaveBeenCalled();
     expect(props.onRestoreGridFocus).not.toHaveBeenCalled();
   });
