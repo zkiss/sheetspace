@@ -462,7 +462,6 @@ export function Workspace({
             }}
             projection={formattingProjection}
             selection={selectionRange}
-            sheet={selectedSheet}
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onRetryFailedSaves={onRetryFailedSaves}

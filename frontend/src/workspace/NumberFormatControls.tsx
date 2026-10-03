@@ -8,7 +8,7 @@ import { colourControlReadout } from './colourControlReadout';
 import type { AppearancePropertyControlState } from './appearanceControlState';
 import { FormatIcon } from './FormatIcon';
 import { ColourPicker } from './ColourPicker';
-import { useFormattingSelection, type FormattingSelectionProjection } from './useFormattingSelection';
+import type { FormattingSelectionProjection } from './useFormattingSelection';
 import {
   appearanceControlState,
   emptyAppearanceControlState,
@@ -46,17 +46,14 @@ export function NumberFormatControls({
   onWrite,
   projection,
   selection,
-  sheet,
 }: {
   disabled?: boolean;
   onWrite: (writes: readonly FormatWrite[]) => void;
-  /** Workspace supplies this shared projection. The fallback keeps isolated control tests focused. */
-  projection?: FormattingSelectionProjection;
+  /** Workspace owns and supplies the current shared formatting projection. */
+  projection: FormattingSelectionProjection;
   selection: FormattingSelection | null;
-  sheet: SheetDocument | undefined;
 }) {
-  const isolatedProjection = useFormattingSelection(sheet, selection);
-  const current = projection ?? isolatedProjection;
+  const current = projection;
   const state = current.summary ? formatControlState(current.summary) : { format: null, hasLocalOverrides: false };
   const appearance = current.summary ? appearanceControlState(current.summary) : emptyAppearanceControlState();
   const selectionDisabled = !current.descriptor.valid;

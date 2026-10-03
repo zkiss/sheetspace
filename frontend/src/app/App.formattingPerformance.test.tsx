@@ -29,7 +29,7 @@ it('keeps a range and cached toolbar summaries through a real header drag and co
   for (const [key, value] of [['A1', '1.23'], ['B1', '2.35'], ['A2', '3.46'], ['B2', '4.57']]) {
     expect(screen.getByRole('cell', { name: `Inputs ${key} cell` })).toHaveTextContent(value!);
   }
-  // The write replaces overrides, so the next render refreshes the current
-  // projection; the shortcut itself did not run another read before writing.
-  expect(summarize).toHaveBeenCalledTimes(2);
+  // The write refreshes Workspace's projection once; the toolbar consumes that
+  // projection rather than independently summarizing the replacement overrides.
+  expect(summarize).toHaveBeenCalledTimes(1);
 });

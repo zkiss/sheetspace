@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as identity from '@workbook/core/cellIdentity';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { NumberFormatControls } from './NumberFormatControls';
+import { NumberFormatControls } from './NumberFormatControls.testHarness';
 
 afterEach(() => vi.restoreAllMocks());
 
