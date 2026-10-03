@@ -3,14 +3,13 @@ import * as identity from '@workbook/core/cellIdentity';
 import * as policy from '@workbook/core/numberFormat';
 import { sheetDocument } from '@test-support/workbookFactories';
 import {
-  selectionAppearanceControlState, selectionAppearanceWrites,
-  selectionFormatControlState, selectionFormatWrites,
+  selectionAppearanceControlState, selectionFormatControlState,
 } from './NumberFormatControls';
+import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
 
 afterEach(() => vi.restoreAllMocks());
 
-// Characterize the existing algorithm, not the future projection's budget.
-describe('current selection scan evidence', () => {
+describe('extracted geometry and direct write evidence', () => {
   it.each([
     { mode: 'cells', rows: 2, columns: 3, r: 2, c: 2 },
     { mode: 'cells', rows: 100, columns: 100, r: 100, c: 100 },
@@ -34,16 +33,16 @@ describe('current selection scan evidence', () => {
     expect(selectionFormatControlState(sheet, selection)).toEqual({ format: { kind: 'general' }, hasLocalOverrides: false });
     expect(selectionAppearanceControlState(sheet, selection).fillColor.value).toBe('none');
     expect(resolve).toHaveBeenCalledTimes(5 * coverage);
-    expect(keys).toHaveBeenCalledTimes(5 * coverage + (mode === 'cells' ? 2 * targets : 0));
-    // Seven validations in the two helpers; the toolbar adds an eighth for disabled.
-    expect(rowBounds).toHaveBeenCalledTimes(14);
-    expect(columnBounds).toHaveBeenCalledTimes(14);
-    expect(rowSlices).toHaveBeenCalledTimes(mode === 'columns' ? 2 : 7);
-    expect(columnSlices).toHaveBeenCalledTimes(mode === 'rows' ? 2 : 7);
+    expect(keys).toHaveBeenCalledTimes(5 * coverage);
+    // Each summary validates once and direct range iteration does not slice axes.
+    expect(rowBounds).toHaveBeenCalledTimes(4);
+    expect(columnBounds).toHaveBeenCalledTimes(4);
+    expect(rowSlices).not.toHaveBeenCalled();
+    expect(columnSlices).not.toHaveBeenCalled();
 
     keys.mockClear();
     resolve.mockClear();
-    expect(selectionFormatWrites(sheet, selection, null)).toHaveLength(targets);
+    expect(selectionFormattingWrites(sheet, selection, 'numberFormat', null)).toHaveLength(targets);
     expect(selectionAppearanceWrites(sheet, selection, { fillColor: null })).toHaveLength(targets);
     expect(keys).toHaveBeenCalledTimes(mode === 'cells' ? 2 * targets : 0);
     expect(resolve).not.toHaveBeenCalled();

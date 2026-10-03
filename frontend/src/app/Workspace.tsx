@@ -34,11 +34,10 @@ import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import {
   NumberFormatControls,
   selectionAppearanceControlState,
-  selectionAppearanceWrites,
   selectionFormatControlState,
-  selectionFormatWrites,
 } from '@workspace/NumberFormatControls';
 import { GENERAL_NUMBER_FORMAT } from '@workbook/core/numberFormat';
+import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { workspaceViewportBounds } from '@workspace/workspaceGeometry';
 import { historyRevealTarget } from './historyRevealTarget';
@@ -245,14 +244,14 @@ export function Workspace({
       }
       if (key === '0') {
         event.preventDefault();
-        writeFormat(() => selectionFormatWrites(selectedSheet, selectionRange, GENERAL_NUMBER_FORMAT));
+        writeFormat(() => selectionFormattingWrites(selectedSheet, selectionRange, 'numberFormat', GENERAL_NUMBER_FORMAT));
         return;
       }
       if (key === '1' || key === '5') {
         event.preventDefault();
         const format = selectionFormatControlState(selectedSheet, selectionRange).format;
         const kind = key === '1' ? 'number' : 'percent';
-        writeFormat(() => selectionFormatWrites(selectedSheet, selectionRange, {
+        writeFormat(() => selectionFormattingWrites(selectedSheet, selectionRange, 'numberFormat', {
           kind,
           precision: format?.kind === kind ? format.precision : kind === 'number' ? 2 : 0,
         }));

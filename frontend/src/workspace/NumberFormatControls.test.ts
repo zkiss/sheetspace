@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { selectionAppearanceControlState, selectionAppearanceWrites, selectionFormatControlState, selectionFormatWrites } from './NumberFormatControls';
+import { selectionAppearanceControlState, selectionFormatControlState } from './NumberFormatControls';
+import { selectionAppearanceWrites, selectionFormattingWrites } from '@workbook/read/formattingWrites';
 
 const sheet = sheetDocument({ id: 'format-sheet', name: 'Formats', rowCount: 2, columnCount: 2 });
 const selection = {
@@ -12,17 +13,17 @@ const selection = {
 
 describe('number format selection controls', () => {
   it('writes every durable cell in a rectangle, including blank cells', () => {
-    expect(selectionFormatWrites(sheet, selection, { kind: 'number', precision: 2 })).toEqual([
+    expect(selectionFormattingWrites(sheet, selection, 'numberFormat', { kind: 'number', precision: 2 })).toEqual([
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[1]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[0]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
       { scope: 'cell', targetId: cellIdentityKey({ rowId: sheet.content.rows[1]!, columnId: sheet.content.columns[1]! }), properties: { numberFormat: { kind: 'number', precision: 2 } } },
     ]);
-    expect(selectionFormatWrites(sheet, { ...selection, mode: 'rows' }, null)).toEqual([
+    expect(selectionFormattingWrites(sheet, { ...selection, mode: 'rows' }, 'numberFormat', null)).toEqual([
       { scope: 'row', targetId: sheet.content.rows[0], properties: { numberFormat: null } },
       { scope: 'row', targetId: sheet.content.rows[1], properties: { numberFormat: null } },
     ]);
-    expect(selectionFormatWrites(sheet, { ...selection, mode: 'columns' }, null)).toEqual([
+    expect(selectionFormattingWrites(sheet, { ...selection, mode: 'columns' }, 'numberFormat', null)).toEqual([
       { scope: 'column', targetId: sheet.content.columns[0], properties: { numberFormat: null } },
       { scope: 'column', targetId: sheet.content.columns[1], properties: { numberFormat: null } },
     ]);
