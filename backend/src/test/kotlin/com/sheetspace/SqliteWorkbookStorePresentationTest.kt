@@ -74,12 +74,13 @@ class SqliteWorkbookStorePresentationTest {
     @Test
     fun `sqlite failure after an earlier format write rolls back every format and revision after reopen`() {
         val databasePath = Files.createTempFile("sheetspace-format-batch-", ".sqlite")
+        val initial = testDocument(TEST_SHEET_1, "Formats")
+        val original = testWorkbookOf(initial)
         try {
             SqliteWorkbookStore(databasePath).use { store ->
-                val initial = testDocument(TEST_SHEET_1, "Formats")
                 val row = initial.tabularContent.rows[0].value
                 val column = initial.tabularContent.columns[0].value
-                store.saveWorkbook(testWorkbookOf(initial))
+                store.saveWorkbook(original)
                 DriverManager.getConnection(store.jdbcUrl).use { connection ->
                     connection.createStatement().use { statement ->
                         statement.execute(
@@ -107,9 +108,7 @@ class SqliteWorkbookStorePresentationTest {
             }
 
             SqliteWorkbookStore(databasePath).use { reopened ->
-                val stored = reopened.loadSheet(SheetId(TEST_SHEET_1))!!
-                assertEquals(SheetPresentation(), stored.presentation)
-                assertEquals(0, stored.revision)
+                assertEquals(original, reopened.loadWorkbookBundle())
             }
         } finally {
             Files.deleteIfExists(databasePath)
@@ -147,18 +146,68 @@ class SqliteWorkbookStorePresentationTest {
     }
 
     @Test
-    fun `invalid presentation batch does not persist its preceding valid write`() = withSqliteStore { store ->
+    fun `invalid axis batch does not persist its preceding valid write`() = withSqliteStore { store ->
         val initial = testDocument(TEST_SHEET_1, "Sizes")
-        store.saveWorkbook(testWorkbookOf(initial))
+        val unrelated = testDocument(TEST_SHEET_2, "Other")
+        store.saveWorkbook(testWorkbookOf(initial, unrelated))
         val row = initial.tabularContent.rows[0].value
         val column = initial.tabularContent.columns[0].value
         val valid = AxisSizeWrite("column", column, 150.0)
-        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(valid, AxisSizeWrite("row", row, 15.0))) }
-        assertEquals(initial, store.loadSheet(initial.id))
+        val exception = assertRejectedWithoutPersisting<WorkbookApplicationException>(store) {
+            store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(valid, AxisSizeWrite("row", row, 15.0)))
+        }
+        assertEquals(WorkbookApplicationError.INVALID_SHEET_PRESENTATION, exception.error)
+    }
+
+    @Test
+    fun `stale axis write does not overwrite persisted presentation`() = withSqliteStore { store ->
+        val initial = testDocument(TEST_SHEET_1, "Sizes")
+        val unrelated = testDocument(TEST_SHEET_2, "Other")
+        store.saveWorkbook(testWorkbookOf(initial, unrelated))
+        val row = initial.tabularContent.rows[0].value
+        val column = initial.tabularContent.columns[0].value
+        val valid = AxisSizeWrite("column", column, 150.0)
         store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(valid))
-        val before = store.loadSheet(initial.id)
-        assertFailsWith<SheetRevisionConflict> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(AxisSizeWrite("row", row, 40.0))) }
-        assertEquals(before, store.loadSheet(initial.id))
+        val conflict = assertRejectedWithoutPersisting<SheetRevisionConflict>(store) {
+            store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(AxisSizeWrite("row", row, 40.0)))
+        }
+        assertEquals(TEST_SHEET_1, conflict.sheetId)
+        assertEquals(0, conflict.expectedRevision)
+        assertEquals(1, conflict.actualRevision)
+    }
+
+    @Test
+    fun `invalid format batch does not persist its preceding valid write`() = withSqliteStore { store ->
+        val initial = testDocument(TEST_SHEET_1, "Formats")
+        val unrelated = testDocument(TEST_SHEET_2, "Other")
+        store.saveWorkbook(testWorkbookOf(initial, unrelated))
+        val row = initial.tabularContent.rows[0].value
+        val valid = FormatWrite("row", row, NumberFormat("number", 2))
+        val exception = assertRejectedWithoutPersisting<WorkbookApplicationException>(store) {
+            store.writePresentation(
+                ExpectedSheetRevision(TEST_SHEET_1, 0),
+                emptyList(),
+                listOf(valid, FormatWrite("row", row, NumberFormat("percent", -1))),
+            )
+        }
+        assertEquals(WorkbookApplicationError.INVALID_SHEET_PRESENTATION, exception.error)
+    }
+
+    @Test
+    fun `stale format removal does not overwrite an existing format`() = withSqliteStore { store ->
+        val initial = testDocument(TEST_SHEET_1, "Formats")
+        val unrelated = testDocument(TEST_SHEET_2, "Other")
+        store.saveWorkbook(testWorkbookOf(initial, unrelated))
+        val row = initial.tabularContent.rows[0].value
+        val format = FormatWrite("row", row, NumberFormat("number", 2))
+        store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(format))
+        val conflict = assertRejectedWithoutPersisting<SheetRevisionConflict>(store) {
+            store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(FormatWrite("row", row, null)))
+        }
+        assertEquals(TEST_SHEET_1, conflict.sheetId)
+        assertEquals(0, conflict.expectedRevision)
+        assertEquals(1, conflict.actualRevision)
+        assertEquals(NumberFormat("number", 2), store.loadSheet(initial.id)!!.presentation.formatOverrides.rows[row]?.numberFormat)
     }
 
     @Test

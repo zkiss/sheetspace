@@ -52,24 +52,29 @@ class SqliteWorkbookStoreCellWriteTest {
             listOf(sheet.cellWrite("A1", "newer")),
         )
 
-        assertFailsWith<SheetRevisionConflict> {
+        val before = store.loadWorkbookBundle()
+        val conflict = assertFailsWith<SheetRevisionConflict> {
             store.writeCells(
                 listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)),
                 listOf(sheet.cellWrite("A1", "stale")),
             )
         }
 
-        assertEquals("newer", store.loadSheet(SheetId(TEST_SHEET_1))!!.tabularContent.cells.getValue("A1"))
+        assertEquals(TEST_SHEET_1, conflict.sheetId)
+        assertEquals(0, conflict.expectedRevision)
+        assertEquals(1, conflict.actualRevision)
+        assertEquals(before, store.loadWorkbookBundle())
     }
 
     @Test
     fun `sqlite failure after an earlier sheet write rolls back every cell and revision after reopen`() {
         val databasePath = Files.createTempFile("sheetspace-cell-batch-", ".sqlite")
+        val first = testDocument(TEST_SHEET_1, "Inputs")
+        val second = testDocument(TEST_SHEET_2, "Outputs")
+        val original = testWorkbookOf(first, second)
         try {
             SqliteWorkbookStore(databasePath).use { store ->
-                val first = testDocument(TEST_SHEET_1, "Inputs")
-                val second = testDocument(TEST_SHEET_2, "Outputs")
-                store.saveWorkbook(testWorkbookOf(first, second))
+                store.saveWorkbook(original)
                 DriverManager.getConnection(store.jdbcUrl).use { connection ->
                     connection.createStatement().use { statement ->
                         statement.execute(
@@ -97,13 +102,7 @@ class SqliteWorkbookStoreCellWriteTest {
             }
 
             SqliteWorkbookStore(databasePath).use { reopened ->
-                val first = reopened.loadSheet(SheetId(TEST_SHEET_1))!!
-                val second = reopened.loadSheet(SheetId(TEST_SHEET_2))!!
-
-                assertEquals(emptyMap(), first.tabularContent.cells)
-                assertEquals(emptyMap(), second.tabularContent.cells)
-                assertEquals(0, first.revision)
-                assertEquals(0, second.revision)
+                assertEquals(original, reopened.loadWorkbookBundle())
             }
         } finally {
             Files.deleteIfExists(databasePath)

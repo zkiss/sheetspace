@@ -42,6 +42,7 @@ class SqliteWorkbookStoreRevisionTest {
             )
         }
 
+        val beforeConflict = store.loadWorkbookBundle()
         val conflict = assertFailsWith<SheetRevisionConflict> {
             store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) { workbook ->
                 val sheet = workbook.documents.getValue(SheetId(TEST_SHEET_1))
@@ -52,11 +53,10 @@ class SqliteWorkbookStoreRevisionTest {
         }
 
         assertEquals(1, updated.sheetsInOrder.single().revision)
+        assertEquals(TEST_SHEET_1, conflict.sheetId)
+        assertEquals(0, conflict.expectedRevision)
         assertEquals(1, conflict.actualRevision)
-        assertEquals(
-            "newer value",
-            store.loadWorkbookBundle().sheetsInOrder.single().tabularContent.cells.getValue("A1"),
-        )
+        assertEquals(beforeConflict, store.loadWorkbookBundle())
     }
 
     @Test
@@ -98,16 +98,19 @@ class SqliteWorkbookStoreRevisionTest {
             )
         }
 
+        val beforeStale = store.loadWorkbookBundle()
         val stale = assertFailsWith<SheetRevisionConflict> {
             store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) { workbook ->
                 workbook.removeSheet(SheetId(TEST_SHEET_1))
             }
         }
+        assertEquals(TEST_SHEET_1, stale.sheetId)
+        assertEquals(0, stale.expectedRevision)
+        assertEquals(1, stale.actualRevision)
+        assertEquals(beforeStale, store.loadWorkbookBundle())
         val deleted = store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 1)) { workbook ->
             workbook.removeSheet(SheetId(TEST_SHEET_1))
         }
-
-        assertEquals(1, stale.actualRevision)
         assertEquals(emptyList(), deleted.sheetsInOrder)
         assertEquals(1, deleted.manifest.revision)
     }
