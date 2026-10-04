@@ -1,5 +1,6 @@
 package com.sheetspace
 
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -48,5 +49,27 @@ class WorkbookTransportContractTest {
         assertEquals("""{"sheets":[{"sheetId":"sheet-1","revision":3}]}""", testJson.encodeToString(CellPatchResponse(listOf(SheetRevisionResponse("sheet-1", 3)))))
         assertEquals("""{"sheetId":"sheet-1","revision":3}""", testJson.encodeToString(CellRevisionRequest("sheet-1", 3)))
         assertEquals("""{"sheetId":"sheet-1","rowId":"row-1","columnId":"column-1","raw":"value"}""", testJson.encodeToString(CellWriteRequest("sheet-1", "row-1", "column-1", "value")))
+    }
+
+    @Test
+    fun `request payloads decode optional fields to their documented defaults`() {
+        assertEquals(
+            CreateSheetRequest(name = "Inputs"),
+            testJson.decodeFromString<CreateSheetRequest>("""{"name":"Inputs"}"""),
+        )
+        assertEquals(
+            UpdateSheetRequest(),
+            testJson.decodeFromString<UpdateSheetRequest>("{}"),
+        )
+        assertEquals(
+            PresentationWriteRequest(),
+            testJson.decodeFromString<PresentationWriteRequest>("{}"),
+        )
+        assertEquals(
+            PresentationWriteRequest(formatWrites = listOf(FormatWrite("row", "row-1", NumberFormat("percent", 2)))),
+            testJson.decodeFromString(
+                """{"formatWrites":[{"scope":"row","targetId":"row-1","numberFormat":{"kind":"percent","precision":2}}]}""",
+            ),
+        )
     }
 }

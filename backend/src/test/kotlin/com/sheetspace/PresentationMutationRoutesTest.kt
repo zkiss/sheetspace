@@ -80,4 +80,26 @@ class PresentationMutationRoutesTest {
         val missing = client.patch("/api/sheets/missing/presentation") { header("If-Match", "0"); jsonBody("""{"writes":[$valid]}""") }
         assertEquals(HttpStatusCode.NotFound, missing.status)
     }
+
+    @Test
+    fun `presentation route rejects empty and duplicate appearance patches`() = testWorkbookApplication { _ ->
+        val initial = client.createSheet()
+        val row = initial.content.rows.first()
+
+        val empty = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("{}")
+        }
+        val duplicateProperty = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody(
+                """{"formatWrites":[{"scope":"row","targetId":"$row","properties":{"fontWeight":"bold","fontWeight":"normal"}}]}""",
+            )
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, empty.status)
+        assertEquals(ErrorResponse("invalid-sheet-presentation"), empty.decodeBody())
+        assertEquals(HttpStatusCode.BadRequest, duplicateProperty.status)
+        assertEquals(ErrorResponse("invalid-request"), duplicateProperty.decodeBody())
+    }
 }

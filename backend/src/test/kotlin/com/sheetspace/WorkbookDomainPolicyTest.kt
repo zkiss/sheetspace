@@ -1,5 +1,6 @@
 package com.sheetspace
 
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -40,7 +41,36 @@ class WorkbookDomainPolicyTest {
         assertEquals(false, AxisSizePolicy.validSize("column", Double.POSITIVE_INFINITY))
         assertEquals(false, AxisSizePolicy.validSize("column", Double.NaN))
         assertEquals(false, AxisSizePolicy.validSize("other", 30.0))
+        assertFailsWith<WorkbookApplicationException> { validatedPresentationWrites(sheet, emptyList()) }
         assertFailsWith<WorkbookApplicationException> { validatedPresentationWrites(sheet, listOf(AxisSizeWrite("row", row, 1.0))) }
         assertFailsWith<WorkbookApplicationException> { validatedPresentationWrites(sheet, listOf(AxisSizeWrite("column", column, null), AxisSizeWrite("column", column, null))) }
+    }
+
+    @Test
+    fun `format policies retain supported automatic colours and reject imprecise general format`() {
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        val row = sheet.tabularContent.rows.first().value
+
+        val updated = validatedFormatWrites(
+            sheet,
+            listOf(
+                FormatWrite(
+                    scope = "row",
+                    targetId = row,
+                    properties = mapOf(
+                        "textColor" to JsonPrimitive("automatic"),
+                        "fillColor" to JsonPrimitive("none"),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            CellFormat(textColor = "automatic", fillColor = "none"),
+            updated.formatOverrides.rows[row],
+        )
+        assertFailsWith<WorkbookApplicationException> {
+            validatedFormatWrites(sheet, listOf(FormatWrite("row", row, NumberFormat("general", 2))))
+        }
     }
 }
