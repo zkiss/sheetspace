@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PointerEvent } from 'react';
 import { resizeTargetIds, useAxisResize } from './useAxisResize';
 import { tabularProjection } from '@workbook/read/queries';
@@ -18,41 +18,88 @@ function event(element: HTMLElement, overrides: Partial<PointerEvent<HTMLElement
   } as PointerEvent<HTMLElement>;
 }
 
-describe('useAxisResize boundaries', () => {
-  it('rejects unknown targets and cancels invalid or superseded pointer work', () => {
-    const sheet = tabularProjection(sheetDocument({ id: 'sheet', name: 'Sheet' }));
-    expect(resizeTargetIds(sheet, 'row', 'missing')).toEqual([]);
+const source = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 100, columnCount: 100 });
+const sheet = tabularProjection(source);
+const row = source.content.rows[0]!;
+const column = source.content.columns[0]!;
+afterEach(() => { document.body.replaceChildren(); });
 
-    const commit = vi.fn();
-    const { result, rerender } = renderHook(
-      ({ enabled }: { enabled: boolean }) => useAxisResize({ sheet, commit: enabled ? commit : undefined }),
-      { initialProps: { enabled: true } },
-    );
-    const header = document.createElement('div');
-    const handle = document.createElement('div');
-    header.append(handle);
-    document.body.append(header);
-    header.getBoundingClientRect = vi.fn(() => ({
-      bottom: 20, height: 20, left: 0, right: 100, top: 0, width: 100, x: 0, y: 0,
-      toJSON: () => undefined,
-    }));
-    handle.setPointerCapture = vi.fn();
-    handle.releasePointerCapture = vi.fn();
-    handle.hasPointerCapture = vi.fn().mockReturnValue(false);
+function selected(axis: 'row' | 'column', start: number, end: number, sheetId = sheet.id) {
+  return { mode: axis === 'row' ? 'rows' : 'columns', anchor: { sheetId, cell: { rowId: sheet.rows[start]!, columnId: sheet.columns[start]! } },
+    extent: { sheetId, cell: { rowId: sheet.rows[end]!, columnId: sheet.columns[end]! } } } as const;
+}
+function mountedHandle(width = 76, height = 26.4) {
+  const header = document.createElement('div'), handle = document.createElement('div');
+  header.append(handle); document.body.append(header);
+  header.getBoundingClientRect = vi.fn(() => ({ bottom: height, height, left: 0, right: width, top: 0, width, x: 0, y: 0, toJSON: () => undefined }));
+  handle.setPointerCapture = vi.fn(); handle.releasePointerCapture = vi.fn(); handle.hasPointerCapture = vi.fn().mockReturnValue(false);
+  return handle;
+}
 
-    act(() => {
-      result.current.start(event(handle, { button: 2 }), 'row', sheet.rows[0]!, 20);
-      result.current.start(event(handle), 'row', 'missing', 20);
-      result.current.start(event(handle), 'row', sheet.rows[0]!, 20);
-      result.current.move(event(handle, { pointerId: 2 }));
-      result.current.move(event(handle, { clientY: Number.POSITIVE_INFINITY }));
-    });
-    expect(result.current.preview).not.toBeNull();
+describe('resizeTargetIds', () => {
+  it.each(['row', 'column'] as const)('selects matching and reversed selected %ss, including offscreen stable IDs', (axis) => {
+    const ids = axis === 'row' ? sheet.rows : sheet.columns;
+    expect(resizeTargetIds(sheet, axis, ids[90]!, selected(axis, 5, 90))).toEqual(ids.slice(5, 91));
+    expect(resizeTargetIds(sheet, axis, ids[5]!, selected(axis, 90, 5))).toEqual(ids.slice(5, 91));
+  });
+  it.each(['row', 'column'] as const)('falls back to only the target for stale, cross-sheet, opposite-axis, or outside selections', (axis) => {
+    const id = (axis === 'row' ? sheet.rows : sheet.columns)[1]!;
+    expect(resizeTargetIds(sheet, axis, id, selected(axis, 3, 5))).toEqual([id]);
+    expect(resizeTargetIds(sheet, axis, id, selected(axis, 0, 2, 'other'))).toEqual([id]);
+    expect(resizeTargetIds(sheet, axis, id, selected(axis === 'row' ? 'column' : 'row', 0, 2))).toEqual([id]);
+    expect(resizeTargetIds(sheet, axis, id, { ...selected(axis, 0, 2), anchor: { sheetId: sheet.id, cell: { rowId: 'gone', columnId: 'gone' } } } as never)).toEqual([id]);
+    expect(resizeTargetIds(sheet, axis, 'missing')).toEqual([]);
+  });
+});
 
-    rerender({ enabled: false });
-    act(() => result.current.move(event(handle)));
-    expect(result.current.preview).toBeNull();
+describe('useAxisResize sessions', () => {
+  it.each([{ axis: 'column' as const, scale: .5, delta: 40 }, { axis: 'column' as const, scale: 2, delta: 40 }, { axis: 'row' as const, scale: .5, delta: 20 }, { axis: 'row' as const, scale: 2, delta: 20 }])
+  ('converts $axis movement at scale $scale and clamps both boundaries', ({ axis, scale, delta }) => {
+    const commit = vi.fn(), handle = mountedHandle(76 * scale, 26.4 * scale);
+    const { result } = renderHook(() => useAxisResize({ sheet, commit }));
+    const id = axis === 'row' ? row : column, initial = axis === 'row' ? 26.4 : 76;
+    act(() => { result.current.start(event(handle, { clientX: 10, clientY: 10 }), axis, id, initial); result.current.stop(event(handle, { clientX: axis === 'row' ? 10 : 10 + delta * scale, clientY: axis === 'row' ? 10 + delta * scale : 10 })); });
+    expect(commit).toHaveBeenCalledWith([{ axis, axisId: id, size: initial + delta }]);
+    act(() => { result.current.start(event(handle), axis, id, initial); result.current.stop(event(handle, { clientX: -10000, clientY: -10000 })); });
+    expect(commit.mock.calls[1]![0][0].size).toBe(axis === 'row' ? 16 : 24);
+  });
+
+  it('commits selected offscreen IDs once and ignores invalid starts and non-owning events', () => {
+    const commit = vi.fn(), handle = mountedHandle();
+    const { result } = renderHook(() => useAxisResize({ sheet, commit, selection: selected('column', 0, 90) }));
+    act(() => { result.current.start(event(handle, { button: 2 }), 'column', column, 76); result.current.start(event(handle), 'column', 'missing', 76); result.current.start(event(handle), 'column', column, 76); result.current.move(event(handle, { pointerId: 2 })); result.current.stop(event(handle, { pointerId: 2 })); result.current.stop(event(handle, { clientX: 30 })); result.current.stop(event(handle, { clientX: 30 })); });
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit.mock.calls[0]![0]).toEqual(sheet.columns.slice(0, 91).map((axisId) => ({ axis: 'column', axisId, size: 96 })));
+  });
+
+  it.each(['pointer cancel', 'lost capture', 'Escape', 'blur', 'unmount'] as const)('cancels without committing on %s', (interruption) => {
+    const commit = vi.fn(), handle = mountedHandle();
+    const hook = renderHook(() => useAxisResize({ sheet, commit }));
+    act(() => { hook.result.current.start(event(handle), 'row', row, 26.4); hook.result.current.move(event(handle, { clientY: 60 }));
+      if (interruption === 'pointer cancel' || interruption === 'lost capture') hook.result.current.interrupt(event(handle));
+      else if (interruption === 'Escape') window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      else if (interruption === 'blur') window.dispatchEvent(new Event('blur'));
+      else hook.unmount();
+      hook.result.current.stop(event(handle, { clientY: 60 })); });
     expect(commit).not.toHaveBeenCalled();
-    header.remove();
+  });
+
+  it.each(['selection', 'owner', 'active sheet', 'sheet', 'target IDs', 'disabled', 'removed commit'] as const)('cancels a stale session when %s changes', (change) => {
+    const commit = vi.fn(), handle = mountedHandle(), owner = Symbol();
+    const initialSelection = selected('column', 0, 2);
+    type ResizeOptions = Parameters<typeof useAxisResize>[0];
+    const initialProps: ResizeOptions = { sheet, commit, selection: initialSelection, selectionOwner: owner, activeSheetId: sheet.id, interactionsEnabled: true };
+    const hook = renderHook((props: ResizeOptions) => useAxisResize(props), { initialProps });
+    act(() => { hook.result.current.start(event(handle), 'column', column, 76); });
+    act(() => { hook.rerender({ sheet: change === 'sheet' ? { ...sheet, id: 'other' } : change === 'target IDs' ? { ...sheet, columns: sheet.columns.slice(1) } : sheet, commit: change === 'removed commit' ? undefined : commit, selection: change === 'selection' ? selected('row', 0, 2) : initialSelection, selectionOwner: change === 'owner' ? Symbol() : owner, activeSheetId: change === 'active sheet' ? 'other' : sheet.id, interactionsEnabled: change === 'disabled' ? false : true }); });
+    act(() => { hook.result.current.stop(event(handle, { clientX: 40 })); });
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('releases connected ownership exactly once when a handle detaches or cancellation precedes stale release', () => {
+    const commit = vi.fn(), handle = mountedHandle(); handle.hasPointerCapture = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useAxisResize({ sheet, commit }));
+    act(() => { result.current.start(event(handle), 'column', column, 76); result.current.detachHandle(handle); result.current.stop(event(handle, { clientX: 40 })); result.current.detachHandle(handle); });
+    expect(handle.releasePointerCapture).toHaveBeenCalledTimes(1); expect(commit).not.toHaveBeenCalled();
   });
 });
