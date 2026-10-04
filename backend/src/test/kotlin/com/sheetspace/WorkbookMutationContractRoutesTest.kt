@@ -212,14 +212,14 @@ class WorkbookMutationContractRoutesTest {
             val sheetId = client.createSheet().id
             val initialRevision = client.loadWorkbook().sheets.single().revision
             val firstUpdate = client.patchSingleCell(workbookApplication, sheetId, "A1", "newer value")
+            assertEquals(HttpStatusCode.OK, firstUpdate.status)
+            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
 
             val invalidRename = client.patch("/api/sheets/$sheetId") {
                 header("If-Match", initialRevision.toString())
                 jsonBody("""{"name":"   "}""")
             }
 
-            assertEquals(HttpStatusCode.OK, firstUpdate.status)
-            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
             assertEquals(HttpStatusCode.BadRequest, invalidRename.status)
             assertEquals(
                 ErrorResponse(error = "sheet-name-required"),
