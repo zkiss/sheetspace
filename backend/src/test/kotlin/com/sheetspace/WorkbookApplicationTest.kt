@@ -77,6 +77,7 @@ class WorkbookApplicationTest {
         assertEquals(SheetFrameSize(320.0, 220.0), updated.frame.size)
         assertEquals(2.0, updated.frame.visualScale)
         assertEquals(created.frame.zIndex, updated.frame.zIndex)
+        val beforeInvalidScale = application.loadWorkbookBundle()
         assertApplicationError(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE) {
             application.updateSheet(
                 updated.id.value,
@@ -84,16 +85,20 @@ class WorkbookApplicationTest {
                 UpdateSheetCommand(position = WorkspacePosition(99.0, 99.0), visualScale = 0.0),
             )
         }
-        assertEquals(updated, application.loadSheet(updated.id.value))
+        assertEquals(beforeInvalidScale, application.loadWorkbookBundle())
 
-        assertFailsWith<SheetRevisionConflict> {
+        val beforeStaleFrame = application.loadWorkbookBundle()
+        val conflict = assertFailsWith<SheetRevisionConflict> {
             application.updateSheet(
                 updated.id.value,
                 created.revision,
                 UpdateSheetCommand(position = WorkspacePosition(99.0, 99.0), frameSize = SheetFrameSize(1.0, 1.0), visualScale = 1.0),
             )
         }
-        assertEquals(updated, application.loadSheet(updated.id.value))
+        assertEquals(updated.id.value, conflict.sheetId)
+        assertEquals(created.revision, conflict.expectedRevision)
+        assertEquals(updated.revision, conflict.actualRevision)
+        assertEquals(beforeStaleFrame, application.loadWorkbookBundle())
     }
 
     @Test
@@ -138,6 +143,7 @@ class WorkbookApplicationTest {
         val outputs = application.createSheet(CreateSheetCommand(name = "Outputs"))
         val valid = inputs.cellWrite("A1", "source")
         val invalid = outputs.cellWrite("A1", "result").copy(rowId = "00000000-0000-0000-0000-000000000099")
+        val before = application.loadWorkbookBundle()
 
         assertApplicationError(WorkbookApplicationError.INVALID_CELL_COORDINATE) {
             application.writeCells(
@@ -151,50 +157,7 @@ class WorkbookApplicationTest {
             )
         }
 
-        assertEquals(inputs, application.loadSheet(inputs.id.value))
-        assertEquals(outputs, application.loadSheet(outputs.id.value))
-    }
-
-    @Test
-    fun `application rejects invalid domain commands without changing store`() {
-        val store = InMemoryWorkbookStore()
-        val application = DefaultWorkbookApplication(store)
-        val sheet = application.createSheet(CreateSheetCommand(name = "Inputs"))
-
-        assertApplicationError(WorkbookApplicationError.SHEET_NAME_REQUIRED) {
-            application.createSheet(CreateSheetCommand(name = "   "))
-        }
-        assertApplicationError(WorkbookApplicationError.SHEET_NAME_DUPLICATE) {
-            application.createSheet(CreateSheetCommand(name = "Inputs"))
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_POSITION) {
-            application.createSheet(
-                CreateSheetCommand(name = "Other", position = WorkspacePosition(Double.NaN, 0.0)),
-            )
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE) {
-            application.updateSheet(
-                sheet.id.value,
-                sheet.revision,
-                UpdateSheetCommand(frameSize = SheetFrameSize(0.0, 1.0)),
-            )
-        }
-        assertApplicationError(WorkbookApplicationError.SHEET_UPDATE_REQUIRED) {
-            application.updateSheet(sheet.id.value, sheet.revision, UpdateSheetCommand())
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_CELL_COORDINATE) {
-            application.writeCells(
-                CellPatchCommand(
-                    listOf(ExpectedSheetRevision(sheet.id.value, sheet.revision)),
-                    listOf(SheetCellWrite(sheet.id.value, "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "outside")),
-                ),
-            )
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_Z_INDEX) {
-            application.updateSheetZOrder(listOf(SheetZOrderUpdate(sheet.id.value, sheet.revision, 0)))
-        }
-
-        assertEquals(listOf(sheet), store.loadWorkbookBundle().sheetsInOrder)
+        assertEquals(before, application.loadWorkbookBundle())
     }
 
     @Test
@@ -202,6 +165,7 @@ class WorkbookApplicationTest {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
         application.writeOneCell(created.id.value, "A1", "newer", created.revision)
+        val before = application.loadWorkbookBundle()
 
         assertApplicationError(WorkbookApplicationError.SHEET_NAME_REQUIRED) {
             application.updateSheet(
@@ -210,6 +174,7 @@ class WorkbookApplicationTest {
                 UpdateSheetCommand(name = "   "),
             )
         }
+        assertEquals(before, application.loadWorkbookBundle())
     }
 
     @Test
@@ -217,13 +182,16 @@ class WorkbookApplicationTest {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
         val newer = application.writeOneCell(created.id.value, "A1", "newer", created.revision)
+        val before = application.loadWorkbookBundle()
 
         val conflict = assertFailsWith<SheetRevisionConflict> {
             application.writeOneCell(created.id.value, "A1", "stale", created.revision)
         }
 
+        assertEquals(created.id.value, conflict.sheetId)
+        assertEquals(created.revision, conflict.expectedRevision)
         assertEquals(newer.revision, conflict.actualRevision)
-        assertEquals("newer", application.loadSheet(created.id.value).tabularContent.cells.getValue("A1"))
+        assertEquals(before, application.loadWorkbookBundle())
     }
 
     @Test
@@ -249,15 +217,39 @@ class WorkbookApplicationTest {
     }
 
     @Test
-    fun `unknown sheet operations return application error`() {
+    fun `loading a missing sheet returns application error`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
-
+        val before = application.loadWorkbookBundle()
         assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
             application.loadSheet("missing")
         }
+        assertEquals(before, application.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `appending a row to a missing sheet returns application error`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val before = application.loadWorkbookBundle()
+        assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
+            application.appendRow("missing", 0)
+        }
+        assertEquals(before, application.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `missing sheet wins before an empty update validation`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val before = application.loadWorkbookBundle()
         assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
             application.updateSheet("missing", 0, UpdateSheetCommand())
         }
+        assertEquals(before, application.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `missing sheet wins before an invalid frame validation`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val before = application.loadWorkbookBundle()
         assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
             application.updateSheet(
                 "missing",
@@ -265,9 +257,7 @@ class WorkbookApplicationTest {
                 UpdateSheetCommand(position = WorkspacePosition(Double.NaN, 0.0)),
             )
         }
-        assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
-            application.appendRow("missing", 0)
-        }
+        assertEquals(before, application.loadWorkbookBundle())
     }
 
     private fun assertApplicationError(

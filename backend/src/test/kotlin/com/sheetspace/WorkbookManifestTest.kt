@@ -49,4 +49,13 @@ class WorkbookManifestTest {
             WorkbookState(documents = mapOf(sheet.id to sheet))
         }
     }
+
+    @Test
+    fun `workbook replacement requires an existing document`() {
+        val existing = testDocument(TEST_SHEET_1, "Inputs")
+
+        assertFailsWith<IllegalArgumentException> {
+            testWorkbookOf(existing).replaceSheet(testDocument(TEST_SHEET_2, "Outputs"))
+        }
+    }
 }

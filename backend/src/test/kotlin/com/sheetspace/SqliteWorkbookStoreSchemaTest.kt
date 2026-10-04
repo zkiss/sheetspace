@@ -13,6 +13,16 @@ import kotlin.test.assertTrue
 
 class SqliteWorkbookStoreSchemaTest {
     @Test
+    fun `store rejects unsupported workbook manifest versions`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+
+        assertRejectedWithoutPersisting<IllegalArgumentException>(store) {
+            store.saveWorkbook(testWorkbookOf(sheet).copy(manifest = WorkbookManifest(version = WORKBOOK_SCHEMA_VERSION + 1, sheetIds = listOf(sheet.id))))
+        }
+    }
+
+    @Test
     fun `loads an empty workbook from an isolated in-memory database`() = withSqliteStore { store ->
         assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
         assertEquals(WORKBOOK_SCHEMA_VERSION, store.loadStoredSchemaVersion())
@@ -93,16 +103,13 @@ class SqliteWorkbookStoreSchemaTest {
     }
 
     @Test
-    fun `schema enforces grid order and same-sheet cell ownership`() = withSqliteStore { store ->
+    fun `schema rejects duplicate grid order without changing the persisted bundle`() = withSqliteStore { store ->
         val first = testDocument(TEST_SHEET_1, "Inputs")
-        val second = testDocument(TEST_SHEET_2, "Outputs")
-        store.saveWorkbook(testWorkbookOf(first, second))
+        store.saveWorkbook(testWorkbookOf(first))
+        val before = store.loadWorkbookBundle()
 
         DriverManager.getConnection(store.jdbcUrl).use { connection ->
-            connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
             val firstSheet = first.id.value.toTestUuidBytes()
-            val secondSheet = second.id.value.toTestUuidBytes()
-
             assertFailsWith<SQLException> {
                 connection.prepareStatement(
                     "INSERT INTO sheet_rows (sheet_id, row_id, row_order) VALUES (?, randomblob(16), 0)",
@@ -111,7 +118,21 @@ class SqliteWorkbookStoreSchemaTest {
                     statement.executeUpdate()
                 }
             }
+        }
+        assertEquals(before, store.loadWorkbookBundle())
+    }
 
+    @Test
+    fun `schema rejects cross-sheet cell ownership without changing the persisted bundle`() = withSqliteStore { store ->
+        val first = testDocument(TEST_SHEET_1, "Inputs")
+        val second = testDocument(TEST_SHEET_2, "Outputs")
+        store.saveWorkbook(testWorkbookOf(first, second))
+        val before = store.loadWorkbookBundle()
+
+        DriverManager.getConnection(store.jdbcUrl).use { connection ->
+            connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
+            val firstSheet = first.id.value.toTestUuidBytes()
+            val secondSheet = second.id.value.toTestUuidBytes()
             assertFailsWith<SQLException> {
                 connection.prepareStatement(
                     """
@@ -131,6 +152,7 @@ class SqliteWorkbookStoreSchemaTest {
                 }
             }
         }
+        assertEquals(before, store.loadWorkbookBundle())
     }
 }
 

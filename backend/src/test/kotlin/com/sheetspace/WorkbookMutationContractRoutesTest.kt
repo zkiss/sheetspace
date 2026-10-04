@@ -129,55 +129,81 @@ class WorkbookMutationContractRoutesTest {
         }
 
     @Test
-    fun `invalid update payloads return 4xx without corrupting workbook data`() =
+    fun `blank rename returns its public error without mutating the bundle`() =
         testWorkbookApplication { workbookApplication ->
             val sheet = client.createSheet()
-
+            val baseline = workbookApplication.loadWorkbookBundle()
             val invalidRename = client.patch("/api/sheets/${sheet.id}") {
                 revisionHeader(workbookApplication, sheet.id)
                 jsonBody("""{"name":"   "}""")
             }
+            assertEquals(HttpStatusCode.BadRequest, invalidRename.status)
+            assertEquals(ErrorResponse("sheet-name-required"), invalidRename.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+        }
+
+    @Test
+    fun `undecodable cell body returns its public error without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
             val invalidCell = client.patch("/api/cells") { jsonBody("""{}""") }
+
+            assertEquals(HttpStatusCode.BadRequest, invalidCell.status)
+            assertEquals(ErrorResponse("invalid-request"), invalidCell.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+        }
+
+    @Test
+    fun `valid position plus invalid size does not partially mutate the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            val sheet = client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
             val invalidFrameSize = client.patch("/api/sheets/${sheet.id}") {
                 revisionHeader(workbookApplication, sheet.id)
                 jsonBody(
                     """{"position":{"x":999.0,"y":888.0},"frameSize":{"width":0.0,"height":160.0}}""",
                 )
             }
-            val missingSheet = client.post("/api/sheets/missing/rows")
-
-            assertEquals(HttpStatusCode.BadRequest, invalidRename.status)
-            assertEquals(HttpStatusCode.BadRequest, invalidCell.status)
             assertEquals(HttpStatusCode.BadRequest, invalidFrameSize.status)
-            assertEquals(HttpStatusCode.NotFound, missingSheet.status)
-            assertEquals(sheet.toTestSheet(), client.loadWorkbook().sheets.single())
+            assertEquals(ErrorResponse("invalid-sheet-frame-size"), invalidFrameSize.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
         }
 
     @Test
-    fun `revisioned mutations require valid sheet revision headers`() =
-        testWorkbookApplication {
-            val sheetId = client.createSheet().id
+    fun `missing row target returns its public error without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
+            val missingSheet = client.post("/api/sheets/missing/rows")
 
+            assertEquals(HttpStatusCode.NotFound, missingSheet.status)
+            assertEquals(ErrorResponse("sheet-not-found"), missingSheet.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+        }
+
+    @Test
+    fun `missing expected revisions is an invalid request without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            val sheetId = client.createSheet().id
+            val baseline = workbookApplication.loadWorkbookBundle()
             val missingRevision = client.patch("/api/cells") { jsonBody("""{"cells":[]}""") }
-            val missingDeleteRevision = client.delete("/api/sheets/$sheetId")
-            val invalidRevision = client.patch("/api/cells") { jsonBody("""{"expectedRevisions":[],"cells":[]}""") }
 
             assertEquals(HttpStatusCode.BadRequest, missingRevision.status)
-            assertEquals(
-                ErrorResponse(error = "invalid-request"),
-                missingRevision.decodeBody<ErrorResponse>(),
-            )
+            assertEquals(ErrorResponse(error = "invalid-request"), missingRevision.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+        }
+
+    @Test
+    fun `missing delete revision header returns its public error without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            val sheetId = client.createSheet().id
+            val baseline = workbookApplication.loadWorkbookBundle()
+            val missingDeleteRevision = client.delete("/api/sheets/$sheetId")
+
             assertEquals(HttpStatusCode.BadRequest, missingDeleteRevision.status)
-            assertEquals(
-                ErrorResponse(error = "sheet-revision-required"),
-                missingDeleteRevision.decodeBody<ErrorResponse>(),
-            )
-            assertEquals(HttpStatusCode.BadRequest, invalidRevision.status)
-            assertEquals(
-                ErrorResponse(error = "empty-cell-patch"),
-                invalidRevision.decodeBody<ErrorResponse>(),
-            )
-            assertEquals(emptyMap(), client.loadWorkbook().sheets.single().cells)
+            assertEquals(ErrorResponse(error = "sheet-revision-required"), missingDeleteRevision.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
         }
 
     @Test
@@ -193,11 +219,13 @@ class WorkbookMutationContractRoutesTest {
             }
 
             assertEquals(HttpStatusCode.OK, firstUpdate.status)
+            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
             assertEquals(HttpStatusCode.BadRequest, invalidRename.status)
             assertEquals(
                 ErrorResponse(error = "sheet-name-required"),
                 invalidRename.decodeBody<ErrorResponse>(),
             )
+            assertEquals(afterNewerWrite, workbookApplication.loadWorkbookBundle())
         }
 
     @Test
@@ -219,15 +247,12 @@ class WorkbookMutationContractRoutesTest {
         }
 
     @Test
-    fun `malformed request bodies return structured 4xx errors without corrupting workbook data`() =
-        testWorkbookApplication {
-            val sheet = client.createSheet()
-
+    fun `malformed create body returns a structured error without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
             val malformedJson = client.post("/api/sheets") {
                 jsonBody("""{"name":""")
-            }
-            val missingField = client.post("/api/sheets") {
-                jsonBody("""{}""")
             }
 
             assertEquals(HttpStatusCode.BadRequest, malformedJson.status)
@@ -237,8 +262,18 @@ class WorkbookMutationContractRoutesTest {
                 testJson.decodeFromString<ErrorResponse>(malformedBody),
             )
             assertFalse(malformedBody.contains("ok"))
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+        }
+
+    @Test
+    fun `missing create name returns a structured error without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
+            val missingField = client.post("/api/sheets") { jsonBody("""{}""") }
+
             assertEquals(HttpStatusCode.BadRequest, missingField.status)
             assertEquals(ErrorResponse(error = "invalid-request"), missingField.decodeBody<ErrorResponse>())
-            assertEquals(sheet.toTestSheet(), client.loadWorkbook().sheets.single())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
         }
 }

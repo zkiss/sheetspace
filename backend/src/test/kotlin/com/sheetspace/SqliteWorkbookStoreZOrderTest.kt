@@ -8,6 +8,44 @@ class SqliteWorkbookStoreZOrderTest {
     private val unrelatedSheetId = "00000000-0000-0000-0000-000000000003"
 
     @Test
+    fun `z order writes reject an empty set without persisting`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+
+        assertRejectedWithoutPersisting<IllegalArgumentException>(store) { store.updateSheetZOrder(emptyList()) }
+    }
+
+    @Test
+    fun `z order writes reject duplicate sheets without persisting`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        assertRejectedWithoutPersisting<IllegalArgumentException>(store) {
+            store.updateSheetZOrder(listOf(SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_1, 0), 2), SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_1, 0), 3)))
+        }
+    }
+
+    @Test
+    fun `z order writes reject a missing sheet without persisting`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        assertRejectedWithoutPersisting<NoSuchElementException>(store) {
+            store.updateSheetZOrder(listOf(SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_2, 0), 1)))
+        }
+    }
+
+    @Test
+    fun `z order writes reject a stale revision without persisting`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        val conflict = assertRejectedWithoutPersisting<SheetRevisionConflict>(store) {
+            store.updateSheetZOrder(listOf(SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_1, 1), 1)))
+        }
+        assertEquals(TEST_SHEET_1, conflict.sheetId)
+        assertEquals(1, conflict.expectedRevision)
+        assertEquals(0, conflict.actualRevision)
+    }
+
+    @Test
     fun `z-order write updates all affected revisions in one transaction`() = withSqliteStore { store ->
         store.saveWorkbook(
             testWorkbookOf(
@@ -42,6 +80,7 @@ class SqliteWorkbookStoreZOrderTest {
             workbook.replaceSheet(outputs.rename("New Outputs"))
         }
 
+        val before = store.loadWorkbookBundle()
         val conflict = assertFailsWith<SheetRevisionConflict> {
             store.updateSheetZOrder(
                 listOf(
@@ -52,9 +91,8 @@ class SqliteWorkbookStoreZOrderTest {
         }
 
         assertEquals(TEST_SHEET_2, conflict.sheetId)
-        val workbook = store.loadWorkbookBundle()
-        assertEquals(1, workbook.documents.getValue(SheetId(TEST_SHEET_1)).frame.zIndex)
-        assertEquals(2, workbook.documents.getValue(SheetId(TEST_SHEET_2)).frame.zIndex)
-        assertEquals(0, workbook.documents.getValue(SheetId(TEST_SHEET_1)).revision)
+        assertEquals(0, conflict.expectedRevision)
+        assertEquals(1, conflict.actualRevision)
+        assertEquals(before, store.loadWorkbookBundle())
     }
 }

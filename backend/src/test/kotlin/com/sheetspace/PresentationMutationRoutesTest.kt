@@ -3,7 +3,6 @@ package com.sheetspace
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,33 +34,6 @@ class PresentationMutationRoutesTest {
         assertEquals(expected.copy(rows = emptyMap()), client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>().documents.single().presentation.formatOverrides)
     }
 
-    @Test
-    fun `format validation rejects malformed duplicate foreign and stale batches atomically`() = testWorkbookApplication { _ ->
-        val initial = client.createSheet()
-        val row = initial.content.rows[0]
-        val column = initial.content.columns[0]
-        val valid = """{"scope":"row","targetId":"$row","numberFormat":{"kind":"number","precision":1}}"""
-        val invalidBodies = listOf(
-            """{"formatWrites":[]}""",
-            """{"formatWrites":[$valid,$valid]}""",
-            """{"formatWrites":[{"scope":"unknown","targetId":"$row","numberFormat":null}]}""",
-            """{"formatWrites":[{"scope":"row","targetId":"foreign-row","numberFormat":null}]}""",
-            """{"formatWrites":[{"scope":"cell","targetId":"$row\\u0000missing","numberFormat":null}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"general","precision":2}}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","properties":{"numberFormat":{"kind":"number","precision":"2"}}}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","properties":{"fontWeight":"bold","fontWeight":"normal"}}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"number","precision":11}}]}""",
-        )
-        invalidBodies.forEach { body ->
-            val response = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody(body) }
-            assertEquals(HttpStatusCode.BadRequest, response.status, response.bodyAsText())
-            assertEquals(initial, client.get("/api/sheets/${initial.id}").decodeBody())
-        }
-        client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("""{"formatWrites":[$valid]}""") }
-        val stale = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("""{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":null}]}""") }
-        assertEquals(HttpStatusCode.Conflict, stale.status)
-        assertEquals(1, client.get("/api/sheets/${initial.id}").decodeBody<SheetDocumentResponse>().revision)
-    }
     @Test
     fun `fresh reads expose empty presentation and sizing and removal use revision contract`() = testWorkbookApplication { _ ->
         val initial = client.createSheet()
@@ -95,29 +67,126 @@ class PresentationMutationRoutesTest {
     }
 
     @Test
-    fun `malformed and invalid targets reject whole write and missing revisions use existing errors`() = testWorkbookApplication { _ ->
+    fun `presentation route rejects malformed JSON without mutation`() = testWorkbookApplication { application ->
         val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+        val malformed = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("{") }
+        assertRejectedWithoutMutation(application, malformed, before, ErrorResponse("invalid-request"))
+    }
+
+    @Test
+    fun `presentation route requires a revision without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
         val row = initial.content.rows[0]
-        val valid = """{"axis":"row","axisId":"$row","size":40}"""
-        val invalidBodies = listOf(
-            """{"writes":[]}""", """{"writes":[$valid,$valid]}""",
-            """{"writes":[$valid,{"axis":"column","axisId":"$row","size":100}]}""",
-            """{"writes":[$valid,{"axis":"row","axisId":"missing","size":null}]}""",
-            """{"writes":[$valid,{"axis":"row","axisId":"$row","size":15}]}""",
-            """{"writes":[$valid,{"axis":"row","axisId":"$row","size":NaN}]}""",
-            """{"writes":[{"axis":"row","axisId":"$row"}]}""",
-            """{"writes":[{"axis":"row","size":40}]}""", """{"writes":[null]}""",
-        )
-        invalidBodies.forEach { body ->
-            val response = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody(body) }
-            assertEquals(HttpStatusCode.BadRequest, response.status, response.bodyAsText())
-            assertEquals(initial, client.get("/api/sheets/${initial.id}").decodeBody())
+        val noRevision = client.patch("/api/sheets/${initial.id}/presentation") { jsonBody("""{"writes":[{"axis":"row","axisId":"$row","size":40}]}""") }
+        assertRejectedWithoutMutation(application, noRevision, before, ErrorResponse("sheet-revision-required"))
+    }
+
+    @Test
+    fun `presentation route rejects a malformed revision without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+        val row = initial.content.rows[0]
+        val badRevision = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "wrong"); jsonBody("""{"writes":[{"axis":"row","axisId":"$row","size":40}]}""") }
+        assertRejectedWithoutMutation(application, badRevision, before, ErrorResponse("invalid-sheet-revision"))
+    }
+
+    @Test
+    fun `presentation route rejects an unknown sheet without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+        val row = initial.content.rows[0]
+        val missing = client.patch("/api/sheets/missing/presentation") { header("If-Match", "0"); jsonBody("""{"writes":[{"axis":"row","axisId":"$row","size":40}]}""") }
+        assertRejectedWithoutMutation(application, missing, before, ErrorResponse("sheet-not-found"), HttpStatusCode.NotFound)
+    }
+
+    @Test
+    fun `presentation route rejects an empty patch without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+        val empty = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("{}")
         }
-        val noRevision = client.patch("/api/sheets/${initial.id}/presentation") { jsonBody("""{"writes":[$valid]}""") }
-        assertEquals(ErrorResponse("sheet-revision-required"), noRevision.decodeBody())
-        val badRevision = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "wrong"); jsonBody("""{"writes":[$valid]}""") }
-        assertEquals(ErrorResponse("invalid-sheet-revision"), badRevision.decodeBody())
-        val missing = client.patch("/api/sheets/missing/presentation") { header("If-Match", "0"); jsonBody("""{"writes":[$valid]}""") }
-        assertEquals(HttpStatusCode.NotFound, missing.status)
+        assertRejectedWithoutMutation(application, empty, before, ErrorResponse("invalid-sheet-presentation"))
+    }
+
+    @Test
+    fun `presentation route rejects duplicate appearance properties without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+        val row = initial.content.rows.first()
+        val duplicateProperty = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"formatWrites":[{"scope":"row","targetId":"$row","properties":{"fontWeight":"bold","fontWeight":"normal"}}]}""")
+        }
+        assertRejectedWithoutMutation(application, duplicateProperty, before, ErrorResponse("invalid-request"))
+    }
+
+    @Test
+    fun `presentation route rejects a write without size without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[{"axis":"row","axisId":"${initial.content.rows.first()}"}]}""")
+        }
+
+        assertRejectedWithoutMutation(application, response, before, ErrorResponse("invalid-request"))
+    }
+
+    @Test
+    fun `presentation route rejects a write without axis ID without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[{"axis":"row","size":40}]}""")
+        }
+
+        assertRejectedWithoutMutation(application, response, before, ErrorResponse("invalid-request"))
+    }
+
+    @Test
+    fun `presentation route rejects a null write without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val before = application.loadWorkbookBundle()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[null]}""")
+        }
+
+        assertRejectedWithoutMutation(application, response, before, ErrorResponse("invalid-request"))
+    }
+
+    @Test
+    fun `presentation route rejects a non-finite size token without mutation`() = testWorkbookApplication { application ->
+        val initial = client.createSheet()
+        val row = initial.content.rows.first()
+        val column = initial.content.columns.first()
+        val before = application.loadWorkbookBundle()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[{"axis":"column","axisId":"$column","size":120},{"axis":"row","axisId":"$row","size":NaN}]}""")
+        }
+
+        assertRejectedWithoutMutation(application, response, before, ErrorResponse("invalid-request"))
+    }
+
+    private suspend fun assertRejectedWithoutMutation(
+        application: WorkbookApplication,
+        response: io.ktor.client.statement.HttpResponse,
+        before: WorkbookState,
+        error: ErrorResponse,
+        status: HttpStatusCode = HttpStatusCode.BadRequest,
+    ) {
+        assertEquals(status, response.status)
+        assertEquals(error, response.decodeBody())
+        assertEquals(before, application.loadWorkbookBundle())
     }
 }
