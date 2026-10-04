@@ -40,6 +40,15 @@ class WorkbookApplicationSheetValidationTest {
         assertEquals(listOf(existing.id), application.loadManifest().sheetIds)
     }
 
+    @Test
+    fun `sheet creation preserves an explicit positive layer`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+
+        val sheet = application.createSheet(CreateSheetCommand("Inputs", zIndex = 2))
+
+        assertEquals(2, sheet.frame.zIndex)
+    }
+
     private fun assertError(expected: WorkbookApplicationError, block: () -> Unit) =
         assertEquals(expected, assertFailsWith<WorkbookApplicationException>(block = block).error)
 }

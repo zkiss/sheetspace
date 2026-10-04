@@ -1,5 +1,6 @@
 package com.sheetspace
 
+import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -101,5 +102,69 @@ class PresentationMutationRoutesTest {
         assertEquals(ErrorResponse("invalid-sheet-presentation"), empty.decodeBody())
         assertEquals(HttpStatusCode.BadRequest, duplicateProperty.status)
         assertEquals(ErrorResponse("invalid-request"), duplicateProperty.decodeBody())
+    }
+
+    @Test
+    fun `presentation route rejects a write without size without mutation`() = testWorkbookApplication { _ ->
+        val initial = client.createSheet()
+        val before = client.loadWorkbook()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[{"axis":"row","axisId":"${initial.content.rows.first()}"}]}""")
+        }
+
+        assertInvalidRequestWithoutMutation(client, response, before)
+    }
+
+    @Test
+    fun `presentation route rejects a write without axis ID without mutation`() = testWorkbookApplication { _ ->
+        val initial = client.createSheet()
+        val before = client.loadWorkbook()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[{"axis":"row","size":40}]}""")
+        }
+
+        assertInvalidRequestWithoutMutation(client, response, before)
+    }
+
+    @Test
+    fun `presentation route rejects a null write without mutation`() = testWorkbookApplication { _ ->
+        val initial = client.createSheet()
+        val before = client.loadWorkbook()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[null]}""")
+        }
+
+        assertInvalidRequestWithoutMutation(client, response, before)
+    }
+
+    @Test
+    fun `presentation route rejects a non-finite size token without mutation`() = testWorkbookApplication { _ ->
+        val initial = client.createSheet()
+        val row = initial.content.rows.first()
+        val column = initial.content.columns.first()
+        val before = client.loadWorkbook()
+
+        val response = client.patch("/api/sheets/${initial.id}/presentation") {
+            header("If-Match", "0")
+            jsonBody("""{"writes":[{"axis":"column","axisId":"$column","size":120},{"axis":"row","axisId":"$row","size":NaN}]}""")
+        }
+
+        assertInvalidRequestWithoutMutation(client, response, before)
+    }
+
+    private suspend fun assertInvalidRequestWithoutMutation(
+        client: HttpClient,
+        response: io.ktor.client.statement.HttpResponse,
+        before: TestWorkbook,
+    ) {
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(ErrorResponse("invalid-request"), response.decodeBody())
+        assertEquals(before, client.loadWorkbook())
     }
 }
