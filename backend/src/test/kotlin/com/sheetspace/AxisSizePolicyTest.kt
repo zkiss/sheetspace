@@ -13,6 +13,8 @@ class AxisSizePolicyTest {
     @Test
     fun `row height rejects NaN`() = fixture().let { assertRejected(it, listOf(AxisSizeWrite("row", it.row, Double.NaN))) }
     @Test
+    fun `column width rejects NaN through presentation writes`() = fixture().let { assertRejected(it, listOf(AxisSizeWrite("column", it.column, Double.NaN))) }
+    @Test
     fun `row height rejects values below its lower bound`() = assertEquals(false, AxisSizePolicy.validSize("row", AxisSizePolicy.MIN_ROW_HEIGHT - 1.0))
     @Test
     fun `column width rejects values below its lower bound`() = assertEquals(false, AxisSizePolicy.validSize("column", AxisSizePolicy.MIN_COLUMN_WIDTH - 1.0))

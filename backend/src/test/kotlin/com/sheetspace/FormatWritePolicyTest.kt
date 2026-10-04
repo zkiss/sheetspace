@@ -54,6 +54,8 @@ class FormatWritePolicyTest {
     @Test
     fun `percent format caps precision`() = fixture().let { assertRejected(it, listOf(FormatWrite("row", it.row, NumberFormat("percent", 11)))) }
     @Test
+    fun `percent format rejects negative direct precision`() = fixture().let { assertRejected(it, listOf(FormatWrite("row", it.row, NumberFormat("percent", -1)))) }
+    @Test
     fun `format kind must be supported`() = fixture().let { assertRejected(it, listOf(FormatWrite("row", it.row, NumberFormat("currency", 2)))) }
 
     @Test fun `appearance properties compose independently`() {

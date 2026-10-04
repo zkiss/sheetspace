@@ -64,6 +64,17 @@ class WorkbookApplicationCellPatchValidationTest {
     }
 
     @Test
+    fun `application rejects an expected revision for a missing sheet when writes target another sheet`() = fixture().let { fixture ->
+        fixture.assertRejected(
+            WorkbookApplicationError.INVALID_CELL_PATCH,
+            CellPatchCommand(
+                listOf(fixture.expected, ExpectedSheetRevision("00000000-0000-0000-0000-000000000099", 0)),
+                listOf(fixture.write),
+            ),
+        )
+    }
+
+    @Test
     fun `application rejects writes without expected revisions without mutation`() = fixture().let { fixture ->
         fixture.assertRejected(WorkbookApplicationError.INVALID_CELL_PATCH, CellPatchCommand(emptyList(), listOf(fixture.write)))
     }

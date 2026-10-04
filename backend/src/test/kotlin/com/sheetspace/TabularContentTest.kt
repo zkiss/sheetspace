@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 class TabularContentTest {
     @Test
-    fun `resizing retains valid coordinates and rejects invalid dimensions`() {
+    fun `resizing retains valid coordinates`() {
         val content = TabularContent(columnCount = 2, rowCount = 2, cells = mapOf("A1" to "x", "B2" to "discard"))
         val grown = content.copy(columnCount = 3, rowCount = 3, cells = mapOf("C3" to "y"))
         val shrunk = content.copy(columnCount = 1, rowCount = 1, cells = mapOf("A1" to "x"))
@@ -24,9 +24,6 @@ class TabularContentTest {
         assertEquals(1, shrunk.columnCount)
         assertEquals(content, content.copy())
         assertNotEquals(content, grown)
-        assertFailsWith<IllegalArgumentException> { content.copy(columnCount = -1) }
-        assertFailsWith<IllegalArgumentException> { content.copy(rowCount = -1) }
-        assertFailsWith<IllegalArgumentException> { content.updateCell("Z99", "x") }
     }
 
     @Test
@@ -39,6 +36,10 @@ class TabularContentTest {
         assertNull(content.addressOf(CellCoordinate(RowId.generate(), content.columns.first())))
         assertNull(content.addressOf(CellCoordinate(content.rows.first(), ColumnId.generate())))
         assertNull(TabularContent(columnCount = 0, rowCount = 0).coordinateAt("A1"))
+    }
+
+    @Test
+    fun `construction rejects negative dimensions and out of bounds initial cells`() {
         assertFailsWith<IllegalArgumentException> { TabularContent(columnCount = -1) }
         assertFailsWith<IllegalArgumentException> { TabularContent(rowCount = -1) }
         assertFailsWith<IllegalArgumentException> { TabularContent(columnCount = 1, rowCount = 1, cells = mapOf("B1" to "outside")) }
@@ -61,6 +62,11 @@ class TabularContentTest {
 
         assertEquals(raw, stored.cells.getValue("A1"))
         assertFalse(cleared.cells.containsKey("A1"))
+    }
+
+    @Test
+    fun `cell mutations reject addresses outside tabular bounds`() {
+        assertFailsWith<IllegalArgumentException> { TabularContent().updateCell("Z99", "x") }
     }
 
     @Test
