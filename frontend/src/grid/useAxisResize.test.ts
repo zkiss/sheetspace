@@ -93,6 +93,23 @@ describe('useAxisResize sessions', () => {
     expect(commit.mock.calls[0]![0]).toEqual(sheet.columns.slice(0, 91).map((axisId) => ({ axis: 'column', axisId, size: 96 })));
   });
 
+  it('rejects starts while interactions are disabled without capturing or committing', () => {
+    const commit = vi.fn(), handle = mountedHandle();
+    const { result } = renderHook(() => useAxisResize({ sheet, commit, interactionsEnabled: false }));
+    act(() => { result.current.start(event(handle), 'column', column, 76); result.current.stop(event(handle, { clientX: 40 })); });
+    expect(result.current.preview).toBeNull();
+    expect(handle.setPointerCapture).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('rejects starts without a commit callback without capturing or creating a preview', () => {
+    const handle = mountedHandle();
+    const { result } = renderHook(() => useAxisResize({ sheet }));
+    act(() => { result.current.start(event(handle), 'column', column, 76); result.current.stop(event(handle, { clientX: 40 })); });
+    expect(result.current.preview).toBeNull();
+    expect(handle.setPointerCapture).not.toHaveBeenCalled();
+  });
+
   it.each(['pointer cancel', 'lost capture', 'Escape', 'blur', 'unmount'] as const)('cancels without committing on %s', (interruption) => {
     const commit = vi.fn(), handle = mountedHandle();
     const hook = renderHook(() => useAxisResize({ sheet, commit }));
