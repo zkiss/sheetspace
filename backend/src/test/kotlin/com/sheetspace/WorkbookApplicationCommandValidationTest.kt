@@ -5,7 +5,7 @@ import kotlin.test.assertFailsWith
 
 class WorkbookApplicationCommandValidationTest {
     @Test
-    fun `application validates UUID components and invalid frame commands`() {
+    fun `application validates cell patch UUID components`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val sheet = application.createSheet(CreateSheetCommand("Inputs", zIndex = 2))
         val valid = sheet.cellWrite("A1", "value")
@@ -15,6 +15,5 @@ class WorkbookApplicationCommandValidationTest {
         invalid(valid.copy(sheetId = "bad"))
         invalid(valid.copy(rowId = "bad"))
         invalid(valid.copy(columnId = "bad"))
-        assertFailsWith<WorkbookApplicationException> { application.createSheet(CreateSheetCommand("Bad", frameSize = SheetFrameSize(0.0, 1.0))) }
     }
 }

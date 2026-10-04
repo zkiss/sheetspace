@@ -15,6 +15,11 @@ class FrameStateTest {
         assertFalse(FrameState(visualScale = Double.POSITIVE_INFINITY).isValid())
         assertFalse(FrameState(visualScale = MAX_SHEET_VISUAL_SCALE + 0.1).isValid())
         assertFalse(FrameState(zIndex = 0).isValid())
+        assertFalse(WorkspacePosition(Double.NaN, 2.0).isValid())
+        assertFalse(WorkspacePosition(1.0, Double.NEGATIVE_INFINITY).isValid())
+        assertFalse(SheetFrameSize(Double.NaN, 2.0).isValid())
+        assertFalse(SheetFrameSize(1.0, Double.POSITIVE_INFINITY).isValid())
+        assertFalse(SheetFrameSize(1.0, 0.0).isValid())
     }
 
     @Test

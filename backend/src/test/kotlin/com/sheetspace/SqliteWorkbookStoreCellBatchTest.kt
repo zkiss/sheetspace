@@ -2,8 +2,22 @@ package com.sheetspace
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class SqliteWorkbookStoreCellBatchTest {
+    @Test
+    fun `cell batches reject malformed writes and retain empty no op revisions`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        val write = sheet.cellWrite("A1", "value")
+
+        assertFailsWith<IllegalArgumentException> { store.writeCells(emptyList(), listOf(write)) }
+        assertFailsWith<IllegalArgumentException> { store.writeCells(listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)), listOf(write, write)) }
+        val unchanged = store.writeCells(listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)), listOf(sheet.cellWrite("A1", ""))).single()
+        assertEquals(0, unchanged.revision)
+        assertEquals(emptyMap(), unchanged.tabularContent.cells)
+    }
+
     @Test
     fun `cell batches apply upserts deletions and idempotent writes`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Inputs")

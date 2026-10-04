@@ -5,24 +5,43 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TabularContentTest {
     @Test
     fun `resizing retains valid coordinates and rejects invalid dimensions`() {
-        val content = TabularContent(columnCount = 2, rowCount = 2, cells = mapOf("A1" to "x"))
+        val content = TabularContent(columnCount = 2, rowCount = 2, cells = mapOf("A1" to "x", "B2" to "discard"))
         val grown = content.copy(columnCount = 3, rowCount = 3, cells = mapOf("C3" to "y"))
-        val shrunk = grown.copy(columnCount = 1, rowCount = 1, cells = emptyMap())
+        val shrunk = content.copy(columnCount = 1, rowCount = 1, cells = mapOf("A1" to "x"))
 
         assertEquals("y", grown.cells.getValue("C3"))
+        assertEquals(content.rows, grown.rows.take(2))
+        assertEquals(content.columns, grown.columns.take(2))
+        assertEquals("x", shrunk.cells.getValue("A1"))
+        assertFalse(shrunk.cells.containsKey("B2"))
         assertEquals(1, shrunk.rowCount)
         assertEquals(1, shrunk.columnCount)
         assertEquals(content, content.copy())
         assertNotEquals(content, grown)
-        assertNotEquals(content.hashCode(), grown.hashCode())
-        assertTrue(content.toString().contains("TabularContent"))
         assertFailsWith<IllegalArgumentException> { content.copy(columnCount = -1) }
+        assertFailsWith<IllegalArgumentException> { content.copy(rowCount = -1) }
         assertFailsWith<IllegalArgumentException> { content.updateCell("Z99", "x") }
+    }
+
+    @Test
+    fun `address conversion rejects invalid and foreign coordinates`() {
+        val content = TabularContent(columnCount = 1, rowCount = 1)
+
+        assertNull(content.coordinateAt("A0"))
+        assertNull(content.coordinateAt("A999999999999999999999"))
+        assertNull(content.coordinateAt("ZZZZZZZZZZ1"))
+        assertNull(content.addressOf(CellCoordinate(RowId.generate(), content.columns.first())))
+        assertNull(content.addressOf(CellCoordinate(content.rows.first(), ColumnId.generate())))
+        assertNull(TabularContent(columnCount = 0, rowCount = 0).coordinateAt("A1"))
+        assertFailsWith<IllegalArgumentException> { TabularContent(columnCount = -1) }
+        assertFailsWith<IllegalArgumentException> { TabularContent(rowCount = -1) }
+        assertFailsWith<IllegalArgumentException> { TabularContent(columnCount = 1, rowCount = 1, cells = mapOf("B1" to "outside")) }
     }
     @Test
     fun `cell bounds use tabular dimensions`() {
@@ -93,6 +112,13 @@ class TabularContentTest {
             TabularContent(
                 rows = listOf(RowId("same"), RowId("same")),
                 columns = listOf(ColumnId("column")),
+                cellContents = emptyMap(),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            TabularContent(
+                rows = listOf(RowId("row")),
+                columns = listOf(ColumnId("same"), ColumnId("same")),
                 cellContents = emptyMap(),
             )
         }

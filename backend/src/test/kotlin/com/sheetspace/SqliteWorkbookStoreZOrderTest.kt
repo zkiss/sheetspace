@@ -8,6 +8,17 @@ class SqliteWorkbookStoreZOrderTest {
     private val unrelatedSheetId = "00000000-0000-0000-0000-000000000003"
 
     @Test
+    fun `z order writes require a nonempty distinct existing revision set`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+
+        assertFailsWith<IllegalArgumentException> { store.updateSheetZOrder(emptyList()) }
+        assertFailsWith<IllegalArgumentException> { store.updateSheetZOrder(listOf(SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_1, 0), 2), SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_1, 0), 3))) }
+        assertFailsWith<NoSuchElementException> { store.updateSheetZOrder(listOf(SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_2, 0), 1))) }
+        assertFailsWith<SheetRevisionConflict> { store.updateSheetZOrder(listOf(SheetZOrderWrite(ExpectedSheetRevision(TEST_SHEET_1, 1), 1))) }
+    }
+
+    @Test
     fun `z-order write updates all affected revisions in one transaction`() = withSqliteStore { store ->
         store.saveWorkbook(
             testWorkbookOf(

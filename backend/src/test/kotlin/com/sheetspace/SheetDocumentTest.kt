@@ -38,6 +38,17 @@ class SheetDocumentTest {
     }
 
     @Test
+    fun `new sheets use the next free stacking layer above existing frames`() {
+        val first = testDocument(TEST_SHEET_1, "First", FrameState(zIndex = 8))
+        val second = first.copy(id = SheetId.generate(), frame = FrameState(zIndex = 3))
+        val duplicateLayer = second.copy(id = SheetId.generate(), frame = FrameState(zIndex = 8))
+
+        assertEquals(9, (createSheetDocument("Next", listOf(first), zIndex = 9) as SheetNameResult.Valid).value.frame.zIndex)
+        assertEquals(9, (createSheetDocument("Next", listOf(first, second)) as SheetNameResult.Valid).value.frame.zIndex)
+        assertEquals(9, (createSheetDocument("Next", listOf(first, duplicateLayer)) as SheetNameResult.Valid).value.frame.zIndex)
+    }
+
+    @Test
     fun `sheet names must be non-empty and unique`() {
         val existing = SheetDocument(SheetId("sheet"), name = "Inputs")
 

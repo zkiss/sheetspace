@@ -13,6 +13,15 @@ import kotlin.test.assertTrue
 
 class SqliteWorkbookStoreSchemaTest {
     @Test
+    fun `store rejects unsupported workbook manifest versions`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+
+        assertFailsWith<IllegalArgumentException> {
+            store.saveWorkbook(testWorkbookOf(sheet).copy(manifest = WorkbookManifest(version = WORKBOOK_SCHEMA_VERSION + 1, sheetIds = listOf(sheet.id))))
+        }
+    }
+
+    @Test
     fun `loads an empty workbook from an isolated in-memory database`() = withSqliteStore { store ->
         assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
         assertEquals(WORKBOOK_SCHEMA_VERSION, store.loadStoredSchemaVersion())
