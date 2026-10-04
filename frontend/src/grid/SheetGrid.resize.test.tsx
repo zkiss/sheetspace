@@ -8,7 +8,8 @@ import { tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from './gridAxisProjection';
 import { SheetGrid } from './SheetGrid';
 
-const sheet = sheetDocument({ id: 'sizes', name: 'Sizes', rowCount: 1000, columnCount: 100 });
+const sheet = sheetDocument({ id: 'sizes', name: 'Sizes', rowCount: 10, columnCount: 10 });
+const virtualizedSheet = sheetDocument({ id: 'virtual-sizes', name: 'Virtual sizes', rowCount: 1000, columnCount: 100 });
 const commit = vi.fn(), select = vi.fn();
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 function pointer(element: Element, type: string, x = 0, y = 0, id = 7) {
@@ -16,11 +17,11 @@ function pointer(element: Element, type: string, x = 0, y = 0, id = 7) {
   Object.defineProperty(event, 'pointerId', { value: id });
   fireEvent(element, event);
 }
-function Grid({ selection, owner, activeSheetId = sheet.id, resizable = true, presentation = sheet.presentation }: {
-  selection?: CellSelection; owner?: symbol; activeSheetId?: string; resizable?: boolean; presentation?: typeof sheet.presentation;
+function Grid({ document = sheet, selection, owner, activeSheetId = document.id, resizable = true, presentation = document.presentation }: {
+  document?: typeof sheet; selection?: CellSelection; owner?: symbol; activeSheetId?: string; resizable?: boolean; presentation?: typeof sheet.presentation;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const tabular = tabularProjection(sheet);
+  const tabular = tabularProjection(document);
   return <div ref={ref}><SheetGrid sheet={tabular} axisProjection={projectGridAxes(tabular)} presentation={presentation}
     activeCellKey={null} activeSheetId={activeSheetId} logicalSelection={selection} selectionOwner={owner}
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select, startEditing: vi.fn() }}
@@ -29,9 +30,9 @@ function Grid({ selection, owner, activeSheetId = sheet.id, resizable = true, pr
     navigationHighlightCellKey={null} scrollContainerRef={ref} onWriteAxisSizes={resizable ? commit : undefined} /></div>;
 }
 function handle(axis: 'row' | 'column', label: string) { return screen.getByRole('separator', { name: `Resize ${axis} ${label}` }); }
-function selection(mode: 'rows' | 'columns' | 'cells', end = 90): CellSelection {
-  return { mode, anchor: { sheetId: sheet.id, cell: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] } },
-    extent: { sheetId: sheet.id, cell: { rowId: sheet.content.rows[end], columnId: sheet.content.columns[end] } } };
+function selection(mode: 'rows' | 'columns' | 'cells', end = 90, document = sheet): CellSelection {
+  return { mode, anchor: { sheetId: document.id, cell: { rowId: document.content.rows[0], columnId: document.content.columns[0] } },
+    extent: { sheetId: document.id, cell: { rowId: document.content.rows[end], columnId: document.content.columns[end] } } };
 }
 
 describe('axis resizing', () => {
@@ -71,7 +72,7 @@ describe('axis resizing', () => {
     expect(select).not.toHaveBeenCalled();
   });
   it.each(['rows', 'columns'] as const)('retains the later selected %s capture owner through growing previews and scrolling', (mode) => {
-    const view = render(<Grid selection={selection(mode, 5)} />);
+    const view = render(<Grid document={virtualizedSheet} selection={selection(mode, 5, virtualizedSheet)} />);
     const grid = screen.getByTestId('sheet-grid'), viewport = grid.parentElement!;
     act(() => { virtualGridGeometry(viewport, { width: 600, height: 160 }); });
     const axis = mode === 'rows' ? 'row' : 'column';
@@ -96,11 +97,11 @@ describe('axis resizing', () => {
     pointer(boundary, 'pointerup', 1000, 1000);
     pointer(boundary, 'pointerup', 1000, 1000);
     expect(commit).toHaveBeenCalledTimes(1);
-    const ids = mode === 'rows' ? sheet.content.rows : sheet.content.columns;
+    const ids = mode === 'rows' ? virtualizedSheet.content.rows : virtualizedSheet.content.columns;
     expect(commit).toHaveBeenCalledWith(ids.slice(0, 6).map((axisId) => ({ axis, axisId, size: mode === 'rows' ? 1000 : 1076 })));
   });
   it.each(['rows', 'columns'] as const)('discards a later selected %s preview when its retained owner loses capture', (mode) => {
-    render(<Grid selection={selection(mode, 5)} />);
+    render(<Grid document={virtualizedSheet} selection={selection(mode, 5, virtualizedSheet)} />);
     const grid = screen.getByTestId('sheet-grid');
     act(() => { virtualGridGeometry(grid.parentElement!, { width: 600, height: 160 }); });
     const axis = mode === 'rows' ? 'row' : 'column';
@@ -115,26 +116,26 @@ describe('axis resizing', () => {
     expect(commit).toHaveBeenCalledTimes(1);
   });
   it('discards preview when its capture handle is removed while the grid remains mounted', () => {
-    const selected = selection('columns', 5);
-    const view = render(<Grid selection={selected} />);
+    const selected = selection('columns', 5, virtualizedSheet);
+    const view = render(<Grid document={virtualizedSheet} selection={selected} />);
     const grid = screen.getByTestId('sheet-grid'), boundary = handle('column', 'F');
     const release = vi.fn();
     boundary.hasPointerCapture = () => true;
     boundary.releasePointerCapture = release;
     pointer(boundary, 'pointerdown'); pointer(boundary, 'pointermove', 1000);
-    view.rerender(<Grid selection={selected} resizable={false} />);
+    view.rerender(<Grid document={virtualizedSheet} selection={selected} resizable={false} />);
     expect(boundary.isConnected).toBe(false);
     expect(release).toHaveBeenCalledWith(7);
     expect(grid).toHaveStyle({ width: '7640px' });
     pointer(boundary, 'pointerup', 1000);
     expect(commit).not.toHaveBeenCalled();
-    view.rerender(<Grid selection={selected} />);
+    view.rerender(<Grid document={virtualizedSheet} selection={selected} />);
     const next = handle('column', 'A');
     pointer(next, 'pointerdown'); pointer(next, 'pointerup', 20);
     expect(commit).toHaveBeenCalledTimes(1);
   });
   it('updates measured virtual windows and extents while keeping mounted cells bounded', () => {
-    const view = render(<Grid />);
+    const view = render(<Grid document={virtualizedSheet} />);
     virtualGridGeometry(screen.getByTestId('sheet-grid').parentElement!, { width: 240, height: 160 });
     const boundary = handle('column', 'A');
     pointer(boundary, 'pointerdown'); pointer(boundary, 'pointermove', 500);
