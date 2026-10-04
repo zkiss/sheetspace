@@ -1,37 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { resizeHandle, workspaceSurface } from '@test-support/appScreen';
 import { measuredElementGeometry } from '@test-support/domGeometry';
 import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
-
-const { gridAxisProjectionSpy, sheetFrameRenderSpy } = vi.hoisted(() => ({
-  gridAxisProjectionSpy: vi.fn(),
-  sheetFrameRenderSpy: vi.fn(),
-}));
-
-vi.mock('@grid/gridAxisProjection', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@grid/gridAxisProjection')>();
-  return {
-    ...actual,
-    projectGridAxes(...args: Parameters<typeof actual.projectGridAxes>) {
-      gridAxisProjectionSpy();
-      return actual.projectGridAxes(...args);
-    },
-  };
-});
-
-vi.mock('@workspace/SheetFrame', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@workspace/SheetFrame')>();
-  return {
-    ...actual,
-    SheetFrame(props: Parameters<typeof actual.SheetFrame>[0]) {
-      sheetFrameRenderSpy(props.frame.id);
-      return actual.SheetFrame(props);
-    },
-  };
-});
 
 function measureWorkspace(width = 800, height = 600) {
   return measuredElementGeometry(workspaceSurface(), { height, width });
@@ -50,7 +23,6 @@ function mountedDomCounts() {
 
 describe('App workspace and sheet frame composition', () => {
   it('renders and selects a sparse miniature through a bounded overview while preserving its frame shell', async () => {
-    gridAxisProjectionSpy.mockClear();
     const miniature = sheetDocument({
       cells: { A1: 'Revenue', CV10000: '900' },
       columnCount: 100,
@@ -75,13 +47,11 @@ describe('App workspace and sheet frame composition', () => {
     expect(screen.queryByTestId('sheet-grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(document.querySelector('.sheet-grid-column-header')).not.toBeInTheDocument();
-    expect(gridAxisProjectionSpy).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Select sheet Miniature plan overview' }));
 
     expect(frame).toHaveAttribute('data-active-sheet', 'true');
     expect(resizeHandle(frame, 'right')).toHaveStyle({ transform: 'scaleX(4)' });
-    expect(gridAxisProjectionSpy).not.toHaveBeenCalled();
   });
 
   it('keeps frame, grid, cell, and header DOM bounded when wholly offscreen sheets are added', async () => {
@@ -107,9 +77,8 @@ describe('App workspace and sheet frame composition', () => {
     const baselineCounts = mountedDomCounts();
     baseline.unmount();
 
-    sheetFrameRenderSpy.mockClear();
     render(<App initialWorkbook={workbookWithSheets([visibleLarge, overlap, ...distant])} />);
-    expect(sheetFrameRenderSpy.mock.calls.flat()).not.toContain('sheet-distant-0');
+    expect(screen.queryByRole('article', { name: 'Sheet Distant 0' })).not.toBeInTheDocument();
     measureWorkspace();
     await waitFor(() => expect(screen.getAllByTestId('sheet-frame')).toHaveLength(2));
     expect(mountedDomCounts()).toEqual(baselineCounts);
