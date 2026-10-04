@@ -20,6 +20,21 @@ class FormatWritePolicyTest {
         assertEquals(SheetPresentation(), validatedFormatWrites(fixture.sheet.copy(presentation = formatted), listOf(FormatWrite("row", fixture.row, properties = mapOf("numberFormat" to JsonNull)))))
     }
 
+    @Test fun `format writes reject a foreign sheet row target`() = fixture().let { fixture ->
+        assertRejected(fixture, listOf(FormatWrite("row", testDocument(TEST_SHEET_2, "Foreign").tabularContent.rows.first().value, null)))
+    }
+
+    @Test fun `format writes reject a column target with a row identity`() = fixture().let { fixture ->
+        assertRejected(fixture, listOf(FormatWrite("column", fixture.row, null)))
+    }
+
+    @Test fun `format writes clear column and cell number formats`() {
+        val fixture = fixture()
+        val formatted = validatedFormatWrites(fixture.sheet, listOf(FormatWrite("column", fixture.column, NumberFormat("number", 2)), FormatWrite("cell", fixture.cell, NumberFormat("percent", 1))))
+        val cleared = validatedFormatWrites(fixture.sheet.copy(presentation = formatted), listOf(FormatWrite("column", fixture.column, null), FormatWrite("cell", fixture.cell, null)))
+        assertEquals(SheetPresentation(), cleared)
+    }
+
     @Test
     fun `format writes reject an empty patch`() = assertRejected(emptyList())
     @Test
@@ -45,6 +60,15 @@ class FormatWritePolicyTest {
         val properties = mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", 2) }, "fontWeight" to JsonPrimitive("bold"), "horizontalAlignment" to JsonPrimitive("center"), "textColor" to JsonPrimitive("#123456"), "fillColor" to JsonPrimitive("#abcdef"))
         val fixture = fixture(); val styled = validatedFormatWrites(fixture.sheet, listOf(FormatWrite("cell", fixture.cell, properties = properties)))
         assertEquals(CellFormat(NumberFormat("number", 2), "bold", "center", "#123456", "#abcdef"), styled.formatOverrides.cells[fixture.cell])
+    }
+
+    @Test fun `appearance removal preserves unrelated properties then removes an empty override`() {
+        val fixture = fixture()
+        val styled = validatedFormatWrites(fixture.sheet, listOf(FormatWrite("cell", fixture.cell, properties = mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", 2) }, "fontWeight" to JsonPrimitive("bold"), "horizontalAlignment" to JsonPrimitive("center"), "textColor" to JsonPrimitive("#123456"), "fillColor" to JsonPrimitive("#abcdef")))))
+        val selectivelyCleared = validatedFormatWrites(fixture.sheet.copy(presentation = styled), listOf(FormatWrite("cell", fixture.cell, properties = mapOf("numberFormat" to JsonNull, "textColor" to JsonNull))))
+        assertEquals(CellFormat(fontWeight = "bold", horizontalAlignment = "center", fillColor = "#abcdef"), selectivelyCleared.formatOverrides.cells[fixture.cell])
+        val cleared = validatedFormatWrites(fixture.sheet.copy(presentation = selectivelyCleared), listOf(FormatWrite("cell", fixture.cell, properties = mapOf("fontWeight" to JsonNull, "horizontalAlignment" to JsonNull, "fillColor" to JsonNull))))
+        assertEquals(SheetPresentation(), cleared)
     }
 
     @Test
@@ -79,7 +103,7 @@ class FormatWritePolicyTest {
     fun `appearance properties reject an invalid fill colour`() = assertPropertiesRejected(mapOf("fillColor" to JsonPrimitive("transparent")))
 
     private fun assertRejected(writes: List<FormatWrite>): Unit = assertRejected(fixture(), writes)
-    private fun assertRejected(fixture: FormatFixture, writes: List<FormatWrite>): Unit { assertFailsWith<WorkbookApplicationException> { validatedFormatWrites(fixture.sheet, writes) } }
+    private fun assertRejected(fixture: FormatFixture, writes: List<FormatWrite>): Unit { assertEquals(WorkbookApplicationError.INVALID_SHEET_PRESENTATION, assertFailsWith<WorkbookApplicationException> { validatedFormatWrites(fixture.sheet, writes) }.error) }
     private fun assertPropertiesRejected(properties: Map<String, kotlinx.serialization.json.JsonElement>): Unit = fixture().let { assertRejected(it, listOf(FormatWrite("row", it.row, properties = properties))) }
     private fun fixture(): FormatFixture {
         val sheet = testDocument(TEST_SHEET_1, "Formats")

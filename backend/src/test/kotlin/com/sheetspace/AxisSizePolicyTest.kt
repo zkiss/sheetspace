@@ -11,7 +11,7 @@ class AxisSizePolicyTest {
     @Test
     fun `column width accepts its upper bound`() = assertTrue(AxisSizePolicy.validSize("column", AxisSizePolicy.MAX_COLUMN_WIDTH))
     @Test
-    fun `row height rejects NaN`() = assertEquals(false, AxisSizePolicy.validSize("row", Double.NaN))
+    fun `row height rejects NaN`() = fixture().let { assertRejected(it, listOf(AxisSizeWrite("row", it.row, Double.NaN))) }
     @Test
     fun `row height rejects values below its lower bound`() = assertEquals(false, AxisSizePolicy.validSize("row", AxisSizePolicy.MIN_ROW_HEIGHT - 1.0))
     @Test
@@ -30,6 +30,10 @@ class AxisSizePolicyTest {
     @Test
     fun `presentation rejects a row with a column identity`() = fixture().let { assertRejected(it, listOf(AxisSizeWrite("row", it.column, 30.0))) }
     @Test
+    fun `presentation rejects a column with a row identity even when removing an override`() = fixture().let { fixture ->
+        assertRejected(fixture.copy(sheet = fixture.sheet.copy(presentation = SheetPresentation(columnWidths = mapOf(fixture.column to 40.0)))), listOf(AxisSizeWrite("column", fixture.row, null)))
+    }
+    @Test
     fun `presentation rejects a missing row`() = fixture().let { assertRejected(it, listOf(AxisSizeWrite("row", "missing", 40.0))) }
     @Test
     fun `presentation rejects a non-axis scope`() = fixture().let { assertRejected(it, listOf(AxisSizeWrite("cell", it.row, 40.0))) }
@@ -45,9 +49,9 @@ class AxisSizePolicyTest {
     fun `presentation rejects a foreign row`() = fixture().let { assertRejected(it, listOf(AxisSizeWrite("row", testDocument(TEST_SHEET_2, "Foreign").tabularContent.rows.first().value, null))) }
 
     private fun assertRejected(writes: List<AxisSizeWrite>): Unit = assertRejected(fixture(), writes)
-    private fun assertRejected(fixture: AxisFixture, writes: List<AxisSizeWrite>): Unit { assertFailsWith<WorkbookApplicationException> {
+    private fun assertRejected(fixture: AxisFixture, writes: List<AxisSizeWrite>): Unit { assertEquals(WorkbookApplicationError.INVALID_SHEET_PRESENTATION, assertFailsWith<WorkbookApplicationException> {
         validatedPresentationWrites(fixture.sheet, writes)
-    } }
+    }.error) }
 
     private fun fixture(): AxisFixture {
         val sheet = testDocument(TEST_SHEET_1, "Sizes")
