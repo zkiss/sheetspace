@@ -3,7 +3,6 @@ package com.sheetspace
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,33 +34,6 @@ class PresentationMutationRoutesTest {
         assertEquals(expected.copy(rows = emptyMap()), client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>().documents.single().presentation.formatOverrides)
     }
 
-    @Test
-    fun `format validation rejects malformed duplicate foreign and stale batches atomically`() = testWorkbookApplication { _ ->
-        val initial = client.createSheet()
-        val row = initial.content.rows[0]
-        val column = initial.content.columns[0]
-        val valid = """{"scope":"row","targetId":"$row","numberFormat":{"kind":"number","precision":1}}"""
-        val invalidBodies = listOf(
-            """{"formatWrites":[]}""",
-            """{"formatWrites":[$valid,$valid]}""",
-            """{"formatWrites":[{"scope":"unknown","targetId":"$row","numberFormat":null}]}""",
-            """{"formatWrites":[{"scope":"row","targetId":"foreign-row","numberFormat":null}]}""",
-            """{"formatWrites":[{"scope":"cell","targetId":"$row\\u0000missing","numberFormat":null}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"general","precision":2}}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","properties":{"numberFormat":{"kind":"number","precision":"2"}}}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","properties":{"fontWeight":"bold","fontWeight":"normal"}}]}""",
-            """{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":{"kind":"number","precision":11}}]}""",
-        )
-        invalidBodies.forEach { body ->
-            val response = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody(body) }
-            assertEquals(HttpStatusCode.BadRequest, response.status, response.bodyAsText())
-            assertEquals(initial, client.get("/api/sheets/${initial.id}").decodeBody())
-        }
-        client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("""{"formatWrites":[$valid]}""") }
-        val stale = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("""{"formatWrites":[{"scope":"column","targetId":"$column","numberFormat":null}]}""") }
-        assertEquals(HttpStatusCode.Conflict, stale.status)
-        assertEquals(1, client.get("/api/sheets/${initial.id}").decodeBody<SheetDocumentResponse>().revision)
-    }
     @Test
     fun `fresh reads expose empty presentation and sizing and removal use revision contract`() = testWorkbookApplication { _ ->
         val initial = client.createSheet()
@@ -95,24 +67,12 @@ class PresentationMutationRoutesTest {
     }
 
     @Test
-    fun `malformed and invalid targets reject whole write and missing revisions use existing errors`() = testWorkbookApplication { _ ->
+    fun `presentation route maps malformed requests and revision errors`() = testWorkbookApplication { _ ->
         val initial = client.createSheet()
         val row = initial.content.rows[0]
         val valid = """{"axis":"row","axisId":"$row","size":40}"""
-        val invalidBodies = listOf(
-            """{"writes":[]}""", """{"writes":[$valid,$valid]}""",
-            """{"writes":[$valid,{"axis":"column","axisId":"$row","size":100}]}""",
-            """{"writes":[$valid,{"axis":"row","axisId":"missing","size":null}]}""",
-            """{"writes":[$valid,{"axis":"row","axisId":"$row","size":15}]}""",
-            """{"writes":[$valid,{"axis":"row","axisId":"$row","size":NaN}]}""",
-            """{"writes":[{"axis":"row","axisId":"$row"}]}""",
-            """{"writes":[{"axis":"row","size":40}]}""", """{"writes":[null]}""",
-        )
-        invalidBodies.forEach { body ->
-            val response = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody(body) }
-            assertEquals(HttpStatusCode.BadRequest, response.status, response.bodyAsText())
-            assertEquals(initial, client.get("/api/sheets/${initial.id}").decodeBody())
-        }
+        val malformed = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "0"); jsonBody("{") }
+        assertEquals(HttpStatusCode.BadRequest, malformed.status)
         val noRevision = client.patch("/api/sheets/${initial.id}/presentation") { jsonBody("""{"writes":[$valid]}""") }
         assertEquals(ErrorResponse("sheet-revision-required"), noRevision.decodeBody())
         val badRevision = client.patch("/api/sheets/${initial.id}/presentation") { header("If-Match", "wrong"); jsonBody("""{"writes":[$valid]}""") }

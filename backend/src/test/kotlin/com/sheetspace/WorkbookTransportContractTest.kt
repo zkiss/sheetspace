@@ -39,4 +39,14 @@ class WorkbookTransportContractTest {
             testJson.decodeFromString("""{"sheetId":"sheet-1","revision":4}"""),
         )
     }
+
+    @Test
+    fun `mutation request and response values serialize their public fields`() {
+        assertEquals("""{"writes":[{"axis":"row","axisId":"row-1","size":20.0}]}""", testJson.encodeToString(PresentationWriteRequest(listOf(AxisSizeWrite("row", "row-1", 20.0)))))
+        assertEquals("""{"updates":[{"sheetId":"sheet-1","expectedRevision":3,"zIndex":2}]}""", testJson.encodeToString(UpdateSheetZOrderRequest(listOf(SheetZOrderUpdateRequest("sheet-1", 3, 2)))))
+        assertEquals("""{"sheets":[{"sheetId":"sheet-1","revision":3}]}""", testJson.encodeToString(UpdateSheetZOrderResponse(listOf(SheetRevisionResponse("sheet-1", 3)))))
+        assertEquals("""{"sheets":[{"sheetId":"sheet-1","revision":3}]}""", testJson.encodeToString(CellPatchResponse(listOf(SheetRevisionResponse("sheet-1", 3)))))
+        assertEquals("""{"sheetId":"sheet-1","revision":3}""", testJson.encodeToString(CellRevisionRequest("sheet-1", 3)))
+        assertEquals("""{"sheetId":"sheet-1","rowId":"row-1","columnId":"column-1","raw":"value"}""", testJson.encodeToString(CellWriteRequest("sheet-1", "row-1", "column-1", "value")))
+    }
 }
