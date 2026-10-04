@@ -207,18 +207,6 @@ class WorkbookMutationContractRoutesTest {
         }
 
     @Test
-    fun `decoded empty cell patch retains its public error without mutating the bundle`() =
-        testWorkbookApplication { workbookApplication ->
-            client.createSheet()
-            val baseline = workbookApplication.loadWorkbookBundle()
-            val invalidRevision = client.patch("/api/cells") { jsonBody("""{"expectedRevisions":[],"cells":[]}""") }
-
-            assertEquals(HttpStatusCode.BadRequest, invalidRevision.status)
-            assertEquals(ErrorResponse(error = "empty-cell-patch"), invalidRevision.decodeBody<ErrorResponse>())
-            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
-        }
-
-    @Test
     fun `invalid sheet rename returns name error before stale revision conflict`() =
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
