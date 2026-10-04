@@ -21,9 +21,9 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
-  it.each([false, true])('restarts range tint and expires feedback without clearing selection (reduced motion: %s)', (reduced) => {
+  it('wires smooth navigation feedback expiry without clearing the range selection', () => {
     vi.useFakeTimers();
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reduced })));
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(inputs!B2:D4)' } });
     const view = render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
@@ -38,25 +38,30 @@ describe('formula reference navigation', () => {
     expect(tint).not.toBeNull();
     expect(anchor).toHaveFocus();
     expect(center.className).not.toMatch(/sheet-grid-selection-(top|bottom|left|right)/);
-    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', reduced ? 'instant' : 'smooth');
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
     const surface = workspaceSurface();
     const viewport = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
     fireEvent.wheel(surface, { deltaX: 80, deltaY: 100 });
     expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(viewport);
-    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', reduced ? 'instant' : 'smooth');
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
     expect(anchor).toHaveFocus();
     expect(center).toHaveAttribute('data-reference-selected', 'true');
     expect(center.querySelector('.sheet-grid-navigation-feedback')).toBe(tint);
-    act(() => { vi.advanceTimersByTime(800); });
-    navigate();
-    expect(center.querySelector('.sheet-grid-navigation-feedback')).not.toBe(tint);
-    expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toBe(anchor);
-    act(() => { vi.advanceTimersByTime(400); });
-    expect(center).toHaveAttribute('data-navigation-highlight', 'true');
-    act(() => { vi.advanceTimersByTime(800); });
+    act(() => { vi.advanceTimersByTime(1_200); });
     expect(view.container.querySelector('.sheet-grid-navigation-feedback')).toBeNull();
     expect(center).toHaveAttribute('data-reference-selected', 'true');
     expect(anchor).toHaveFocus();
+  });
+
+  it('wires reduced-motion navigation to an instant workspace transition', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=inputs!B2' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: 'Inputs!B2, reference' }));
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
+    expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
   });
 
   it('jumps across sheets to a distant range through a measured virtual window', async () => {

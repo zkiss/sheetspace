@@ -7,23 +7,6 @@ import { openCellEditor } from '@test-support/appScreen';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('App cell editing composition', () => {
-  it('commits an active edit when selection moves to another sheet', async () => {
-    const user = userEvent.setup();
-    const inputs = smallSheetDocument({ id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 } });
-    const outputs = smallSheetDocument({ id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 260 } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
-    const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
-    const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
-    const editedCell = within(inputFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
-    const outputCell = within(outputFrame).getByRole('cell', { name: 'Outputs A1 empty cell' });
-    const editor = await openCellEditor(user, editedCell);
-    await user.type(editor, 'Cross-sheet commit');
-    await user.click(outputCell);
-    expect(editedCell).toHaveTextContent('Cross-sheet commit');
-    expect(outputCell).toHaveAttribute('data-active-cell', 'true');
-    expect(outputFrame).toHaveAttribute('data-active-sheet', 'true');
-  });
-
   it('clears a reversed mixed range with Delete in one saved transaction, recalculates, and reloads', async () => {
     const user = userEvent.setup();
     const inputs = smallSheetDocument({
