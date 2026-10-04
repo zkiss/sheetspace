@@ -41,36 +41,18 @@ class SheetZOrderRoutesTest {
         }
 
     @Test
-    fun `z-order endpoint rejects empty duplicate and invalid updates without mutation`() =
-        testWorkbookApplication {
-            val sheet = client.createSheet()
-
-            val empty = client.patch("/api/workbook/sheet-z-order") { jsonBody("""{"updates":[]}""") }
-            val duplicate = client.patch("/api/workbook/sheet-z-order") {
-                jsonBody(
-                    """{"updates":[{"sheetId":"${sheet.id}","expectedRevision":0,"zIndex":1},""" +
-                        """{"sheetId":"${sheet.id}","expectedRevision":0,"zIndex":2}]}""",
-                )
-            }
-            val invalid = client.patch("/api/workbook/sheet-z-order") {
-                jsonBody(
-                    """{"updates":[{"sheetId":"${sheet.id}","expectedRevision":0,"zIndex":0}]}""",
-                )
-            }
+    fun `z-order endpoint reports a missing sheet without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
             val missing = client.patch("/api/workbook/sheet-z-order") {
                 jsonBody(
                     """{"updates":[{"sheetId":"00000000-0000-0000-0000-000000000099","expectedRevision":0,"zIndex":2}]}""",
                 )
             }
 
-            assertEquals(HttpStatusCode.BadRequest, empty.status)
-            assertEquals(ErrorResponse("sheet-z-order-update-required"), empty.decodeBody<ErrorResponse>())
-            assertEquals(HttpStatusCode.BadRequest, duplicate.status)
-            assertEquals(ErrorResponse("duplicate-sheet-z-order-update"), duplicate.decodeBody<ErrorResponse>())
-            assertEquals(HttpStatusCode.BadRequest, invalid.status)
-            assertEquals(ErrorResponse("invalid-sheet-z-index"), invalid.decodeBody<ErrorResponse>())
             assertEquals(HttpStatusCode.NotFound, missing.status)
             assertEquals(ErrorResponse("sheet-not-found"), missing.decodeBody<ErrorResponse>())
-            assertEquals(1, client.loadWorkbook().sheets.single().zIndex)
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
         }
 }

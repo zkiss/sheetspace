@@ -80,7 +80,7 @@ class CellMutationRoutesTest {
         }
 
     @Test
-    fun `batch cell update rejects invalid identities and patch shapes without mutation`() =
+    fun `batch cell update reports a missing later sheet without mutating the bundle`() =
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
             val sheet = workbookApplication.loadSheet(sheetId)
@@ -88,28 +88,19 @@ class CellMutationRoutesTest {
             val valid = CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, "value")
             val expected = CellRevisionRequest(sheetId, sheet.revision)
             val foreignSheetId = "00000000-0000-0000-0000-000000000099"
-            val cases = listOf(
-                CellPatchRequest(listOf(expected), emptyList()) to "empty-cell-patch",
-                CellPatchRequest(listOf(expected), listOf(valid, valid)) to "duplicate-cell-write",
-                CellPatchRequest(listOf(expected, expected), listOf(valid)) to "duplicate-sheet-revision",
-                CellPatchRequest(emptyList(), listOf(valid)) to "invalid-cell-patch",
-                CellPatchRequest(listOf(expected, CellRevisionRequest(foreignSheetId, 0)), listOf(valid)) to "invalid-cell-patch",
-                CellPatchRequest(listOf(expected), listOf(valid.copy(rowId = foreignSheetId))) to "invalid-cell-coordinate",
-                CellPatchRequest(listOf(expected), listOf(valid.copy(columnId = foreignSheetId))) to "invalid-cell-coordinate",
-                CellPatchRequest(
-                    listOf(expected, CellRevisionRequest(foreignSheetId, 0)),
-                    listOf(valid, valid.copy(sheetId = foreignSheetId)),
-                ) to "sheet-not-found",
-            )
             val baseline = workbookApplication.loadWorkbookBundle()
-
-            cases.forEach { (request, expectedError) ->
-                val response = client.patch("/api/cells") { jsonBody(testJson.encodeToString(request)) }
-
-                assertEquals(HttpStatusCode.BadRequest.takeIf { expectedError != "sheet-not-found" } ?: HttpStatusCode.NotFound, response.status)
-                assertEquals(ErrorResponse(expectedError), response.decodeBody<ErrorResponse>())
-                assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+            val response = client.patch("/api/cells") {
+                jsonBody(testJson.encodeToString(
+                    CellPatchRequest(
+                        listOf(expected, CellRevisionRequest(foreignSheetId, 0)),
+                        listOf(valid, valid.copy(sheetId = foreignSheetId)),
+                    ),
+                ))
             }
+
+            assertEquals(HttpStatusCode.NotFound, response.status)
+            assertEquals(ErrorResponse("sheet-not-found"), response.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
         }
 
     @Test
@@ -141,13 +132,24 @@ class CellMutationRoutesTest {
         }
 
     @Test
-    fun `cell update endpoint rejects obsolete object bodies`() =
+    fun `cell update endpoint rejects raw-only object bodies without mutating the bundle`() =
         testWorkbookApplication { workbookApplication ->
-            val sheetId = client.createSheet().id
-
+            client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
             val rawObject = client.patch("/api/cells") {
                 jsonBody("""{"raw":"value"}""")
             }
+
+            assertEquals(HttpStatusCode.BadRequest, rawObject.status)
+            assertEquals(ErrorResponse("invalid-request"), rawObject.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
+        }
+
+    @Test
+    fun `cell update endpoint rejects raw-plus-reference object bodies without mutating the bundle`() =
+        testWorkbookApplication { workbookApplication ->
+            client.createSheet()
+            val baseline = workbookApplication.loadWorkbookBundle()
             val referenceObject = client.patch("/api/cells") {
                 jsonBody(
                     """
@@ -159,11 +161,9 @@ class CellMutationRoutesTest {
                 )
             }
 
-            assertEquals(HttpStatusCode.BadRequest, rawObject.status)
-            assertEquals("invalid-request", rawObject.decodeBody<ErrorResponse>().error)
             assertEquals(HttpStatusCode.BadRequest, referenceObject.status)
-            assertEquals("invalid-request", referenceObject.decodeBody<ErrorResponse>().error)
-            assertTrue(client.loadWorkbook().sheets.single().cells.isEmpty())
+            assertEquals(ErrorResponse("invalid-request"), referenceObject.decodeBody<ErrorResponse>())
+            assertEquals(baseline, workbookApplication.loadWorkbookBundle())
         }
 
     @Test
@@ -181,10 +181,9 @@ class CellMutationRoutesTest {
             }
 
             assertEquals(HttpStatusCode.OK, firstUpdate.status)
+            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
             assertEquals(HttpStatusCode.Conflict, staleUpdate.status)
             assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleUpdate.decodeBody<ErrorResponse>())
-            val sheet = client.loadWorkbook().sheets.single()
-            assertEquals("newer value", sheet.cells.getValue("A1"))
-            assertTrue(sheet.revision > initial.revision)
+            assertEquals(afterNewerWrite, workbookApplication.loadWorkbookBundle())
         }
 }

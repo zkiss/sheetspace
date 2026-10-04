@@ -72,11 +72,10 @@ class SheetLifecycleRoutesTest {
             }
 
             assertEquals(HttpStatusCode.OK, firstUpdate.status)
+            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
             assertEquals(HttpStatusCode.Conflict, staleDelete.status)
             assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleDelete.decodeBody<ErrorResponse>())
-            val sheet = client.loadWorkbook().sheets.single()
-            assertEquals(sheetId, sheet.id)
-            assertEquals("newer value", sheet.cells.getValue("A1"))
+            assertEquals(afterNewerWrite, workbookApplication.loadWorkbookBundle())
         }
 
     @Test
