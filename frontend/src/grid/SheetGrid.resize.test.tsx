@@ -55,28 +55,30 @@ describe('axis resizing', () => {
     view.rerender(<Grid presentation={{ rowHeights: { [sheet.content.rows[0]]: height }, columnWidths: {} }} />);
     expectTextHeight(height);
   });
-  it('wires column pointer previews to cells and headers, then commits once without selecting', () => {
+  it('wires scaled column pointer previews to cells and headers, then commits once without selecting', () => {
     render(<Grid />);
     const boundary = handle('column', 'A');
-    boundary.parentElement!.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 76, height: 26.4 });
+    boundary.parentElement!.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 38, height: 26.4 });
     pointer(boundary, 'pointerdown', 10);
-    pointer(boundary, 'pointermove', 50);
+    pointer(boundary, 'pointermove', 30);
     expect(boundary.parentElement).toHaveStyle({ width: '116px' });
     expect(screen.getByRole('cell', { name: 'Sizes A1 empty cell' })).toHaveStyle({ width: '116px' });
     expect(screen.getByRole('cell', { name: 'Sizes B1 empty cell' })).toHaveStyle({ left: '156px' });
     expect(commit).not.toHaveBeenCalled();
-    pointer(boundary, 'pointerup', 50);
-    pointer(boundary, 'pointerup', 50);
+    pointer(boundary, 'pointerup', 30);
+    pointer(boundary, 'pointerup', 30);
     expect(commit).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledWith([{ axis: 'column', axisId: sheet.content.columns[0], size: 116 }]);
     expect(select).not.toHaveBeenCalled();
   });
   it.each(['rows', 'columns'] as const)('retains the later selected %s capture owner through growing previews and scrolling', (mode) => {
-    const view = render(<Grid document={virtualizedSheet} selection={selection(mode, 5, virtualizedSheet)} />);
+    const view = render(<Grid document={virtualizedSheet} selection={selection(mode, 90, virtualizedSheet)} />);
     const grid = screen.getByTestId('sheet-grid'), viewport = grid.parentElement!;
     act(() => { virtualGridGeometry(viewport, { width: 600, height: 160 }); });
     const axis = mode === 'rows' ? 'row' : 'column';
     const boundary = handle(axis, mode === 'rows' ? '6' : 'F');
+    expect(screen.queryByRole('separator', { name: `Resize ${axis} ${mode === 'rows' ? '91' : 'CM'}` })).toBeNull();
+    expect(screen.getByRole('cell', { name: 'Virtual sizes A1 empty cell' })).toBeInTheDocument();
     const capture = vi.fn();
     boundary.setPointerCapture = capture;
     pointer(boundary, 'pointerdown');
@@ -94,11 +96,12 @@ describe('axis resizing', () => {
     });
     expect(boundary.isConnected).toBe(true);
     expect(view.container.querySelectorAll('[role="cell"]').length).toBeLessThan(500);
+    expect(screen.queryByRole('cell', { name: 'Virtual sizes A1 empty cell' })).toBeNull();
     pointer(boundary, 'pointerup', 1000, 1000);
     pointer(boundary, 'pointerup', 1000, 1000);
     expect(commit).toHaveBeenCalledTimes(1);
     const ids = mode === 'rows' ? virtualizedSheet.content.rows : virtualizedSheet.content.columns;
-    expect(commit).toHaveBeenCalledWith(ids.slice(0, 6).map((axisId) => ({ axis, axisId, size: mode === 'rows' ? 1000 : 1076 })));
+    expect(commit).toHaveBeenCalledWith(ids.slice(0, 91).map((axisId) => ({ axis, axisId, size: mode === 'rows' ? 1000 : 1076 })));
   });
   it.each(['rows', 'columns'] as const)('discards a later selected %s preview when its retained owner loses capture', (mode) => {
     render(<Grid document={virtualizedSheet} selection={selection(mode, 5, virtualizedSheet)} />);
@@ -138,9 +141,11 @@ describe('axis resizing', () => {
     const view = render(<Grid document={virtualizedSheet} />);
     virtualGridGeometry(screen.getByTestId('sheet-grid').parentElement!, { width: 240, height: 160 });
     const boundary = handle('column', 'A');
+    expect(screen.getByRole('cell', { name: 'Virtual sizes A1 empty cell' })).toBeInTheDocument();
     pointer(boundary, 'pointerdown'); pointer(boundary, 'pointermove', 500);
     expect(screen.getByTestId('sheet-grid')).toHaveStyle({ width: `${40 + 100 * 76 + 500}px` });
     expect(view.container.querySelectorAll('[role="cell"]').length).toBeLessThan(500);
     pointer(boundary, 'pointercancel');
+    expect(screen.getByRole('cell', { name: 'Virtual sizes A1 empty cell' })).toBeInTheDocument();
   });
 });
