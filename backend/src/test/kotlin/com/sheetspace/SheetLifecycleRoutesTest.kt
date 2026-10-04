@@ -67,12 +67,13 @@ class SheetLifecycleRoutesTest {
             val sheetId = client.createSheet().id
             val initialRevision = client.loadWorkbook().sheets.single().revision
             val firstUpdate = client.patchSingleCell(workbookApplication, sheetId, "A1", "newer value")
+            assertEquals(HttpStatusCode.OK, firstUpdate.status)
+            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
+
             val staleDelete = client.delete("/api/sheets/$sheetId") {
                 header("If-Match", initialRevision.toString())
             }
 
-            assertEquals(HttpStatusCode.OK, firstUpdate.status)
-            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
             assertEquals(HttpStatusCode.Conflict, staleDelete.status)
             assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleDelete.decodeBody<ErrorResponse>())
             assertEquals(afterNewerWrite, workbookApplication.loadWorkbookBundle())

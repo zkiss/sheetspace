@@ -32,10 +32,10 @@ export default defineConfig({
       ['src/app/gridFocusLease.test.ts', 'node'],
     ],
     setupFiles: './src/test-support/setup.ts',
-    // The coverage suite shares one report directory and integration interactions are CPU-heavy.
-    // A single worker makes the authoritative run deterministic in this shared checkout.
-    minWorkers: 1,
-    maxWorkers: 1,
+    // Two isolated workers reduce coverage wall time without oversubscribing the
+    // CPU-heavy rendered suites. Separate Vitest invocations keep separate reports.
+    minWorkers: 2,
+    maxWorkers: 2,
     // App integration files exercise real keyboard and focus behavior. Under coverage,
     // parallel workers can make those interactions exceed Vitest's short default.
     testTimeout: 15_000,

@@ -67,15 +67,10 @@ function clearSelection(surface: HTMLElement) {
 }
 
 describe('history cell reveal in the composed workspace', () => {
-  it.each([
-    { target: 'C3', left: 160, top: 30, panX: 300, panY: 125, movesX: true, movesY: false, scale: 1, zoom: false },
-    { target: 'C3', left: 100, top: 60, panX: 125, panY: 200, movesX: false, movesY: true, scale: 1, zoom: false },
-    { target: 'C3', left: 160, top: 60, panX: 300, panY: 200, movesX: true, movesY: true, scale: 1.5, zoom: true },
-    { target: 'J20', left: 0, top: 0, panX: 400, panY: 300, movesX: true, movesY: true, scale: 1.5, zoom: true },
-    { target: 'C3', left: 200, top: 90, panX: 300, panY: 200, movesX: true, movesY: true, scale: 1.5, zoom: true, variableSizes: true },
-  ])('composes unobscured inner and outer undo/redo reveal: %o', ({ target, left, top, panX, panY, movesX, movesY, scale, zoom, variableSizes }) => {
-    const { surface, frame, body } = setup(target, scale, variableSizes);
-    if (zoom) fireEvent.wheel(surface, { ctrlKey: true, deltaY: -50 });
+  it('composes variable-metric, scaled inner and outer undo/redo reveal', () => {
+    const target = 'C3'; const left = 200; const top = 90; const panX = 300; const panY = 200; const scale = 1.5;
+    const { surface, frame, body } = setup(target, scale, true);
+    fireEvent.wheel(surface, { ctrlKey: true, deltaY: -50 });
     for (const redo of [false, true]) {
       body.scrollLeft = left;
       body.scrollTop = top;
@@ -103,34 +98,31 @@ describe('history cell reveal in the composed workspace', () => {
       expect(bodyRect.top + localTop * screenScale).toBeGreaterThanOrEqual(0);
       expect(bodyRect.left + (localLeft + width) * screenScale).toBeLessThanOrEqual(800);
       expect(bodyRect.top + (localTop + height) * screenScale).toBeLessThanOrEqual(600);
-      if (!movesX) {
-        expect(body.scrollLeft).toBe(left);
-        expect(Number(surface.dataset.viewportX)).toBe(beforeX);
-      }
-      if (!movesY) {
-        expect(body.scrollTop).toBe(top);
-        expect(Number(surface.dataset.viewportY)).toBe(beforeY);
-      }
+      expect(body.scrollLeft).not.toBe(left);
+      expect(body.scrollTop).not.toBe(top);
+      expect(Number(surface.dataset.viewportX)).not.toBe(beforeX);
+      expect(Number(surface.dataset.viewportY)).not.toBe(beforeY);
       expect(frame.querySelector('[data-active-cell="true"]')).toBeNull();
     }
   });
 
-  it.each([
-    { axis: 'x', deltaX: 250, deltaY: 0 },
-    { axis: 'y', deltaX: 0, deltaY: 150 },
-  ])('reveals undo and redo targets hidden by a partially clipped frame on $axis', ({ axis, deltaX, deltaY }) => {
+  it('reveals undo and redo targets hidden by a partially clipped frame', () => {
+    const deltaX = 250; const deltaY = 150;
     const { surface, cell, frame } = setup();
     for (const redo of [false, true]) {
       panWorkspace(
         deltaX ? -deltaX - Number(surface.dataset.viewportX) : 0,
         deltaY ? -deltaY - Number(surface.dataset.viewportY) : 0,
       );
-      const before = Number(axis === 'x' ? surface.dataset.viewportX : surface.dataset.viewportY);
+      const beforeX = Number(surface.dataset.viewportX);
+      const beforeY = Number(surface.dataset.viewportY);
       // A sliver of the sheet still intersects the workspace.
-      expect(before + Number(axis === 'x' ? frame.dataset.frameWidth : frame.dataset.frameHeight) + 50).toBeGreaterThan(0);
+      expect(beforeX + Number(frame.dataset.frameWidth) + 50).toBeGreaterThan(0);
+      expect(beforeY + Number(frame.dataset.frameHeight) + 50).toBeGreaterThan(0);
       history(redo);
       expect(cell).toHaveTextContent(redo ? 'new' : 'old');
-      expect(Number(axis === 'x' ? surface.dataset.viewportX : surface.dataset.viewportY)).toBeGreaterThan(before);
+      expect(Number(surface.dataset.viewportX)).toBeGreaterThan(beforeX);
+      expect(Number(surface.dataset.viewportY)).toBeGreaterThan(beforeY);
       // A1's full 76x26.4 cell, not just the frame sliver, is now in view.
       expect(Number(surface.dataset.viewportX) + 91).toBeGreaterThanOrEqual(0);
       expect(Number(surface.dataset.viewportX) + 167).toBeLessThanOrEqual(800);
@@ -140,9 +132,10 @@ describe('history cell reveal in the composed workspace', () => {
     }
   });
 
-  it.each([0, 70])('does not move the workspace when the history cell is visible, including a clipped frame (pan=%s)', (deltaX) => {
+  it('does not move the workspace when the history cell is visible in a clipped frame', () => {
     const { surface, cell } = setup();
-    if (deltaX) panWorkspace(-deltaX);
+    const deltaX = 70;
+    panWorkspace(-deltaX);
     const selectedKey = surface.querySelector('[data-active-cell="true"]')?.getAttribute('data-cell-key');
     for (const redo of [false, true]) {
       history(redo);

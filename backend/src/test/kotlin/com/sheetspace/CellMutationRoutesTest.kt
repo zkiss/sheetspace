@@ -173,6 +173,9 @@ class CellMutationRoutesTest {
             val initial = workbookApplication.loadSheet(sheetId)
             val coordinate = initial.tabularContent.coordinateAt("A1")!!
             val firstUpdate = client.patchSingleCell(workbookApplication, sheetId, "A1", "newer value")
+            assertEquals(HttpStatusCode.OK, firstUpdate.status)
+            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
+
             val staleUpdate = client.patch("/api/cells") {
                 jsonBody(testJson.encodeToString(CellPatchRequest(
                     listOf(CellRevisionRequest(sheetId, initial.revision)),
@@ -180,8 +183,6 @@ class CellMutationRoutesTest {
                 )))
             }
 
-            assertEquals(HttpStatusCode.OK, firstUpdate.status)
-            val afterNewerWrite = workbookApplication.loadWorkbookBundle()
             assertEquals(HttpStatusCode.Conflict, staleUpdate.status)
             assertEquals(ErrorResponse(error = "sheet-revision-conflict"), staleUpdate.decodeBody<ErrorResponse>())
             assertEquals(afterNewerWrite, workbookApplication.loadWorkbookBundle())
