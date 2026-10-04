@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PointerEvent } from 'react';
 import { resizeTargetIds, useAxisResize } from './useAxisResize';
+import { AXIS_SIZE_LIMITS } from '@workbook/core/axisSizePolicy';
 import { tabularProjection } from '@workbook/read/queries';
 import { sheetDocument } from '@test-support/workbookFactories';
 
@@ -62,6 +63,26 @@ describe('useAxisResize sessions', () => {
     expect(commit).toHaveBeenCalledWith([{ axis, axisId: id, size: initial + delta }]);
     act(() => { result.current.start(event(handle), axis, id, initial); result.current.stop(event(handle, { clientX: -10000, clientY: -10000 })); });
     expect(commit.mock.calls[1]![0][0].size).toBe(axis === 'row' ? 16 : 24);
+    act(() => { result.current.start(event(handle), axis, id, initial); result.current.stop(event(handle, { clientX: 10000, clientY: 10000 })); });
+    expect(commit.mock.calls[2]![0][0].size).toBe(AXIS_SIZE_LIMITS[axis].max);
+  });
+
+  it.each(['row', 'column'] as const)('uses scale 1 when rendered %s geometry is non-positive', (axis) => {
+    const commit = vi.fn(), handle = mountedHandle(0, 0);
+    const { result } = renderHook(() => useAxisResize({ sheet, commit }));
+    const id = axis === 'row' ? row : column, initial = axis === 'row' ? 26.4 : 76;
+    act(() => { result.current.start(event(handle), axis, id, initial); result.current.stop(event(handle, { clientX: axis === 'row' ? 10 : 50, clientY: axis === 'row' ? 50 : 10 })); });
+    expect(commit).toHaveBeenCalledWith([{ axis, axisId: id, size: initial + 40 }]);
+  });
+
+  it.each(['row', 'column'] as const)('ignores non-finite %s movement without invalidating the active session', (axis) => {
+    const commit = vi.fn(), handle = mountedHandle();
+    const { result } = renderHook(() => useAxisResize({ sheet, commit }));
+    const id = axis === 'row' ? row : column, initial = axis === 'row' ? 26.4 : 76;
+    act(() => { result.current.start(event(handle), axis, id, initial); result.current.move(event(handle, { clientX: axis === 'row' ? 10 : Number.NaN, clientY: axis === 'row' ? Number.NaN : 10 })); });
+    expect(result.current.preview).toMatchObject({ axis, ids: [id], size: initial });
+    act(() => { result.current.stop(event(handle, { clientX: axis === 'row' ? 10 : 50, clientY: axis === 'row' ? 50 : 10 })); });
+    expect(commit).toHaveBeenCalledWith([{ axis, axisId: id, size: initial + 40 }]);
   });
 
   it('commits selected offscreen IDs once and ignores invalid starts and non-owning events', () => {
@@ -96,10 +117,18 @@ describe('useAxisResize sessions', () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
-  it('releases connected ownership exactly once when a handle detaches or cancellation precedes stale release', () => {
+  it('releases connected ownership exactly once when a handle detaches', () => {
     const commit = vi.fn(), handle = mountedHandle(); handle.hasPointerCapture = vi.fn().mockReturnValue(true);
     const { result } = renderHook(() => useAxisResize({ sheet, commit }));
     act(() => { result.current.start(event(handle), 'column', column, 76); result.current.detachHandle(handle); result.current.stop(event(handle, { clientX: 40 })); result.current.detachHandle(handle); });
     expect(handle.releasePointerCapture).toHaveBeenCalledTimes(1); expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('does not commit or release twice when cancellation precedes a stale release', () => {
+    const commit = vi.fn(), handle = mountedHandle(); handle.hasPointerCapture = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useAxisResize({ sheet, commit }));
+    act(() => { result.current.start(event(handle), 'column', column, 76); result.current.interrupt(event(handle)); result.current.stop(event(handle, { clientX: 40 })); });
+    expect(handle.releasePointerCapture).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
   });
 });
