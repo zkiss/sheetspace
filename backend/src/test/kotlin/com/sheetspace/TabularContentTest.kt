@@ -27,6 +27,14 @@ class TabularContentTest {
     }
 
     @Test
+    fun `resizing rejects negative dimensions`() {
+        val content = TabularContent()
+
+        assertFailsWith<IllegalArgumentException> { content.copy(columnCount = -1) }
+        assertFailsWith<IllegalArgumentException> { content.copy(rowCount = -1) }
+    }
+
+    @Test
     fun `address conversion rejects invalid and foreign coordinates`() {
         val content = TabularContent(columnCount = 1, rowCount = 1)
 
