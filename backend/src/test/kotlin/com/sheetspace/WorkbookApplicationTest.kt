@@ -156,48 +156,6 @@ class WorkbookApplicationTest {
     }
 
     @Test
-    fun `application rejects invalid domain commands without changing store`() {
-        val store = InMemoryWorkbookStore()
-        val application = DefaultWorkbookApplication(store)
-        val sheet = application.createSheet(CreateSheetCommand(name = "Inputs"))
-
-        assertApplicationError(WorkbookApplicationError.SHEET_NAME_REQUIRED) {
-            application.createSheet(CreateSheetCommand(name = "   "))
-        }
-        assertApplicationError(WorkbookApplicationError.SHEET_NAME_DUPLICATE) {
-            application.createSheet(CreateSheetCommand(name = "Inputs"))
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_POSITION) {
-            application.createSheet(
-                CreateSheetCommand(name = "Other", position = WorkspacePosition(Double.NaN, 0.0)),
-            )
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE) {
-            application.updateSheet(
-                sheet.id.value,
-                sheet.revision,
-                UpdateSheetCommand(frameSize = SheetFrameSize(0.0, 1.0)),
-            )
-        }
-        assertApplicationError(WorkbookApplicationError.SHEET_UPDATE_REQUIRED) {
-            application.updateSheet(sheet.id.value, sheet.revision, UpdateSheetCommand())
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_CELL_COORDINATE) {
-            application.writeCells(
-                CellPatchCommand(
-                    listOf(ExpectedSheetRevision(sheet.id.value, sheet.revision)),
-                    listOf(SheetCellWrite(sheet.id.value, "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002", "outside")),
-                ),
-            )
-        }
-        assertApplicationError(WorkbookApplicationError.INVALID_SHEET_Z_INDEX) {
-            application.updateSheetZOrder(listOf(SheetZOrderUpdate(sheet.id.value, sheet.revision, 0)))
-        }
-
-        assertEquals(listOf(sheet), store.loadWorkbookBundle().sheetsInOrder)
-    }
-
-    @Test
     fun `invalid rename wins over stale revision conflict`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val created = application.createSheet(CreateSheetCommand(name = "Inputs"))
@@ -249,24 +207,38 @@ class WorkbookApplicationTest {
     }
 
     @Test
-    fun `unknown sheet operations return application error`() {
+    fun `loading a missing sheet returns application error`() {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
-
         assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
             application.loadSheet("missing")
         }
+    }
+
+    @Test
+    fun `appending a row to a missing sheet returns application error`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
+            application.appendRow("missing", 0)
+        }
+    }
+
+    @Test
+    fun `missing sheet wins before an empty update validation`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
             application.updateSheet("missing", 0, UpdateSheetCommand())
         }
+    }
+
+    @Test
+    fun `missing sheet wins before an invalid frame validation`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
             application.updateSheet(
                 "missing",
                 0,
                 UpdateSheetCommand(position = WorkspacePosition(Double.NaN, 0.0)),
             )
-        }
-        assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
-            application.appendRow("missing", 0)
         }
     }
 

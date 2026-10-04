@@ -9,6 +9,9 @@ class WorkbookApplicationSheetValidationTest {
     fun `sheet creation rejects a blank name without mutation`() = fixture().assertRejected(WorkbookApplicationError.SHEET_NAME_REQUIRED) { createSheet(CreateSheetCommand(" ")) }
 
     @Test
+    fun `sheet creation rejects a duplicate name without mutation`() = fixture().assertRejected(WorkbookApplicationError.SHEET_NAME_DUPLICATE) { createSheet(CreateSheetCommand("Inputs")) }
+
+    @Test
     fun `sheet update requires a change without mutation`() = fixture().let { fixture -> fixture.assertRejected(WorkbookApplicationError.SHEET_UPDATE_REQUIRED) { updateSheet(fixture.inputs.id.value, fixture.inputs.revision, UpdateSheetCommand()) } }
 
     @Test
@@ -21,6 +24,12 @@ class WorkbookApplicationSheetValidationTest {
     fun `sheet creation rejects an invalid layer without mutation`() = fixture().assertRejected(WorkbookApplicationError.INVALID_SHEET_Z_INDEX) { createSheet(CreateSheetCommand("Layer", zIndex = 0)) }
 
     @Test
+    fun `sheet creation rejects an invalid position without mutation`() = fixture().assertRejected(WorkbookApplicationError.INVALID_SHEET_POSITION) { createSheet(CreateSheetCommand("Invalid", position = WorkspacePosition(Double.NaN, 1.0))) }
+
+    @Test
+    fun `sheet creation rejects an infinite visual scale without mutation`() = fixture().assertRejected(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE) { createSheet(CreateSheetCommand("Invalid", visualScale = Double.POSITIVE_INFINITY)) }
+
+    @Test
     fun `sheet update rejects an invalid position without mutation`() = fixture().let { fixture -> fixture.assertRejected(WorkbookApplicationError.INVALID_SHEET_POSITION) { updateSheet(fixture.inputs.id.value, fixture.inputs.revision, UpdateSheetCommand(position = WorkspacePosition(Double.NaN, 1.0))) } }
 
     @Test
@@ -30,11 +39,12 @@ class WorkbookApplicationSheetValidationTest {
     fun `sheet update rejects an invalid visual scale without mutation`() = fixture().let { fixture -> fixture.assertRejected(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE) { updateSheet(fixture.inputs.id.value, fixture.inputs.revision, UpdateSheetCommand(visualScale = Double.NaN)) } }
 
     @Test
-    fun `sheet frame commands reject invalid position size scale and creation layer`() {
+    fun `sheet update rejects a zero visual scale without mutation`() = fixture().let { fixture -> fixture.assertRejected(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE) { updateSheet(fixture.inputs.id.value, fixture.inputs.revision, UpdateSheetCommand(visualScale = 0.0)) } }
+
+    @Test
+    fun `invalid position wins before scale validation`() {
         // Command precedence is an intentional multi-rule interaction.
-        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
-        val sheet = application.createSheet(CreateSheetCommand("Inputs"))
-        assertError(WorkbookApplicationError.INVALID_SHEET_POSITION) { application.updateSheet(sheet.id.value, 0, UpdateSheetCommand(position = WorkspacePosition(Double.NaN, 1.0), visualScale = Double.NaN)) }
+        fixture().let { fixture -> fixture.assertRejected(WorkbookApplicationError.INVALID_SHEET_POSITION) { updateSheet(fixture.inputs.id.value, fixture.inputs.revision, UpdateSheetCommand(position = WorkspacePosition(Double.NaN, 1.0), visualScale = Double.NaN)) } }
     }
 
     @Test
@@ -48,9 +58,6 @@ class WorkbookApplicationSheetValidationTest {
 
         assertEquals(2, sheet.frame.zIndex)
     }
-
-    private fun assertError(expected: WorkbookApplicationError, block: () -> Unit) =
-        assertEquals(expected, assertFailsWith<WorkbookApplicationException>(block = block).error)
 
     private fun fixture(): SheetFixture {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())

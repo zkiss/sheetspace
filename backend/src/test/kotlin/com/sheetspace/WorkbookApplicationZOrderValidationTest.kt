@@ -16,6 +16,11 @@ class WorkbookApplicationZOrderValidationTest {
     @Test
     fun `z order rejects a missing sheet without mutation`() = fixture().assertRejected(WorkbookApplicationError.SHEET_NOT_FOUND, listOf(SheetZOrderUpdate(TEST_SHEET_2, 0, 2)))
 
+    @Test
+    fun `z order rejects an invalid index without mutation`() = fixture().let { fixture ->
+        fixture.assertRejected(WorkbookApplicationError.INVALID_SHEET_Z_INDEX, listOf(SheetZOrderUpdate(fixture.sheet.id.value, fixture.sheet.revision, 0)))
+    }
+
     private fun fixture(): ZOrderFixture {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         return ZOrderFixture(application, application.createSheet(CreateSheetCommand("Inputs")))
