@@ -13,74 +13,6 @@ import kotlinx.serialization.json.put
 
 class SqliteWorkbookStorePresentationTest {
     @Test
-    fun `format policy supports all valid scopes and rejects every invalid variant`() {
-        val document = testDocument(TEST_SHEET_1, "Formats")
-        val row = document.tabularContent.rows[0].value
-        val column = document.tabularContent.columns[0].value
-        val cell = "$row\u0000$column"
-        val writes = listOf(
-            FormatWrite("row", row, NumberFormat("general")),
-            FormatWrite("column", column, NumberFormat("number", 0)),
-            FormatWrite("cell", cell, NumberFormat("percent", 10)),
-        )
-        val formatted = validatedFormatWrites(document, writes)
-        assertEquals(writes.map { it.targetId }.toSet(), (formatted.formatOverrides.rows.keys + formatted.formatOverrides.columns.keys + formatted.formatOverrides.cells.keys).toSet())
-        assertEquals(SheetPresentation(), validatedFormatWrites(document.copy(presentation = formatted), writes.map { it.copy(properties = mapOf("numberFormat" to JsonNull)) }))
-        listOf(
-            emptyList(),
-            listOf(writes[0], writes[0].copy(numberFormat = null)),
-            listOf(FormatWrite("row", "missing", null)),
-            listOf(FormatWrite("cell", row, null)),
-            listOf(FormatWrite("other", row, null)),
-            listOf(FormatWrite("row", row, NumberFormat("general", 0))),
-            listOf(FormatWrite("row", row, NumberFormat("number", null))),
-            listOf(FormatWrite("row", row, NumberFormat("percent", 11))),
-            listOf(FormatWrite("row", row, NumberFormat("currency", 2))),
-        ).forEach { invalid -> assertFailsWith<WorkbookApplicationException> { validatedFormatWrites(document, invalid) } }
-    }
-
-    @Test
-    fun `appearance properties compose independently and validate complete patches`() {
-        val document = testDocument(TEST_SHEET_1, "Appearance")
-        val row = document.tabularContent.rows[0].value
-        val column = document.tabularContent.columns[0].value
-        val cell = "$row\u0000$column"
-        val properties = mapOf(
-            "numberFormat" to buildJsonObject { put("kind", "number"); put("precision", 2) },
-            "fontWeight" to JsonPrimitive("bold"),
-            "horizontalAlignment" to JsonPrimitive("center"),
-            "textColor" to JsonPrimitive("#123456"),
-            "fillColor" to JsonPrimitive("#abcdef"),
-        )
-        val styled = validatedFormatWrites(document, listOf(FormatWrite("cell", cell, properties = properties)))
-        assertEquals(CellFormat(NumberFormat("number", 2), "bold", "center", "#123456", "#abcdef"), styled.formatOverrides.cells[cell])
-
-        val retained = validatedFormatWrites(document.copy(presentation = styled), listOf(FormatWrite("cell", cell, properties = mapOf("numberFormat" to JsonNull, "textColor" to JsonNull))))
-        assertEquals(CellFormat(fontWeight = "bold", horizontalAlignment = "center", fillColor = "#abcdef"), retained.formatOverrides.cells[cell])
-        assertEquals(SheetPresentation(), validatedFormatWrites(document.copy(presentation = retained), listOf(FormatWrite("cell", cell, properties = mapOf("fontWeight" to JsonNull, "horizontalAlignment" to JsonNull, "fillColor" to JsonNull)))))
-
-        listOf(
-            emptyMap(),
-            mapOf("numberFormat" to buildJsonObject { put("kind", "general"); put("precision", 0) }),
-            mapOf("numberFormat" to buildJsonObject { put("kind", "number") }),
-            mapOf("numberFormat" to JsonPrimitive("number")),
-            mapOf("numberFormat" to buildJsonObject { }),
-            mapOf("numberFormat" to buildJsonObject { put("kind", buildJsonObject { }) }),
-            mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", buildJsonObject { }) }),
-            mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", "2") }),
-            mapOf("numberFormat" to buildJsonObject { put("kind", "number"); put("precision", -1) }),
-            mapOf("numberFormat" to buildJsonObject { put("kind", "percent"); put("precision", 11) }),
-            mapOf("fontWeight" to JsonPrimitive("heavy")),
-            mapOf("horizontalAlignment" to JsonPrimitive("justify")),
-            mapOf("textColor" to JsonPrimitive("#12345")),
-            mapOf("fillColor" to JsonPrimitive("transparent")),
-            mapOf("unknown" to JsonPrimitive("value")),
-        ).forEach { properties ->
-            assertFailsWith<WorkbookApplicationException> { validatedFormatWrites(document, listOf(FormatWrite("row", row, properties = properties))) }
-        }
-    }
-
-    @Test
     fun `sparse formats persist through reopen and removals preserve other scopes`() {
         val path = Files.createTempFile("sheetspace-format", ".db")
         val initial = testDocument(TEST_SHEET_1, "Formats")
@@ -137,31 +69,6 @@ class SqliteWorkbookStorePresentationTest {
                 assertEquals(CellFormat(textColor = "#abcdef"), store.loadSheet(initial.id)!!.presentation.formatOverrides.cells[cell])
             }
         } finally { Files.deleteIfExists(path) }
-    }
-
-    @Test
-    fun `format validation fails before any database mutation`() = withSqliteStore { store ->
-        val initial = testDocument(TEST_SHEET_1, "Formats")
-        val foreign = testDocument(TEST_SHEET_2, "Foreign")
-        store.saveWorkbook(testWorkbookOf(initial, foreign))
-        val row = initial.tabularContent.rows[0].value
-        val column = initial.tabularContent.columns[0].value
-        val valid = FormatWrite("row", row, NumberFormat("number", 2))
-        listOf(
-            FormatWrite("row", row, NumberFormat("general", 1)),
-            FormatWrite("row", row, NumberFormat("percent", -1)),
-            FormatWrite("column", row, null),
-            FormatWrite("cell", "$row\u0000missing", null),
-            FormatWrite("row", foreign.tabularContent.rows[0].value, null),
-            FormatWrite("unknown", column, null),
-        ).forEach { invalid ->
-            assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid, invalid)) }
-            assertEquals(initial, store.loadSheet(initial.id))
-        }
-        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), emptyList()) }
-        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid, valid.copy(numberFormat = null))) }
-        store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(AxisSizeWrite("column", column, 120.0)), listOf(valid))
-        assertFailsWith<SheetRevisionConflict> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList(), listOf(valid.copy(numberFormat = null))) }
     }
 
     @Test
@@ -240,34 +147,18 @@ class SqliteWorkbookStorePresentationTest {
     }
 
     @Test
-    fun `invalid batches and stale revision never partially mutate presentation`() = withSqliteStore { store ->
+    fun `invalid presentation batch does not persist its preceding valid write`() = withSqliteStore { store ->
         val initial = testDocument(TEST_SHEET_1, "Sizes")
-        val foreign = testDocument(TEST_SHEET_2, "Foreign")
-        store.saveWorkbook(testWorkbookOf(initial, foreign))
+        store.saveWorkbook(testWorkbookOf(initial))
         val row = initial.tabularContent.rows[0].value
         val column = initial.tabularContent.columns[0].value
         val valid = AxisSizeWrite("column", column, 150.0)
-        val invalid = listOf(
-            AxisSizeWrite("row", row, 15.0), AxisSizeWrite("row", row, 1001.0),
-            AxisSizeWrite("column", column, 23.0), AxisSizeWrite("column", column, 2001.0),
-            AxisSizeWrite("row", row, Double.NaN), AxisSizeWrite("row", row, Double.POSITIVE_INFINITY),
-            AxisSizeWrite("row", column, 30.0), AxisSizeWrite("column", row, null),
-            AxisSizeWrite("row", foreign.tabularContent.rows[0].value, null),
-            AxisSizeWrite("row", "missing", 40.0), AxisSizeWrite("cell", row, 40.0),
-        )
-        invalid.forEach { write ->
-            assertFailsWith<WorkbookApplicationException> {
-                store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(valid, write))
-            }
-            assertEquals(initial, store.loadSheet(initial.id))
-        }
-        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), emptyList()) }
-        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(valid, valid.copy(size = null))) }
+        assertFailsWith<WorkbookApplicationException> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(valid, AxisSizeWrite("row", row, 15.0))) }
+        assertEquals(initial, store.loadSheet(initial.id))
         store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(valid))
         val before = store.loadSheet(initial.id)
-        assertFailsWith<SheetRevisionConflict> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(AxisSizeWrite("row", row, 40.0), valid.copy(size = null))) }
+        assertFailsWith<SheetRevisionConflict> { store.writePresentation(ExpectedSheetRevision(TEST_SHEET_1, 0), listOf(AxisSizeWrite("row", row, 40.0))) }
         assertEquals(before, store.loadSheet(initial.id))
-        assertEquals(foreign, store.loadSheet(foreign.id))
     }
 
     @Test

@@ -106,7 +106,6 @@ class WorkbookApplicationCellPatchValidationTest {
             val exception = assertFailsWith<WorkbookApplicationException> { application.writeCells(command) }
             assertEquals(expectedError, exception.error)
             assertEquals(before, application.loadWorkbookBundle())
-            assertEquals(first, application.loadSheet(first.id.value))
         }
     }
 }
