@@ -28,6 +28,18 @@ class WorkbookApplicationSheetValidationTest {
         assertError(WorkbookApplicationError.INVALID_SHEET_VISUAL_SCALE) { application.updateSheet(sheet.id.value, 0, UpdateSheetCommand(visualScale = Double.NaN)) }
     }
 
+    @Test
+    fun `sheet creation rejects an invalid frame size without mutating the workbook`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val existing = application.createSheet(CreateSheetCommand("Inputs"))
+
+        assertError(WorkbookApplicationError.INVALID_SHEET_FRAME_SIZE) {
+            application.createSheet(CreateSheetCommand("Invalid", frameSize = SheetFrameSize(0.0, 1.0)))
+        }
+
+        assertEquals(listOf(existing.id), application.loadManifest().sheetIds)
+    }
+
     private fun assertError(expected: WorkbookApplicationError, block: () -> Unit) =
         assertEquals(expected, assertFailsWith<WorkbookApplicationException>(block = block).error)
 }

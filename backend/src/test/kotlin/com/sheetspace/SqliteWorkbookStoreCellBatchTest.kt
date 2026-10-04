@@ -19,6 +19,38 @@ class SqliteWorkbookStoreCellBatchTest {
     }
 
     @Test
+    fun `cell batches require writes without mutating persisted state`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        store.writeCells(listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)), listOf(sheet.cellWrite("A1", "saved")))
+
+        assertFailsWith<IllegalArgumentException> {
+            store.writeCells(listOf(ExpectedSheetRevision(TEST_SHEET_1, 1)), emptyList())
+        }
+
+        assertEquals(mapOf("A1" to "saved"), store.loadSheet(SheetId(TEST_SHEET_1))!!.tabularContent.cells)
+        assertEquals(1, store.loadSheet(SheetId(TEST_SHEET_1))!!.revision)
+    }
+
+    @Test
+    fun `cell batches require distinct expected revisions without mutating persisted state`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        val write = sheet.cellWrite("A1", "saved")
+
+        assertFailsWith<IllegalArgumentException> {
+            store.writeCells(
+                listOf(ExpectedSheetRevision(TEST_SHEET_1, 0), ExpectedSheetRevision(TEST_SHEET_1, 0)),
+                listOf(write),
+            )
+        }
+
+        val persisted = store.loadSheet(SheetId(TEST_SHEET_1))!!
+        assertEquals(emptyMap(), persisted.tabularContent.cells)
+        assertEquals(0, persisted.revision)
+    }
+
+    @Test
     fun `cell batches apply upserts deletions and idempotent writes`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Inputs")
         store.saveWorkbook(testWorkbookOf(sheet))

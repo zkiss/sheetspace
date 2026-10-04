@@ -39,6 +39,23 @@ class WorkbookApplicationValidationTest {
         assertEquals(first, application.loadSheet(first.id.value))
     }
 
+    @Test
+    fun `application rejects malformed expected sheet revisions without writing`() {
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
+        val sheet = application.createSheet(CreateSheetCommand("Inputs"))
+
+        assertError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+            application.writeCells(
+                CellPatchCommand(
+                    expectedRevisions = listOf(ExpectedSheetRevision("bad", 0)),
+                    cells = listOf(sheet.cellWrite("A1", "value")),
+                ),
+            )
+        }
+
+        assertEquals(sheet, application.loadSheet(sheet.id.value))
+    }
+
     private fun assertError(expected: WorkbookApplicationError, block: () -> Unit) {
         assertEquals(expected, assertFailsWith<WorkbookApplicationException>(block = block).error)
     }
