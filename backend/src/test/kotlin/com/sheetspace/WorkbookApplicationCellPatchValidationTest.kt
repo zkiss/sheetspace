@@ -83,7 +83,7 @@ class WorkbookApplicationCellPatchValidationTest {
     fun `application rejects a foreign row coordinate without mutation`() = fixture().let { fixture ->
         fixture.assertRejected(
             WorkbookApplicationError.INVALID_CELL_COORDINATE,
-            fixture.command(fixture.write.copy(rowId = RowId.generate().value)),
+            fixture.command(fixture.write.copy(rowId = fixture.second.tabularContent.rows.first().value)),
         )
     }
 
@@ -91,7 +91,7 @@ class WorkbookApplicationCellPatchValidationTest {
     fun `application rejects a foreign column coordinate without mutation`() = fixture().let { fixture ->
         fixture.assertRejected(
             WorkbookApplicationError.INVALID_CELL_COORDINATE,
-            fixture.command(fixture.write.copy(columnId = ColumnId.generate().value)),
+            fixture.command(fixture.write.copy(columnId = fixture.second.tabularContent.columns.first().value)),
         )
     }
 
