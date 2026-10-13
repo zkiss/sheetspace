@@ -347,6 +347,5 @@ Root checks are authoritative monorepo assurance; frontend compilation includes 
 TypeScript and Vite. The work-pass outcomes belong in `ratchet advance` evidence. For optional
 browser profiling, report runtime/browser, fixture, warm/cold passes, median/percentiles and GC/heap
 methodology separately, using uninstrumented timings. There is no universal wall-clock threshold.
-See also [virtualization measurement](workspace-grid-virtualization.md) and
-[input validation](workspace-input-validation.md) for the distinction between deterministic/JSDOM
-evidence and browser measurements.
+See also [virtualization measurement](workspace-grid-virtualization.md) for the distinction between
+deterministic/JSDOM evidence and browser measurements.

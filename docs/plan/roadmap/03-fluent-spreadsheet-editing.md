@@ -36,8 +36,7 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 
 - Make workspace movement infinite-feeling so users can continue panning and placing sheets at any practical finite coordinate.
 - Support smooth multiplicative viewport zoom across a wide practical range, preserving the workspace point under the pointer or gesture center.
-- Keep ordinary wheel and two-finger scrolling native within sheets and controls on both axes. Over canvas background it is inert, preserving navigation, selection, focus, editing, and open menus. Reaching a sheet's scroll limit or holding Space does not turn scrolling into canvas movement.
-- Pan by dragging the background, Space-dragging, or middle-dragging; zoom at the pointer with pinch or Ctrl/Cmd-wheel. Explicit gestures retain canvas ownership across sheets and owned editor portals while ordinary input respects native-content boundaries.
+- Adopt Figma-style navigation: wheel or two-finger scrolling pans empty canvas, pinch or Ctrl/Cmd-wheel zooms at the pointer, and Space-drag or middle-drag pans from anywhere. Preserve ordinary scrolling inside sheet grids.
 - Add persistent uniform visual scale as presentation state stored separately from cells, formulas, grid dimensions, and logical frame size.
 - Create sheets at the inverse of the active viewport scale, clamped to the supported range, so a sheet created while deeply zoomed in appears at a usable screen size and becomes miniature after zooming out.
 - Add a distinct scale handle and numeric percentage control. Keep these controls usable at miniature scales and keep frame resizing a separate operation.
@@ -46,8 +45,7 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 ### Sizing, formatting, and zoom behavior
 
 - Resize sheet frames from their edges or corners and persist frame size.
-- Resize row heights and column widths from header boundaries and persist dimensions against stable axis identities. Dragging a selected row or column sets every selected axis of that orientation to the same absolute dimension; other boundaries resize individually.
-- Preview resizing in logical grid units at the current visual scale. Pointer release commits once; Escape or an interrupted gesture discards the preview. Cells, headers, editors, selection and navigation reveal use the same dimensions, independently of sheet frame resizing.
+- Resize row heights and column widths and persist their metadata.
 - Support General, Number, and Percent value formats plus bold, alignment, text colour, and fill colour at column, row, and cell level.
 - Combine formatting one property at a time using the planning default precedence cell > row > column > application default. Store row and column formatting as inherited defaults for their cells, including blank cells, rather than copying it into every cell.
 - Distinguish removing an override to inherit from explicitly resetting a property to its application default. An explicit normal font, General number format, or no-fill background must be able to suppress inherited formatting while leaving other properties intact.
@@ -55,16 +53,6 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 - Use a lightweight overview presentation when combined viewport-and-sheet scale makes cell editing illegible, while keeping navigation and sheet selection available.
 - Restore detailed editing automatically when the sheet becomes legible again.
 - Respect reduced-motion preferences in selection and focus transitions.
-
-#### Number-format semantics
-
-Number format is one inherited property with three values: General, Number, and Percent. A missing property means inherit; General is a stored value, so assigning it at a cell can suppress a Number or Percent inherited from its row or column. Resolution uses durable cell, row, and column identities in the order cell, row, column, application default. Each appearance property resolves separately as more formatting properties are added.
-
-The application default is General. Selecting Number without a prior precision uses 2 decimal places; selecting Percent uses 0. Number and Percent accept integer precision from 0 through 10 inclusive. They use an invariant `.` decimal separator without digit grouping, round to the requested decimal places using decimal half-away-from-zero rounding, and normalize a result that rounds to negative zero to unsigned zero. Percent multiplies a finite numeric value by 100 before rounding and appends `%`.
-
-Formatting derives display text only. General retains the Phase 2 formula display contract: numbers use ECMAScript `Number::toString(10)` output and negative zero displays as `0`. Number and Percent use the same formatting path for numeric non-formula cells and numeric formula results. Text retains its raw text, blank displays empty, booleans display `TRUE` or `FALSE`, and errors display their exact token; none are numerically coerced. Non-finite numeric values cannot result from valid cell classification or formula evaluation, but a defensive display call falls back to General instead of throwing or decorating the value.
-
-Raw cell content, formula text and values, editing, clipboard operations, dependency tracking, and calculation remain unchanged. Row and column defaults stay sparse rather than creating cell overrides, and blank cells may carry an explicit cell override for future content. Number formatting is presentation state and does not enter cell-content undo history.
 
 ## Completion Signal
 

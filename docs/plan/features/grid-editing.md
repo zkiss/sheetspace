@@ -7,11 +7,6 @@ Each sheet needs a familiar spreadsheet grid. Grid editing should feel recogniza
 ## Feature Scope
 
 - Display a tabular grid.
-- Resize rows and columns independently using logical dimensions tied to stable axis identities.
-  Rows inherit a height of 26.4 and columns a width of 76 unless explicitly overridden.
-  Row heights range from 16 to 1000; column widths range from 24 to 2000, inclusive.
-  Removing an override restores the inherited dimension without changing other overrides, cells,
-  or the sheet frame.
 - Show row and column headers.
 - Select cells, ranges, rows, and columns.
 - Edit cell values.
@@ -25,8 +20,6 @@ Each sheet needs a familiar spreadsheet grid. Grid editing should feel recogniza
 - Provide undo and redo for user actions.
 - Support fill-handle workflows.
 - Support value and presentation formatting at column, row, and cell level, combining individual properties through inheritance and explicit cell overrides.
-  Row and column selections show colours set at the selected axis level, independently of cell
-  appearance; cell selections show cell colour state, including inherited values and mixed state.
 
 ## Open Decisions
 
