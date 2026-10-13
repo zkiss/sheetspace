@@ -7,7 +7,17 @@ Sheetspace is a visual spreadsheet workspace: spreadsheet-like tables live in a 
 Product direction lives in `docs/plan/`. Start with `docs/plan/PROJECT_VISION.md`.
 Delivery sequence lives in `docs/plan/roadmap/`, ordered by the two-digit filename prefixes.
 
-## Repo
+## Documentation scope
+
+Use product vision, plans, and other documentation to guide implementation. Create, edit, move, or delete documentation only when the requested work explicitly includes documentation or clearly aims to rework it. This includes new files under `docs/`; feature implementation alone does not authorize documentation changes.
+
+If implementation reveals a conflict with documented direction, raise it with the user rather than rewriting the documentation to match the code.
+
+## Coding rules
+
+Read and follow [constitution.md](constitution.md) before coding or testing. It defines the rules for design, dependencies, tests, quality gates, and refactoring.
+
+## Repository commands
 
 This is a Makefile-driven monorepo with `frontend/` and `backend/` applications.
 
@@ -23,9 +33,9 @@ make build
 
 ## Compatibility and test environments
 
-Sheetspace is a pet project with no deployed environment to support. Testing runs in a fresh, ephemeral environment created for each run.
+Sheetspace has no deployed environment to support. Each test run uses a fresh, ephemeral environment.
 
-Breaking changes are acceptable. Do not add migrations, API backwards compatibility, legacy data support, or compatibility layers for previous versions. What matters is that the system works correctly after the change in a freshly created environment.
+Breaking changes are acceptable. Target a freshly created environment rather than preserving previous versions: do not add migrations, backward-compatible APIs, legacy data support, or compatibility layers.
 
 ## Beads
 
@@ -44,14 +54,14 @@ Prefer `bv`'s machine-readable `--robot-*` commands; bare `bv` opens an interact
 
 Choose the execution path before implementation. Use `devflow-runner` when the user explicitly requests it. If the user has not selected an execution path, ask whether to use Devflow.
 
-The outer agent—the agent handling the user's request—owns the Git branch lifecycle for every Deliverable:
+A Deliverable is the coherent set of changes that completes the requested work. The outer agent—the agent handling the user's request—owns its Git branch lifecycle:
 
 1. Before starting work, refresh local `main` from `origin/main` once.
 2. Create a dedicated Deliverable branch from the refreshed `main`.
 3. Use `<bead-id>-<summary-slug>` for a Bead-backed branch and `<summary-slug>` for any other branch.
 4. Complete the work on that branch, either directly or through Devflow.
 5. Push the completed Deliverable branch.
-6. Only when the user asks, close bead, squash-merge the branch into `main` and push `main`.
+6. Only when the user asks, close the associated Bead, if any, squash-merge the branch into `main`, and push `main`.
 
 When Devflow is selected, prepare the Deliverable branch before invoking `devflow-runner`. Devflow works entirely on that branch and stops when the work is complete. It does not create, switch, push, or merge branches.
 
@@ -59,25 +69,3 @@ Use a concise squash-merge commit message that summarizes what changed, not how 
 For a Bead-backed Deliverable, start the message with `<bead-id>:`.
 
 Never implement or make ordinary commits on `main`; Deliverables reach `main` only through a user-authorized squash merge.
-
-## Code quality
-
-Build the requested behavior cleanly. Make every reasonable in-scope effort to follow SOLID and DRY during feature work:
-
-- Keep production and test files small, cohesive, and focused on one responsibility.
-- Split large test suites by behavior theme when that improves focus, including tests for the same class or component.
-- Centralize repeated knowledge and behavior instead of copying patterns.
-- Keep interfaces focused, dependencies pointed toward the appropriate abstraction, and responsibilities separated so one module has one primary reason to change.
-
-Take initiative when implementation exposes maintainability opportunities in the code being changed. Complete straightforward cleanup that keeps the work coherent and stays within the Deliverable. Do not defer correctness, security, regression, acceptance-criteria, or avoidable code-quality problems in the changed work.
-
-When that code could materially benefit from broader refactoring, create a follow-up refactor Bead to investigate and define a coherent approach. Record the source Deliverable, affected code, and concrete evidence, then surface the Bead ID to the user. Keep the broader refactoring outside the current Deliverable unless the user expands its scope.
-
-## Test design and UI separation
-
-Prove each behavior extensively at the lowest practical test level. Cover logic in depth with focused tests, including edge cases, error paths, and interactions between rules. Higher-level tests may use that logic directly or mock it; their purpose is to prove integration and behavior introduced at that level, not repeat the underlying logic's full test matrix.
-
-- Separate calculation, validation, data transformation, and other application logic from UI rendering and interaction code so that logic can be tested without rendering the app.
-- Keep UI tests focused on UI behavior: presentation, user interactions, focus, selection, and wiring to application logic. Prove functional rules in lower-level tests rather than expensive rendered-app suites.
-- Render only the component or smallest UI composition needed to prove the behavior. Use full-app tests for behavior that requires full-app integration.
-- Prefer deterministic control of time and animations, such as fake clocks and disabled or controlled animations. Use real-time waits or running animations only when they are necessary to prove the specific behavior under test.
