@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
-import { cellKey, type CellRange } from '@workbook/core/address';
+import { cellKey } from '@workbook/core/address';
 import { addressRangeOf, cellAddressOf } from '@workbook/core/cellIdentity';
+import { selectionAddressRange } from './workspaceSelection';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
@@ -35,17 +36,9 @@ import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { formattingActionWrites, formattingShortcut } from '@workspace/formattingActions';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
-import { workspaceViewportBounds } from '@workspace/workspaceGeometry';
-import { historyRevealTarget } from './historyRevealTarget';
+import { useWorkspaceHistoryReveal } from './useWorkspaceHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
-import {
-  activeFocusRequestId,
-  pinsFocusedFrame,
-  reduceGridFocusLease,
-  type GridFocusLease,
-  type GridFocusLeaseAction,
-} from './gridFocusLease';
-
+import { useGridFocusLease } from './useGridFocusLease';
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -126,66 +119,12 @@ export function Workspace({
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [gridFocusLease, setGridFocusLease] = useState<GridFocusLease | null>(null);
-  const gridFocusLeaseRef = useRef<GridFocusLease | null>(null);
-  const nextGridFocusToken = useRef(1);
-  const revealedHistoryIdentity = useRef<string | undefined>(undefined);
-  const pendingHistoryMeasurement = useRef<string | undefined>(undefined);
-  // Keep consumption across grid culling and detailed/overview remounts.
   const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
   const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
-    if (gridHistoryReveals.current.identity !== identity) {
-      gridHistoryReveals.current = { identity, sheetIds: new Set() };
-    }
+    if (gridHistoryReveals.current.identity !== identity) gridHistoryReveals.current = { identity, sheetIds: new Set() };
     gridHistoryReveals.current.sheetIds.add(sheetId);
   }, []);
-  const dispatchGridFocusLease = useCallback((action: GridFocusLeaseAction) => {
-    const next = reduceGridFocusLease(gridFocusLeaseRef.current, action);
-    gridFocusLeaseRef.current = next;
-    setGridFocusLease(next);
-  }, []);
-  const beginPendingGridFocus = useCallback((target: CellTarget) => {
-    dispatchGridFocusLease({ type: 'await-detail', token: nextGridFocusToken.current++, target });
-  }, [dispatchGridFocusLease]);
-  const endGridFocusLease = useCallback(() => {
-    const requestId = activeFocusRequestId(gridFocusLeaseRef.current);
-    if (requestId !== null) {
-      onKeyboardFocusRequestCancelled(requestId);
-      dispatchGridFocusLease({ type: 'cancel-request', requestId });
-    } else dispatchGridFocusLease({ type: 'external-focus' });
-  }, [dispatchGridFocusLease, onKeyboardFocusRequestCancelled]);
-  useEffect(() => {
-    function handleFocusIn(event: FocusEvent) {
-      const lease = gridFocusLeaseRef.current;
-      const pendingSheetId = lease?.sheetId;
-      const focusOwner = event.target;
-      if (!pendingSheetId || !(focusOwner instanceof Element)) return;
-      // Losing focus to body while a frame unmounts does not establish a new
-      // owner. A subsequent focusin identifies an intentional external owner.
-      if (focusOwner === document.body || focusOwner === document.documentElement) return;
-      const frame = focusOwner.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
-      if (frame?.dataset.sheetId !== pendingSheetId) endGridFocusLease();
-    }
-
-    document.addEventListener('focusin', handleFocusIn, true);
-    return () => document.removeEventListener('focusin', handleFocusIn, true);
-  }, [endGridFocusLease]);
-  useLayoutEffect(() => {
-    if (!keyboardFocusRequest) return;
-    dispatchGridFocusLease({
-      type: 'adopt-request',
-      token: nextGridFocusToken.current++,
-      requestId: keyboardFocusRequest.id,
-      target: keyboardFocusRequest.target,
-    });
-  }, [dispatchGridFocusLease, keyboardFocusRequest]);
   const sheets = sheetsInOrder(workbook);
-  useEffect(() => {
-    const lease = gridFocusLeaseRef.current;
-    if (lease && !sheets.some((sheet) => sheet.id === lease.sheetId)) {
-      endGridFocusLease();
-    }
-  }, [endGridFocusLease, sheets]);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
   const selectedRaw = selectedSheet && selectedCellKey
@@ -218,46 +157,10 @@ export function Workspace({
       commands.writeNumberFormats(formattingProjection.descriptor.sheetId, writes);
       onRestoreGridFocus();
     }
-
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [commands, editingCell, formattingProjection, interactionsEnabled, onRestoreGridFocus, workspaceController]);
-  useEffect(() => {
-    if (!contentHistoryFeedback || editingCell) return;
-    const destination = sheets.find((sheet) => contentHistoryFeedback.after.some((cell) => cell.sheetId === sheet.id));
-    if (!destination || !workspaceController.workspaceSurfaceSize) return;
-    if (revealedHistoryIdentity.current === contentHistoryFeedback.identity
-      && pendingHistoryMeasurement.current !== contentHistoryFeedback.identity) return;
-    const cell = contentHistoryFeedback.after.find((cell) => cell.sheetId === destination.id)!;
-    const frameElement = Array.from(workspaceController.workspaceSurfaceRef.current?.querySelectorAll<HTMLElement>('article.sheet-frame') ?? [])
-      .find((frame) => frame.dataset.sheetId === destination.id);
-    const scrollport = frameElement?.querySelector<HTMLElement>('.sheet-frame-body') ?? null;
-    if (pendingHistoryMeasurement.current === contentHistoryFeedback.identity && !scrollport) return;
-    const target = historyRevealTarget(destination, cell, scrollport, creatingAxes[destination.id]);
-    if (!target) return;
-    revealedHistoryIdentity.current = contentHistoryFeedback.identity;
-    pendingHistoryMeasurement.current = undefined;
-    const viewportBounds = workspaceViewportBounds(
-      workspaceController.workspaceSurfaceSize,
-      workspaceController.viewport,
-    );
-    if (target.left < viewportBounds.left || target.right > viewportBounds.right
-      || target.top < viewportBounds.top || target.bottom > viewportBounds.bottom) {
-      workspaceController.navigateToTarget(target, { preserveVisibleAxes: true });
-      // A culled frame has no measured scrollbar/scrollport geometry yet. Refine
-      // this action once when navigation mounts it, then retire it permanently.
-      if (!scrollport) pendingHistoryMeasurement.current = contentHistoryFeedback.identity;
-    }
-  }, [
-    contentHistoryFeedback?.identity,
-    creatingAxes,
-    editingCell,
-    sheets,
-    workspaceController.navigateToTarget,
-    workspaceController.viewport,
-    workspaceController.workspaceSurfaceSize,
-    workspaceController.workspaceSurfaceRef,
-  ]);
+  useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
   const {
     navigateReference,
     navigationHighlight,
@@ -286,6 +189,14 @@ export function Workspace({
     viewportScale: workspaceController.viewport.scale,
     workbook,
   });
+  const gridFocus = useGridFocusLease({
+    activeCell, keyboardFocusRequest, onKeyboardFocusRequestCancelled,
+    onKeyboardFocusRequestConsumed, onRestoreGridFocus,
+    interactionPinnedSheetId: interactionPinnedSheetId ?? undefined, sheetIds: sheets.map((sheet) => sheet.id),
+  });
+  const { beginPendingGridFocus, gridFocusLease, handleDetailedBodyAvailable,
+    handleDetailedFocusDisplaced, handleDetailedNativeFocus,
+    handleDetailedNativeFocusReleased, handleKeyboardFocusRequestConsumed, pinsFocusedFrame } = gridFocus;
   const projectedFrames = sheets.map((sheet) => {
     const frame = frameProjection(sheet);
     const layout = frameLayoutPreview?.sheetId === sheet.id
@@ -307,7 +218,6 @@ export function Workspace({
     surfaceSize: workspaceController.workspaceSurfaceSize,
     viewport: workspaceController.viewport,
   });
-
   const handleGridPointerInteractionChange = useCallback((sheetId: string, active: boolean) => {
     setGridInteractionSheetIds((current) => {
       if (current.has(sheetId) === active) return current;
@@ -317,62 +227,13 @@ export function Workspace({
       return next;
     });
   }, []);
-
-  const handleDetailedBodyAvailable = useCallback((sheetId: string) => {
-    const lease = gridFocusLeaseRef.current;
-    if (lease?.sheetId !== sheetId) return;
-    if (lease.phase === 'consumed-awaiting-release') {
-      dispatchGridFocusLease({ type: 'detailed-release', token: lease.token });
-      return;
-    }
-    if (lease.phase !== 'awaiting-detail' || activeCell?.sheetId !== sheetId) return;
-    // A retained grid keeps an in-progress frame control usable, but is not yet
-    // the focus destination. Re-evaluate after that control settles.
-    if (interactionPinnedSheetId === sheetId) return;
-    const requestId = onRestoreGridFocus();
-    if (requestId === null) {
-      dispatchGridFocusLease({ type: 'external-focus' });
-      return;
-    }
-    dispatchGridFocusLease({ type: 'bind-request', token: lease.token, requestId, target: activeCell });
-  }, [activeCell, dispatchGridFocusLease, interactionPinnedSheetId, onRestoreGridFocus]);
-
-  const handleDetailedFocusDisplaced = useCallback((sheetId: string) => {
-    const lease = gridFocusLeaseRef.current;
-    const target = activeCell?.sheetId === sheetId ? activeCell : lease?.sheetId === sheetId ? lease.target : null;
-    if (!target) return;
-    dispatchGridFocusLease({
-      type: 'detail-displaced',
-      observedToken: lease?.sheetId === sheetId ? lease.token : null,
-      token: nextGridFocusToken.current++,
-      target,
-    });
-  }, [activeCell, dispatchGridFocusLease]);
-
-  const handleDetailedNativeFocusReleased = useCallback((sheetId: string) => {
-    const lease = gridFocusLeaseRef.current;
-    if (lease?.sheetId !== sheetId || lease.phase !== 'native-owned') return;
-    dispatchGridFocusLease({ type: 'native-blur', token: lease.token });
-  }, [dispatchGridFocusLease]);
-
-  const handleDetailedNativeFocus = useCallback((target: CellTarget) => {
-    dispatchGridFocusLease({ type: 'native-focus', token: nextGridFocusToken.current++, target });
-  }, [dispatchGridFocusLease]);
-
-  const handleKeyboardFocusRequestConsumed = useCallback((requestId: number) => {
-    dispatchGridFocusLease({ type: 'consume-request', requestId });
-    onKeyboardFocusRequestConsumed(requestId);
-  }, [dispatchGridFocusLease, onKeyboardFocusRequestConsumed]);
-
   function handleOpenRenameDialog(sheet: SheetDocument) {
     workspaceController.closeSheetMenu();
     onOpenRenameDialog(sheet);
   }
-
   const menuSheet = workspaceController.pendingSheetMenu
     ? sheets.find((sheet) => sheet.id === workspaceController.pendingSheetMenu!.sheetId)
     : undefined;
-
   function copyGridSelection() {
     const selection = selectionRange ?? (activeCell
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
@@ -637,18 +498,3 @@ function historyCellsForSheet(
   return cells;
 }
 
-function selectionAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
-  const range = addressRangeOf(sheet.content, { start: selection.anchor.cell, end: selection.extent.cell });
-  if (!range) return undefined;
-  const rowStart = Math.min(range.start.rowIndex, range.end.rowIndex);
-  const rowEnd = Math.max(range.start.rowIndex, range.end.rowIndex);
-  const columnStart = Math.min(range.start.columnIndex, range.end.columnIndex);
-  const columnEnd = Math.max(range.start.columnIndex, range.end.columnIndex);
-  return {
-    start: { rowIndex: selection.mode === 'columns' ? 0 : rowStart, columnIndex: selection.mode === 'rows' ? 0 : columnStart },
-    end: {
-      rowIndex: selection.mode === 'columns' ? sheet.content.rows.length - 1 : rowEnd,
-      columnIndex: selection.mode === 'rows' ? sheet.content.columns.length - 1 : columnEnd,
-    },
-  };
-}
