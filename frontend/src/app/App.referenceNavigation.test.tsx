@@ -25,11 +25,11 @@ describe('formula reference navigation', () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
-    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(inputs!B2:D4)' } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!B[2]:D[4])' } });
     const view = render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     const navigate = () => {
       fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-      modifierClick(screen.getByRole('button', { name: 'Inputs!B2:D4, reference' }));
+      modifierClick(screen.getByRole('button', { name: '@Inputs!B[2]:D[4], reference' }));
     };
     navigate();
     const anchor = screen.getByRole('cell', { name: 'Inputs B2 empty cell' });
@@ -56,10 +56,10 @@ describe('formula reference navigation', () => {
   it('wires reduced-motion navigation to an instant workspace transition', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
-    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=inputs!B2' } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!B2, reference' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
     expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
   });
@@ -68,7 +68,7 @@ describe('formula reference navigation', () => {
     const inputs = sparseLargeSheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=SUM(sheet-inputs!CU9999:CV10000)' },
+      cells: { A1: '=SUM(@sheet-inputs!CU[9999]:CV[10000])' },
     };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
@@ -77,7 +77,7 @@ describe('formula reference navigation', () => {
     virtualGridGeometry(body, { height: 160, width: 240 });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999:CV10000, reference' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999]:CV[10000], reference' }));
     expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CU9999 empty cell' }))
       .toHaveAttribute('data-navigation-highlight', 'true');
 
@@ -98,13 +98,13 @@ describe('formula reference navigation', () => {
     };
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=sheet-inputs!CU9999' },
+      cells: { A1: '=@sheet-inputs!CU[9999]' },
     };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999, reference' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999], reference' }));
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(inputsFrame).getByTestId('sheet-frame-body');
@@ -133,13 +133,13 @@ describe('formula reference navigation', () => {
     });
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=sheet-inputs!CU9999' },
+      cells: { A1: '=@sheet-inputs!CU[9999]' },
     };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999, reference' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999], reference' }));
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(inputsFrame).getByTestId('sheet-frame-body');
@@ -174,7 +174,7 @@ describe('formula reference navigation', () => {
   it('navigates by stable sheet id after a quoted-name rename', async () => {
     const user = userEvent.setup();
     const inputs = { ...positionedSheet('sheet-inputs', 'Sales Q1', { x: 120, y: 80 }), cells: { A1: '7' }, zIndex: 2 };
-    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 140, y: 100 }), cells: { A1: '=sheet-inputs!A1' }, zIndex: 9 };
+    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 140, y: 100 }), cells: { A1: '=@sheet-inputs!A[1]' }, zIndex: 9 };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     setSurfaceSize(800, 600);
 
@@ -186,7 +186,7 @@ describe('formula reference navigation', () => {
     await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: "'Sales 2026'!A1, reference" }), 'meta');
+    modifierClick(screen.getByRole('button', { name: "@'Sales 2026'!A[1], reference" }), 'meta');
 
     expect(screen.getByRole('cell', { name: 'Sales 2026 A1 cell' })).toHaveFocus();
     const revealedFrame = screen.getByRole('article', { name: 'Sheet Sales 2026' });
@@ -204,14 +204,14 @@ describe('formula reference navigation', () => {
     });
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=sheet-inputs!B2' },
+      cells: { A1: '=@sheet-inputs!B[2]' },
     };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!B2, reference' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed');
@@ -236,7 +236,7 @@ describe('formula reference navigation', () => {
     });
     const outputs = {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
-      cells: { A1: '=SUM(sheet-inputs!CU9999:CV10000)' },
+      cells: { A1: '=SUM(@sheet-inputs!CU[9999]:CV[10000])' },
     };
     const archive = sheetDocument({
       id: 'sheet-archive', name: 'Archive', position: { x: 6_000, y: 4_000 }, visualScale: 0.25,
@@ -246,7 +246,7 @@ describe('formula reference navigation', () => {
     expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: 'Inputs!CU9999:CV10000, reference' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999]:CV[10000], reference' }));
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
@@ -270,13 +270,13 @@ describe('formula reference navigation', () => {
 
   it('reports a broken reference without selecting a similarly named sheet', () => {
     const alias = positionedSheet('sheet-other', 'sheet-deleted', { x: 300, y: 80 });
-    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }), cells: { A1: '=sheet-deleted!A1' } };
+    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }), cells: { A1: '=@sheet-deleted!A[1]' } };
     render(<App initialWorkbook={workbookWithSheets([alias, outputs])} />);
     setSurfaceSize(800, 600);
 
     const formula = screen.getByRole('cell', { name: 'Outputs A1 cell' });
     fireEvent.click(formula);
-    modifierClick(screen.getByRole('button', { name: '#REF!A1, broken reference' }));
+    modifierClick(screen.getByRole('button', { name: '@#REF!A[1], broken reference' }));
 
     expect(formula).toHaveAttribute('data-active-cell', 'true');
     expect(screen.getByText(/cannot navigate: .* broken target/i)).toBeInTheDocument();

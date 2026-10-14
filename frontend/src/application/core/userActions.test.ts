@@ -27,7 +27,7 @@ describe('workbook operations', () => {
       label: 'cell content',
       action: {
         kind: 'write-cells', operationId: 'cell-write',
-        writes: [write('alpha', cellIdentityAt(alpha.content, 'A1')!, '=Beta!A1')],
+        writes: [write('alpha', cellIdentityAt(alpha.content, 'A1')!, '=@Beta!A[1]')],
       } satisfies WorkbookOperation,
       impact: 'cells',
     },
@@ -71,7 +71,7 @@ describe('workbook operations', () => {
   it('stores a canonical formula and reports its exact calculation target', () => {
     const cell = cellIdentityAt(alpha.content, 'B2')!;
     const result = applyWorkbookOperation(workbook, {
-      kind: 'write-cells', operationId: 'formula-write', writes: [write('alpha', cell, '=Beta!A1')],
+      kind: 'write-cells', operationId: 'formula-write', writes: [write('alpha', cell, '=@Beta!A[1]')],
     });
 
     expect(result).toMatchObject({
@@ -81,7 +81,7 @@ describe('workbook operations', () => {
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'B2' }] },
       },
     });
-    if (result.ok) expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=beta!@[beta:column:1,beta:row:1]');
+    if (result.ok) expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=@beta!beta:column:1[beta:row:1]');
   });
 
   it('applies resize position and size in one state transition', () => {
@@ -212,7 +212,7 @@ describe('workbook operations', () => {
       sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'old' } }), beta,
     ]), {
       kind: 'write-cells', operationId: 'write-1',
-      writes: [write('alpha', a1, ''), write('alpha', b2, '=Beta!A1')],
+      writes: [write('alpha', a1, ''), write('alpha', b2, '=@Beta!A[1]')],
     });
 
     expect(result).toMatchObject({
@@ -220,26 +220,26 @@ describe('workbook operations', () => {
       value: {
         changed: true,
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'alpha', key: 'B2' }] },
-        persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', a1, 'old', null), persistenceWrite('alpha', b2, null, '=beta!@[beta:column:1,beta:row:1]')] },
+        persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', a1, 'old', null), persistenceWrite('alpha', b2, null, '=@beta!beta:column:1[beta:row:1]')] },
         inverse: { kind: 'write-cells', writes: [write('alpha', a1, 'old'), write('alpha', b2, '')] },
       },
     });
     if (result.ok) {
       expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'A1')).toBeUndefined();
-      expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=beta!@[beta:column:1,beta:row:1]');
+      expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=@beta!beta:column:1[beta:row:1]');
     }
   });
 
   it('applies changed cells across sheets in one transaction and its inverse restores exact raw content', () => {
     const source = workbookWithSheets([
       sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: ' old value ' } }),
-      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: '=alpha!@[alpha:column:1,alpha:row:1]' } }),
+      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: '=@alpha!alpha:column:1[alpha:row:1]' } }),
     ]);
     const alphaA1 = cellIdentityAt(source.documents.alpha.content, 'A1')!;
     const betaB2 = cellIdentityAt(source.documents.beta.content, 'B2')!;
     const result = applyWorkbookOperation(source, {
       kind: 'write-cells', operationId: 'cross-sheet',
-      writes: [write('alpha', alphaA1, '=Beta!B2'), write('beta', betaB2, '')],
+      writes: [write('alpha', alphaA1, '=@Beta!B[2]'), write('beta', betaB2, '')],
     });
 
     expect(result).toMatchObject({
@@ -248,12 +248,12 @@ describe('workbook operations', () => {
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'beta', key: 'B2' }] },
         affected: { sheetIds: ['alpha', 'beta'], cells: [{ sheetId: 'alpha', cell: alphaA1 }, { sheetId: 'beta', cell: betaB2 }] },
         persistence: { kind: 'write-cells', writes: [
-          persistenceWrite('alpha', alphaA1, ' old value ', '=beta!@[beta:column:2,beta:row:2]'),
-          persistenceWrite('beta', betaB2, '=alpha!@[alpha:column:1,alpha:row:1]', null),
+          persistenceWrite('alpha', alphaA1, ' old value ', '=@beta!beta:column:2[beta:row:2]'),
+          persistenceWrite('beta', betaB2, '=@alpha!alpha:column:1[alpha:row:1]', null),
         ] },
         inverse: { kind: 'write-cells', writes: [
           write('alpha', alphaA1, ' old value '),
-          write('beta', betaB2, '=alpha!@[alpha:column:1,alpha:row:1]'),
+          write('beta', betaB2, '=@alpha!alpha:column:1[alpha:row:1]'),
         ] },
       },
     });
@@ -281,7 +281,7 @@ describe('workbook operations', () => {
   it('replays a full content transaction only when every current value matches', () => {
     const source = workbookWithSheets([
       sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: 'old' } }),
-      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: '=alpha!A1' } }),
+      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: '=@alpha!A[1]' } }),
     ]);
     const alphaA1 = cellIdentityAt(source.documents.alpha.content, 'A1')!;
     const betaB2 = cellIdentityAt(source.documents.beta.content, 'B2')!;
@@ -424,7 +424,7 @@ describe('workbook operations', () => {
 
 describe('paste preparation', () => {
   it('materializes blanks and translates an internal canonical formula at its matching source coordinate', () => {
-    const source = sheetDocument({ id: 'source', name: 'Source', cells: { A1: '=B1', B1: '4' } });
+    const source = sheetDocument({ id: 'source', name: 'Source', cells: { A1: '=@B[1]', B1: '4' } });
     const destination = sheetDocument({ id: 'destination', name: 'Destination', cells: { B2: 'old' } });
     const sourceWorkbook = workbookWithSheets([source, destination]);
     const result = preparePasteCellWrites(
@@ -435,12 +435,12 @@ describe('paste preparation', () => {
         ok: true,
         value: {
           kind: 'internal',
-          grid: { rowCount: 1, columnCount: 2, rows: [['=B1', '']] },
+          grid: { rowCount: 1, columnCount: 2, rows: [['=@B[1]', '']] },
           source: {
             sheetId: source.id,
             dimensions: { rowCount: 1, columnCount: 2 },
             cells: [[
-              { identity: cellIdentityAt(source.content, 'A1')!, raw: '=@[source:column:2,source:row:1]' },
+              { identity: cellIdentityAt(source.content, 'A1')!, raw: '=@source:column:2[source:row:1]' },
               { identity: cellIdentityAt(source.content, 'B1')!, raw: '' },
             ]],
           },
@@ -451,7 +451,7 @@ describe('paste preparation', () => {
     expect(result).toEqual({
       ok: true,
       writes: [
-        write(destination.id, cellIdentityAt(destination.content, 'B2')!, '=@[destination:column:3,destination:row:2]'),
+        write(destination.id, cellIdentityAt(destination.content, 'B2')!, '=@destination:column:3[destination:row:2]'),
         write(destination.id, cellIdentityAt(destination.content, 'C2')!, ''),
       ],
     });
@@ -533,14 +533,14 @@ describe('range move preparation', () => {
   });
 
   it('moves nonoverlapping ranges across sheets, retaining blanks, raw formulas, and stable identity mappings', () => {
-    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 3, cells: { A1: '=@[source:column:2,source:row:1]', B1: '' } });
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 3, cells: { A1: '=@source:column:2[source:row:1]', B1: '' } });
     const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 3, columnCount: 3, cells: { B2: 'old', C2: 'replace' } });
     const sourceSnapshot = snapshot(source, 'A1', 1, 2);
     const result = prepareMoveCellWrites(workbookWithSheets([source, destination]), destination.id, cellIdentityAt(destination.content, 'B2')!, sourceSnapshot);
     expect(result).toEqual({
       ok: true,
       writes: [
-        write(destination.id, cellIdentityAt(destination.content, 'B2')!, '=@[source:column:2,source:row:1]'),
+        write(destination.id, cellIdentityAt(destination.content, 'B2')!, '=@source:column:2[source:row:1]'),
         write(destination.id, cellIdentityAt(destination.content, 'C2')!, ''),
         write(source.id, cellIdentityAt(source.content, 'A1')!, ''),
         write(source.id, cellIdentityAt(source.content, 'B1')!, ''),

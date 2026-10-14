@@ -10,8 +10,8 @@ describe('App MVP workflow', () => {
   it(
     'persists and reloads the complete MVP workflow across creation paths, arrangement, rename, formulas, and appended dimensions',
     async () => {
-      const rawSameSheetFormula = '= \n SuM ( B1 , B2 )';
-      const rawCrossSheetFormula = '=SUM(Renamed Inputs!B1:B2)';
+      const rawSameSheetFormula = '= \n SuM ( @B[1] , @B[2] )';
+      const rawCrossSheetFormula = "=SUM(@'Renamed Inputs'!B[1]:B[2])";
       const apiClient = persistedWorkbookClient();
       const inputSheetId = deterministicSheetId(1);
       const outputSheetId = deterministicSheetId(2);
@@ -93,7 +93,7 @@ describe('App MVP workflow', () => {
       fireEvent.keyDown(editor, { key: 'Escape' });
 
       editor = openSmokeCellEditor(cellAt(reloadedOutputFrame, 'A1'));
-      expect(editor).toHaveValue("=SUM('Renamed Inputs'!B1:B2)");
+      expect(editor).toHaveValue("=SUM(@'Renamed Inputs'!B[1]:B[2])");
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(1);
     },
   );

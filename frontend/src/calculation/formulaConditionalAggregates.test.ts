@@ -11,11 +11,11 @@ describe('conditional aggregate formula functions', () => {
       cells: {
         A1: '9', B1: '10',
         A2: '="10"', B2: '11',
-        D1: '=COUNTIF(A1:B2, ">=10")',
-        D2: '=COUNTIF(A1:B2, 9)',
-        D3: '=COUNTIF(B2, ">10")',
-        D4: '=COUNTIF(A1:B2, "missing")',
-        D5: '=COUNTIF(B1:B2, ">=10")',
+        D1: '=COUNTIF(@A[1]:B[2], ">=10")',
+        D2: '=COUNTIF(@A[1]:B[2], 9)',
+        D3: '=COUNTIF(@B[2], ">10")',
+        D4: '=COUNTIF(@A[1]:B[2], "missing")',
+        D5: '=COUNTIF(@B[1]:B[2], ">=10")',
       },
     });
 
@@ -34,12 +34,12 @@ describe('conditional aggregate formula functions', () => {
       name: 'Inputs',
       cells: {
         A1: '', A2: '=""', A3: 'FALSE', A4: 'TRUE', A5: '10', A6: '="10"',
-        B1: '=COUNTIF(A1:A6, "=")',
-        B2: '=COUNTIF(A1:A6, "<>")',
-        B3: '=COUNTIF(A1:A6, TRUE)',
-        B4: '=COUNTIF(A1:A6, "=""10""")',
-        B5: '=COUNTIF(A1:A6, "=10")',
-        B6: '=COUNTIF(A1:A6, A1)',
+        B1: '=COUNTIF(@A[1]:A[6], "=")',
+        B2: '=COUNTIF(@A[1]:A[6], "<>")',
+        B3: '=COUNTIF(@A[1]:A[6], TRUE)',
+        B4: '=COUNTIF(@A[1]:A[6], "=""10""")',
+        B5: '=COUNTIF(@A[1]:A[6], "=10")',
+        B6: '=COUNTIF(@A[1]:A[6], @A[1])',
       },
     });
 
@@ -61,11 +61,11 @@ describe('conditional aggregate formula functions', () => {
         A1: '1', B1: '-1', A2: '2', B2: 'open',
         A3: 'match', B3: '', A4: 'match', B4: 'text', A5: 'match', B5: 'TRUE',
         C1: '10', D1: '20', C2: '30', D2: '40',
-        F1: '=SUMIF(A1:B2, ">0", C1:D2)',
-        F2: '=SUMIF(A1:B2, ">0")',
-        F3: '=SUMIF(A1:B2, "missing", C1:D2)',
-        F4: '=SUMIF(B2, "open", D2)',
-        F5: '=SUMIF(A3:A5, "match", B3:B5)',
+        F1: '=SUMIF(@A[1]:B[2], ">0", @C[1]:D[2])',
+        F2: '=SUMIF(@A[1]:B[2], ">0")',
+        F3: '=SUMIF(@A[1]:B[2], "missing", @C[1]:D[2])',
+        F4: '=SUMIF(@B[2], "open", @D[2])',
+        F5: '=SUMIF(@A[3]:A[5], "match", @B[3]:B[5])',
       },
     });
 
@@ -84,14 +84,14 @@ describe('conditional aggregate formula functions', () => {
       name: 'Inputs',
       cells: {
         A1: '1', A2: '2',
-        B1: '=COUNTIF(A1:A2)',
+        B1: '=COUNTIF(@A[1]:A[2])',
         B2: '=COUNTIF(1, 1)',
-        B3: '=COUNTIF(A1:A2, A1:A2)',
-        B4: '=COUNTIF(A1:A2, ">")',
-        B5: '=SUMIF(A1:A2, 1, A1)',
-        B6: '=SUMIF(A1:A2, 1, Missing!A1)',
-        B7: '=SUMIF(A1:A2, 1, Missing!A1:A2)',
-        B8: '=COUNTIF(A1:A2, Missing!A1)',
+        B3: '=COUNTIF(@A[1]:A[2], @A[1]:A[2])',
+        B4: '=COUNTIF(@A[1]:A[2], ">")',
+        B5: '=SUMIF(@A[1]:A[2], 1, @A[1])',
+        B6: '=SUMIF(@A[1]:A[2], 1, @Missing!A[1])',
+        B7: '=SUMIF(@A[1]:A[2], 1, @Missing!A[1]:A[2])',
+        B8: '=COUNTIF(@A[1]:A[2], @Missing!A[1])',
       },
     });
 
@@ -110,10 +110,10 @@ describe('conditional aggregate formula functions', () => {
       name: 'Inputs',
       cells: {
         A1: '0', A2: '1', A3: '=1/0',
-        B1: '=1/0', B2: '=Missing!A1', B3: '10',
-        C1: '=SUMIF(A1, ">0", B1)',
-        C2: '=SUMIF(A1:A2, ">0", B1:B2)',
-        C3: '=COUNTIF(A1:A3, ">0")',
+        B1: '=1/0', B2: '=@Missing!A[1]', B3: '10',
+        C1: '=SUMIF(@A[1], ">0", @B[1])',
+        C2: '=SUMIF(@A[1]:A[2], ">0", @B[1]:B[2])',
+        C3: '=COUNTIF(@A[1]:A[3], ">0")',
       },
     });
 
@@ -132,8 +132,8 @@ describe('conditional aggregate formula functions', () => {
     const outputs = sheetDocument({
       id: 'sheet-outputs', name: 'Outputs',
       cells: {
-        A1: '=COUNTIF(sheet-inputs!A1:A3, "east")',
-        A2: '=SUMIF(sheet-inputs!A1:A3, "east", sheet-inputs!B1:B3)',
+        A1: '=COUNTIF(@sheet-inputs!A[1]:A[3], "east")',
+        A2: '=SUMIF(@sheet-inputs!A[1]:A[3], "east", @sheet-inputs!B[1]:B[3])',
       },
     });
 
@@ -152,8 +152,8 @@ describe('conditional aggregate formula functions', () => {
       cells: {
         A1: '1', A2: '2',
         B1: '1e308', B2: '1e308',
-        C1: '=SUMIF(A1:A2, ">=0", B1)',
-        C2: '=SUMIF(A1:A2, ">=0", B1:B2)',
+        C1: '=SUMIF(@A[1]:A[2], ">=0", @B[1])',
+        C2: '=SUMIF(@A[1]:A[2], ">=0", @B[1]:B[2])',
       },
     });
 
@@ -170,11 +170,11 @@ describe('conditional aggregate formula functions', () => {
       cells: {
         A1: '1', A2: '2',
         B1: '10', B2: '20',
-        C1: '=SUMIF((@[sheet-1:column:1,sheet-1:row:1]:@[sheet-1:column:1,sheet-1:row:2]), ">0", (@[sheet-1:column:2,sheet-1:row:1]:@[sheet-1:column:2,sheet-1:row:2]))',
-        C2: '=SUMIF(@[sheet-1:column:1,sheet-1:row:1]:@[sheet-1:column:1,sheet-1:row:2], ">0", @[sheet-1:column:2,sheet-1:row:1])',
-        C3: '=COUNTIF(@[missing-column,missing-row], 1)',
-        C4: '=SUMIF(@[missing-column,missing-row], 1)',
-        C5: '=SUMIF(@[sheet-1:column:1,sheet-1:row:1], 1, @[missing-column,missing-row])',
+        C1: '=SUMIF((@sheet-1:column:1[sheet-1:row:1]:sheet-1:column:1[sheet-1:row:2]), ">0", (@sheet-1:column:2[sheet-1:row:1]:sheet-1:column:2[sheet-1:row:2]))',
+        C2: '=SUMIF(@sheet-1:column:1[sheet-1:row:1]:sheet-1:column:1[sheet-1:row:2], ">0", @sheet-1:column:2[sheet-1:row:1])',
+        C3: '=COUNTIF(@missing-column[missing-row], 1)',
+        C4: '=SUMIF(@missing-column[missing-row], 1)',
+        C5: '=SUMIF(@sheet-1:column:1[sheet-1:row:1], 1, @missing-column[missing-row])',
       },
     });
 

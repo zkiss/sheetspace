@@ -14,7 +14,7 @@ describe('formula references, errors, and cycles', () => {
       A1: '7',
     });
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
-      A1: '=SUM(sheet-1!A1)',
+      A1: '=SUM(@sheet-1!A[1])',
     });
     const workbook = workbookWithSheets([inputs, outputs]);
 
@@ -30,7 +30,7 @@ describe('formula references, errors, and cycles', () => {
       A1: '99',
     });
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
-      A1: '=SUM(sheet-deleted!A1)',
+      A1: '=SUM(@sheet-deleted!A[1])',
     });
     const workbook = workbookWithSheets([replacementInputs, outputs]);
 
@@ -45,10 +45,10 @@ describe('formula references, errors, and cycles', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '  10 ',
       A2: '-2.25',
-      A3: '=SUM(A1:A2)',
-      B1: '=SUM(C1)',
-      B2: '=SUM(C2)',
-      B3: '=SUM(C3)',
+      A3: '=SUM(@A[1]:A[2])',
+      B1: '=SUM(@C[1])',
+      B2: '=SUM(@C[2])',
+      B3: '=SUM(@C[3])',
       C1: '+1',
       C2: '1.',
       C3: '1e2',
@@ -64,14 +64,14 @@ describe('formula references, errors, and cycles', () => {
 
   it('keeps parse, name, ref, and value failures isolated to cell-level results', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=SUM(A1,)',
-      A2: '=NOPE(B1)',
-      A3: '=SUM(Missing!A1)',
-      A4: '=SUM(B1)',
-      A5: '=SUM(C1)',
-      A6: '=SUM(K1)',
-      A7: '=SUM(A1:K1)',
-      A8: '=SUM(A1:)',
+      A1: '=SUM(@A[1],)',
+      A2: '=NOPE(@B[1])',
+      A3: '=SUM(@Missing!A[1])',
+      A4: '=SUM(@B[1])',
+      A5: '=SUM(@C[1])',
+      A6: '=SUM(@K[1])',
+      A7: '=SUM(@A[1]:K[1])',
+      A8: '=SUM(@A[1]:)',
       B1: 'text',
       C1: '8',
     });
@@ -90,13 +90,13 @@ describe('formula references, errors, and cycles', () => {
 
   it('detects direct, indirect, and cross-sheet cycles without replacing raw formulas', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=SUM(A1)',
-      A2: '=SUM(A3)',
-      A3: '=SUM(A2)',
-      B1: '=SUM(sheet-2!B1)',
+      A1: '=SUM(@A[1])',
+      A2: '=SUM(@A[3])',
+      A3: '=SUM(@A[2])',
+      B1: '=SUM(@sheet-2!B[1])',
     });
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
-      B1: '=SUM(sheet-1!B1)',
+      B1: '=SUM(@sheet-1!B[1])',
     });
     const workbook = workbookWithSheets([inputs, outputs]);
 
@@ -106,6 +106,6 @@ describe('formula references, errors, and cycles', () => {
     expect(results['sheet-1'].A3).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-1'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
     expect(results['sheet-2'].B1).toMatchObject({ kind: 'error', error: '#CYCLE!' });
-    expect(cellRawContent(inputs, 'A1')).toBe('=SUM(A1)');
+    expect(cellRawContent(inputs, 'A1')).toBe('=SUM(@A[1])');
   });
 });

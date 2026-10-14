@@ -11,7 +11,7 @@ describe('App cell editing composition', () => {
     const user = userEvent.setup();
     const inputs = smallSheetDocument({
       id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
-      cells: { A1: '2', B1: '=A1 * 3', B2: '7', C1: '=SUM(A1:B2)' },
+      cells: { A1: '2', B1: '=@A[1] * 3', B2: '7', C1: '=SUM(@A[1]:B[2])' },
     });
     const apiClient = persistedWorkbookClient(workbookWithSheets([inputs]));
     const view = render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);
@@ -45,7 +45,7 @@ describe('App cell editing composition', () => {
     const user = userEvent.setup();
     const inputs = smallSheetDocument({
       id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
-      cells: { A1: '1', B1: '=A1 * 2', A2: '3', B2: '4' },
+      cells: { A1: '1', B1: '=@A[1] * 2', A2: '3', B2: '4' },
     });
     const apiClient = persistedWorkbookClient(workbookWithSheets([inputs]));
     render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);

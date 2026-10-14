@@ -106,10 +106,10 @@ class WorkbookApplicationTest {
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore())
         val sheet = application.createSheet(CreateSheetCommand(name = "Inputs"))
 
-        val stored = application.writeOneCell(sheet.id.value, "A1", "= \n SuM ( B1 , B2 )", sheet.revision)
+        val stored = application.writeOneCell(sheet.id.value, "A1", "= \n SuM ( @B[1] , @B[2] )", sheet.revision)
         val cleared = application.writeOneCell(stored.id.value, "A1", "", stored.revision)
 
-        assertEquals("= \n SuM ( B1 , B2 )", stored.tabularContent.cells.getValue("A1"))
+        assertEquals("= \n SuM ( @B[1] , @B[2] )", stored.tabularContent.cells.getValue("A1"))
         assertFalse(cleared.tabularContent.cells.containsKey("A1"))
     }
 

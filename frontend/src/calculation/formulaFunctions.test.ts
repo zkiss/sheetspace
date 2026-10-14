@@ -48,7 +48,7 @@ describe('formula function protocol', () => {
       registry('ONE', oneScalar),
     )).toEqual({ kind: 'error', error: '#VALUE!' });
     expect(evaluateFunctionCall(
-      functionExpression('=ONE(A1:A2)'),
+      functionExpression('=ONE(@A[1]:A[2])'),
       { evaluateExpression },
       registry('ONE', oneScalar),
     )).toEqual({ kind: 'error', error: '#VALUE!' });
@@ -95,7 +95,7 @@ describe('formula function protocol', () => {
       yield { kind: 'error' as const, error: '#DIV/0!' as const };
     };
     const result = evaluateFunctionCall(
-      functionExpression('=TEST(A1:C1)'),
+      functionExpression('=TEST(@A[1]:C[1])'),
       {
         evaluateExpression: () => ({
           kind: 'range',

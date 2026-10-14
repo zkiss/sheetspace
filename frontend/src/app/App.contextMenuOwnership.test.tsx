@@ -7,7 +7,7 @@ import { panWorkspace, zoomWorkspace } from '@test-support/workspaceActions';
 
 function setup(visualScale = 1) {
   render(<App initialWorkbook={workbookWithSheets([
-    smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale, cells: { A1: '=B1+1', B1: '2' } }),
+    smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale, cells: { A1: '=@B[1]+1', B1: '2' } }),
   ])} />);
   return { frame: screen.getByRole('article', { name: 'Sheet Inputs' }), surface: screen.getByTestId('workspace-surface') };
 }
@@ -113,7 +113,7 @@ describe('context-menu ownership in the composed workspace', () => {
     fireEvent.click(cell);
     const inspector = screen.getByRole('region', { name: 'Selected formula' });
     for (const target of [inspector, inspector.querySelector('code')!, within(inspector).getByText('Formula'),
-      within(inspector).getByRole('status'), within(inspector).getByRole('button', { name: 'B1, reference' })]) {
+      within(inspector).getByRole('status'), within(inspector).getByRole('button', { name: '@B[1], reference' })]) {
       expect(contextMenu(target).defaultPrevented).toBe(false);
       expect(screen.getByRole('region', { name: 'Selected formula' })).toBe(inspector);
       expect(cell).toHaveAttribute('data-active-cell', 'true');

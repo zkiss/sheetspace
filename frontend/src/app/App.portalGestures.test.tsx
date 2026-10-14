@@ -97,7 +97,7 @@ describe('native pinch over portal cell editors', () => {
   it('does not treat reference metadata for a culled sheet as ownership of an external editor', () => {
     render(<>
       <App initialWorkbook={workbookWithSheets([
-        smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=remote!A1' } }),
+        smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@remote!A[1]' } }),
         smallSheetDocument({ id: 'remote', name: 'Remote', position: { x: 1e6, y: 1e6 } }),
       ])} />
       <textarea aria-label="Foreign editor" data-workspace-sheet-editor="remote" />
@@ -109,7 +109,7 @@ describe('native pinch over portal cell editors', () => {
     const foreign = screen.getByRole('textbox', { name: 'Foreign editor' });
     const surface = screen.getByTestId('workspace-surface');
     expect(screen.queryByRole('article', { name: 'Sheet Remote' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Remote!A1, reference' })).toHaveAttribute('data-sheet-id', 'remote');
+    expect(screen.getByRole('button', { name: '@Remote!A[1], reference' })).toHaveAttribute('data-sheet-id', 'remote');
     expect(gesture(editor, 'gesturestart', 1).defaultPrevented).toBe(true);
     for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 3], ['gestureend', 3]] as const) {
       expect(gesture(foreign, type, scale).defaultPrevented).toBe(false);

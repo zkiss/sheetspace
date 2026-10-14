@@ -16,7 +16,7 @@ describe('formula built-ins and function dispatch', () => {
       A1: '1',
       A2: '2',
       B1: '  -3.5  ',
-      B2: '=SUM(A1:A2, B1, C1)',
+      B2: '=SUM(@A[1]:A[2], @B[1], @C[1])',
       B3: '=SUM()',
     });
     const workbook = workbookWithSheets([inputs]);
@@ -44,7 +44,7 @@ describe('formula built-ins and function dispatch', () => {
       A1: '3',
     });
     const outputs = sheetWithCells('sheet-3', 'Outputs', {
-      A1: '=SUM(sheet-1!A1:B2, sheet-2!A1)',
+      A1: '=SUM(@sheet-1!A[1]:B[2], @sheet-2!A[1])',
     });
     const workbook = workbookWithSheets([inputs, sales, outputs]);
 
@@ -63,24 +63,24 @@ describe('formula built-ins and function dispatch', () => {
       A4: 'TRUE',
       A5: '',
       A6: '   ',
-      B1: '=AVERAGE(A1:A6, 10)',
-      B2: '=MIN(A1:A6, -1)',
-      B3: '=MAX(A1:A6, 10)',
-      B4: '=COUNT(A1:A6, "9", FALSE, 3)',
-      B5: '=COUNTA(A1:A6, "", FALSE)',
+      B1: '=AVERAGE(@A[1]:A[6], 10)',
+      B2: '=MIN(@A[1]:A[6], -1)',
+      B3: '=MAX(@A[1]:A[6], 10)',
+      B4: '=COUNT(@A[1]:A[6], "9", FALSE, 3)',
+      B5: '=COUNTA(@A[1]:A[6], "", FALSE)',
       B6: '=ABS(-3.5)',
       B7: '=SQRT(ABS(-16))',
       C1: '-11',
       C2: '25',
     });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=AVERAGE(sheet-inputs!A1:A2)',
-      A2: '=COUNT(sheet-inputs!A1:A6)',
-      A3: '=COUNTA(sheet-inputs!A1:A6)',
-      A4: '=MIN(sheet-inputs!A1:A6)',
-      A5: '=MAX(sheet-inputs!A1:A6)',
-      A6: '=ABS(sheet-inputs!C1)',
-      A7: '=SQRT(sheet-inputs!C2)',
+      A1: '=AVERAGE(@sheet-inputs!A[1]:A[2])',
+      A2: '=COUNT(@sheet-inputs!A[1]:A[6])',
+      A3: '=COUNTA(@sheet-inputs!A[1]:A[6])',
+      A4: '=MIN(@sheet-inputs!A[1]:A[6])',
+      A5: '=MAX(@sheet-inputs!A[1]:A[6])',
+      A6: '=ABS(@sheet-inputs!C[1])',
+      A7: '=SQRT(@sheet-inputs!C[2])',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
 
@@ -102,22 +102,22 @@ describe('formula built-ins and function dispatch', () => {
 
   it('applies aggregate empty, arity, type, domain, and error rules consistently', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=AVERAGE(B1:B3)',
-      A2: '=MIN(B1:B3)',
-      A3: '=MAX(B1:B3)',
+      A1: '=AVERAGE(@B[1]:B[3])',
+      A2: '=MIN(@B[1]:B[3])',
+      A3: '=MAX(@B[1]:B[3])',
       A4: '=COUNT()',
       A5: '=COUNTA()',
       A6: '=ABS()',
       A7: '=ABS(1, 2)',
-      A8: '=ABS(B1:B2)',
+      A8: '=ABS(@B[1]:B[2])',
       A9: '=SQRT(-1)',
       A10: '=SQRT("4")',
-      A11: '=AVERAGE(C1:C2)',
-      A12: '=COUNT(B1:B3)',
+      A11: '=AVERAGE(@C[1]:C[2])',
+      A12: '=COUNT(@B[1]:B[3])',
       B1: 'text',
       B2: 'TRUE',
       B3: '',
-      C1: '=SUM(Missing!A1)',
+      C1: '=SUM(@Missing!A[1])',
       C2: '1',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
@@ -138,10 +138,10 @@ describe('formula built-ins and function dispatch', () => {
 
   it('validates visited function calls before evaluating their arguments', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=ABS(1/0, Missing!A1)',
-      A2: '=ABS(Missing!A1:A2)',
+      A1: '=ABS(1/0, @Missing!A[1])',
+      A2: '=ABS(@Missing!A[1]:A[2])',
       A3: '=NOPE(1/0)',
-      A4: '=SUM(1/0, Missing!A1)',
+      A4: '=SUM(1/0, @Missing!A[1])',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
@@ -175,10 +175,10 @@ describe('formula built-ins and function dispatch', () => {
 
   it('propagates the first referenced formula error in argument and row-major range order', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=SUM(Missing!A1)',
+      A1: '=SUM(@Missing!A[1])',
       B1: 'text',
-      A2: '=SUM(A1:B1)',
-      A3: '=SUM(B1, A1)',
+      A2: '=SUM(@A[1]:B[1])',
+      A3: '=SUM(@B[1], @A[1])',
     });
     const workbook = workbookWithSheets([inputs]);
 
@@ -189,9 +189,9 @@ describe('formula built-ins and function dispatch', () => {
 
   it('resolves references when visited so an earlier argument error wins', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=SUM(A1,)',
-      A2: '=SUM(A1, Missing!A1)',
-      A3: '=SUM(Missing!A1, A1)',
+      A1: '=SUM(@A[1],)',
+      A2: '=SUM(@A[1], @Missing!A[1])',
+      A3: '=SUM(@Missing!A[1], @A[1])',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
@@ -204,10 +204,10 @@ describe('formula built-ins and function dispatch', () => {
       A1: '2',
       A2: 'text',
       A3: 'FALSE',
-      A5: '=Missing!A1',
-      B1: '=A1:A3',
-      B2: '=SUM(1, "2", TRUE, A1:A4)',
-      B3: '=SUM(A1:A5)',
+      A5: '=@Missing!A[1]',
+      B1: '=@A[1]:A[3]',
+      B2: '=SUM(1, "2", TRUE, @A[1]:A[4])',
+      B3: '=SUM(@A[1]:A[5])',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 

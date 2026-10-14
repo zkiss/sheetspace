@@ -108,7 +108,7 @@ class CellMutationRoutesTest {
         testWorkbookApplication { workbookApplication ->
             val sheetId = client.createSheet().id
             val canonical =
-                "=SUM('sheet-inputs'!@[\$column-a,row-a]:@[column-b,\$row-b], @[column-c,row-c])"
+                "=SUM(@sheet-inputs!\$column-a[row-a]:column-b[\$row-b], @column-c[row-c])"
 
             val response = client.patchSingleCell(workbookApplication, sheetId, "A1", canonical)
 

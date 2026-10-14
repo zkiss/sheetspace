@@ -30,7 +30,7 @@ class SqliteWorkbookStoreSchemaTest {
 
     @Test
     fun `stores UUID ids as blobs and raw formula strings in sparse cell rows`() = withSqliteStore { store ->
-        val formula = "= \n SuM ( B1 , B2 )"
+        val formula = "= \n SuM ( @B[1] , @B[2] )"
         store.saveWorkbook(
             testWorkbookOf(
                 testDocument(

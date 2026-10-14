@@ -22,15 +22,15 @@ describe('Phase 2 acceptance workflow', () => {
       const outputs = {
         ...positionedSheet('sheet-outputs', 'Outputs', { x: 40, y: 40 }),
         cells: {
-          A1: '=SUMIF(sheet-inputs!B1:B3, "open", sheet-inputs!C1:C3)',
-          A2: '=sheet-inputs!A1 + 1',
+          A1: '=SUMIF(@sheet-inputs!B[1]:B[3], "open", @sheet-inputs!C[1]:C[3])',
+          A2: '=@sheet-inputs!A[1] + 1',
         },
       };
       const errors = {
         ...positionedSheet('sheet-errors', 'Errors', { x: 400, y: 40 }),
         cells: {
           A1: '=SUM(,)',
-          C1: '=sheet-inputs!A1 + 1',
+          C1: '=@sheet-inputs!A[1] + 1',
         },
       };
       const apiClient = persistedWorkbookClient(workbookWithSheets([inputs, outputs, errors]));
@@ -48,7 +48,7 @@ describe('Phase 2 acceptance workflow', () => {
       });
 
       fireEvent.click(cellAt(outputFrame, 'A1'));
-      modifierClick(screen.getByRole('button', { name: 'Inputs!B1:B3, reference' }));
+      modifierClick(screen.getByRole('button', { name: '@Inputs!B[1]:B[3], reference' }));
       const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
       expect(cellAt(inputFrame, 'B1')).toHaveFocus();
       expect(cellAt(inputFrame, 'B3')).toHaveAttribute('data-reference-selected', 'true');
@@ -59,11 +59,11 @@ describe('Phase 2 acceptance workflow', () => {
       resetWorkspaceViewport();
       let currentOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
       let editor = openEditor(cellAt(currentOutputFrame, 'A1'));
-      expect(editor).toHaveValue('=SUMIF(Inputs!B1:B3, "open", Inputs!C1:C3)');
+      expect(editor).toHaveValue('=SUMIF(@Inputs!B[1]:B[3], "open", @Inputs!C[1]:C[3])');
       fireEvent.keyDown(editor, { key: 'Escape' });
 
       fireEvent.click(cellAt(currentOutputFrame, 'A1'));
-      modifierClick(screen.getByRole('button', { name: 'Inputs!B1:B3, reference' }));
+      modifierClick(screen.getByRole('button', { name: '@Inputs!B[1]:B[3], reference' }));
       const currentInputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
       fireEvent.click(within(openSheetContextMenu(currentInputFrame)).getByRole('menuitem', { name: 'Rename' }));
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Sales Data' } });
@@ -99,7 +99,7 @@ describe('Phase 2 acceptance workflow', () => {
       });
       editor = openEditor(cellAt(reloadedOutputs, 'A1'));
       expect(editor).toHaveValue(
-        '=SUMIF(\'Sales Data\'!B1:B3, "open", \'Sales Data\'!C1:C3)',
+        '=SUMIF(@\'Sales Data\'!B[1]:B[3], "open", @\'Sales Data\'!C[1]:C[3])',
       );
       expect(apiClient.loadWorkbook).toHaveBeenCalledTimes(2);
     },

@@ -18,7 +18,7 @@ type Endpoint = { kind: 'a1' | 'canonical'; address?: CellAddress; coordinate?: 
 type Match = { sourceSpan: FormulaSourceSpan; qualifier: FormulaQualifier; endpoints: Endpoint[]; canonical: boolean };
 type Edit = FormulaSourceSpan & { value: string };
 
-/** A1 recognition is delegated to formulaSyntax, including its malformed-formula recovery. */
+/** Reference recognition is delegated to formulaSyntax, including malformed-formula recovery. */
 export function formulaReferenceTokens(raw: string): FormulaReferenceToken[] { return lexemeMatches(raw).map(toToken); }
 
 export function formulaRawToCanonical(raw: string, resolver: FormulaReferenceResolver): string {
@@ -27,7 +27,7 @@ export function formulaRawToCanonical(raw: string, resolver: FormulaReferenceRes
     const sheetId = rawTargetSheet(match.qualifier, resolver);
     const coordinates = sheetId && match.endpoints.map((endpoint) => resolver.coordinateAt(sheetId, endpoint.address!));
     if (!sheetId || !coordinates || coordinates.some((coordinate) => !coordinate)) { edits.push({ ...match.sourceSpan, value: '#REF!' }); continue; }
-    if (match.qualifier.kind === 'explicit') edits.push({ ...match.qualifier.sourceSpan, value: formatSheetReferenceToken(sheetId) });
+    if (match.qualifier.kind === 'explicit') edits.push({ ...match.qualifier.sourceSpan, value: sheetId });
     match.endpoints.forEach((endpoint, index) => edits.push({ ...endpoint.sourceSpan, value: formatCanonical(coordinates[index]!, endpoint.anchors) }));
   }
   return applyEdits(raw, edits);
@@ -42,7 +42,7 @@ export function formulaRawForStorage(raw: string, workbook: Workbook, currentShe
   return replaceFormulaQualifiers(raw, (reference) => {
     if (reference === '#REF') return reference;
     const sheetId = sheetsInOrder(workbook).find((sheet) => sheet.name === reference || sheet.id === reference)?.id;
-    return sheetId ? formatSheetReferenceToken(sheetId) : '#REF';
+    return sheetId ?? '#REF';
   });
 }
 
@@ -117,8 +117,8 @@ function canonicalMatches(raw: string): Match[] { return lexemeMatches(raw).filt
 function toToken(match: Match): FormulaReferenceToken { return { kind: match.endpoints.length === 2 ? 'range' : 'cell', qualifier: match.qualifier, endpoints: match.endpoints.map((endpoint) => endpoint.kind === 'canonical' ? { kind: 'canonical', coordinate: endpoint.coordinate!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan } : { kind: 'a1', address: endpoint.address!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan }) as [FormulaReferenceEndpoint, FormulaReferenceEndpoint?], sourceSpan: match.sourceSpan }; }
 function targetSheet(qualifier: FormulaQualifier, current: SheetId): SheetId | undefined { return qualifier.kind === 'broken' ? undefined : qualifier.kind === 'explicit' ? qualifier.sheetId : current; }
 function rawTargetSheet(qualifier: FormulaQualifier, resolver: FormulaReferenceResolver): SheetId | undefined { return qualifier.kind === 'explicit' ? resolver.sheetByQualifier(qualifier.sheetId) : targetSheet(qualifier, resolver.currentSheetId); }
-function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `@[${anchors.column ? '$' : ''}${coordinate.columnId},${anchors.row ? '$' : ''}${coordinate.rowId}]`; }
-function formatA1(address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${columnIndexToLabel(address.columnIndex)}${anchors.row ? '$' : ''}${address.rowIndex + 1}`; }
+function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${coordinate.columnId}[${anchors.row ? '$' : ''}${coordinate.rowId}]`; }
+function formatA1(address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${columnIndexToLabel(address.columnIndex)}[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
 /** Applies one copy delta while preserving anchors independently on each axis. */
 function translateCopyAddress(address: CellAddress, anchors: FormulaAxisAnchor, source: CellAddress, destination: CellAddress): CellAddress {
   return {

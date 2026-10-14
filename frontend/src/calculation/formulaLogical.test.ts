@@ -9,7 +9,7 @@ describe('logical formula functions', () => {
       A1: '=IF(TRUE, 7, 8)',
       A2: '=IF(FALSE, "yes", "no")',
       A3: '=IF(AND(TRUE, NOT(FALSE)), FALSE, 3)',
-      A4: '=IF(FALSE, 1, A8)',
+      A4: '=IF(FALSE, 1, @A[8])',
       A8: '',
     });
 
@@ -24,7 +24,7 @@ describe('logical formula functions', () => {
       A1: '=IF(FALSE, 1/0, 2)',
       A2: '=IF(TRUE, 3, UNKNOWN())',
       A3: '=IF(FALSE, ABS(1, 2), 4)',
-      A4: '=IF(TRUE, 5, A5:A6)',
+      A4: '=IF(TRUE, 5, @A[5]:A[6])',
     });
 
     expect(results.A1).toMatchObject({ kind: 'number', value: 2 });
@@ -54,11 +54,11 @@ describe('logical formula functions', () => {
   it('ignores blanks, rejects other scalar types, and requires a boolean value', () => {
     const results = evaluate({
       A1: '', A2: 'TRUE', A3: '',
-      B1: '=AND(A1:A3)',
-      B2: '=OR(A1, A3)',
+      B1: '=AND(@A[1]:A[3])',
+      B2: '=OR(@A[1], @A[3])',
       B3: '=AND(TRUE, 1)',
       B4: '=OR(FALSE, "TRUE")',
-      B5: '=NOT(A1)',
+      B5: '=NOT(@A[1])',
       B6: '=IF(1, 2, 3)',
     });
 
@@ -71,11 +71,11 @@ describe('logical formula functions', () => {
   it('short-circuits decisive logical results and propagates visited errors', () => {
     const results = evaluate({
       A1: 'FALSE', A2: '=1/0',
-      B1: '=AND(A1:A2)',
-      B2: '=AND(TRUE, A2)',
+      B1: '=AND(@A[1]:A[2])',
+      B2: '=AND(TRUE, @A[2])',
       C1: 'TRUE', C2: '=UNKNOWN()',
-      D1: '=OR(C1:C2)',
-      D2: '=OR(FALSE, C2)',
+      D1: '=OR(@C[1]:C[2])',
+      D2: '=OR(FALSE, @C[2])',
     });
 
     expect(results.B1).toMatchObject({ kind: 'boolean', value: false });
@@ -91,7 +91,7 @@ describe('logical formula functions', () => {
       A3: '=OR()',
       A4: '=NOT()',
       A5: '=NOT(TRUE, FALSE)',
-      A6: '=IF(TRUE, B1:B2, 1)',
+      A6: '=IF(TRUE, @B[1]:B[2], 1)',
     });
 
     for (const key of ['A1', 'A2', 'A3', 'A4', 'A5', 'A6']) {

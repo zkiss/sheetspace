@@ -184,7 +184,7 @@ describe('SheetGridCell', () => {
     const sheet = testSheet();
     const editingCell: CellEditSession = {
       target: cellTargetAt(sheet, 'A1')!,
-      draft: '=SUM(\n  B1,\n  B2,\n  B3,\n  B4,\n  B5,\n  B6,\n  B7,\n  B8,\n  B9\n)',
+      draft: '=SUM(\n  @B[1],\n  @B[2],\n  @B[3],\n  @B[4],\n  @B[5],\n  @B[6],\n  @B[7],\n  @B[8],\n  @B[9]\n)',
     };
 
     renderCell({ editingCell, isEditing: true });

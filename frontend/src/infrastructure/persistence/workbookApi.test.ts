@@ -94,7 +94,7 @@ describe('workbook API read decoding', () => {
   });
 
   it('decodes canonical formula strings without rewriting persisted content', () => {
-    const canonical = "=SUM('sheet-inputs'!@[$column-a,row-a]:@[column-b,$row-b], @[column-c,row-c])";
+    const canonical = "=SUM(@sheet-inputs!$column-a[row-a]:column-b[$row-b], @column-c[row-c])";
     const response: SheetDocumentResponse = {
       ...outputsResponse,
       content: {
@@ -278,7 +278,7 @@ describe('workbook API mutations', () => {
     });
     await workbookApi.writeCells(
       [{ sheetId: 'sheet 1', revision: 7 }],
-      [{ sheetId: 'sheet 1', rowId: 'row-1', columnId: 'column-1', raw: '=SUM(B1:B2)' }],
+      [{ sheetId: 'sheet 1', rowId: 'row-1', columnId: 'column-1', raw: '=SUM(@B[1]:B[2])' }],
     );
     const row = await workbookApi.appendRow('sheet 1', { revision: 8 });
     const column = await workbookApi.appendColumn('sheet 1');
@@ -290,7 +290,7 @@ describe('workbook API mutations', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/cells', {
       method: 'PATCH', body: JSON.stringify({
         expectedRevisions: [{ sheetId: 'sheet 1', revision: 7 }],
-        cells: [{ sheetId: 'sheet 1', rowId: 'row-1', columnId: 'column-1', raw: '=SUM(B1:B2)' }],
+        cells: [{ sheetId: 'sheet 1', rowId: 'row-1', columnId: 'column-1', raw: '=SUM(@B[1]:B[2])' }],
       }),
       headers: { 'Content-Type': 'application/json' },
     });

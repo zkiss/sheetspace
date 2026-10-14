@@ -14,7 +14,7 @@ function targetKey(sheet: ReturnType<typeof sheetDocument>, from: string, reques
 
 describe('resolveCellNavigation', () => {
   const sheet = sheetDocument({ id: 'navigation', name: 'Navigation', rowCount: 6, columnCount: 6, cells: {
-    A1: 'start', B1: '=A1', C1: 'end', E1: 'later',
+    A1: 'start', B1: '=@A[1]', C1: 'end', E1: 'later',
     C2: 'up', C3: 'middle', C5: 'down', F4: 'corner',
   } });
 

@@ -117,7 +117,7 @@ class SqliteWorkbookStorePresentationTest {
     @Test
     fun `sizes and targeted removal survive database reopen with cells and frame intact`() {
         val path = Files.createTempFile("sheetspace-presentation", ".db")
-        val initial = testDocument(TEST_SHEET_1, "Sizes", tabular = TabularContent(cells = mapOf("A1" to "=B1", "B1" to "3")))
+        val initial = testDocument(TEST_SHEET_1, "Sizes", tabular = TabularContent(cells = mapOf("A1" to "=@B[1]", "B1" to "3")))
         val row = initial.tabularContent.rows[0].value
         val column = initial.tabularContent.columns[0].value
         try {

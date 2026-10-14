@@ -6,7 +6,7 @@ import { App } from './App';
 
 describe('reference range reveal in the composed workspace', () => {
   it('reveals a variable-metric range on both axes when its anchor is already visible', () => {
-    const reference = 'B3:C5'; const anchor = 'B3'; const end = 'C5';
+    const reference = 'B[3]:C[5]'; const anchor = 'B3'; const end = 'C5';
     const inputs = sheetDocument({
       id: 'inputs', name: 'Inputs', rowCount: 30, columnCount: 10,
       frameSize: { width: 240, height: 160 },
@@ -15,7 +15,7 @@ describe('reference range reveal in the composed workspace', () => {
         columnWidths: { 'inputs:column:2': 80.6, 'inputs:column:3': 90.2 },
       },
     });
-    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: `=SUM(inputs!${reference})` } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: `=SUM(@inputs!${reference})` } });
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(frame).getByTestId('sheet-frame-body');
@@ -38,7 +38,7 @@ describe('reference range reveal in the composed workspace', () => {
     expect(edges(cell(end)).bottom).toBeGreaterThan(body.clientHeight);
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    fireEvent.click(screen.getByRole('button', { name: `Inputs!${reference}, reference` }), { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: `@Inputs!${reference}, reference` }), { ctrlKey: true });
 
     expect(cell(anchor)).toHaveFocus();
     expect(cell(end)).toHaveAttribute('data-reference-selected', 'true');

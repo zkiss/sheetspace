@@ -64,7 +64,7 @@ class TabularContentTest {
 
     @Test
     fun `cell mutations preserve raw content and clear empty values`() {
-        val raw = "= \n SuM ( B1 , B2 )"
+        val raw = "= \n SuM ( @B[1] , @B[2] )"
         val stored = TabularContent().updateCell("A1", raw)
         val cleared = stored.updateCell("A1", "")
 

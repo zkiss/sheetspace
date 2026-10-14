@@ -15,11 +15,11 @@ describe('formula operators and scalar values', () => {
       B1: '=1+2*3',
       B2: '=(1+2)*3',
       B3: '=10-3-2',
-      B4: '=--A1 + +A2',
-      B5: '=-(A1+2)',
+      B4: '=--@A[1] + +@A[2]',
+      B5: '=-(@A[1]+2)',
     });
     const outputs = sheetWithCells('sheet-2', 'Outputs', {
-      A1: '=sheet-1!A1/sheet-1!A2',
+      A1: '=@sheet-1!A[1]/@sheet-1!A[2]',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
 
@@ -38,9 +38,9 @@ describe('formula operators and scalar values', () => {
       A3: 'TRUE',
       B1: '=1/0',
       B2: '=1/-0',
-      B3: '=A1+1',
-      B4: '=A2*2',
-      B5: '=-A3',
+      B3: '=@A[1]+1',
+      B4: '=@A[2]*2',
+      B5: '=-@A[3]',
       B6: '=1e308*2',
       B7: '=6/2',
     });
@@ -76,12 +76,12 @@ describe('formula operators and scalar values', () => {
   it('compares text by Unicode code point, booleans FALSE before TRUE, and blank with blank', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '="A"<"a"',
-      A2: '="\u{10000}">"\u{E000}"',
+      A2: '="𐀀">""',
       A3: '=FALSE<TRUE',
       A4: '=TRUE>=TRUE',
-      A5: '=B1=B2',
-      A6: '=B1<=B2',
-      A7: '=B1<>B2',
+      A5: '=@B[1]=@B[2]',
+      A6: '=@B[1]<=@B[2]',
+      A7: '=@B[1]<>@B[2]',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
@@ -95,11 +95,11 @@ describe('formula operators and scalar values', () => {
     const inputs = sheetWithCells('sheet-inputs', 'Inputs', {
       A1: '3',
       A2: '4',
-      B1: '=A1*2>=A2+2',
+      B1: '=@A[1]*2>=@A[2]+2',
     });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=B1<sheet-inputs!A2',
-      A2: '=sheet-inputs!A1>B1',
+      A1: '=@B[1]<@sheet-inputs!A[2]',
+      A2: '=@sheet-inputs!A[1]>@B[1]',
       B1: '2',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
@@ -113,10 +113,10 @@ describe('formula operators and scalar values', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '=1="1"',
       A2: '=TRUE=1',
-      A3: '=B1=B2',
-      A4: '=B1:B2=B1:B2',
-      A5: '=Missing!A1=(1/0)',
-      A6: '=(1/0)=Missing!A1',
+      A3: '=@B[1]=@B[2]',
+      A4: '=@B[1]:B[2]=@B[1]:B[2]',
+      A5: '=@Missing!A[1]=(1/0)',
+      A6: '=(1/0)=@Missing!A[1]',
       B1: '',
       B2: 'text',
     });
@@ -131,8 +131,8 @@ describe('formula operators and scalar values', () => {
 
   it('propagates arithmetic operand errors from left to right', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=Missing!A1 + (1/0)',
-      A2: '=(1/0) + Missing!A1',
+      A1: '=@Missing!A[1] + (1/0)',
+      A2: '=(1/0) + @Missing!A[1]',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs])))['sheet-1'];
 
@@ -165,17 +165,17 @@ describe('formula operators and scalar values', () => {
       A2: 'TRUE',
       A3: ' source text ',
       A4: '   ',
-      B1: '=A1',
-      B2: '=A2',
-      B3: '=A3',
-      B4: '=A5',
+      B1: '=@A[1]',
+      B2: '=@A[2]',
+      B3: '=@A[3]',
+      B4: '=@A[5]',
     });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=sheet-inputs!B1',
-      A2: '=sheet-inputs!B2',
-      A3: '=sheet-inputs!B3',
-      A4: '=sheet-inputs!B4',
-      A5: '=sheet-inputs!A4',
+      A1: '=@sheet-inputs!B[1]',
+      A2: '=@sheet-inputs!B[2]',
+      A3: '=@sheet-inputs!B[3]',
+      A4: '=@sheet-inputs!B[4]',
+      A5: '=@sheet-inputs!A[4]',
     });
     const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([inputs, outputs])));
 

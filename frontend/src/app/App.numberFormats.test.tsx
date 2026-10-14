@@ -22,7 +22,7 @@ function selectColumn(element: Element, clientX: number, clientY: number) {
 describe('App number formatting workflow', () => {
   it('formats a whole column including blanks, restores grid focus, and persists reset and inheritance', async () => {
     const user = userEvent.setup();
-    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.23', B1: '=A1*2' } });
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.23', B1: '=@A[1]*2' } });
     const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
 

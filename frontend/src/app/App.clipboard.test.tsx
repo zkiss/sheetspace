@@ -19,7 +19,7 @@ describe('App grid clipboard integration', () => {
       ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }),
       columnCount: 3,
       rowCount: 2,
-      cells: { A1: '2', B1: '=A1 * 3' },
+      cells: { A1: '2', B1: '=@A[1] * 3' },
     };
     const apiClient = autosaveClient();
     render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
@@ -29,7 +29,7 @@ describe('App grid clipboard integration', () => {
 
     fireEvent.click(cell('B1'));
     expect(fireEvent.copy(cell('B1'), { clipboardData: copied })).toBe(false);
-    expect(copied.getData('text/plain')).toBe('=A1 * 3');
+    expect(copied.getData('text/plain')).toBe('=@A[1] * 3');
     expect(copied.getData('application/x-sheetspace-clipboard')).toMatch(/^sheetspace:/);
 
     fireEvent.click(cell('C1'));

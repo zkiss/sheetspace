@@ -118,7 +118,7 @@ describe('viewport-aware sheet creation', () => {
     await user.type(editor, '10');
     fireEvent.keyDown(editor, { key: 'Enter' });
     editor = await openCellEditor(user, cellAt(outputs, 'A1'));
-    await user.type(editor, '=Inputs!B1');
+    await user.type(editor, '=@Inputs!B[[1]');
     fireEvent.keyDown(editor, { key: 'Enter' });
     await waitFor(() => expect(cellAt(outputs, 'A1')).toHaveTextContent('10'));
 
@@ -137,7 +137,7 @@ describe('viewport-aware sheet creation', () => {
     await waitFor(() => expect(apiClient.updateSheetFrameLayout).toHaveBeenCalled());
 
     fireEvent.click(cellAt(outputs, 'A1'));
-    fireEvent.click(screen.getByRole('button', { name: 'Inputs!B1, reference' }), { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: '@Inputs!B[1], reference' }), { ctrlKey: true });
     expect(inputs).toHaveAttribute('data-active-sheet', 'true');
     expect(inputs).toHaveAttribute('data-navigation-reveal', 'true');
     // Navigation raises the effective scale to the shared detailed-entry

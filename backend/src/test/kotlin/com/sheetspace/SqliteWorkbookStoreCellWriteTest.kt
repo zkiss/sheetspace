@@ -18,11 +18,11 @@ class SqliteWorkbookStoreCellWriteTest {
                 listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)),
                 listOf(
                     first.cellWrite("A1", "raw"),
-                    first.cellWrite("B2", "=A1"),
+                    first.cellWrite("B2", "=@A[1]"),
                 ),
             ).single()
 
-            assertEquals(mapOf("A1" to "raw", "B2" to "=A1"), updated.tabularContent.cells)
+            assertEquals(mapOf("A1" to "raw", "B2" to "=@A[1]"), updated.tabularContent.cells)
             assertEquals(1, updated.revision)
             assertEquals(0, store.loadSheet(SheetId(TEST_SHEET_2))!!.revision)
             assertEquals(0, store.loadManifest().revision)
@@ -32,7 +32,7 @@ class SqliteWorkbookStoreCellWriteTest {
     fun `canonical formula content survives sqlite round trip byte for byte`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Outputs")
         val canonical =
-            "= SUM( 'sheet-inputs'!@[\$column-a,row-a]:@[column-b,\$row-b], @[column-c,row-c] )"
+            "= SUM( @sheet-inputs!\$column-a[row-a]:column-b[\$row-b], @column-c[row-c] )"
         store.saveWorkbook(testWorkbookOf(sheet))
 
         store.writeCells(

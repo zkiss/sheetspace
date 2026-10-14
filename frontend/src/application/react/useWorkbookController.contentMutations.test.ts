@@ -125,7 +125,7 @@ describe('useWorkbookController content mutations', () => {
 
   it('undoes and redoes content with fresh feedback while leaving presentation outside history', async () => {
     const apiClient = autosaveClient();
-    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: '=SUM(A1)' } });
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: '=SUM(@A[1])' } });
     const { result } = renderHook(() => useWorkbookController({
       apiClient,
       initialWorkbook: workbookWithSheets([sheet]),
@@ -208,7 +208,7 @@ describe('useWorkbookController content mutations', () => {
     const sheet = sheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
-      cells: { B1: '=SUM(A1)' },
+      cells: { B1: '=SUM(@A[1])' },
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -237,7 +237,7 @@ describe('useWorkbookController content mutations', () => {
     const sheet = sheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
-      cells: { B1: '=SUM(A1)' },
+      cells: { B1: '=SUM(@A[1])' },
     });
     const { result } = renderHook(() =>
       useWorkbookController({

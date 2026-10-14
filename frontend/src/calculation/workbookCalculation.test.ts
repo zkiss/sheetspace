@@ -28,7 +28,7 @@ describe('workbook calculation boundary', () => {
   });
 
   it('carries an action-reported impact with the next projection', () => {
-    const next = workbook(sheetWithCells({ A1: '2', B1: '=A1' }));
+    const next = workbook(sheetWithCells({ A1: '2', B1: '=@A[1]' }));
     const request = calculationRequest(next, {
       kind: 'cells',
       cells: [{ sheetId: 'sheet-1', key: 'A1' }],

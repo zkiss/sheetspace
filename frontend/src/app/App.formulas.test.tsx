@@ -9,7 +9,7 @@ describe('App formula composition', () => {
   it('shows calculated values and selected-formula inspection through the application', async () => {
     const user = userEvent.setup();
     const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }), cells: { A1: '3', A2: '4' } };
-    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }), cells: { A1: '=SUM(sheet-inputs!A1:A2, sheet-missing!B2)' } };
+    const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }), cells: { A1: '=SUM(@sheet-inputs!A[1]:A[2], @sheet-missing!B[2])' } };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     const formulaCell = screen.getByRole('cell', { name: 'Outputs A1 cell' });
     expect(formulaCell).toHaveTextContent('#REF!');
@@ -20,14 +20,14 @@ describe('App formula composition', () => {
 
     expect(numberFormats.compareDocumentPosition(inspection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(surface).toContainElement(inspection);
-    expect(inspection).toHaveTextContent('=SUM(Inputs!A1:A2, #REF!B2)');
-    expect(within(inspection).getByLabelText('Inputs!A1:A2, reference')).toHaveAttribute('data-navigable', 'true');
-    expect(within(inspection).getByLabelText('#REF!B2, broken reference')).toHaveAttribute('data-navigable', 'false');
+    expect(inspection).toHaveTextContent('=SUM(@Inputs!A[1]:A[2], @#REF!B[2])');
+    expect(within(inspection).getByLabelText('@Inputs!A[1]:A[2], reference')).toHaveAttribute('data-navigable', 'true');
+    expect(within(inspection).getByLabelText('@#REF!B[2], broken reference')).toHaveAttribute('data-navigable', 'false');
   });
 
   it('recomputes a visible formula after a committed cell edit', async () => {
     const user = userEvent.setup();
-    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }), cells: { A1: '=SUM(B1:B2)', B1: '1', B2: '2' } };
+    const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }), cells: { A1: '=SUM(@B[1]:B[2])', B1: '1', B2: '2' } };
     render(<App initialWorkbook={workbookWithSheets([sheet])} />);
     const formulaCell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     expect(formulaCell).toHaveTextContent('3');

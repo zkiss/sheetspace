@@ -79,14 +79,14 @@ describe('clipboard payload provenance', () => {
   it('exports raw content with formulas projected for people, while preserving canonical source raws privately', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: 'literal', B1: '' } });
     const workbook = workbookWithSheets([source]);
-    const canonical = formulaRawForStorage('=A1', workbook, source.id);
+    const canonical = formulaRawForStorage('=@A[1]', workbook, source.id);
     const formulaSheet = { ...source, content: { ...source.content, cells: { ...source.content.cells, [source.content.rows[1]! + '\u0000' + source.content.columns[0]!]: canonical } } };
     const model = workbookWithSheets([formulaSheet]);
     const a1 = cellTargetAt(formulaSheet, 'A1')!;
     const a2 = cellTargetAt(formulaSheet, 'A2')!;
     const store = new ClipboardPayloadStore();
     const copied = store.copy(model, { mode: 'cells', anchor: a1, extent: a2 });
-    expect(copied).toMatchObject({ ok: true, value: { text: 'literal\n=A1', dimensions: { rowCount: 2, columnCount: 1 } } });
+    expect(copied).toMatchObject({ ok: true, value: { text: 'literal\n=@A[1]', dimensions: { rowCount: 2, columnCount: 1 } } });
     if (!copied.ok) throw new Error('copy failed');
     const parsed = store.parse(model, copied.value);
     expect(parsed).toMatchObject({ ok: true, value: { kind: 'internal', source: { cells: [[{ raw: 'literal' }], [{ raw: canonical }]] } } });

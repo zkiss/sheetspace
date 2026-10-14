@@ -15,13 +15,13 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     let workbook = workbookWithSheets([sheetWithCells('sheet-1', 'Inputs', {
       A1: '7',
-      B1: '=A1',
+      B1: '=@A[1]',
       A2: '3',
-      B2: '=B1',
+      B2: '=@B[1]',
     })]);
     // Route formulas through the write path that captures their stable targets.
-    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '=A1');
-    workbook = commitCellRawContent(workbook, 'sheet-1', 'B2', '=B1');
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '=@A[1]');
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B2', '=@B[1]');
     const initial = calculation.update(calculationProjection(workbook), { kind: 'structure' });
     expect(initial['sheet-1'].B2).toMatchObject({ kind: 'number', value: 7 });
 
@@ -44,16 +44,16 @@ describe('incremental formula calculation', () => {
   it('detects direct, indirect, cross-sheet, and range-mediated cycles', () => {
     const calculation = new FormulaCalculation();
     const first = sheetWithCells('sheet-first', 'First', {
-      A1: '=A1',
-      A2: '=B2',
-      B2: '=A2',
-      A3: '=SUM(B3:C3)',
-      B3: '=A3',
+      A1: '=@A[1]',
+      A2: '=@B[2]',
+      B2: '=@A[2]',
+      A3: '=SUM(@B[3]:C[3])',
+      B3: '=@A[3]',
       C3: '1',
-      A4: '=sheet-second!A4',
+      A4: '=@sheet-second!A[4]',
     });
     const second = sheetWithCells('sheet-second', 'Second', {
-      A4: '=sheet-first!A4',
+      A4: '=@sheet-first!A[4]',
     });
 
     const results = calculation.update(
@@ -75,11 +75,11 @@ describe('incremental formula calculation', () => {
   it('marks structural downstream references while calculating independent components', () => {
     const calculation = new FormulaCalculation();
     const sheet = sheetWithCells('sheet-1', 'Inputs', {
-      A1: '=B1',
-      B1: '=A1',
-      C1: '=IF(FALSE, A1, 7)',
-      D1: '=C1 + 1',
-      E1: '=F1 + 1',
+      A1: '=@B[1]',
+      B1: '=@A[1]',
+      C1: '=IF(FALSE, @A[1], 7)',
+      D1: '=@C[1] + 1',
+      E1: '=@F[1] + 1',
       F1: '4',
     });
 
@@ -99,10 +99,10 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     let workbook = workbookWithSheets([
       sheetWithCells('sheet-1', 'Inputs', {
-        A1: '=B1',
+        A1: '=@B[1]',
         B1: '2',
-        C1: '=A1 + 1',
-        D1: '=E1 + 1',
+        C1: '=@A[1] + 1',
+        D1: '=@E[1] + 1',
         E1: '9',
       }),
     ]);
@@ -113,7 +113,7 @@ describe('incremental formula calculation', () => {
         D1: { kind: 'number', value: 10 },
       });
 
-    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '=A1');
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'B1', '=@A[1]');
     const createdEvaluations: string[] = [];
     const created = calculation.update(
       calculationProjection(workbook),
@@ -144,12 +144,12 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '1',
-      B1: '=SUM(A1)',
-      C1: '=SUM(B1)',
-      D1: '=SUM(A1)',
-      E1: '=SUM(C1,D1)',
+      B1: '=SUM(@A[1])',
+      C1: '=SUM(@B[1])',
+      D1: '=SUM(@A[1])',
+      E1: '=SUM(@C[1],@D[1])',
       H1: '10',
-      I1: '=SUM(H1)',
+      I1: '=SUM(@H[1])',
     });
     const workbook = workbookWithSheets([inputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
@@ -206,9 +206,9 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '1',
-      B1: '=A1',
+      B1: '=@A[1]',
       C1: '10',
-      D1: '=C1',
+      D1: '=@C[1]',
     });
     calculation.update(calculationProjection(workbookWithSheets([inputs])), { kind: 'structure' });
 
@@ -243,8 +243,8 @@ describe('incremental formula calculation', () => {
       B1: '10',
     });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=-(sheet-inputs!A1 + 3) * 2',
-      B1: '=sheet-inputs!B1 + 1',
+      A1: '=-(@sheet-inputs!A[1] + 3) * 2',
+      B1: '=@sheet-inputs!B[1] + 1',
     });
     calculation.update(calculationProjection(workbookWithSheets([inputs, outputs])), { kind: 'structure' });
 
@@ -268,8 +268,8 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '2' });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=4<=sheet-inputs!A1 + 1',
-      A2: '=sheet-inputs!A1 + 1>=4',
+      A1: '=4<=@sheet-inputs!A[1] + 1',
+      A2: '=@sheet-inputs!A[1] + 1>=4',
       B1: '=10>5',
     });
     calculation.update(calculationProjection(workbookWithSheets([inputs, outputs])), { kind: 'structure' });
@@ -296,7 +296,7 @@ describe('incremental formula calculation', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '1',
       B1: '2',
-      C1: '=FUTURE_LAZY(A1, B1)',
+      C1: '=FUTURE_LAZY(@A[1], @B[1])',
     });
     const workbook = workbookWithSheets([inputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
@@ -317,9 +317,9 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '2', A2: '3' });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=SUM(sheet-inputs!A1:A2)',
-      A2: '=SUM(A1)',
-      B1: '=SUM(B2)',
+      A1: '=SUM(@sheet-inputs!A[1]:A[2])',
+      A2: '=SUM(@A[1])',
+      B1: '=SUM(@B[2])',
       B2: '9',
     });
     const workbook = workbookWithSheets([inputs, outputs]);
@@ -342,8 +342,8 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '1', B1: '10', C1: '20' });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=IF(sheet-inputs!A1 > 0, sheet-inputs!B1, sheet-inputs!C1)',
-      A2: '=IF(A3, "yes", "no")',
+      A1: '=IF(@sheet-inputs!A[1] > 0, @sheet-inputs!B[1], @sheet-inputs!C[1])',
+      A2: '=IF(@A[3], "yes", "no")',
       A3: 'FALSE',
     });
     let workbook = workbookWithSheets([inputs, outputs]);
@@ -368,8 +368,8 @@ describe('incremental formula calculation', () => {
       A1: 'east', A2: 'west', B1: '2', B2: '5', C1: 'east',
     });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=COUNTIF(sheet-inputs!A1:A2, sheet-inputs!C1)',
-      A2: '=SUMIF(sheet-inputs!A1:A2, sheet-inputs!C1, sheet-inputs!B1:B2)',
+      A1: '=COUNTIF(@sheet-inputs!A[1]:A[2], @sheet-inputs!C[1])',
+      A2: '=SUMIF(@sheet-inputs!A[1]:A[2], @sheet-inputs!C[1], @sheet-inputs!B[1]:B[2])',
     });
     let workbook = workbookWithSheets([inputs, outputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
@@ -404,13 +404,13 @@ describe('incremental formula calculation', () => {
     const inputs = sheetWithCells('sheet-1', 'Inputs', {
       A1: '1',
       B1: '10',
-      C1: '=SUM(A1)',
-      D1: '=SUM(C1)',
+      C1: '=SUM(@A[1])',
+      D1: '=SUM(@C[1])',
     });
     let workbook = workbookWithSheets([inputs]);
     calculation.update(calculationProjection(workbook), { kind: 'structure' });
 
-    workbook = commitCellRawContent(workbook, 'sheet-1', 'C1', '=SUM(B1)');
+    workbook = commitCellRawContent(workbook, 'sheet-1', 'C1', '=SUM(@B[1])');
     calculation.update(
       calculationProjection(workbook),
       { kind: 'cells', cells: [{ sheetId: 'sheet-1', key: 'C1' }] },
@@ -454,8 +454,8 @@ describe('incremental formula calculation', () => {
       id: 'sheet-1',
       name: 'Inputs',
       cells: {
-        A1: '=SUM(A2)',
-        B1: '=SUM(C1)',
+        A1: '=SUM(@A[2])',
+        B1: '=SUM(@C[1])',
       },
       rowCount: 1,
       columnCount: 2,
@@ -479,8 +479,8 @@ describe('incremental formula calculation', () => {
     const calculation = new FormulaCalculation();
     const inputs = sheetWithCells('sheet-inputs', 'Inputs', { A1: '7' });
     const outputs = sheetWithCells('sheet-outputs', 'Outputs', {
-      A1: '=SUM(sheet-inputs!A1)',
-      B1: '=SUM(B2)',
+      A1: '=SUM(@sheet-inputs!A[1])',
+      B1: '=SUM(@B[2])',
       B2: '4',
     });
     const workbook = workbookWithSheets([inputs, outputs]);

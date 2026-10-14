@@ -95,8 +95,8 @@ class WorkbookMutationContractRoutesTest {
             val updateTextCell = client.patchSingleCell(workbookApplication, inputsId, "A1", "Region")
             val updateNumericCell = client.patchSingleCell(workbookApplication, inputsId, "B1", "10")
             val updateSecondNumericCell = client.patchSingleCell(workbookApplication, inputsId, "B2", "5")
-            val updateFormulaCell = client.patchSingleCell(workbookApplication, inputsId, "C1", "= \n SuM ( B1 , B2 )")
-            val updateCrossSheetFormulaCell = client.patchSingleCell(workbookApplication, outputsId, "A1", "=SUM($inputsId!B1:B2)")
+            val updateFormulaCell = client.patchSingleCell(workbookApplication, inputsId, "C1", "= \n SuM ( @B[1] , @B[2] )")
+            val updateCrossSheetFormulaCell = client.patchSingleCell(workbookApplication, outputsId, "A1", "=SUM(@$inputsId!B[1]:B[2])")
 
             assertEquals(HttpStatusCode.Created, createInputs.status)
             assertEquals(HttpStatusCode.Created, createOutputs.status)
@@ -121,9 +121,9 @@ class WorkbookMutationContractRoutesTest {
             assertEquals("Region", inputs.cells.getValue("A1"))
             assertEquals("10", inputs.cells.getValue("B1"))
             assertEquals("5", inputs.cells.getValue("B2"))
-            assertEquals("= \n SuM ( B1 , B2 )", inputs.cells.getValue("C1"))
+            assertEquals("= \n SuM ( @B[1] , @B[2] )", inputs.cells.getValue("C1"))
             assertEquals(WorkspacePosition(420.0, 260.0), outputs.position)
-            assertEquals("=SUM($inputsId!B1:B2)", outputs.cells.getValue("A1"))
+            assertEquals("=SUM(@$inputsId!B[1]:B[2])", outputs.cells.getValue("A1"))
             assertFalse(inputs.cells.containsKey("C1_display"))
             assertFalse(outputs.cells.containsKey("A1_display"))
         }

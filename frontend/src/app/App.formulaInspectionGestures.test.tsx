@@ -5,7 +5,7 @@ import { App } from './App';
 
 function setup() {
   render(<App initialWorkbook={workbookWithSheets([
-    smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=B1+1', B1: '2' } }),
+    smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@B[1]+1', B1: '2' } }),
   ])} />);
   const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
   fireEvent.click(cell);

@@ -131,7 +131,7 @@ describe('useCellEditing', () => {
   });
 
   it('extends keyboard jumps without issuing any content command', () => {
-    const populated = sheetDocument({ id: 'navigation', name: 'Navigation', cells: { A1: 'first', B1: '=A1', C1: 'last' } });
+    const populated = sheetDocument({ id: 'navigation', name: 'Navigation', cells: { A1: 'first', B1: '=@A[1]', C1: 'last' } });
     const { commands, result } = renderCellEditing(populated);
     const a1 = cellTargetAt(populated, 'A1')!;
     const c1 = cellTargetAt(populated, 'C1')!;
@@ -226,7 +226,7 @@ describe('useCellEditing', () => {
     });
 
     it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
-      for (const [raw, draft] of [['', 'Region'], ['', '=SUM(B1:B2)'], ['', ''], ['Region', 'Region'], ['=SUM(B1:B2)', '=SUM(B1:B2)']]) {
+      for (const [raw, draft] of [['', 'Region'], ['', '=SUM(@B[1]:B[2])'], ['', ''], ['Region', 'Region'], ['=SUM(@B[1]:B[2])', '=SUM(@B[1]:B[2])']]) {
         const input = sheetDocument({ id: 'header-drafts', name: 'Header drafts', cells: { A1: raw } });
         const { commands, result, sheet, unmount } = renderCellEditing(input);
         const a1 = cellTargetAt(sheet, 'A1')!;
@@ -249,7 +249,7 @@ describe('useCellEditing', () => {
     it.each([
       ['text', 'Region'],
       ['numeric-looking text', '42.50'],
-      ['formula-looking text', '=SUM(B1:B2)'],
+      ['formula-looking text', '=SUM(@B[1]:B[2])'],
     ])('commits %s without changing the raw draft', (_label, draft) => {
       const { commands, result, sheet } = renderCellEditing();
       const target = cellTargetAt(sheet, 'A1')!;
@@ -269,7 +269,7 @@ describe('useCellEditing', () => {
       const inputs = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
       const outputWithoutFormula = sheetDocument({ id: 'sheet-output', name: 'Output' });
       const initialWorkbook = workbookWithSheets([inputs, outputWithoutFormula]);
-      const storedFormula = formulaRawForStorage("='Inputs'!A1", initialWorkbook, outputWithoutFormula.id);
+      const storedFormula = formulaRawForStorage("=@'Inputs'!A[1]", initialWorkbook, outputWithoutFormula.id);
       const output = sheetDocument({
         id: outputWithoutFormula.id,
         name: outputWithoutFormula.name,
@@ -282,7 +282,7 @@ describe('useCellEditing', () => {
 
       act(() => result.current.startEditingCell(target));
 
-      expect(result.current.editingCell).toEqual({ target, draft: '=Inputs!A1' });
+      expect(result.current.editingCell).toEqual({ target, draft: '=@Inputs!A[1]' });
 
       act(() => result.current.commitActiveEdit());
 
@@ -293,7 +293,7 @@ describe('useCellEditing', () => {
     it.each([
       ['text', 'Remove me'],
       ['numeric-looking text', '123'],
-      ['formula', '=SUM(A2:A3)'],
+      ['formula', '=SUM(@A[2]:A[3])'],
     ])('clears existing %s when an empty edit is committed', (_label, raw) => {
       const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { A1: raw } });
       const { commands, result } = renderCellEditing(sheet);
@@ -344,7 +344,7 @@ describe('useCellEditing', () => {
 
     it('clears a reversed rectangular selection with one batch and retains that selection', () => {
       const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: {
-        A1: 'left', B1: '=A1', B2: 'bottom', C2: 'outside',
+        A1: 'left', B1: '=@A[1]', B2: 'bottom', C2: 'outside',
       } });
       const { commands, result } = renderCellEditing(sheet);
       const b2 = cellTargetAt(sheet, 'B2')!;
@@ -364,7 +364,7 @@ describe('useCellEditing', () => {
     });
 
     it('clears populated cells in a selected whole column with one batch', () => {
-      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: 'top', B2: '=A1', C2: 'outside' } });
+      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: 'top', B2: '=@A[1]', C2: 'outside' } });
       const { commands, result } = renderCellEditing(sheet);
       const b1 = cellTargetAt(sheet, 'B1')!;
       const b2 = cellTargetAt(sheet, 'B2')!;
@@ -381,7 +381,7 @@ describe('useCellEditing', () => {
     });
 
     it('clears populated cells in a selected whole row with one batch', () => {
-      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { A2: 'left', B2: '=A1', B1: 'outside' } });
+      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { A2: 'left', B2: '=@A[1]', B1: 'outside' } });
       const { commands, result } = renderCellEditing(sheet);
       const a2 = cellTargetAt(sheet, 'A2')!;
       const b2 = cellTargetAt(sheet, 'B2')!;

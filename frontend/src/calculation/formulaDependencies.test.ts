@@ -12,7 +12,7 @@ describe('formula dependencies', () => {
   it('builds direct, range, and cross-sheet edges', () => {
     const projection = calculationProjection({
       inputs: { A1: '1', A2: '2' },
-      outputs: { A1: '=SUM(inputs!A1:A2)', B1: '=A1 * 2' },
+      outputs: { A1: '=SUM(@inputs!A[1]:A[2])', B1: '=@A[1] * 2' },
     });
 
     const graph = buildFormulaDependencyGraph(projection);
@@ -32,11 +32,11 @@ describe('formula dependencies', () => {
 
   it('replaces old edges when a changed formula points elsewhere', () => {
     const previous = calculationProjection({
-      sheet: { A1: '1', B1: '2', C1: '=A1' },
+      sheet: { A1: '1', B1: '2', C1: '=@A[1]' },
     });
     const previousGraph = buildFormulaDependencyGraph(previous);
     const next = calculationProjection({
-      sheet: { A1: '1', B1: '2', C1: '=B1' },
+      sheet: { A1: '1', B1: '2', C1: '=@B[1]' },
     });
 
     const nextGraph = updateFormulaDependencyGraph(
@@ -56,7 +56,7 @@ describe('formula dependencies', () => {
 
   it('removes formula edges when a changed cell becomes plain', () => {
     const previous = calculationProjection({
-      sheet: { A1: '1', B1: '=A1' },
+      sheet: { A1: '1', B1: '=@A[1]' },
     });
     const graph = buildFormulaDependencyGraph(previous);
     const next = calculationProjection({
@@ -75,11 +75,11 @@ describe('formula dependencies', () => {
 
   it('finds transitive dependents across previous and next edges', () => {
     const previous = calculationProjection({
-      sheet: { A1: '1', B1: '=A1', C1: '=B1' },
+      sheet: { A1: '1', B1: '=@A[1]', C1: '=@B[1]' },
     });
     const previousGraph = buildFormulaDependencyGraph(previous);
     const next = calculationProjection({
-      sheet: { A1: '1', B1: '=D1', C1: '=B1', D1: '2' },
+      sheet: { A1: '1', B1: '=@D[1]', C1: '=@B[1]', D1: '2' },
     });
     const nextGraph = updateFormulaDependencyGraph(
       previousGraph,

@@ -43,7 +43,7 @@ describe('formula parser', () => {
 
   it('parses SUM formulas case-insensitively without rewriting raw formula text', () => {
     const { workbook, inputs } = formulaWorkbook();
-    const raw = '=sUm(A1, B2:C3)';
+    const raw = '=sUm(@A[1], @B[2]:C[3])';
 
     expect(parseFormula(raw, workbook, inputs)).toEqual({
       kind: 'formula',
@@ -55,7 +55,7 @@ describe('formula parser', () => {
           {
             kind: 'cell',
             address: { columnIndex: 0, rowIndex: 0 },
-            sourceSpan: { start: 5, end: 7 },
+            sourceSpan: { start: 5, end: 10 },
           },
           {
             kind: 'range',
@@ -63,10 +63,10 @@ describe('formula parser', () => {
               start: { columnIndex: 1, rowIndex: 1 },
               end: { columnIndex: 2, rowIndex: 2 },
             },
-            sourceSpan: { start: 9, end: 14 },
+            sourceSpan: { start: 12, end: 22 },
           },
         ],
-        sourceSpan: { start: 1, end: 15 },
+        sourceSpan: { start: 1, end: 23 },
       },
     });
   });
@@ -123,7 +123,7 @@ describe('formula parser', () => {
 
   it('parses nested literals, calls, and grouped expressions into source-aware nodes', () => {
     const { workbook, inputs } = formulaWorkbook();
-    const raw = '=SUM(1, "x", TRUE, ((A1)), SUM(B2))';
+    const raw = '=SUM(1, "x", TRUE, ((@A[1])), SUM(@B[2]))';
 
     expect(parseFormula(raw, workbook, inputs)).toEqual({
       kind: 'formula',
@@ -131,33 +131,33 @@ describe('formula parser', () => {
       expression: {
         kind: 'function',
         functionName: 'SUM',
-        sourceSpan: { start: 1, end: 35 },
+        sourceSpan: { start: 1, end: 41 },
         arguments: [
           { kind: 'number', value: 1, sourceSpan: { start: 5, end: 6 } },
           { kind: 'text', value: 'x', sourceSpan: { start: 8, end: 11 } },
           { kind: 'boolean', value: true, sourceSpan: { start: 13, end: 17 } },
           {
             kind: 'group',
-            sourceSpan: { start: 19, end: 25 },
+            sourceSpan: { start: 19, end: 28 },
             expression: {
               kind: 'group',
-              sourceSpan: { start: 20, end: 24 },
+              sourceSpan: { start: 20, end: 27 },
               expression: {
                 kind: 'cell',
                 address: { columnIndex: 0, rowIndex: 0 },
-                sourceSpan: { start: 21, end: 23 },
+                sourceSpan: { start: 21, end: 26 },
               },
             },
           },
           {
             kind: 'function',
             functionName: 'SUM',
-            sourceSpan: { start: 27, end: 34 },
+            sourceSpan: { start: 30, end: 40 },
             arguments: [
               {
                 kind: 'cell',
                 address: { columnIndex: 1, rowIndex: 1 },
-                sourceSpan: { start: 31, end: 33 },
+                sourceSpan: { start: 34, end: 39 },
               },
             ],
           },
@@ -199,7 +199,7 @@ describe('formula parser', () => {
       },
     });
 
-    expect(parseFormula('=-(A1+2)', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=-(@A[1]+2)', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         kind: 'unary',
@@ -256,7 +256,7 @@ describe('formula parser', () => {
     (operator) => {
       const { workbook, inputs } = formulaWorkbook();
 
-      expect(parseFormula(`=A1${operator}sheet-2!B1`, workbook, inputs)).toMatchObject({
+      expect(parseFormula(`=@A[1]${operator}@sheet-2!B[1]`, workbook, inputs)).toMatchObject({
         kind: 'formula',
         expression: {
           kind: 'binary',
@@ -265,7 +265,7 @@ describe('formula parser', () => {
           right: { kind: 'cell', sheetId: 'sheet-2' },
         },
       });
-      expect(parseFormula(`=sheet-2!B1${operator}A1`, workbook, inputs)).toMatchObject({
+      expect(parseFormula(`=@sheet-2!B[1]${operator}@A[1]`, workbook, inputs)).toMatchObject({
         kind: 'formula',
         expression: {
           kind: 'binary',
@@ -300,7 +300,7 @@ describe('formula parser', () => {
   it('parses common numeric and aggregate functions case-insensitively', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=aVeRaGe(A1:A3)', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=aVeRaGe(@A[1]:A[3])', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         kind: 'function',
@@ -308,7 +308,7 @@ describe('formula parser', () => {
         arguments: [{ kind: 'range' }],
       },
     });
-    expect(parseFormula('=sqrt(ABS(B1))', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=sqrt(ABS(@B[1]))', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         kind: 'function',
@@ -328,13 +328,13 @@ describe('formula parser', () => {
     '=1e',
     '=1e+',
     '="unterminated',
-    '=(A1',
-    '=A1)',
+    '=(@A[1]',
+    '=@A[1])',
     '=()',
-    '=(A1, B1)',
+    '=(@A[1], @B[1])',
     '="x" trailing',
-    '=SUM(K1',
-    '=SUM(Missing!A1',
+    '=SUM(@K[1]',
+    '=SUM(@Missing!A[1]',
   ])('reports malformed literal or grouping %s as #PARSE!', (raw) => {
     const { workbook, inputs } = formulaWorkbook();
 
@@ -348,7 +348,7 @@ describe('formula parser', () => {
   it('allows whitespace and newlines around formula separators', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('= \n SUM \t ( \n A1 \n , \t B2 \n : \t C3 \n ) ', workbook, inputs)).toMatchObject({
+    expect(parseFormula('= \n SUM \t ( \n @A[1] \n , \t @B[2] \n : \t C[3] \n ) ', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         arguments: [
@@ -368,7 +368,7 @@ describe('formula parser', () => {
   it('parses canonical cross-sheet cell and range references by sheet id', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=SUM(sheet-2!A1, sheet-1!B2:C3)', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=SUM(@sheet-2!A[1], @sheet-1!B[2]:C[3])', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         arguments: [
@@ -390,13 +390,13 @@ describe('formula parser', () => {
     });
   });
 
-  it('parses spans for quoted and digit-leading canonical sheet qualifiers', () => {
+  it('parses spans for bare and digit-leading stable sheet qualifiers', () => {
     const { workbook, inputs } = formulaWorkbook();
     appendSheet(workbook, sheet('123e4567-e89b-12d3-a456-426614174000', 'UUID inputs'));
 
     expect(
       parseFormula(
-        "=SUM('sheet-3'!A1, 123e4567-e89b-12d3-a456-426614174000!B2)",
+        "=SUM(@sheet-3!A[1], @123e4567-e89b-12d3-a456-426614174000!B[2])",
         workbook,
         inputs,
       ),
@@ -407,14 +407,14 @@ describe('formula parser', () => {
           {
             kind: 'cell',
             sheetId: 'sheet-3',
-            sourceSpan: { start: 5, end: 17 },
-            sheetReferenceSpan: { start: 5, end: 14 },
+            sourceSpan: { start: 5, end: 18 },
+            sheetReferenceSpan: { start: 6, end: 13 },
           },
           {
             kind: 'cell',
             sheetId: '123e4567-e89b-12d3-a456-426614174000',
-            sourceSpan: { start: 19, end: 58 },
-            sheetReferenceSpan: { start: 19, end: 55 },
+            sourceSpan: { start: 20, end: 62 },
+            sheetReferenceSpan: { start: 21, end: 57 },
           },
         ],
       },
@@ -423,7 +423,7 @@ describe('formula parser', () => {
 
   it('excludes surrounding whitespace from reference token spans', () => {
     const { workbook, inputs } = formulaWorkbook();
-    const raw = '=SUM(A1 \n, sheet-2 \t! B2 \n: C3)';
+    const raw = '=SUM(@A[1] \n, @sheet-2 \t! B[2] \n: C[3])';
 
     expect(parseFormula(raw, workbook, inputs)).toMatchObject({
       kind: 'formula',
@@ -431,13 +431,13 @@ describe('formula parser', () => {
         arguments: [
           {
             kind: 'cell',
-            sourceSpan: { start: 5, end: 7 },
+            sourceSpan: { start: 5, end: 10 },
           },
           {
             kind: 'range',
             sheetId: 'sheet-2',
-            sourceSpan: { start: 11, end: 30 },
-            sheetReferenceSpan: { start: 11, end: 18 },
+            sourceSpan: { start: 14, end: 38 },
+            sheetReferenceSpan: { start: 15, end: 22 },
           },
         ],
       },
@@ -446,40 +446,40 @@ describe('formula parser', () => {
 
   it('canonicalizes visible sheet names while preserving surrounding formula text', () => {
     const { workbook } = formulaWorkbook();
-    const raw = "=sUm( Outputs !A1, 'Sales Q1'!A1:B2, 'Owner''s Plan'!C3 )";
+    const raw = "=sUm( @Outputs !A[1], @'Sales Q1'!A[1]:B[2], @'Owner''s Plan'!C[3] )";
 
     expect(formulaRawForStorage(raw, workbook)).toBe(
-      "=sUm( 'sheet-2' !A1, 'sheet-3'!A1:B2, 'sheet-5'!C3 )",
+      "=sUm( @sheet-2 !A[1], @sheet-3!A[1]:B[2], @sheet-5!C[3] )",
     );
   });
 
   it('canonicalizes cross-sheet references used as arithmetic operands', () => {
     const { workbook } = formulaWorkbook();
 
-    expect(formulaRawForStorage("=Inputs!A1+'Sales Q1'!B2*2", workbook)).toBe(
-      "='sheet-1'!A1+'sheet-3'!B2*2",
+    expect(formulaRawForStorage("=@Inputs!A[1]+@'Sales Q1'!B[2]*2", workbook)).toBe(
+      "=@sheet-1!A[1]+@sheet-3!B[2]*2",
     );
-    expect(formulaRawForStorage('=-Inputs!A1', workbook)).toBe("=-'sheet-1'!A1");
-    expect(formulaRawForStorage('=A1-Inputs!A1', workbook)).toBe("=A1-'sheet-1'!A1");
-    expect(formulaRawForStorage('=A1--Inputs!A1', workbook)).toBe("=A1--'sheet-1'!A1");
-    expect(formulaRawForStorage('=Inputs!A1-Outputs!A1', workbook)).toBe(
-      "='sheet-1'!A1-'sheet-2'!A1",
+    expect(formulaRawForStorage('=-@Inputs!A[1]', workbook)).toBe("=-@sheet-1!A[1]");
+    expect(formulaRawForStorage('=@A[1]-@Inputs!A[1]', workbook)).toBe("=@A[1]-@sheet-1!A[1]");
+    expect(formulaRawForStorage('=@A[1]--@Inputs!A[1]', workbook)).toBe("=@A[1]--@sheet-1!A[1]");
+    expect(formulaRawForStorage('=@Inputs!A[1]-@Outputs!A[1]', workbook)).toBe(
+      "=@sheet-1!A[1]-@sheet-2!A[1]",
     );
-    expect(formulaRawForStorage("=Inputs!A1-Outputs!A1-'Sales Q1'!A1", workbook)).toBe(
-      "='sheet-1'!A1-'sheet-2'!A1-'sheet-3'!A1",
+    expect(formulaRawForStorage("=@Inputs!A[1]-@Outputs!A[1]-@'Sales Q1'!A[1]", workbook)).toBe(
+      "=@sheet-1!A[1]-@sheet-2!A[1]-@sheet-3!A[1]",
     );
 
     const uuid = '123e4567-e89b-12d3-a456-426614174000';
     const secondUuid = '223e4567-e89b-12d3-a456-426614174001';
     appendSheet(workbook, sheet(uuid, 'UUID inputs'));
     appendSheet(workbook, sheet(secondUuid, 'UUID outputs'));
-    expect(formulaRawForDisplay(`=-${uuid}!A1`, workbook)).toBe("=-'UUID inputs'!A1");
-    expect(formulaRawForDisplay(`=${uuid}!A1-sheet-1!A1-sheet-2!A1`, workbook)).toBe(
-      "='UUID inputs'!A1-Inputs!A1-Outputs!A1",
+    expect(formulaRawForDisplay(`=-@${uuid}!A[1]`, workbook)).toBe("=-@'UUID inputs'!A[1]");
+    expect(formulaRawForDisplay(`=@${uuid}!A[1]-@sheet-1!A[1]-@sheet-2!A[1]`, workbook)).toBe(
+      "=@'UUID inputs'!A[1]-@Inputs!A[1]-@Outputs!A[1]",
     );
-    expect(formulaRawForDisplay(`=A1-${uuid}!A1`, workbook)).toBe("=A1-'UUID inputs'!A1");
-    expect(formulaRawForDisplay(`=${uuid}!A1-${secondUuid}!A1`, workbook)).toBe(
-      "='UUID inputs'!A1-'UUID outputs'!A1",
+    expect(formulaRawForDisplay(`=@A[1]-@${uuid}!A[1]`, workbook)).toBe("=@A[1]-@'UUID inputs'!A[1]");
+    expect(formulaRawForDisplay(`=@${uuid}!A[1]-@${secondUuid}!A[1]`, workbook)).toBe(
+      "=@'UUID inputs'!A[1]-@'UUID outputs'!A[1]",
     );
   });
 
@@ -488,34 +488,34 @@ describe('formula parser', () => {
     (operator) => {
       const { workbook } = formulaWorkbook();
 
-      expect(formulaRawForStorage(`=Inputs!A1${operator}2`, workbook)).toBe(
-        `='sheet-1'!A1${operator}2`,
+      expect(formulaRawForStorage(`=@Inputs!A[1]${operator}2`, workbook)).toBe(
+        `=@sheet-1!A[1]${operator}2`,
       );
-      expect(formulaRawForStorage(`=2${operator}Inputs!A1`, workbook)).toBe(
-        `=2${operator}'sheet-1'!A1`,
+      expect(formulaRawForStorage(`=2${operator}@Inputs!A[1]`, workbook)).toBe(
+        `=2${operator}@sheet-1!A[1]`,
       );
-      expect(formulaRawForDisplay(`=sheet-1!A1${operator}2`, workbook)).toBe(
-        `=Inputs!A1${operator}2`,
+      expect(formulaRawForDisplay(`=@sheet-1!A[1]${operator}2`, workbook)).toBe(
+        `=@Inputs!A[1]${operator}2`,
       );
-      expect(formulaRawForDisplay(`=2${operator}sheet-1!A1`, workbook)).toBe(
-        `=2${operator}Inputs!A1`,
+      expect(formulaRawForDisplay(`=2${operator}@sheet-1!A[1]`, workbook)).toBe(
+        `=2${operator}@Inputs!A[1]`,
       );
     },
   );
 
   it('does not canonicalize sheet-like references inside text literals', () => {
     const { workbook } = formulaWorkbook();
-    const raw = '=SUM("Inputs!A1 and ""Sales Q1!B2""", Inputs!A1)';
+    const raw = '=SUM("Inputs!A1 and ""Sales Q1!B2""", @Inputs!A[1])';
 
     expect(formulaRawForStorage(raw, workbook)).toBe(
-      "=SUM(\"Inputs!A1 and \"\"Sales Q1!B2\"\"\", 'sheet-1'!A1)",
+      "=SUM(\"Inputs!A1 and \"\"Sales Q1!B2\"\"\", @sheet-1!A[1])",
     );
     expect(formulaRawForDisplay('="sheet-1!A1"', workbook)).toBe('="sheet-1!A1"');
   });
 
   it('keeps canonical ids in parsed formula references', () => {
     const { workbook, inputs } = formulaWorkbook();
-    const raw = '=SUM(sheet-1!A1, sheet-3!A1:B2)';
+    const raw = '=SUM(@sheet-1!A[1], @sheet-3!A[1]:B[2])';
 
     expect(parseFormula(raw, workbook, inputs)).toMatchObject({
       kind: 'formula',
@@ -531,7 +531,7 @@ describe('formula parser', () => {
   it('retains unsupported functions as general call nodes for evaluator dispatch', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=MEDIAN(A1:A3)', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=MEDIAN(@A[1]:A[3])', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: { kind: 'function', functionName: 'MEDIAN' },
     });
@@ -540,16 +540,16 @@ describe('formula parser', () => {
   it('reports malformed unknown function calls as #PARSE! before name resolution', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    for (const raw of ['=AVERAGE((A1)', '=NOPE("unterminated)', '=NOPE(Missing!A1']) {
+    for (const raw of ['=AVERAGE((@A[1])', '=NOPE("unterminated)', '=NOPE(@Missing!A[1]']) {
       expect(parseFormula(raw, workbook, inputs)).toEqual({
         kind: 'error',
         raw,
         error: '#PARSE!',
       });
     }
-    expect(parseFormula('=NOPE(K1)', workbook, inputs)).toMatchObject({ kind: 'formula' });
+    expect(parseFormula('=NOPE(@K[1])', workbook, inputs)).toMatchObject({ kind: 'formula' });
     expect(parseFormula('=SUM(NOPE())', workbook, inputs)).toMatchObject({ kind: 'formula' });
-    for (const raw of ['=(NOPE())', '=((NOPE(A1)))']) {
+    for (const raw of ['=(NOPE())', '=((NOPE(@A[1])))']) {
       expect(parseFormula(raw, workbook, inputs)).toMatchObject({ kind: 'formula' });
     }
   });
@@ -570,14 +570,14 @@ describe('formula parser', () => {
   it('reports invalid syntax as #PARSE!', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=SUM(A1,)', workbook, inputs)).toEqual({
+    expect(parseFormula('=SUM(@A[1],)', workbook, inputs)).toEqual({
       kind: 'error',
-      raw: '=SUM(A1,)',
+      raw: '=SUM(@A[1],)',
       error: '#PARSE!',
     });
-    expect(parseFormula('=SUM(A 1)', workbook, inputs)).toEqual({
+    expect(parseFormula('=SUM(@A[ 1])', workbook, inputs)).toEqual({
       kind: 'error',
-      raw: '=SUM(A 1)',
+      raw: '=SUM(@A[ 1])',
       error: '#PARSE!',
     });
   });
@@ -585,13 +585,13 @@ describe('formula parser', () => {
   it('preserves syntactic unresolved and out-of-bounds references for visit-time evaluation', () => {
     const { workbook, inputs } = formulaWorkbook();
 
-    expect(parseFormula('=SUM(Missing!A1)', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=SUM(@Missing!A[1])', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         arguments: [{ kind: 'cell', sheetId: 'Missing' }],
       },
     });
-    expect(parseFormula('=SUM(K1)', workbook, inputs)).toMatchObject({
+    expect(parseFormula('=SUM(@K[1])', workbook, inputs)).toMatchObject({
       kind: 'formula',
       expression: {
         arguments: [{ kind: 'cell', address: { columnIndex: 10, rowIndex: 0 } }],
@@ -607,15 +607,15 @@ describe('formula parser', () => {
       raw: "=SUM('Sales Q1!A1)",
       error: '#PARSE!',
     });
-    expect(parseFormula('=SUM(A0)', workbook, inputs)).toEqual({
+    expect(parseFormula('=SUM(@A[0])', workbook, inputs)).toEqual({
       kind: 'error',
-      raw: '=SUM(A0)',
+      raw: '=SUM(@A[0])',
       error: '#PARSE!',
     });
   });
 
   it('extracts canonical ids without treating malformed formulas as references', () => {
-    expect(formulaSheetReferenceIds('=SUM(sheet-1!A1, sheet-3!A1:B2)')).toEqual(['sheet-1', 'sheet-3']);
+    expect(formulaSheetReferenceIds('=SUM(@sheet-1!A[1], @sheet-3!A[1]:B[2])')).toEqual(['sheet-1', 'sheet-3']);
     expect(formulaSheetReferenceIds("=SUM('broken!A1, text sheet-2! nope)")).toEqual([]);
   });
 
@@ -623,23 +623,23 @@ describe('formula parser', () => {
     const inputs = sheet('sheet-1', 'Renamed Inputs');
     const outputs = sheet('sheet-2', 'Outputs');
     const workbook = workbookWithSheets([inputs, outputs]);
-    const cell = '=SUM(sheet-1!A1)';
+    const cell = '=SUM(@sheet-1!A[1])';
 
-    expect(formulaRawForDisplay(cell, workbook)).toBe("=SUM('Renamed Inputs'!A1)");
+    expect(formulaRawForDisplay(cell, workbook)).toBe("=SUM(@'Renamed Inputs'!A[1])");
   });
 
   it('resolves canonical coordinates before rendering an explicit sheet name', () => {
     const inputs = sheet('sheet-1', 'Renamed Inputs');
     const outputs = sheet('sheet-2', 'Outputs');
     const workbook = workbookWithSheets([inputs, outputs]);
-    const cell = '=SUM(sheet-1!@[sheet-1:column:2,sheet-1:row:1]:@[sheet-1:column:2,sheet-1:row:2])';
+    const cell = '=SUM(@sheet-1!sheet-1:column:2[sheet-1:row:1]:sheet-1:column:2[sheet-1:row:2])';
 
-    expect(formulaRawForDisplay(cell, workbook, outputs.id)).toBe("=SUM('Renamed Inputs'!B1:B2)");
+    expect(formulaRawForDisplay(cell, workbook, outputs.id)).toBe("=SUM(@'Renamed Inputs'!B[1]:B[2])");
   });
 
   it('renders unknown canonical ids as #REF qualifiers', () => {
     const workbook = workbookWithSheets([sheet('sheet-2', 'Outputs')]);
 
-    expect(formulaRawForDisplay('=SUM(sheet-deleted!A1)', workbook)).toBe('=SUM(#REF!A1)');
+    expect(formulaRawForDisplay('=SUM(@sheet-deleted!A[1])', workbook)).toBe('=SUM(@#REF!A[1])');
   });
 });

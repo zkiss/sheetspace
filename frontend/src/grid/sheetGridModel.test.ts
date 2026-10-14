@@ -10,7 +10,7 @@ function testSheet() {
     name: 'Inputs',
     cells: {
       A1: 'Raw value',
-      B1: '=SUM(A1)',
+      B1: '=SUM(@A[1])',
     },
   }));
 }
@@ -33,7 +33,7 @@ describe('sheet grid model', () => {
     const document = sheetDocument({
       id: 'formats',
       name: 'Formats',
-      cells: { A1: '1.25', B1: '=A1' },
+      cells: { A1: '1.25', B1: '=@A[1]' },
       presentation: {
         rowHeights: {}, columnWidths: {},
         formatOverrides: { rows: {}, columns: { 'formats:column:1': { numberFormat: { kind: 'percent', precision: 1 } } }, cells: {} },

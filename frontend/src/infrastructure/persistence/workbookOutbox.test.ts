@@ -120,7 +120,7 @@ describe('WorkbookOutbox', () => {
   });
   it('clones every cell transition at enqueue, snapshot, and transport boundaries', async () => {
     const outbox = new WorkbookOutbox();
-    const intent = { kind: 'write-cells' as const, writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }] };
+    const intent = { kind: 'write-cells' as const, writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=@a[1]' }] };
     outbox.enqueue('cell', intent);
     intent.writes[0].beforeRaw = 'mutated source';
     intent.writes[0].afterRaw = 'mutated source';
@@ -136,10 +136,10 @@ describe('WorkbookOutbox', () => {
     await outbox.executeNext({ execute });
 
     expect(delivered).toEqual({
-      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }],
+      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=@a[1]' }],
     });
     expect(outbox.inspect('cell')?.intent).toEqual({
-      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=a1' }],
+      kind: 'write-cells', writes: [{ sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: ' before ', afterRaw: '=@a[1]' }],
     });
   });
   it('holds inverse cell writes behind a failed predecessor and retries its original identity', async () => {

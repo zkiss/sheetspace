@@ -12,8 +12,8 @@ describe('formula evaluator boundary outcomes', () => {
       id: 'inputs',
       name: 'Inputs',
       cells: {
-        A1: '=Missing!A1',
-        A2: '=Z999',
+        A1: '=@Missing!A[1]',
+        A2: '=@Z[999]',
         A3: '=1/0',
         A4: '=1+"text"',
         A5: '=TRUE=1',
@@ -48,9 +48,9 @@ describe('formula evaluator boundary outcomes', () => {
       name: 'Outputs',
       cells: {
         A1: '=-(1 + 2)',
-        A2: '=SUM(inputs!A1:B1)',
-        A3: '=inputs!A2',
-        A4: '=inputs!A1 * inputs!B1',
+        A2: '=SUM(@inputs!A[1]:B[1])',
+        A3: '=@inputs!A[2]',
+        A4: '=@inputs!A[1] * @inputs!B[1]',
       },
     });
 
@@ -69,7 +69,7 @@ describe('formula evaluator boundary outcomes', () => {
   it('memoizes supplied results, reports canonical coordinates, and marks cyclic references', () => {
     const sheet = sheetDocument({
       id: 'inputs', name: 'Inputs',
-      cells: { A1: '=A2', A2: '=A1', B1: '=1+1', C1: 'plain' },
+      cells: { A1: '=@A[2]', A2: '=@A[1]', B1: '=1+1', C1: 'plain' },
     });
     const projection = calculationProjection(workbookWithSheets([sheet]));
     const observed: string[] = [];
@@ -90,7 +90,7 @@ describe('formula evaluator boundary outcomes', () => {
     expect(evaluator.formulaResults()).not.toBe(evaluator.formulaResults());
 
     const cyclic = evaluateFormulaCells(calculationProjection(workbookWithSheets([
-      sheetDocument({ id: 'cycle', name: 'Cycle', cells: { A1: '=A2', A2: '=A1' } }),
+      sheetDocument({ id: 'cycle', name: 'Cycle', cells: { A1: '=@A[2]', A2: '=@A[1]' } }),
     ]))).cycle;
     expect(cyclic).toMatchObject({
       A1: { kind: 'error', error: '#CYCLE!' },
@@ -106,11 +106,11 @@ describe('formula evaluator boundary outcomes', () => {
         A1: '2', A2: '3',
         B1: '=-(1/0)',
         B2: '=1+(1/0)',
-        B3: '=Z999:Z1000',
-        B4: '=@[inputs:column:1,inputs:row:1]',
-        B5: '=@[missing-column,missing-row]',
-        B6: '=COUNTIF((@[inputs:column:1,inputs:row:1]:@[inputs:column:1,inputs:row:2]), ">0")',
-        B7: '=COUNTIF(@[inputs:column:1,inputs:row:1]:@[missing-column,missing-row], ">0")',
+        B3: '=@Z[999]:Z[1000]',
+        B4: '=@inputs:column:1[inputs:row:1]',
+        B5: '=@missing-column[missing-row]',
+        B6: '=COUNTIF((@inputs:column:1[inputs:row:1]:inputs:column:1[inputs:row:2]), ">0")',
+        B7: '=COUNTIF(@inputs:column:1[inputs:row:1]:missing-column[missing-row], ">0")',
       },
     });
 

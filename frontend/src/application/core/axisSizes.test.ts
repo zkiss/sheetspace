@@ -4,7 +4,7 @@ import { emptySheetPresentation, AXIS_SIZE_LIMITS, isValidAxisSize } from '@work
 import type { AxisSizeWrite } from '@workbook/core/model';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
-const sheet = sheetDocument({ id: 's', name: 'Sizes', cells: { A1: '=B1', B1: '3' } });
+const sheet = sheetDocument({ id: 's', name: 'Sizes', cells: { A1: '=@B[1]', B1: '3' } });
 const workbook = workbookWithSheets([sheet]);
 const row = sheet.content.rows[0], column = sheet.content.columns[0];
 const apply = (writes: readonly AxisSizeWrite[], source = workbook, sheetId = sheet.id) =>

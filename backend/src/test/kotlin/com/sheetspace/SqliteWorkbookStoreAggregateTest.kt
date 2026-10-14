@@ -132,7 +132,7 @@ class SqliteWorkbookStoreAggregateTest {
                 tabular = TabularContent(
                     rowCount = 25,
                     columnCount = 14,
-                    cells = mapOf("A1" to "=SUM(B1:B2)\n", "B1" to "4"),
+                    cells = mapOf("A1" to "=SUM(@B[1]:B[2])\n", "B1" to "4"),
                 ),
             )
             val workbook = testWorkbookOf(sheet)

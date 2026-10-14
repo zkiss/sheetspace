@@ -250,7 +250,7 @@ class FormulaParser {
 
       const attemptedEnd = this.index;
       this.references.length = existingCount;
-      this.index = this.input[candidateStart] === "'"
+      this.index = this.input[candidateStart + 1] === "'"
         ? Math.max(candidateStart + 1, attemptedEnd)
         : candidateStart + 1;
     }
@@ -376,7 +376,7 @@ class FormulaParser {
       };
     }
     if (this.peek() === '"') return this.readText();
-    if (this.findUnquotedSheetSeparator() !== -1) return this.readReference();
+    if (this.peek() === '@') return this.readReference();
     const number = this.readNumber();
     if (number) return { ok: true, value: number };
 
@@ -462,6 +462,7 @@ class FormulaParser {
 
   private readReference(): ReadResult<FormulaExpression> {
     const start = this.index;
+    if (!this.consume('@')) return this.error();
     const qualifier = this.readOptionalQualifier();
     if (qualifier === false) return this.error();
     const first = this.readReferenceEndpoint();
@@ -487,8 +488,8 @@ class FormulaParser {
 
   private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
-    const canonical = /^(?:@\[(\$?)([^,\]\s]+),(\$?)([^\]\s]+)\])/.exec(this.input.slice(this.index));
-    if (canonical) {
+    const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
+    if (canonical && !/^[A-Za-z]+$/.test(canonical[2])) {
       this.index += canonical[0].length;
       return {
         kind: 'canonical',
@@ -499,7 +500,7 @@ class FormulaParser {
     }
     const token = this.readA1Token();
     if (!token) return undefined;
-    const address = parseA1Address(token.replace(/\$/g, ''), {
+    const address = parseA1Address(token.replace(/[$\[\]]/g, ''), {
       columnCount: Number.MAX_SAFE_INTEGER,
       rowCount: Number.MAX_SAFE_INTEGER,
     });
@@ -595,24 +596,12 @@ class FormulaParser {
   }
 
   private findUnquotedSheetSeparator(): number {
-    const separator = this.input.indexOf('!', this.index);
-    const candidate = separator < 0 ? '' : this.input.slice(this.index, separator).trim();
-    for (let cursor = this.index; cursor < this.input.length; cursor += 1) {
-      const char = this.input[cursor];
-      if (char === '!') return cursor;
-      if (char === '(' || char === ',' || char === ')' || /[+*/=<>]/.test(char)) return -1;
-      if (char === ':') return -1;
-      if (
-        char === '-'
-        && !isUuidLike(candidate)
-        && isCompletedScalar(this.input.slice(this.index, cursor).trim())
-      ) return -1;
-    }
-    return -1;
+    const match = /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\s*!/.exec(this.input.slice(this.index));
+    return match ? this.index + match[0].length - 1 : -1;
   }
 
   private readA1Token(): string | undefined {
-    const match = /^(?:\$?[A-Za-z]+\$?[1-9][0-9]*)/.exec(this.input.slice(this.index));
+    const match = /^(?:\$?[A-Za-z]+\[\$?[1-9][0-9]*\])/.exec(this.input.slice(this.index));
     if (!match) return undefined;
     this.index += match[0].length;
     return this.peek() && /[A-Za-z0-9]/.test(this.peek()) ? undefined : match[0];
@@ -658,18 +647,4 @@ class FormulaParser {
   private error(): ReadResult<never> {
     return { ok: false, error: '#PARSE!' };
   }
-}
-
-function isUuidLike(candidate: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate);
-}
-
-function isCompletedScalar(candidate: string): boolean {
-  return (
-    /^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(candidate)
-    || /^(?:TRUE|FALSE)$/i.test(candidate)
-    || /^[A-Za-z]+[1-9][0-9]*$/.test(candidate)
-    || /!\s*[A-Za-z]+[1-9][0-9]*(?:\s*:\s*[A-Za-z]+[1-9][0-9]*)?$/.test(candidate)
-    || candidate.endsWith(')')
-  );
 }

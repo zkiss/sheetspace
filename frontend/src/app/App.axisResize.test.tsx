@@ -38,7 +38,7 @@ describe('axis resize application integration', () => {
     expect((await apiClient.loadWorkbook()).documents.inputs).toEqual(sheet);
   });
   it.each([16, 40])('saves committed dimensions with a %spx row, restores them on reload, aligns the editor and leaves frames and formulas intact', async (rowHeight) => {
-    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '7', B2: '=A1*2' } });
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '7', B2: '=@A[1]*2' } });
     const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
     const column = screen.getByRole('separator', { name: 'Resize column A' });
@@ -71,13 +71,13 @@ describe('axis resize application integration', () => {
   it('reveals a distant reference using variable offsets and keeps headers and selected cells aligned', async () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1000, columnCount: 100 });
     inputs.presentation = { rowHeights: { [inputs.content.rows[0]]: 80 }, columnWidths: { [inputs.content.columns[0]]: 160 } };
-    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(inputs!K100:L101)' } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!K[100]:L[101])' } });
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(frame).getByTestId('sheet-frame-body');
     act(() => { virtualGridGeometry(body, { height: 160, width: 240 }); });
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Inputs!K100:L101, reference' }), { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: '@Inputs!K[100]:L[101], reference' }), { ctrlKey: true });
     expect(body.scrollLeft).toBe(160 + 9 * 76);
     expect(body.scrollTop).toBeCloseTo(80 + 98 * 26.4);
     fireEvent.scroll(body);
