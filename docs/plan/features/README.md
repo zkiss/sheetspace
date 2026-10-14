@@ -2,7 +2,7 @@
 
 This directory splits the product vision into feature-level briefs. Each brief describes the full feature direction and product intent.
 
-Numbered plans under [roadmap/](../roadmap/) define which slice of each feature is in scope for a given iteration.
+Numbered plans under [roadmap/](../roadmap/) record past phases and define the next phase's scope. These briefs retain longer-term feature direction without assigning it to future phases.
 
 ## Feature Index
 

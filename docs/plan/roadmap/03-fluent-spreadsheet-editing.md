@@ -26,7 +26,7 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 
 ### Undo and redo
 
-- Add session-local, workbook-aware undo and redo for cell-content edits and Phase 3 range operations. Selection, focus, and viewport movement belong to the separate Phase 5 navigation history and are not recorded or restored by edit history.
+- Add session-local, workbook-aware undo and redo for cell-content edits and Phase 3 range operations. Selection, focus, and viewport movement belong to separate navigation history and are not recorded or restored by edit history.
 - Recalculate formula results from restored contents and persist the resulting changes. A paste, clear, or move is undone as one atomic action, including moves between sheets.
 - Reveal the affected region without changing the current selection. Use a temporary yellow, selection-like pulse to distinguish edit feedback from selection.
 - Fade restored contents in when undoing deletion, fade removed contents out, and crossfade between previous and restored contents when replacing values. Redo uses the same feedback. Apply data changes immediately; animation must not delay calculation, saving, or further input.
@@ -64,15 +64,14 @@ Phase 2 makes small models calculable and introduces reference navigation. Phase
 - Per-sheet visual scale survives reload as its own part of frame layout.
 - Zoomed-out or individually miniaturized sheets present a clear overview suited to their current scale.
 
-## Deferred To Later Phases
+## Deferred Work
 
 - Fill handles and automatic pattern or series extension are deferred without an assigned phase.
-- Row and column insertion, deletion, reordering, custom names, and extraction are Phase 4.
-- Rich formula editing and deeper reference visualization are Phase 5.
-- Comments, layers, and frame hiding are Phase 6.
-- Phase 6 adds flat groups for moving selected sheets as a unit.
-- Active viewport and navigation-history persistence are Phase 5; Phase 3 persists per-sheet visual scale with frame layout.
-- Import/export and report-oriented formatting are later phases.
+- Column naming, rich formula editing, deeper reference visualization, and Back/Forward navigation are included in [Phase 4](04-safe-structural-editing-and-refactoring.md).
+- General row and column insertion, deletion, reordering, and range extraction remain future work beyond the foundations needed by Phase 4.
+- Comments, layers, frame hiding, and flat groups for moving selected sheets as a unit remain future work.
+- Active viewport and navigation-history persistence remain future work; Phase 3 persists per-sheet visual scale with frame layout.
+- Import/export and report-oriented formatting remain future work.
 
 ## References
 
