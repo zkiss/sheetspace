@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type { SheetDocument } from '@workbook/core/model';
 import { summarizeFormatting, type FormattingSummary } from '@workbook/read/formattingSummary';
 import {
@@ -22,29 +22,35 @@ export function useFormattingSelection(
   sheet: SheetDocument | undefined,
   selection: FormattingSelection | null,
 ): FormattingSelectionProjection {
+  const sheetRef = useRef(sheet);
+  const selectionRef = useRef(selection);
+  sheetRef.current = sheet;
+  selectionRef.current = selection;
   const mode = selection?.mode;
   const anchor = selection?.anchor;
   const extent = selection?.extent;
-  const descriptor = useMemo(() => validateFormattingSelection(sheet, selection), [
-    sheet?.id,
-    sheet?.content.rows,
-    sheet?.content.columns,
-    mode,
-    anchor?.sheetId,
-    anchor?.cell.rowId,
-    anchor?.cell.columnId,
-    extent?.sheetId,
-    extent?.cell.rowId,
-    extent?.cell.columnId,
+  const descriptorInputs = useMemo(() => [
+    sheet?.id, sheet?.content.rows, sheet?.content.columns, mode,
+    anchor?.sheetId, anchor?.cell.rowId, anchor?.cell.columnId,
+    extent?.sheetId, extent?.cell.rowId, extent?.cell.columnId,
+  ], [
+    sheet?.id, sheet?.content.rows, sheet?.content.columns, mode,
+    anchor?.sheetId, anchor?.cell.rowId, anchor?.cell.columnId,
+    extent?.sheetId, extent?.cell.rowId, extent?.cell.columnId,
   ]);
+  const descriptor = useMemo(
+    () => {
+      void descriptorInputs;
+      return validateFormattingSelection(sheetRef.current, selectionRef.current);
+    },
+    [descriptorInputs],
+  );
   const overrides = sheet?.presentation.formatOverrides;
   const summary = useMemo(
     () => descriptor.valid ? summarizeFormatting(descriptor, overrides) : undefined,
     [descriptor, overrides],
   );
-  const customColours = useMemo(
-    () => customColoursForOverrides(overrides),
-    [sheet?.id, overrides],
-  );
+  const paletteInputs = useMemo(() => [sheet?.id, overrides] as const, [sheet?.id, overrides]);
+  const customColours = useMemo(() => customColoursForOverrides(paletteInputs[1]), [paletteInputs]);
   return { descriptor, summary, customColours };
 }

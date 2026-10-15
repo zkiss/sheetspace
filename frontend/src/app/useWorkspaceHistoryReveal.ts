@@ -37,5 +37,5 @@ export function useWorkspaceHistoryReveal(
       controller.navigateToTarget(target, { preserveVisibleAxes: true });
       if (!scrollport) pendingMeasurement.current = feedback.identity;
     }
-  }, [feedback?.identity, creatingAxes, controller, editing, sheets]);
+  }, [feedback, creatingAxes, controller, editing, sheets]);
 }

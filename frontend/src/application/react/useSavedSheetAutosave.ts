@@ -107,7 +107,7 @@ export function useSavedSheetAutosave({
       reconcileResult(result, entry.intent, entry.operationId);
       return result;
     },
-  }), [outbox, reconcileResult, transport]);
+  }), [reconcileResult, transport]);
 
   const pump = useCallback(function pumpAvailable() {
     for (const execution of outbox.executeAvailable(persistenceTransport)) {

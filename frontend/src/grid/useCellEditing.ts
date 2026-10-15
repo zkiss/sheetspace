@@ -56,7 +56,7 @@ export function useCellEditing({
       type: 'prune-sheets',
       sheetIds: new Set(sheetsInOrder(workbook).map((sheet) => sheet.id)),
     });
-  }, [workbook.manifest.sheetIds]);
+  }, [workbook]);
 
   function commitSession(session: CellEditSession | null) {
     if (!session) return;

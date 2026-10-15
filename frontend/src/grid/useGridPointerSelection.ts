@@ -102,6 +102,37 @@ export function useGridPointerSelection({
     interactionRef.current.settleSelectionGesture?.(drag.owner);
   }, []);
 
+  const extendAxisSelection = useCallback((
+    mode: Exclude<CellSelectionMode, 'cells'>,
+    selectedAxis: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined,
+    fixedAxis: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined,
+    drag: DragSession,
+  ) => {
+    if (selectedAxis?.kind !== 'saved' || fixedAxis?.kind !== 'saved') return;
+    const target = cellTargetAt(sheet, cellKey({
+      columnIndex: mode === 'columns' ? selectedAxis.durableIndex : fixedAxis.durableIndex,
+      rowIndex: mode === 'rows' ? selectedAxis.durableIndex : fixedAxis.durableIndex,
+    }));
+    if (!target) return;
+    drag.target = target;
+    onSelectAxis?.(mode, target, true, { owner: drag.owner });
+  }, [onSelectAxis, sheet]);
+
+  const extendCellSelection = useCallback((
+    row: GridAxisProjection['rows'][number] | undefined,
+    column: GridAxisProjection['columns'][number] | undefined,
+    drag: DragSession,
+  ) => {
+    if (!interactionRef.current.extend || row?.kind !== 'saved' || column?.kind !== 'saved') return;
+    const target = cellTargetAt(sheet, cellKey({
+      columnIndex: column.durableIndex,
+      rowIndex: row.durableIndex,
+    }));
+    if (!target) return;
+    drag.target = target;
+    interactionRef.current.extend(target, { owner: drag.owner });
+  }, [sheet]);
+
   const extendDrag = useCallback((clientX: number, clientY: number) => {
     const container = scrollContainerRef.current;
     const drag = dragRef.current;
@@ -135,38 +166,7 @@ export function useGridPointerSelection({
       return;
     }
     extendCellSelection(row, column, drag);
-  }, [columnMetrics, columns, finishDrag, onSelectAxis, ownsDrag, rowMetrics, rows, scrollContainerRef, sheet]);
-
-  function extendAxisSelection(
-    mode: Exclude<CellSelectionMode, 'cells'>,
-    selectedAxis: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined,
-    fixedAxis: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined,
-    drag: DragSession,
-  ) {
-    if (selectedAxis?.kind !== 'saved' || fixedAxis?.kind !== 'saved') return;
-    const target = cellTargetAt(sheet, cellKey({
-      columnIndex: mode === 'columns' ? selectedAxis.durableIndex : fixedAxis.durableIndex,
-      rowIndex: mode === 'rows' ? selectedAxis.durableIndex : fixedAxis.durableIndex,
-    }));
-    if (!target) return;
-    drag.target = target;
-    onSelectAxis?.(mode, target, true, { owner: drag.owner });
-  }
-
-  function extendCellSelection(
-    row: GridAxisProjection['rows'][number] | undefined,
-    column: GridAxisProjection['columns'][number] | undefined,
-    drag: DragSession,
-  ) {
-    if (!interactionRef.current.extend || row?.kind !== 'saved' || column?.kind !== 'saved') return;
-    const target = cellTargetAt(sheet, cellKey({
-      columnIndex: column.durableIndex,
-      rowIndex: row.durableIndex,
-    }));
-    if (!target) return;
-    drag.target = target;
-    interactionRef.current.extend(target, { owner: drag.owner });
-  }
+  }, [columnMetrics, columns, extendAxisSelection, extendCellSelection, finishDrag, ownsDrag, rowMetrics, rows, scrollContainerRef, sheet]);
 
   useEffect(() => {
     const autoScroll = () => {

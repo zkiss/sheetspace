@@ -18,6 +18,7 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      'react-hooks/exhaustive-deps': 'error',
       'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }],
     },
   },

@@ -1,4 +1,4 @@
-import { PointerEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SheetFrameDrag, SheetFrameLayoutCommands, SheetFrameResize, SheetFrameResizeDirection, SheetFrameScale } from './workspaceContracts';
 import { findSheetById } from '@workbook/read/queries';
 import { type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
@@ -228,9 +228,16 @@ export function useSheetFrameInteractions({
     clearInteractionSession();
   }
 
-  function cancelSheetFrameScale() {
-    clearInteractionSession();
-  }
+  const cancelSheetFrameScale = useCallback(() => {
+    const previous = sheetFrameInteractionSession.current;
+    sheetFrameInteractionSession.current = null;
+    if (previous?.captureElement.hasPointerCapture?.(previous.interaction.pointerId)) {
+      previous.captureElement.releasePointerCapture(previous.interaction.pointerId);
+    }
+    setFrameLayoutPreview(null);
+    setFrameScalePreview(null);
+    setInteractionPinnedSheetId(null);
+  }, []);
 
   function cancelSheetFrameScalePointer(event: PointerEvent<HTMLElement>) {
     const current = sheetFrameInteractionSession.current;
@@ -310,7 +317,7 @@ export function useSheetFrameInteractions({
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
     window.addEventListener('blur', cancel); window.addEventListener('keydown', key, true);
     return () => { window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key, true); cancel(); };
-  }, [interactionsEnabled]);
+  }, [cancelSheetFrameScale, interactionsEnabled]);
 
   return {
     cancelSheetFrameDrag,

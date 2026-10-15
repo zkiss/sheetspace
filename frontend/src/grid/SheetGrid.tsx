@@ -166,7 +166,7 @@ export function SheetGrid({
   const { columns, rows } = axisProjection;
   const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes, interactionsEnabled });
   const projectedMetrics = useMemo(() => createSheetGridAxisMetrics(axisProjection, presentation, resize.preview),
-    [rows, columns, presentation, resize.preview]);
+    [axisProjection, presentation, resize.preview]);
   const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
   const columnMetrics = axisMetrics?.columns ?? projectedMetrics.columns;
   const rowItemKey = useCallback((index: number) => rowMetrics.itemKey(index) ?? index, [rowMetrics]);
@@ -204,7 +204,7 @@ export function SheetGrid({
   }, [keyboardFocusIntent]);
   useEffect(() => {
     setScrollElement(scrollContainerRef.current);
-  });
+  }, [scrollContainerRef]);
   const rowVirtualizer = useVirtualizer({
     count: rowMetrics.count,
     estimateSize: rowItemSize,
@@ -338,7 +338,7 @@ export function SheetGrid({
     const columnIndex = axisIndexForDurableIndex(columns, activeAddress.columnIndex);
     if (rowIndex !== undefined) rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-  }, [activeAddress?.columnIndex, activeAddress?.rowIndex, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
+  }, [activeAddress, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
   useEffect(() => {
     if (navigationHighlightIdentity !== undefined
       && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
@@ -387,7 +387,7 @@ export function SheetGrid({
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
     onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
-  }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
+  }, [columnMetrics, historyAddress, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
     if (focusIntent) return;

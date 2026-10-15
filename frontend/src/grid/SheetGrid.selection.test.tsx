@@ -60,7 +60,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1' }: {
     else interaction.selectReferenceTarget(replacement === 'cell'
       ? { kind: 'cell', target }
       : { kind: 'range', sheetId: sheet.id, range: { start: target.cell, end: cellTargetAt(sheet, 'D2')!.cell } });
-  }, [replacement, replacementKey, sheet]);
+  }, [interaction, replacement, replacementKey, sheet]);
   const range = interaction.selectionRange;
   const anchor = range && cellAddressOf(sheet.content, range.anchor.cell)!;
   const extent = range && cellAddressOf(sheet.content, range.extent.cell)!;
