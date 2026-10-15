@@ -1,20 +1,13 @@
-.PHONY: setup
-setup:
+.PHONY: install
+install:
 	npm install
 
-.PHONY: compile
-ifneq ($(filter test,$(MAKECMDGOALS)),)
-# The same invocation's successful coverage run includes architecture tests.
-# No persistent marker or environment bypass can affect standalone compilation.
-compile: test
-	npm run build:assets
-else
-compile:
+.PHONY: build
+build: install
 	npm run build
-endif
 
 .PHONY: test
-test:
+test: install
 	npm run test:coverage
 
 .PHONY: dev

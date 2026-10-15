@@ -1,9 +1,5 @@
 .NOTPARALLEL:
 
-.PHONY: setup
-setup:
-	./gradlew --quiet dependencies
-
 .PHONY: compile
 compile: lint
 	./gradlew --quiet build -x test
