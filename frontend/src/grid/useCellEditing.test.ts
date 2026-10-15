@@ -1,10 +1,8 @@
-// @ts-nocheck
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useCellEditing } from '@grid/useCellEditing';
-import { formulaRawForStorage } from '@workbook/formula/reference';
 
 function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 })) {
   const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };

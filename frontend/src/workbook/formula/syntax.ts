@@ -44,6 +44,7 @@ export function parseFormulaSyntax(
   raw: string,
   _options: { preserveUnknownFunctions?: boolean } = {},
 ): FormulaSyntaxResult {
+  void _options;
   if (!raw.startsWith('=')) {
     return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [] };
   }

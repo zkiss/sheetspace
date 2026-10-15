@@ -13,11 +13,11 @@ import {
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import type { ClipboardSourceSnapshot } from '@application/core/clipboardPayload';
 
-const alpha = sheetDocument({ id: 'alpha', name: 'Alpha', revision: 4, zIndex: 1 });
+type Sheet = ReturnType<typeof sheetDocument>;
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
 
 describe('range move preparation', () => {
-  const snapshot = (sheet: typeof alpha, start: string, rowCount = 1, columnCount = 1): ClipboardSourceSnapshot => {
+  const snapshot = (sheet: Sheet, start: string, rowCount = 1, columnCount = 1): ClipboardSourceSnapshot => {
     const origin = cellIdentityAt(sheet.content, start)!;
     const rowIndex = sheet.content.rows.indexOf(origin.rowId);
     const columnIndex = sheet.content.columns.indexOf(origin.columnId);

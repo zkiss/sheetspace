@@ -66,7 +66,8 @@ describe('incremental formula calculation', () => {
     );
     expect(reloaded['sheet-outputs'].A1).toMatchObject({ kind: 'number', value: 7 });
 
-    const { ['sheet-inputs']: _deleted, ...documents } = renamed.value.documents;
+    const { ['sheet-inputs']: deletedDocument, ...documents } = renamed.value.documents;
+    void deletedDocument;
     const deleted = {
       ...renamed.value,
       manifest: { ...renamed.value.manifest, sheetIds: ['sheet-outputs'] },

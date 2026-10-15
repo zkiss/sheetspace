@@ -105,8 +105,8 @@ describe('WorkbookOutbox', () => {
     intent.position.x = 99;
     const inspected = outbox.inspect('move')!;
     const snapshotted = outbox.snapshot()[0];
-    inspected.intent.kind === 'update-sheet-position' && (inspected.intent.position.y = 88);
-    snapshotted.intent.kind === 'update-sheet-position' && (snapshotted.intent.position.x = 77);
+    if (inspected.intent.kind === 'update-sheet-position') inspected.intent.position.y = 88;
+    if (snapshotted.intent.kind === 'update-sheet-position') snapshotted.intent.position.x = 77;
 
     outbox.retry('move');
     expect(outbox.inspect('move')).toMatchObject({ status: 'queued', failure });

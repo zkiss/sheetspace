@@ -1,47 +1,14 @@
-// @ts-nocheck
-import { createRef, useState, type ComponentProps } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createRef, useState } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { projectGridAxes } from '@grid/gridAxisProjection';
-import { createGridAxisMetrics } from './gridAxisMetrics';
-import { savedAxisIndexAtOffset, SheetGrid } from '@grid/SheetGrid';
-import { sheetDocument, sparseLargeSheetDocument } from '@test-support/workbookFactories';
-import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { SheetGrid } from '@grid/SheetGrid';
+import { sparseLargeSheetDocument } from '@test-support/workbookFactories';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
-import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
+import { virtualGridGeometry } from '@test-support/domGeometry';
 
 afterEach(cleanup);
-  function renderMeasuredSparseGrid(options: { activeCellKey?: string | null; editingCell?: ComponentProps<typeof SheetGrid>['editingCell']; keyboardFocusRequest?: { id: number; targetKey: string | null } | null } = {}) {
-    const sheet = tabularProjection(sparseLargeSheetDocument());
-    const scrollContainerRef = createRef<HTMLDivElement>();
-    const cellInteraction = { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() };
-    const editorInteraction = { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
-    const view = render(
-      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
-        <SheetGrid
-          activeCellKey={options.activeCellKey ?? null}
-          axisProjection={projectGridAxes(sheet, { columns: [], rows: [] })}
-          cellInteraction={cellInteraction}
-          editingCell={options.editingCell ?? null}
-          editorInteraction={editorInteraction}
-          formulaResults={{}}
-          keyboardFocusRequest={options.keyboardFocusRequest ?? null}
-          onKeyboardFocusRequestConsumed={vi.fn()}
-          navigationHighlightCellKey={null}
-          scrollContainerRef={scrollContainerRef}
-          sheet={sheet}
-        />
-      </div>,
-    );
-    const body = scrollContainerRef.current!;
-    return { ...view, body, cellInteraction, editorInteraction, geometry: virtualGridGeometry(body), sheet };
-  }
-
-  function mountedCellKeys() {
-    return screen.getAllByTestId('sheet-grid-cell').map((cell) => cell.dataset.cellKey!);
-  }
-
-
 describe('SheetGrid virtualization', () => {
   it('permanently invalidates a grid-entry request superseded by an application request', async () => {
     const sheet = tabularProjection(sparseLargeSheetDocument());

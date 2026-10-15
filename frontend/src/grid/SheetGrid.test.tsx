@@ -1,14 +1,12 @@
-// @ts-nocheck
-import { createRef, useState, type ComponentProps } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createRef, type ComponentProps } from 'react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import { createGridAxisMetrics } from './gridAxisMetrics';
 import { savedAxisIndexAtOffset, SheetGrid } from '@grid/SheetGrid';
-import { sheetDocument, sparseLargeSheetDocument } from '@test-support/workbookFactories';
+import { sheetDocument } from '@test-support/workbookFactories';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
-import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
 
 afterEach(cleanup);
 
@@ -203,13 +201,3 @@ describe('SheetGrid clipboard routing', () => {
     expect(fireEvent.cut(grid, { clipboardData: clipboardData() })).toBe(true);
   });
 });
-
-function firePointer(
-  element: Element,
-  type: string,
-  { pointerId = 1, ...init }: MouseEventInit & { pointerId?: number } = {},
-) {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, ...init });
-  Object.defineProperty(event, 'pointerId', { value: pointerId });
-  fireEvent(element, event);
-}

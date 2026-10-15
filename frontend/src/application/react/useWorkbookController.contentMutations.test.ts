@@ -146,7 +146,9 @@ describe('useWorkbookController content mutations', () => {
     expect(undoFeedback?.after).toMatchObject([{ raw: null }]);
     expect(Object.isFrozen(undoFeedback)).toBe(true);
     expect(Object.isFrozen(undoFeedback?.before)).toBe(true);
-    expect(Object.isFrozen(undoFeedback?.before[0]!)).toBe(true);
+    const firstUndoChange = undoFeedback?.before?.[0];
+    if (!firstUndoChange) throw new Error('undo feedback must retain the changed cell');
+    expect(Object.isFrozen(firstUndoChange)).toBe(true);
 
     act(() => result.current.commands.redo());
 

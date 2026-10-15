@@ -1,14 +1,12 @@
-// @ts-nocheck
-import { createRef, useState, type ComponentProps } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createRef } from 'react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { projectGridAxes } from '@grid/gridAxisProjection';
-import { createGridAxisMetrics } from './gridAxisMetrics';
-import { savedAxisIndexAtOffset, SheetGrid } from '@grid/SheetGrid';
-import { sheetDocument, sparseLargeSheetDocument } from '@test-support/workbookFactories';
-import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { SheetGrid } from '@grid/SheetGrid';
+import { sheetDocument } from '@test-support/workbookFactories';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
-import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
+import { virtualGridGeometry } from '@test-support/domGeometry';
 
 afterEach(cleanup);
 function firePointer(

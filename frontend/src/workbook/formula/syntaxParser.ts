@@ -323,7 +323,7 @@ export class FormulaParser {
     }
     const token = this.readA1Token();
     if (!token) return undefined;
-    const address = parseA1Address(token.replace(/[$\[\]]/g, ''), {
+    const address = parseA1Address(token.replace(/[$[\]]/g, ''), {
       columnCount: Number.MAX_SAFE_INTEGER,
       rowCount: Number.MAX_SAFE_INTEGER,
     });

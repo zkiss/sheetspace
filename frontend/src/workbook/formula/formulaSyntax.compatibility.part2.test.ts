@@ -5,6 +5,8 @@ import { parseFormula as parseFormulaSyntax } from '@workbook/formula/syntax';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 function parseFormula(raw: string, _workbook?: unknown, _sheet?: unknown) {
+  void _workbook;
+  void _sheet;
   return parseFormulaSyntax(raw);
 }
 
