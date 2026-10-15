@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildSandbox } from './support.mjs';
 
-const lineCheck = 'source-line-check';
 const checkedAssets = ['architecture', 'typescript', 'vite'];
-const composite = [lineCheck, 'orchestration-tests', 'backend-test', 'backend-compile', 'coverage', 'typescript', 'vite', 'sync'];
+const composite = ['orchestration-tests', 'backend-test', 'backend-compile', 'coverage', 'typescript', 'vite', 'sync'];
 
 for (const goals of [
   ['build'], ['-j2', 'build'], ['compile', 'frontend-dist'],
@@ -16,15 +15,15 @@ for (const goals of [
     const result = sandbox.run(['make', ...goals]);
     assert.equal(result.status, 0, result.output);
     const testsRequested = goals.includes('build') || goals.includes('test');
-    assert.deepEqual(result.stages, testsRequested ? composite : [lineCheck, 'backend-compile', ...checkedAssets, 'sync']);
+    assert.deepEqual(result.stages, testsRequested ? composite : ['backend-compile', ...checkedAssets, 'sync']);
     assert.equal(sandbox.published(), result.generation);
   });
 }
 
 for (const [command, directory, stages] of [
-  [['make', 'compile'], '', [lineCheck, 'backend-compile', ...checkedAssets]],
-  [['make', 'frontend-dist'], '', [lineCheck, ...checkedAssets, 'sync']],
-  [['make', 'test'], '', [lineCheck, 'orchestration-tests', 'backend-test', 'coverage']],
+  [['make', 'compile'], '', ['backend-compile', ...checkedAssets]],
+  [['make', 'frontend-dist'], '', [...checkedAssets, 'sync']],
+  [['make', 'test'], '', ['orchestration-tests', 'backend-test', 'coverage']],
   [['make', 'compile'], 'frontend', checkedAssets],
   [['make', '-j2', 'compile', 'test'], 'frontend', ['coverage', 'typescript', 'vite']],
   [['npm', 'run', 'build'], 'frontend', checkedAssets],
@@ -56,11 +55,11 @@ for (const stage of checkedAssets) {
     assert.equal(initial.status, 0, initial.output);
     const failed = sandbox.run(['make', '-j2', 'frontend-dist'], { fail: stage });
     assert.notEqual(failed.status, 0, failed.output);
-    assert.deepEqual(failed.stages, [lineCheck, ...checkedAssets.slice(0, checkedAssets.indexOf(stage) + 1)]);
+    assert.deepEqual(failed.stages, checkedAssets.slice(0, checkedAssets.indexOf(stage) + 1));
     assert.equal(sandbox.published(), initial.generation);
     const later = sandbox.run(['make', 'frontend-dist']);
     assert.equal(later.status, 0, later.output);
-    assert.deepEqual(later.stages, [lineCheck, ...checkedAssets, 'sync']);
+    assert.deepEqual(later.stages, [...checkedAssets, 'sync']);
     assert.equal(sandbox.published(), later.generation);
   });
 }
@@ -73,11 +72,17 @@ test('distribution synchronization failure propagates to the root build', t => {
   assert.equal(sandbox.published(), undefined);
 });
 
-for (const goals of [['test'], ['compile'], ['frontend-dist'], ['-j2', 'build']]) {
-  test(`root make ${goals.join(' ')} stops on an over-limit authored source`, t => {
+for (const [goals, expectedStages] of [
+  [['test'], ['orchestration-tests', 'backend-test', 'coverage']],
+  [['compile'], ['backend-compile', 'architecture']],
+  [['frontend-dist'], ['architecture']],
+  [['-j2', 'build'], ['orchestration-tests', 'backend-test', 'backend-compile', 'coverage']],
+]) {
+  test(`root make ${goals.join(' ')} stops on an over-limit non-frontend source during static checks`, t => {
     const sandbox = buildSandbox(t);
     const result = sandbox.run(['make', ...goals], { overLimit: true });
     assert.notEqual(result.status, 0, result.output);
-    assert.deepEqual(result.stages, ['source-line-check']);
+    assert.deepEqual(result.stages, expectedStages);
+    assert.equal(sandbox.published(), undefined);
   });
 }

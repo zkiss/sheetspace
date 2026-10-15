@@ -29,7 +29,7 @@ if (tool === 'npm') {
 }
 const stage = {
   vitest: args.includes('--coverage') ? 'coverage' : 'architecture',
-  tsc: 'typescript', vite: 'vite', node: args.includes('tools/check-source-lines.mjs') ? 'source-line-check' : 'orchestration-tests',
+  tsc: 'typescript', vite: 'vite', node: 'orchestration-tests',
   gradlew: args.includes('build') ? 'backend-compile' : args.includes('test') ? 'backend-test' : 'sync',
 }[tool];
 if (!stage) process.exit(2);
@@ -39,7 +39,8 @@ closeSync(openSync(active, 'wx'));
 appendFileSync(process.env.BUILD_TRACE, stage + '\\n');
 // Overlap would reorder stages or publish before a failed prerequisite finishes.
 await new Promise(resolve => setTimeout(resolve, 30));
-if (process.env.FAIL_STAGE === stage || (stage === 'source-line-check' && process.env.OVER_LIMIT === '1')) process.exit(7);
+if (process.env.FAIL_STAGE === stage) process.exit(7);
+if (tool === 'vitest' && spawnSync(process.execPath, ['tools/check-source-lines.mjs'], { cwd: '..', stdio: 'ignore' }).status !== 0) process.exit(7);
 if (stage === 'vite') {
   mkdirSync('dist', { recursive: true });
   writeFileSync('dist/bundle', process.env.BUILD_GENERATION);
@@ -62,8 +63,8 @@ unlinkSync(active);
       const trace = join(root, 'trace');
       writeFileSync(trace, '');
        if (overLimit) {
-         mkdirSync(join(root, 'frontend', 'src'), { recursive: true });
-         writeFileSync(join(root, 'frontend', 'src', 'TooBig.ts'), 'x\n'.repeat(501));
+          mkdirSync(join(root, 'backend', 'src'), { recursive: true });
+          writeFileSync(join(root, 'backend', 'src', 'TooBig.kt'), 'x\n'.repeat(501));
        }
       rmSync(trace + '.active', { force: true });
       generation += 1;
