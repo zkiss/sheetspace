@@ -13,7 +13,8 @@ export function buildSandbox(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const directory of ['frontend', 'backend', 'bin', 'tools']) mkdirSync(join(root, directory));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
-  for (const file of ['Makefile', 'frontend/Makefile', 'frontend/package.json', 'backend/Makefile', 'tools/check-source-lines.mjs']) {
+  for (const file of ['Makefile', 'frontend/Makefile', 'frontend/package.json', 'frontend/architecture/frontendArchitecture.test.ts', 'backend/Makefile', 'tools/check-source-lines.mjs']) {
+    mkdirSync(dirname(join(root, file)), { recursive: true });
     copyFileSync(join(repository, file), join(root, file));
   }
   const commands = `#!${process.execPath}
@@ -40,7 +41,12 @@ appendFileSync(process.env.BUILD_TRACE, stage + '\\n');
 // Overlap would reorder stages or publish before a failed prerequisite finishes.
 await new Promise(resolve => setTimeout(resolve, 30));
 if (process.env.FAIL_STAGE === stage) process.exit(7);
-if (tool === 'vitest' && spawnSync(process.execPath, ['tools/check-source-lines.mjs'], { cwd: '..', stdio: 'ignore' }).status !== 0) process.exit(7);
+// The Vitest boundary models the selected architecture suite. Its source owns
+// the policy command, so removing that test or its invocation disables this
+// simulated check just as it would in the real architecture command.
+const architecturePolicy = tool === 'vitest' && readFileSync('architecture/frontendArchitecture.test.ts', 'utf8').includes("it('enforces the repository authored-source line limit'")
+  && readFileSync('architecture/frontendArchitecture.test.ts', 'utf8').includes("tools/check-source-lines.mjs");
+if (architecturePolicy && spawnSync(process.execPath, ['tools/check-source-lines.mjs'], { cwd: '..', stdio: 'ignore' }).status !== 0) process.exit(7);
 if (stage === 'vite') {
   mkdirSync('dist', { recursive: true });
   writeFileSync('dist/bundle', process.env.BUILD_GENERATION);
