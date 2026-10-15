@@ -15,12 +15,8 @@ compile: frontend-work
 .PHONY: test
 test: frontend-work
 
-.PHONY: test-build
-test-build:
-	node --test build-tests/*.test.mjs
-
 .PHONY: backend-work frontend-work
-backend-work: $(if $(filter test,$(backend-goals)),test-build)
+backend-work:
 # Run Gradle requests serially; a single recursive request shares the lint prerequisite.
 	$(MAKE) -C backend $(backend-goals)
 

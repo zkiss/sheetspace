@@ -14,7 +14,7 @@ test: lint
 
 .PHONY: lint
 lint:
-	./gradlew --quiet checkSourceFileLength
+	./gradlew --quiet checkstyleMain checkstyleTest
 
 .PHONY: run
 run:

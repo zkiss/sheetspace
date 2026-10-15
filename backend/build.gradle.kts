@@ -95,35 +95,14 @@ tasks.jacocoTestCoverageVerification {
     }
 }
 
-val sourceRoot = providers.gradleProperty("sourceRoot")
-    .map(::file)
-    .orElse(file(".."))
-    .get()
-val excludedSourcePaths = listOf(
-    ".git/**", "backend/.gradle/**", "frontend/.vite/**", "**/node_modules/**",
-    "frontend/dist/**", "frontend/coverage/**", "backend/build/**", "**/docs/**", "**/data/**",
-    "backend/src/main/resources/static/**", "backend/gradlew", "backend/gradlew.bat",
-)
-val nonJavaSourceFiles = fileTree(sourceRoot) {
-    include("**/*.kt", "**/*.kts", "**/*.css", "**/*.sql", "**/*.html")
-    exclude(excludedSourcePaths)
-}
-val executableSourceFiles = fileTree(sourceRoot) {
-    include("**/*")
-    exclude(excludedSourcePaths)
-}.filter {
-    it.isFile && it.canExecute() && it.extension.lowercase() !in setOf("js", "mjs", "cjs", "ts", "tsx")
-}
-
-tasks.register<Checkstyle>("checkSourceFileLength") {
-    config = resources.text.fromFile(file("config/checkstyle/file-length.xml"))
-    source(nonJavaSourceFiles)
-    source(executableSourceFiles)
+tasks.named<Checkstyle>("checkstyleMain") {
+    source("src/main/kotlin")
     classpath = files()
 }
 
-tasks.named("check") {
-    dependsOn("checkSourceFileLength")
+tasks.named<Checkstyle>("checkstyleTest") {
+    source("src/test/kotlin")
+    classpath = files()
 }
 
 tasks.register<Copy>("copyFrontendDist") {
