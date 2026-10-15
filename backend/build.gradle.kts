@@ -100,8 +100,8 @@ val sourceRoot = providers.gradleProperty("sourceRoot")
     .orElse(file(".."))
     .get()
 val excludedSourcePaths = listOf(
-    "**/.git/**", "**/.gradle/**", "**/.vite/**", "**/node_modules/**",
-    "**/build/**", "**/coverage/**", "**/dist/**", "**/docs/**", "**/data/**",
+    ".git/**", "backend/.gradle/**", "frontend/.vite/**", "**/node_modules/**",
+    "frontend/dist/**", "frontend/coverage/**", "backend/build/**", "**/docs/**", "**/data/**",
     "backend/src/main/resources/static/**", "backend/gradlew", "backend/gradlew.bat",
 )
 val nonJavaSourceFiles = fileTree(sourceRoot) {

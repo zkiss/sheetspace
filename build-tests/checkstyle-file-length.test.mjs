@@ -37,16 +37,23 @@ test('Checkstyle FileLength checks working-tree non-JS source and excludes gener
   write(root, 'backend/src/main/kotlin/TooBig.kt', lines(501));
   write(root, 'frontend/src/app/TooBig.css', `/* counted */\n\n${lines(499)}`);
   write(root, 'tools/new-executable', lines(501), true);
+  write(root, 'build/authored.kts', lines(501));
+  write(root, 'tools/dist/authored.css', lines(501));
+  write(root, 'tools/coverage/authored.sql', lines(501));
   for (const path of [
-    'docs/ignored.css', 'frontend/dist/ignored.css', 'backend/build/ignored.kt',
-    'frontend/node_modules/ignored.css', 'backend/gradlew',
+    'docs/ignored.css', 'frontend/dist/ignored.css', 'frontend/coverage/ignored.css',
+    'backend/build/ignored.kt', 'backend/.gradle/ignored.css',
+    'backend/src/main/resources/static/ignored.html', 'frontend/node_modules/ignored.css',
+    'backend/gradlew',
   ]) write(root, path, lines(501), path === 'backend/gradlew');
 
   const result = lint(root);
 
   const output = result.stdout + result.stderr;
   assert.equal(result.status, 1, output);
-  for (const path of ['TooBig.kt', 'TooBig.css', 'new-executable']) assert.match(output, new RegExp(path.replace('.', '\\.')));
+  for (const path of ['TooBig.kt', 'TooBig.css', 'new-executable', 'authored.kts', 'authored.css', 'authored.sql']) {
+    assert.match(output, new RegExp(path.replace('.', '\\.')));
+  }
   assert.match(output, /File length is 501 lines \(max allowed is 500\)/);
-  assert.doesNotMatch(output, /ignored\.(css|kt)|backend\/gradlew/);
+  assert.doesNotMatch(output, /ignored\.(css|html|kt)|backend\/gradlew/);
 });
