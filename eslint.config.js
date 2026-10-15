@@ -10,6 +10,7 @@ export default [
       '**/dist/**',
       '**/coverage/**',
       '**/build/**',
+      '**/backend/src/main/resources/static/assets/**',
       '.git/**',
     ],
   },

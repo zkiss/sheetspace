@@ -71,15 +71,16 @@ test('ESLint skips blank and comment-only lines but counts lines with code', t =
   assert.match(result.stdout, /File has too many lines \(501\)\. Maximum allowed is 500/);
 });
 
-test('ESLint discovers authored tests outside frontend source and ignores generated dependencies', t => {
+test('ESLint discovers authored tests outside frontend source and ignores generated outputs and dependencies', t => {
   const project = lintProject(t);
   write(project, 'build-tests/new-test.mjs', lines(501));
   write(project, 'frontend/dist/bundle.mjs', lines(501));
+  write(project, 'backend/src/main/resources/static/assets/bundle.mjs', lines(501));
   write(project, 'frontend/node_modules/generated/index.mjs', lines(501));
 
   const result = lint(project);
 
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /build-tests\/new-test\.mjs/);
-  assert.doesNotMatch(result.stdout, /dist\/bundle\.mjs|node_modules\/generated/);
+  assert.doesNotMatch(result.stdout, /dist\/bundle\.mjs|static\/assets\/bundle\.mjs|node_modules\/generated/);
 });
