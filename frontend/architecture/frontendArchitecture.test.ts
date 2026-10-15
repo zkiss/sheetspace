@@ -17,6 +17,6 @@ it('enforces the repository authored-source line limit', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   execFileSync('node', [path.join(repositoryRoot, 'tools/check-source-lines.mjs')], {
     cwd: repositoryRoot,
-    stdio: 'pipe',
+    stdio: ['ignore', 'ignore', 'inherit'],
   });
 });

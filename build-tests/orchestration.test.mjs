@@ -83,6 +83,7 @@ for (const [goals, expectedStages] of [
     const result = sandbox.run(['make', ...goals], { overLimit: true });
     assert.notEqual(result.status, 0, result.output);
     assert.deepEqual(result.stages, expectedStages);
+    assert.match(result.output, /backend\/src\/TooBig\.kt: 501 lines \(maximum 500\)/);
     assert.equal(sandbox.published(), undefined);
   });
 }

@@ -44,9 +44,14 @@ if (process.env.FAIL_STAGE === stage) process.exit(7);
 // The Vitest boundary models the selected architecture suite. Its source owns
 // the policy command, so removing that test or its invocation disables this
 // simulated check just as it would in the real architecture command.
-const architecturePolicy = tool === 'vitest' && readFileSync('architecture/frontendArchitecture.test.ts', 'utf8').includes("it('enforces the repository authored-source line limit'")
-  && readFileSync('architecture/frontendArchitecture.test.ts', 'utf8').includes("tools/check-source-lines.mjs");
-if (architecturePolicy && spawnSync(process.execPath, ['tools/check-source-lines.mjs'], { cwd: '..', stdio: 'ignore' }).status !== 0) process.exit(7);
+const architecturePolicy = tool === 'vitest'
+  && (() => {
+    const architectureTest = readFileSync('architecture/frontendArchitecture.test.ts', 'utf8');
+    return architectureTest.includes("it('enforces the repository authored-source line limit'")
+      && architectureTest.includes("tools/check-source-lines.mjs")
+      && architectureTest.includes("'inherit'");
+  })();
+if (architecturePolicy && spawnSync(process.execPath, ['tools/check-source-lines.mjs'], { cwd: '..', stdio: 'inherit' }).status !== 0) process.exit(7);
 if (stage === 'vite') {
   mkdirSync('dist', { recursive: true });
   writeFileSync('dist/bundle', process.env.BUILD_GENERATION);
