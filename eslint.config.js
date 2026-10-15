@@ -7,11 +7,12 @@ export default [
   {
     ignores: [
       '**/node_modules/**',
-      '**/dist/**',
-      '**/coverage/**',
-      '**/build/**',
-      '**/backend/src/main/resources/static/assets/**',
       '.git/**',
+      'frontend/dist/**',
+      'frontend/coverage/**',
+      'backend/build/**',
+      'backend/.gradle/**',
+      'backend/src/main/resources/static/**',
     ],
   },
   {

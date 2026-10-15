@@ -71,16 +71,36 @@ test('ESLint skips blank and comment-only lines but counts lines with code', t =
   assert.match(result.stdout, /File has too many lines \(501\)\. Maximum allowed is 500/);
 });
 
-test('ESLint discovers authored tests outside frontend source and ignores generated outputs and dependencies', t => {
+test('ESLint discovers authored build tooling and ignores only generated outputs and dependencies', t => {
   const project = lintProject(t);
   write(project, 'build-tests/new-test.mjs', lines(501));
+  write(project, 'build/authored-tool.mjs', lines(501));
+  write(project, 'build/authored-tool.ts', lines(501));
+  write(project, 'frontend/scripts/build/tool.cjs', lines(501));
+  write(project, 'tools/dist/tool.mjs', lines(501));
+  write(project, 'tools/coverage/tool.ts', lines(501));
   write(project, 'frontend/dist/bundle.mjs', lines(501));
+  write(project, 'frontend/coverage/report.mjs', lines(501));
+  write(project, 'backend/build/generated.mjs', lines(501));
+  write(project, 'backend/.gradle/cache.mjs', lines(501));
+  write(project, 'backend/src/main/resources/static/generated.mjs', lines(501));
   write(project, 'backend/src/main/resources/static/assets/bundle.mjs', lines(501));
-  write(project, 'frontend/node_modules/generated/index.mjs', lines(501));
+  write(project, 'node_modules/generated/index.mjs', lines(501));
 
   const result = lint(project);
 
   assert.equal(result.status, 1, result.stdout + result.stderr);
-  assert.match(result.stdout, /build-tests\/new-test\.mjs/);
-  assert.doesNotMatch(result.stdout, /dist\/bundle\.mjs|static\/assets\/bundle\.mjs|node_modules\/generated/);
+  for (const path of [
+    'build-tests/new-test.mjs',
+    'build/authored-tool.mjs',
+    'build/authored-tool.ts',
+    'frontend/scripts/build/tool.cjs',
+    'tools/dist/tool.mjs',
+    'tools/coverage/tool.ts',
+  ]) {
+    assert.match(result.stdout, new RegExp(path.replace('.', '\\.')));
+    write(project, path, lines(500));
+  }
+  assert.doesNotMatch(result.stdout, /frontend\/dist|frontend\/coverage|backend\/build|backend\/\.gradle|resources\/static|node_modules\/generated/);
+  assert.equal(lint(project).status, 0);
 });
