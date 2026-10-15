@@ -15,17 +15,21 @@ compile: frontend-work
 .PHONY: test
 test: frontend-work
 
+.PHONY: source-line-check
+source-line-check:
+	node tools/check-source-lines.mjs
+
 .PHONY: test-build
-test-build:
+test-build: source-line-check
 	node --test build-tests/*.test.mjs
 
 .PHONY: backend-work frontend-work
-backend-work: $(if $(filter test,$(backend-goals)),test-build)
+backend-work: $(if $(filter test,$(backend-goals)),test-build,source-line-check)
 # Run Gradle requests serially; recursive make -j must not race Gradle processes.
 	$(if $(filter test,$(backend-goals)),$(MAKE) -C backend test)
 	$(if $(filter compile,$(backend-goals)),$(MAKE) -C backend compile)
 
-frontend-work: $(if $(strip $(backend-goals)),backend-work)
+frontend-work: $(if $(strip $(backend-goals)),backend-work,source-line-check)
 	$(MAKE) -C frontend $(frontend-goals)
 
 .PHONY: server

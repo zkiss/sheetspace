@@ -11,9 +11,9 @@ const repository = dirname(dirname(fileURLToPath(import.meta.url)));
 export function buildSandbox(t) {
   const root = mkdtempSync(join(tmpdir(), 'sheetspace-build-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const directory of ['frontend', 'backend', 'bin']) mkdirSync(join(root, directory));
+  for (const directory of ['frontend', 'backend', 'bin', 'tools']) mkdirSync(join(root, directory));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
-  for (const file of ['Makefile', 'frontend/Makefile', 'frontend/package.json', 'backend/Makefile']) {
+  for (const file of ['Makefile', 'frontend/Makefile', 'frontend/package.json', 'backend/Makefile', 'tools/check-source-lines.mjs']) {
     copyFileSync(join(repository, file), join(root, file));
   }
   const commands = `#!${process.execPath}
@@ -29,7 +29,7 @@ if (tool === 'npm') {
 }
 const stage = {
   vitest: args.includes('--coverage') ? 'coverage' : 'architecture',
-  tsc: 'typescript', vite: 'vite', node: 'orchestration-tests',
+  tsc: 'typescript', vite: 'vite', node: args.includes('tools/check-source-lines.mjs') ? 'source-line-check' : 'orchestration-tests',
   gradlew: args.includes('build') ? 'backend-compile' : args.includes('test') ? 'backend-test' : 'sync',
 }[tool];
 if (!stage) process.exit(2);
@@ -39,7 +39,7 @@ closeSync(openSync(active, 'wx'));
 appendFileSync(process.env.BUILD_TRACE, stage + '\\n');
 // Overlap would reorder stages or publish before a failed prerequisite finishes.
 await new Promise(resolve => setTimeout(resolve, 30));
-if (process.env.FAIL_STAGE === stage) process.exit(7);
+if (process.env.FAIL_STAGE === stage || (stage === 'source-line-check' && process.env.OVER_LIMIT === '1')) process.exit(7);
 if (stage === 'vite') {
   mkdirSync('dist', { recursive: true });
   writeFileSync('dist/bundle', process.env.BUILD_GENERATION);
@@ -58,9 +58,13 @@ unlinkSync(active);
   writeFileSync(join(root, 'backend', 'gradlew'), commands, { mode: 0o755 });
   let generation = 0;
   return {
-    run(command, { directory = '', fail = '' } = {}) {
+    run(command, { directory = '', fail = '', overLimit = false } = {}) {
       const trace = join(root, 'trace');
       writeFileSync(trace, '');
+       if (overLimit) {
+         mkdirSync(join(root, 'frontend', 'src'), { recursive: true });
+         writeFileSync(join(root, 'frontend', 'src', 'TooBig.ts'), 'x\n'.repeat(501));
+       }
       rmSync(trace + '.active', { force: true });
       generation += 1;
       const result = spawnSync(command[0], command.slice(1), {
@@ -70,7 +74,7 @@ unlinkSync(active);
           // Do not inherit an enclosing make's goals, flags or jobserver.
           MAKEFLAGS: '', MFLAGS: '', MAKELEVEL: '0',
           PATH: `${join(root, 'bin')}:${process.env.PATH}`,
-          BUILD_TRACE: trace, FAIL_STAGE: fail, BUILD_GENERATION: String(generation),
+          BUILD_TRACE: trace, FAIL_STAGE: fail, OVER_LIMIT: overLimit ? '1' : '', BUILD_GENERATION: String(generation),
         },
       });
       if (result.error) throw result.error;
