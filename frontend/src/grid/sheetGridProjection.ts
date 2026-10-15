@@ -1,13 +1,11 @@
 import type { VirtualItem, Virtualizer } from '@tanstack/react-virtual';
-import { parseA1Address } from '@workbook/core/address';
+import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
 import type { SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from '@grid/gridAxisProjection';
 import type { GridAxisMetrics } from './gridAxisMetrics';
 import type { CellSelectionMode } from './cellInteractionContracts';
-import { cellKey, type CellAddress, type CellRange } from '@workbook/core/address';
 import { cellTargetAt } from '@grid/cellInteraction';
-
 
 export function axisKey(entry: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined) {
   return entry ? (entry.kind === 'saved' ? entry.id : entry.operationId) : '';

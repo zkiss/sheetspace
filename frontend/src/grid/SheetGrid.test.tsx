@@ -213,4 +213,3 @@ function firePointer(
   Object.defineProperty(event, 'pointerId', { value: pointerId });
   fireEvent(element, event);
 }
-

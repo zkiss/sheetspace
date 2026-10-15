@@ -497,4 +497,3 @@ function historyCellsForSheet(
   }
   return cells;
 }
-
