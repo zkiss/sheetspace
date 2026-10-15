@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildSandbox } from './support.mjs';
 
-const checkedAssets = ['architecture', 'typescript', 'vite'];
-const composite = ['orchestration-tests', 'backend-test', 'backend-compile', 'coverage', 'typescript', 'vite', 'sync'];
+const checkedAssets = ['lint', 'architecture', 'typescript', 'vite'];
+const composite = ['orchestration-tests', 'backend-test', 'backend-compile', 'lint', 'coverage', 'typescript', 'vite', 'sync'];
 
 for (const goals of [
   ['build'], ['-j2', 'build'], ['compile', 'frontend-dist'],
@@ -23,9 +23,9 @@ for (const goals of [
 for (const [command, directory, stages] of [
   [['make', 'compile'], '', ['backend-compile', ...checkedAssets]],
   [['make', 'frontend-dist'], '', [...checkedAssets, 'sync']],
-  [['make', 'test'], '', ['orchestration-tests', 'backend-test', 'coverage']],
+  [['make', 'test'], '', ['orchestration-tests', 'backend-test', 'lint', 'coverage']],
   [['make', 'compile'], 'frontend', checkedAssets],
-  [['make', '-j2', 'compile', 'test'], 'frontend', ['coverage', 'typescript', 'vite']],
+  [['make', '-j2', 'compile', 'test'], 'frontend', ['lint', 'coverage', 'typescript', 'vite']],
   [['npm', 'run', 'build'], 'frontend', checkedAssets],
   [['npm', 'run', 'check:architecture'], 'frontend', ['architecture']],
 ]) {
@@ -38,7 +38,7 @@ for (const [command, directory, stages] of [
   });
 }
 
-for (const stage of ['orchestration-tests', 'backend-test', 'backend-compile', 'coverage', 'typescript', 'vite']) {
+for (const stage of ['orchestration-tests', 'backend-test', 'backend-compile', 'lint', 'coverage', 'typescript', 'vite']) {
   test(`parallel composite failure in ${stage} prevents dependent stages and publication`, t => {
     const sandbox = buildSandbox(t);
     const result = sandbox.run(['make', '-j2', 'build'], { fail: stage });
@@ -73,17 +73,17 @@ test('distribution synchronization failure propagates to the root build', t => {
 });
 
 for (const [goals, expectedStages] of [
-  [['test'], ['orchestration-tests', 'backend-test', 'coverage']],
-  [['compile'], ['backend-compile', 'architecture']],
-  [['frontend-dist'], ['architecture']],
-  [['-j2', 'build'], ['orchestration-tests', 'backend-test', 'backend-compile', 'coverage']],
+  [['test'], ['orchestration-tests', 'backend-test', 'lint']],
+  [['compile'], ['backend-compile', 'lint']],
+  [['frontend-dist'], ['lint']],
+  [['-j2', 'build'], ['orchestration-tests', 'backend-test', 'backend-compile', 'lint']],
 ]) {
-  test(`root make ${goals.join(' ')} stops on an over-limit non-frontend source during static checks`, t => {
+  test(`root make ${goals.join(' ')} stops on an over-limit authored JavaScript source during linting`, t => {
     const sandbox = buildSandbox(t);
     const result = sandbox.run(['make', ...goals], { overLimit: true });
     assert.notEqual(result.status, 0, result.output);
     assert.deepEqual(result.stages, expectedStages);
-    assert.match(result.output, /backend\/src\/TooBig\.kt: 501 lines \(maximum 500\)/);
+    assert.match(result.output, /tools\/TooBig\.mjs: File has too many lines \(501\)\. Maximum allowed is 500/);
     assert.equal(sandbox.published(), undefined);
   });
 }

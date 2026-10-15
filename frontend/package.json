@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run check:architecture && npm run build:assets",
+    "build": "npm run lint && npm run check:architecture && npm run build:assets",
     "build:assets": "tsc --noEmit && vite build",
     "check:architecture": "vitest run architecture",
     "preview": "vite preview",
+    "lint": "eslint ..",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "npm run lint && vitest run --coverage"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.10",
@@ -19,16 +20,18 @@
   },
   "devDependencies": {
     "@csstools/css-tokenizer": "^3.0.4",
+    "@typescript-eslint/parser": "^8.71.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.4.1",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^9.39.5",
     "jsdom": "^25.0.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.0",
-    "vitest": "^2.1.8",
-    "@vitest/coverage-v8": "^2.1.8"
+    "vitest": "^2.1.8"
   }
 }

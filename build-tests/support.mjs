@@ -13,7 +13,7 @@ export function buildSandbox(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const directory of ['frontend', 'backend', 'bin', 'tools']) mkdirSync(join(root, directory));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
-  for (const file of ['Makefile', 'frontend/Makefile', 'frontend/package.json', 'frontend/architecture/frontendArchitecture.test.ts', 'backend/Makefile', 'tools/check-source-lines.mjs']) {
+  for (const file of ['Makefile', 'eslint.config.js', 'frontend/Makefile', 'frontend/package.json', 'frontend/architecture/frontendArchitecture.test.ts', 'backend/Makefile', 'tools/check-source-lines.mjs']) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     copyFileSync(join(repository, file), join(root, file));
   }
@@ -30,7 +30,7 @@ if (tool === 'npm') {
 }
 const stage = {
   vitest: args.includes('--coverage') ? 'coverage' : 'architecture',
-  tsc: 'typescript', vite: 'vite', node: 'orchestration-tests',
+  eslint: 'lint', tsc: 'typescript', vite: 'vite', node: 'orchestration-tests',
   gradlew: args.includes('build') ? 'backend-compile' : args.includes('test') ? 'backend-test' : 'sync',
 }[tool];
 if (!stage) process.exit(2);
@@ -41,6 +41,10 @@ appendFileSync(process.env.BUILD_TRACE, stage + '\\n');
 // Overlap would reorder stages or publish before a failed prerequisite finishes.
 await new Promise(resolve => setTimeout(resolve, 30));
 if (process.env.FAIL_STAGE === stage) process.exit(7);
+if (tool === 'eslint' && process.env.OVER_LIMIT) {
+  console.error('tools/TooBig.mjs: File has too many lines (501). Maximum allowed is 500');
+  process.exit(7);
+}
 // The Vitest boundary models the selected architecture suite. Its source owns
 // the policy command, so removing that test or its invocation disables this
 // simulated check just as it would in the real architecture command.
@@ -64,7 +68,7 @@ if (stage === 'sync') {
 unlinkSync(active);
 `;
   // npm's shell resolves these PATH shims; gradlew is a relative executable.
-  for (const tool of ['npm', 'vitest', 'tsc', 'vite', 'node']) {
+  for (const tool of ['npm', 'eslint', 'vitest', 'tsc', 'vite', 'node']) {
     writeFileSync(join(root, 'bin', tool), commands, { mode: 0o755 });
   }
   writeFileSync(join(root, 'backend', 'gradlew'), commands, { mode: 0o755 });
@@ -73,10 +77,10 @@ unlinkSync(active);
     run(command, { directory = '', fail = '', overLimit = false } = {}) {
       const trace = join(root, 'trace');
       writeFileSync(trace, '');
-       if (overLimit) {
-          mkdirSync(join(root, 'backend', 'src'), { recursive: true });
-          writeFileSync(join(root, 'backend', 'src', 'TooBig.kt'), 'x\n'.repeat(501));
-       }
+      if (overLimit) {
+        mkdirSync(join(root, 'tools'), { recursive: true });
+        writeFileSync(join(root, 'tools', 'TooBig.mjs'), 'x\n'.repeat(501));
+      }
       rmSync(trace + '.active', { force: true });
       generation += 1;
       const result = spawnSync(command[0], command.slice(1), {
