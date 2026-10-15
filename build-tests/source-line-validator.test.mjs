@@ -35,6 +35,12 @@ test('includes authored production, test, tooling, and executable source', async
   assert.deepEqual(result.violations.map(({ path }) => path), ['bin/check', 'frontend/src/App.test.ts', 'frontend/src/App.tsx', 'tools/check.mjs']);
 });
 
+test('excludes executable binary artifacts', async t => {
+  const root = sandbox(t);
+  write(root, 'bin/artifact', Buffer.alloc(1_002, Buffer.from([0, 10])), true);
+  assert.deepEqual(await validateSourceLines(root), { violations: [], errors: [] });
+});
+
 test('excludes data, documentation, dependencies, generated output, and Gradle wrapper', async t => {
   const root = sandbox(t);
   for (const path of ['docs/guide.md', 'data/example.csv', 'frontend/node_modules/a/index.js', 'frontend/dist/app.js', 'frontend/coverage/report.js', 'backend/build/output.kt', 'backend/gradlew']) write(root, path, lines(501), path === 'backend/gradlew');

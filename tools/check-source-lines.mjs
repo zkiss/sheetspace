@@ -1,4 +1,5 @@
 import { lstat, readdir, readFile } from 'node:fs/promises';
+import { isUtf8 } from 'node:buffer';
 import { relative, resolve, sep } from 'node:path';
 
 export const MAX_LINES = 500;
@@ -21,6 +22,10 @@ async function isSourceFile(path, relativePath) {
   if (sourceExtensions.has(extension(path))) return true;
   if (ignoredFiles.has(relativePath)) return false;
   return (await lstat(path)).mode & 0o111 ? true : false;
+}
+
+function isTextFile(contents) {
+  return !contents.includes(0) && isUtf8(contents);
 }
 
 export async function validateSourceLines(root = process.cwd()) {
@@ -46,7 +51,9 @@ export async function validateSourceLines(root = process.cwd()) {
       }
       if (!entry.isFile() || !(await isSourceFile(path, relativePath))) continue;
       try {
-        const lines = countPhysicalLines(await readFile(path, 'utf8'));
+        const contents = await readFile(path);
+        if (!isTextFile(contents)) continue;
+        const lines = countPhysicalLines(contents.toString('utf8'));
         if (lines > MAX_LINES) violations.push({ path: relativePath, lines });
       } catch (error) {
         errors.push(`${relativePath}: ${error.message}`);
