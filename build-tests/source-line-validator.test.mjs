@@ -25,6 +25,12 @@ test('counts empty, terminated, unterminated, LF, and CRLF physical lines', () =
   assert.equal(countPhysicalLines(lines(501).replaceAll('\n', '\r\n')), 501);
 });
 
+test('accepts an authored source file with 499 lines', async t => {
+  const root = sandbox(t);
+  write(root, 'frontend/src/App.tsx', lines(499));
+  assert.deepEqual(await validateSourceLines(root), { violations: [], errors: [] });
+});
+
 test('includes authored production, test, tooling, and executable source', async t => {
   const root = sandbox(t);
   write(root, 'frontend/src/App.tsx', lines(501));
