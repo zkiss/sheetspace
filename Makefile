@@ -2,7 +2,7 @@
 # Coverage includes architecture; frontend's graph shares that assurance only
 # within this invocation. Standalone compilation still runs architecture checks.
 frontend-goals := $(if $(filter build test,$(MAKECMDGOALS)),test) $(if $(filter build compile frontend-dist,$(MAKECMDGOALS)),compile)
-backend-goals := $(if $(filter build test,$(MAKECMDGOALS)),test) $(if $(filter build compile,$(MAKECMDGOALS)),compile)
+backend-goals := $(if $(filter build test,$(MAKECMDGOALS)),test) $(if $(filter build compile,$(MAKECMDGOALS)),compile) $(if $(filter build test compile frontend-dist,$(MAKECMDGOALS)),lint)
 
 .PHONY: setup
 setup:
@@ -21,9 +21,8 @@ test-build:
 
 .PHONY: backend-work frontend-work
 backend-work: $(if $(filter test,$(backend-goals)),test-build)
-# Run Gradle requests serially; recursive make -j must not race Gradle processes.
-	$(if $(filter test,$(backend-goals)),$(MAKE) -C backend test)
-	$(if $(filter compile,$(backend-goals)),$(MAKE) -C backend compile)
+# Run Gradle requests serially; a single recursive request shares the lint prerequisite.
+	$(MAKE) -C backend $(backend-goals)
 
 frontend-work: $(if $(strip $(backend-goals)),backend-work)
 	$(MAKE) -C frontend $(frontend-goals)

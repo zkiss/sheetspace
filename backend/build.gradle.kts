@@ -6,6 +6,7 @@ plugins {
     kotlin("plugin.serialization") version "2.2.21"
     application
     jacoco
+    checkstyle
 }
 
 group = "com.sheetspace"
@@ -13,6 +14,10 @@ version = "0.1.0"
 
 repositories {
     mavenCentral()
+}
+
+checkstyle {
+    toolVersion = "10.26.1"
 }
 
 dependencies {
@@ -88,6 +93,35 @@ tasks.jacocoTestCoverageVerification {
             }
         }
     }
+}
+
+val sourceRoot = providers.gradleProperty("sourceRoot")
+    .map(::file)
+    .orElse(file(".."))
+    .get()
+val excludedSourcePaths = listOf(
+    "**/.git/**", "**/.gradle/**", "**/.vite/**", "**/node_modules/**",
+    "**/build/**", "**/coverage/**", "**/dist/**", "**/docs/**", "**/data/**",
+    "backend/src/main/resources/static/**", "backend/gradlew", "backend/gradlew.bat",
+)
+val nonJavaSourceFiles = fileTree(sourceRoot) {
+    include("**/*.kt", "**/*.kts", "**/*.css", "**/*.sql", "**/*.html")
+    exclude(excludedSourcePaths)
+}
+val executableSourceFiles = fileTree(sourceRoot) {
+    include("**/*")
+    exclude(excludedSourcePaths)
+}.filter { it.isFile && it.canExecute() }
+
+tasks.register<Checkstyle>("checkSourceFileLength") {
+    config = resources.text.fromFile(file("config/checkstyle/file-length.xml"))
+    source(nonJavaSourceFiles)
+    source(executableSourceFiles)
+    classpath = files()
+}
+
+tasks.named("check") {
+    dependsOn("checkSourceFileLength")
 }
 
 tasks.register<Copy>("copyFrontendDist") {

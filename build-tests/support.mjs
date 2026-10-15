@@ -13,7 +13,7 @@ export function buildSandbox(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const directory of ['frontend', 'backend', 'bin', 'tools']) mkdirSync(join(root, directory));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
-  for (const file of ['Makefile', 'eslint.config.js', 'frontend/Makefile', 'frontend/package.json', 'frontend/architecture/frontendArchitecture.test.ts', 'backend/Makefile', 'tools/check-source-lines.mjs']) {
+  for (const file of ['Makefile', 'eslint.config.js', 'frontend/Makefile', 'frontend/package.json', 'backend/Makefile']) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     copyFileSync(join(repository, file), join(root, file));
   }
@@ -31,7 +31,7 @@ if (tool === 'npm') {
 const stage = {
   vitest: args.includes('--coverage') ? 'coverage' : 'architecture',
   eslint: 'lint', tsc: 'typescript', vite: 'vite', node: 'orchestration-tests',
-  gradlew: args.includes('build') ? 'backend-compile' : args.includes('test') ? 'backend-test' : 'sync',
+  gradlew: args.includes('checkSourceFileLength') ? 'backend-lint' : args.includes('build') ? 'backend-compile' : args.includes('test') ? 'backend-test' : 'sync',
 }[tool];
 if (!stage) process.exit(2);
 // Reject overlapping work even when start events happen to be ordered correctly.
@@ -45,17 +45,10 @@ if (tool === 'eslint' && process.env.OVER_LIMIT) {
   console.error('tools/TooBig.mjs: File has too many lines (501). Maximum allowed is 500');
   process.exit(7);
 }
-// The Vitest boundary models the selected architecture suite. Its source owns
-// the policy command, so removing that test or its invocation disables this
-// simulated check just as it would in the real architecture command.
-const architecturePolicy = tool === 'vitest'
-  && (() => {
-    const architectureTest = readFileSync('architecture/frontendArchitecture.test.ts', 'utf8');
-    return architectureTest.includes("it('enforces the repository authored-source line limit'")
-      && architectureTest.includes("tools/check-source-lines.mjs")
-      && architectureTest.includes("'inherit'");
-  })();
-if (architecturePolicy && spawnSync(process.execPath, ['tools/check-source-lines.mjs'], { cwd: '..', stdio: 'inherit' }).status !== 0) process.exit(7);
+if (tool === 'gradlew' && args.includes('checkSourceFileLength') && process.env.OVER_LIMIT_NON_JS) {
+  console.error('backend/src/main/kotlin/TooBig.kt:1: File length is 501 lines (max allowed is 500). [FileLength]');
+  process.exit(7);
+}
 if (stage === 'vite') {
   mkdirSync('dist', { recursive: true });
   writeFileSync('dist/bundle', process.env.BUILD_GENERATION);
@@ -74,7 +67,7 @@ unlinkSync(active);
   writeFileSync(join(root, 'backend', 'gradlew'), commands, { mode: 0o755 });
   let generation = 0;
   return {
-    run(command, { directory = '', fail = '', overLimit = false } = {}) {
+    run(command, { directory = '', fail = '', overLimit = false, overLimitNonJs = false } = {}) {
       const trace = join(root, 'trace');
       writeFileSync(trace, '');
       if (overLimit) {
@@ -90,7 +83,7 @@ unlinkSync(active);
           // Do not inherit an enclosing make's goals, flags or jobserver.
           MAKEFLAGS: '', MFLAGS: '', MAKELEVEL: '0',
           PATH: `${join(root, 'bin')}:${process.env.PATH}`,
-          BUILD_TRACE: trace, FAIL_STAGE: fail, OVER_LIMIT: overLimit ? '1' : '', BUILD_GENERATION: String(generation),
+          BUILD_TRACE: trace, FAIL_STAGE: fail, OVER_LIMIT: overLimit ? '1' : '', OVER_LIMIT_NON_JS: overLimitNonJs ? '1' : '', BUILD_GENERATION: String(generation),
         },
       });
       if (result.error) throw result.error;
