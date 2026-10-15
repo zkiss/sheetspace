@@ -111,7 +111,9 @@ val nonJavaSourceFiles = fileTree(sourceRoot) {
 val executableSourceFiles = fileTree(sourceRoot) {
     include("**/*")
     exclude(excludedSourcePaths)
-}.filter { it.isFile && it.canExecute() }
+}.filter {
+    it.isFile && it.canExecute() && it.extension.lowercase() !in setOf("js", "mjs", "cjs", "ts", "tsx")
+}
 
 tasks.register<Checkstyle>("checkSourceFileLength") {
     config = resources.text.fromFile(file("config/checkstyle/file-length.xml"))

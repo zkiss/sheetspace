@@ -32,6 +32,7 @@ test('Checkstyle FileLength checks working-tree non-JS source and excludes gener
   t.after(() => rmSync(root, { recursive: true, force: true }));
   write(root, 'backend/src/main/kotlin/WithinLimit.kt', lines(500));
   write(root, 'frontend/src/within-limit.ts', lines(501));
+  write(root, 'tools/comment-only.mjs', `${Array(501).fill('// skipped by ESLint').join('\n')}\n`, true);
   assert.equal(lint(root).status, 0);
 
   write(root, 'backend/src/main/kotlin/TooBig.kt', lines(501));

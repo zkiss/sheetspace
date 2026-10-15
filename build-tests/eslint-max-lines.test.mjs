@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,10 +14,11 @@ function lines(count) {
   return Array.from({ length: count }, (_, index) => `const line${index} = ${index};`).join('\n');
 }
 
-function write(project, path, contents) {
+function write(project, path, contents, executable = false) {
   const target = join(project, path);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, contents);
+  if (executable) chmodSync(target, 0o755);
 }
 
 function lint(project) {
@@ -69,6 +70,13 @@ test('ESLint skips blank and comment-only lines but counts lines with code', t =
   const result = lint(project);
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /File has too many lines \(501\)\. Maximum allowed is 500/);
+});
+
+test('ESLint applies skip-aware max-lines to executable JavaScript', t => {
+  const project = lintProject(t);
+  write(project, 'tools/comment-only.mjs', `${Array(501).fill('// skipped comment').join('\n')}\n`, true);
+
+  assert.equal(lint(project).status, 0);
 });
 
 test('ESLint discovers authored build tooling and ignores only generated outputs and dependencies', t => {
