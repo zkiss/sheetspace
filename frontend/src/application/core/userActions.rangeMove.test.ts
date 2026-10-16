@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import {
-  
-  
   prepareMoveCellWrites,
-  
-  
-  
   type CellWrite,
-  
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import type { ClipboardSourceSnapshot } from '@application/core/clipboardPayload';
