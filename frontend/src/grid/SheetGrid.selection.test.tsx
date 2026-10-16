@@ -51,16 +51,18 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1' }: {
 }) {
   const workbook = useMemo(() => workbookWithSheets([sheet]), [sheet]);
   const interaction = useCellEditing({ commands, workbook });
+  const interactionRef = useRef(interaction);
+  interactionRef.current = interaction;
   const projection = tabularProjection(sheet);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!replacement) return;
     const target = cellTargetAt(sheet, replacementKey)!;
-    if (replacement === 'edit') interaction.startEditingCell(target, 'retained draft');
-    else interaction.selectReferenceTarget(replacement === 'cell'
+    if (replacement === 'edit') interactionRef.current.startEditingCell(target, 'retained draft');
+    else interactionRef.current.selectReferenceTarget(replacement === 'cell'
       ? { kind: 'cell', target }
       : { kind: 'range', sheetId: sheet.id, range: { start: target.cell, end: cellTargetAt(sheet, 'D2')!.cell } });
-  }, [interaction, replacement, replacementKey, sheet]);
+  }, [replacement, replacementKey, sheet]);
   const range = interaction.selectionRange;
   const anchor = range && cellAddressOf(sheet.content, range.anchor.cell)!;
   const extent = range && cellAddressOf(sheet.content, range.extent.cell)!;
