@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type PointerEvent, type RefObject } from 'react';
-import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type RefObject } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
@@ -15,29 +15,23 @@ import {
 } from '@grid/gridGeometry';
 import type { SelectionGesture, CellEditSession, CellSelectionMode, CellTarget } from './cellInteractionContracts';
 import { cellKeyForTarget, cellTargetAt } from '@grid/cellInteraction';
-import {
-  SheetGridCell,
-  type SheetGridCellInteraction,
-} from '@grid/SheetGridCell';
+import type { SheetGridCellInteraction } from './SheetGridCell';
 import type { SheetGridCellEditorInteraction } from './SheetGridCellEditor';
 import { useAxisResize } from './useAxisResize';
-import { AxisResizeHandle } from './AxisResizeHandle';
 import type { AxisSizeWrite, SheetPresentation } from '@workbook/core/model';
 import type { CellSelection } from './cellInteractionContracts';
 import { SheetGridHeaders } from '@grid/SheetGridHeaders';
-import { getSheetCellDisplayText } from './sheetGridModel';
 import { cssRemFromPixels } from '@shared/styles/styleTokens';
-import { cellIdentityAt } from '@workbook/core/cellIdentity';
-import { resolveCellAppearance } from '@workbook/core/numberFormat';
+import { axisIndexForDurableIndex, hasDurableIndex, mergeVirtualIndexes, parseCellAddress, pinnedAxisIndices, virtualItemsOrTestFallback } from './sheetGridProjection';
+import { useGridPointerSelection } from './useGridPointerSelection';
+import { SheetGridRows } from './SheetGridRows';
 import '@grid/SheetGrid.css';
-
 function logicalUnitsPerRenderedPixel(scrollContainer: HTMLElement, rect: DOMRect) {
   return {
     x: rect.width ? scrollContainer.clientWidth / rect.width : 1,
     y: rect.height ? scrollContainer.clientHeight / rect.height : 1,
   };
 }
-
 function isNativeEditorTarget(target: EventTarget | null) {
   const editor = target instanceof HTMLElement
     ? target.closest<HTMLElement>('textarea, input, [contenteditable]')
@@ -47,7 +41,6 @@ function isNativeEditorTarget(target: EventTarget | null) {
     || editor.getAttribute('contenteditable')?.toLowerCase() !== 'false'
   ));
 }
-
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLElement,
   scrollContainer: HTMLElement,
@@ -62,29 +55,24 @@ function ensureCellVisibleOutsideStickyHeaders(
     + (columnHeader?.getBoundingClientRect().height ?? GRID_COLUMN_HEADER_HEIGHT / logicalPerRenderedPixel.y);
   const visibleLeft = scrollContainerRect.left
     + (rowHeader?.getBoundingClientRect().width ?? GRID_ROW_HEADER_WIDTH / logicalPerRenderedPixel.x);
-
   if (cellRect.top < visibleTop) {
     scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop
       - (visibleTop - cellRect.top) * logicalPerRenderedPixel.y);
   }
-
   if (cellRect.left < visibleLeft) {
     scrollContainer.scrollLeft = Math.max(0, scrollContainer.scrollLeft
       - (visibleLeft - cellRect.left) * logicalPerRenderedPixel.x);
   }
 }
-
 type GridFocusIntent = {
   id: string;
   requestId?: number;
   targetKey: string;
 };
-
 export type SheetGridAxisMetrics = {
   readonly columns: GridAxisMetrics;
   readonly rows: GridAxisMetrics;
 };
-
 export function SheetGrid({
   activeCellKey,
   activeSheetId,
@@ -175,26 +163,10 @@ export function SheetGrid({
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const rowHeaderRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{
-    pointerId: number;
-    clientX: number;
-    clientY: number;
-    mode: CellSelectionMode;
-    target: CellTarget | null;
-    owner: symbol;
-    captureElement: HTMLDivElement;
-  } | null>(null);
-  const animationFrameRef = useRef(0);
-  const cellInteractionRef = useRef(cellInteraction);
-  cellInteractionRef.current = cellInteraction;
-  const activeSheetIdRef = useRef(activeSheetId);
-  activeSheetIdRef.current = activeSheetId;
-  const selectionOwnerRef = useRef(selectionOwner);
-  selectionOwnerRef.current = selectionOwner;
   const { columns, rows } = axisProjection;
   const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes, interactionsEnabled });
   const projectedMetrics = useMemo(() => createSheetGridAxisMetrics(axisProjection, presentation, resize.preview),
-    [rows, columns, presentation, resize.preview]);
+    [axisProjection, presentation, resize.preview]);
   const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
   const columnMetrics = axisMetrics?.columns ?? projectedMetrics.columns;
   const rowItemKey = useCallback((index: number) => rowMetrics.itemKey(index) ?? index, [rowMetrics]);
@@ -202,7 +174,6 @@ export function SheetGrid({
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
-  const [dragging, setDragging] = useState(false);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
   // Application requests are already the authoritative focus state. Deriving their
   // intent during render makes replacement atomic: an R2 render cannot run R1's
@@ -213,7 +184,9 @@ export function SheetGrid({
       : null
   ), [keyboardFocusRequest?.id, keyboardFocusRequest?.targetKey]);
   const focusIntent = keyboardFocusIntent ?? gridEntryFocusIntent;
-
+  const pointer = useGridPointerSelection({ activeSheetId, cellInteraction, columnMetrics, columns,
+    onSelectAxis, rowMetrics, rows, scrollContainerRef, selectionOwner, sheet });
+  const { dragging, beginDrag, moveDrag, completeDrag, cancelDrag, finishDrag } = pointer;
   useEffect(() => {
     const active = dragging || resize.preview !== null;
     onPointerInteractionChange?.(sheet.id, active);
@@ -221,7 +194,6 @@ export function SheetGrid({
       if (active) onPointerInteractionChange?.(sheet.id, false);
     };
   }, [dragging, onPointerInteractionChange, resize.preview, sheet.id]);
-
   // An application request supersedes every older grid-entry request.  It is not
   // merely higher priority while present: once acknowledged, the prior entry
   // must not become eligible to scroll or focus again.
@@ -230,11 +202,9 @@ export function SheetGrid({
       setGridEntryFocusIntent(null);
     }
   }, [keyboardFocusIntent]);
-
   useEffect(() => {
     setScrollElement(scrollContainerRef.current);
-  });
-
+  }, [scrollContainerRef]);
   const rowVirtualizer = useVirtualizer({
     count: rowMetrics.count,
     estimateSize: rowItemSize,
@@ -311,7 +281,6 @@ export function SheetGrid({
   const focusIntentIsInWindow = Boolean(focusIntentAddress
     && nativeRows.some((virtualRow) => hasDurableIndex(rows[virtualRow.index], focusIntentAddress.rowIndex))
     && nativeColumns.some((virtualColumn) => hasDurableIndex(columns[virtualColumn.index], focusIntentAddress.columnIndex)));
-
   function registerCell(key: string, cellElement: HTMLElement | null) {
     if (
       key === activeCellKey
@@ -325,7 +294,6 @@ export function SheetGrid({
       }
     }
   }
-
   useEffect(() => {
     if (!focusIntent || editingCell) return;
     const address = parseCellAddress(focusIntent.targetKey, sheet);
@@ -336,7 +304,6 @@ export function SheetGrid({
     if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
     if (!focusIntentIsInWindow) gridRef.current?.focus();
   }, [columns, editingCell, focusIntent, focusIntentIsInWindow, rowVirtualizer, columnVirtualizer, rows, sheet]);
-
   useEffect(() => {
     if (!focusIntent || editingCell || !focusIntentIsInWindow) return;
     // A newer application request supersedes this effect before it can move DOM
@@ -365,22 +332,19 @@ export function SheetGrid({
       onKeyboardFocusRequestConsumed(completedIntent.requestId);
     }
   }, [editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, onKeyboardFocusRequestConsumed, scrollContainerRef, virtualColumns, virtualRows]);
-
   useEffect(() => {
     if (!activeAddress || !scrollContainerRef.current) return;
     const rowIndex = axisIndexForDurableIndex(rows, activeAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, activeAddress.columnIndex);
     if (rowIndex !== undefined) rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-  }, [activeAddress?.columnIndex, activeAddress?.rowIndex, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
-
+  }, [activeAddress, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
   useEffect(() => {
     if (navigationHighlightIdentity !== undefined
       && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
     if (!navigationHighlightRange && !navigationHighlightCellKey) {
       return;
     }
-
     const parsedCell = navigationHighlightCellKey
       ? parseA1Address(navigationHighlightCellKey, sheetBounds(sheet))
       : undefined;
@@ -391,7 +355,6 @@ export function SheetGrid({
     if (!range) {
       return;
     }
-
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, range.start.rowIndex);
@@ -409,7 +372,6 @@ export function SheetGrid({
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
   }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, rowMetrics, rows, scrollContainerRef, sheet]);
-
   useEffect(() => {
     if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;
@@ -425,8 +387,7 @@ export function SheetGrid({
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
     onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
-  }, [columnMetrics, historyAddress?.columnIndex, historyAddress?.rowIndex, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
-
+  }, [columnMetrics, historyAddress, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
     if (focusIntent) return;
@@ -437,204 +398,12 @@ export function SheetGrid({
     const firstRow = rows.find((row) => row.kind === 'saved');
     const firstColumn = columns.find((column) => column.kind === 'saved');
     if (!firstRow || !firstColumn) return;
-
     const key = cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: firstRow.durableIndex });
     const target = cellTargetAt(sheet, key);
     if (!target) return;
 
     cellInteraction.select(target);
     setGridEntryFocusIntent({ id: `entry-${nextGridFocusRequestId.current++}`, targetKey: key });
-  }
-
-  function extendSelectionAt(clientX: number, clientY: number) {
-    const scrollContainer = scrollContainerRef.current;
-    const drag = dragRef.current;
-    if (!scrollContainer || !drag) return;
-    // This check runs from both pointer movement and the RAF loop. It closes the
-    // gap between a context-replacement render and its cleanup effect, so an
-    // already queued stale callback cannot replace the new sheet selection.
-    if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
-      finishDrag();
-      return;
-    }
-    if (!dragOwnsCurrentSelection()) {
-      finishDrag();
-      return;
-    }
-    const rect = scrollContainer.getBoundingClientRect();
-    // Pointer coordinates are screen-space while the grid may be scaled by the
-    // workspace. Convert through the scroll viewport before consulting metrics.
-    const { x: scaleX, y: scaleY } = logicalUnitsPerRenderedPixel(scrollContainer, rect);
-    const columnIndex = savedAxisIndexAtOffset(columns, columnMetrics,
-      scrollContainer.scrollLeft + (clientX - rect.left) * scaleX - GRID_ROW_HEADER_WIDTH,
-    );
-    const rowIndex = savedAxisIndexAtOffset(rows, rowMetrics,
-      scrollContainer.scrollTop + (clientY - rect.top) * scaleY - GRID_COLUMN_HEADER_HEIGHT,
-    );
-    const row = rowIndex === undefined ? undefined : rows[rowIndex];
-    const column = columnIndex === undefined ? undefined : columns[columnIndex];
-    if (drag.mode === 'columns') {
-      const firstRow = rows.find((axis) => axis.kind === 'saved');
-      if (column?.kind !== 'saved' || !firstRow) return;
-      const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: firstRow.durableIndex }));
-      if (target) {
-        drag.target = target;
-        onSelectAxis?.('columns', target, true, { owner: drag.owner });
-      }
-      return;
-    }
-    if (drag.mode === 'rows') {
-      const firstColumn = columns.find((axis) => axis.kind === 'saved');
-      if (row?.kind !== 'saved' || !firstColumn) return;
-      const target = cellTargetAt(sheet, cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: row.durableIndex }));
-      if (target) {
-        drag.target = target;
-        onSelectAxis?.('rows', target, true, { owner: drag.owner });
-      }
-      return;
-    }
-    if (!cellInteraction.extend || row?.kind !== 'saved' || column?.kind !== 'saved') return;
-    const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: row.durableIndex }));
-    if (target) {
-      drag.target = target;
-      cellInteraction.extend(target, { owner: drag.owner });
-    }
-  }
-
-  const finishDrag = useCallback((pointerId?: number, focusExtent = false) => {
-    const drag = dragRef.current;
-    if (!drag || (pointerId !== undefined && drag.pointerId !== pointerId)) return;
-    // Clear ownership before releasing capture: lostpointercapture can reenter this
-    // path synchronously in some browsers.
-    dragRef.current = null;
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    animationFrameRef.current = 0;
-    if (drag.captureElement.hasPointerCapture?.(drag.pointerId)) drag.captureElement.releasePointerCapture(drag.pointerId);
-    setDragging(false);
-    // The pointer owner guards only the live gesture. Focusing the completed
-    // extent clears that owner, keeping the selected rectangle editable.
-    if (focusExtent && drag.target) cellInteractionRef.current.focusSelection?.(drag.target);
-    cellInteractionRef.current.settleSelectionGesture?.(drag.owner);
-  }, []);
-
-  useEffect(() => {
-    const tick = () => {
-      const drag = dragRef.current;
-      const scrollContainer = scrollContainerRef.current;
-      if (!drag || !scrollContainer) return;
-      if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
-        finishDrag();
-        return;
-      }
-      if (!dragOwnsCurrentSelection()) {
-        finishDrag();
-        return;
-      }
-      const rect = scrollContainer.getBoundingClientRect();
-      const edge = 28;
-      const scrollX = drag.mode === 'rows' ? 0 : drag.clientX < rect.left + edge ? -18 : drag.clientX > rect.right - edge ? 18 : 0;
-      const scrollY = drag.mode === 'columns' ? 0 : drag.clientY < rect.top + edge ? -18 : drag.clientY > rect.bottom - edge ? 18 : 0;
-      if (scrollX || scrollY) {
-        scrollContainer.scrollLeft += scrollX;
-        scrollContainer.scrollTop += scrollY;
-        extendSelectionAt(drag.clientX, drag.clientY);
-      }
-      animationFrameRef.current = requestAnimationFrame(tick);
-    };
-    if (dragging) animationFrameRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = 0;
-    };
-  }, [dragging, columnMetrics, rowMetrics, columns, rows, sheet, cellInteraction, onSelectAxis, scrollContainerRef]);
-
-  useEffect(() => {
-    const cancelForWindowDeparture = () => finishDrag();
-    const cancelForVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') finishDrag();
-    };
-    window.addEventListener('blur', cancelForWindowDeparture);
-    document.addEventListener('visibilitychange', cancelForVisibilityChange);
-    return () => {
-      window.removeEventListener('blur', cancelForWindowDeparture);
-      document.removeEventListener('visibilitychange', cancelForVisibilityChange);
-    };
-  }, [finishDrag]);
-
-  useEffect(() => () => finishDrag(), [finishDrag, sheet.id]);
-
-  // A frame can remain mounted when reference navigation or a workspace action
-  // moves logical selection to another sheet. End the old session as part of
-  // that replacement, while allowing ordinary same-sheet rerenders to continue.
-  useEffect(() => {
-    if (activeSheetId != null && activeSheetId !== sheet.id) finishDrag();
-  }, [activeSheetId, finishDrag, sheet.id]);
-
-  useEffect(() => {
-    if (dragRef.current && !dragOwnsCurrentSelection()) finishDrag();
-  }, [selectionOwner, finishDrag]);
-
-  function beginDrag(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
-    if (isNativeEditorTarget(event.target) || (event.target as HTMLElement).closest('button, a, .sheet-grid-resize-handle')) return;
-    if (dragRef.current) return;
-    const source = (event.target as HTMLElement).closest<HTMLElement>('[data-cell-key], [data-axis-selection-mode]');
-    if (!source) return;
-    const mode = source.dataset.axisSelectionMode as Exclude<CellSelectionMode, 'cells'> | undefined;
-    const target = dragTargetForSource(source, mode ?? 'cells', sheet, rows, columns);
-    if (!target) return;
-    const dragMode = mode ?? 'cells';
-    const owner = Symbol('selection-gesture');
-    const gesture = { owner, start: true };
-    if (dragMode === 'cells') {
-      if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target, gesture);
-      else cellInteraction.select(target, gesture);
-    } else {
-      onSelectAxis?.(dragMode, target, event.shiftKey, gesture);
-    }
-    dragRef.current = {
-      pointerId: event.pointerId,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      mode: dragMode,
-      target,
-      owner,
-      captureElement: event.currentTarget,
-    };
-    setDragging(true);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  }
-
-  function moveDrag(event: PointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
-    if (!dragOwnsCurrentSelection()) {
-      finishDrag();
-      return;
-    }
-    if (activeSheetIdRef.current != null && activeSheetIdRef.current !== sheet.id) {
-      finishDrag();
-      return;
-    }
-    dragRef.current = { ...dragRef.current, clientX: event.clientX, clientY: event.clientY };
-    extendSelectionAt(event.clientX, event.clientY);
-  }
-
-  function dragOwnsCurrentSelection() {
-    const drag = dragRef.current;
-    if (!drag) return false;
-    return selectionOwnerRef.current === undefined || selectionOwnerRef.current === drag.owner;
-  }
-
-  function completeDrag(event: PointerEvent<HTMLDivElement>) {
-    if (!dragOwnsCurrentSelection()) {
-      finishDrag(event.pointerId);
-      return;
-    }
-    finishDrag(event.pointerId, true);
-  }
-
-  function cancelDrag(event: PointerEvent<HTMLDivElement>) {
-    finishDrag(event.pointerId);
   }
 
   function isNativeEditorEvent(event: ClipboardEvent<HTMLDivElement>) {
@@ -723,258 +492,9 @@ export function SheetGrid({
           ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
           : undefined}
       />
-      {virtualRows.map((virtualRow) => {
-        const row = rows[virtualRow.index];
-        if (!row) return null;
-        return (
-          <div
-            aria-hidden={row.kind === 'creating' ? true : undefined}
-            aria-rowindex={row.kind === 'saved' ? row.durableIndex + 2 : undefined}
-            className="sheet-grid-row"
-            key={axisKey(row)}
-            role="row"
-            style={{ height: virtualRow.size, top: virtualRow.start }}
-          >
-            <div
-              aria-label={row.kind === 'creating' ? 'Creating row' : undefined}
-              aria-colindex={1}
-              className={`sheet-grid-row-header${row.kind === 'creating' ? ' sheet-grid-axis-creating' : ''}${
-                row.kind === 'saved' && selectionMode === 'rows' && isAddressInRange(
-                  { rowIndex: row.durableIndex, columnIndex: 0 }, selectedRange,
-                ) ? ' sheet-grid-axis-selected' : ''
-              }`}
-              data-axis-selection-mode={row.kind === 'saved' ? 'rows' : undefined}
-              data-axis-durable-index={row.kind === 'saved' ? row.durableIndex : undefined}
-              ref={row.kind === 'saved' && row.durableIndex === 0 ? rowHeaderRef : undefined}
-              role="rowheader"
-              style={{ height: virtualRow.size, left: 0, position: 'sticky' }}
-            >
-              {row.kind === 'creating' ? 'Creating…' : row.durableIndex + 1}
-              {row.kind === 'saved' && onWriteAxisSizes && <AxisResizeHandle axis="row" id={row.id}
-                label={String(row.durableIndex + 1)} size={virtualRow.size} resize={resize} />}
-            </div>
-            {virtualColumns.map((virtualColumn) => {
-              const column = columns[virtualColumn.index];
-              if (!column) return null;
-              if (row.kind === 'creating' || column.kind === 'creating') {
-                return (
-                  <div
-                    aria-hidden="true"
-                    aria-label="Creating cell"
-                    aria-colindex={column.kind === 'saved' ? column.durableIndex + 2 : undefined}
-                    className="sheet-grid-cell sheet-grid-cell-creating"
-                    key={column.kind === 'creating' ? column.operationId : column.id}
-                    role="cell"
-                    style={{
-                      height: virtualRow.size,
-                      left: virtualColumn.start,
-                      minWidth: virtualColumn.size,
-                      position: 'absolute',
-                      width: virtualColumn.size,
-                    }}
-                  />
-                );
-              }
-              const address = { columnIndex: column.durableIndex, rowIndex: row.durableIndex };
-              const key = cellKey(address);
-               const isActive = activeCellKey === key;
-               const isEditing = cellKeyForTarget(sheet, editingCell?.target ?? null) === key;
-               const isRangeSelected = isAddressInRange(address, selectedRange);
-               const selectionEdges = isRangeSelected && selectedRange ? [
-                 address.rowIndex === selectedRange.start.rowIndex ? 'sheet-grid-selection-top' : '',
-                 address.rowIndex === selectedRange.end.rowIndex ? 'sheet-grid-selection-bottom' : '',
-                 address.columnIndex === selectedRange.start.columnIndex ? 'sheet-grid-selection-left' : '',
-                 address.columnIndex === selectedRange.end.columnIndex ? 'sheet-grid-selection-right' : '',
-               ].filter(Boolean).join(' ') : undefined;
-              const isNavigationTarget = navigationHighlightRange
-                ? isAddressInRange(address, navigationHighlightRange)
-                : navigationHighlightCellKey === key;
-               const historyFeedback = historyFeedbackCells?.get(key);
-               const hasHistoryNeighbor = (rowIndex: number, columnIndex: number) => Boolean(
-                  rowIndex >= 0 && columnIndex >= 0
-                    && historyFeedbackCells?.has(cellKey({ rowIndex, columnIndex })),
-               );
-               const historyEdges = historyFeedback ? [
-                 !hasHistoryNeighbor(address.rowIndex - 1, address.columnIndex) ? 'sheet-grid-history-top' : '',
-                 !hasHistoryNeighbor(address.rowIndex + 1, address.columnIndex) ? 'sheet-grid-history-bottom' : '',
-                 !hasHistoryNeighbor(address.rowIndex, address.columnIndex - 1) ? 'sheet-grid-history-left' : '',
-                 !hasHistoryNeighbor(address.rowIndex, address.columnIndex + 1) ? 'sheet-grid-history-right' : '',
-               ].filter(Boolean).join(' ') : undefined;
-              const identity = cellIdentityAt(sheet, key);
-              const appearance = identity ? resolveCellAppearance(presentation?.formatOverrides ?? { rows: {}, columns: {}, cells: {} }, identity) : undefined;
-
-              return (
-                <SheetGridCell
-                  cellKey={key}
-                  columnIndex={column.durableIndex + 2}
-                  displayText={getSheetCellDisplayText({ cellKey: key, formulaResults, presentation, sheet })}
-                  editingCell={editingCell}
-                  cellInteraction={cellInteraction}
-                  editorInteraction={editorInteraction}
-                  isActive={isActive}
-                  isEditing={isEditing}
-                  isFocusTarget={focusIntent?.targetKey === key}
-                  isNavigationTarget={isNavigationTarget}
-                  navigationHighlightIdentity={navigationHighlightIdentity}
-                    historyFeedback={historyFeedback}
-                    historyEdges={historyEdges}
-                    isRangeSelected={isRangeSelected}
-                    selectionEdges={selectionEdges}
-                    isPendingCut={pendingCutCells?.has(key)}
-                  key={key}
-                  onNativeFocusTarget={onNativeFocusTarget}
-                  registerCell={registerCell}
-                  sheet={sheet}
-                  style={{
-                    backgroundColor: appearance?.fillColor === 'none' ? '#ffffff' : appearance?.fillColor,
-                    color: appearance?.textColor === 'automatic' ? undefined : appearance?.textColor,
-                    fontWeight: appearance?.fontWeight,
-                    height: virtualRow.size,
-                    textAlign: appearance?.horizontalAlignment === 'general' ? undefined : appearance?.horizontalAlignment,
-                    lineHeight: `${virtualRow.size}px`,
-                    left: virtualColumn.start,
-                    minWidth: virtualColumn.size,
-                    position: 'absolute',
-                    width: virtualColumn.size,
-                  }}
-                  tabIndex={activeCellKey === key ? 0 : -1}
-                />
-              );
-            })}
-          </div>
-        );
-      })}
+      <SheetGridRows {...{ activeCellKey, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
     </div>
   );
 }
 
-function axisKey(entry: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined) {
-  return entry ? (entry.kind === 'saved' ? entry.id : entry.operationId) : '';
-}
-
-/**
- * Resolve pointer geometry to a durable axis item. Projection also contains
- * temporary creation slots, so generic metric indexes cannot be used directly
- * for selection. The closest saved item makes endpoint and pending-slot
- * targeting deterministic without changing the metrics API's out-of-range
- * contract.
- */
-export function savedAxisIndexAtOffset(
-  entries: readonly GridAxisProjection['rows'][number][] | readonly GridAxisProjection['columns'][number][],
-  metrics: GridAxisMetrics,
-  offset: number,
-) {
-  if (!Number.isFinite(offset)) return undefined;
-  const saved = entries
-    .map((entry, index) => entry?.kind === 'saved' ? index : undefined)
-    .filter((index): index is number => index !== undefined);
-  if (!saved.length) return undefined;
-
-  const directIndex = metrics.indexAtOffset(offset);
-  if (directIndex !== undefined && entries[directIndex]?.kind === 'saved') return directIndex;
-
-  let nearestIndex = saved[0];
-  let nearestDistance = Number.POSITIVE_INFINITY;
-  for (const index of saved) {
-    const start = metrics.itemOffset(index) ?? 0;
-    const end = start + (metrics.itemSize(index) ?? 0);
-    const distance = offset < start ? start - offset : offset >= end ? offset - end : 0;
-    if (distance < nearestDistance) {
-      nearestIndex = index;
-      nearestDistance = distance;
-    }
-  }
-  return nearestIndex;
-}
-
-function dragTargetForSource(
-  source: HTMLElement,
-  mode: CellSelectionMode,
-  sheet: SheetTabularProjection,
-  rows: GridAxisProjection['rows'],
-  columns: GridAxisProjection['columns'],
-) {
-  if (mode === 'cells') {
-    const key = source.dataset.cellKey;
-    return key ? cellTargetAt(sheet, key) ?? null : null;
-  }
-  const durableIndex = Number(source.dataset.axisDurableIndex);
-  if (!Number.isInteger(durableIndex)) return null;
-  const firstRow = rows.find((axis) => axis.kind === 'saved');
-  const firstColumn = columns.find((axis) => axis.kind === 'saved');
-  if (!firstRow || !firstColumn) return null;
-  return cellTargetAt(sheet, cellKey({
-    columnIndex: mode === 'columns' ? durableIndex : firstColumn.durableIndex,
-    rowIndex: mode === 'rows' ? durableIndex : firstRow.durableIndex,
-  })) ?? null;
-}
-
-function hasDurableIndex(
-  entry: GridAxisProjection['rows'][number] | GridAxisProjection['columns'][number] | undefined,
-  durableIndex: number,
-) {
-  return entry?.kind === 'saved' && entry.durableIndex === durableIndex;
-}
-
-function parseCellAddress(key: string | null, sheet: SheetTabularProjection) {
-  if (!key) return undefined;
-  const parsed = parseA1Address(key, sheetBounds(sheet));
-  return parsed.ok ? parsed.value : undefined;
-}
-
-function axisIndexForDurableIndex(entries: readonly GridAxisProjection['rows'][number][], durableIndex: number) {
-  return entries.findIndex((entry) => entry.kind === 'saved' && entry.durableIndex === durableIndex);
-}
-
-function pinnedAxisIndices(entries: readonly GridAxisProjection['rows'][number][], durableIndices: readonly number[]) {
-  return durableIndices.map((durableIndex) => axisIndexForDurableIndex(entries, durableIndex)).filter((index): index is number => index >= 0);
-}
-
-function mergeVirtualIndexes<TScrollElement extends Element, TItemElement extends Element>(
-  virtualItems: readonly VirtualItem[],
-  pinnedIndexes: readonly number[],
-  virtualizer: Virtualizer<TScrollElement, TItemElement>,
-  paddingStart: number,
-  metrics: GridAxisMetrics,
-) {
-  const items = new Map(virtualItems.map((item) => [item.index, item]));
-  for (const index of pinnedIndexes) {
-    const size = metrics.itemSize(index) ?? 0;
-    const start = paddingStart + (metrics.itemOffset(index) ?? 0);
-    const item = virtualizer.getVirtualItems().find((candidate) => candidate.index === index)
-      ?? { end: start + size, index, key: metrics.itemKey(index) ?? index, lane: 0, size, start };
-    if (!items.has(index)) items.set(index, item);
-  }
-  return [...items.values()].map((item) => {
-    const size = metrics.itemSize(item.index) ?? 0;
-    const start = paddingStart + (metrics.itemOffset(item.index) ?? 0);
-    return { ...item, size, start, end: start + size };
-  }).sort((left, right) => left.index - right.index);
-}
-
-function virtualItemsOrTestFallback(items: readonly VirtualItem[], metrics: GridAxisMetrics, paddingStart: number) {
-  if (items.length > 0) return items;
-  // JSDOM reports a zero-sized scroll viewport; keep its deterministic projection bounded too.
-  return Array.from({ length: Math.min(metrics.count, 30) }, (_, index) => {
-    const size = metrics.itemSize(index) ?? 0;
-    const start = paddingStart + (metrics.itemOffset(index) ?? 0);
-    return {
-      end: start + size,
-      index,
-      key: metrics.itemKey(index) ?? index,
-      lane: 0,
-      size,
-      start,
-    };
-  });
-}
-
-function isAddressInRange(address: CellAddress, range?: CellRange) {
-  return Boolean(
-    range
-      && address.columnIndex >= range.start.columnIndex
-      && address.columnIndex <= range.end.columnIndex
-      && address.rowIndex >= range.start.rowIndex
-      && address.rowIndex <= range.end.rowIndex,
-  );
-}
+export { savedAxisIndexAtOffset } from './sheetGridProjection';

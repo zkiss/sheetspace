@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { CellEditSession, CellNavigationRequest } from './cellInteractionContracts';
 import './SheetGridCell.css';
@@ -25,7 +25,8 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const hasPlacedInitialCaret = useRef(false);
   const hasFinishedEditing = useRef(false);
-  const updatePosition = () => {
+  const anchorElement = anchor.current;
+  const updatePosition = useCallback(() => {
     // Ref replacement during a parent render must not unmount the focused portal.
     if (!anchor.current) return;
     const next = anchor.current.getBoundingClientRect();
@@ -35,8 +36,8 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     // must not render React (or trigger another layout-effect geometry read).
     if (editorRef.current) placeEditor(editorRef.current, next);
     else setIsAnchored(true);
-  };
-  useLayoutEffect(() => { updatePosition(); });
+  }, [anchor]);
+  useLayoutEffect(() => { updatePosition(); }, [anchorElement, updatePosition]);
   useEffect(() => {
     // The containing cell's ref is attached after this child's layout effect.
     updatePosition();
@@ -54,7 +55,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
       observer?.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [anchor]);
+  }, [anchor, updatePosition]);
   useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor || !anchorRect.current) return;

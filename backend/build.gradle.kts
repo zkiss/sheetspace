@@ -6,6 +6,7 @@ plugins {
     kotlin("plugin.serialization") version "2.2.21"
     application
     jacoco
+    checkstyle
 }
 
 group = "com.sheetspace"
@@ -13,6 +14,10 @@ version = "0.1.0"
 
 repositories {
     mavenCentral()
+}
+
+checkstyle {
+    toolVersion = "10.26.1"
 }
 
 dependencies {
@@ -88,6 +93,16 @@ tasks.jacocoTestCoverageVerification {
             }
         }
     }
+}
+
+tasks.named<Checkstyle>("checkstyleMain") {
+    source("src/main/kotlin")
+    classpath = files()
+}
+
+tasks.named<Checkstyle>("checkstyleTest") {
+    source("src/test/kotlin")
+    classpath = files()
 }
 
 tasks.register<Copy>("copyFrontendDist") {

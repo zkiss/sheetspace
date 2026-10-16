@@ -85,7 +85,8 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
     }),
     deleteSheet: vi.fn().mockImplementation(async (sheetId: string) => {
       if (!findSheetById(persistedWorkbook, sheetId)) throw new Error('sheet-not-found');
-      const { [sheetId]: _deleted, ...documents } = persistedWorkbook.documents;
+      const { [sheetId]: deletedDocument, ...documents } = persistedWorkbook.documents;
+      void deletedDocument;
       persistedWorkbook = {
         manifest: {
           ...persistedWorkbook.manifest,

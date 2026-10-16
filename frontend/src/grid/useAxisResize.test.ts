@@ -71,8 +71,7 @@ describe('resizeTargetIds', () => {
 });
 
 describe('useAxisResize sessions', () => {
-  it.each([{ axis: 'column' as const, scale: .5, delta: 40 }, { axis: 'column' as const, scale: 2, delta: 40 }, { axis: 'row' as const, scale: .5, delta: 20 }, { axis: 'row' as const, scale: 2, delta: 20 }])
-  ('converts $axis movement at scale $scale and clamps both boundaries', ({ axis, scale, delta }) => {
+  it.each([{ axis: 'column' as const, scale: .5, delta: 40 }, { axis: 'column' as const, scale: 2, delta: 40 }, { axis: 'row' as const, scale: .5, delta: 20 }, { axis: 'row' as const, scale: 2, delta: 20 }])('converts $axis movement at scale $scale and clamps both boundaries', ({ axis, scale, delta }) => {
     const commit = vi.fn(), handle = mountedHandle(76 * scale, 26.4 * scale);
     const { result } = renderHook(() => useAxisResize({ sheet, commit }));
     const id = axis === 'row' ? row : column, initial = axis === 'row' ? 26.4 : 76;
