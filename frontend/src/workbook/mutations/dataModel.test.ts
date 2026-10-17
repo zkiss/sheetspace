@@ -48,13 +48,13 @@ describe('data model mutations', () => {
     expect(bindSheetToDataModel({ ...source, dataModels: { forecast: { ...model, properties: [model.properties[0]!, { id: 'other', name: 'Amount', kind: 'manual' }] } } }, 'sales', 'forecast', ['new'])).toEqual({ ok: false, reason: 'duplicate-property-name' });
   });
 
-  it('preserves unchanged property column identities across reordering and gives renamed properties new columns', () => {
+  it('gives a name-only rename a fresh column without retaining manual values', () => {
     const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
     const result = replaceDataModel(bound.value, {
       ...model,
-      properties: [model.properties[1]!, { id: 'renamed', name: 'Revised amount', kind: 'manual' }],
+      properties: [model.properties[1]!, { id: 'amount', name: 'Revised amount', kind: 'manual' }],
     }, { sales: ['sales:column:3'] });
 
     expect(result.ok).toBe(true);
