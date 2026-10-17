@@ -113,4 +113,20 @@ describe('data model mutations', () => {
       ...writes[1]!, beforeRaw: sheet.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:2' })]!, afterRaw: '99',
     }], 'before')).toEqual({ ok: false, reason: 'invalid-cell' });
   });
+
+  it('materializes calculated formulas when an empty bound sheet receives its first row', () => {
+    const empty = {
+      ...workbookWithSheets([sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 1 })]),
+      dataModels: { forecast: model },
+    };
+    const bound = bindSheetToDataModel(empty, 'empty', 'forecast', ['empty:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+
+    const appended = applyBackendWorkbookReconciliation(bound.value, { kind: 'append-row', sheetId: 'empty', rowId: 'empty:row:1' });
+    expect(appended.ok).toBe(true);
+    if (!appended.ok) return;
+    const calculatedCell = cellIdentityKey({ rowId: 'empty:row:1', columnId: 'empty:column:2' });
+    expect(appended.value.nextWorkbook.documents.empty.content.cells[calculatedCell]).toContain('empty:row:1');
+  });
 });

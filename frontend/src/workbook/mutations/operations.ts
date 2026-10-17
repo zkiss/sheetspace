@@ -10,16 +10,22 @@ export function validateSheetName(name: string, existingSheets: Pick<SheetDocume
 export function renameSheet(workbook: Workbook, sheetId: string, nextName: string): MutationResult<Workbook> { const sheet = findSheetById(workbook, sheetId); if (!sheet) return { ok: false, reason: 'unknown-sheet' }; const validation = validateSheetName(nextName, sheetsInOrder(workbook), sheetId); return !validation.ok ? validation : { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: { ...sheet, name: validation.name } } } }; }
 export function appendRow(sheet: SheetDocument, rowId: RowId, model?: DataModel, workbook?: Workbook): SheetDocument {
   let next = { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, rowId] } };
-  if (!model || sheet.content.rows.length === 0) return next;
+  if (!model) return next;
   for (const [index, property] of model.properties.entries()) {
     if (property.kind !== 'calculated') continue;
     const columnId = sheet.content.columns[index];
-    const sourceRowId = sheet.content.rows[0];
-    if (!columnId || !sourceRowId) continue;
-    const source = { rowId: sourceRowId, columnId };
+    if (!columnId) continue;
     const sourceWorkbook: Workbook = workbook
       ? { ...workbook, documents: { ...workbook.documents, [sheet.id]: next } }
       : { manifest: { version: WORKBOOK_SCHEMA_VERSION, revision: 0, sheetIds: [sheet.id] }, documents: { [sheet.id]: next } };
+    if (sheet.content.rows.length === 0) {
+      const raw = formulaRawForStorage(property.formula, sourceWorkbook, sheet.id);
+      if (raw.startsWith('=')) next = { ...next, content: { ...next.content, cells: { ...next.content.cells, [cellIdentityKey({ rowId, columnId })]: raw } } };
+      continue;
+    }
+    const sourceRowId = sheet.content.rows[0];
+    if (!sourceRowId) continue;
+    const source = { rowId: sourceRowId, columnId };
     const raw = next.content.cells[cellIdentityKey(source)] ?? formulaRawForStorage(property.formula, sourceWorkbook, sheet.id);
     if (!raw.startsWith('=')) continue;
     const copied = copyCanonicalFormula(raw, source, { rowId, columnId }, workbookFormulaReferenceResolver(sourceWorkbook, sheet.id));
