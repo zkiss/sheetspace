@@ -355,7 +355,7 @@ private fun affectedDataModelSheets(current: WorkbookState, updated: WorkbookSta
     return current.documents.keys.map { it.value }.filter { id ->
         val before = current.documents.getValue(SheetId(id))
         val after = updated.documents.getValue(SheetId(id))
-        before.dataModelId != after.dataModelId || before.dataModelId in changedModels || after.dataModelId in changedModels
+        before.dataModelId != after.dataModelId || before.dataModelId in changedModels
     }.toSet()
 }
 
@@ -402,10 +402,9 @@ private fun materializeModelFormula(
     if (formula.length <= 1 || !formula.startsWith("=")) return null
     val sourceColumn = content.columns.indexOf(destination.columnId)
     val sourceRow = 0
-    if (sourceColumn < 0) return null
     return MODEL_A1_REFERENCE.replace(formula) { match ->
         val columnAnchor = match.groupValues[1] == "$"
-        val column = columnIndex(match.groupValues[2]) ?: return@replace "#REF!"
+        val column = columnIndex(match.groupValues[2])
         val rowAnchor = match.groupValues[3] == "$"
         val row = match.groupValues[4].toIntOrNull()?.minus(1) ?: return@replace "#REF!"
         val destinationColumn = content.columns.indexOf(destination.columnId)
@@ -423,10 +422,9 @@ private fun isSupportedFormula(raw: String): Boolean = raw.length > 1 && raw.sta
 
 private val MODEL_A1_REFERENCE = Regex("@(?:[A-Za-z0-9_.-]+!)?(\\$?)([A-Z]+)\\[(\\$?)([1-9][0-9]*)]")
 
-private fun columnIndex(label: String): Int? {
+private fun columnIndex(label: String): Int {
     var result = 0
     for (character in label) {
-        if (character !in 'A'..'Z') return null
         result = result * 26 + (character - 'A' + 1)
     }
     return result - 1

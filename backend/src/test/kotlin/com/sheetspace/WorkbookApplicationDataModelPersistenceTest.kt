@@ -127,6 +127,73 @@ class WorkbookApplicationDataModelPersistenceTest {
     }
 
     @Test
+    fun `model state replacement materializes anchored and broken calculated references`() {
+        val fixture = dataModelFixture()
+        val valid = fixture.command(fixture.boundWorkbook).workbook
+        val document = valid.documents.single()
+        val amountColumn = document.content.columns.first()
+        val calculatedColumn = document.content.columns[1]
+        val anchored = valid.copy(
+            dataModels = listOf(valid.dataModels.single().copy(properties = valid.dataModels.single().properties.mapIndexed { index, property ->
+                if (index == 1) property.copy(formula = "=@\$A[\$1]*2") else property
+            })),
+            documents = listOf(document.copy(content = document.content.copy(cells = document.content.cells.map { cell ->
+                if (cell.columnId == calculatedColumn) cell.copy(content = "=@\$${amountColumn}[\$${document.content.rows.first()}]*2") else cell
+            }))),
+        )
+        fixture.application.replaceDataModelState(fixture.command(anchored))
+        assertEquals(anchored, WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
+        val broken = anchored.copy(
+            dataModels = listOf(anchored.dataModels.single().copy(properties = anchored.dataModels.single().properties.mapIndexed { index, property ->
+                if (index == 1) property.copy(formula = "=@Z[999]") else property
+            })),
+            documents = listOf(anchored.documents.single().copy(content = anchored.documents.single().content.copy(cells = anchored.documents.single().content.cells.map { cell ->
+                if (cell.columnId == calculatedColumn) cell.copy(content = "=#REF!") else cell
+            }))),
+        )
+        fixture.application.replaceDataModelState(DataModelStateCommand(
+            listOf(ExpectedSheetRevision(fixture.sheet.id.value, fixture.application.loadSheet(fixture.sheet.id.value).revision)),
+            broken,
+        ))
+        assertEquals(broken, WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
+    }
+
+    @Test
+    fun `model state replacement preserves broken calculated column and row targets`() {
+        listOf("=@Z[1]", "=@A[999]").forEach { template ->
+            val fixture = dataModelFixture()
+            val valid = fixture.command(fixture.boundWorkbook).workbook
+            val calculatedColumn = valid.documents.single().content.columns[1]
+            val broken = valid.copy(
+                dataModels = listOf(valid.dataModels.single().copy(properties = valid.dataModels.single().properties.mapIndexed { index, property ->
+                    if (index == 1) property.copy(formula = template) else property
+                })),
+                documents = listOf(valid.documents.single().copy(content = valid.documents.single().content.copy(cells = valid.documents.single().content.cells.map { cell ->
+                    if (cell.columnId == calculatedColumn) cell.copy(content = "=#REF!") else cell
+                }))),
+            )
+            fixture.application.replaceDataModelState(fixture.command(broken))
+            assertEquals(broken, WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
+        }
+    }
+
+    @Test
+    fun `row append rejects calculated templates that bypass model-state validation`() {
+        listOf("=", "not a formula").forEach { template ->
+            val fixture = dataModelFixture()
+            val model = fixture.boundWorkbook.dataModels.values.single().copy(properties = fixture.boundWorkbook.dataModels.values.single().properties.mapIndexed { index, property ->
+                if (index == 1) CalculatedDataModelProperty(property.id, property.name, template) else property
+            })
+            val application = DefaultWorkbookApplication(InMemoryWorkbookStore(fixture.boundWorkbook.copy(dataModels = mapOf(model.id to model))))
+            assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+                application.appendRow(fixture.boundSheet.id.value, fixture.boundSheet.revision, listOf(
+                    CalculatedCellAppend(fixture.boundSheet.tabularContent.columns[1].value, "=1"),
+                ))
+            }
+        }
+    }
+
+    @Test
     fun `model state replacement rejects stale and incomplete revision guards`() {
         val fixture = dataModelFixture()
         val command = fixture.command(fixture.boundWorkbook)
