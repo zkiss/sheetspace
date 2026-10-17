@@ -179,13 +179,16 @@ class WorkbookApplicationDataModelPersistenceTest {
         val fixture = dataModelFixture()
         fixture.application.replaceDataModelState(fixture.command(fixture.boundWorkbook))
         val calculatedColumn = fixture.boundSheet.tabularContent.columns[1]
+        val appendedRowId = "00000000-0000-0000-0000-000000000201"
         val appended = fixture.application.appendRow(
             fixture.sheet.id.value,
             fixture.sheet.revision,
-            listOf(CalculatedCellAppend(calculatedColumn.value, "=@A[3]*2")),
+            listOf(CalculatedCellAppend(calculatedColumn.value, "=@A[$appendedRowId]*2")),
+            appendedRowId,
         )
 
-        assertEquals("=@A[3]*2", appended.sheet.tabularContent.cellContents.getValue(CellCoordinate(appended.rowId, calculatedColumn)))
+        assertEquals(RowId(appendedRowId), appended.rowId)
+        assertEquals("=@A[$appendedRowId]*2", appended.sheet.tabularContent.cellContents.getValue(CellCoordinate(appended.rowId, calculatedColumn)))
         assertEquals(appended.sheet, fixture.store.loadSheet(fixture.sheet.id))
 
         listOf(
@@ -276,9 +279,13 @@ class WorkbookApplicationDataModelPersistenceTest {
                 )))
             }
             val calculatedColumn = bound.documents.getValue(SheetId(created.id)).tabularContent.columns[1]
+            val appendedRowId = "00000000-0000-0000-0000-000000000201"
             val append = client.post("/api/sheets/${created.id}/rows") {
                 revisionHeader(application, created.id)
-                jsonBody(testJson.encodeToString(RowAppendRequest(listOf(CalculatedCellAppendRequest(calculatedColumn.value, "=@A[3]*2")))))
+                jsonBody(testJson.encodeToString(RowAppendRequest(
+                    listOf(CalculatedCellAppendRequest(calculatedColumn.value, "=@A[$appendedRowId]*2")),
+                    appendedRowId,
+                )))
             }
             val invalidAppend = client.post("/api/sheets/${created.id}/rows") {
                 revisionHeader(application, created.id)
@@ -290,7 +297,8 @@ class WorkbookApplicationDataModelPersistenceTest {
             assertEquals(HttpStatusCode.BadRequest, invalidAppend.status)
             assertEquals(ErrorResponse("invalid-request"), testJson.decodeFromString(invalidAppend.bodyAsText()))
             val appendResult = testJson.decodeFromString<RowAppendResponse>(append.bodyAsText())
-            assertEquals("=@A[3]*2", application.loadSheet(created.id).tabularContent.cellContents.getValue(CellCoordinate(RowId(appendResult.rowId), calculatedColumn)))
+            assertEquals(appendedRowId, appendResult.rowId)
+            assertEquals("=@A[$appendedRowId]*2", application.loadWorkbookBundle().documents.getValue(SheetId(created.id)).tabularContent.cellContents.getValue(CellCoordinate(RowId(appendResult.rowId), calculatedColumn)))
         }
 
     private fun dataModelFixture(): DataModelFixture {

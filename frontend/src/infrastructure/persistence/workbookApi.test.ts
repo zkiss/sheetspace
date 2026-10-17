@@ -302,6 +302,24 @@ describe('workbook API mutations', () => {
     });
   });
 
+  it('sends the client row identity with materialized calculated contents', async () => {
+    const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 4, rowCount: 2, rowId: 'row-2' });
+    await workbookApi.appendRow('sheet-1', {
+      revision: 3,
+      rowId: '00000000-0000-0000-0000-000000000201',
+      calculatedCells: [{ columnId: 'column-2', raw: '=@column-1[00000000-0000-0000-0000-000000000201]*2' }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet-1/rows', {
+      method: 'POST',
+      body: JSON.stringify({
+        calculatedCells: [{ columnId: 'column-2', raw: '=@column-1[00000000-0000-0000-0000-000000000201]*2' }],
+        rowId: '00000000-0000-0000-0000-000000000201',
+      }),
+      headers: { 'Content-Type': 'application/json', 'If-Match': '3' },
+    });
+  });
+
   it('throws testable API errors for failed responses', async () => {
     mockFetch({ error: 'sheet-not-found' }, { status: 404 });
     await expect(workbookApi.appendRow('missing')).rejects.toMatchObject({

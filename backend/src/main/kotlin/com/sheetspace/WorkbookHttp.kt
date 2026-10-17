@@ -93,7 +93,7 @@ data class RowAppendResponse(
 data class CalculatedCellAppendRequest(val columnId: String, val raw: String)
 
 @Serializable
-data class RowAppendRequest(val calculatedCells: List<CalculatedCellAppendRequest> = emptyList())
+data class RowAppendRequest(val calculatedCells: List<CalculatedCellAppendRequest> = emptyList(), val rowId: String? = null)
 
 @Serializable
 data class ColumnAppendResponse(
@@ -248,7 +248,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             val expectedRevision = call.expectedSheetRevision() ?: return@post
             val request = call.receiveOptionalRowAppendRequest() ?: return@post
             call.respondApplicationResult {
-                val result = workbookApplication.appendRow(sheetId, expectedRevision, request.calculatedCells.map { CalculatedCellAppend(it.columnId, it.raw) })
+                val result = workbookApplication.appendRow(sheetId, expectedRevision, request.calculatedCells.map { CalculatedCellAppend(it.columnId, it.raw) }, request.rowId)
                 call.respond(
                     RowAppendResponse(
                         result.sheet.id.value,

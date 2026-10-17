@@ -86,7 +86,7 @@ export type RevisionedMutationOptions = {
   revision?: number;
 };
 
-export type RowAppendOptions = RevisionedMutationOptions & { calculatedCells?: readonly { columnId: string; raw: string }[] };
+export type RowAppendOptions = RevisionedMutationOptions & { calculatedCells?: readonly { columnId: string; raw: string }[]; rowId?: string };
 
 export class WorkbookApiError extends Error {
   constructor(
@@ -256,7 +256,7 @@ export const workbookApi = {
 
   appendRow(sheetId: string, options: RowAppendOptions = {}): Promise<RowAppendResponse> {
     return requestJson<RowAppendResponse>(`/api/sheets/${encodePathSegment(sheetId)}/rows`, {
-      method: 'POST', body: options.calculatedCells === undefined ? undefined : JSON.stringify({ calculatedCells: options.calculatedCells }),
+      method: 'POST', body: options.calculatedCells === undefined && options.rowId === undefined ? undefined : JSON.stringify({ calculatedCells: options.calculatedCells ?? [], rowId: options.rowId }),
       headers: revisionHeaders(options),
     });
   },

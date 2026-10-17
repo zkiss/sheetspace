@@ -86,7 +86,7 @@ interface WorkbookApplication {
 
     fun writeCells(command: CellPatchCommand): List<SheetDocument>
 
-    fun appendRow(sheetId: String, expectedRevision: Long, calculatedCells: List<CalculatedCellAppend> = emptyList()): RowAppendResult
+    fun appendRow(sheetId: String, expectedRevision: Long, calculatedCells: List<CalculatedCellAppend> = emptyList(), rowId: String? = null): RowAppendResult
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
 
@@ -235,7 +235,7 @@ class DefaultWorkbookApplication(
         return store.writeCells(command.expectedRevisions, command.cells)
     }
 
-    override fun appendRow(sheetId: String, expectedRevision: Long, calculatedCells: List<CalculatedCellAppend>): RowAppendResult {
+    override fun appendRow(sheetId: String, expectedRevision: Long, calculatedCells: List<CalculatedCellAppend>, rowId: String?): RowAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
             val model = current.dataModelId?.let(workbook.dataModels::get)
             if (current.dataModelId != null && model == null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
@@ -247,9 +247,11 @@ class DefaultWorkbookApplication(
                 calculatedCells.map(CalculatedCellAppend::columnId).toSet() != expectedCalculatedColumns.toSet() ||
                 !hasModelOwnedCalculatedAppends(calculatedCells, current.tabularContent.columns, model)
             ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            val withRow = current.tabularContent.appendRow()
-            val rowId = withRow.rows.last()
-            val contents = withRow.cellContents + calculatedCells.associate { CellCoordinate(rowId, ColumnId(it.columnId)) to it.raw }
+            if (rowId?.toUuidBytesOrNull() == null && rowId != null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            val appendedRowId = rowId?.let(::RowId) ?: RowId.generate()
+            if (appendedRowId in current.tabularContent.rows) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            val withRow = current.tabularContent.appendRow(appendedRowId)
+            val contents = withRow.cellContents + calculatedCells.associate { CellCoordinate(appendedRowId, ColumnId(it.columnId)) to it.raw }
             workbook.replaceSheet(current.copy(content = TabularContent(withRow.rows, withRow.columns, contents)))
         }
         return RowAppendResult(sheet, sheet.tabularContent.rows.last())

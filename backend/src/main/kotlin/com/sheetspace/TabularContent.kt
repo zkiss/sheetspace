@@ -97,8 +97,8 @@ class TabularContent private constructor(
         return TabularContent(rows, columns, updatedContents)
     }
 
-    fun appendRow(): TabularContent =
-        TabularContent(rows + RowId.generate(), columns, cellContents)
+    fun appendRow(rowId: RowId = RowId.generate()): TabularContent =
+        TabularContent(rows + rowId, columns, cellContents)
 
     fun appendColumn(): TabularContent =
         TabularContent(rows, columns + ColumnId.generate(), cellContents)

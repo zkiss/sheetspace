@@ -220,10 +220,11 @@ function rowAppendOptions(workbook: Workbook, sheetId: string, revision: number 
   const sheet = findSheetById(workbook, sheetId);
   const model = sheet?.dataModelId === undefined ? undefined : workbook.dataModels?.[sheet.dataModelId];
   if (!sheet || !model) return { revision };
-  const rowId = '__pending_server_row__';
+  const rowId = crypto.randomUUID();
   const appended = materializeAppendedRow(sheet, rowId, model, workbook);
   return {
     revision,
+    rowId,
     calculatedCells: model.properties.flatMap((property, columnIndex) => property.kind === 'calculated'
       ? [{ columnId: appended.content.columns[columnIndex]!, raw: appended.content.cells[cellIdentityKey({ rowId, columnId: appended.content.columns[columnIndex]! })] ?? '' }]
       : []),
