@@ -63,6 +63,30 @@ describe('data model mutations', () => {
     expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:3' })]).toBeUndefined();
   });
 
+  it('gives a reintroduced property name a fresh column without its removed contents', () => {
+    const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+
+    const removed = replaceDataModel(bound.value, {
+      ...model,
+      properties: [model.properties[1]!],
+    }, { sales: [] });
+    expect(removed.ok).toBe(true);
+    if (!removed.ok) return;
+
+    const reintroduced = replaceDataModel(removed.value, {
+      ...model,
+      properties: [model.properties[1]!, { id: 'new-amount', name: 'Amount', kind: 'manual' }],
+    }, { sales: ['sales:column:3'] });
+    expect(reintroduced.ok).toBe(true);
+    if (!reintroduced.ok) return;
+
+    const sheet = reintroduced.value.documents.sales;
+    expect(sheet.content.columns).toEqual(['sales:column:2', 'sales:column:3']);
+    expect(sheet.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:3' })]).toBeUndefined();
+  });
+
   it('clears model-owned formulas when a calculated property becomes manual', () => {
     const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
     expect(bound.ok).toBe(true);

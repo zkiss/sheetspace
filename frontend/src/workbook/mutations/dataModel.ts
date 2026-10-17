@@ -61,7 +61,7 @@ export function unbindSheetFromDataModel(workbook: ModelWorkbook, sheetId: Sheet
   return { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: { ...sheet, dataModelId: undefined, content: { ...sheet.content, cells } } } } };
 }
 
-/** Replaces a model and atomically reshapes each of its bound sheets. Unchanged names retain column identities. */
+/** Replaces a model and atomically reshapes each bound sheet. Existing property identities retain columns. */
 export function replaceDataModel(
   workbook: ModelWorkbook,
   next: DataModel,
@@ -72,12 +72,12 @@ export function replaceDataModel(
   const invalid = validateDataModel(next);
   if (invalid) return invalid;
   let candidate: ModelWorkbook = { ...workbook, dataModels: { ...workbook.dataModels, [next.id]: next } };
-  const oldIndexes = new Map(current.properties.map((property, index) => [property.name, index]));
+  const oldIndexes = new Map(current.properties.map((property, index) => [property.id, index]));
   for (const sheet of Object.values(workbook.documents)) {
     if (sheet.dataModelId !== next.id) continue;
     const supplied = newColumnIdsBySheet[sheet.id] ?? [];
     const retained = next.properties.flatMap((property) => {
-      const oldIndex = oldIndexes.get(property.name);
+      const oldIndex = oldIndexes.get(property.id);
       return oldIndex === undefined ? [] : [sheet.content.columns[oldIndex]!];
     });
     const required = next.properties.length - retained.length;
@@ -85,7 +85,7 @@ export function replaceDataModel(
     const columns: ColumnId[] = [];
     let suppliedIndex = 0;
     for (const property of next.properties) {
-      const oldIndex = oldIndexes.get(property.name);
+      const oldIndex = oldIndexes.get(property.id);
       columns.push(oldIndex === undefined ? supplied[suppliedIndex++]! : sheet.content.columns[oldIndex]!);
     }
     const applied = applyBoundShape(candidate, candidate.documents[sheet.id]!, next, columns, current);
@@ -101,7 +101,7 @@ function applyBoundShape(workbook: ModelWorkbook, sheet: SheetDocument, model: D
   for (const [key, raw] of Object.entries(sheet.content.cells)) {
     const [, columnId] = key.split('\u0000');
     const property = propertyByColumn.get(columnId!);
-    const previousIndex = previousModel?.properties.findIndex((candidate) => candidate.name === property?.name);
+    const previousIndex = previousModel?.properties.findIndex((candidate) => candidate.id === property?.id);
     const wasCalculated = previousIndex !== undefined && previousIndex >= 0
       && previousModel?.properties[previousIndex]?.kind === 'calculated';
     if (property?.kind !== 'calculated' && property && !wasCalculated) cells[key] = raw;
