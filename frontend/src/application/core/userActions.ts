@@ -55,7 +55,9 @@ export type WorkbookPersistenceIntent =
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'update-sheet-visual-scale'; sheetId: SheetId; visualScale: number }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
-  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
+  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] }
+  /** A model transition changes its definition and every affected sheet as one server transaction. */
+  | { kind: 'replace-data-model-state'; workbook: Workbook; sheetIds: readonly SheetId[] };
 
 export type AffectedWorkbookEntities = {
   sheetIds: readonly SheetId[];
@@ -356,7 +358,12 @@ export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOp
 
 function applyDataModelMutation(result: ReturnType<typeof addDataModel>): WorkbookOperationResult {
   if (!result.ok) return result;
-  return success(result.value, { kind: 'structure' });
+  const sheetIds = Object.values(result.value.documents)
+    .filter((sheet) => sheet.dataModelId !== undefined)
+    .map((sheet) => sheet.id);
+  return success(result.value, { kind: 'structure' }, {
+    kind: 'replace-data-model-state', workbook: result.value, sheetIds,
+  });
 }
 
 export function applyBackendWorkbookReconciliation(workbook: Workbook, reconciliation: BackendWorkbookReconciliation): WorkbookOperationResult {

@@ -159,6 +159,10 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         columnId,
       };
     }),
+    replaceDataModelState: vi.fn().mockImplementation(async (workbook: Workbook, expectedRevisions: readonly { sheetId: string; revision: number }[]) => {
+      persistedWorkbook = workbook;
+      return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
+    }),
   } satisfies WorkbookApi;
 }
 

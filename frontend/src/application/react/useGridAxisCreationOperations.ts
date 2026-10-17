@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CreatingGridAxes, CreatingGridAxisSlot } from '@application/core/gridAxisCreationState';
 import { findSheetById } from '@workbook/read/queries';
+import { cellIdentityKey } from '@workbook/core/cellIdentity';
+import { appendRow as materializeAppendedRow } from '@workbook/mutations/operations';
 import { type Workbook } from '@workbook/core/model';
 import { WorkbookApiError, workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import type { SetWorkbook } from '@calculation/workbookCalculation';
@@ -155,7 +157,7 @@ export function useGridAxisCreationOperations({
   const execute = useCallback(async (entry: AxisCreation) => persistenceCoordinator.serialize([entry.sheetId], async () => {
     if (persistenceCoordinator.isSheetMissing(entry.sheetId)) return;
     const request = async (revision: number | undefined) => entry.axis === 'row'
-      ? (resolvedApiClient.appendRow ?? workbookApi.appendRow)(entry.sheetId, { revision })
+      ? (resolvedApiClient.appendRow ?? workbookApi.appendRow)(entry.sheetId, rowAppendOptions(currentWorkbook(), entry.sheetId, revision))
       : (resolvedApiClient.appendColumn ?? workbookApi.appendColumn)(entry.sheetId, { revision });
     const revision = () => persistenceCoordinator.revision(entry.sheetId)
       ?? findSheetById(currentWorkbook(), entry.sheetId)?.revision;
@@ -211,5 +213,19 @@ export function useGridAxisCreationOperations({
     creatingAxes,
     prepareSheetDeletion: (sheetId: string) => queue.prepareSheetDeletion(sheetId),
     saveStatus: failed ? 'failed' as const : saving ? 'saving' as const : 'saved' as const,
+  };
+}
+
+function rowAppendOptions(workbook: Workbook, sheetId: string, revision: number | undefined) {
+  const sheet = findSheetById(workbook, sheetId);
+  const model = sheet?.dataModelId === undefined ? undefined : workbook.dataModels?.[sheet.dataModelId];
+  if (!sheet || !model) return { revision };
+  const rowId = '__pending_server_row__';
+  const appended = materializeAppendedRow(sheet, rowId, model, workbook);
+  return {
+    revision,
+    calculatedCells: model.properties.flatMap((property, columnIndex) => property.kind === 'calculated'
+      ? [{ columnId: appended.content.columns[columnIndex]!, raw: appended.content.cells[cellIdentityKey({ rowId, columnId: appended.content.columns[columnIndex]! })] ?? '' }]
+      : []),
   };
 }

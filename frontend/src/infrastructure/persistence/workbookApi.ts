@@ -86,6 +86,8 @@ export type RevisionedMutationOptions = {
   revision?: number;
 };
 
+export type RowAppendOptions = RevisionedMutationOptions & { calculatedCells?: readonly { columnId: string; raw: string }[] };
+
 export class WorkbookApiError extends Error {
   constructor(
     message: string,
@@ -252,9 +254,9 @@ export const workbookApi = {
     });
   },
 
-  appendRow(sheetId: string, options: RevisionedMutationOptions = {}): Promise<RowAppendResponse> {
+  appendRow(sheetId: string, options: RowAppendOptions = {}): Promise<RowAppendResponse> {
     return requestJson<RowAppendResponse>(`/api/sheets/${encodePathSegment(sheetId)}/rows`, {
-      method: 'POST',
+      method: 'POST', body: options.calculatedCells === undefined ? undefined : JSON.stringify({ calculatedCells: options.calculatedCells }),
       headers: revisionHeaders(options),
     });
   },
@@ -263,6 +265,14 @@ export const workbookApi = {
     return requestJson<ColumnAppendResponse>(`/api/sheets/${encodePathSegment(sheetId)}/columns`, {
       method: 'POST',
       headers: revisionHeaders(options),
+    });
+  },
+  replaceDataModelState(
+    workbook: Workbook,
+    expectedRevisions: readonly { sheetId: string; revision: number }[],
+  ): Promise<CellPatchResponse> {
+    return requestJson<CellPatchResponse>('/api/workbook/data-model-state', {
+      method: 'PUT', body: JSON.stringify({ workbook: encodeWorkbookBundle(workbook), expectedRevisions }),
     });
   },
 };
@@ -304,6 +314,33 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
     ...(bundle.dataModels === undefined ? {} : { dataModels: Object.fromEntries(bundle.dataModels.map((model) => [model.id, model])) }),
+  };
+}
+
+function encodeWorkbookBundle(workbook: Workbook): WorkbookBundleResponse {
+  return {
+    manifest: { ...workbook.manifest, sheetIds: [...workbook.manifest.sheetIds] },
+    documents: workbook.manifest.sheetIds.map((sheetId) => {
+      const sheet = workbook.documents[sheetId]!;
+      return {
+        id: sheet.id,
+        revision: sheet.revision,
+        name: sheet.name,
+        frame: { position: { ...sheet.frame.position }, size: { ...sheet.frame.size }, visualScale: sheet.frame.visualScale, zIndex: sheet.frame.zIndex },
+        presentation: sheet.presentation,
+        content: {
+          kind: 'tabular' as const,
+          rows: [...sheet.content.rows],
+          columns: [...sheet.content.columns],
+          cells: Object.entries(sheet.content.cells).map(([identity, content]) => {
+            const [rowId, columnId] = identity.split('\u0000');
+            return { rowId: rowId!, columnId: columnId!, content };
+          }),
+        },
+        ...(sheet.dataModelId === undefined ? {} : { dataModelId: sheet.dataModelId }),
+      };
+    }),
+    dataModels: Object.values(workbook.dataModels ?? {}).map((model) => ({ ...model, properties: [...model.properties] })),
   };
 }
 

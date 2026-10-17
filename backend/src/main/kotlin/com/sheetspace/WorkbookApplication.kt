@@ -26,6 +26,8 @@ data class RowAppendResult(
     val rowId: RowId,
 )
 
+data class CalculatedCellAppend(val columnId: String, val raw: String)
+
 data class ColumnAppendResult(
     val sheet: SheetDocument,
     val columnId: ColumnId,
@@ -34,6 +36,11 @@ data class ColumnAppendResult(
 data class CellPatchCommand(
     val expectedRevisions: List<ExpectedSheetRevision>,
     val cells: List<SheetCellWrite>,
+)
+
+data class DataModelStateCommand(
+    val expectedRevisions: List<ExpectedSheetRevision>,
+    val workbook: WorkbookBundleResponse,
 )
 
 enum class WorkbookApplicationError {
@@ -79,9 +86,11 @@ interface WorkbookApplication {
 
     fun writeCells(command: CellPatchCommand): List<SheetDocument>
 
-    fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult
+    fun appendRow(sheetId: String, expectedRevision: Long, calculatedCells: List<CalculatedCellAppend> = emptyList()): RowAppendResult
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
+
+    fun replaceDataModelState(command: DataModelStateCommand): List<SheetDocument>
 }
 
 class DefaultWorkbookApplication(
@@ -226,9 +235,18 @@ class DefaultWorkbookApplication(
         return store.writeCells(command.expectedRevisions, command.cells)
     }
 
-    override fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult {
+    override fun appendRow(sheetId: String, expectedRevision: Long, calculatedCells: List<CalculatedCellAppend>): RowAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
-            workbook.replaceSheet(current.updateTabularContent(TabularContent::appendRow))
+            val model = current.dataModelId?.let(workbook.dataModels::get)
+            if (current.dataModelId != null && model == null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            val expectedCalculatedColumns = model?.properties?.mapIndexedNotNull { index, property ->
+                if (property is CalculatedDataModelProperty) current.tabularContent.columns.getOrNull(index)?.value else null
+            } ?: emptyList()
+            if (calculatedCells.map(CalculatedCellAppend::columnId).distinct().size != calculatedCells.size || calculatedCells.map(CalculatedCellAppend::columnId).toSet() != expectedCalculatedColumns.toSet() || calculatedCells.any { !it.raw.startsWith("=") }) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            val withRow = current.tabularContent.appendRow()
+            val rowId = withRow.rows.last()
+            val contents = withRow.cellContents + calculatedCells.associate { CellCoordinate(rowId, ColumnId(it.columnId)) to it.raw }
+            workbook.replaceSheet(current.copy(content = TabularContent(withRow.rows, withRow.columns, contents)))
         }
         return RowAppendResult(sheet, sheet.tabularContent.rows.last())
     }
@@ -238,6 +256,24 @@ class DefaultWorkbookApplication(
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
+    }
+
+    override fun replaceDataModelState(command: DataModelStateCommand): List<SheetDocument> {
+        if (command.expectedRevisions.isEmpty() || command.expectedRevisions.map { it.sheetId }.distinct().size != command.expectedRevisions.size) {
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
+        val updated = dataModelState(command.workbook)
+        return store.updateWorkbook { current ->
+            command.expectedRevisions.forEach { expected ->
+                val sheet = current.findSheet(SheetId(expected.sheetId))
+                    ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+                if (sheet.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
+            }
+            // A data model transition is a complete aggregate replacement supplied by the frontend
+            // domain layer.  It is committed in this one store transaction after all revisions pass.
+            require(updated.manifest.sheetIds == current.manifest.sheetIds) { "Data model transition cannot change sheets" }
+            updated
+        }.sheetsInOrder
     }
 
     private fun updateExistingSheet(
@@ -253,6 +289,43 @@ class DefaultWorkbookApplication(
         }
         return updated.documents.getValue(id)
     }
+}
+
+private fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
+    if (bundle.manifest.version != WORKBOOK_SCHEMA_VERSION || bundle.manifest.sheetIds.distinct().size != bundle.manifest.sheetIds.size) {
+        throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+    }
+    val models = bundle.dataModels.associate { response ->
+        if (response.id.toUuidBytesOrNull() == null || response.name.isBlank() || response.properties.map { it.name }.distinct().size != response.properties.size) {
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
+        response.id to DataModel(response.id, response.name, response.properties.map { property ->
+            if (property.id.toUuidBytesOrNull() == null || property.name.isBlank()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            when (property.kind) {
+                "manual" -> if (property.formula == null) ManualDataModelProperty(property.id, property.name) else throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                "calculated" -> property.formula?.takeIf { it.startsWith("=") }
+                    ?.let { CalculatedDataModelProperty(property.id, property.name, it) }
+                    ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                else -> throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
+        })
+    }
+    val documents = bundle.documents.associate { response ->
+        if (response.id.toUuidBytesOrNull() == null || response.content.kind != "tabular" || response.content.rows.any { it.toUuidBytesOrNull() == null } || response.content.columns.any { it.toUuidBytesOrNull() == null } || response.content.rows.distinct().size != response.content.rows.size || response.content.columns.distinct().size != response.content.columns.size) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        val rows = response.content.rows.map(::RowId); val columns = response.content.columns.map(::ColumnId)
+        if (response.dataModelId?.let(models::get) == null && response.dataModelId != null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        val cells = response.content.cells.associate { cell ->
+            val coordinate = CellCoordinate(RowId(cell.rowId), ColumnId(cell.columnId))
+            if (coordinate.rowId !in rows || coordinate.columnId !in columns) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            coordinate to cell.content
+        }
+        if (cells.size != response.content.cells.size) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        val model = response.dataModelId?.let(models::get)
+        if (model != null && (columns.size != model.properties.size || cells.any { (coordinate, raw) -> model.properties[columns.indexOf(coordinate.columnId)] is CalculatedDataModelProperty && !raw.startsWith("=") })) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        SheetId(response.id) to SheetDocument(SheetId(response.id), response.revision, response.name, FrameState(response.frame.position, response.frame.size, response.frame.visualScale, response.frame.zIndex), SheetPresentation(response.presentation.rowHeights, response.presentation.columnWidths, response.presentation.formatOverrides), TabularContent(rows, columns, cells), response.dataModelId)
+    }
+    if (documents.keys.map { it.value } != bundle.manifest.sheetIds) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+    return WorkbookState(WorkbookManifest(bundle.manifest.version, bundle.manifest.revision, bundle.manifest.sheetIds.map(::SheetId)), documents, models)
 }
 
 private fun validateFrameCommand(

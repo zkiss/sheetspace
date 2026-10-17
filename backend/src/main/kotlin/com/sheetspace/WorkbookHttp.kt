@@ -16,6 +16,7 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -65,6 +66,9 @@ data class CellPatchRequest(
 data class CellPatchResponse(val sheets: List<SheetRevisionResponse>)
 
 @Serializable
+data class DataModelStateRequest(val expectedRevisions: List<CellRevisionRequest>, val workbook: WorkbookBundleResponse)
+
+@Serializable
 data class SheetZOrderUpdateRequest(
     val sheetId: String,
     val expectedRevision: Long,
@@ -84,6 +88,12 @@ data class RowAppendResponse(
     val rowCount: Int,
     val rowId: String,
 )
+
+@Serializable
+data class CalculatedCellAppendRequest(val columnId: String, val raw: String)
+
+@Serializable
+data class RowAppendRequest(val calculatedCells: List<CalculatedCellAppendRequest> = emptyList())
 
 @Serializable
 data class ColumnAppendResponse(
@@ -219,6 +229,16 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
+        put("/api/workbook/data-model-state") {
+            val request = call.receiveRequest<DataModelStateRequest>() ?: return@put
+            call.respondApplicationResult {
+                val sheets = workbookApplication.replaceDataModelState(
+                    DataModelStateCommand(request.expectedRevisions.map { ExpectedSheetRevision(it.sheetId, it.revision) }, request.workbook),
+                )
+                call.respond(CellPatchResponse(sheets.map { SheetRevisionResponse(it.id.value, it.revision) }))
+            }
+        }
+
         post("/api/sheets/{sheetId}/rows") {
             val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(
                 HttpStatusCode.BadRequest,
@@ -226,8 +246,9 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             )
             if (!call.requireExistingSheet(workbookApplication, sheetId)) return@post
             val expectedRevision = call.expectedSheetRevision() ?: return@post
+            val request = call.receiveOptionalRowAppendRequest() ?: return@post
             call.respondApplicationResult {
-                val result = workbookApplication.appendRow(sheetId, expectedRevision)
+                val result = workbookApplication.appendRow(sheetId, expectedRevision, request.calculatedCells.map { CalculatedCellAppend(it.columnId, it.raw) })
                 call.respond(
                     RowAppendResponse(
                         result.sheet.id.value,
@@ -334,6 +355,16 @@ private suspend fun ApplicationCall.expectedSheetRevision(): Long? {
 private suspend inline fun <reified T : Any> ApplicationCall.receiveRequest(): T? {
     return try {
         receive<T>()
+    } catch (exception: Exception) {
+        respondError(HttpStatusCode.BadRequest, "invalid-request")
+        null
+    }
+}
+
+private suspend fun ApplicationCall.receiveOptionalRowAppendRequest(): RowAppendRequest? {
+    return try {
+        val body = receiveText()
+        if (body.isBlank()) RowAppendRequest() else Json.decodeFromString<RowAppendRequest>(body)
     } catch (exception: Exception) {
         respondError(HttpStatusCode.BadRequest, "invalid-request")
         null
