@@ -166,6 +166,77 @@ describe('data model mutations', () => {
     }], 'before')).toEqual({ ok: false, reason: 'invalid-cell' });
   });
 
+  it('rejects ordinary column reconciliation for a bound sheet without changing its model-owned shape', () => {
+    const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+
+    expect(applyBackendWorkbookReconciliation(bound.value, {
+      kind: 'append-column', sheetId: 'sales', columnId: 'unmodelled-column',
+    })).toEqual({ ok: false, reason: 'invalid-cell' });
+    expect(bound.value.documents.sales.content.columns).toEqual(['sales:column:1', 'sales:column:2']);
+  });
+
+  it('retains same-named properties across reorder even when their declaration IDs change', () => {
+    const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+    const sales = bound.value.documents.sales;
+    const amountColumn = sales.content.columns[0]!;
+    const withPresentation = {
+      ...bound.value,
+      documents: {
+        ...bound.value.documents,
+        sales: {
+          ...sales,
+          presentation: {
+            ...sales.presentation,
+            columnWidths: { [amountColumn]: 160 },
+          },
+        },
+      },
+    };
+
+    const result = replaceDataModel(withPresentation, {
+      ...model,
+      properties: [
+        { id: 'replacement-double', name: 'Double', kind: 'calculated', formula: '=@A[1]*2' },
+        { id: 'replacement-amount', name: 'Amount', kind: 'manual' },
+      ],
+    }, { sales: [] });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.documents.sales.content.columns).toEqual(['sales:column:2', amountColumn]);
+    expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: amountColumn })]).toBe('3');
+    expect(result.value.documents.sales.presentation.columnWidths[amountColumn]).toBe(160);
+  });
+
+  it('reconciles every bound sheet atomically when replacement column IDs are invalid', () => {
+    const source = {
+      ...workbookWithSheets([
+        sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 1, cells: { A1: '1' } }),
+        sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 1, cells: { A1: '2' } }),
+      ]),
+      dataModels: { forecast: model },
+    };
+    const first = bindSheetToDataModel(source, 'first', 'forecast', ['first:column:2']);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const bound = bindSheetToDataModel(first.value, 'second', 'forecast', ['second:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+
+    const result = replaceDataModel(bound.value, {
+      ...model,
+      properties: [...model.properties, { id: 'note', name: 'Note', kind: 'manual' }],
+    }, { first: ['first:column:3'], second: [] });
+
+    expect(result).toEqual({ ok: false, reason: 'column-id-required' });
+    expect(bound.value.documents.first.content.columns).toEqual(['first:column:1', 'first:column:2']);
+    expect(bound.value.documents.second.content.columns).toEqual(['second:column:1', 'second:column:2']);
+  });
+
   it('materializes calculated formulas when an empty bound sheet receives its first row', () => {
     const empty = {
       ...workbookWithSheets([sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 1 })]),

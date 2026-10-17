@@ -368,6 +368,7 @@ export function applyBackendWorkbookReconciliation(workbook: Workbook, reconcili
     if (sheet.dataModelId !== undefined && !model) return { ok: false, reason: 'invalid-cell' };
     return sheetSuccess(workbook, appendRow(sheet, reconciliation.rowId, model, workbook), { kind: 'structure' });
   }
+  if (sheet.dataModelId !== undefined) return { ok: false, reason: 'invalid-cell' };
   if (sheet.content.columns.includes(reconciliation.columnId)) return { ok: false, reason: 'duplicate-column-id' };
   return sheetSuccess(workbook, { ...sheet, content: { ...sheet.content, columns: [...sheet.content.columns, reconciliation.columnId] } }, { kind: 'structure' });
 }
