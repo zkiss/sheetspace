@@ -1,6 +1,7 @@
 import { cellIdentityKey } from '../core/cellIdentity';
 import type { ColumnId, DataModel, SheetDocument, SheetId, Workbook } from '../core/model';
 import { copyCanonicalFormula, formulaRawForStorage, workbookFormulaReferenceResolver } from '../formula/reference';
+import { parseFormula } from '../formula/syntax';
 
 export type ModelWorkbook = Workbook;
 export type ModelMutationResult = { ok: true; value: ModelWorkbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'duplicate-property-name' | 'already-bound' | 'column-id-required' | 'invalid-formula' };
@@ -8,8 +9,11 @@ export type ModelMutationResult = { ok: true; value: ModelWorkbook } | { ok: fal
 /** Model formulas are authored as first-row spreadsheet formulas and copied with normal A1 rebasing. */
 export function validateDataModel(model: DataModel): ModelMutationResult | undefined {
   const names = model.properties.map((property) => property.name.trim());
-  return names.some((name) => !name) || new Set(names).size !== names.length
-    ? { ok: false, reason: 'duplicate-property-name' }
+  if (names.some((name) => !name) || new Set(names).size !== names.length) {
+    return { ok: false, reason: 'duplicate-property-name' };
+  }
+  return model.properties.some((property) => property.kind === 'calculated' && parseFormula(property.formula).kind !== 'formula')
+    ? { ok: false, reason: 'invalid-formula' }
     : undefined;
 }
 

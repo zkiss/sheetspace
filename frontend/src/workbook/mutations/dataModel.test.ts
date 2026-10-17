@@ -293,4 +293,18 @@ describe('data model mutations', () => {
     const calculatedCell = cellIdentityKey({ rowId: 'empty:row:1', columnId: 'empty:column:2' });
     expect(appended.value.nextWorkbook.documents.empty.content.cells[calculatedCell]).toContain('empty:row:1');
   });
+
+  it('rejects non-formula calculated templates before binding an empty sheet', () => {
+    const invalidModel: DataModel = {
+      ...model,
+      properties: [model.properties[0]!, { id: 'invalid', name: 'Invalid', kind: 'calculated', formula: 'not a formula' }],
+    };
+    const empty = workbookWithSheets([sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 1 })]);
+    const source = { ...empty, dataModels: { forecast: invalidModel } };
+
+    expect(addDataModel(empty, invalidModel)).toEqual({ ok: false, reason: 'invalid-formula' });
+    expect(bindSheetToDataModel(source, 'empty', 'forecast', ['empty:column:2']))
+      .toEqual({ ok: false, reason: 'invalid-formula' });
+    expect(source.documents.empty).toEqual(empty.documents.empty);
+  });
 });
