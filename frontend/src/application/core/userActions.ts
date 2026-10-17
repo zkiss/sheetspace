@@ -9,7 +9,7 @@ import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
-import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
+import { appendRow, moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
 import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
 export type WorkbookOperationId = string;
@@ -290,6 +290,7 @@ export function replayCellPersistenceWrites(
   });
   if (resolved.some(({ sheet }) => !sheet)) return { ok: false, reason: 'unknown-sheet' };
   if (resolved.some(({ address }) => !address)) return { ok: false, reason: 'invalid-cell' };
+  if (resolved.some(({ sheet, cell }) => isCalculatedModelCell(workbook, sheet!, cell))) return { ok: false, reason: 'invalid-cell' };
   const identities = new Set<string>();
   for (const { write } of resolved) {
     const identity = `${write.sheetId}\u0000${write.rowId}\u0000${write.columnId}`;
@@ -349,7 +350,9 @@ export function applyBackendWorkbookReconciliation(workbook: Workbook, reconcili
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (reconciliation.kind === 'append-row') {
     if (sheet.content.rows.includes(reconciliation.rowId)) return { ok: false, reason: 'duplicate-row-id' };
-    return sheetSuccess(workbook, { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, reconciliation.rowId] } }, { kind: 'structure' });
+    const model = sheet.dataModelId === undefined ? undefined : workbook.dataModels?.[sheet.dataModelId];
+    if (sheet.dataModelId !== undefined && !model) return { ok: false, reason: 'invalid-cell' };
+    return sheetSuccess(workbook, appendRow(sheet, reconciliation.rowId, model, workbook), { kind: 'structure' });
   }
   if (sheet.content.columns.includes(reconciliation.columnId)) return { ok: false, reason: 'duplicate-column-id' };
   return sheetSuccess(workbook, { ...sheet, content: { ...sheet.content, columns: [...sheet.content.columns, reconciliation.columnId] } }, { kind: 'structure' });
@@ -378,6 +381,7 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
   });
   if (resolved.some(({ sheet }) => !sheet)) return { ok: false, reason: 'unknown-sheet' };
   if (resolved.some(({ address }) => !address)) return { ok: false, reason: 'invalid-cell' };
+  if (resolved.some(({ sheet, cell }) => isCalculatedModelCell(workbook, sheet!, cell))) return { ok: false, reason: 'invalid-cell' };
   const identities = new Set<string>();
   for (const { write } of resolved) {
     const identity = `${write.sheetId}\u0000${write.rowId}\u0000${write.columnId}`;
@@ -459,6 +463,13 @@ function noChange(workbook: Workbook): WorkbookOperationResult {
   return { ok: true, value: { nextWorkbook: workbook, changed: false, calculationImpact: { kind: 'none' }, persistence: undefined, affected: { sheetIds: [], cells: [] }, inverse: undefined } };
 }
 function affectedSheets(...sheetIds: SheetId[]): AffectedWorkbookEntities { return { sheetIds, cells: [] }; }
+
+function isCalculatedModelCell(workbook: Workbook, sheet: SheetDocument, cell: StableCellIdentity): boolean {
+  if (!sheet.dataModelId) return false;
+  const model = workbook.dataModels?.[sheet.dataModelId];
+  const columnIndex = sheet.content.columns.indexOf(cell.columnId);
+  return model?.properties[columnIndex]?.kind === 'calculated';
+}
 
 function validMoveDimensions(dimensions: ClipboardSourceSnapshot['dimensions']): boolean {
   return Number.isSafeInteger(dimensions.rowCount) && dimensions.rowCount > 0

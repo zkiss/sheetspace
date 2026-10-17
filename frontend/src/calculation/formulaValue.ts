@@ -45,6 +45,8 @@ export function classifyCellValue(raw: string): FormulaScalarValue {
     return { kind: 'blank' };
   }
 
+  // Apostrophe is the spreadsheet literal escape used for materialized text.
+  if (raw.startsWith("'=")) return { kind: 'text', value: raw.slice(1) };
   const trimmed = raw.trim();
   const numeric = /^-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(trimmed)
     ? Number(trimmed)
