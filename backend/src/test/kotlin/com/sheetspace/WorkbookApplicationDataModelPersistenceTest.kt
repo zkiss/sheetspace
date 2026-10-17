@@ -217,6 +217,22 @@ class WorkbookApplicationDataModelPersistenceTest {
     }
 
     @Test
+    fun `row append rejects invalid and duplicate client row identities without mutation`() {
+        val fixture = dataModelFixture()
+
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+            fixture.application.appendRow(fixture.sheet.id.value, fixture.sheet.revision, rowId = "not-a-uuid")
+        }
+        assertEquals(fixture.sheet, fixture.store.loadSheet(fixture.sheet.id))
+
+        val rowId = fixture.sheet.tabularContent.rows.first().value
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+            fixture.application.appendRow(fixture.sheet.id.value, fixture.sheet.revision, rowId = rowId)
+        }
+        assertEquals(fixture.sheet, fixture.store.loadSheet(fixture.sheet.id))
+    }
+
+    @Test
     fun `bound row append remains valid when a model has only manual properties`() {
         val fixture = dataModelFixture()
         val model = fixture.boundWorkbook.dataModels.values.single()
