@@ -177,6 +177,47 @@ describe('data model mutations', () => {
     expect(bound.value.documents.sales.content.columns).toEqual(['sales:column:1', 'sales:column:2']);
   });
 
+  it('rebases relative model references while preserving absolute and cross-sheet targets on row append', () => {
+    const formulaModel: DataModel = {
+      id: 'forecast', name: 'Forecast', properties: [
+        { id: 'amount', name: 'Amount', kind: 'manual' },
+        { id: 'total', name: 'Total', kind: 'calculated', formula: '=@A[1]+@$A[$1]+@Inputs!$A[$1]' },
+      ],
+    };
+    const source = {
+      ...workbookWithSheets([
+        sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1, columnCount: 1, cells: { A1: '10' } }),
+        sheetDocument({ id: 'sales', name: 'Sales', rowCount: 2, columnCount: 1, cells: { A1: '3', A2: '4' } }),
+      ]),
+      dataModels: { forecast: formulaModel },
+    };
+    const bound = bindSheetToDataModel(source, 'sales', 'forecast', ['sales:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+
+    const calculatedColumn = 'sales:column:2';
+    const raw = (rowId: string) => bound.value.documents.sales.content.cells[cellIdentityKey({ rowId, columnId: calculatedColumn })];
+    expect(raw('sales:row:1')).toBe('=@sales:column:1[sales:row:1]+@$sales:column:1[$sales:row:1]+@inputs!$inputs:column:1[$inputs:row:1]');
+    expect(raw('sales:row:2')).toBe('=@sales:column:1[sales:row:2]+@$sales:column:1[$sales:row:1]+@inputs!$inputs:column:1[$inputs:row:1]');
+    expect(materializedDataModelCells(bound.value, 'sales')).toMatchObject({
+      [cellIdentityKey({ rowId: 'sales:row:1', columnId: calculatedColumn })]: '16',
+      [cellIdentityKey({ rowId: 'sales:row:2', columnId: calculatedColumn })]: '17',
+    });
+
+    const appended = applyBackendWorkbookReconciliation(bound.value, { kind: 'append-row', sheetId: 'sales', rowId: 'sales:row:3' });
+    expect(appended.ok).toBe(true);
+    if (!appended.ok) return;
+    const appendedRaw = appended.value.nextWorkbook.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:3', columnId: calculatedColumn })];
+    expect(appendedRaw).toBe('=@sales:column:1[sales:row:3]+@$sales:column:1[$sales:row:1]+@inputs!$inputs:column:1[$inputs:row:1]');
+    const input = applyWorkbookOperation(appended.value.nextWorkbook, {
+      kind: 'write-cells', operationId: 'set-appended-input',
+      writes: [{ sheetId: 'sales', rowId: 'sales:row:3', columnId: 'sales:column:1', raw: '5' }],
+    });
+    expect(input.ok).toBe(true);
+    if (!input.ok) return;
+    expect(materializedDataModelCells(input.value.nextWorkbook, 'sales')[cellIdentityKey({ rowId: 'sales:row:3', columnId: calculatedColumn })]).toBe('18');
+  });
+
   it('retains same-named properties across reorder even when their declaration IDs change', () => {
     const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
     expect(bound.ok).toBe(true);
