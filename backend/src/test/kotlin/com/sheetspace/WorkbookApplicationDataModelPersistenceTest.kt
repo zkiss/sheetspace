@@ -79,6 +79,34 @@ class WorkbookApplicationDataModelPersistenceTest {
     }
 
     @Test
+    fun `model state replacement requires every calculated cell and a nonempty formula template`() {
+        val fixture = dataModelFixture()
+        val valid = fixture.command(fixture.boundWorkbook).workbook
+        val calculatedColumn = valid.documents.single().content.columns[1]
+        val malformedBundles = listOf(
+            valid.copy(documents = listOf(valid.documents.single().copy(content = valid.documents.single().content.copy(
+                cells = valid.documents.single().content.cells.filterNot { it.columnId == calculatedColumn },
+            )))),
+            valid.copy(
+                dataModels = listOf(valid.dataModels.single().copy(properties = valid.dataModels.single().properties.mapIndexed { index, property ->
+                    if (index == 1) property.copy(formula = "=") else property
+                })),
+                documents = listOf(valid.documents.single().copy(content = valid.documents.single().content.copy(rows = emptyList(), cells = emptyList()))),
+            ),
+        )
+
+        malformedBundles.forEach { bundle ->
+            val before = fixture.store.loadWorkbookBundle()
+
+            assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+                fixture.application.replaceDataModelState(fixture.command(bundle))
+            }
+
+            assertEquals(before, fixture.store.loadWorkbookBundle())
+        }
+    }
+
+    @Test
     fun `model state replacement rejects stale and incomplete revision guards`() {
         val fixture = dataModelFixture()
         val command = fixture.command(fixture.boundWorkbook)
@@ -132,6 +160,21 @@ class WorkbookApplicationDataModelPersistenceTest {
     }
 
     @Test
+    fun `unbinding persists when the model definition is unchanged`() {
+        val fixture = dataModelFixture()
+        fixture.application.replaceDataModelState(fixture.command(fixture.boundWorkbook))
+        val bound = fixture.application.loadWorkbookBundle()
+        val unbound = bound.copy(documents = bound.documents.mapValues { (_, sheet) -> sheet.copy(dataModelId = null) })
+
+        val updated = fixture.application.replaceDataModelState(DataModelStateCommand(
+            listOf(ExpectedSheetRevision(fixture.sheet.id.value, bound.documents.getValue(fixture.sheet.id).revision)),
+            WorkbookReadTransportAdapter.bundle(unbound),
+        ))
+
+        assertEquals(null, updated.single().dataModelId)
+    }
+
+    @Test
     fun `bound row append persists supplied calculated formulas and rejects invalid calculated cells`() {
         val fixture = dataModelFixture()
         fixture.application.replaceDataModelState(fixture.command(fixture.boundWorkbook))
@@ -148,6 +191,7 @@ class WorkbookApplicationDataModelPersistenceTest {
         listOf(
             emptyList(),
             listOf(CalculatedCellAppend(calculatedColumn.value, "not a formula")),
+            listOf(CalculatedCellAppend(calculatedColumn.value, "=1")),
             listOf(CalculatedCellAppend(calculatedColumn.value, "=1"), CalculatedCellAppend(calculatedColumn.value, "=2")),
         ).forEach { cells ->
             val before = fixture.store.loadWorkbookBundle()
@@ -157,6 +201,31 @@ class WorkbookApplicationDataModelPersistenceTest {
             assertEquals(WorkbookApplicationError.INVALID_CELL_PATCH, rejection.error)
             assertEquals(before, fixture.store.loadWorkbookBundle())
         }
+    }
+
+    @Test
+    fun `ordinary row append remains valid without calculated contents`() {
+        val fixture = dataModelFixture()
+
+        val appended = fixture.application.appendRow(fixture.sheet.id.value, fixture.sheet.revision)
+
+        assertEquals(fixture.sheet.tabularContent.rowCount + 1, appended.sheet.tabularContent.rowCount)
+        assertEquals(appended.sheet, fixture.store.loadSheet(fixture.sheet.id))
+    }
+
+    @Test
+    fun `bound row append remains valid when a model has only manual properties`() {
+        val fixture = dataModelFixture()
+        val model = fixture.boundWorkbook.dataModels.values.single()
+        val manualOnlyWorkbook = fixture.boundWorkbook.copy(dataModels = mapOf(model.id to model.copy(
+            properties = model.properties.map { property -> ManualDataModelProperty(property.id, property.name) },
+        )))
+        fixture.application.replaceDataModelState(fixture.command(manualOnlyWorkbook))
+
+        val appended = fixture.application.appendRow(fixture.sheet.id.value, fixture.sheet.revision)
+
+        assertEquals(fixture.sheet.tabularContent.rowCount + 1, appended.sheet.tabularContent.rowCount)
+        assertEquals(appended.sheet, fixture.store.loadSheet(fixture.sheet.id))
     }
 
     @Test
@@ -195,7 +264,9 @@ class WorkbookApplicationDataModelPersistenceTest {
             val modelId = "00000000-0000-0000-0000-000000000101"
             val model = modelForDefaultColumns(modelId)
             val bound = initial.copy(
-                documents = initial.documents.mapValues { (_, sheet) -> sheet.copy(dataModelId = modelId) },
+                documents = initial.documents.mapValues { (_, sheet) ->
+                    sheet.copy(dataModelId = modelId, content = contentWithCalculatedTemplates(sheet.tabularContent))
+                },
                 dataModels = mapOf(modelId to model),
             )
             val replacement = client.put("/api/workbook/data-model-state") {
@@ -228,7 +299,7 @@ class WorkbookApplicationDataModelPersistenceTest {
         val model = modelForDefaultColumns(modelId)
         val boundSheet = sheet.copy(
             dataModelId = modelId,
-            content = sheet.tabularContent.updateCell("A1", "5").updateCell("B1", "=@A[1]*2"),
+            content = contentWithCalculatedTemplates(sheet.tabularContent.updateCell("A1", "5")),
         )
         val boundWorkbook = testWorkbookOf(boundSheet).copy(dataModels = mapOf(modelId to model))
         val store = InMemoryWorkbookStore(testWorkbookOf(sheet))
@@ -246,6 +317,11 @@ class WorkbookApplicationDataModelPersistenceTest {
             ManualDataModelProperty("00000000-0000-0000-0000-0000000001$index", "Input $index")
         },
     )
+
+    private fun contentWithCalculatedTemplates(content: TabularContent): TabularContent =
+        content.rows.indices.fold(content) { populated, index ->
+            populated.updateCell("B${index + 1}", "=@A[${index + 1}]*2")
+        }
 
     private data class DataModelFixture(
         val application: DefaultWorkbookApplication,

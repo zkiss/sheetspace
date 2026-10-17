@@ -242,7 +242,11 @@ class DefaultWorkbookApplication(
             val expectedCalculatedColumns = model?.properties?.mapIndexedNotNull { index, property ->
                 if (property is CalculatedDataModelProperty) current.tabularContent.columns.getOrNull(index)?.value else null
             } ?: emptyList()
-            if (calculatedCells.map(CalculatedCellAppend::columnId).distinct().size != calculatedCells.size || calculatedCells.map(CalculatedCellAppend::columnId).toSet() != expectedCalculatedColumns.toSet() || calculatedCells.any { !it.raw.startsWith("=") }) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            if (
+                calculatedCells.map(CalculatedCellAppend::columnId).distinct().size != calculatedCells.size ||
+                calculatedCells.map(CalculatedCellAppend::columnId).toSet() != expectedCalculatedColumns.toSet() ||
+                !hasModelOwnedCalculatedAppends(calculatedCells, current.tabularContent.columns, model)
+            ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             val withRow = current.tabularContent.appendRow()
             val rowId = withRow.rows.last()
             val contents = withRow.cellContents + calculatedCells.associate { CellCoordinate(rowId, ColumnId(it.columnId)) to it.raw }
@@ -313,7 +317,7 @@ private fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
             if (property.id.toUuidBytesOrNull() == null || property.name.isBlank()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             when (property.kind) {
                 "manual" -> if (property.formula == null) ManualDataModelProperty(property.id, property.name) else throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-                "calculated" -> property.formula?.takeIf { it.startsWith("=") }
+                "calculated" -> property.formula?.takeIf(::isSupportedFormula)
                     ?.let { CalculatedDataModelProperty(property.id, property.name, it) }
                     ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 else -> throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
@@ -362,10 +366,24 @@ private fun hasOnlyModelOwnedCalculatedContents(
             // Stored formulas are canonicalized by the frontend.  At this boundary every
             // calculated coordinate must still be formula-owned, rather than merely formula-like.
             val raw = cells[CellCoordinate(row, columns[index])]
-            raw == null || (raw.startsWith("=") && formulaSignature(raw) == formulaSignature(formula))
+            raw != null && isSupportedFormula(raw) && formulaSignature(raw) == formulaSignature(formula)
         }
     }
 }
+
+private fun hasModelOwnedCalculatedAppends(
+    cells: List<CalculatedCellAppend>,
+    columns: List<ColumnId>,
+    model: DataModel?,
+): Boolean = model?.properties?.withIndex()
+    ?.filter { it.value is CalculatedDataModelProperty }
+    ?.all { (index, property) ->
+        val raw = cells.single { it.columnId == columns[index].value }.raw
+        isSupportedFormula(raw) && formulaSignature(raw) == formulaSignature((property as CalculatedDataModelProperty).formula)
+    }
+    ?: cells.isEmpty()
+
+private fun isSupportedFormula(raw: String): Boolean = raw.length > 1 && raw.startsWith("=")
 
 private fun formulaSignature(raw: String): String = FORMULA_REFERENCE.replace(raw, "@reference")
 
