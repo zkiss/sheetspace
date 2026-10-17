@@ -108,6 +108,25 @@ class WorkbookApplicationDataModelPersistenceTest {
     }
 
     @Test
+    fun `model state replacement rejects calculated formulas with forged canonical references`() {
+        val fixture = dataModelFixture()
+        val valid = fixture.command(fixture.boundWorkbook).workbook
+        val calculatedColumn = valid.documents.single().content.columns[1]
+        val forged = valid.copy(documents = listOf(valid.documents.single().copy(content = valid.documents.single().content.copy(
+            cells = valid.documents.single().content.cells.map { cell ->
+                if (cell.columnId == calculatedColumn) cell.copy(content = "=@${valid.documents.single().content.columns[2]}[${cell.rowId}]*2") else cell
+            },
+        ))))
+        val before = fixture.store.loadWorkbookBundle()
+
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+            fixture.application.replaceDataModelState(fixture.command(forged))
+        }
+
+        assertEquals(before, fixture.store.loadWorkbookBundle())
+    }
+
+    @Test
     fun `model state replacement rejects stale and incomplete revision guards`() {
         val fixture = dataModelFixture()
         val command = fixture.command(fixture.boundWorkbook)
@@ -184,12 +203,12 @@ class WorkbookApplicationDataModelPersistenceTest {
         val appended = fixture.application.appendRow(
             fixture.sheet.id.value,
             fixture.sheet.revision,
-            listOf(CalculatedCellAppend(calculatedColumn.value, "=@A[$appendedRowId]*2")),
+            listOf(CalculatedCellAppend(calculatedColumn.value, "=@${fixture.boundSheet.tabularContent.columns.first().value}[$appendedRowId]*2")),
             appendedRowId,
         )
 
         assertEquals(RowId(appendedRowId), appended.rowId)
-        assertEquals("=@A[$appendedRowId]*2", appended.sheet.tabularContent.cellContents.getValue(CellCoordinate(appended.rowId, calculatedColumn)))
+        assertEquals("=@${fixture.boundSheet.tabularContent.columns.first().value}[$appendedRowId]*2", appended.sheet.tabularContent.cellContents.getValue(CellCoordinate(appended.rowId, calculatedColumn)))
         assertEquals(appended.sheet, fixture.store.loadSheet(fixture.sheet.id))
 
         listOf(
@@ -205,6 +224,26 @@ class WorkbookApplicationDataModelPersistenceTest {
             assertEquals(WorkbookApplicationError.INVALID_CELL_PATCH, rejection.error)
             assertEquals(before, fixture.store.loadWorkbookBundle())
         }
+    }
+
+    @Test
+    fun `bound row append rejects a calculated formula with a forged canonical reference`() {
+        val fixture = dataModelFixture()
+        fixture.application.replaceDataModelState(fixture.command(fixture.boundWorkbook))
+        val calculatedColumn = fixture.boundSheet.tabularContent.columns[1]
+        val appendedRowId = "00000000-0000-0000-0000-000000000201"
+        val before = fixture.store.loadWorkbookBundle()
+
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+            fixture.application.appendRow(
+                fixture.sheet.id.value,
+                fixture.sheet.revision,
+                listOf(CalculatedCellAppend(calculatedColumn.value, "=@${fixture.boundSheet.tabularContent.columns[2].value}[$appendedRowId]*2")),
+                appendedRowId,
+            )
+        }
+
+        assertEquals(before, fixture.store.loadWorkbookBundle())
     }
 
     @Test
@@ -314,7 +353,7 @@ class WorkbookApplicationDataModelPersistenceTest {
             val append = client.post("/api/sheets/${created.id}/rows") {
                 revisionHeader(application, created.id)
                 jsonBody(testJson.encodeToString(RowAppendRequest(
-                    listOf(CalculatedCellAppendRequest(calculatedColumn.value, "=@A[$appendedRowId]*2")),
+                    listOf(CalculatedCellAppendRequest(calculatedColumn.value, "=@${bound.documents.getValue(SheetId(created.id)).tabularContent.columns.first().value}[$appendedRowId]*2")),
                     appendedRowId,
                 )))
             }
@@ -334,7 +373,7 @@ class WorkbookApplicationDataModelPersistenceTest {
             assertEquals(ErrorResponse("invalid-cell-patch"), testJson.decodeFromString(columnAppend.bodyAsText()))
             val appendResult = testJson.decodeFromString<RowAppendResponse>(append.bodyAsText())
             assertEquals(appendedRowId, appendResult.rowId)
-            assertEquals("=@A[$appendedRowId]*2", application.loadWorkbookBundle().documents.getValue(SheetId(created.id)).tabularContent.cellContents.getValue(CellCoordinate(RowId(appendResult.rowId), calculatedColumn)))
+            assertEquals("=@${bound.documents.getValue(SheetId(created.id)).tabularContent.columns.first().value}[$appendedRowId]*2", application.loadWorkbookBundle().documents.getValue(SheetId(created.id)).tabularContent.cellContents.getValue(CellCoordinate(RowId(appendResult.rowId), calculatedColumn)))
             assertEquals(bound.documents.getValue(SheetId(created.id)).tabularContent.columnCount, application.loadWorkbookBundle().documents.getValue(SheetId(created.id)).tabularContent.columnCount)
         }
 
@@ -365,7 +404,7 @@ class WorkbookApplicationDataModelPersistenceTest {
 
     private fun contentWithCalculatedTemplates(content: TabularContent): TabularContent =
         content.rows.indices.fold(content) { populated, index ->
-            populated.updateCell("B${index + 1}", "=@A[${index + 1}]*2")
+            populated.updateCell("B${index + 1}", "=@${content.columns.first().value}[${content.rows[index].value}]*2")
         }
 
     private data class DataModelFixture(

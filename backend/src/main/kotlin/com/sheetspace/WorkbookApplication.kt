@@ -237,6 +237,9 @@ class DefaultWorkbookApplication(
 
     override fun appendRow(sheetId: String, expectedRevision: Long, calculatedCells: List<CalculatedCellAppend>, rowId: String?): RowAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+            if (rowId?.toUuidBytesOrNull() == null && rowId != null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            val appendedRowId = rowId?.let(::RowId) ?: RowId.generate()
+            if (appendedRowId in current.tabularContent.rows) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             val model = current.dataModelId?.let(workbook.dataModels::get)
             if (current.dataModelId != null && model == null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             val expectedCalculatedColumns = model?.properties?.mapIndexedNotNull { index, property ->
@@ -245,11 +248,8 @@ class DefaultWorkbookApplication(
             if (
                 calculatedCells.map(CalculatedCellAppend::columnId).distinct().size != calculatedCells.size ||
                 calculatedCells.map(CalculatedCellAppend::columnId).toSet() != expectedCalculatedColumns.toSet() ||
-                !hasModelOwnedCalculatedAppends(calculatedCells, current.tabularContent.columns, model)
+                !hasModelOwnedCalculatedAppends(calculatedCells, current.tabularContent.appendRow(appendedRowId), model)
             ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            if (rowId?.toUuidBytesOrNull() == null && rowId != null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            val appendedRowId = rowId?.let(::RowId) ?: RowId.generate()
-            if (appendedRowId in current.tabularContent.rows) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             val withRow = current.tabularContent.appendRow(appendedRowId)
             val contents = withRow.cellContents + calculatedCells.associate { CellCoordinate(appendedRowId, ColumnId(it.columnId)) to it.raw }
             workbook.replaceSheet(current.copy(content = TabularContent(withRow.rows, withRow.columns, contents)))
@@ -340,8 +340,9 @@ private fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
         }
         if (cells.size != response.content.cells.size) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         val model = response.dataModelId?.let(models::get)
-        if (model != null && !hasOnlyModelOwnedCalculatedContents(rows, columns, cells, model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        SheetId(response.id) to SheetDocument(SheetId(response.id), response.revision, response.name, FrameState(response.frame.position, response.frame.size, response.frame.visualScale, response.frame.zIndex), SheetPresentation(response.presentation.rowHeights, response.presentation.columnWidths, response.presentation.formatOverrides), TabularContent(rows, columns, cells), response.dataModelId)
+        val content = TabularContent(rows, columns, cells)
+        if (model != null && !hasOnlyModelOwnedCalculatedContents(content, model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        SheetId(response.id) to SheetDocument(SheetId(response.id), response.revision, response.name, FrameState(response.frame.position, response.frame.size, response.frame.visualScale, response.frame.zIndex), SheetPresentation(response.presentation.rowHeights, response.presentation.columnWidths, response.presentation.formatOverrides), content, response.dataModelId)
     }
     if (documents.keys.map { it.value } != bundle.manifest.sheetIds) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
     return WorkbookState(WorkbookManifest(bundle.manifest.version, bundle.manifest.revision, bundle.manifest.sheetIds.map(::SheetId)), documents, models)
@@ -359,40 +360,77 @@ private fun affectedDataModelSheets(current: WorkbookState, updated: WorkbookSta
 }
 
 private fun hasOnlyModelOwnedCalculatedContents(
-    rows: List<RowId>,
-    columns: List<ColumnId>,
-    cells: Map<CellCoordinate, String>,
+    content: TabularContent,
     model: DataModel,
 ): Boolean {
-    if (columns.size != model.properties.size) return false
+    if (content.columns.size != model.properties.size) return false
     return model.properties.withIndex().filter { it.value is CalculatedDataModelProperty }.all { (index, property) ->
         val formula = (property as CalculatedDataModelProperty).formula
-        formula.length > 1 && rows.all { row ->
-            // Stored formulas are canonicalized by the frontend.  At this boundary every
-            // calculated coordinate must still be formula-owned, rather than merely formula-like.
-            val raw = cells[CellCoordinate(row, columns[index])]
-            raw != null && isSupportedFormula(raw) && formulaSignature(raw) == formulaSignature(formula)
+        content.rows.all { row ->
+            val coordinate = CellCoordinate(row, content.columns[index])
+            // A calculated cell is owned only when it is the exact canonical rendering of
+            // its declared first-row template at this coordinate.  Formula "shape" is not
+            // ownership: it loses the stable reference targets and anchors.
+            content.cellContents[coordinate] == materializeModelFormula(formula, content, coordinate)
         }
     }
 }
 
 private fun hasModelOwnedCalculatedAppends(
     cells: List<CalculatedCellAppend>,
-    columns: List<ColumnId>,
+    content: TabularContent,
     model: DataModel?,
 ): Boolean = model?.properties?.withIndex()
     ?.filter { it.value is CalculatedDataModelProperty }
     ?.all { (index, property) ->
-        val raw = cells.single { it.columnId == columns[index].value }.raw
-        isSupportedFormula(raw) && formulaSignature(raw) == formulaSignature((property as CalculatedDataModelProperty).formula)
+        val coordinate = CellCoordinate(content.rows.last(), content.columns[index])
+        cells.single { it.columnId == coordinate.columnId.value }.raw ==
+            materializeModelFormula((property as CalculatedDataModelProperty).formula, content, coordinate)
     }
     ?: cells.isEmpty()
 
+/**
+ * The client stores formula references as stable column/row identifiers.  Model formulas are
+ * first-row A1 templates, so materializing one here requires only reference translation, never
+ * evaluation.  Keeping the references in the result is what makes this an ownership check.
+ */
+private fun materializeModelFormula(
+    formula: String,
+    content: TabularContent,
+    destination: CellCoordinate,
+): String? {
+    if (formula.length <= 1 || !formula.startsWith("=")) return null
+    val sourceColumn = content.columns.indexOf(destination.columnId)
+    val sourceRow = 0
+    if (sourceColumn < 0) return null
+    return MODEL_A1_REFERENCE.replace(formula) { match ->
+        val columnAnchor = match.groupValues[1] == "$"
+        val column = columnIndex(match.groupValues[2]) ?: return@replace "#REF!"
+        val rowAnchor = match.groupValues[3] == "$"
+        val row = match.groupValues[4].toIntOrNull()?.minus(1) ?: return@replace "#REF!"
+        val destinationColumn = content.columns.indexOf(destination.columnId)
+        val destinationRow = content.rows.indexOf(destination.rowId)
+        val targetColumn = if (columnAnchor) column else column + destinationColumn - sourceColumn
+        val targetRow = if (rowAnchor) row else row + destinationRow - sourceRow
+        val targetColumnId = content.columns.getOrNull(targetColumn)?.value
+        val targetRowId = content.rows.getOrNull(targetRow)?.value
+        if (targetColumnId == null || targetRowId == null) "#REF!"
+        else "@${if (columnAnchor) "$" else ""}$targetColumnId[${if (rowAnchor) "$" else ""}$targetRowId]"
+    }
+}
+
 private fun isSupportedFormula(raw: String): Boolean = raw.length > 1 && raw.startsWith("=")
 
-private fun formulaSignature(raw: String): String = FORMULA_REFERENCE.replace(raw, "@reference")
+private val MODEL_A1_REFERENCE = Regex("@(?:[A-Za-z0-9_.-]+!)?(\\$?)([A-Z]+)\\[(\\$?)([1-9][0-9]*)]")
 
-private val FORMULA_REFERENCE = Regex("@\\$?[^\\[]+\\[\\$?[^]]+]|(?<![A-Za-z0-9_])\\$?[A-Z]+\\$?\\d+")
+private fun columnIndex(label: String): Int? {
+    var result = 0
+    for (character in label) {
+        if (character !in 'A'..'Z') return null
+        result = result * 26 + (character - 'A' + 1)
+    }
+    return result - 1
+}
 
 private fun validateFrameCommand(
     position: WorkspacePosition,
