@@ -87,6 +87,34 @@ describe('data model mutations', () => {
     expect(sheet.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:3' })]).toBeUndefined();
   });
 
+  it('removes cell presentation belonging to columns removed by binding or schema changes', () => {
+    const source = workbook();
+    const oldColumn = source.documents.sales!.content.columns[0]!;
+    const withOverride = {
+      ...source,
+      documents: {
+        ...source.documents,
+        sales: {
+          ...source.documents.sales!,
+          presentation: {
+            ...source.documents.sales!.presentation,
+            formatOverrides: { rows: {}, columns: {}, cells: {
+              [cellIdentityKey({ rowId: 'sales:row:1', columnId: oldColumn })]: { fontWeight: 'bold' as const },
+            } },
+          },
+        },
+      },
+    };
+    const bound = bindSheetToDataModel(withOverride, 'sales', 'forecast', ['sales:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+
+    const removed = replaceDataModel(bound.value, { ...model, properties: [model.properties[1]!] }, { sales: [] });
+    expect(removed.ok).toBe(true);
+    if (!removed.ok) return;
+    expect(removed.value.documents.sales!.presentation.formatOverrides?.cells).toEqual({});
+  });
+
   it('clears model-owned formulas when a calculated property becomes manual', () => {
     const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
     expect(bound.ok).toBe(true);

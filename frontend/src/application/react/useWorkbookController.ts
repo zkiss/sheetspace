@@ -1,4 +1,4 @@
-import type { AxisSizeWrite, FormatWrite } from '@workbook/core/model';
+import type { AxisSizeWrite, DataModel, FormatWrite } from '@workbook/core/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
@@ -27,6 +27,7 @@ import {
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
+import { materializedDataModelCells } from '@calculation/modelMaterialization';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
@@ -60,6 +61,10 @@ export type WorkbookCommands = {
   setSheetVisualScale: (sheetId: string, visualScale: number) => void;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
+  addDataModel: (model: DataModel) => void;
+  bindSheetToDataModel: (sheetId: string, modelId: string, newColumnIds: readonly string[]) => void;
+  replaceDataModel: (model: DataModel, newColumnIdsBySheet: Readonly<Record<string, readonly string[]>>) => void;
+  unbindSheetFromDataModel: (sheetId: string) => void;
 };
 
 export type PasteCellsResult =
@@ -259,6 +264,12 @@ export function useWorkbookController({
         contentHistory.record(applied.persistence.writes, applied.affected);
         setHistoryRevision((revision) => revision + 1);
       }
+      if (operation.kind === 'bind-sheet-to-data-model'
+        || operation.kind === 'replace-data-model' || operation.kind === 'unbind-sheet-from-data-model') {
+        contentHistory.invalidate();
+        setContentHistoryFeedback(undefined);
+        setHistoryRevision((revision) => revision + 1);
+      }
     }
     return applied;
   }
@@ -312,6 +323,10 @@ export function useWorkbookController({
 
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) {
     applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] });
+  }
+
+  function unbindSheetFromDataModel(sheetId: string) {
+    applyAction({ kind: 'unbind-sheet-from-data-model', sheetId, materializedValues: materializedDataModelCells(optimisticWorkbook.current, sheetId) });
   }
 
   function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult): PasteCellsResult {
@@ -401,6 +416,10 @@ export function useWorkbookController({
       redo: () => replayContentHistory('redo'),
       updateCellContent,
       writeCells,
+      addDataModel: (model) => { applyAction({ kind: 'add-data-model', model }); },
+      bindSheetToDataModel: (sheetId, modelId, newColumnIds) => { applyAction({ kind: 'bind-sheet-to-data-model', sheetId, modelId, newColumnIds }); },
+      replaceDataModel: (model, newColumnIdsBySheet) => { applyAction({ kind: 'replace-data-model', model, newColumnIdsBySheet }); },
+      unbindSheetFromDataModel,
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
     canUndo: contentHistory.canUndo,

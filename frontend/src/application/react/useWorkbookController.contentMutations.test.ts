@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { cellRawContent, findSheetById, sheetBounds } from '@workbook/read/queries';
-import { type SheetDocument } from '@workbook/core/model';
+import { type DataModel, type SheetDocument } from '@workbook/core/model';
 import {
   WorkbookApiError,
   type ColumnAppendResponse,
@@ -89,6 +89,28 @@ async function expectQueuedAxisReconciliation(axis: 'row' | 'column') {
 }
 
 describe('useWorkbookController content mutations', () => {
+  it('invalidates content history across model ownership transitions', () => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 1, columnCount: 1 });
+    const model: DataModel = { id: 'model', name: 'Model', properties: [
+      { id: 'manual', name: 'Manual', kind: 'manual' },
+      { id: 'calculated', name: 'Calculated', kind: 'calculated', formula: '=@A[1]*2' },
+    ] };
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient: autosaveClient(), initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      result.current.commands.writeCells([{ sheetId: sheet.id, rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1', raw: '3' }]);
+      result.current.commands.addDataModel(model);
+      result.current.commands.bindSheetToDataModel(sheet.id, model.id, ['sheet-inputs:column:2']);
+      result.current.commands.unbindSheetFromDataModel(sheet.id);
+      result.current.commands.undo();
+    });
+
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.workbook.documents[sheet.id]!.content.cells['sheet-inputs:row:1\u0000sheet-inputs:column:1']).toBe('3');
+  });
+
   it('holds an undo save behind its delayed original content save', async () => {
     const firstSave = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
     const writeCells = vi.fn().mockReturnValueOnce(firstSave.promise).mockResolvedValue({ sheets: [{ sheetId: 'sheet-inputs', revision: 2 }] });

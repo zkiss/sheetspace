@@ -10,7 +10,8 @@ import { formulaRawForStorage } from '@workbook/formula/reference';
 import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { appendRow, moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
-import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
+import { addDataModel, bindSheetToDataModel, replaceDataModel, unbindSheetFromDataModel } from '@workbook/mutations/dataModel';
+import { isValidSheetVisualScale, type ColumnId, type DataModel, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
 export type WorkbookOperationId = string;
 /** A stable workbook-wide cell target. The raw content is the final persisted value. */
@@ -31,6 +32,10 @@ export type WorkbookOperation =
   | { kind: 'delete-sheet'; operationId: WorkbookOperationId; sheetId: SheetId }
   | { kind: 'rename-sheet'; operationId: WorkbookOperationId; sheetId: SheetId; name: string }
   | { kind: 'write-cells'; operationId: WorkbookOperationId; writes: readonly CellWrite[] }
+  | { kind: 'add-data-model'; operationId: WorkbookOperationId; model: DataModel }
+  | { kind: 'bind-sheet-to-data-model'; operationId: WorkbookOperationId; sheetId: SheetId; modelId: string; newColumnIds: readonly ColumnId[] }
+  | { kind: 'replace-data-model'; operationId: WorkbookOperationId; model: DataModel; newColumnIdsBySheet: Readonly<Record<string, readonly ColumnId[]>> }
+  | { kind: 'unbind-sheet-from-data-model'; operationId: WorkbookOperationId; sheetId: SheetId; materializedValues: Readonly<Record<string, string>> }
   | { kind: 'move-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'resize-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'set-sheet-visual-scale'; operationId: WorkbookOperationId; sheetId: SheetId; visualScale: number }
@@ -76,7 +81,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet';
+export type WorkbookOperationFailureReason = 'already-bound' | 'column-id-required' | 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-model' | 'duplicate-property-name' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-formula' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-model' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
 export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
@@ -338,11 +343,20 @@ export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOp
     case 'delete-sheet': return applyDeleteSheet(workbook, operation);
     case 'rename-sheet': return applyRenameSheet(workbook, operation);
     case 'write-cells': return applyCellWrites(workbook, operation);
+    case 'add-data-model': return applyDataModelMutation(addDataModel(workbook, operation.model));
+    case 'bind-sheet-to-data-model': return applyDataModelMutation(bindSheetToDataModel(workbook, operation.sheetId, operation.modelId, operation.newColumnIds));
+    case 'replace-data-model': return applyDataModelMutation(replaceDataModel(workbook, operation.model, operation.newColumnIdsBySheet));
+    case 'unbind-sheet-from-data-model': return applyDataModelMutation(unbindSheetFromDataModel(workbook, operation.sheetId, operation.materializedValues));
     case 'move-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position }));
     case 'resize-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position, size: operation.size }));
     case 'set-sheet-visual-scale': return applyVisualScaleChange(workbook, operation);
     case 'change-sheet-z-order': return applyZOrderChange(workbook, operation);
   }
+}
+
+function applyDataModelMutation(result: ReturnType<typeof addDataModel>): WorkbookOperationResult {
+  if (!result.ok) return result;
+  return success(result.value, { kind: 'structure' });
 }
 
 export function applyBackendWorkbookReconciliation(workbook: Workbook, reconciliation: BackendWorkbookReconciliation): WorkbookOperationResult {

@@ -116,6 +116,8 @@ function applyBoundShape(workbook: ModelWorkbook, sheet: SheetDocument, model: D
       formatOverrides: sheet.presentation.formatOverrides && {
         ...sheet.presentation.formatOverrides,
         columns: Object.fromEntries(Object.entries(sheet.presentation.formatOverrides.columns).filter(([id]) => columns.includes(id))),
+        cells: Object.fromEntries(Object.entries(sheet.presentation.formatOverrides.cells)
+          .filter(([key]) => columns.includes(key.split('\u0000')[1]!))),
       },
     },
   };
