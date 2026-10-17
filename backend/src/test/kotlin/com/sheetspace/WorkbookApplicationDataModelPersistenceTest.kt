@@ -58,6 +58,9 @@ class WorkbookApplicationDataModelPersistenceTest {
                 CellContentResponse(valid.documents.single().content.rows.first(), valid.documents.single().content.columns.first(), "value"),
             ))))),
             valid.copy(documents = listOf(valid.documents.single().copy(content = valid.documents.single().content.copy(cells = listOf(
+                CellContentResponse(valid.documents.single().content.rows.first(), valid.documents.single().content.columns[1], "=1"),
+            ))))),
+            valid.copy(documents = listOf(valid.documents.single().copy(content = valid.documents.single().content.copy(cells = listOf(
                 CellContentResponse(valid.documents.single().content.rows.first(), valid.documents.single().content.columns[1], "value"),
             ))))),
             valid.copy(manifest = valid.manifest.copy(sheetIds = listOf("00000000-0000-0000-0000-000000000199"))),
@@ -87,6 +90,45 @@ class WorkbookApplicationDataModelPersistenceTest {
         val invalid = command.copy(expectedRevisions = emptyList())
         val rejection = assertFailsWith<WorkbookApplicationException> { fixture.application.replaceDataModelState(invalid) }
         assertEquals(WorkbookApplicationError.INVALID_CELL_PATCH, rejection.error)
+    }
+
+    @Test
+    fun `model replacement rejects malformed guards manifests and unrelated sheet edits`() {
+        val fixture = dataModelFixture()
+        val valid = fixture.command(fixture.boundWorkbook)
+        listOf(
+            valid.copy(expectedRevisions = listOf(ExpectedSheetRevision(fixture.sheet.id.value, -1))),
+            valid.copy(expectedRevisions = listOf(ExpectedSheetRevision("bad", 0))),
+            valid.copy(workbook = valid.workbook.copy(manifest = valid.workbook.manifest.copy(revision = 1))),
+        ).forEach { command ->
+            assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+                fixture.application.replaceDataModelState(command)
+            }
+        }
+
+        val other = testDocument(TEST_SHEET_2, "Other")
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore(testWorkbookOf(fixture.sheet, other)))
+        val changed = testWorkbookOf(fixture.boundSheet, other.copy(name = "Changed")).copy(dataModels = fixture.boundWorkbook.dataModels)
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+            application.replaceDataModelState(DataModelStateCommand(
+                listOf(ExpectedSheetRevision(fixture.sheet.id.value, fixture.sheet.revision)),
+                WorkbookReadTransportAdapter.bundle(changed),
+            ))
+        }
+    }
+
+    @Test
+    fun `model edits guard sheets bound before and after the transition`() {
+        val fixture = dataModelFixture()
+        fixture.application.replaceDataModelState(fixture.command(fixture.boundWorkbook))
+        val nextModel = fixture.boundWorkbook.dataModels.getValue("00000000-0000-0000-0000-000000000101").copy(name = "Updated Metrics")
+        val unchanged = DataModel("00000000-0000-0000-0000-000000000150", "Unchanged", emptyList())
+        val next = fixture.boundWorkbook.copy(dataModels = fixture.boundWorkbook.dataModels + (nextModel.id to nextModel) + (unchanged.id to unchanged))
+        val current = fixture.application.loadWorkbookBundle()
+        fixture.application.replaceDataModelState(DataModelStateCommand(
+            listOf(ExpectedSheetRevision(fixture.sheet.id.value, current.documents.getValue(fixture.sheet.id).revision)),
+            WorkbookReadTransportAdapter.bundle(next),
+        ))
     }
 
     @Test
@@ -132,12 +174,12 @@ class WorkbookApplicationDataModelPersistenceTest {
         val missingSheet = fixture.command(fixture.boundWorkbook).copy(
             expectedRevisions = listOf(ExpectedSheetRevision("00000000-0000-0000-0000-000000000199", 0)),
         )
-        assertApplicationError(WorkbookApplicationError.SHEET_NOT_FOUND) {
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
             fixture.application.replaceDataModelState(missingSheet)
         }
 
         val unbound = testWorkbookOf(fixture.sheet)
-        assertEquals(listOf(fixture.sheet), fixture.application.replaceDataModelState(fixture.command(unbound)))
+        assertEquals(emptyList(), fixture.application.replaceDataModelState(fixture.command(unbound).copy(expectedRevisions = emptyList())))
         val orphanedBinding = fixture.sheet.copy(dataModelId = "00000000-0000-0000-0000-000000000199")
         val orphanedApplication = DefaultWorkbookApplication(InMemoryWorkbookStore(testWorkbookOf(orphanedBinding)))
         assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {

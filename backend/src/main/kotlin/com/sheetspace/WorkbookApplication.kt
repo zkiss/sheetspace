@@ -259,21 +259,31 @@ class DefaultWorkbookApplication(
     }
 
     override fun replaceDataModelState(command: DataModelStateCommand): List<SheetDocument> {
-        if (command.expectedRevisions.isEmpty() || command.expectedRevisions.map { it.sheetId }.distinct().size != command.expectedRevisions.size) {
+        if (command.expectedRevisions.any { it.sheetId.toUuidBytesOrNull() == null || it.revision < 0 } ||
+            command.expectedRevisions.map { it.sheetId }.distinct().size != command.expectedRevisions.size
+        ) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         val updated = dataModelState(command.workbook)
-        return store.updateWorkbook { current ->
+        lateinit var affectedSheetIds: Set<String>
+        val persisted = store.updateWorkbook { current ->
+            if (updated.manifest != current.manifest) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            affectedSheetIds = affectedDataModelSheets(current, updated)
+            if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != affectedSheetIds) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
             command.expectedRevisions.forEach { expected ->
                 val sheet = current.findSheet(SheetId(expected.sheetId))
                     ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
                 if (sheet.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
             }
-            // A data model transition is a complete aggregate replacement supplied by the frontend
-            // domain layer.  It is committed in this one store transaction after all revisions pass.
-            require(updated.manifest.sheetIds == current.manifest.sheetIds) { "Data model transition cannot change sheets" }
+            val changedDocuments = current.documents.keys.filter { current.documents.getValue(it) != updated.documents.getValue(it) }
+            if (changedDocuments.any { it.value !in affectedSheetIds }) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
             updated
-        }.sheetsInOrder
+        }
+        return persisted.sheetsInOrder.filter { it.id.value in affectedSheetIds }
     }
 
     private fun updateExistingSheet(
@@ -321,12 +331,45 @@ private fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
         }
         if (cells.size != response.content.cells.size) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         val model = response.dataModelId?.let(models::get)
-        if (model != null && (columns.size != model.properties.size || cells.any { (coordinate, raw) -> model.properties[columns.indexOf(coordinate.columnId)] is CalculatedDataModelProperty && !raw.startsWith("=") })) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        if (model != null && !hasOnlyModelOwnedCalculatedContents(rows, columns, cells, model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         SheetId(response.id) to SheetDocument(SheetId(response.id), response.revision, response.name, FrameState(response.frame.position, response.frame.size, response.frame.visualScale, response.frame.zIndex), SheetPresentation(response.presentation.rowHeights, response.presentation.columnWidths, response.presentation.formatOverrides), TabularContent(rows, columns, cells), response.dataModelId)
     }
     if (documents.keys.map { it.value } != bundle.manifest.sheetIds) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
     return WorkbookState(WorkbookManifest(bundle.manifest.version, bundle.manifest.revision, bundle.manifest.sheetIds.map(::SheetId)), documents, models)
 }
+
+private fun affectedDataModelSheets(current: WorkbookState, updated: WorkbookState): Set<String> {
+    val changedModels = (current.dataModels.keys + updated.dataModels.keys)
+        .filter { current.dataModels[it] != updated.dataModels[it] }
+        .toSet()
+    return current.documents.keys.map { it.value }.filter { id ->
+        val before = current.documents.getValue(SheetId(id))
+        val after = updated.documents.getValue(SheetId(id))
+        before.dataModelId != after.dataModelId || before.dataModelId in changedModels || after.dataModelId in changedModels
+    }.toSet()
+}
+
+private fun hasOnlyModelOwnedCalculatedContents(
+    rows: List<RowId>,
+    columns: List<ColumnId>,
+    cells: Map<CellCoordinate, String>,
+    model: DataModel,
+): Boolean {
+    if (columns.size != model.properties.size) return false
+    return model.properties.withIndex().filter { it.value is CalculatedDataModelProperty }.all { (index, property) ->
+        val formula = (property as CalculatedDataModelProperty).formula
+        formula.length > 1 && rows.all { row ->
+            // Stored formulas are canonicalized by the frontend.  At this boundary every
+            // calculated coordinate must still be formula-owned, rather than merely formula-like.
+            val raw = cells[CellCoordinate(row, columns[index])]
+            raw == null || (raw.startsWith("=") && formulaSignature(raw) == formulaSignature(formula))
+        }
+    }
+}
+
+private fun formulaSignature(raw: String): String = FORMULA_REFERENCE.replace(raw, "@reference")
+
+private val FORMULA_REFERENCE = Regex("@\\$?[^\\[]+\\[\\$?[^]]+]|(?<![A-Za-z0-9_])\\$?[A-Z]+\\$?\\d+")
 
 private fun validateFrameCommand(
     position: WorkspacePosition,

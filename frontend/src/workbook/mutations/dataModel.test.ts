@@ -29,6 +29,28 @@ describe('data model mutations', () => {
     expect(addDataModel(added.value, model)).toEqual({ ok: false, reason: 'duplicate-model' });
   });
 
+  it('persists model-only additions without a sheet guard and retains an unbound sheet guard', () => {
+    const source = workbookWithSheets([sheetDocument({ id: 'sales', name: 'Sales', rowCount: 1, columnCount: 1 })]);
+    const added = applyWorkbookOperation(source, { kind: 'add-data-model', operationId: 'add-model', model });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(added.value.persistence).toMatchObject({ kind: 'replace-data-model-state', sheetIds: [] });
+
+    const bound = applyWorkbookOperation({ ...source, dataModels: { forecast: model } }, {
+      kind: 'bind-sheet-to-data-model', operationId: 'bind-model', sheetId: 'sales', modelId: 'forecast', newColumnIds: ['sales:column:2'],
+    });
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+    expect(bound.value.persistence).toMatchObject({ kind: 'replace-data-model-state', sheetIds: ['sales'] });
+
+    const unbound = applyWorkbookOperation(bound.value.nextWorkbook, {
+      kind: 'unbind-sheet-from-data-model', operationId: 'unbind-model', sheetId: 'sales', materializedValues: materializedDataModelCells(bound.value.nextWorkbook, 'sales'),
+    });
+    expect(unbound.ok).toBe(true);
+    if (!unbound.ok) return;
+    expect(unbound.value.persistence).toMatchObject({ kind: 'replace-data-model-state', sheetIds: ['sales'] });
+  });
+
   it('binds by declaration order, keeps manual values, and applies a rebased formula to every row', () => {
     const result = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
 

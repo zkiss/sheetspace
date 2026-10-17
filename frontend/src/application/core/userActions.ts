@@ -345,10 +345,10 @@ export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOp
     case 'delete-sheet': return applyDeleteSheet(workbook, operation);
     case 'rename-sheet': return applyRenameSheet(workbook, operation);
     case 'write-cells': return applyCellWrites(workbook, operation);
-    case 'add-data-model': return applyDataModelMutation(addDataModel(workbook, operation.model));
-    case 'bind-sheet-to-data-model': return applyDataModelMutation(bindSheetToDataModel(workbook, operation.sheetId, operation.modelId, operation.newColumnIds));
-    case 'replace-data-model': return applyDataModelMutation(replaceDataModel(workbook, operation.model, operation.newColumnIdsBySheet));
-    case 'unbind-sheet-from-data-model': return applyDataModelMutation(unbindSheetFromDataModel(workbook, operation.sheetId, operation.materializedValues));
+    case 'add-data-model': return applyDataModelMutation(workbook, addDataModel(workbook, operation.model));
+    case 'bind-sheet-to-data-model': return applyDataModelMutation(workbook, bindSheetToDataModel(workbook, operation.sheetId, operation.modelId, operation.newColumnIds));
+    case 'replace-data-model': return applyDataModelMutation(workbook, replaceDataModel(workbook, operation.model, operation.newColumnIdsBySheet));
+    case 'unbind-sheet-from-data-model': return applyDataModelMutation(workbook, unbindSheetFromDataModel(workbook, operation.sheetId, operation.materializedValues));
     case 'move-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position }));
     case 'resize-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position, size: operation.size }));
     case 'set-sheet-visual-scale': return applyVisualScaleChange(workbook, operation);
@@ -356,11 +356,17 @@ export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOp
   }
 }
 
-function applyDataModelMutation(result: ReturnType<typeof addDataModel>): WorkbookOperationResult {
+function applyDataModelMutation(workbook: Workbook, result: ReturnType<typeof addDataModel>): WorkbookOperationResult {
   if (!result.ok) return result;
-  const sheetIds = Object.values(result.value.documents)
-    .filter((sheet) => sheet.dataModelId !== undefined)
-    .map((sheet) => sheet.id);
+  // A transition must guard sheets which were unbound as well as those which remain bound.
+  // The backend verifies this exact set against the aggregate it receives.
+  const changedModelIds = new Set([...Object.keys(workbook.dataModels ?? {}), ...Object.keys(result.value.dataModels ?? {})]
+    .filter((id) => workbook.dataModels?.[id] !== result.value.dataModels?.[id]));
+  const sheetIds = Object.keys(workbook.documents).filter((sheetId) => {
+    const before = workbook.documents[sheetId]!;
+    const after = result.value.documents[sheetId]!;
+    return before.dataModelId !== after.dataModelId || changedModelIds.has(before.dataModelId ?? '') || changedModelIds.has(after.dataModelId ?? '');
+  });
   return success(result.value, { kind: 'structure' }, {
     kind: 'replace-data-model-state', workbook: result.value, sheetIds,
   });
