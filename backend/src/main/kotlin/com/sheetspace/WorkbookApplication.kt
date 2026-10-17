@@ -399,26 +399,14 @@ private fun materializeModelFormula(
     content: TabularContent,
     destination: CellCoordinate,
 ): String? {
-    if (formula.length <= 1 || !formula.startsWith("=")) return null
-    val sourceColumn = content.columns.indexOf(destination.columnId)
-    val sourceRow = 0
-    return MODEL_A1_REFERENCE.replace(formula) { match ->
-        val columnAnchor = match.groupValues[1] == "$"
-        val column = columnIndex(match.groupValues[2])
-        val rowAnchor = match.groupValues[3] == "$"
-        val row = match.groupValues[4].toIntOrNull()?.minus(1) ?: return@replace "#REF!"
-        val destinationColumn = content.columns.indexOf(destination.columnId)
-        val destinationRow = content.rows.indexOf(destination.rowId)
-        val targetColumn = if (columnAnchor) column else column + destinationColumn - sourceColumn
-        val targetRow = if (rowAnchor) row else row + destinationRow - sourceRow
-        val targetColumnId = content.columns.getOrNull(targetColumn)?.value
-        val targetRowId = content.rows.getOrNull(targetRow)?.value
-        if (targetColumnId == null || targetRowId == null) "#REF!"
-        else "@${if (columnAnchor) "$" else ""}$targetColumnId[${if (rowAnchor) "$" else ""}$targetRowId]"
-    }
+    val firstRow = content.rows.firstOrNull() ?: return null
+    val first = FormulaReferenceContract.canonicalize(formula, content) ?: return null
+    val source = CellCoordinate(firstRow, destination.columnId)
+    return if (destination.rowId == firstRow) first
+    else FormulaReferenceContract.copyCanonical(first, source, destination, content)
 }
 
-internal fun isSupportedFormula(raw: String): Boolean = raw.length > 1 && raw.startsWith("=")
+internal fun isSupportedFormula(raw: String): Boolean = FormulaReferenceContract.isFormula(raw)
 
 /**
  * Storage accepts aggregate replacements from more than the HTTP application.  Keep the
@@ -435,16 +423,6 @@ internal fun hasValidChangedModelOwnership(current: WorkbookState, updated: Work
             val model = updated.dataModels[modelId] ?: return@all false
             hasOnlyModelOwnedCalculatedContents(sheet.tabularContent, model)
         }
-
-private val MODEL_A1_REFERENCE = Regex("@(?:[A-Za-z0-9_.-]+!)?(\\$?)([A-Z]+)\\[(\\$?)([1-9][0-9]*)]")
-
-private fun columnIndex(label: String): Int {
-    var result = 0
-    for (character in label) {
-        result = result * 26 + (character - 'A' + 1)
-    }
-    return result - 1
-}
 
 private fun validateFrameCommand(
     position: WorkspacePosition,
