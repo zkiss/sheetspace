@@ -259,6 +259,9 @@ class DefaultWorkbookApplication(
 
     override fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+            if (current.dataModelId != null) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())

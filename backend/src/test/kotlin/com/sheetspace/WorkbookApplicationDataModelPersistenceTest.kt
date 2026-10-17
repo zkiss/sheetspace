@@ -8,6 +8,7 @@ import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 
 class WorkbookApplicationDataModelPersistenceTest {
     @Test
@@ -217,6 +218,20 @@ class WorkbookApplicationDataModelPersistenceTest {
     }
 
     @Test
+    fun `bound sheets reject column appends without changing their persisted shape`() {
+        val fixture = dataModelFixture()
+        fixture.application.replaceDataModelState(fixture.command(fixture.boundWorkbook))
+        val bound = assertNotNull(fixture.store.loadSheet(fixture.sheet.id))
+
+        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
+            fixture.application.appendColumn(bound.id.value, bound.revision)
+        }
+
+        assertEquals(bound, fixture.store.loadSheet(fixture.sheet.id))
+        assertEquals(bound, fixture.application.loadWorkbookBundle().documents.getValue(bound.id))
+    }
+
+    @Test
     fun `row append rejects invalid and duplicate client row identities without mutation`() {
         val fixture = dataModelFixture()
 
@@ -307,14 +322,20 @@ class WorkbookApplicationDataModelPersistenceTest {
                 revisionHeader(application, created.id)
                 jsonBody("not-json")
             }
+            val columnAppend = client.post("/api/sheets/${created.id}/columns") {
+                revisionHeader(application, created.id)
+            }
 
             assertEquals(HttpStatusCode.OK, replacement.status)
             assertEquals(HttpStatusCode.OK, append.status)
             assertEquals(HttpStatusCode.BadRequest, invalidAppend.status)
+            assertEquals(HttpStatusCode.BadRequest, columnAppend.status)
             assertEquals(ErrorResponse("invalid-request"), testJson.decodeFromString(invalidAppend.bodyAsText()))
+            assertEquals(ErrorResponse("invalid-cell-patch"), testJson.decodeFromString(columnAppend.bodyAsText()))
             val appendResult = testJson.decodeFromString<RowAppendResponse>(append.bodyAsText())
             assertEquals(appendedRowId, appendResult.rowId)
             assertEquals("=@A[$appendedRowId]*2", application.loadWorkbookBundle().documents.getValue(SheetId(created.id)).tabularContent.cellContents.getValue(CellCoordinate(RowId(appendResult.rowId), calculatedColumn)))
+            assertEquals(bound.documents.getValue(SheetId(created.id)).tabularContent.columnCount, application.loadWorkbookBundle().documents.getValue(SheetId(created.id)).tabularContent.columnCount)
         }
 
     private fun dataModelFixture(): DataModelFixture {
