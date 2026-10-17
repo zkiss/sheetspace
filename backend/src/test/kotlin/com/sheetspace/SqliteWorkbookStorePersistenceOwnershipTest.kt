@@ -3,8 +3,33 @@ package com.sheetspace
 import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class SqliteWorkbookStorePersistenceOwnershipTest {
+    @Test
+    fun `aggregate updates reject calculated overrides and bound shape changes`() = withSqliteStore { store ->
+        val initial = modelOwnedWorkbook()
+        store.saveWorkbook(initial)
+        val sheet = initial.sheetsInOrder.single()
+
+        listOf<(WorkbookState) -> WorkbookState>(
+            { workbook ->
+                val current = workbook.documents.getValue(sheet.id)
+                workbook.replaceSheet(current.updateTabularContent { content -> content.updateCell("B1", "=1") })
+            },
+            { workbook ->
+                val current = workbook.documents.getValue(sheet.id)
+                workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
+            },
+        ).forEach { transform ->
+            val before = store.loadWorkbookBundle()
+
+            assertFailsWith<WorkbookApplicationException> { store.updateWorkbook(transform = transform) }
+
+            assertEquals(before, store.loadWorkbookBundle())
+        }
+    }
+
     @Test
     fun `ordinary sheet mutations write only their owned SQLite records`() = withSqliteStore { store ->
         val sheet = testDocument(
@@ -139,6 +164,34 @@ class SqliteWorkbookStorePersistenceOwnershipTest {
             assertEquals(columnUpdated.tabularContent.columns, reloaded.columns)
         }
     }
+}
+
+private fun modelOwnedWorkbook(): WorkbookState {
+    val sheet = testDocument(TEST_SHEET_1, "Inputs")
+    val modelId = "00000000-0000-0000-0000-000000000101"
+    val content = sheet.tabularContent
+    val model = DataModel(
+        modelId,
+        "Metrics",
+        content.columns.mapIndexed { index, _ ->
+            val id = "00000000-0000-0000-0000-${(111 + index).toString().padStart(12, '0')}"
+            if (index == 1) CalculatedDataModelProperty(id, "Double", "=@A[1]*2")
+            else ManualDataModelProperty(id, "Column $index")
+        },
+    )
+    val modelContents = TabularContent(
+        content.rows,
+        content.columns,
+        content.rows.associate { row ->
+            CellCoordinate(row, content.columns[1]) to "=@${content.columns[0].value}[${row.value}]*2"
+        },
+    )
+    return testWorkbookOf(
+        sheet.copy(
+            dataModelId = modelId,
+            content = modelContents,
+        ),
+    ).copy(dataModels = mapOf(modelId to model))
 }
 
 private fun installWriteAudit(connection: java.sql.Connection) {

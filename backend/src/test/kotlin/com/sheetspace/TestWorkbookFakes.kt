@@ -90,6 +90,9 @@ class InMemoryWorkbookStore(
     ): WorkbookState = synchronized(this) {
         val current = workbook
         val updated = transform(current)
+        if (!hasValidChangedModelOwnership(current, updated)) {
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
         workbook = if (expectedRevision == null) {
             updated
         } else {

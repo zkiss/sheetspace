@@ -359,7 +359,7 @@ private fun affectedDataModelSheets(current: WorkbookState, updated: WorkbookSta
     }.toSet()
 }
 
-private fun hasOnlyModelOwnedCalculatedContents(
+internal fun hasOnlyModelOwnedCalculatedContents(
     content: TabularContent,
     model: DataModel,
 ): Boolean {
@@ -418,7 +418,23 @@ private fun materializeModelFormula(
     }
 }
 
-private fun isSupportedFormula(raw: String): Boolean = raw.length > 1 && raw.startsWith("=")
+internal fun isSupportedFormula(raw: String): Boolean = raw.length > 1 && raw.startsWith("=")
+
+/**
+ * Storage accepts aggregate replacements from more than the HTTP application.  Keep the
+ * model-owned shape and calculated contents invariant at that shared transactional boundary.
+ */
+internal fun hasValidChangedModelOwnership(current: WorkbookState, updated: WorkbookState): Boolean =
+    updated.documents.values
+        .filter { sheet ->
+            val before = current.findSheet(sheet.id)
+            before == null || before.dataModelId != sheet.dataModelId || before.tabularContent != sheet.tabularContent
+        }
+        .all { sheet ->
+            val modelId = sheet.dataModelId ?: return@all true
+            val model = updated.dataModels[modelId] ?: return@all false
+            hasOnlyModelOwnedCalculatedContents(sheet.tabularContent, model)
+        }
 
 private val MODEL_A1_REFERENCE = Regex("@(?:[A-Za-z0-9_.-]+!)?(\\$?)([A-Z]+)\\[(\\$?)([1-9][0-9]*)]")
 
