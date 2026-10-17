@@ -17,6 +17,45 @@ class WorkbookReadContractTest {
             testJson.parseToJsonElement(testJson.encodeToString(actual)),
         )
     }
+
+    @Test
+    fun `transport includes bound data models and calculated property formulas`() {
+        val modelId = "00000000-0000-0000-0000-000000000101"
+        val sheet = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val workbook = testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to DataModel(
+            modelId,
+            "Inputs",
+            listOf(
+                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount"),
+                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2"),
+            ),
+        )))
+
+        val expected =
+            WorkbookBundleResponse(
+                WorkbookManifestResponse(WORKBOOK_SCHEMA_VERSION, 0, listOf(sheet.id.value)),
+                listOf(WorkbookReadTransportAdapter.sheetDocument(sheet)),
+                listOf(DataModelResponse(modelId, "Inputs", listOf(
+                    DataModelPropertyResponse("00000000-0000-0000-0000-000000000102", "Amount", "manual"),
+                    DataModelPropertyResponse("00000000-0000-0000-0000-000000000103", "Double", "calculated", "=@A[1]*2"),
+                ))),
+            )
+        val actual = WorkbookReadTransportAdapter.bundle(workbook)
+
+        assertEquals(expected, actual)
+        assertEquals(expected, testJson.decodeFromString(testJson.encodeToString(actual)))
+
+        val model = actual.dataModels.single()
+        assertEquals(modelId, model.id)
+        assertEquals("Inputs", model.name)
+        assertEquals(listOf("manual", "calculated"), model.properties.map { it.kind })
+        assertEquals(listOf(null, "=@A[1]*2"), model.properties.map { it.formula })
+        assertEquals(listOf("Amount", "Double"), model.properties.map { it.name })
+        assertEquals(
+            listOf("00000000-0000-0000-0000-000000000102", "00000000-0000-0000-0000-000000000103"),
+            model.properties.map { it.id },
+        )
+    }
 }
 
 private fun fixtureWorkbook(): WorkbookState {

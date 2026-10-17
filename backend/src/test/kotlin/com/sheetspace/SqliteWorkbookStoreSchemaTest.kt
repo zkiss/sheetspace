@@ -26,6 +26,7 @@ class SqliteWorkbookStoreSchemaTest {
     fun `loads an empty workbook from an isolated in-memory database`() = withSqliteStore { store ->
         assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
         assertEquals(WORKBOOK_SCHEMA_VERSION, store.loadStoredSchemaVersion())
+        assertEquals(null, store.loadSheet(SheetId("not-a-uuid")))
     }
 
     @Test
@@ -78,6 +79,30 @@ class SqliteWorkbookStoreSchemaTest {
         store.saveWorkbook(expected)
 
         assertEquals(expected, store.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `aggregate updates replace model properties and restore every sheet binding`() = withSqliteStore { store ->
+        val modelId = "00000000-0000-0000-0000-000000000101"
+        val inputs = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val outputs = testDocument(TEST_SHEET_2, "Outputs")
+        val initial = testWorkbookOf(inputs, outputs).copy(dataModels = mapOf(modelId to DataModel(
+            modelId,
+            "Metrics",
+            listOf(ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount")),
+        )))
+        store.saveWorkbook(initial)
+        val updatedModel = initial.dataModels.getValue(modelId).copy(properties = listOf(
+            CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2"),
+            ManualDataModelProperty("00000000-0000-0000-0000-000000000104", "Note"),
+        ))
+
+        val updated = store.updateWorkbook { it.copy(dataModels = mapOf(modelId to updatedModel)) }
+
+        assertEquals(mapOf(modelId to updatedModel), updated.dataModels)
+        assertEquals(modelId, updated.documents.getValue(inputs.id).dataModelId)
+        assertEquals(null, updated.documents.getValue(outputs.id).dataModelId)
+        assertEquals(updated, store.loadWorkbookBundle())
     }
 
     @Test
