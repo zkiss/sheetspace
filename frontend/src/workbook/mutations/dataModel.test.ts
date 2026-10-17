@@ -5,6 +5,7 @@ import { addDataModel, bindSheetToDataModel, replaceDataModel, unbindSheetFromDa
 import type { DataModel } from '../core/model';
 import { materializedDataModelCells } from '../../calculation/modelMaterialization';
 import { applyBackendWorkbookReconciliation, applyWorkbookOperation, replayCellPersistenceWrites } from '../../application/core/userActions';
+import { classifyCellValue } from '../../calculation/formulaValue';
 
 const model: DataModel = {
   id: 'forecast', name: 'Forecast', properties: [
@@ -142,6 +143,28 @@ describe('data model mutations', () => {
     expect(result.value.documents.sales.content.columns).toHaveLength(2);
     expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:2' })]).toBe('6');
     expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:2', columnId: 'sales:column:2' })]).toBe('8');
+  });
+
+  it('unbinds calculated text without coercing boolean or numeric-looking values', () => {
+    const textModel: DataModel = {
+      id: 'text-values', name: 'Text values', properties: [
+        { id: 'truth', name: 'Truth', kind: 'calculated', formula: '="TRUE"' },
+        { id: 'numeric-text', name: 'Numeric text', kind: 'calculated', formula: '="123"' },
+      ],
+    };
+    const source = { ...workbookWithSheets([sheetDocument({ id: 'sales', name: 'Sales', rowCount: 1, columnCount: 0 })]), dataModels: { [textModel.id]: textModel } };
+    const bound = bindSheetToDataModel(source, 'sales', textModel.id, ['sales:column:1', 'sales:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+
+    const result = unbindSheetFromDataModel(bound.value, 'sales', materializedDataModelCells(bound.value, 'sales'));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const cells = result.value.documents.sales.content.cells;
+    expect(cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:1' })]).toBe("'TRUE");
+    expect(cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:2' })]).toBe("'123");
+    expect(classifyCellValue(cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:1' })]!)).toEqual({ kind: 'text', value: 'TRUE' });
+    expect(classifyCellValue(cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:2' })]!)).toEqual({ kind: 'text', value: '123' });
   });
 
   it('materializes calculated formulas on application row append and rejects calculated writes atomically', () => {
