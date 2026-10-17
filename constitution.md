@@ -5,6 +5,7 @@ Follow these rules for all coding and testing work in Sheetspace. Repository wor
 ## Design and organization
 
 - Use the simplest design that meets current requirements. Add complexity for concrete benefits such as better testability, clearer responsibilities, or measured performance needs. Avoid premature optimization, overengineering, and abstractions for hypothetical future needs.
+- Prefer tools’ defaults and conventions when they meet requirements. Configure only what needs to differ, using the simplest, shortest clear form that expresses the intended behavior.
 - Apply DRY and SOLID to concrete responsibilities: centralize repeated knowledge and behavior, keep interfaces focused, and separate application logic from infrastructure. These principles should simplify the design, not add unnecessary layers.
 - Prefer composition over inheritance: assemble behavior from focused collaborators.
 - Organize classes into cohesive packages by responsibility or feature. Keep package boundaries clear and implementation details private where practical.
