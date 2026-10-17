@@ -305,6 +305,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE ->
             HttpStatusCode.BadRequest to "duplicate-sheet-z-order-update"
         WorkbookApplicationError.INVALID_SHEET_PRESENTATION -> HttpStatusCode.BadRequest to "invalid-sheet-presentation"
+        WorkbookApplicationError.READ_ONLY_CALCULATED_CELL -> HttpStatusCode.BadRequest to "read-only-calculated-cell"
         WorkbookApplicationError.EMPTY_CELL_PATCH -> HttpStatusCode.BadRequest to "empty-cell-patch"
         WorkbookApplicationError.DUPLICATE_CELL_WRITE -> HttpStatusCode.BadRequest to "duplicate-cell-write"
         WorkbookApplicationError.DUPLICATE_SHEET_REVISION -> HttpStatusCode.BadRequest to "duplicate-sheet-revision"

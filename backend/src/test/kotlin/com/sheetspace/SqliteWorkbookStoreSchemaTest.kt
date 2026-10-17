@@ -62,6 +62,25 @@ class SqliteWorkbookStoreSchemaTest {
     }
 
     @Test
+    fun `persists data models properties and sheet bindings in the workbook aggregate`() = withSqliteStore { store ->
+        val modelId = "00000000-0000-0000-0000-000000000101"
+        val sheet = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val model = DataModel(
+            modelId,
+            "Inputs",
+            listOf(
+                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount"),
+                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2"),
+            ),
+        )
+        val expected = testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model))
+
+        store.saveWorkbook(expected)
+
+        assertEquals(expected, store.loadWorkbookBundle())
+    }
+
+    @Test
     fun `schema separates manifest documents frames structure and cells`() = withSqliteStore { store ->
         DriverManager.getConnection(store.jdbcUrl).use { connection ->
             val documentColumns = buildSet {
@@ -71,7 +90,7 @@ class SqliteWorkbookStoreSchemaTest {
                     }
                 }
             }
-            assertEquals(setOf("id", "name", "content_kind", "revision"), documentColumns)
+            assertEquals(setOf("id", "name", "content_kind", "revision", "data_model_id"), documentColumns)
             assertFalse("cells_json" in documentColumns)
             assertFalse("row_count" in documentColumns)
             assertFalse("column_count" in documentColumns)

@@ -53,6 +53,7 @@ enum class WorkbookApplicationError {
     INVALID_CELL_COORDINATE,
     INVALID_CELL_PATCH,
     INVALID_SHEET_PRESENTATION,
+    READ_ONLY_CALCULATED_CELL,
 }
 
 class WorkbookApplicationException(

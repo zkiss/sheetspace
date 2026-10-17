@@ -11,7 +11,26 @@ CREATE TABLE sheet_documents (
     id BLOB PRIMARY KEY CHECK (typeof(id) = 'blob' AND length(id) = 16),
     name TEXT NOT NULL UNIQUE,
     content_kind TEXT NOT NULL CHECK (content_kind = 'TABULAR'),
-    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    data_model_id BLOB
+);
+
+CREATE TABLE data_models (
+    id BLOB PRIMARY KEY CHECK (typeof(id) = 'blob' AND length(id) = 16),
+    name TEXT NOT NULL
+);
+
+CREATE TABLE data_model_properties (
+    model_id BLOB NOT NULL REFERENCES data_models(id) ON DELETE CASCADE,
+    id BLOB NOT NULL CHECK (typeof(id) = 'blob' AND length(id) = 16),
+    name TEXT NOT NULL,
+    property_kind TEXT NOT NULL CHECK (property_kind IN ('MANUAL', 'CALCULATED')),
+    formula TEXT,
+    property_order INTEGER NOT NULL CHECK (property_order >= 0),
+    PRIMARY KEY (model_id, id),
+    UNIQUE (model_id, name),
+    UNIQUE (model_id, property_order),
+    CHECK ((property_kind = 'MANUAL' AND formula IS NULL) OR (property_kind = 'CALCULATED' AND formula IS NOT NULL))
 );
 
 CREATE TABLE workbook_sheets (

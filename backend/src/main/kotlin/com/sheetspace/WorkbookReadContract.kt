@@ -13,7 +13,14 @@ data class WorkbookManifestResponse(
 data class WorkbookBundleResponse(
     val manifest: WorkbookManifestResponse,
     val documents: List<SheetDocumentResponse>,
+    val dataModels: List<DataModelResponse> = emptyList(),
 )
+
+@Serializable
+data class DataModelResponse(val id: String, val name: String, val properties: List<DataModelPropertyResponse>)
+
+@Serializable
+data class DataModelPropertyResponse(val id: String, val name: String, val kind: String, val formula: String? = null)
 
 @Serializable
 data class SheetDocumentResponse(
@@ -23,6 +30,7 @@ data class SheetDocumentResponse(
     val frame: FrameStateResponse,
     val presentation: SheetPresentationResponse,
     val content: TabularContentResponse,
+    val dataModelId: String? = null,
 )
 
 @Serializable
@@ -61,6 +69,7 @@ internal object WorkbookReadTransportAdapter {
     fun bundle(workbook: WorkbookState): WorkbookBundleResponse = WorkbookBundleResponse(
         manifest = manifest(workbook.manifest),
         documents = workbook.sheetsInOrder.map(::sheetDocument),
+        dataModels = workbook.dataModels.values.map(::dataModel),
     )
 
     fun sheetDocument(document: SheetDocument): SheetDocumentResponse {
@@ -88,6 +97,14 @@ internal object WorkbookReadTransportAdapter {
                     )
                 },
             ),
+            dataModelId = document.dataModelId,
         )
     }
+
+    private fun dataModel(model: DataModel) = DataModelResponse(model.id, model.name, model.properties.map { property ->
+        when (property) {
+            is ManualDataModelProperty -> DataModelPropertyResponse(property.id, property.name, "manual")
+            is CalculatedDataModelProperty -> DataModelPropertyResponse(property.id, property.name, "calculated", property.formula)
+        }
+    })
 }

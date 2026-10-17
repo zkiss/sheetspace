@@ -14,7 +14,7 @@ internal class SqliteWorkbookReader(
         val documents = manifest.sheetIds.associateWith { sheetId ->
             loadSheet(sheetId) ?: error("Manifest references missing sheet: ${sheetId.value}")
         }
-        return WorkbookState(manifest, documents)
+        return WorkbookState(manifest, documents, loadDataModels())
     }
 
     fun loadManifest(): WorkbookManifest {
@@ -45,7 +45,7 @@ internal class SqliteWorkbookReader(
     fun loadSheet(sheetId: SheetId): SheetDocument? {
         val document = connection.prepareStatement(
             """
-            SELECT d.id, d.name, d.revision,
+            SELECT d.id, d.name, d.revision, d.data_model_id,
                    f.position_x, f.position_y, f.frame_width, f.frame_height, f.visual_scale, f.z_index
             FROM sheet_documents d
             JOIN frame_state f ON f.sheet_id = d.id
@@ -60,6 +60,7 @@ internal class SqliteWorkbookReader(
                     id = SheetId(rs.getBytes("id").toUuidString()),
                     name = rs.getString("name"),
                     revision = rs.getLong("revision"),
+                    dataModelId = rs.getBytes("data_model_id")?.toUuidString(),
                     frame = FrameState(
                         position = WorkspacePosition(
                             rs.getDouble("position_x"),
@@ -94,6 +95,7 @@ internal class SqliteWorkbookReader(
                 columns = loadColumns(sheetId),
                 cellContents = loadCells(sheetId),
             ),
+            dataModelId = document.dataModelId,
         )
     }
 
@@ -198,6 +200,28 @@ internal class SqliteWorkbookReader(
             SheetReadEvent(part, requestedSheetId, SheetId(returnedSheetId.toUuidString())),
         )
     }
+
+    private fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models").use { statement ->
+        statement.executeQuery().use { models -> buildMap {
+            while (models.next()) {
+                val id = models.getBytes("id").toUuidString()
+                put(id, DataModel(id, models.getString("name"), loadDataModelProperties(id)))
+            }
+        } }
+    }
+
+    private fun loadDataModelProperties(modelId: String): List<DataModelProperty> = connection.prepareStatement(
+        "SELECT id, name, property_kind, formula FROM data_model_properties WHERE model_id = ? ORDER BY property_order",
+    ).use { statement ->
+        statement.setBytes(1, modelId.toUuidBytes())
+        statement.executeQuery().use { properties -> buildList {
+            while (properties.next()) {
+                val id = properties.getBytes("id").toUuidString()
+                val name = properties.getString("name")
+                add(if (properties.getString("property_kind") == "CALCULATED") CalculatedDataModelProperty(id, name, properties.getString("formula")) else ManualDataModelProperty(id, name))
+            }
+        } }
+    }
 }
 
 internal enum class SheetReadPart {
@@ -218,4 +242,5 @@ private data class SheetRecord(
     val name: String,
     val revision: Long,
     val frame: FrameState,
+    val dataModelId: String?,
 )

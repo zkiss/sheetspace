@@ -16,6 +16,7 @@ data class SheetDocument(
     val frame: FrameState = FrameState(),
     val presentation: SheetPresentation = SheetPresentation(),
     val content: SheetContent = TabularContent(),
+    val dataModelId: String? = null,
 ) {
     val tabularContent: TabularContent
         get() = content as? TabularContent

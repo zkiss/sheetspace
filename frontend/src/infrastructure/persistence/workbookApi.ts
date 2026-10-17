@@ -1,4 +1,4 @@
-import type { AxisSizeWrite, FormatWrite, SheetPresentation } from '@workbook/core/model';
+import type { AxisSizeWrite, DataModel, FormatWrite, SheetPresentation } from '@workbook/core/model';
 import { isValidCellAppearance, validFormatWrites } from '@workbook/core/numberFormat';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
@@ -37,11 +37,13 @@ export type SheetDocumentResponse = {
     columns: string[];
     cells: CellContentResponse[];
   };
+  dataModelId?: string;
 };
 
 export type WorkbookBundleResponse = {
   manifest: WorkbookManifestResponse;
   documents: SheetDocumentResponse[];
+  dataModels?: DataModel[];
 };
 
 export type SheetRevisionResponse = {
@@ -301,6 +303,7 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
   return {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
+    ...(bundle.dataModels === undefined ? {} : { dataModels: Object.fromEntries(bundle.dataModels.map((model) => [model.id, model])) }),
   };
 }
 
@@ -371,6 +374,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       columns: [...document.content.columns],
       cells,
     },
+    ...(document.dataModelId === undefined ? {} : { dataModelId: document.dataModelId }),
   };
 }
 
