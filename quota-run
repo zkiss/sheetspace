@@ -206,8 +206,9 @@ while [[ $phase != done ]]; do
   done
   if [[ $(jq -r '.options.auto // false' <<<"$state") == true ]]; then options+=(--auto); fi
   save_phase running
-  setsid opencode run --session "$session" "${options[@]}" -- "$message" \
-    > >(tee -a "$root/$session.log" 9>&-) 2>&1 9>&- & child=$!
+  # OpenCode duplicates positional arguments after --; stdin preserves the prompt.
+  setsid opencode run --session "$session" "${options[@]}" \
+    <<<"$message" > >(tee -a "$root/$session.log" 9>&-) 2>&1 9>&- & child=$!
   running=true
   status=0
   wait "$child" || status=$?
