@@ -243,7 +243,9 @@ describe('backend formula contract conformance', () => {
     const added = addDataModel(workbook, valid);
     expect(added.ok).toBe(true);
     if (!added.ok) return;
+    const beforeRejectedReplacement = structuredClone(added.value);
     expect(replaceDataModel(added.value, malformed, {})).toEqual({ ok: false, reason: 'invalid-formula' });
+    expect(added.value).toEqual(beforeRejectedReplacement);
   });
 
   it('defines six one-component ownership tamper variants from the captured nonempty bind bundle', () => {
