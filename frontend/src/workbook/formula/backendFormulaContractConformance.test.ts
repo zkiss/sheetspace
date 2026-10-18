@@ -109,7 +109,7 @@ describe('backend formula contract conformance', () => {
   });
 
   it('uses the shared corpus for unresolved canonical copy failures', () => {
-    const local = fixedSheet('00000000-0000-0000-0000-000000000001', 'Local');
+    const local = fixedSheet('00000000-0000-0000-0000-000000000001', 'Local', 3, 3);
     const resolver = workbookFormulaReferenceResolver(workbookWithSheets([local]), local.id);
     const source = { columnId: '00000000-0000-0000-0000-000000000201', rowId: '00000000-0000-0000-0000-000000000101' };
     const destination = { columnId: '00000000-0000-0000-0000-000000000202', rowId: '00000000-0000-0000-0000-000000000102' };
