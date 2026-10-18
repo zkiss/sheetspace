@@ -53,6 +53,47 @@ describe('data model mutations', () => {
     expect(addDataModel(source, { ...typed, id: 'invalid-unknown', properties: [{ id: 'unknown', name: 'Unknown', kind: 'manual', type: 'decimal' } as unknown as DataModel['properties'][number]] })).toEqual({ ok: false, reason: 'invalid-property-type' });
   });
 
+  it('keeps mismatched manual values when binding and changing only declarations', () => {
+    const manual: DataModel = {
+      id: 'manual-values', name: 'Manual values', properties: [
+        { id: 'integer', name: 'Integer', kind: 'manual', type: 'int' },
+        { id: 'decimal', name: 'Decimal', kind: 'manual', type: 'float' },
+        { id: 'flag', name: 'Flag', kind: 'manual', type: 'boolean' },
+      ],
+    };
+    const source = {
+      ...workbookWithSheets([sheetDocument({
+        id: 'manual', name: 'Manual', rowCount: 1, columnCount: 3,
+        cells: { A1: 'not an integer', B1: 'not a float', C1: 'not a boolean' },
+      })]),
+      dataModels: { [manual.id]: manual },
+    };
+    const bound = bindSheetToDataModel(source, 'manual', manual.id, []);
+
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+    const cellKeys = [
+      cellIdentityKey({ rowId: 'manual:row:1', columnId: 'manual:column:1' }),
+      cellIdentityKey({ rowId: 'manual:row:1', columnId: 'manual:column:2' }),
+      cellIdentityKey({ rowId: 'manual:row:1', columnId: 'manual:column:3' }),
+    ];
+    expect(cellKeys.map((key) => bound.value.documents.manual!.content.cells[key])).toEqual(['not an integer', 'not a float', 'not a boolean']);
+
+    const replaced = replaceDataModel(bound.value, {
+      ...manual,
+      properties: [
+        { ...manual.properties[0]!, type: 'boolean' },
+        { ...manual.properties[1]!, type: 'string' },
+        { ...manual.properties[2]!, type: 'int' },
+      ],
+    }, { manual: [] });
+
+    expect(replaced).toMatchObject({ ok: true });
+    if (!replaced.ok) return;
+    expect(cellKeys.map((key) => replaced.value.documents.manual!.content.cells[key])).toEqual(['not an integer', 'not a float', 'not a boolean']);
+    expect(replaced.value.dataModels!['manual-values']!.properties.map((property) => property.type)).toEqual(['boolean', 'string', 'int']);
+  });
+
   it('persists model-only additions without a sheet guard and retains an unbound sheet guard', () => {
     const source = workbookWithSheets([sheetDocument({ id: 'sales', name: 'Sales', rowCount: 1, columnCount: 1 })]);
     const added = applyWorkbookOperation(source, { kind: 'add-data-model', operationId: 'add-model', model });
