@@ -51,8 +51,10 @@ internal object FormulaReferenceContract {
         destinationSheetId: SheetId = sourceSheetId,
     ): String? {
         if (!isFormula(raw)) return null
-        val sourceContent = workbook.findSheet(sourceSheetId)?.tabularContent ?: return null
-        val destinationContent = workbook.findSheet(destinationSheetId)?.tabularContent ?: return null
+        val sourceSheet = workbook.findSheet(sourceSheetId) ?: return null
+        val destinationSheet = workbook.findSheet(destinationSheetId) ?: return null
+        val sourceContent = sourceSheet.tabularContent
+        val destinationContent = destinationSheet.tabularContent
         val sourceColumn = sourceContent.columns.indexOf(source.columnId)
         val sourceRow = sourceContent.rows.indexOf(source.rowId)
         val destinationColumn = destinationContent.columns.indexOf(destination.columnId)
@@ -60,13 +62,13 @@ internal object FormulaReferenceContract {
         if (sourceColumn < 0 || sourceRow < 0 || destinationColumn < 0 || destinationRow < 0) return null
         var unresolved = false
         val result = transform(raw, references(raw).filter { it.endpoints.first().canonical }) { reference ->
-            val originalSheet = if (reference.qualifier == null) workbook.findSheet(sourceSheetId)
+            val originalSheet = if (reference.qualifier == null) sourceSheet
             else workbook.findSheet(SheetId(reference.qualifier))
-            val resultSheet = if (reference.qualifier == null) workbook.findSheet(destinationSheetId) else originalSheet
-            if (originalSheet == null || resultSheet == null) { unresolved = true; return@transform emptyList() }
+            val resolvedOriginalSheet = originalSheet ?: run { unresolved = true; return@transform emptyList() }
+            val resultSheet = if (reference.qualifier == null) destinationSheet else resolvedOriginalSheet
             reference.endpoints.map { endpoint ->
-                val initialColumn = originalSheet.tabularContent.columns.indexOfFirst { it.value == endpoint.columnId }
-                val initialRow = originalSheet.tabularContent.rows.indexOfFirst { it.value == endpoint.rowId }
+                val initialColumn = resolvedOriginalSheet.tabularContent.columns.indexOfFirst { it.value == endpoint.columnId }
+                val initialRow = resolvedOriginalSheet.tabularContent.rows.indexOfFirst { it.value == endpoint.rowId }
                 val column = if (endpoint.columnAnchored) initialColumn else initialColumn + destinationColumn - sourceColumn
                 val row = if (endpoint.rowAnchored) initialRow else initialRow + destinationRow - sourceRow
                 val columnId = resultSheet.tabularContent.columns.getOrNull(column)?.value

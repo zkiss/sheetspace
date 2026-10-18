@@ -118,6 +118,49 @@ class FormulaReferenceContractTest {
         assertEquals("=@${targetSheet.value}!${target.columns[1].value}[${target.rows[1].value}]", copied)
     }
 
+    @Test fun `resolves qualified targets by identifier and rejects unavailable copy sheets`() {
+        val local = TabularContent(columnCount = 2, rowCount = 2)
+        val target = TabularContent(columnCount = 2, rowCount = 2)
+        val (workbook, sheet, targetSheet) = workbook(local, target)
+        val source = CellCoordinate(local.rows[0], local.columns[0])
+        val destination = CellCoordinate(local.rows[1], local.columns[1])
+
+        assertEquals(
+            "=@${targetSheet.value}!${target.columns[0].value}[${target.rows[0].value}]",
+            FormulaReferenceContract.canonicalize("=@${targetSheet.value}!A[1]", workbook, sheet),
+        )
+        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@missing-sheet!A[1]", workbook, sheet))
+        assertNull(
+            FormulaReferenceContract.copyCanonical(
+                "=@${targetSheet.value}!${target.columns[0].value}[${target.rows[0].value}]",
+                source, destination, workbook, sheet, sourceSheetId = SheetId("missing-source"),
+            ),
+        )
+        assertNull(
+            FormulaReferenceContract.copyCanonical(
+                "=@${targetSheet.value}!${target.columns[0].value}[${target.rows[0].value}]",
+                source, destination, workbook, sheet, destinationSheetId = SheetId("missing-destination"),
+            ),
+        )
+        assertNull(
+            FormulaReferenceContract.copyCanonical(
+                "=@missing-sheet!${target.columns[0].value}[${target.rows[0].value}]",
+                source, destination, workbook, sheet,
+            ),
+        )
+    }
+
+    @Test fun `rejects calculated ownership when its sheet is unavailable`() {
+        val (workbook) = workbook(TabularContent(cells = mapOf("A1" to "value")))
+        val model = DataModel(
+            "model-1",
+            "Metrics",
+            listOf(CalculatedDataModelProperty("property-1", "Derived", "=@A[1]")),
+        )
+
+        assertFalse(hasOnlyModelOwnedCalculatedContents(workbook, SheetId("missing-sheet"), model))
+    }
+
     private fun workbook(vararg contents: TabularContent): Triple<WorkbookState, SheetId, SheetId> {
         val ids = contents.indices.map { SheetId("sheet-$it") }
         val documents = contents.mapIndexed { index, content -> ids[index] to SheetDocument(ids[index], name = if (index == 1) "Other sheet" else "Local", content = content) }.toMap()
