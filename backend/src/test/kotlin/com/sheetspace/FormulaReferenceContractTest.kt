@@ -6,6 +6,7 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.put
@@ -280,6 +281,32 @@ class FormulaReferenceContractTest {
                 currentSheetId = threeColumnSheet,
             ),
         )
+
+        val transformLocal = fixedContent("sheet-0", columnCount = 3, rowCount = 3)
+        val transformOther = fixedContent("sheet-1", columnCount = 3, rowCount = 3)
+        val (transformWorkbook, transformSheet, transformOtherSheet) = workbook(transformLocal, transformOther)
+        val namedWorkbook = transformWorkbook.replaceSheet(transformWorkbook.findSheet(transformOtherSheet)!!.rename("O'Brien"))
+        val source = CellCoordinate(transformLocal.rows[0], transformLocal.columns[0])
+        val destination = CellCoordinate(transformLocal.rows[1], transformLocal.columns[1])
+        fixture.getValue("transforms").jsonArray.forEach { entry ->
+            val case = entry.jsonObject
+            val raw = case.getValue("raw").jsonPrimitive.content
+            val canonicalRaw = case["canonical"]?.jsonPrimitive?.contentOrNull
+            if (canonicalRaw != null) {
+                assertEquals(canonicalRaw, FormulaReferenceContract.canonicalize(raw, namedWorkbook, transformSheet), case.getValue("id").jsonPrimitive.content)
+            }
+            assertEquals(
+                case.getValue("copied").jsonPrimitive.content,
+                FormulaReferenceContract.copyCanonical(canonicalRaw ?: raw, source, destination, namedWorkbook, transformSheet),
+                case.getValue("id").jsonPrimitive.content,
+            )
+        }
+        fixture.getValue("copyFailures").jsonArray.forEach { raw ->
+            assertNull(
+                FormulaReferenceContract.copyCanonical(raw.jsonPrimitive.content, source, destination, namedWorkbook, transformSheet),
+                raw.jsonPrimitive.content,
+            )
+        }
     }
 
     @Test fun `accepts the exact bundle captured by the frontend mutation and transport path`() {
@@ -332,8 +359,8 @@ class FormulaReferenceContractTest {
         }
     }
 
-    private fun fixedContent(sheetId: String, columnCount: Int = 2): TabularContent = TabularContent(
-        rows = listOf(RowId("$sheetId:row:1"), RowId("$sheetId:row:2")),
+    private fun fixedContent(sheetId: String, columnCount: Int = 2, rowCount: Int = 2): TabularContent = TabularContent(
+        rows = (1..rowCount).map { RowId("$sheetId:row:$it") },
         columns = (1..columnCount).map { ColumnId("$sheetId:column:$it") },
         cellContents = emptyMap(),
     )

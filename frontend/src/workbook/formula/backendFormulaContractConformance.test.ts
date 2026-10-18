@@ -3,7 +3,7 @@ import { copyCanonicalFormula, formulaRawToCanonical, workbookFormulaReferenceRe
 import { parseFormula } from './syntax';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import cases from './formula-contract-cases.json';
-import { addDataModel, bindSheetToDataModel, replaceDataModel } from '../mutations/dataModel';
+import { addDataModel, bindSheetToDataModel, replaceDataModel, validateDataModel } from '../mutations/dataModel';
 import { appendRow } from '../mutations/operations';
 import { workbookApi } from '@infrastructure/persistence/workbookApi';
 
@@ -44,9 +44,42 @@ describe('backend formula contract conformance', () => {
     )).toEqual({ ok: true, raw: cases.storedCopyMultiple.copied });
   });
 
+  it('uses the shared corpus for anchors, ranges, qualifiers, literals, and recovered stored raws', () => {
+    const local = sheetDocument({ id: 'sheet-0', name: 'Local', columnCount: 3, rowCount: 3 });
+    const other = { ...sheetDocument({ id: 'sheet-1', name: "O'Brien", columnCount: 3, rowCount: 3 }), name: "O'Brien" };
+    const resolver = workbookFormulaReferenceResolver(workbookWithSheets([local, other]), local.id);
+    const source = { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' };
+    const destination = { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' };
+
+    for (const entry of cases.transforms) {
+      const raw = entry.canonical
+        ? formulaRawToCanonical(entry.raw, resolver)
+        : entry.raw;
+      if (entry.canonical) expect(raw, entry.id).toBe(entry.canonical);
+      expect(copyCanonicalFormula(raw, source, destination, resolver), entry.id)
+        .toEqual({ ok: true, raw: entry.copied });
+    }
+  });
+
+  it('uses the shared corpus for unresolved canonical copy failures', () => {
+    const local = sheetDocument({ id: 'sheet-0', name: 'Local', columnCount: 2, rowCount: 2 });
+    const resolver = workbookFormulaReferenceResolver(workbookWithSheets([local]), local.id);
+    const source = { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' };
+    const destination = { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' };
+    for (const raw of cases.copyFailures) {
+      expect(copyCanonicalFormula(raw, source, destination, resolver), raw)
+        .toEqual({ ok: false, reason: 'unresolved-coordinate' });
+    }
+  });
+
   it('asserts the shared fixture classifications with the authoritative parser', () => {
     for (const entry of cases.syntax) {
       expect(parseFormula(entry.raw).kind === 'formula', entry.raw).toBe(entry.accepted);
+      expect(validateDataModel({
+        id: 'formula-contract-model', name: 'Formula contract', properties: [
+          { id: 'formula-contract-property', name: 'Calculated', kind: 'calculated', formula: entry.raw },
+        ],
+      }), entry.raw).toEqual(entry.accepted ? undefined : { ok: false, reason: 'invalid-formula' });
     }
   });
 

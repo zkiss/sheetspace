@@ -20,7 +20,13 @@
     { "raw": "=@A[0]", "accepted": false },
     { "raw": "=@A[999999999999999999999999]", "accepted": false },
     { "raw": "=@A[2147483648]", "accepted": true },
-    { "raw": "=@FXSHRXY[1]", "accepted": true }
+    { "raw": "=@FXSHRXY[1]", "accepted": true },
+    { "raw": "=#PARSE!", "accepted": false },
+    { "raw": "=#REF!", "accepted": false },
+    { "raw": "=#NAME!", "accepted": false },
+    { "raw": "=#VALUE!", "accepted": false },
+    { "raw": "=#CYCLE!", "accepted": false },
+    { "raw": "=#N/A", "accepted": false }
   ],
   "canonical": {
     "raw": "=@'Other sheet' ! A[1] + @A[1]",
@@ -35,6 +41,42 @@
     "raw": "=#REF! + @sheet-0:column:1[sheet-0:row:1] + @sheet-0:column:2[sheet-0:row:1]",
     "copied": "=#REF! + @sheet-0:column:2[sheet-0:row:2] + @sheet-0:column:3[sheet-0:row:2]"
   },
+  "transforms": [
+    {
+      "id": "all-anchor-combinations",
+      "raw": "=@A[1]+@$A[1]+@A[$1]+@$A[$1]",
+      "canonical": "=@sheet-0:column:1[sheet-0:row:1]+@$sheet-0:column:1[sheet-0:row:1]+@sheet-0:column:1[$sheet-0:row:1]+@$sheet-0:column:1[$sheet-0:row:1]",
+      "copied": "=@sheet-0:column:2[sheet-0:row:2]+@$sheet-0:column:1[sheet-0:row:2]+@sheet-0:column:2[$sheet-0:row:1]+@$sheet-0:column:1[$sheet-0:row:1]"
+    },
+    {
+      "id": "reversed-range-preserves-endpoint-order",
+      "raw": "=@B[2]:A[1]",
+      "canonical": "=@sheet-0:column:2[sheet-0:row:2]:sheet-0:column:1[sheet-0:row:1]",
+      "copied": "=@sheet-0:column:3[sheet-0:row:3]:sheet-0:column:2[sheet-0:row:2]"
+    },
+    {
+      "id": "escaped-string-and-reference-spelling",
+      "raw": "=SUM( -2.5e+1, \"@A[1] and \"\"quotes\"\"\", @A[1])",
+      "canonical": "=SUM( -2.5e+1, \"@A[1] and \"\"quotes\"\"\", @sheet-0:column:1[sheet-0:row:1])",
+      "copied": "=SUM( -2.5e+1, \"@A[1] and \"\"quotes\"\"\", @sheet-0:column:2[sheet-0:row:2])"
+    },
+    {
+      "id": "escaped-quoted-and-uuid-qualified-targets",
+      "raw": "=@'O''Brien'!A[1]+@sheet-1!B[2]",
+      "canonical": "=@sheet-1!sheet-1:column:1[sheet-1:row:1]+@sheet-1!sheet-1:column:2[sheet-1:row:2]",
+      "copied": "=@sheet-1!sheet-1:column:2[sheet-1:row:2]+@sheet-1!sheet-1:column:3[sheet-1:row:3]"
+    },
+    {
+      "id": "generated-error-in-function-keeps-later-reference",
+      "raw": "=SUM(#REF!, @sheet-0:column:1[sheet-0:row:1])",
+      "copied": "=SUM(#REF!, @sheet-0:column:2[sheet-0:row:2])"
+    }
+  ],
+  "copyFailures": [
+    "=@missing-sheet[sheet-0:row:1]",
+    "=@sheet-0:column:1[missing-row]",
+    "=@sheet-0:column:3[sheet-0:row:2]"
+  ],
   "bundle": {
     "manifest": { "version": 1, "revision": 0, "sheetIds": ["00000000-0000-0000-0000-000000000001"] },
     "documents": [{
