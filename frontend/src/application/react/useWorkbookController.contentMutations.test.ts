@@ -111,6 +111,30 @@ describe('useWorkbookController content mutations', () => {
     expect(result.current.workbook.documents[sheet.id]!.content.cells['sheet-inputs:row:1\u0000sheet-inputs:column:1']).toBe('3');
   });
 
+  it('invalidates content history when a bound model property is renamed by ID', () => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 1, columnCount: 1 });
+    const model: DataModel = { id: 'model', name: 'Model', properties: [
+      { id: 'manual', name: 'Manual', kind: 'manual', type: 'string' },
+    ] };
+    const { result } = renderHook(() => useWorkbookController({
+      apiClient: autosaveClient(), initialWorkbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => {
+      result.current.commands.addDataModel(model);
+      result.current.commands.bindSheetToDataModel(sheet.id, model.id, []);
+      result.current.commands.writeCells([{ sheetId: sheet.id, rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1', raw: 'kept' }]);
+      result.current.commands.replaceDataModel({
+        ...model,
+        properties: [{ ...model.properties[0]!, name: 'Renamed manual' }],
+      }, {});
+      result.current.commands.undo();
+    });
+
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.workbook.documents[sheet.id]!.content.cells['sheet-inputs:row:1\u0000sheet-inputs:column:1']).toBe('kept');
+  });
+
   it('does not send a column append command for a model-bound sheet', () => {
     const sheet = {
       ...sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 1, columnCount: 1 }),

@@ -136,19 +136,63 @@ describe('data model mutations', () => {
     expect(bindSheetToDataModel({ ...source, dataModels: { forecast: { ...model, properties: [model.properties[0]!, { id: 'other', name: 'Amount', kind: 'manual', type: 'string' }] } } }, 'sales', 'forecast', ['new'])).toEqual({ ok: false, reason: 'duplicate-property-name' });
   });
 
-  it('gives a name-only rename a fresh column without retaining manual values', () => {
+  it('retains a renamed property column and manual values by stable property ID', () => {
     const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
     const result = replaceDataModel(bound.value, {
       ...model,
       properties: [model.properties[1]!, { id: 'amount', name: 'Revised amount', kind: 'manual', type: 'string' }],
-    }, { sales: ['sales:column:3'] });
+    }, { sales: [] });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.documents.sales.content.columns).toEqual(['sales:column:2', 'sales:column:3']);
-    expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:3' })]).toBeUndefined();
+    expect(result.value.documents.sales.content.columns).toEqual(['sales:column:2', 'sales:column:1']);
+    expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: 'sales:column:1' })]).toBe('3');
+  });
+
+  it('retains IDs, presentation, and calculated references across a rename and reorder on every bound sheet', () => {
+    const source = {
+      ...workbookWithSheets([
+        sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 1, cells: { A1: '3' } }),
+        sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 1, cells: { A1: '4' } }),
+      ]),
+      dataModels: { forecast: model },
+    };
+    const first = bindSheetToDataModel(source, 'first', 'forecast', ['first:column:2']);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const bound = bindSheetToDataModel(first.value, 'second', 'forecast', ['second:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+    const withPresentation = {
+      ...bound.value,
+      documents: {
+        ...bound.value.documents,
+        first: {
+          ...bound.value.documents.first!,
+          presentation: { ...bound.value.documents.first!.presentation, columnWidths: { 'first:column:1': 160 } },
+        },
+      },
+    };
+
+    const replaced = replaceDataModel(withPresentation, {
+      ...model,
+      properties: [
+        { id: 'double', name: 'Renamed double', kind: 'calculated', type: 'float', formula: '=@B[1]*2' },
+        { ...model.properties[0]!, name: 'Renamed amount' },
+      ],
+    }, { first: [], second: [] });
+
+    expect(replaced.ok).toBe(true);
+    if (!replaced.ok) return;
+    expect(replaced.value.documents.first!.content.columns).toEqual(['first:column:2', 'first:column:1']);
+    expect(replaced.value.documents.second!.content.columns).toEqual(['second:column:2', 'second:column:1']);
+    expect(replaced.value.documents.first!.presentation.columnWidths['first:column:1']).toBe(160);
+    expect(replaced.value.documents.first!.content.cells[cellIdentityKey({ rowId: 'first:row:1', columnId: 'first:column:1' })]).toBe('3');
+    expect(replaced.value.documents.second!.content.cells[cellIdentityKey({ rowId: 'second:row:1', columnId: 'second:column:1' })]).toBe('4');
+    expect(materializedDataModelCells(replaced.value, 'first')[cellIdentityKey({ rowId: 'first:row:1', columnId: 'first:column:2' })]).toBe('6');
+    expect(materializedDataModelCells(replaced.value, 'second')[cellIdentityKey({ rowId: 'second:row:1', columnId: 'second:column:2' })]).toBe('8');
   });
 
   it('gives a reintroduced property name a fresh column without its removed contents', () => {
@@ -328,7 +372,7 @@ describe('data model mutations', () => {
     expect(materializedDataModelCells(input.value.nextWorkbook, 'sales')[cellIdentityKey({ rowId: 'sales:row:3', columnId: calculatedColumn })]).toBe('18');
   });
 
-  it('retains same-named properties across reorder even when their declaration IDs change', () => {
+  it('treats same-named properties with fresh IDs as replacements', () => {
     const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
@@ -354,13 +398,31 @@ describe('data model mutations', () => {
         { id: 'replacement-double', name: 'Double', kind: 'calculated', type: 'float', formula: '=@A[1]*2' },
         { id: 'replacement-amount', name: 'Amount', kind: 'manual', type: 'string' },
       ],
-    }, { sales: [] });
+    }, { sales: ['sales:column:3', 'sales:column:4'] });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.documents.sales.content.columns).toEqual(['sales:column:2', amountColumn]);
-    expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: amountColumn })]).toBe('3');
-    expect(result.value.documents.sales.presentation.columnWidths[amountColumn]).toBe(160);
+    expect(result.value.documents.sales.content.columns).toEqual(['sales:column:3', 'sales:column:4']);
+    expect(result.value.documents.sales.content.cells[cellIdentityKey({ rowId: 'sales:row:1', columnId: amountColumn })]).toBeUndefined();
+    expect(result.value.documents.sales.presentation.columnWidths[amountColumn]).toBeUndefined();
+  });
+
+  it('rejects missing and duplicate property IDs before changing a bound workbook', () => {
+    const bound = bindSheetToDataModel(workbook(), 'sales', 'forecast', ['sales:column:2']);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+    const duplicate = {
+      ...model,
+      properties: [model.properties[0]!, { ...model.properties[1]!, id: 'amount' }],
+    };
+    const missing = {
+      ...model,
+      properties: [{ ...model.properties[0]!, id: ' ' }, model.properties[1]!],
+    };
+
+    expect(replaceDataModel(bound.value, duplicate, { sales: [] })).toEqual({ ok: false, reason: 'duplicate-property-id' });
+    expect(replaceDataModel(bound.value, missing, { sales: [] })).toEqual({ ok: false, reason: 'invalid-property-id' });
+    expect(bound.value.documents.sales!.content.columns).toEqual(['sales:column:1', 'sales:column:2']);
   });
 
   it('reconciles every bound sheet atomically when replacement column IDs are invalid', () => {
