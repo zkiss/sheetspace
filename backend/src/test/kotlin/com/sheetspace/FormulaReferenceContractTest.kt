@@ -13,6 +13,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -252,6 +253,28 @@ class FormulaReferenceContractTest {
                 "calculated template admission: ${case.getValue("raw").jsonPrimitive.content}",
             )
         }
+        val admissionBundle = Json.decodeFromJsonElement<WorkbookBundleResponse>(fixture.getValue("bundle"))
+        fixture.getValue("syntax").jsonArray.forEach { entry ->
+            val case = entry.jsonObject
+            val formula = case.getValue("raw").jsonPrimitive.content
+            val models = admissionBundle.dataModels.map { model -> model.copy(properties = model.properties.map { property ->
+                if (property.kind == "calculated") property.copy(formula = formula) else property
+            }) }
+            val unbound = admissionBundle.copy(dataModels = models, documents = admissionBundle.documents.map { it.copy(dataModelId = null) })
+            val zeroRowBound = admissionBundle.copy(
+                dataModels = models,
+                documents = admissionBundle.documents.map { document ->
+                    document.copy(content = document.content.copy(rows = emptyList(), cells = emptyList()))
+                },
+            )
+            if (case.getValue("accepted").jsonPrimitive.boolean) {
+                dataModelState(unbound)
+                dataModelState(zeroRowBound)
+            } else {
+                assertFailsWith<WorkbookApplicationException>("unbound calculated template admission: $formula") { dataModelState(unbound) }
+                assertFailsWith<WorkbookApplicationException>("zero-row calculated template admission: $formula") { dataModelState(zeroRowBound) }
+            }
+        }
         val canonical = fixture.getValue("canonical").jsonObject
         val local = fixedContent("00000000-0000-0000-0000-000000000001")
         val other = fixedContent("00000000-0000-0000-0000-000000000002")
@@ -308,8 +331,14 @@ class FormulaReferenceContractTest {
         }
         fixture.getValue("copyFailures").jsonArray.forEach { entry ->
             val case = entry.jsonObject
+            val failureSource = case["source"]?.jsonObject?.let {
+                CellCoordinate(RowId(it.getValue("rowId").jsonPrimitive.content), ColumnId(it.getValue("columnId").jsonPrimitive.content))
+            } ?: source
+            val failureDestination = case["destination"]?.jsonObject?.let {
+                CellCoordinate(RowId(it.getValue("rowId").jsonPrimitive.content), ColumnId(it.getValue("columnId").jsonPrimitive.content))
+            } ?: destination
             assertNull(
-                FormulaReferenceContract.copyCanonical(case.getValue("raw").jsonPrimitive.content, source, destination, namedWorkbook, transformSheet),
+                FormulaReferenceContract.copyCanonical(case.getValue("raw").jsonPrimitive.content, failureSource, failureDestination, namedWorkbook, transformSheet),
                 case.getValue("id").jsonPrimitive.content,
             )
         }

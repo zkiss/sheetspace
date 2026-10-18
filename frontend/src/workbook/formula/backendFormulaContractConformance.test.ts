@@ -69,7 +69,7 @@ describe('backend formula contract conformance', () => {
     const source = { columnId: '00000000-0000-0000-0000-000000000001:column:1', rowId: '00000000-0000-0000-0000-000000000001:row:1' };
     const destination = { columnId: '00000000-0000-0000-0000-000000000001:column:2', rowId: '00000000-0000-0000-0000-000000000001:row:2' };
     for (const entry of cases.copyFailures) {
-      expect(copyCanonicalFormula(entry.raw, source, destination, resolver), entry.id)
+      expect(copyCanonicalFormula(entry.raw, entry.source ?? source, entry.destination ?? destination, resolver), entry.id)
         .toEqual({ ok: false, reason: 'unresolved-coordinate' });
     }
   });
