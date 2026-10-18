@@ -259,13 +259,14 @@ describe('backend formula contract conformance', () => {
     const targetThirdRowId = '00000000-0000-0000-0000-000000000113';
     const anchoredRaw = `=@$${inputColumnId}[$${rowId}]+1`;
     const qualifiedRaw = `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])+1`;
+    const canonical = (columnId: string, rowId: string, column = false, row = false) => ({ kind: 'canonical' as const, coordinate: { columnId, rowId }, anchors: { column, row } });
     const expectations = [
-      ['qualifier', anchoredColumnId, anchoredRaw, `=@${localId}!$${inputColumnId}[$${rowId}]+1`],
-      ['stable-identity', anchoredColumnId, anchoredRaw, `=@$${qualifiedColumnId}[$${rowId}]+1`],
-      ['anchor', anchoredColumnId, anchoredRaw, `=@${inputColumnId}[$${rowId}]+1`],
-      ['range-endpoint', qualifiedColumnId, qualifiedRaw, `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetThirdRowId}])+1`],
-      ['operator', qualifiedColumnId, qualifiedRaw, `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])-1`],
-      ['literal', qualifiedColumnId, qualifiedRaw, `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])+2`],
+      { id: 'ownership-tamper-qualifier', component: 'qualifier', columnId: anchoredColumnId, originalRaw: anchoredRaw, changedRaw: `=@${localId}!$${inputColumnId}[$${rowId}]+1`, reference: { kind: 'cell', qualifier: { kind: 'explicit', sheetId: localId }, endpoints: [canonical(inputColumnId, rowId, true, true)] } },
+      { id: 'ownership-tamper-stable-identity', component: 'stable-identity', columnId: anchoredColumnId, originalRaw: anchoredRaw, changedRaw: `=@$${qualifiedColumnId}[$${rowId}]+1`, reference: { kind: 'cell', qualifier: { kind: 'unqualified' }, endpoints: [canonical(qualifiedColumnId, rowId, true, true)] } },
+      { id: 'ownership-tamper-anchor', component: 'anchor', columnId: anchoredColumnId, originalRaw: anchoredRaw, changedRaw: `=@${inputColumnId}[$${rowId}]+1`, reference: { kind: 'cell', qualifier: { kind: 'unqualified' }, endpoints: [canonical(inputColumnId, rowId, false, true)] } },
+      { id: 'ownership-tamper-range-endpoint', component: 'range-endpoint', columnId: qualifiedColumnId, originalRaw: qualifiedRaw, changedRaw: `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetThirdRowId}])+1`, reference: { kind: 'range', qualifier: { kind: 'explicit', sheetId: targetId }, endpoints: [canonical(targetColumnId, targetFirstRowId), canonical(targetColumnId, targetThirdRowId)] } },
+      { id: 'ownership-tamper-operator', component: 'operator', columnId: qualifiedColumnId, originalRaw: qualifiedRaw, changedRaw: `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])-1`, reference: { kind: 'range', qualifier: { kind: 'explicit', sheetId: targetId }, endpoints: [canonical(targetColumnId, targetFirstRowId), canonical(targetColumnId, targetSecondRowId)] } },
+      { id: 'ownership-tamper-literal', component: 'literal', columnId: qualifiedColumnId, originalRaw: qualifiedRaw, changedRaw: `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])+2`, reference: { kind: 'range', qualifier: { kind: 'explicit', sheetId: targetId }, endpoints: [canonical(targetColumnId, targetFirstRowId), canonical(targetColumnId, targetSecondRowId)] } },
     ] as const;
     const baseline = cases.mutationStages['bind-nonempty'];
     const resolver = workbookFormulaReferenceResolver(workbookWithSheets([
@@ -273,11 +274,16 @@ describe('backend formula contract conformance', () => {
     ]), localId);
 
     expect(cases.ownershipTampers).toHaveLength(expectations.length);
+    expect(new Set(expectations.map(({ id }) => id)).size).toBe(expectations.length);
+    expect(new Set(expectations.map(({ component }) => component)).size).toBe(expectations.length);
+    expect(new Set(cases.ownershipTampers.map(({ id }) => id))).toEqual(new Set(expectations.map(({ id }) => id)));
+    expect(new Set(cases.ownershipTampers.map(({ component }) => component))).toEqual(new Set(expectations.map(({ component }) => component)));
     for (const tamper of cases.ownershipTampers) {
-      const expectation = expectations.find(([component]) => component === tamper.component);
+      const expectation = expectations.find(({ id }) => id === tamper.id);
       expect(expectation, tamper.id).toBeDefined();
       if (!expectation) continue;
-      const [, columnId, originalRaw, changedRaw] = expectation;
+      const { component, columnId, originalRaw, changedRaw, reference } = expectation;
+      expect(tamper.component, tamper.id).toBe(component);
       const expected = structuredClone(baseline);
       const expectedCell = expected.documents[0]!.content.cells.find((cell) => cell.rowId === rowId && cell.columnId === columnId);
       expect(expectedCell, tamper.id).toBeDefined();
@@ -286,7 +292,15 @@ describe('backend formula contract conformance', () => {
       expectedCell.content = changedRaw;
       expect(tamper.bundle, tamper.id).toEqual(expected);
       expect(parseFormula(changedRaw).kind, tamper.id).toBe('formula');
-      for (const token of formulaReferenceTokens(changedRaw)) {
+      const references = formulaReferenceTokens(changedRaw);
+      expect(references.map((token) => ({
+        kind: token.kind,
+        qualifier: token.qualifier.kind === 'explicit' ? { kind: 'explicit', sheetId: token.qualifier.sheetId } : { kind: token.qualifier.kind },
+        endpoints: token.endpoints.map((endpoint) => endpoint && (endpoint.kind === 'canonical'
+          ? canonical(endpoint.coordinate.columnId, endpoint.coordinate.rowId, endpoint.anchors.column, endpoint.anchors.row)
+          : { kind: 'a1', address: endpoint.address, anchors: endpoint.anchors })),
+      })), tamper.id).toEqual([reference]);
+      for (const token of references) {
         for (const endpoint of token.endpoints) {
           if (!endpoint || endpoint.kind !== 'canonical') continue;
           const sheetId = token.qualifier.kind === 'explicit' ? token.qualifier.sheetId : localId;
