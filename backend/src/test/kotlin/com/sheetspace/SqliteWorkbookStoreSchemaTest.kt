@@ -82,6 +82,44 @@ class SqliteWorkbookStoreSchemaTest {
     }
 
     @Test
+    fun `persists every declared type for manual and calculated bound and unbound models`() = withSqliteStore { store ->
+        val boundModelId = "00000000-0000-0000-0000-000000000111"
+        val unboundModelId = "00000000-0000-0000-0000-000000000112"
+        val properties = DataModelPropertyType.entries.flatMapIndexed { index, type -> listOf(
+            ManualDataModelProperty("00000000-0000-0000-0000-0000000002${index}1", "Manual $type", type),
+            CalculatedDataModelProperty("00000000-0000-0000-0000-0000000002${index}2", "Calculated $type", "=1/0", type),
+        ) }
+        val zeroRowBoundSheet = testDocument(TEST_SHEET_1, "Empty").copy(dataModelId = boundModelId)
+        val expected = testWorkbookOf(zeroRowBoundSheet).copy(dataModels = mapOf(
+            boundModelId to DataModel(boundModelId, "Bound", properties),
+            unboundModelId to DataModel(unboundModelId, "Unbound", properties),
+        ))
+
+        store.saveWorkbook(expected)
+
+        assertEquals(expected, store.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `persists a bound model type-only replacement without changing property identity`() = withSqliteStore { store ->
+        val modelId = "00000000-0000-0000-0000-000000000121"
+        val propertyId = "00000000-0000-0000-0000-000000000122"
+        val sheet = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val initialModel = DataModel(modelId, "Inputs", listOf(
+            CalculatedDataModelProperty(propertyId, "Result", "=1/0", DataModelPropertyType.INT),
+        ))
+        store.saveWorkbook(testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to initialModel)))
+        val replacement = initialModel.copy(properties = listOf(
+            CalculatedDataModelProperty(propertyId, "Result", "=1/0", DataModelPropertyType.BOOLEAN),
+        ))
+
+        val updated = store.updateWorkbook { it.copy(dataModels = mapOf(modelId to replacement)) }
+
+        assertEquals(replacement, updated.dataModels.getValue(modelId))
+        assertEquals(updated, store.loadWorkbookBundle())
+    }
+
+    @Test
     fun `aggregate updates replace model properties and restore every sheet binding`() = withSqliteStore { store ->
         val modelId = "00000000-0000-0000-0000-000000000101"
         val inputs = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
