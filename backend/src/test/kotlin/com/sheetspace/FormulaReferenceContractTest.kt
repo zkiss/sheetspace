@@ -144,6 +144,23 @@ class FormulaReferenceContractTest {
         )
     }
 
+    @Test fun `recovers every canonical reference after generated error text`() {
+        val content = TabularContent(columnCount = 3, rowCount = 2)
+        val source = CellCoordinate(content.rows[0], content.columns[0])
+        val destination = CellCoordinate(content.rows[1], content.columns[1])
+        val (workbook, sheet) = workbook(content)
+        val firstRow = content.rows[0].value
+        val secondRow = content.rows[1].value
+
+        assertEquals(
+            "=#REF! + @${content.columns[1].value}[$secondRow] + @${content.columns[2].value}[$secondRow]",
+            FormulaReferenceContract.copyCanonical(
+                "=#REF! + @${content.columns[0].value}[$firstRow] + @${content.columns[1].value}[$firstRow]",
+                source, destination, workbook, sheet,
+            ),
+        )
+    }
+
     @Test fun `rejects mixed endpoint ranges and preserves explicit sheet during copy`() {
         val local = TabularContent(columnCount = 2, rowCount = 2)
         val target = TabularContent(columnCount = 2, rowCount = 2)
@@ -243,6 +260,19 @@ class FormulaReferenceContractTest {
                 currentSheetId = sheet,
             ),
         )
+        val storedCopyMultiple = fixture.getValue("storedCopyMultiple").jsonObject
+        val threeColumnLocal = fixedContent("sheet-0", columnCount = 3)
+        val (threeColumnWorkbook, threeColumnSheet) = workbook(threeColumnLocal, other)
+        assertEquals(
+            storedCopyMultiple.getValue("copied").jsonPrimitive.content,
+            FormulaReferenceContract.copyCanonical(
+                raw = storedCopyMultiple.getValue("raw").jsonPrimitive.content,
+                source = CellCoordinate(threeColumnLocal.rows[0], threeColumnLocal.columns[0]),
+                destination = CellCoordinate(threeColumnLocal.rows[1], threeColumnLocal.columns[1]),
+                workbook = threeColumnWorkbook,
+                currentSheetId = threeColumnSheet,
+            ),
+        )
     }
 
     @Test fun `accepts the exact bundle captured by the frontend mutation and transport path`() {
@@ -295,9 +325,9 @@ class FormulaReferenceContractTest {
         }
     }
 
-    private fun fixedContent(sheetId: String): TabularContent = TabularContent(
+    private fun fixedContent(sheetId: String, columnCount: Int = 2): TabularContent = TabularContent(
         rows = listOf(RowId("$sheetId:row:1"), RowId("$sheetId:row:2")),
-        columns = listOf(ColumnId("$sheetId:column:1"), ColumnId("$sheetId:column:2")),
+        columns = (1..columnCount).map { ColumnId("$sheetId:column:$it") },
         cellContents = emptyMap(),
     )
 

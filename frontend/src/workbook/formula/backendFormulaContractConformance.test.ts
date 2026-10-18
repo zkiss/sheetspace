@@ -33,6 +33,15 @@ describe('backend formula contract conformance', () => {
       { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' },
       resolver,
     )).toEqual({ ok: true, raw: cases.storedCopy.copied });
+
+    const threeColumnLocal = sheetDocument({ id: 'sheet-0', name: 'Local', columnCount: 3, rowCount: 2 });
+    const threeColumnResolver = workbookFormulaReferenceResolver(workbookWithSheets([threeColumnLocal, other]), threeColumnLocal.id);
+    expect(copyCanonicalFormula(
+      cases.storedCopyMultiple.raw,
+      { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' },
+      { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' },
+      threeColumnResolver,
+    )).toEqual({ ok: true, raw: cases.storedCopyMultiple.copied });
   });
 
   it('asserts the shared fixture classifications with the authoritative parser', () => {

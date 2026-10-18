@@ -129,7 +129,9 @@ internal object FormulaReferenceContract {
                     '@' -> if (!inString) {
                         val nested = Parser("=" + input.substring(cursor))
                         if (nested.reference()) {
-                            recovered += nested.found.single().offsetBy(cursor)
+                            // A valid suffix may contain several references. Recovery scans
+                            // one lexeme per cursor, leaving later lexemes to later cursors.
+                            recovered += nested.found.first().offsetBy(cursor)
                         }
                     }
                 }

@@ -10,7 +10,15 @@
     { "raw": "=FALSE()", "accepted": false },
     { "raw": "=SUM(1,)", "accepted": false },
     { "raw": "=1+", "accepted": false },
-    { "raw": "=\"a \"\"quoted\"\" @A[1]\"", "accepted": true }
+    { "raw": "=\"a \"\"quoted\"\" @A[1]\"", "accepted": true },
+    { "raw": "=UnknownFunction(@A[1])", "accepted": true },
+    { "raw": "=@sheet-1!A[1]", "accepted": true },
+    { "raw": "=@#REF!A[1]", "accepted": true },
+    { "raw": "=@'O''Brien'!$B[2]:A[$1]", "accepted": true },
+    { "raw": "=@B[2]:A[1]", "accepted": true },
+    { "raw": "=@sheet-0:column:2[sheet-0:row:2]:sheet-0:column:1[sheet-0:row:1]", "accepted": true },
+    { "raw": "=@A[0]", "accepted": false },
+    { "raw": "=@A[999999999999999999999999]", "accepted": false }
   ],
   "canonical": {
     "raw": "=@'Other sheet' ! A[1] + @A[1]",
@@ -20,6 +28,10 @@
   "storedCopy": {
     "raw": "=#REF! + @sheet-0:column:1[sheet-0:row:1]:$sheet-0:column:1[$sheet-0:row:1]",
     "copied": "=#REF! + @sheet-0:column:2[sheet-0:row:2]:$sheet-0:column:1[$sheet-0:row:1]"
+  },
+  "storedCopyMultiple": {
+    "raw": "=#REF! + @sheet-0:column:1[sheet-0:row:1] + @sheet-0:column:2[sheet-0:row:1]",
+    "copied": "=#REF! + @sheet-0:column:2[sheet-0:row:2] + @sheet-0:column:3[sheet-0:row:2]"
   },
   "bundle": {
     "manifest": { "version": 1, "revision": 0, "sheetIds": ["00000000-0000-0000-0000-000000000001"] },
