@@ -315,7 +315,8 @@ class DefaultWorkbookApplication(
     }
 }
 
-private fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
+/** Decodes the same client bundle accepted by the data-model-state transport endpoint. */
+internal fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
     if (bundle.manifest.version != WORKBOOK_SCHEMA_VERSION || bundle.manifest.sheetIds.distinct().size != bundle.manifest.sheetIds.size) {
         throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
     }

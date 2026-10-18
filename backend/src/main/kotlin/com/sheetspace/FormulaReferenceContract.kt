@@ -107,7 +107,42 @@ internal object FormulaReferenceContract {
         private val found = mutableListOf<Reference>()
 
         fun valid(): Boolean { skip(); if (!expression()) return false; skip(); return index == input.length }
-        fun references(): List<Reference> { valid(); return found.toList() }
+        /**
+         * Reference transforms deliberately recover lexemes even when the surrounding expression
+         * is no longer an authored formula. Storage can contain a generated #REF!, and the client
+         * still rebases canonical references following that error when a row is copied.
+         */
+        fun references(): List<Reference> {
+            if (valid()) return found.toList()
+            return recoveredReferences()
+        }
+
+        private fun recoveredReferences(): List<Reference> {
+            val recovered = mutableListOf<Reference>()
+            var cursor = 0
+            var inString = false
+            while (cursor < input.length) {
+                when (input[cursor]) {
+                    '"' -> {
+                        if (inString && input.getOrNull(cursor + 1) == '"') cursor++ else inString = !inString
+                    }
+                    '@' -> if (!inString) {
+                        val nested = Parser("=" + input.substring(cursor))
+                        if (nested.reference()) {
+                            recovered += nested.found.single().offsetBy(cursor)
+                        }
+                    }
+                }
+                cursor++
+            }
+            return recovered
+        }
+
+        private fun Reference.offsetBy(offset: Int): Reference = copy(
+            qualifierSpan = qualifierSpan?.let { (it.first + offset)..(it.last + offset) },
+            endpoints = endpoints.map { endpoint -> endpoint.copy(span = (endpoint.span.first + offset)..(endpoint.span.last + offset)) },
+            span = (span.first + offset)..(span.last + offset),
+        )
         private fun expression(): Boolean = comparison()
         private fun comparison(): Boolean { if (!additive()) return false; skip(); if (operator(listOf("<>", "<=", ">=", "=", "<", ">"))) return additive(); return true }
         private fun additive(): Boolean { if (!multiplicative()) return false; while (true) { skip(); if (!operator(listOf("+", "-"))) return true; if (!multiplicative()) return false } }

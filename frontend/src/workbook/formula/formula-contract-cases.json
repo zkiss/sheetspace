@@ -4,11 +4,47 @@
     { "raw": "=TRUE()", "accepted": false },
     { "raw": "=#DIV/0!", "accepted": false },
     { "raw": "=@A[1]:sheet-1:column:1[sheet-1:row:1]", "accepted": false },
-    { "raw": "=@''!A[1]", "accepted": false }
+    { "raw": "=@''!A[1]", "accepted": false },
+    { "raw": "=SUM(@A[1]:$B[$2], \"@C[3]\")", "accepted": true },
+    { "raw": "=@'Other sheet' ! A[1]", "accepted": true },
+    { "raw": "=FALSE()", "accepted": false },
+    { "raw": "=SUM(1,)", "accepted": false },
+    { "raw": "=1+", "accepted": false },
+    { "raw": "=\"a \"\"quoted\"\" @A[1]\"", "accepted": true }
   ],
   "canonical": {
     "raw": "=@'Other sheet' ! A[1] + @A[1]",
     "output": "=@sheet-1 ! sheet-1:column:1[sheet-1:row:1] + @sheet-0:column:1[sheet-0:row:1]",
     "copied": "=@sheet-1 ! sheet-1:column:2[sheet-1:row:2] + @sheet-0:column:2[sheet-0:row:2]"
+  },
+  "storedCopy": {
+    "raw": "=#REF! + @sheet-0:column:1[sheet-0:row:1]:$sheet-0:column:1[$sheet-0:row:1]",
+    "copied": "=#REF! + @sheet-0:column:2[sheet-0:row:2]:$sheet-0:column:1[$sheet-0:row:1]"
+  },
+  "bundle": {
+    "manifest": { "version": 1, "revision": 0, "sheetIds": ["00000000-0000-0000-0000-000000000001"] },
+    "documents": [{
+      "id": "00000000-0000-0000-0000-000000000001", "revision": 0, "name": "Local",
+      "frame": { "position": { "x": 0, "y": 0 }, "size": { "width": 240, "height": 160 }, "visualScale": 1, "zIndex": 1 },
+      "presentation": { "rowHeights": {}, "columnWidths": {} },
+      "content": {
+        "kind": "tabular",
+        "rows": ["00000000-0000-0000-0000-000000000101", "00000000-0000-0000-0000-000000000102", "00000000-0000-0000-0000-000000000103"],
+        "columns": ["00000000-0000-0000-0000-000000000201", "00000000-0000-0000-0000-000000000202"],
+        "cells": [
+          { "rowId": "00000000-0000-0000-0000-000000000101", "columnId": "00000000-0000-0000-0000-000000000202", "content": "=@00000000-0000-0000-0000-000000000201[00000000-0000-0000-0000-000000000101]+1" },
+          { "rowId": "00000000-0000-0000-0000-000000000102", "columnId": "00000000-0000-0000-0000-000000000202", "content": "=@00000000-0000-0000-0000-000000000201[00000000-0000-0000-0000-000000000102]+1" },
+          { "rowId": "00000000-0000-0000-0000-000000000103", "columnId": "00000000-0000-0000-0000-000000000202", "content": "=@00000000-0000-0000-0000-000000000201[00000000-0000-0000-0000-000000000103]+1" }
+        ]
+      },
+      "dataModelId": "00000000-0000-0000-0000-000000000301"
+    }],
+    "dataModels": [{
+      "id": "00000000-0000-0000-0000-000000000301", "name": "Metrics",
+      "properties": [
+        { "id": "00000000-0000-0000-0000-000000000401", "name": "Input", "kind": "manual" },
+        { "id": "00000000-0000-0000-0000-000000000402", "name": "Derived", "kind": "calculated", "formula": "=@A[1]+1" }
+      ]
+    }]
   }
 }

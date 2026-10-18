@@ -2,9 +2,13 @@ package com.sheetspace
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -118,6 +122,28 @@ class FormulaReferenceContractTest {
         assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", source, CellCoordinate(RowId("gone"), content.columns[1]), workbook, sheet))
     }
 
+    @Test fun `copies canonical references after generated error text while leaving the error intact`() {
+        val content = TabularContent(columnCount = 2, rowCount = 2)
+        val source = CellCoordinate(content.rows[0], content.columns[0])
+        val destination = CellCoordinate(content.rows[1], content.columns[1])
+        val (workbook, sheet) = workbook(content)
+        val firstColumn = content.columns[0].value
+        val firstRow = content.rows[0].value
+        val secondColumn = content.columns[1].value
+        val secondRow = content.rows[1].value
+
+        assertEquals(
+            "=#REF! + @$secondColumn[$secondRow]:\$$firstColumn[\$$firstRow]",
+            FormulaReferenceContract.copyCanonical(
+                "=#REF! + @$firstColumn[$firstRow]:\$$firstColumn[\$$firstRow]",
+                source,
+                destination,
+                workbook,
+                sheet,
+            ),
+        )
+    }
+
     @Test fun `rejects mixed endpoint ranges and preserves explicit sheet during copy`() {
         val local = TabularContent(columnCount = 2, rowCount = 2)
         val target = TabularContent(columnCount = 2, rowCount = 2)
@@ -206,6 +232,67 @@ class FormulaReferenceContractTest {
             canonical.getValue("copied").jsonPrimitive.content,
             FormulaReferenceContract.copyCanonical(raw = canonical.getValue("output").jsonPrimitive.content, source = CellCoordinate(local.rows[0], local.columns[0]), destination = CellCoordinate(local.rows[1], local.columns[1]), workbook = workbook, currentSheetId = sheet),
         )
+        val storedCopy = fixture.getValue("storedCopy").jsonObject
+        assertEquals(
+            storedCopy.getValue("copied").jsonPrimitive.content,
+            FormulaReferenceContract.copyCanonical(
+                raw = storedCopy.getValue("raw").jsonPrimitive.content,
+                source = CellCoordinate(local.rows[0], local.columns[0]),
+                destination = CellCoordinate(local.rows[1], local.columns[1]),
+                workbook = workbook,
+                currentSheetId = sheet,
+            ),
+        )
+    }
+
+    @Test fun `accepts the exact bundle captured by the frontend mutation and transport path`() {
+        val fixture = Json.parseToJsonElement(
+            requireNotNull(javaClass.classLoader.getResource("formula-contract-cases.json")).readText(),
+        ).jsonObject
+        val bundle = Json.decodeFromJsonElement<WorkbookBundleResponse>(fixture.getValue("bundle"))
+
+        val state = dataModelState(bundle)
+
+        val sheet = state.findSheet(SheetId("00000000-0000-0000-0000-000000000001"))!!
+        assertEquals(
+            "=@00000000-0000-0000-0000-000000000201[00000000-0000-0000-0000-000000000103]+1",
+            sheet.tabularContent.cellContents[CellCoordinate(
+                RowId("00000000-0000-0000-0000-000000000103"),
+                ColumnId("00000000-0000-0000-0000-000000000202"),
+            )],
+        )
+    }
+
+    @Test fun `rejects an ownership-forged variation of the frontend transport bundle`() {
+        val fixture = Json.parseToJsonElement(
+            requireNotNull(javaClass.classLoader.getResource("formula-contract-cases.json")).readText(),
+        ).jsonObject
+        val original = fixture.getValue("bundle").jsonObject
+        val document = original.getValue("documents").jsonArray.single().jsonObject
+        val content = document.getValue("content").jsonObject
+        val forgedCells = content.getValue("cells").jsonArray.mapIndexed { index, entry ->
+            if (index != 2) entry else buildJsonObject {
+                entry.jsonObject.forEach { (key, value) -> put(key, value) }
+                put("content", "=@00000000-0000-0000-0000-000000000202[00000000-0000-0000-0000-000000000103]+1")
+            }
+        }
+        val forgedBundle = buildJsonObject {
+            original.forEach { (key, value) ->
+                put(key, if (key == "documents") buildJsonArray {
+                    add(buildJsonObject {
+                        document.forEach { (documentKey, documentValue) ->
+                            put(documentKey, if (documentKey == "content") buildJsonObject {
+                                content.forEach { (contentKey, contentValue) -> put(contentKey, if (contentKey == "cells") buildJsonArray { forgedCells.forEach(::add) } else contentValue) }
+                            } else documentValue)
+                        }
+                    })
+                } else value)
+            }
+        }
+
+        kotlin.test.assertFailsWith<WorkbookApplicationException> {
+            dataModelState(Json.decodeFromJsonElement<WorkbookBundleResponse>(forgedBundle))
+        }
     }
 
     private fun fixedContent(sheetId: String): TabularContent = TabularContent(
