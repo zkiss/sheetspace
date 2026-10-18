@@ -10,14 +10,16 @@ class FormulaReferenceContractTest {
     @Test fun `accepts and canonicalizes a relative A1 formula`() {
         val content = TabularContent(cells = mapOf("A1" to "value"))
         assertTrue(FormulaReferenceContract.isFormula("=@A[1]*2"))
-        assertEquals("=@${content.columns.first().value}[${content.rows.first().value}]*2", FormulaReferenceContract.canonicalize("=@A[1]*2", content))
-        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@Z[999]", content))
+        val (workbook, sheet) = workbook(content)
+        assertEquals("=@${content.columns.first().value}[${content.rows.first().value}]*2", FormulaReferenceContract.canonicalize("=@A[1]*2", workbook, sheet))
+        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@Z[999]", workbook, sheet))
     }
 
     @Test fun `rejects incomplete syntax while preserving literal reference text`() {
         val content = TabularContent(cells = mapOf("A1" to "value"))
         assertTrue(!FormulaReferenceContract.isFormula("=1+"))
-        assertEquals("=\"@A[1]\"", FormulaReferenceContract.canonicalize("=\"@A[1]\"", content))
+        val (workbook, sheet) = workbook(content)
+        assertEquals("=\"@A[1]\"", FormulaReferenceContract.canonicalize("=\"@A[1]\"", workbook, sheet))
         assertTrue(FormulaReferenceContract.isFormula("=#REF!"))
     }
 
@@ -39,19 +41,27 @@ class FormulaReferenceContractTest {
         val firstRow = content.rows[0].value
         val secondRow = content.rows[1].value
         val canonical = "=@$firstColumn[$firstRow]"
+        val other = TabularContent(columnCount = 2, rowCount = 2)
+        val (workbook, sheet, otherSheet) = workbook(content, other)
 
         assertEquals(
             "=@$firstColumn[$firstRow]:\$$secondColumn[\$$secondRow]",
-            FormulaReferenceContract.canonicalize("=@A[1]:\$B[\$2]", content),
+            FormulaReferenceContract.canonicalize("=@A[1]:\$B[\$2]", workbook, sheet),
         )
-        assertEquals(canonical, FormulaReferenceContract.canonicalize(canonical, content))
+        assertEquals(canonical, FormulaReferenceContract.canonicalize(canonical, workbook, sheet))
         assertEquals(
-            "=@'Sales Q1'!$firstColumn[$firstRow] + @Other!$secondColumn[$secondRow]",
-            FormulaReferenceContract.canonicalize("=@'Sales Q1'!A[1] + @Other!B[2]", content),
+            "=@${otherSheet.value}!${other.columns[0].value}[${other.rows[0].value}] + @${otherSheet.value}!${other.columns[1].value}[${other.rows[1].value}]",
+            FormulaReferenceContract.canonicalize("=@'Other sheet'!A[1] + @'Other sheet'!B[2]", workbook, sheet),
         )
-        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@A[3]", content))
-        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@C[1]", content))
-        assertNull(FormulaReferenceContract.canonicalize("plain text", content))
+        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@A[3]", workbook, sheet))
+        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@C[1]", workbook, sheet))
+        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@#REF!A[1]", workbook, sheet))
+        val escapedName = workbook.replaceSheet(workbook.findSheet(otherSheet)!!.rename("O'Brien"))
+        assertEquals(
+            "=@${otherSheet.value}!${other.columns[0].value}[${other.rows[0].value}]",
+            FormulaReferenceContract.canonicalize("=@'O''Brien'!A[1]", escapedName, sheet),
+        )
+        assertNull(FormulaReferenceContract.canonicalize("plain text", workbook, sheet))
     }
 
     @Test fun `copies canonical formulas by row and column while respecting anchors`() {
@@ -65,35 +75,52 @@ class FormulaReferenceContractTest {
         val secondRow = content.rows[1].value
         val thirdRow = content.rows[2].value
 
+        val (workbook, sheet) = workbook(content)
         assertEquals(
             "=@$secondColumn[$secondRow] + @\$$firstColumn[$secondRow] + @$secondColumn[\$$firstRow] + @\$$firstColumn[\$$firstRow]",
             FormulaReferenceContract.copyCanonical(
                 "=@$firstColumn[$firstRow] + @\$$firstColumn[$firstRow] + @$firstColumn[\$$firstRow] + @\$$firstColumn[\$$firstRow]",
                 source,
                 destination,
-                content,
+                workbook, sheet,
             ),
         )
         assertEquals(
             "=@$thirdColumn[$thirdRow]",
-            FormulaReferenceContract.copyCanonical("=@$secondColumn[$secondRow]", source, destination, content),
+            FormulaReferenceContract.copyCanonical("=@$secondColumn[$secondRow]", source, destination, workbook, sheet),
         )
         assertEquals(
             "=@$secondColumn[$secondRow]",
-            FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", source, destination, content),
+            FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", source, destination, workbook, sheet),
         )
         assertEquals(
             "=@$thirdColumn[$thirdRow]",
-            FormulaReferenceContract.copyCanonical("=@$secondColumn[$secondRow]", source, destination, content),
+            FormulaReferenceContract.copyCanonical("=@$secondColumn[$secondRow]", source, destination, workbook, sheet),
         )
-        assertEquals("=#REF!", FormulaReferenceContract.copyCanonical("=@$secondColumn[$thirdRow]", source, destination, content))
-        assertEquals("=#REF!", FormulaReferenceContract.copyCanonical("=@$thirdColumn[$thirdRow]", source, destination, content))
-        assertEquals("=#REF!", FormulaReferenceContract.copyCanonical("=@missing-1[$firstRow]", source, destination, content))
-        assertEquals("=#REF!", FormulaReferenceContract.copyCanonical("=@$firstColumn[missing-1]", source, destination, content))
-        assertNull(FormulaReferenceContract.copyCanonical("plain text", source, destination, content))
-        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", CellCoordinate(RowId("gone"), content.columns[0]), destination, content))
-        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", CellCoordinate(content.rows[0], ColumnId("gone")), destination, content))
-        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", source, CellCoordinate(content.rows[1], ColumnId("gone")), content))
-        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", source, CellCoordinate(RowId("gone"), content.columns[1]), content))
+        assertNull(FormulaReferenceContract.copyCanonical("=@$secondColumn[$thirdRow]", source, destination, workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("=@$thirdColumn[$thirdRow]", source, destination, workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("=@missing-1[$firstRow]", source, destination, workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[missing-1]", source, destination, workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("plain text", source, destination, workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", CellCoordinate(RowId("gone"), content.columns[0]), destination, workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", CellCoordinate(content.rows[0], ColumnId("gone")), destination, workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", source, CellCoordinate(content.rows[1], ColumnId("gone")), workbook, sheet))
+        assertNull(FormulaReferenceContract.copyCanonical("=@$firstColumn[$firstRow]", source, CellCoordinate(RowId("gone"), content.columns[1]), workbook, sheet))
+    }
+
+    @Test fun `rejects mixed endpoint ranges and preserves explicit sheet during copy`() {
+        val local = TabularContent(columnCount = 2, rowCount = 2)
+        val target = TabularContent(columnCount = 2, rowCount = 2)
+        val (workbook, sheet, targetSheet) = workbook(local, target)
+        assertFalse(FormulaReferenceContract.isFormula("=@A[1]:${target.columns[0].value}[${target.rows[0].value}]"))
+        val raw = "=@${targetSheet.value}!${target.columns[0].value}[${target.rows[0].value}]"
+        val copied = FormulaReferenceContract.copyCanonical(raw, CellCoordinate(local.rows[0], local.columns[0]), CellCoordinate(local.rows[1], local.columns[1]), workbook, sheet)
+        assertEquals("=@${targetSheet.value}!${target.columns[1].value}[${target.rows[1].value}]", copied)
+    }
+
+    private fun workbook(vararg contents: TabularContent): Triple<WorkbookState, SheetId, SheetId> {
+        val ids = contents.indices.map { SheetId("sheet-$it") }
+        val documents = contents.mapIndexed { index, content -> ids[index] to SheetDocument(ids[index], name = if (index == 1) "Other sheet" else "Local", content = content) }.toMap()
+        return Triple(WorkbookState(WorkbookManifest(sheetIds = ids), documents), ids[0], ids.getOrElse(1) { ids[0] })
     }
 }

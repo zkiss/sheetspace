@@ -248,7 +248,12 @@ class DefaultWorkbookApplication(
             if (
                 calculatedCells.map(CalculatedCellAppend::columnId).distinct().size != calculatedCells.size ||
                 calculatedCells.map(CalculatedCellAppend::columnId).toSet() != expectedCalculatedColumns.toSet() ||
-                !hasModelOwnedCalculatedAppends(calculatedCells, current.tabularContent.appendRow(appendedRowId), model)
+                !hasModelOwnedCalculatedAppends(
+                    calculatedCells,
+                    workbook.replaceSheet(current.copy(content = current.tabularContent.appendRow(appendedRowId))),
+                    current.id,
+                    model,
+                )
             ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             val withRow = current.tabularContent.appendRow(appendedRowId)
             val contents = withRow.cellContents + calculatedCells.associate { CellCoordinate(appendedRowId, ColumnId(it.columnId)) to it.raw }
@@ -341,11 +346,15 @@ private fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
         if (cells.size != response.content.cells.size) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         val model = response.dataModelId?.let(models::get)
         val content = TabularContent(rows, columns, cells)
-        if (model != null && !hasOnlyModelOwnedCalculatedContents(content, model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         SheetId(response.id) to SheetDocument(SheetId(response.id), response.revision, response.name, FrameState(response.frame.position, response.frame.size, response.frame.visualScale, response.frame.zIndex), SheetPresentation(response.presentation.rowHeights, response.presentation.columnWidths, response.presentation.formatOverrides), content, response.dataModelId)
     }
     if (documents.keys.map { it.value } != bundle.manifest.sheetIds) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-    return WorkbookState(WorkbookManifest(bundle.manifest.version, bundle.manifest.revision, bundle.manifest.sheetIds.map(::SheetId)), documents, models)
+    val state = WorkbookState(WorkbookManifest(bundle.manifest.version, bundle.manifest.revision, bundle.manifest.sheetIds.map(::SheetId)), documents, models)
+    if (state.sheetsInOrder.any { sheet ->
+            val model = sheet.dataModelId?.let(models::get)
+            model != null && !hasOnlyModelOwnedCalculatedContents(state, sheet.id, model)
+        }) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+    return state
 }
 
 private fun affectedDataModelSheets(current: WorkbookState, updated: WorkbookState): Set<String> {
@@ -360,9 +369,11 @@ private fun affectedDataModelSheets(current: WorkbookState, updated: WorkbookSta
 }
 
 internal fun hasOnlyModelOwnedCalculatedContents(
-    content: TabularContent,
+    workbook: WorkbookState,
+    sheetId: SheetId,
     model: DataModel,
 ): Boolean {
+    val content = workbook.findSheet(sheetId)?.tabularContent ?: return false
     if (content.columns.size != model.properties.size) return false
     return model.properties.withIndex().filter { it.value is CalculatedDataModelProperty }.all { (index, property) ->
         val formula = (property as CalculatedDataModelProperty).formula
@@ -371,23 +382,27 @@ internal fun hasOnlyModelOwnedCalculatedContents(
             // A calculated cell is owned only when it is the exact canonical rendering of
             // its declared first-row template at this coordinate.  Formula "shape" is not
             // ownership: it loses the stable reference targets and anchors.
-            content.cellContents[coordinate] == materializeModelFormula(formula, content, coordinate)
+            content.cellContents[coordinate] == materializeModelFormula(formula, workbook, sheetId, coordinate)
         }
     }
 }
 
 private fun hasModelOwnedCalculatedAppends(
     cells: List<CalculatedCellAppend>,
-    content: TabularContent,
+    workbook: WorkbookState,
+    sheetId: SheetId,
     model: DataModel?,
-): Boolean = model?.properties?.withIndex()
+): Boolean {
+    val content = workbook.findSheet(sheetId)?.tabularContent ?: return false
+    return model?.properties?.withIndex()
     ?.filter { it.value is CalculatedDataModelProperty }
     ?.all { (index, property) ->
         val coordinate = CellCoordinate(content.rows.last(), content.columns[index])
         cells.single { it.columnId == coordinate.columnId.value }.raw ==
-            materializeModelFormula((property as CalculatedDataModelProperty).formula, content, coordinate)
+            materializeModelFormula((property as CalculatedDataModelProperty).formula, workbook, sheetId, coordinate)
     }
     ?: cells.isEmpty()
+}
 
 /**
  * The client stores formula references as stable column/row identifiers.  Model formulas are
@@ -396,14 +411,16 @@ private fun hasModelOwnedCalculatedAppends(
  */
 private fun materializeModelFormula(
     formula: String,
-    content: TabularContent,
+    workbook: WorkbookState,
+    sheetId: SheetId,
     destination: CellCoordinate,
 ): String? {
+    val content = workbook.findSheet(sheetId)?.tabularContent ?: return null
     val firstRow = content.rows.firstOrNull() ?: return null
-    val first = FormulaReferenceContract.canonicalize(formula, content) ?: return null
+    val first = FormulaReferenceContract.canonicalize(formula, workbook, sheetId) ?: return null
     val source = CellCoordinate(firstRow, destination.columnId)
     return if (destination.rowId == firstRow) first
-    else FormulaReferenceContract.copyCanonical(first, source, destination, content)
+    else FormulaReferenceContract.copyCanonical(first, source, destination, workbook, sheetId)
 }
 
 internal fun isSupportedFormula(raw: String): Boolean = FormulaReferenceContract.isFormula(raw)
@@ -421,7 +438,7 @@ internal fun hasValidChangedModelOwnership(current: WorkbookState, updated: Work
         .all { sheet ->
             val modelId = sheet.dataModelId ?: return@all true
             val model = updated.dataModels[modelId] ?: return@all false
-            hasOnlyModelOwnedCalculatedContents(sheet.tabularContent, model)
+            hasOnlyModelOwnedCalculatedContents(updated, sheet.id, model)
         }
 
 private fun validateFrameCommand(

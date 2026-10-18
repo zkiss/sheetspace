@@ -6,48 +6,90 @@ package com.sheetspace
  * string literal is not a reference.
  */
 internal object FormulaReferenceContract {
-    data class Endpoint(val column: Int, val row: Int, val columnAnchored: Boolean, val rowAnchored: Boolean, val span: IntRange, val canonical: Boolean = false)
+    data class Endpoint(
+        val column: Int,
+        val row: Int,
+        val columnAnchored: Boolean,
+        val rowAnchored: Boolean,
+        val span: IntRange,
+        val canonical: Boolean = false,
+        val columnId: String? = null,
+        val rowId: String? = null,
+    )
     data class Reference(val qualifier: String?, val qualifierSpan: IntRange?, val endpoints: List<Endpoint>, val span: IntRange)
 
     fun isFormula(raw: String): Boolean = raw.startsWith("=") && raw.length > 1 &&
         (ERROR_LITERAL.matches(raw.drop(1)) || Parser(raw).valid())
 
-    fun canonicalize(raw: String, content: TabularContent): String? {
+    /** Converts an A1 template using the complete candidate workbook, as the client does. */
+    fun canonicalize(raw: String, workbook: WorkbookState, currentSheetId: SheetId): String? {
         if (!isFormula(raw)) return null
-        return replaceReferences(raw, references(raw)) { reference, endpoint ->
-            if (endpoint.canonical) return@replaceReferences raw.substring(endpoint.span.first + 1, endpoint.span.last + 2)
-            // Positional qualifiers are intentionally retained here.  The persistence transition
-            // policy supplies cross-sheet resolution; local materialisation must never retarget it.
-            val column = content.columns.getOrNull(endpoint.column)?.value ?: return@replaceReferences "#REF!"
-            val row = content.rows.getOrNull(endpoint.row)?.value ?: return@replaceReferences "#REF!"
-            "${if (endpoint.columnAnchored) "$" else ""}$column[${if (endpoint.rowAnchored) "$" else ""}$row]"
-        }.replace("@#REF!", "#REF!")
+        return transform(raw, references(raw)) { reference ->
+            if (reference.endpoints.first().canonical) return@transform emptyList()
+            val target = targetForStorage(reference.qualifier, workbook, currentSheetId)
+                ?: return@transform listOf(reference.span to "#REF!")
+            val replacements = mutableListOf<Pair<IntRange, String>>()
+            if (reference.qualifier != null) replacements += reference.qualifierSpan!! to target.id.value
+            reference.endpoints.forEach { endpoint ->
+                val column = target.tabularContent.columns.getOrNull(endpoint.column)?.value
+                val row = target.tabularContent.rows.getOrNull(endpoint.row)?.value
+                if (column == null || row == null) return@transform listOf(reference.span to "#REF!")
+                replacements += endpoint.span to "${if (endpoint.columnAnchored) "$" else ""}$column[${if (endpoint.rowAnchored) "$" else ""}$row]"
+            }
+            replacements
+        }
     }
 
-    fun copyCanonical(raw: String, source: CellCoordinate, destination: CellCoordinate, content: TabularContent): String? {
+    /** Copies canonical references with the same explicit-sheet behavior as copyCanonicalFormula. */
+    fun copyCanonical(
+        raw: String,
+        source: CellCoordinate,
+        destination: CellCoordinate,
+        workbook: WorkbookState,
+        currentSheetId: SheetId,
+        sourceSheetId: SheetId = currentSheetId,
+        destinationSheetId: SheetId = sourceSheetId,
+    ): String? {
         if (!isFormula(raw)) return null
-        val sourceColumn = content.columns.indexOf(source.columnId)
-        val sourceRow = content.rows.indexOf(source.rowId)
-        val destinationColumn = content.columns.indexOf(destination.columnId)
-        val destinationRow = content.rows.indexOf(destination.rowId)
+        val sourceContent = workbook.findSheet(sourceSheetId)?.tabularContent ?: return null
+        val destinationContent = workbook.findSheet(destinationSheetId)?.tabularContent ?: return null
+        val sourceColumn = sourceContent.columns.indexOf(source.columnId)
+        val sourceRow = sourceContent.rows.indexOf(source.rowId)
+        val destinationColumn = destinationContent.columns.indexOf(destination.columnId)
+        val destinationRow = destinationContent.rows.indexOf(destination.rowId)
         if (sourceColumn < 0 || sourceRow < 0 || destinationColumn < 0 || destinationRow < 0) return null
-        return replaceReferences(raw, references(raw)) { _, endpoint ->
-            val initialColumn = if (endpoint.canonical) content.columns.indexOfFirst { it.value == raw.substring(endpoint.span.first + 1, endpoint.span.last + 2).removePrefix("$").substringBefore('[') } else endpoint.column
-            val initialRow = if (endpoint.canonical) content.rows.indexOfFirst { it.value == raw.substring(endpoint.span.first + 1, endpoint.span.last + 2).substringAfter('[').removeSuffix("]").removePrefix("$") } else endpoint.row
-            if (initialColumn < 0 || initialRow < 0) return@replaceReferences "#REF!"
-            val column = if (endpoint.columnAnchored) initialColumn else initialColumn + destinationColumn - sourceColumn
-            val row = if (endpoint.rowAnchored) initialRow else initialRow + destinationRow - sourceRow
-            val columnId = content.columns.getOrNull(column)?.value ?: return@replaceReferences "#REF!"
-            val rowId = content.rows.getOrNull(row)?.value ?: return@replaceReferences "#REF!"
-            "${if (endpoint.columnAnchored) "$" else ""}$columnId[${if (endpoint.rowAnchored) "$" else ""}$rowId]"
-        }.replace("@#REF!", "#REF!")
+        var unresolved = false
+        val result = transform(raw, references(raw).filter { it.endpoints.first().canonical }) { reference ->
+            val originalSheet = if (reference.qualifier == null) workbook.findSheet(sourceSheetId)
+            else workbook.findSheet(SheetId(reference.qualifier))
+            val resultSheet = if (reference.qualifier == null) workbook.findSheet(destinationSheetId) else originalSheet
+            if (originalSheet == null || resultSheet == null) { unresolved = true; return@transform emptyList() }
+            reference.endpoints.map { endpoint ->
+                val initialColumn = originalSheet.tabularContent.columns.indexOfFirst { it.value == endpoint.columnId }
+                val initialRow = originalSheet.tabularContent.rows.indexOfFirst { it.value == endpoint.rowId }
+                val column = if (endpoint.columnAnchored) initialColumn else initialColumn + destinationColumn - sourceColumn
+                val row = if (endpoint.rowAnchored) initialRow else initialRow + destinationRow - sourceRow
+                val columnId = resultSheet.tabularContent.columns.getOrNull(column)?.value
+                val rowId = resultSheet.tabularContent.rows.getOrNull(row)?.value
+                if (initialColumn < 0 || initialRow < 0 || columnId == null || rowId == null) { unresolved = true; return@map endpoint.span to "" }
+                endpoint.span to "${if (endpoint.columnAnchored) "$" else ""}$columnId[${if (endpoint.rowAnchored) "$" else ""}$rowId]"
+            }
+        }
+        return if (unresolved) null else result
     }
 
     /** References are exposed for conformance tests and future aggregate transition validation. */
     fun references(raw: String): List<Reference> = Parser(raw).references()
 
-    private fun replaceReferences(raw: String, references: List<Reference>, replacement: (Reference, Endpoint) -> String): String {
-        val edits = references.flatMap { reference -> reference.endpoints.map { endpoint -> endpoint.span to replacement(reference, endpoint) } }
+    private fun targetForStorage(qualifier: String?, workbook: WorkbookState, currentSheetId: SheetId): SheetDocument? =
+        when (qualifier) {
+            null -> workbook.findSheet(currentSheetId)
+            "#REF" -> null
+            else -> workbook.sheetsInOrder.firstOrNull { it.id.value == qualifier || it.name == qualifier }
+        }
+
+    private fun transform(raw: String, references: List<Reference>, replacement: (Reference) -> List<Pair<IntRange, String>>): String {
+        val edits = references.flatMap(replacement)
         return edits.sortedByDescending { it.first.first }.fold(raw) { result, edit ->
             // Parser spans are relative to the expression (after the leading '=') while raw
             // includes it.
@@ -86,7 +128,7 @@ internal object FormulaReferenceContract {
             val qualifierStart = index; val qualifier = qualifier()
             val first = endpoint() ?: return false; skip()
             val endpoints = mutableListOf(first)
-            if (take(':')) { skip(); val second = endpoint() ?: return false; endpoints += second }
+            if (take(':')) { skip(); val second = endpoint() ?: return false; if (second.canonical != first.canonical) return false; endpoints += second }
             found += Reference(qualifier?.first, qualifier?.second, endpoints, start..(index - 1)); return true
         }
         private fun qualifier(): Pair<String, IntRange>? {
@@ -107,7 +149,7 @@ internal object FormulaReferenceContract {
                 if (!token.all { it.isLetter() }) {
                     // Canonical IDs are already stable.  Store their address as a sentinel; copy
                     // preserves their spelling below by returning it unchanged.
-                    return Endpoint(-1, -1, match.groupValues[1] == "$", match.groupValues[3] == "$", start..match.range.last, true)
+                    return Endpoint(-1, -1, match.groupValues[1] == "$", match.groupValues[3] == "$", start..match.range.last, true, token, match.groupValues[4])
                 }
             }
             index = start; val a1 = Regex("(\\$?)([A-Za-z]+)\\[(\\$?)([1-9][0-9]*)]").find(input, index) ?: return null
