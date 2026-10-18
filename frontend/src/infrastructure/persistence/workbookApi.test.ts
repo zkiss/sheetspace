@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import workbookReadContract from '../../../../test-fixtures/workbook-read-contract.json';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, sheetsInOrder } from '@workbook/read/queries';
-import { type DataModel, type SheetDocument, type Workbook } from '@workbook/core/model';
+import { type DataModel, type DataModelPropertyType, type SheetDocument, type Workbook } from '@workbook/core/model';
 import {
   decodeSheetDocument,
   decodeWorkbookBundle,
@@ -192,7 +192,8 @@ describe('workbook API read decoding', () => {
 
 describe('workbook API mutations', () => {
   it('round-trips every declared type for bound zero-row and unbound models', async () => {
-    const properties: DataModel['properties'] = ['string', 'int', 'float', 'boolean'].flatMap((type) => [
+    const propertyTypes: readonly DataModelPropertyType[] = ['string', 'int', 'float', 'boolean'];
+    const properties: DataModel['properties'] = propertyTypes.flatMap((type) => [
       { id: `manual-${type}`, name: `Manual ${type}`, kind: 'manual' as const, type },
       { id: `calculated-${type}`, name: `Calculated ${type}`, kind: 'calculated' as const, type, formula: '=1/0' },
     ]);
@@ -208,7 +209,11 @@ describe('workbook API mutations', () => {
       documents: { [zeroRowDocument.id]: { ...expectedDocument(zeroRowDocument), dataModelId: boundModel.id } },
       dataModels: { [boundModel.id]: boundModel, [unboundModel.id]: unboundModel },
     };
-    const response = { manifest: workbook.manifest, documents: [zeroRowDocument], dataModels: [boundModel, unboundModel] };
+    const response: WorkbookBundleResponse = {
+      manifest: workbook.manifest,
+      documents: [zeroRowDocument],
+      dataModels: [boundModel, unboundModel].map((model) => ({ ...model, properties: [...model.properties] })),
+    };
     const fetchMock = mockFetch({ sheets: [] });
 
     await workbookApi.replaceDataModelState(workbook, []);
