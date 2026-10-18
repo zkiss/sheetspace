@@ -60,6 +60,13 @@ describe('backend formula contract conformance', () => {
         .toBe(entry.canonical ?? entry.raw);
       expect(copyCanonicalFormula(raw, source, destination, resolver), entry.id)
         .toEqual({ ok: true, raw: entry.copied });
+      if (entry.storedParseKind) {
+        expect(parseFormula(raw).kind, `${entry.id} stored parse classification`).toBe(entry.storedParseKind);
+      }
+    }
+
+    for (const entry of cases.storageOnly) {
+      expect(formulaRawForStorage(entry.raw, workbookWithSheets([local, other]), local.id), entry.id).toBe(entry.raw);
     }
   });
 

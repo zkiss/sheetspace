@@ -328,6 +328,18 @@ class FormulaReferenceContractTest {
                 FormulaReferenceContract.copyCanonical(canonicalRaw ?: raw, source, destination, namedWorkbook, transformSheet),
                 case.getValue("id").jsonPrimitive.content,
             )
+            case["storedParseKind"]?.jsonPrimitive?.contentOrNull?.let { expected ->
+                assertEquals(
+                    expected,
+                    if (FormulaReferenceContract.isFormula(canonicalRaw ?: raw)) "formula" else "error",
+                    "${case.getValue("id").jsonPrimitive.content} stored parse classification",
+                )
+            }
+        }
+        fixture.getValue("storageOnly").jsonArray.forEach { entry ->
+            val case = entry.jsonObject
+            val raw = case.getValue("raw").jsonPrimitive.content
+            assertEquals(raw, FormulaReferenceContract.canonicalize(raw, namedWorkbook, transformSheet), case.getValue("id").jsonPrimitive.content)
         }
         fixture.getValue("copyFailures").jsonArray.forEach { entry ->
             val case = entry.jsonObject
