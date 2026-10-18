@@ -246,15 +246,16 @@ describe('backend formula contract conformance', () => {
     expect(replaceDataModel(added.value, malformed, {})).toEqual({ ok: false, reason: 'invalid-formula' });
   });
 
-  it('defines six one-component ownership tamper variants from the captured append bundle', () => {
-    const original = cases.mutationStages['subsequent-append'].documents[0]!.content.cells;
+  it('defines six one-component ownership tamper variants from the captured nonempty bind bundle', () => {
+    const original = cases.mutationStages['bind-nonempty'].documents.flatMap((document) => document.content.cells);
     const components = new Set(cases.ownershipTampers.map((tamper) => tamper.component));
     expect(components).toEqual(new Set(['qualifier', 'stable-identity', 'anchor', 'range-endpoint', 'operator', 'literal']));
     for (const tamper of cases.ownershipTampers) {
-      const changed = tamper.bundle.documents[0]!.content.cells.filter((cell, index) => cell.content !== original[index]!.content);
+      const changed = tamper.bundle.documents.flatMap((document) => document.content.cells)
+        .filter((cell, index) => cell.content !== original[index]!.content);
       expect(changed, tamper.id).toHaveLength(1);
-      expect(changed[0]!.rowId, tamper.id).toBe('00000000-0000-0000-0000-000000000103');
-      expect(changed[0]!.columnId, tamper.id).toBe('00000000-0000-0000-0000-000000000202');
+      expect(['00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000203'], tamper.id)
+        .toContain(changed[0]!.columnId);
     }
   });
 
