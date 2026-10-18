@@ -420,11 +420,24 @@ class FormulaReferenceContractTest {
         }
     }
 
-    private fun fixedContent(sheetId: String, columnCount: Int = 2, rowCount: Int = 2): TabularContent = TabularContent(
-        rows = (1..rowCount).map { RowId("$sheetId:row:$it") },
-        columns = (1..columnCount).map { ColumnId("$sheetId:column:$it") },
-        cellContents = emptyMap(),
-    )
+    private fun fixedContent(sheetId: String, columnCount: Int = 2, rowCount: Int = 2): TabularContent {
+        val (rows, columns) = when (sheetId) {
+            "00000000-0000-0000-0000-000000000001" -> listOf(
+                listOf("00000000-0000-0000-0000-000000000101", "00000000-0000-0000-0000-000000000102", "00000000-0000-0000-0000-000000000103"),
+                listOf("00000000-0000-0000-0000-000000000201", "00000000-0000-0000-0000-000000000202", "00000000-0000-0000-0000-000000000203"),
+            )
+            "00000000-0000-0000-0000-000000000002" -> listOf(
+                listOf("00000000-0000-0000-0000-000000000111", "00000000-0000-0000-0000-000000000112", "00000000-0000-0000-0000-000000000113"),
+                listOf("00000000-0000-0000-0000-000000000211", "00000000-0000-0000-0000-000000000212", "00000000-0000-0000-0000-000000000213"),
+            )
+            else -> error("Unexpected fixed formula contract sheet ID: $sheetId")
+        }
+        return TabularContent(
+            rows = rows.take(rowCount).map(::RowId),
+            columns = columns.take(columnCount).map(::ColumnId),
+            cellContents = emptyMap(),
+        )
+    }
 
     private fun workbook(vararg contents: TabularContent): Triple<WorkbookState, SheetId, SheetId> {
         val ids = contents.indices.map { index ->
