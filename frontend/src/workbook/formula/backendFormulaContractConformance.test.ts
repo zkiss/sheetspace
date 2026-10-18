@@ -204,8 +204,8 @@ describe('backend formula contract conformance', () => {
       ...model,
       properties: [
         model.properties[0]!,
-        { ...model.properties[1]!, formula: '=@A[1]+2' },
-        { id: '00000000-0000-0000-0000-000000000403', name: 'Further', kind: 'calculated' as const, formula: '=@B[1]+1' },
+        { ...model.properties[1]!, formula: '=@C[1]+2' },
+        { id: '00000000-0000-0000-0000-000000000403', name: 'Further', kind: 'calculated' as const, formula: '=@A[1]+1' },
       ],
     };
     const replaced = replaceDataModel(bound.value, replacement, { [sheetId]: ['00000000-0000-0000-0000-000000000203'] });
