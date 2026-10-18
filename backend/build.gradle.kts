@@ -49,6 +49,7 @@ application {
 
 sourceSets.test {
     resources.srcDir(file("../test-fixtures"))
+    resources.srcDir(file("../frontend/src/workbook/formula"))
 }
 
 tasks.test {

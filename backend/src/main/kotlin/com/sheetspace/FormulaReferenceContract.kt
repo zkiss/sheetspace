@@ -18,8 +18,8 @@ internal object FormulaReferenceContract {
     )
     data class Reference(val qualifier: String?, val qualifierSpan: IntRange?, val endpoints: List<Endpoint>, val span: IntRange)
 
-    fun isFormula(raw: String): Boolean = raw.startsWith("=") && raw.length > 1 &&
-        (ERROR_LITERAL.matches(raw.drop(1)) || Parser(raw).valid())
+    /** Strict admission for authored model templates. Stored raws may contain generated errors. */
+    fun isFormula(raw: String): Boolean = raw.startsWith("=") && raw.length > 1 && Parser(raw).valid()
 
     /** Converts an A1 template using the complete candidate workbook, as the client does. */
     fun canonicalize(raw: String, workbook: WorkbookState, currentSheetId: SheetId): String? {
@@ -50,7 +50,9 @@ internal object FormulaReferenceContract {
         sourceSheetId: SheetId = currentSheetId,
         destinationSheetId: SheetId = sourceSheetId,
     ): String? {
-        if (!isFormula(raw)) return null
+        // Storage conversion can leave generated #REF! text in an otherwise non-parseable raw.
+        // Copy only needs to transform stable reference lexemes, not admit a new template.
+        if (!raw.startsWith("=")) return null
         val sourceSheet = workbook.findSheet(sourceSheetId) ?: return null
         val destinationSheet = workbook.findSheet(destinationSheetId) ?: return null
         val sourceContent = sourceSheet.tabularContent
@@ -118,9 +120,9 @@ internal object FormulaReferenceContract {
             number()?.let { return true }
             val start = index; val identifier = identifier()
             if (identifier != null) {
+                if (identifier.equals("TRUE", true) || identifier.equals("FALSE", true)) return true
                 skip()
                 if (take('(')) { skip(); if (take(')')) return true; do { if (!expression()) return false; skip() } while (take(',')); return take(')') }
-                if (identifier.equals("TRUE", true) || identifier.equals("FALSE", true)) return true
                 index = start
             }
             return false
@@ -128,16 +130,23 @@ internal object FormulaReferenceContract {
         private fun reference(): Boolean {
             val start = index; if (!take('@')) return false
             val qualifierStart = index; val qualifier = qualifier()
-            val first = endpoint() ?: return false; skip()
+            val first = endpoint() ?: return false
+            val firstEnd = index
+            skip()
             val endpoints = mutableListOf(first)
-            if (take(':')) { skip(); val second = endpoint() ?: return false; if (second.canonical != first.canonical) return false; endpoints += second }
-            found += Reference(qualifier?.first, qualifier?.second, endpoints, start..(index - 1)); return true
+            val end = if (take(':')) {
+                skip(); val second = endpoint() ?: return false
+                if (second.canonical != first.canonical) return false
+                endpoints += second
+                index
+            } else firstEnd
+            found += Reference(qualifier?.first, qualifier?.second, endpoints, start..(end - 1)); return true
         }
         private fun qualifier(): Pair<String, IntRange>? {
             val start = index
             if (peek() == '\'') {
                 index++; val value = StringBuilder()
-                while (index < input.length) { if (input[index] != '\'') value.append(input[index++]) else if (index + 1 < input.length && input[index + 1] == '\'') { value.append('\''); index += 2 } else { index++; val end = index; skip(); if (!take('!')) return null; skip(); return value.toString() to (start..end - 1) } }
+                while (index < input.length) { if (input[index] != '\'') value.append(input[index++]) else if (index + 1 < input.length && input[index + 1] == '\'') { value.append('\''); index += 2 } else { index++; val end = index; if (value.isEmpty()) return null; skip(); if (!take('!')) return null; skip(); return value.toString() to (start..end - 1) } }
                 return null
             }
             val match = Regex("(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\\s*!").find(input, index)
@@ -157,17 +166,25 @@ internal object FormulaReferenceContract {
             index = start; val a1 = Regex("(\\$?)([A-Za-z]+)\\[(\\$?)([1-9][0-9]*)]").find(input, index) ?: return null
             if (a1.range.first != index) return null; index = a1.range.last + 1
             if (index < input.length && input[index].isLetterOrDigit()) return null
-            return Endpoint(column(a1.groupValues[2]), a1.groupValues[4].toInt() - 1, a1.groupValues[1] == "$", a1.groupValues[3] == "$", start..a1.range.last)
+            val column = column(a1.groupValues[2]) ?: return null
+            val row = a1.groupValues[4].toIntOrNull()?.minus(1) ?: return null
+            return Endpoint(column, row, a1.groupValues[1] == "$", a1.groupValues[3] == "$", start..a1.range.last)
         }
         private fun text(): Boolean { index++; while (index < input.length) { if (input[index] != '"') index++ else if (index + 1 < input.length && input[index + 1] == '"') index += 2 else { index++; return true } }; return false }
         private fun number(): String? { val match = Regex("(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?").find(input, index) ?: return null; if (match.range.first != index) return null; index = match.range.last + 1; return match.value }
         private fun identifier(): String? { val match = Regex("[A-Za-z][A-Za-z0-9_]*").find(input, index) ?: return null; if (match.range.first != index) return null; index = match.range.last + 1; return match.value }
-        private fun column(label: String): Int = label.fold(0) { value, char -> value * 26 + (char.uppercaseChar() - 'A' + 1) } - 1
+        private fun column(label: String): Int? {
+            var value = 0L
+            for (char in label) {
+                value = value * 26 + (char.uppercaseChar() - 'A' + 1)
+                if (value > Int.MAX_VALUE) return null
+            }
+            return (value - 1).toInt()
+        }
         private fun operator(values: List<String>): Boolean = values.firstOrNull { input.startsWith(it, index) }?.also { index += it.length } != null
         private fun skip() { while (index < input.length && input[index].isWhitespace()) index++ }
         private fun take(char: Char): Boolean = (peek() == char).also { if (it) index++ }
         private fun peek(): Char? = input.getOrNull(index)
     }
 
-    private val ERROR_LITERAL = Regex("#(?:PARSE!|REF!|NAME!|VALUE!|DIV/0!|CYCLE!|N/A)")
 }

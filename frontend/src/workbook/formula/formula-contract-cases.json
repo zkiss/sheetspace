@@ -1,0 +1,14 @@
+{
+  "syntax": [
+    { "raw": "=SUM(1, -2.5e+1, TRUE, (FALSE)) >= 0", "accepted": true },
+    { "raw": "=TRUE()", "accepted": false },
+    { "raw": "=#DIV/0!", "accepted": false },
+    { "raw": "=@A[1]:sheet-1:column:1[sheet-1:row:1]", "accepted": false },
+    { "raw": "=@''!A[1]", "accepted": false }
+  ],
+  "canonical": {
+    "raw": "=@'Other sheet' ! A[1] + @A[1]",
+    "output": "=@sheet-1 ! sheet-1:column:1[sheet-1:row:1] + @sheet-0:column:1[sheet-0:row:1]",
+    "copied": "=@sheet-1 ! sheet-1:column:2[sheet-1:row:2] + @sheet-0:column:2[sheet-0:row:2]"
+  }
+}

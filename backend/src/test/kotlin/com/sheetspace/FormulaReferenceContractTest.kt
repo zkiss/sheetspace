@@ -1,5 +1,10 @@
 package com.sheetspace
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -20,14 +25,14 @@ class FormulaReferenceContractTest {
         assertTrue(!FormulaReferenceContract.isFormula("=1+"))
         val (workbook, sheet) = workbook(content)
         assertEquals("=\"@A[1]\"", FormulaReferenceContract.canonicalize("=\"@A[1]\"", workbook, sheet))
-        assertTrue(FormulaReferenceContract.isFormula("=#REF!"))
+        assertFalse(FormulaReferenceContract.isFormula("=#REF!"))
     }
 
     @Test fun `recognizes supported expression forms without treating malformed text as formulas`() {
         assertTrue(FormulaReferenceContract.isFormula("=SUM(1, -2.5e+1, TRUE, (FALSE)) >= 0"))
         assertTrue(FormulaReferenceContract.isFormula("=\"a \"\"quoted\"\" @A[1]\""))
         assertTrue(FormulaReferenceContract.isFormula("=@A[1]:\$B[\$2]"))
-        assertTrue(FormulaReferenceContract.isFormula("=#DIV/0!"))
+        assertFalse(FormulaReferenceContract.isFormula("=#DIV/0!"))
         assertFalse(FormulaReferenceContract.isFormula("=#NOT-A-FRONTEND-ERROR!"))
         assertFalse(FormulaReferenceContract.isFormula("not a formula"))
         assertFalse(FormulaReferenceContract.isFormula("="))
@@ -177,6 +182,37 @@ class FormulaReferenceContractTest {
             materializeModelFormula("=@C[1]*2", workbook, sheet.id, CellCoordinate(content.rows[1], content.columns[1])),
         )
     }
+
+    @Test fun `matches the frontend-derived shared formula contract fixture`() {
+        val fixture = Json.parseToJsonElement(
+            requireNotNull(javaClass.classLoader.getResource("formula-contract-cases.json"))
+                .readText(),
+        ).jsonObject
+        fixture.getValue("syntax").jsonArray.forEach { entry ->
+            val case = entry.jsonObject
+            assertEquals(
+                case.getValue("accepted").jsonPrimitive.boolean,
+                FormulaReferenceContract.isFormula(case.getValue("raw").jsonPrimitive.content),
+                case.getValue("raw").jsonPrimitive.content,
+            )
+        }
+        val canonical = fixture.getValue("canonical").jsonObject
+        val local = fixedContent("sheet-0")
+        val other = fixedContent("sheet-1")
+        val (workbook, sheet) = workbook(local, other)
+        val raw = canonical.getValue("raw").jsonPrimitive.content
+        assertEquals(canonical.getValue("output").jsonPrimitive.content, FormulaReferenceContract.canonicalize(raw, workbook, sheet))
+        assertEquals(
+            canonical.getValue("copied").jsonPrimitive.content,
+            FormulaReferenceContract.copyCanonical(raw = canonical.getValue("output").jsonPrimitive.content, source = CellCoordinate(local.rows[0], local.columns[0]), destination = CellCoordinate(local.rows[1], local.columns[1]), workbook = workbook, currentSheetId = sheet),
+        )
+    }
+
+    private fun fixedContent(sheetId: String): TabularContent = TabularContent(
+        rows = listOf(RowId("$sheetId:row:1"), RowId("$sheetId:row:2")),
+        columns = listOf(ColumnId("$sheetId:column:1"), ColumnId("$sheetId:column:2")),
+        cellContents = emptyMap(),
+    )
 
     private fun workbook(vararg contents: TabularContent): Triple<WorkbookState, SheetId, SheetId> {
         val ids = contents.indices.map { SheetId("sheet-$it") }
