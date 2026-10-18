@@ -142,7 +142,7 @@ describe('backend formula contract conformance', () => {
     }
   });
 
-  it('captures an actual mutation bundle through the workbook API transport', async () => {
+  it('captures every shared mutation stage through the workbook API transport', async () => {
     const sheetId = '00000000-0000-0000-0000-000000000001';
     const rows = ['00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000102'];
     const columns = ['00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000202'];
@@ -156,23 +156,115 @@ describe('backend formula contract conformance', () => {
         { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, formula: '=@A[1]+1' },
       ],
     };
+    const capture = async (workbook: Parameters<typeof workbookApi.replaceDataModelState>[0]) => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sheets: [] }), { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+      await workbookApi.replaceDataModelState(workbook, []);
+      const request = fetchMock.mock.calls[0]![1] as RequestInit;
+      return JSON.parse(request.body as string).workbook;
+    };
+    const added = addDataModel(workbookWithSheets([{
+      ...sheet,
+      content: { kind: 'tabular' as const, rows: [], columns: [], cells: {} },
+    }]), model);
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(await capture(added.value)).toEqual(cases.mutationStages['add-unbound']);
+
+    const addedForBind = addDataModel(workbookWithSheets([sheet]), model);
+    expect(addedForBind.ok).toBe(true);
+    if (!addedForBind.ok) return;
+    const bound = bindSheetToDataModel(addedForBind.value, sheetId, model.id, []);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+    expect(await capture(bound.value)).toEqual(cases.mutationStages['bind-nonempty']);
+
+    const replacement = {
+      ...model,
+      properties: [
+        model.properties[0]!,
+        { ...model.properties[1]!, formula: '=@A[1]+2' },
+        { id: '00000000-0000-0000-0000-000000000403', name: 'Further', kind: 'calculated' as const, formula: '=@B[1]+1' },
+      ],
+    };
+    const replaced = replaceDataModel(bound.value, replacement, { [sheetId]: ['00000000-0000-0000-0000-000000000203'] });
+    expect(replaced.ok).toBe(true);
+    if (!replaced.ok) return;
+    expect(await capture(replaced.value)).toEqual(cases.mutationStages['replace-changed-shape']);
+
+    const zeroRowAdded = addDataModel(workbookWithSheets([{
+      ...sheet,
+      content: { kind: 'tabular' as const, rows: [], columns, cells: {} },
+    }]), model);
+    expect(zeroRowAdded.ok).toBe(true);
+    if (!zeroRowAdded.ok) return;
+    const zeroRowBound = bindSheetToDataModel(zeroRowAdded.value, sheetId, model.id, []);
+    expect(zeroRowBound.ok).toBe(true);
+    if (!zeroRowBound.ok) return;
+    expect(await capture(zeroRowBound.value)).toEqual(cases.mutationStages['bind-zero-row']);
+    const firstAppendedSheet = appendRow(zeroRowBound.value.documents[sheetId]!, '00000000-0000-0000-0000-000000000103', model, zeroRowBound.value);
+    const firstAppended = { ...zeroRowBound.value, documents: { ...zeroRowBound.value.documents, [sheetId]: firstAppendedSheet } };
+    expect(await capture(firstAppended)).toEqual(cases.mutationStages['first-append']);
+
+    const appendedSheet = appendRow(bound.value.documents[sheetId]!, '00000000-0000-0000-0000-000000000103', model, bound.value);
+    const appended = { ...bound.value, documents: { ...bound.value.documents, [sheetId]: appendedSheet } };
+    expect(await capture(appended)).toEqual(cases.mutationStages['subsequent-append']);
+  });
+
+  it('rejects malformed add and replacement mutations before any rows exist', () => {
+    const sheetId = '00000000-0000-0000-0000-000000000001';
+    const workbook = workbookWithSheets([fixedSheet(sheetId, 'Local', 2, 0)]);
+    const malformed = { id: '00000000-0000-0000-0000-000000000301', name: 'Metrics', properties: [
+      { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, formula: '=1+' },
+    ] };
+    expect(addDataModel(workbook, malformed)).toEqual({ ok: false, reason: 'invalid-formula' });
+    const valid = { ...malformed, properties: [{ ...malformed.properties[0]!, formula: '=@A[1]+1' }] };
+    const added = addDataModel(workbook, valid);
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    expect(replaceDataModel(added.value, malformed, {})).toEqual({ ok: false, reason: 'invalid-formula' });
+  });
+
+  it('defines six one-component ownership tamper variants from the captured append bundle', () => {
+    const original = cases.mutationStages['subsequent-append'].documents[0]!.content.cells;
+    const components = new Set(cases.ownershipTampers.map((tamper) => tamper.component));
+    expect(components).toEqual(new Set(['qualifier', 'stable-identity', 'anchor', 'range-endpoint', 'operator', 'literal']));
+    for (const tamper of cases.ownershipTampers) {
+      const changed = tamper.bundle.documents[0]!.content.cells.filter((cell, index) => cell.content !== original[index]!.content);
+      expect(changed, tamper.id).toHaveLength(1);
+      expect(changed[0]!.rowId, tamper.id).toBe('00000000-0000-0000-0000-000000000103');
+      expect(changed[0]!.columnId, tamper.id).toBe('00000000-0000-0000-0000-000000000202');
+    }
+  });
+
+  it('copies the trusted stored first-row canonical raw instead of recanonicalizing the declaration', () => {
+    const scenario = cases.historicalAppend;
+    const sheet = {
+      ...fixedSheet('00000000-0000-0000-0000-000000000001', 'Local', 2, 0),
+      content: { kind: 'tabular' as const, rows: scenario.rows, columns: [scenario.inputColumnId, scenario.calculatedColumnId], cells: {} },
+    };
+    const model = { id: '00000000-0000-0000-0000-000000000301', name: 'Metrics', properties: [
+      { id: '00000000-0000-0000-0000-000000000401', name: 'Input', kind: 'manual' as const },
+      { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, formula: scenario.declaration },
+    ] };
     const added = addDataModel(workbookWithSheets([sheet]), model);
     expect(added.ok).toBe(true);
     if (!added.ok) return;
-    const bound = bindSheetToDataModel(added.value, sheetId, model.id, []);
+    const bound = bindSheetToDataModel(added.value, sheet.id, model.id, []);
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
-    const replaced = replaceDataModel(bound.value, model, { [sheetId]: [] });
-    expect(replaced.ok).toBe(true);
-    if (!replaced.ok) return;
-    const appendedSheet = appendRow(replaced.value.documents[sheetId]!, '00000000-0000-0000-0000-000000000103', model, replaced.value);
-    const workbook = { ...replaced.value, documents: { ...replaced.value.documents, [sheetId]: appendedSheet } };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sheets: [] }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    await workbookApi.replaceDataModelState(workbook, []);
-
-    const request = fetchMock.mock.calls[0]![1] as RequestInit;
-    expect(JSON.parse(request.body as string).workbook).toEqual(cases.bundle);
+    const sourceKey = `${scenario.rows[0]}\u0000${scenario.calculatedColumnId}`;
+    const trusted = {
+      ...bound.value,
+      documents: {
+        ...bound.value.documents,
+        [sheet.id]: {
+          ...bound.value.documents[sheet.id]!,
+          content: { ...bound.value.documents[sheet.id]!.content, cells: { ...bound.value.documents[sheet.id]!.content.cells, [sourceKey]: scenario.storedFirstRaw } },
+        },
+      },
+    };
+    const appended = appendRow(trusted.documents[sheet.id]!, scenario.appendRowId, model, trusted);
+    expect(appended.content.cells[`${scenario.appendRowId}\u0000${scenario.calculatedColumnId}`], scenario.id).toBe(scenario.expected);
   });
 });

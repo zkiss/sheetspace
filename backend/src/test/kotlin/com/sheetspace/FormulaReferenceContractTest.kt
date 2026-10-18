@@ -7,9 +7,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -368,55 +365,49 @@ class FormulaReferenceContractTest {
             ),
             crossSheetCopy.getValue("id").jsonPrimitive.content,
         )
-    }
-
-    @Test fun `accepts the exact bundle captured by the frontend mutation and transport path`() {
-        val fixture = Json.parseToJsonElement(
-            requireNotNull(javaClass.classLoader.getResource("formula-contract-cases.json")).readText(),
-        ).jsonObject
-        val bundle = Json.decodeFromJsonElement<WorkbookBundleResponse>(fixture.getValue("bundle"))
-
-        val state = dataModelState(bundle)
-
-        val sheet = state.findSheet(SheetId("00000000-0000-0000-0000-000000000001"))!!
+        val historicalAppend = fixture.getValue("historicalAppend").jsonObject
+        val historicalContent = fixedContent("00000000-0000-0000-0000-000000000001")
+            .updateCell("B1", historicalAppend.getValue("storedFirstRaw").jsonPrimitive.content)
+        val historicalSheet = SheetDocument(transformSheet, name = "Local", content = historicalContent)
+        val historicalWorkbook = WorkbookState(WorkbookManifest(sheetIds = listOf(transformSheet)), mapOf(transformSheet to historicalSheet))
+        val appendedContent = historicalContent.appendRow(RowId(historicalAppend.getValue("appendRowId").jsonPrimitive.content))
+        val appendedWorkbook = historicalWorkbook.replaceSheet(historicalSheet.copy(content = appendedContent))
+        val historicalDestination = CellCoordinate(
+            RowId(historicalAppend.getValue("appendRowId").jsonPrimitive.content),
+            ColumnId(historicalAppend.getValue("calculatedColumnId").jsonPrimitive.content),
+        )
         assertEquals(
-            "=@00000000-0000-0000-0000-000000000201[00000000-0000-0000-0000-000000000103]+1",
-            sheet.tabularContent.cellContents[CellCoordinate(
-                RowId("00000000-0000-0000-0000-000000000103"),
-                ColumnId("00000000-0000-0000-0000-000000000202"),
-            )],
+            historicalAppend.getValue("expected").jsonPrimitive.content,
+            materializeModelFormula(historicalAppend.getValue("declaration").jsonPrimitive.content, appendedWorkbook, transformSheet, historicalDestination),
+            historicalAppend.getValue("id").jsonPrimitive.content,
         )
     }
 
-    @Test fun `rejects an ownership-forged variation of the frontend transport bundle`() {
+    @Test fun `accepts every bundle captured by the frontend mutation and transport path`() {
         val fixture = Json.parseToJsonElement(
             requireNotNull(javaClass.classLoader.getResource("formula-contract-cases.json")).readText(),
         ).jsonObject
-        val original = fixture.getValue("bundle").jsonObject
-        val document = original.getValue("documents").jsonArray.single().jsonObject
-        val content = document.getValue("content").jsonObject
-        val forgedCells = content.getValue("cells").jsonArray.mapIndexed { index, entry ->
-            if (index != 2) entry else buildJsonObject {
-                entry.jsonObject.forEach { (key, value) -> put(key, value) }
-                put("content", "=@00000000-0000-0000-0000-000000000202[00000000-0000-0000-0000-000000000103]+1")
+        fixture.getValue("mutationStages").jsonObject.forEach { (stage, encodedBundle) ->
+            val state = dataModelState(Json.decodeFromJsonElement<WorkbookBundleResponse>(encodedBundle))
+            val sheet = state.findSheet(SheetId("00000000-0000-0000-0000-000000000001"))!!
+            val model = state.dataModels.values.single()
+            if (sheet.dataModelId == model.id) assertTrue(hasOnlyModelOwnedCalculatedContents(state, sheet.id, model), stage)
+            sheet.tabularContent.cellContents.forEach { (coordinate, raw) ->
+                val property = model.properties[sheet.tabularContent.columns.indexOf(coordinate.columnId)]
+                if (property is CalculatedDataModelProperty) assertEquals(raw, materializeModelFormula(property.formula, state, sheet.id, coordinate), stage)
             }
         }
-        val forgedBundle = buildJsonObject {
-            original.forEach { (key, value) ->
-                put(key, if (key == "documents") buildJsonArray {
-                    add(buildJsonObject {
-                        document.forEach { (documentKey, documentValue) ->
-                            put(documentKey, if (documentKey == "content") buildJsonObject {
-                                content.forEach { (contentKey, contentValue) -> put(contentKey, if (contentKey == "cells") buildJsonArray { forgedCells.forEach(::add) } else contentValue) }
-                            } else documentValue)
-                        }
-                    })
-                } else value)
-            }
-        }
+    }
 
-        kotlin.test.assertFailsWith<WorkbookApplicationException> {
-            dataModelState(Json.decodeFromJsonElement<WorkbookBundleResponse>(forgedBundle))
+    @Test fun `rejects every shared ownership-forged variation of frontend transport bundles`() {
+        val fixture = Json.parseToJsonElement(
+            requireNotNull(javaClass.classLoader.getResource("formula-contract-cases.json")).readText(),
+        ).jsonObject
+        fixture.getValue("ownershipTampers").jsonArray.forEach { entry ->
+            val tamper = entry.jsonObject
+            assertFailsWith<WorkbookApplicationException>(tamper.getValue("id").jsonPrimitive.content) {
+                dataModelState(Json.decodeFromJsonElement<WorkbookBundleResponse>(tamper.getValue("bundle")))
+            }
         }
     }
 
