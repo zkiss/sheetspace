@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyCanonicalFormula, formulaRawToCanonical, workbookFormulaReferenceResolver } from './reference';
+import { copyCanonicalFormula, formulaRawForStorage, formulaRawToCanonical, workbookFormulaReferenceResolver } from './reference';
 import { parseFormula } from './syntax';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import cases from './formula-contract-cases.json';
@@ -56,6 +56,8 @@ describe('backend formula contract conformance', () => {
         ? formulaRawToCanonical(entry.raw, resolver)
         : entry.raw;
       if (entry.canonical) expect(raw, entry.id).toBe(entry.canonical);
+      expect(formulaRawForStorage(entry.raw, workbookWithSheets([local, other]), local.id), entry.id)
+        .toBe(entry.canonical ?? entry.raw);
       expect(copyCanonicalFormula(raw, source, destination, resolver), entry.id)
         .toEqual({ ok: true, raw: entry.copied });
     }

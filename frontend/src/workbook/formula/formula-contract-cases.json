@@ -55,6 +55,12 @@
       "copied": "=@00000000-0000-0000-0000-000000000001:column:3[00000000-0000-0000-0000-000000000001:row:3]:00000000-0000-0000-0000-000000000001:column:2[00000000-0000-0000-0000-000000000001:row:2]"
     },
     {
+      "id": "forward-range-keeps-independent-endpoint-anchors",
+      "raw": "=@$A[1]:B[$2]",
+      "canonical": "=@$00000000-0000-0000-0000-000000000001:column:1[00000000-0000-0000-0000-000000000001:row:1]:00000000-0000-0000-0000-000000000001:column:2[$00000000-0000-0000-0000-000000000001:row:2]",
+      "copied": "=@$00000000-0000-0000-0000-000000000001:column:1[00000000-0000-0000-0000-000000000001:row:2]:00000000-0000-0000-0000-000000000001:column:3[$00000000-0000-0000-0000-000000000001:row:2]"
+    },
+    {
       "id": "escaped-string-and-reference-spelling",
       "raw": "=SUM( -2.5e+1, \"@A[1] and \"\"quotes\"\"\", @A[1])",
       "canonical": "=SUM( -2.5e+1, \"@A[1] and \"\"quotes\"\"\", @00000000-0000-0000-0000-000000000001:column:1[00000000-0000-0000-0000-000000000001:row:1])",
@@ -83,6 +89,12 @@
       "copied": "=#REF! + 1"
     },
     {
+      "id": "missing-uuid-target-keeps-trailing-operator-spacing",
+      "raw": "=@00000000-0000-0000-0000-000000000099!A[1] + 1 ",
+      "canonical": "=#REF! + 1 ",
+      "copied": "=#REF! + 1 "
+    },
+    {
       "id": "broken-qualifier-becomes-reference-error",
       "raw": "=@#REF!A[1] + 1",
       "canonical": "=#REF! + 1",
@@ -93,6 +105,12 @@
       "raw": "=@A[2147483648]+@FXSHRXY[1]",
       "canonical": "=#REF!+#REF!",
       "copied": "=#REF!+#REF!"
+    },
+    {
+      "id": "missing-target-function-argument-recovers-later-reference",
+      "raw": "=SUM(@Missing!A[1], @A[1])",
+      "canonical": "=SUM(#REF!, @00000000-0000-0000-0000-000000000001:column:1[00000000-0000-0000-0000-000000000001:row:1])",
+      "copied": "=SUM(#REF!, @00000000-0000-0000-0000-000000000001:column:2[00000000-0000-0000-0000-000000000001:row:2])"
     }
   ],
   "copyFailures": [

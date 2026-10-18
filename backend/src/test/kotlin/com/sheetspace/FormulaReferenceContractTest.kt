@@ -246,6 +246,11 @@ class FormulaReferenceContractTest {
                 FormulaReferenceContract.isFormula(case.getValue("raw").jsonPrimitive.content),
                 case.getValue("raw").jsonPrimitive.content,
             )
+            assertEquals(
+                case.getValue("accepted").jsonPrimitive.boolean,
+                isSupportedFormula(case.getValue("raw").jsonPrimitive.content),
+                "calculated template admission: ${case.getValue("raw").jsonPrimitive.content}",
+            )
         }
         val canonical = fixture.getValue("canonical").jsonObject
         val local = fixedContent("00000000-0000-0000-0000-000000000001")
