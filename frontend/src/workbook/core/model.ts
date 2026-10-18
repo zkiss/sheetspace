@@ -15,9 +15,10 @@ export type RowId = string;
 export type ColumnId = string;
 export type CellIdentityKey = string;
 export type WorkbookManifest = { version: typeof WORKBOOK_SCHEMA_VERSION; revision: number; sheetIds: SheetId[] };
+export type DataModelPropertyType = 'string' | 'int' | 'float' | 'boolean';
 export type DataModelProperty =
-  | { id: string; name: string; kind: 'manual' }
-  | { id: string; name: string; kind: 'calculated'; formula: string };
+  | { id: string; name: string; kind: 'manual'; type: DataModelPropertyType }
+  | { id: string; name: string; kind: 'calculated'; formula: string; type: DataModelPropertyType };
 export type DataModel = { id: string; name: string; properties: readonly DataModelProperty[] };
 export type Workbook = { manifest: WorkbookManifest; documents: Record<SheetId, SheetDocument>; dataModels?: Readonly<Record<string, DataModel>> };
 export type SheetDocument = { id: SheetId; revision: number; name: string; frame: FrameState; presentation: SheetPresentation; content: TabularContent; dataModelId?: string };

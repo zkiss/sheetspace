@@ -352,11 +352,11 @@ internal class SqliteWorkbookWriter(
                 statement.setBytes(1, model.id.toUuidBytes()); statement.setString(2, model.name); statement.addBatch()
             }; statement.executeBatch()
         }
-        connection.prepareStatement("INSERT INTO data_model_properties (model_id, id, name, property_kind, formula, property_order) VALUES (?, ?, ?, ?, ?, ?)").use { statement ->
+        connection.prepareStatement("INSERT INTO data_model_properties (model_id, id, name, property_kind, property_type, formula, property_order) VALUES (?, ?, ?, ?, ?, ?, ?)").use { statement ->
             models.values.forEach { model -> model.properties.forEachIndexed { index, property ->
                 statement.setBytes(1, model.id.toUuidBytes()); statement.setBytes(2, property.id.toUuidBytes()); statement.setString(3, property.name)
                 statement.setString(4, if (property is CalculatedDataModelProperty) "CALCULATED" else "MANUAL")
-                statement.setString(5, (property as? CalculatedDataModelProperty)?.formula); statement.setInt(6, index); statement.addBatch()
+                statement.setString(5, property.type.name); statement.setString(6, (property as? CalculatedDataModelProperty)?.formula); statement.setInt(7, index); statement.addBatch()
             } }; statement.executeBatch()
         }
     }

@@ -70,8 +70,8 @@ class SqliteWorkbookStoreSchemaTest {
             modelId,
             "Inputs",
             listOf(
-                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount"),
-                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2"),
+                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount", DataModelPropertyType.STRING),
+                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
             ),
         )
         val expected = testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model))
@@ -89,12 +89,12 @@ class SqliteWorkbookStoreSchemaTest {
         val initial = testWorkbookOf(inputs, outputs).copy(dataModels = mapOf(modelId to DataModel(
             modelId,
             "Metrics",
-            listOf(ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount")),
+            listOf(ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount", DataModelPropertyType.STRING)),
         )))
         store.saveWorkbook(initial)
         val updatedModel = initial.dataModels.getValue(modelId).copy(properties = listOf(
-            CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2"),
-            ManualDataModelProperty("00000000-0000-0000-0000-000000000104", "Note"),
+            CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
+            ManualDataModelProperty("00000000-0000-0000-0000-000000000104", "Note", DataModelPropertyType.STRING),
         ))
 
         val updated = store.updateWorkbook { it.copy(dataModels = mapOf(modelId to updatedModel)) }

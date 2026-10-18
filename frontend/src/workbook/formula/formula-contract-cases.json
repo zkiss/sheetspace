@@ -385,13 +385,15 @@
           {
             "id": "00000000-0000-0000-0000-000000000401",
             "name": "Input",
-            "kind": "manual"
+            "kind": "manual",
+            "type": "string"
           },
           {
             "id": "00000000-0000-0000-0000-000000000402",
             "name": "Derived",
             "kind": "calculated",
-            "formula": "=@A[1]+1"
+            "formula": "=@A[1]+1",
+            "type": "float"
           }
         ]
       }
@@ -443,13 +445,15 @@
             {
               "id": "00000000-0000-0000-0000-000000000401",
               "name": "Input",
-              "kind": "manual"
+              "kind": "manual",
+              "type": "string"
             },
             {
               "id": "00000000-0000-0000-0000-000000000402",
               "name": "Derived",
               "kind": "calculated",
-              "formula": "=@A[1]+1"
+              "formula": "=@A[1]+1",
+              "type": "float"
             }
           ]
         }
@@ -576,25 +580,29 @@
             {
               "id": "00000000-0000-0000-0000-000000000401",
               "name": "Input",
-              "kind": "manual"
+              "kind": "manual",
+              "type": "string"
             },
             {
               "id": "00000000-0000-0000-0000-000000000402",
               "name": "Qualified",
               "kind": "calculated",
-              "formula": "=SUM(@'Target'!A[1]:A[2])+1"
+              "formula": "=SUM(@'Target'!A[1]:A[2])+1",
+              "type": "float"
             },
             {
               "id": "00000000-0000-0000-0000-000000000403",
               "name": "Anchored",
               "kind": "calculated",
-              "formula": "=@$A[$1]+1"
+              "formula": "=@$A[$1]+1",
+              "type": "float"
             },
             {
               "id": "00000000-0000-0000-0000-000000000404",
               "name": "String",
               "kind": "calculated",
-              "formula": "=SUM(\"@A[1]\", @A[1])"
+              "formula": "=SUM(\"@A[1]\", @A[1])",
+              "type": "float"
             }
           ]
         }
@@ -674,19 +682,22 @@
             {
               "id": "00000000-0000-0000-0000-000000000401",
               "name": "Input",
-              "kind": "manual"
+              "kind": "manual",
+              "type": "string"
             },
             {
               "id": "00000000-0000-0000-0000-000000000402",
               "name": "Derived",
               "kind": "calculated",
-              "formula": "=@C[1]+2"
+              "formula": "=@C[1]+2",
+              "type": "float"
             },
             {
               "id": "00000000-0000-0000-0000-000000000403",
               "name": "Further",
               "kind": "calculated",
-              "formula": "=@A[1]+1"
+              "formula": "=@A[1]+1",
+              "type": "float"
             }
           ]
         }
@@ -741,13 +752,15 @@
             {
               "id": "00000000-0000-0000-0000-000000000401",
               "name": "Input",
-              "kind": "manual"
+              "kind": "manual",
+              "type": "string"
             },
             {
               "id": "00000000-0000-0000-0000-000000000402",
               "name": "Derived",
               "kind": "calculated",
-              "formula": "=@A[1]+1"
+              "formula": "=@A[1]+1",
+              "type": "float"
             }
           ]
         }
@@ -810,13 +823,15 @@
             {
               "id": "00000000-0000-0000-0000-000000000401",
               "name": "Input",
-              "kind": "manual"
+              "kind": "manual",
+              "type": "string"
             },
             {
               "id": "00000000-0000-0000-0000-000000000402",
               "name": "Derived",
               "kind": "calculated",
-              "formula": "=@A[1]+1"
+              "formula": "=@A[1]+1",
+              "type": "float"
             }
           ]
         }
@@ -891,13 +906,15 @@
             {
               "id": "00000000-0000-0000-0000-000000000401",
               "name": "Input",
-              "kind": "manual"
+              "kind": "manual",
+              "type": "string"
             },
             {
               "id": "00000000-0000-0000-0000-000000000402",
               "name": "Derived",
               "kind": "calculated",
-              "formula": "=@A[1]+1"
+              "formula": "=@A[1]+1",
+              "type": "float"
             }
           ]
         }
@@ -1029,25 +1046,29 @@
               {
                 "id": "00000000-0000-0000-0000-000000000401",
                 "name": "Input",
-                "kind": "manual"
+                "kind": "manual",
+                "type": "string"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000402",
                 "name": "Qualified",
                 "kind": "calculated",
-                "formula": "=SUM(@'Target'!A[1]:A[2])+1"
+                "formula": "=SUM(@'Target'!A[1]:A[2])+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000403",
                 "name": "Anchored",
                 "kind": "calculated",
-                "formula": "=@$A[$1]+1"
+                "formula": "=@$A[$1]+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000404",
                 "name": "String",
                 "kind": "calculated",
-                "formula": "=SUM(\"@A[1]\", @A[1])"
+                "formula": "=SUM(\"@A[1]\", @A[1])",
+                "type": "float"
               }
             ]
           }
@@ -1178,25 +1199,29 @@
               {
                 "id": "00000000-0000-0000-0000-000000000401",
                 "name": "Input",
-                "kind": "manual"
+                "kind": "manual",
+                "type": "string"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000402",
                 "name": "Qualified",
                 "kind": "calculated",
-                "formula": "=SUM(@'Target'!A[1]:A[2])+1"
+                "formula": "=SUM(@'Target'!A[1]:A[2])+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000403",
                 "name": "Anchored",
                 "kind": "calculated",
-                "formula": "=@$A[$1]+1"
+                "formula": "=@$A[$1]+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000404",
                 "name": "String",
                 "kind": "calculated",
-                "formula": "=SUM(\"@A[1]\", @A[1])"
+                "formula": "=SUM(\"@A[1]\", @A[1])",
+                "type": "float"
               }
             ]
           }
@@ -1327,25 +1352,29 @@
               {
                 "id": "00000000-0000-0000-0000-000000000401",
                 "name": "Input",
-                "kind": "manual"
+                "kind": "manual",
+                "type": "string"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000402",
                 "name": "Qualified",
                 "kind": "calculated",
-                "formula": "=SUM(@'Target'!A[1]:A[2])+1"
+                "formula": "=SUM(@'Target'!A[1]:A[2])+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000403",
                 "name": "Anchored",
                 "kind": "calculated",
-                "formula": "=@$A[$1]+1"
+                "formula": "=@$A[$1]+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000404",
                 "name": "String",
                 "kind": "calculated",
-                "formula": "=SUM(\"@A[1]\", @A[1])"
+                "formula": "=SUM(\"@A[1]\", @A[1])",
+                "type": "float"
               }
             ]
           }
@@ -1476,25 +1505,29 @@
               {
                 "id": "00000000-0000-0000-0000-000000000401",
                 "name": "Input",
-                "kind": "manual"
+                "kind": "manual",
+                "type": "string"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000402",
                 "name": "Qualified",
                 "kind": "calculated",
-                "formula": "=SUM(@'Target'!A[1]:A[2])+1"
+                "formula": "=SUM(@'Target'!A[1]:A[2])+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000403",
                 "name": "Anchored",
                 "kind": "calculated",
-                "formula": "=@$A[$1]+1"
+                "formula": "=@$A[$1]+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000404",
                 "name": "String",
                 "kind": "calculated",
-                "formula": "=SUM(\"@A[1]\", @A[1])"
+                "formula": "=SUM(\"@A[1]\", @A[1])",
+                "type": "float"
               }
             ]
           }
@@ -1625,25 +1658,29 @@
               {
                 "id": "00000000-0000-0000-0000-000000000401",
                 "name": "Input",
-                "kind": "manual"
+                "kind": "manual",
+                "type": "string"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000402",
                 "name": "Qualified",
                 "kind": "calculated",
-                "formula": "=SUM(@'Target'!A[1]:A[2])+1"
+                "formula": "=SUM(@'Target'!A[1]:A[2])+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000403",
                 "name": "Anchored",
                 "kind": "calculated",
-                "formula": "=@$A[$1]+1"
+                "formula": "=@$A[$1]+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000404",
                 "name": "String",
                 "kind": "calculated",
-                "formula": "=SUM(\"@A[1]\", @A[1])"
+                "formula": "=SUM(\"@A[1]\", @A[1])",
+                "type": "float"
               }
             ]
           }
@@ -1774,25 +1811,29 @@
               {
                 "id": "00000000-0000-0000-0000-000000000401",
                 "name": "Input",
-                "kind": "manual"
+                "kind": "manual",
+                "type": "string"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000402",
                 "name": "Qualified",
                 "kind": "calculated",
-                "formula": "=SUM(@'Target'!A[1]:A[2])+1"
+                "formula": "=SUM(@'Target'!A[1]:A[2])+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000403",
                 "name": "Anchored",
                 "kind": "calculated",
-                "formula": "=@$A[$1]+1"
+                "formula": "=@$A[$1]+1",
+                "type": "float"
               },
               {
                 "id": "00000000-0000-0000-0000-000000000404",
                 "name": "String",
                 "kind": "calculated",
-                "formula": "=SUM(\"@A[1]\", @A[1])"
+                "formula": "=SUM(\"@A[1]\", @A[1])",
+                "type": "float"
               }
             ]
           }

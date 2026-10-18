@@ -92,8 +92,8 @@ describe('useWorkbookController content mutations', () => {
   it('invalidates content history across model ownership transitions', () => {
     const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 1, columnCount: 1 });
     const model: DataModel = { id: 'model', name: 'Model', properties: [
-      { id: 'manual', name: 'Manual', kind: 'manual' },
-      { id: 'calculated', name: 'Calculated', kind: 'calculated', formula: '=@A[1]*2' },
+      { id: 'manual', name: 'Manual', kind: 'manual', type: 'string' },
+      { id: 'calculated', name: 'Calculated', kind: 'calculated', type: 'float', formula: '=@A[1]*2' },
     ] };
     const { result } = renderHook(() => useWorkbookController({
       apiClient: autosaveClient(), initialWorkbook: workbookWithSheets([sheet]),
@@ -121,7 +121,7 @@ describe('useWorkbookController content mutations', () => {
       apiClient: autosaveClient({ appendColumn }),
       initialWorkbook: {
         ...workbookWithSheets([sheet]),
-        dataModels: { model: { id: 'model', name: 'Model', properties: [{ id: 'input', name: 'Input', kind: 'manual' }] } },
+        dataModels: { model: { id: 'model', name: 'Model', properties: [{ id: 'input', name: 'Input', kind: 'manual', type: 'string' }] } },
       },
     }));
 

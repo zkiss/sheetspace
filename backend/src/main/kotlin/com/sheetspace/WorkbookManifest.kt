@@ -55,9 +55,10 @@ data class WorkbookState(
 }
 
 data class DataModel(val id: String, val name: String, val properties: List<DataModelProperty>)
-sealed interface DataModelProperty { val id: String; val name: String }
-data class ManualDataModelProperty(override val id: String, override val name: String) : DataModelProperty
-data class CalculatedDataModelProperty(override val id: String, override val name: String, val formula: String) : DataModelProperty
+enum class DataModelPropertyType { STRING, INT, FLOAT, BOOLEAN }
+sealed interface DataModelProperty { val id: String; val name: String; val type: DataModelPropertyType }
+data class ManualDataModelProperty(override val id: String, override val name: String, override val type: DataModelPropertyType) : DataModelProperty
+data class CalculatedDataModelProperty(override val id: String, override val name: String, val formula: String, override val type: DataModelPropertyType) : DataModelProperty
 
 fun emptyWorkbookState(): WorkbookState = WorkbookState()
 

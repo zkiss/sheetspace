@@ -13,8 +13,8 @@ class SqliteWorkbookStoreCellBatchTest {
             modelId,
             "Inputs",
             listOf(
-                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount"),
-                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2"),
+                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount", DataModelPropertyType.STRING),
+                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
             ),
         )
         store.saveWorkbook(testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model)))

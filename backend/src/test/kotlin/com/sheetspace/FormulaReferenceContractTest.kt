@@ -214,7 +214,7 @@ class FormulaReferenceContractTest {
         val model = DataModel(
             "model-1",
             "Metrics",
-            listOf(CalculatedDataModelProperty("property-1", "Derived", "=@A[1]")),
+            listOf(CalculatedDataModelProperty("property-1", "Derived", "=@A[1]", DataModelPropertyType.FLOAT)),
         )
 
         assertFalse(hasOnlyModelOwnedCalculatedContents(workbook, SheetId("missing-sheet"), model))

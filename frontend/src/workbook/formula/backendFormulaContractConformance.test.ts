@@ -136,7 +136,7 @@ describe('backend formula contract conformance', () => {
       expect(parseFormula(entry.raw).kind === 'formula', entry.raw).toBe(entry.accepted);
       expect(validateDataModel({
         id: 'formula-contract-model', name: 'Formula contract', properties: [
-          { id: 'formula-contract-property', name: 'Calculated', kind: 'calculated', formula: entry.raw },
+          { id: 'formula-contract-property', name: 'Calculated', kind: 'calculated', type: 'float' as const, formula: entry.raw },
         ],
       }), entry.raw).toEqual(entry.accepted ? undefined : { ok: false, reason: 'invalid-formula' });
     }
@@ -152,8 +152,8 @@ describe('backend formula contract conformance', () => {
     };
     const model = {
       id: '00000000-0000-0000-0000-000000000301', name: 'Metrics', properties: [
-        { id: '00000000-0000-0000-0000-000000000401', name: 'Input', kind: 'manual' as const },
-        { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, formula: '=@A[1]+1' },
+        { id: '00000000-0000-0000-0000-000000000401', name: 'Input', kind: 'manual' as const, type: 'string' as const },
+        { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, type: 'float' as const, formula: '=@A[1]+1' },
       ],
     };
     const capture = async (workbook: Parameters<typeof workbookApi.replaceDataModelState>[0]) => {
@@ -180,9 +180,9 @@ describe('backend formula contract conformance', () => {
       ...model,
       properties: [
         model.properties[0]!,
-        { id: '00000000-0000-0000-0000-000000000402', name: 'Qualified', kind: 'calculated' as const, formula: "=SUM(@'Target'!A[1]:A[2])+1" },
-        { id: '00000000-0000-0000-0000-000000000403', name: 'Anchored', kind: 'calculated' as const, formula: '=@$A[$1]+1' },
-        { id: '00000000-0000-0000-0000-000000000404', name: 'String', kind: 'calculated' as const, formula: '=SUM("@A[1]", @A[1])' },
+        { id: '00000000-0000-0000-0000-000000000402', name: 'Qualified', kind: 'calculated' as const, type: 'float' as const, formula: "=SUM(@'Target'!A[1]:A[2])+1" },
+        { id: '00000000-0000-0000-0000-000000000403', name: 'Anchored', kind: 'calculated' as const, type: 'float' as const, formula: '=@$A[$1]+1' },
+        { id: '00000000-0000-0000-0000-000000000404', name: 'String', kind: 'calculated' as const, type: 'float' as const, formula: '=SUM("@A[1]", @A[1])' },
       ],
     };
     const addedForRichBind = addDataModel(workbookWithSheets([richSheet, targetSheet]), richModel);
@@ -205,7 +205,7 @@ describe('backend formula contract conformance', () => {
       properties: [
         model.properties[0]!,
         { ...model.properties[1]!, formula: '=@C[1]+2' },
-        { id: '00000000-0000-0000-0000-000000000403', name: 'Further', kind: 'calculated' as const, formula: '=@A[1]+1' },
+        { id: '00000000-0000-0000-0000-000000000403', name: 'Further', kind: 'calculated' as const, type: 'float' as const, formula: '=@A[1]+1' },
       ],
     };
     const replaced = replaceDataModel(bound.value, replacement, { [sheetId]: ['00000000-0000-0000-0000-000000000203'] });
@@ -236,7 +236,7 @@ describe('backend formula contract conformance', () => {
     const sheetId = '00000000-0000-0000-0000-000000000001';
     const workbook = workbookWithSheets([fixedSheet(sheetId, 'Local', 2, 0)]);
     const malformed = { id: '00000000-0000-0000-0000-000000000301', name: 'Metrics', properties: [
-      { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, formula: '=1+' },
+      { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, type: 'float' as const, formula: '=1+' },
     ] };
     expect(addDataModel(workbook, malformed)).toEqual({ ok: false, reason: 'invalid-formula' });
     const valid = { ...malformed, properties: [{ ...malformed.properties[0]!, formula: '=@A[1]+1' }] };
@@ -324,8 +324,8 @@ describe('backend formula contract conformance', () => {
       content: { kind: 'tabular' as const, rows: scenario.rows, columns: [scenario.inputColumnId, scenario.calculatedColumnId], cells: {} },
     };
     const model = { id: '00000000-0000-0000-0000-000000000301', name: 'Metrics', properties: [
-      { id: '00000000-0000-0000-0000-000000000401', name: 'Input', kind: 'manual' as const },
-      { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, formula: scenario.declaration },
+      { id: '00000000-0000-0000-0000-000000000401', name: 'Input', kind: 'manual' as const, type: 'string' as const },
+      { id: '00000000-0000-0000-0000-000000000402', name: 'Derived', kind: 'calculated' as const, type: 'float' as const, formula: scenario.declaration },
     ] };
     const added = addDataModel(workbookWithSheets([sheet]), model);
     expect(added.ok).toBe(true);

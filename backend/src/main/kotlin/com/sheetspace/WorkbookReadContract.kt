@@ -20,7 +20,7 @@ data class WorkbookBundleResponse(
 data class DataModelResponse(val id: String, val name: String, val properties: List<DataModelPropertyResponse>)
 
 @Serializable
-data class DataModelPropertyResponse(val id: String, val name: String, val kind: String, val formula: String? = null)
+data class DataModelPropertyResponse(val id: String, val name: String, val kind: String, val type: String, val formula: String? = null)
 
 @Serializable
 data class SheetDocumentResponse(
@@ -103,8 +103,8 @@ internal object WorkbookReadTransportAdapter {
 
     private fun dataModel(model: DataModel) = DataModelResponse(model.id, model.name, model.properties.map { property ->
         when (property) {
-            is ManualDataModelProperty -> DataModelPropertyResponse(property.id, property.name, "manual")
-            is CalculatedDataModelProperty -> DataModelPropertyResponse(property.id, property.name, "calculated", property.formula)
+            is ManualDataModelProperty -> DataModelPropertyResponse(property.id, property.name, "manual", property.type.name.lowercase())
+            is CalculatedDataModelProperty -> DataModelPropertyResponse(property.id, property.name, "calculated", property.type.name.lowercase(), property.formula)
         }
     })
 }

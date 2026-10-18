@@ -175,8 +175,8 @@ private fun modelOwnedWorkbook(): WorkbookState {
         "Metrics",
         content.columns.mapIndexed { index, _ ->
             val id = "00000000-0000-0000-0000-${(111 + index).toString().padStart(12, '0')}"
-            if (index == 1) CalculatedDataModelProperty(id, "Double", "=@A[1]*2")
-            else ManualDataModelProperty(id, "Column $index")
+            if (index == 1) CalculatedDataModelProperty(id, "Double", "=@A[1]*2", DataModelPropertyType.FLOAT)
+            else ManualDataModelProperty(id, "Column $index", DataModelPropertyType.STRING)
         },
     )
     val modelContents = TabularContent(

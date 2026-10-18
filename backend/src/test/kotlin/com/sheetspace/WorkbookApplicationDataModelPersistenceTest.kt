@@ -182,7 +182,7 @@ class WorkbookApplicationDataModelPersistenceTest {
         listOf("=", "not a formula").forEach { template ->
             val fixture = dataModelFixture()
             val model = fixture.boundWorkbook.dataModels.values.single().copy(properties = fixture.boundWorkbook.dataModels.values.single().properties.mapIndexed { index, property ->
-                if (index == 1) CalculatedDataModelProperty(property.id, property.name, template) else property
+                if (index == 1) CalculatedDataModelProperty(property.id, property.name, template, DataModelPropertyType.FLOAT) else property
             })
             val application = DefaultWorkbookApplication(InMemoryWorkbookStore(fixture.boundWorkbook.copy(dataModels = mapOf(model.id to model))))
             assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
@@ -358,7 +358,7 @@ class WorkbookApplicationDataModelPersistenceTest {
         val fixture = dataModelFixture()
         val model = fixture.boundWorkbook.dataModels.values.single()
         val manualOnlyWorkbook = fixture.boundWorkbook.copy(dataModels = mapOf(model.id to model.copy(
-            properties = model.properties.map { property -> ManualDataModelProperty(property.id, property.name) },
+            properties = model.properties.map { property -> ManualDataModelProperty(property.id, property.name, DataModelPropertyType.STRING) },
         )))
         fixture.application.replaceDataModelState(fixture.command(manualOnlyWorkbook))
 
@@ -461,11 +461,11 @@ class WorkbookApplicationDataModelPersistenceTest {
         modelId,
         "Metrics",
         listOf(
-            ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount"),
-            CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2"),
-            ManualDataModelProperty("00000000-0000-0000-0000-000000000104", "Note"),
+            ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount", DataModelPropertyType.STRING),
+            CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
+            ManualDataModelProperty("00000000-0000-0000-0000-000000000104", "Note", DataModelPropertyType.STRING),
         ) + (5..11).map { index ->
-            ManualDataModelProperty("00000000-0000-0000-0000-0000000001$index", "Input $index")
+            ManualDataModelProperty("00000000-0000-0000-0000-0000000001$index", "Input $index", DataModelPropertyType.STRING)
         },
     )
 

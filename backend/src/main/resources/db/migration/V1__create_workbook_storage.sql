@@ -25,6 +25,7 @@ CREATE TABLE data_model_properties (
     id BLOB NOT NULL CHECK (typeof(id) = 'blob' AND length(id) = 16),
     name TEXT NOT NULL,
     property_kind TEXT NOT NULL CHECK (property_kind IN ('MANUAL', 'CALCULATED')),
+    property_type TEXT NOT NULL CHECK (property_type IN ('STRING', 'INT', 'FLOAT', 'BOOLEAN')),
     formula TEXT,
     property_order INTEGER NOT NULL CHECK (property_order >= 0),
     PRIMARY KEY (model_id, id),

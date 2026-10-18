@@ -4,10 +4,13 @@ import { copyCanonicalFormula, formulaRawForStorage, workbookFormulaReferenceRes
 import { parseFormula } from '../formula/syntax';
 
 export type ModelWorkbook = Workbook;
-export type ModelMutationResult = { ok: true; value: ModelWorkbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'duplicate-property-name' | 'already-bound' | 'column-id-required' | 'invalid-formula' };
+export type ModelMutationResult = { ok: true; value: ModelWorkbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'duplicate-property-name' | 'already-bound' | 'column-id-required' | 'invalid-formula' | 'invalid-property-type' };
 
 /** Model formulas are authored as first-row spreadsheet formulas and copied with normal A1 rebasing. */
 export function validateDataModel(model: DataModel): ModelMutationResult | undefined {
+  if (model.properties.some((property) => !isDataModelPropertyType(property.type))) {
+    return { ok: false, reason: 'invalid-property-type' };
+  }
   const names = model.properties.map((property) => property.name.trim());
   if (names.some((name) => !name) || new Set(names).size !== names.length) {
     return { ok: false, reason: 'duplicate-property-name' };
@@ -15,6 +18,10 @@ export function validateDataModel(model: DataModel): ModelMutationResult | undef
   return model.properties.some((property) => property.kind === 'calculated' && parseFormula(property.formula).kind !== 'formula')
     ? { ok: false, reason: 'invalid-formula' }
     : undefined;
+}
+
+export function isDataModelPropertyType(type: unknown): type is DataModel['properties'][number]['type'] {
+  return type === 'string' || type === 'int' || type === 'float' || type === 'boolean';
 }
 
 /** Adds a declarative definition without changing any sheet until an explicit bind. */

@@ -327,9 +327,9 @@ internal fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
         response.id to DataModel(response.id, response.name, response.properties.map { property ->
             if (property.id.toUuidBytesOrNull() == null || property.name.isBlank()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             when (property.kind) {
-                "manual" -> if (property.formula == null) ManualDataModelProperty(property.id, property.name) else throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                "manual" -> if (property.formula == null) ManualDataModelProperty(property.id, property.name, property.type.toDataModelPropertyTypeOrNull() ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)) else throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 "calculated" -> property.formula?.takeIf(::isSupportedFormula)
-                    ?.let { CalculatedDataModelProperty(property.id, property.name, it) }
+                    ?.let { CalculatedDataModelProperty(property.id, property.name, it, property.type.toDataModelPropertyTypeOrNull() ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)) }
                     ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 else -> throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
@@ -425,6 +425,9 @@ internal fun materializeModelFormula(
 }
 
 internal fun isSupportedFormula(raw: String): Boolean = FormulaReferenceContract.isFormula(raw)
+
+private fun String.toDataModelPropertyTypeOrNull(): DataModelPropertyType? =
+    DataModelPropertyType.entries.firstOrNull { it.name.equals(this, ignoreCase = true) }
 
 /**
  * Storage accepts aggregate replacements from more than the HTTP application.  Keep the

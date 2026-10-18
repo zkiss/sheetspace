@@ -211,14 +211,15 @@ internal class SqliteWorkbookReader(
     }
 
     private fun loadDataModelProperties(modelId: String): List<DataModelProperty> = connection.prepareStatement(
-        "SELECT id, name, property_kind, formula FROM data_model_properties WHERE model_id = ? ORDER BY property_order",
+        "SELECT id, name, property_kind, property_type, formula FROM data_model_properties WHERE model_id = ? ORDER BY property_order",
     ).use { statement ->
         statement.setBytes(1, modelId.toUuidBytes())
         statement.executeQuery().use { properties -> buildList {
             while (properties.next()) {
                 val id = properties.getBytes("id").toUuidString()
                 val name = properties.getString("name")
-                add(if (properties.getString("property_kind") == "CALCULATED") CalculatedDataModelProperty(id, name, properties.getString("formula")) else ManualDataModelProperty(id, name))
+                val type = DataModelPropertyType.valueOf(properties.getString("property_type"))
+                add(if (properties.getString("property_kind") == "CALCULATED") CalculatedDataModelProperty(id, name, properties.getString("formula"), type) else ManualDataModelProperty(id, name, type))
             }
         } }
     }

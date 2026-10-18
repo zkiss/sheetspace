@@ -9,8 +9,8 @@ import { classifyCellValue } from '../../calculation/formulaValue';
 
 const model: DataModel = {
   id: 'forecast', name: 'Forecast', properties: [
-    { id: 'amount', name: 'Amount', kind: 'manual' },
-    { id: 'double', name: 'Double', kind: 'calculated', formula: '=@A[1]*2' },
+    { id: 'amount', name: 'Amount', kind: 'manual', type: 'string' },
+    { id: 'double', name: 'Double', kind: 'calculated', type: 'float', formula: '=@A[1]*2' },
   ],
 };
 
@@ -27,6 +27,30 @@ describe('data model mutations', () => {
     if (!added.ok) return;
     expect(added.value.documents).toBe(source.documents);
     expect(addDataModel(added.value, model)).toEqual({ ok: false, reason: 'duplicate-model' });
+  });
+
+  it('keeps every declared type on unbound and zero-row definitions without coercing values', () => {
+    const typed: DataModel = {
+      id: 'typed', name: 'Typed', properties: [
+        { id: 'manual-string', name: 'Manual string', kind: 'manual', type: 'string' },
+        { id: 'manual-int', name: 'Manual int', kind: 'manual', type: 'int' },
+        { id: 'manual-float', name: 'Manual float', kind: 'manual', type: 'float' },
+        { id: 'manual-boolean', name: 'Manual boolean', kind: 'manual', type: 'boolean' },
+        { id: 'calculated-string', name: 'Calculated string', kind: 'calculated', type: 'string', formula: '="text"' },
+        { id: 'calculated-int', name: 'Calculated int', kind: 'calculated', type: 'int', formula: '=1.5' },
+        { id: 'calculated-float', name: 'Calculated float', kind: 'calculated', type: 'float', formula: '=TRUE' },
+        { id: 'calculated-boolean', name: 'Calculated boolean', kind: 'calculated', type: 'boolean', formula: '=1/0' },
+      ],
+    };
+    const source = workbookWithSheets([sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 0 })]);
+    const added = addDataModel(source, typed);
+
+    expect(added).toEqual({ ok: true, value: { ...source, dataModels: { typed } } });
+    if (!added.ok) return;
+    expect(bindSheetToDataModel(added.value, 'empty', 'typed', ['column-1', 'column-2', 'column-3', 'column-4', 'column-5', 'column-6', 'column-7', 'column-8'])).toMatchObject({ ok: true });
+    expect(addDataModel(source, { ...typed, id: 'invalid', properties: [{ id: 'missing', name: 'Missing', kind: 'manual' } as DataModel['properties'][number]] })).toEqual({ ok: false, reason: 'invalid-property-type' });
+    expect(addDataModel(source, { ...typed, id: 'invalid-null', properties: [{ id: 'null', name: 'Null', kind: 'manual', type: null } as unknown as DataModel['properties'][number]] })).toEqual({ ok: false, reason: 'invalid-property-type' });
+    expect(addDataModel(source, { ...typed, id: 'invalid-unknown', properties: [{ id: 'unknown', name: 'Unknown', kind: 'manual', type: 'decimal' } as unknown as DataModel['properties'][number]] })).toEqual({ ok: false, reason: 'invalid-property-type' });
   });
 
   it('persists model-only additions without a sheet guard and retains an unbound sheet guard', () => {
@@ -68,7 +92,7 @@ describe('data model mutations', () => {
   it('rejects invalid binding without changing the workbook', () => {
     const source = workbook();
     expect(bindSheetToDataModel(source, 'sales', 'forecast', [])).toEqual({ ok: false, reason: 'column-id-required' });
-    expect(bindSheetToDataModel({ ...source, dataModels: { forecast: { ...model, properties: [model.properties[0]!, { id: 'other', name: 'Amount', kind: 'manual' }] } } }, 'sales', 'forecast', ['new'])).toEqual({ ok: false, reason: 'duplicate-property-name' });
+    expect(bindSheetToDataModel({ ...source, dataModels: { forecast: { ...model, properties: [model.properties[0]!, { id: 'other', name: 'Amount', kind: 'manual', type: 'string' }] } } }, 'sales', 'forecast', ['new'])).toEqual({ ok: false, reason: 'duplicate-property-name' });
   });
 
   it('gives a name-only rename a fresh column without retaining manual values', () => {
@@ -77,7 +101,7 @@ describe('data model mutations', () => {
     if (!bound.ok) return;
     const result = replaceDataModel(bound.value, {
       ...model,
-      properties: [model.properties[1]!, { id: 'amount', name: 'Revised amount', kind: 'manual' }],
+      properties: [model.properties[1]!, { id: 'amount', name: 'Revised amount', kind: 'manual', type: 'string' }],
     }, { sales: ['sales:column:3'] });
 
     expect(result.ok).toBe(true);
@@ -100,7 +124,7 @@ describe('data model mutations', () => {
 
     const reintroduced = replaceDataModel(removed.value, {
       ...model,
-      properties: [model.properties[1]!, { id: 'new-amount', name: 'Amount', kind: 'manual' }],
+      properties: [model.properties[1]!, { id: 'new-amount', name: 'Amount', kind: 'manual', type: 'string' }],
     }, { sales: ['sales:column:3'] });
     expect(reintroduced.ok).toBe(true);
     if (!reintroduced.ok) return;
@@ -145,7 +169,7 @@ describe('data model mutations', () => {
 
     const result = replaceDataModel(bound.value, {
       ...model,
-      properties: [model.properties[0]!, { id: 'double', name: 'Double', kind: 'manual' }],
+      properties: [model.properties[0]!, { id: 'double', name: 'Double', kind: 'manual', type: 'string' }],
     }, { sales: [] });
 
     expect(result.ok).toBe(true);
@@ -170,8 +194,8 @@ describe('data model mutations', () => {
   it('unbinds calculated text without coercing boolean or numeric-looking values', () => {
     const textModel: DataModel = {
       id: 'text-values', name: 'Text values', properties: [
-        { id: 'truth', name: 'Truth', kind: 'calculated', formula: '="TRUE"' },
-        { id: 'numeric-text', name: 'Numeric text', kind: 'calculated', formula: '="123"' },
+        { id: 'truth', name: 'Truth', kind: 'calculated', type: 'float', formula: '="TRUE"' },
+        { id: 'numeric-text', name: 'Numeric text', kind: 'calculated', type: 'float', formula: '="123"' },
       ],
     };
     const source = { ...workbookWithSheets([sheetDocument({ id: 'sales', name: 'Sales', rowCount: 1, columnCount: 0 })]), dataModels: { [textModel.id]: textModel } };
@@ -225,8 +249,8 @@ describe('data model mutations', () => {
   it('rebases relative model references while preserving absolute and cross-sheet targets on row append', () => {
     const formulaModel: DataModel = {
       id: 'forecast', name: 'Forecast', properties: [
-        { id: 'amount', name: 'Amount', kind: 'manual' },
-        { id: 'total', name: 'Total', kind: 'calculated', formula: '=@A[1]+@$A[$1]+@Inputs!$A[$1]' },
+        { id: 'amount', name: 'Amount', kind: 'manual', type: 'string' },
+        { id: 'total', name: 'Total', kind: 'calculated', type: 'float', formula: '=@A[1]+@$A[$1]+@Inputs!$A[$1]' },
       ],
     };
     const source = {
@@ -286,8 +310,8 @@ describe('data model mutations', () => {
     const result = replaceDataModel(withPresentation, {
       ...model,
       properties: [
-        { id: 'replacement-double', name: 'Double', kind: 'calculated', formula: '=@A[1]*2' },
-        { id: 'replacement-amount', name: 'Amount', kind: 'manual' },
+        { id: 'replacement-double', name: 'Double', kind: 'calculated', type: 'float', formula: '=@A[1]*2' },
+        { id: 'replacement-amount', name: 'Amount', kind: 'manual', type: 'string' },
       ],
     }, { sales: [] });
 
@@ -315,7 +339,7 @@ describe('data model mutations', () => {
 
     const result = replaceDataModel(bound.value, {
       ...model,
-      properties: [...model.properties, { id: 'note', name: 'Note', kind: 'manual' }],
+      properties: [...model.properties, { id: 'note', name: 'Note', kind: 'manual', type: 'string' }],
     }, { first: ['first:column:3'], second: [] });
 
     expect(result).toEqual({ ok: false, reason: 'column-id-required' });
@@ -342,7 +366,7 @@ describe('data model mutations', () => {
   it('rejects non-formula calculated templates before binding an empty sheet', () => {
     const invalidModel: DataModel = {
       ...model,
-      properties: [model.properties[0]!, { id: 'invalid', name: 'Invalid', kind: 'calculated', formula: 'not a formula' }],
+      properties: [model.properties[0]!, { id: 'invalid', name: 'Invalid', kind: 'calculated', type: 'float', formula: 'not a formula' }],
     };
     const empty = workbookWithSheets([sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 1 })]);
     const source = { ...empty, dataModels: { forecast: invalidModel } };

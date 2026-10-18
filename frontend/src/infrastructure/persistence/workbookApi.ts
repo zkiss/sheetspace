@@ -1,4 +1,4 @@
-import type { AxisSizeWrite, DataModel, FormatWrite, SheetPresentation } from '@workbook/core/model';
+import type { AxisSizeWrite, DataModel, DataModelProperty, DataModelPropertyType, FormatWrite, SheetPresentation } from '@workbook/core/model';
 import { isValidCellAppearance, validFormatWrites } from '@workbook/core/numberFormat';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
@@ -43,8 +43,11 @@ export type SheetDocumentResponse = {
 export type WorkbookBundleResponse = {
   manifest: WorkbookManifestResponse;
   documents: SheetDocumentResponse[];
-  dataModels?: DataModel[];
+  dataModels?: DataModelResponse[];
 };
+
+export type DataModelResponse = { id: string; name: string; properties: DataModelPropertyResponse[] };
+export type DataModelPropertyResponse = { id: string; name: string; kind: 'manual' | 'calculated'; type: DataModelPropertyType; formula?: string };
 
 export type SheetRevisionResponse = {
   sheetId: string;
@@ -313,7 +316,7 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
   return {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
-    ...(bundle.dataModels === undefined ? {} : { dataModels: Object.fromEntries(bundle.dataModels.map((model) => [model.id, model])) }),
+    ...(bundle.dataModels === undefined ? {} : { dataModels: Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)])) }),
   };
 }
 
@@ -340,8 +343,33 @@ function encodeWorkbookBundle(workbook: Workbook): WorkbookBundleResponse {
         ...(sheet.dataModelId === undefined ? {} : { dataModelId: sheet.dataModelId }),
       };
     }),
-    dataModels: Object.values(workbook.dataModels ?? {}).map((model) => ({ ...model, properties: [...model.properties] })),
+    dataModels: Object.values(workbook.dataModels ?? {}).map((model) => ({ ...model, properties: model.properties.map((property) => ({ ...property })) })),
   };
+}
+
+function decodeDataModel(model: DataModelResponse): DataModel {
+  if (!model || typeof model.id !== 'string' || typeof model.name !== 'string' || !Array.isArray(model.properties)) {
+    invalidReadContract('malformed data model');
+  }
+  return {
+    id: model.id,
+    name: model.name,
+    properties: model.properties.map((property): DataModelProperty => {
+      if (!property || typeof property.id !== 'string' || typeof property.name !== 'string'
+          || !isDataModelPropertyType(property.type)) invalidReadContract('invalid data model property type');
+      if (property.kind === 'manual' && property.formula === undefined) {
+        return { id: property.id, name: property.name, kind: 'manual', type: property.type };
+      }
+      if (property.kind === 'calculated' && typeof property.formula === 'string') {
+        return { id: property.id, name: property.name, kind: 'calculated', formula: property.formula, type: property.type };
+      }
+      return invalidReadContract('malformed data model property');
+    }),
+  };
+}
+
+function isDataModelPropertyType(type: unknown): type is DataModelPropertyType {
+  return type === 'string' || type === 'int' || type === 'float' || type === 'boolean';
 }
 
 export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocument {

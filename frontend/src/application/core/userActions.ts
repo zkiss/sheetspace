@@ -83,7 +83,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'already-bound' | 'column-id-required' | 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-model' | 'duplicate-property-name' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-formula' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-model' | 'unknown-sheet';
+export type WorkbookOperationFailureReason = 'already-bound' | 'column-id-required' | 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-model' | 'duplicate-property-name' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-formula' | 'invalid-number-format' | 'invalid-property-type' | 'invalid-visual-scale' | 'unknown-model' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
 export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
