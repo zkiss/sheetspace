@@ -10,7 +10,7 @@ Usage: quota-run [options] 'prompt'
 Run one prompt-defined scope in OpenCode. Wait on OpenAI quota exhaustion,
 then continue the same session without repeating the original prompt.
 
-  --session ID       Resume an existing session in its working directory
+  --session ID       Continue an existing session, even after a successful turn
   --agent NAME       OpenCode agent (otherwise use its default)
   --model MODEL      OpenCode provider/model#variant
   --auto             Explicitly enable unattended permission approval
@@ -169,11 +169,15 @@ state=$(jq -c --arg agent "$agent" --arg model "$model" --arg auto "$auto" '
   | if $auto == "true" then .options.auto = true else . end
 ' <<<"$state")
 phase=$(jq -er '.phase' <<<"$state")
-case "$phase" in ready|running|quota|done) ;; *) fail 'Invalid saved phase' ;; esac
+case "$phase" in
+  ready|running|quota) ;;
+  done) phase=running ;;
+  *) fail 'Invalid saved phase' ;;
+esac
 message=$(latest)
 if [[ $phase != ready ]] && [[ $(jq -r '.type' <<<"$message") == idle ]]; then
   case $(jq -r '.outcome' <<<"$message") in
-    succeeded) phase=done ;;
+    succeeded) phase=running ;;
     failed) if quota_error "$message"; then phase=quota; fi ;;
   esac
 fi
