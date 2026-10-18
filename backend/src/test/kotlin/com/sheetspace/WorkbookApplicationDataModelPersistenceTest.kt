@@ -15,13 +15,10 @@ class WorkbookApplicationDataModelPersistenceTest {
     fun `model state replacement validates and atomically persists a bound sheet`() {
         val fixture = dataModelFixture()
         val command = fixture.command(fixture.boundWorkbook)
-
         val updated = fixture.application.replaceDataModelState(command)
-
         assertEquals(listOf(fixture.boundSheet), updated)
         assertEquals(fixture.boundWorkbook, fixture.store.loadWorkbookBundle())
     }
-
     @Test
     fun `model state replacement rejects malformed aggregate payloads without mutation`() {
         val fixture = dataModelFixture()
@@ -39,6 +36,9 @@ class WorkbookApplicationDataModelPersistenceTest {
             valid.copy(dataModels = listOf(valid.dataModels.single().copy(properties = listOf(valid.dataModels.single().properties[1].copy(formula = "not a formula"))))),
             valid.copy(dataModels = listOf(valid.dataModels.single().copy(properties = listOf(
                 valid.dataModels.single().properties.first().copy(kind = "unknown"),
+            )))),
+            valid.copy(dataModels = listOf(valid.dataModels.single().copy(properties = listOf(
+                valid.dataModels.single().properties.first().copy(type = "STRING"),
             )))),
             valid.copy(documents = listOf(valid.documents.single().copy(id = "bad"))),
             valid.copy(documents = listOf(valid.documents.single().copy(content = valid.documents.single().content.copy(kind = "unknown")))),

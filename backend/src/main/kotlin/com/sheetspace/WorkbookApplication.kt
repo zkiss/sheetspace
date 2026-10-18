@@ -426,8 +426,11 @@ internal fun materializeModelFormula(
 
 internal fun isSupportedFormula(raw: String): Boolean = FormulaReferenceContract.isFormula(raw)
 
+private val dataModelPropertyTypesByWireValue =
+    DataModelPropertyType.entries.associateBy { it.name.lowercase() }
+
 private fun String.toDataModelPropertyTypeOrNull(): DataModelPropertyType? =
-    DataModelPropertyType.entries.firstOrNull { it.name.equals(this, ignoreCase = true) }
+    dataModelPropertyTypesByWireValue[this]
 
 /**
  * Storage accepts aggregate replacements from more than the HTTP application.  Keep the

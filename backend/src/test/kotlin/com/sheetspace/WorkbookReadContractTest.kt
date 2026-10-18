@@ -85,6 +85,14 @@ class WorkbookReadContractTest {
                 listOf(DataModelPropertyResponse("00000000-0000-0000-0000-000000000102", "Bad", "calculated", "decimal", "=1")),
             ))))
         }
+        listOf("STRING", "Int", "FLOAT", "BOOLEAN").forEach { type ->
+            assertFailsWith<WorkbookApplicationException> {
+                dataModelState(response.copy(dataModels = listOf(DataModelResponse(
+                    "00000000-0000-0000-0000-000000000101", "Typed",
+                    listOf(DataModelPropertyResponse("00000000-0000-0000-0000-000000000102", "Bad", "manual", type)),
+                ))))
+            }
+        }
     }
 }
 
