@@ -5,7 +5,7 @@ umask 077
 usage() {
   cat <<'HELP'
 Usage: quota-run [options] 'prompt'
-       quota-run [options] --session ses_...
+       quota-run [options] --session ses_... ['continuation prompt']
 
 Run one prompt-defined scope in OpenCode. Wait on OpenAI quota exhaustion,
 then continue the same session without repeating the original prompt.
@@ -23,6 +23,7 @@ Examples:
   ./quota-run 'Do 1 bead.'
   ./quota-run --auto 'Do all beads.'
   ./quota-run --session ses_...
+  ./quota-run --session ses_... 'Continue work on the remaining beads.'
 
 Requires: bash, jq, opencode, GNU date/coreutils, flock, setsid.
 State/logs: $XDG_STATE_HOME/opencode-quota-run (default: ~/.local/state).
@@ -52,8 +53,7 @@ while (($#)); do
     *) [[ -z $prompt ]] || fail 'Expected one quoted prompt'; prompt=$1; shift ;;
   esac
 done
-[[ -n $prompt && -z $session || -z $prompt && -n $session ]] ||
-  fail 'Provide either a prompt or --session'
+[[ -n $prompt || -n $session ]] || fail 'Provide a prompt or --session'
 [[ -z $session || $session =~ ^ses[a-zA-Z0-9_]+$ ]] || fail 'Invalid session ID'
 [[ $threshold =~ ^[0-9]+([.][0-9]+)?$ ]] || fail 'Invalid threshold'
 jq -en --argjson value "$threshold" '$value > 0 and $value <= 100' >/dev/null ||
@@ -162,6 +162,9 @@ if [[ -f $state_file ]]; then
 else
   state=$(jq -cn --arg prompt "$prompt" --arg phase "$phase" \
     '{prompt: $prompt, phase: $phase, options: {}}')
+fi
+if [[ -n $prompt ]]; then
+  state=$(jq -c --arg prompt "$prompt" '.prompt = $prompt | .phase = "ready"' <<<"$state")
 fi
 state=$(jq -c --arg agent "$agent" --arg model "$model" --arg auto "$auto" '
   if $agent != "" then .options.agent = $agent else . end
