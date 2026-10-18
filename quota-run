@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  cat <<'HELP'
+Usage: quota-run [options] 'prompt'
+       quota-run [options] --session ses_...
+
+Run one prompt-defined scope in OpenCode. Wait on OpenAI quota exhaustion,
+then continue the same session without repeating the original prompt.
+
+  --session ID       Resume an existing session in its working directory
+  --agent NAME       OpenCode agent (otherwise use its default)
+  --model MODEL      OpenCode provider/model#variant
+  --auto             Explicitly enable unattended permission approval
+  --checker PATH     Quota checker (default: ~/Work/codex-usage.sh)
+  --threshold PCT    Required remaining quota in BOTH windows (default: 1)
+  --buffer SECONDS   Wait this long after reset (default: 30)
+  -h, --help         Show this help
+
+Examples:
+  ./quota-run 'Do 1 bead.'
+  ./quota-run --auto 'Do all beads.'
+  ./quota-run --session ses_...
+
+Requires: bash, jq, opencode, GNU date/coreutils, flock, setsid.
+State/logs: $XDG_STATE_HOME/opencode-quota-run (default: ~/.local/state).
+Ctrl+C or SIGTERM stops this wrapper and its active OpenCode session.
+Other failures stop without retrying. No weekly wait limit is imposed.
+HELP
+}
+
+fail() { printf 'Stopped: %s\n' "$*" >&2; exit 1; }
+api() { timeout 30 opencode api "$@" 9>&-; }
+
+session= prompt= agent= model= auto= checker="$HOME/Work/codex-usage.sh"
+threshold=1 buffer=30 child= temporary=
+while (($#)); do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --session|--agent|--model|--checker|--threshold|--buffer)
+      (($# >= 2)) && [[ -n $2 ]] || fail "Missing value for $1"
+      case "$1" in
+        --session) session=$2 ;; --agent) agent=$2 ;; --model) model=$2 ;;
+        --checker) checker=$2 ;; --threshold) threshold=$2 ;; --buffer) buffer=$2 ;;
+      esac
+      shift 2 ;;
+    --auto) auto=true; shift ;;
+    --) shift; (($# == 1)) || fail 'Expected one quoted prompt'; prompt=$1; shift ;;
+    -*) fail "Unknown option: $1" ;;
+    *) [[ -z $prompt ]] || fail 'Expected one quoted prompt'; prompt=$1; shift ;;
+  esac
+done
+[[ -n $prompt && -z $session || -z $prompt && -n $session ]] ||
+  fail 'Provide either a prompt or --session'
+[[ -z $session || $session =~ ^ses[a-zA-Z0-9_]+$ ]] || fail 'Invalid session ID'
+[[ $threshold =~ ^[0-9]+([.][0-9]+)?$ ]] || fail 'Invalid threshold'
+jq -en --argjson value "$threshold" '$value > 0 and $value <= 100' >/dev/null ||
+  fail 'Threshold must be > 0 and <= 100'
+[[ $buffer =~ ^(0|[1-9][0-9]*)$ ]] || fail 'Buffer must be a nonnegative integer'
+[[ -f $checker ]] || fail "Quota checker not found: $checker"
+for command in jq opencode date sha256sum flock setsid tee timeout; do
+  command -v "$command" >/dev/null || fail "Missing command: $command"
+done
+
+latest() {
+  api get "/api/session/$session/message?order=desc&limit=1" | jq -ec '.data[0] // {}'
+}
+
+quota_error() {
+  jq -e '
+    [.error.type // "", .error.message // "", .error.response.body // ""]
+    | join(" ") | ascii_downcase
+    | test("usage_limit_reached|insufficient_quota|quota_exceeded|usage limit|quota exhausted|quota exceeded|exceeded your current quota")
+  ' >/dev/null <<<"$1"
+}
+
+save_phase() {
+  state=$(jq -c --arg phase "$1" '.phase = $phase' <<<"$state")
+  printf '%s\n' "$state" >"$temporary"
+  mv -- "$temporary" "$state_file"
+}
+
+wait_for_quota() {
+  local exhausted=$1 limits window remaining reset target now seconds
+  while :; do
+    limits=$(timeout 60 bash "$checker" 9>&-) || fail 'Quota checker failed'
+    target=0
+    for window in five_hour weekly; do
+      remaining=$(jq -er --arg window "$window" '
+        .[$window].remaining_percent
+        | select(type == "number" and . >= 0 and . <= 100)
+      ' <<<"$limits") || fail "Missing or invalid $window quota"
+      if jq -en --argjson remaining "$remaining" --argjson threshold "$threshold" \
+        '$remaining < $threshold' >/dev/null; then
+        reset=$(jq -er --arg window "$window" \
+          '.[$window].resetsAt | select(type == "string" and length > 0)' <<<"$limits") ||
+          fail "Missing $window reset time"
+        [[ $reset =~ (Z|[+-][0-9]{2}:[0-9]{2})$ ]] || fail 'Reset time needs a timezone'
+        reset=$(date -u -d "$reset" +%s) || fail "Invalid $window reset time"
+        if ((reset > target)); then target=$reset; fi
+      fi
+    done
+    if ((target == 0)); then
+      [[ $exhausted != true ]] ||
+        fail 'OpenCode quota failure contradicts checker; refusing an automatic retry loop'
+      return
+    fi
+    now=$(date +%s)
+    seconds=$((target + buffer - now))
+    ((seconds > 0)) || fail 'Blocked quota has a stale reset time; refusing a busy loop'
+    printf 'Quota blocked. Waiting %ss until %s (reset + buffer).\n' \
+      "$seconds" "$(date -u -d "@$((target + buffer))" --iso-8601=seconds)"
+    sleep "$seconds" & child=$!
+    wait "$child"
+    child=
+    exhausted=false
+  done
+}
+
+running=false
+stop() {
+  trap '' INT TERM
+  if [[ $running == true ]]; then
+    api post "/api/session/$session/interrupt" --data '{}' >/dev/null 2>&1 || true
+    kill -TERM -- "-$child" 2>/dev/null || true
+  elif [[ -n $child ]]; then
+    kill "$child" 2>/dev/null || true
+  fi
+  [[ -z $child ]] || wait "$child" 2>/dev/null || true
+  printf '\nStopped. Resume with: quota-run --session %s\n' "$session" >&2
+  exit 130
+}
+cleanup() { [[ -z $temporary ]] || rm -f -- "$temporary"; }
+trap stop INT TERM
+trap cleanup EXIT
+
+directory=$(pwd -P)
+key=$(printf '%s' "$directory" | sha256sum)
+root="${XDG_STATE_HOME:-$HOME/.local/state}/opencode-quota-run/${key:0:16}"
+mkdir -p -- "$root"
+phase=ready
+if [[ -n $session ]]; then
+  info=$(api get "/api/session/$session")
+  [[ $(jq -er '.data.location.directory' <<<"$info") == "$directory" ]] ||
+    fail "Resume from the session's working directory"
+  phase=running
+else
+  body=$(jq -cn --arg directory "$directory" --arg agent "$agent" \
+    '{location: {directory: $directory}} + if $agent == "" then {} else {agent: $agent} end')
+  session=$(api post /api/session --data "$body" | jq -er '.data.id')
+  [[ $session =~ ^ses[a-zA-Z0-9_]+$ ]] || fail 'Invalid session ID from OpenCode'
+fi
+state_file="$root/$session.json"
+temporary="$state_file.tmp.$$"
+printf 'Session: %s\nState: %s\nLog: %s\n' "$session" "$state_file" "$root/$session.log"
+exec 9>"$root/$session.lock"
+flock -n 9 || fail 'Another quota-run wrapper owns this session'
+if [[ -f $state_file ]]; then
+  state=$(jq -ec . "$state_file")
+else
+  state=$(jq -cn --arg prompt "$prompt" --arg phase "$phase" \
+    '{prompt: $prompt, phase: $phase, options: {}}')
+fi
+state=$(jq -c --arg agent "$agent" --arg model "$model" --arg auto "$auto" '
+  if $agent != "" then .options.agent = $agent else . end
+  | if $model != "" then .options.model = $model else . end
+  | if $auto == "true" then .options.auto = true else . end
+' <<<"$state")
+phase=$(jq -er '.phase' <<<"$state")
+case "$phase" in ready|running|quota|done) ;; *) fail 'Invalid saved phase' ;; esac
+message=$(latest)
+if [[ $phase != ready ]] && [[ $(jq -r '.type' <<<"$message") == idle ]]; then
+  case $(jq -r '.outcome' <<<"$message") in
+    succeeded) phase=done ;;
+    failed) if quota_error "$message"; then phase=quota; fi ;;
+  esac
+fi
+save_phase "$phase"
+
+while [[ $phase != done ]]; do
+  exhausted=false
+  [[ $phase != quota ]] || exhausted=true
+  wait_for_quota "$exhausted"
+  active=$(api get /api/session/active)
+  jq -e --arg session "$session" '.data | has($session) | not' >/dev/null <<<"$active" ||
+    fail 'Session already running; refusing concurrent work'
+  previous=$(latest | jq -r '.id // ""')
+  if [[ $phase == ready ]]; then
+    message=$(jq -er '.prompt' <<<"$state")
+  else
+    message="Continue the original requested work from this session's current state. Do not restart completed work or expand the original scope. Stop when that requested work is complete."
+  fi
+  options=()
+  for option in agent model; do
+    value=$(jq -r --arg option "$option" '.options[$option] // ""' <<<"$state")
+    [[ -z $value ]] || options+=("--$option" "$value")
+  done
+  if [[ $(jq -r '.options.auto // false' <<<"$state") == true ]]; then options+=(--auto); fi
+  save_phase running
+  setsid opencode run --session "$session" "${options[@]}" -- "$message" \
+    > >(tee -a "$root/$session.log" 9>&-) 2>&1 9>&- & child=$!
+  running=true
+  status=0
+  wait "$child" || status=$?
+  running=false child=
+  result=$(latest)
+  [[ $(jq -r '.id // ""' <<<"$result") != "$previous" && \
+     $(jq -r '.type' <<<"$result") == idle ]] ||
+    fail "No new terminal outcome (CLI exit $status); inspect session before resuming"
+  outcome=$(jq -r '.outcome' <<<"$result")
+  if [[ $outcome == succeeded && $status == 0 ]]; then
+    phase=done
+  elif [[ $outcome == failed ]] && quota_error "$result"; then
+    printf 'Quota exhausted; preserving the session and waiting.\n'
+    phase=quota
+  else
+    fail "Session stopped ($outcome, CLI exit $status): $(jq -r '.error.message // "inspect session"' <<<"$result")"
+  fi
+  save_phase "$phase"
+done
+printf 'Requested work completed.\n'
