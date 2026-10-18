@@ -403,11 +403,41 @@ class FormulaReferenceContractTest {
         val fixture = Json.parseToJsonElement(
             requireNotNull(javaClass.classLoader.getResource("formula-contract-cases.json")).readText(),
         ).jsonObject
+        val baselineBundle = fixture.getValue("mutationStages").jsonObject.getValue("bind-nonempty")
+        val baseline = dataModelState(Json.decodeFromJsonElement<WorkbookBundleResponse>(baselineBundle))
+        val sheetId = SheetId("00000000-0000-0000-0000-000000000001")
+        val sheet = requireNotNull(baseline.findSheet(sheetId))
+        val model = baseline.dataModels.getValue(requireNotNull(sheet.dataModelId))
+        val baselineCells = baselineBundle.jsonObject.getValue("documents").jsonArray[0].jsonObject
+            .getValue("content").jsonObject.getValue("cells").jsonArray
         fixture.getValue("ownershipTampers").jsonArray.forEach { entry ->
             val tamper = entry.jsonObject
-            assertFailsWith<WorkbookApplicationException>(tamper.getValue("id").jsonPrimitive.content) {
+            val tamperCells = tamper.getValue("bundle").jsonObject.getValue("documents").jsonArray[0].jsonObject
+                .getValue("content").jsonObject.getValue("cells").jsonArray
+            val changed = tamperCells.zip(baselineCells).mapNotNull { (candidate, original) ->
+                val candidateCell = candidate.jsonObject
+                if (candidateCell.getValue("content") == original.jsonObject.getValue("content")) null else candidateCell
+            }
+            assertEquals(1, changed.size, tamper.getValue("id").jsonPrimitive.content)
+            val changedCell = changed.single()
+            val coordinate = CellCoordinate(
+                RowId(changedCell.getValue("rowId").jsonPrimitive.content),
+                ColumnId(changedCell.getValue("columnId").jsonPrimitive.content),
+            )
+            val raw = changedCell.getValue("content").jsonPrimitive.content
+            val alteredContent = sheet.tabularContent
+            val altered = baseline.replaceSheet(sheet.copy(content = TabularContent(
+                alteredContent.rows,
+                alteredContent.columns,
+                alteredContent.cellContents + (coordinate to raw),
+            )))
+            assertTrue(FormulaReferenceContract.isFormula(raw), tamper.getValue("id").jsonPrimitive.content)
+            assertEquals(raw, FormulaReferenceContract.copyCanonical(raw, coordinate, coordinate, altered, sheetId))
+            assertFalse(hasOnlyModelOwnedCalculatedContents(altered, sheetId, model), tamper.getValue("id").jsonPrimitive.content)
+            val error = assertFailsWith<WorkbookApplicationException>(tamper.getValue("id").jsonPrimitive.content) {
                 dataModelState(Json.decodeFromJsonElement<WorkbookBundleResponse>(tamper.getValue("bundle")))
             }
+            assertEquals(WorkbookApplicationError.INVALID_CELL_PATCH, error.error)
         }
     }
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyCanonicalFormula, formulaRawForStorage, formulaRawToCanonical, workbookFormulaReferenceResolver } from './reference';
+import { copyCanonicalFormula, formulaRawForStorage, formulaRawToCanonical, formulaReferenceTokens, workbookFormulaReferenceResolver } from './reference';
 import { parseFormula } from './syntax';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import cases from './formula-contract-cases.json';
@@ -180,7 +180,7 @@ describe('backend formula contract conformance', () => {
       ...model,
       properties: [
         model.properties[0]!,
-        { id: '00000000-0000-0000-0000-000000000402', name: 'Qualified', kind: 'calculated' as const, formula: "=@'Target'!A[1]+1" },
+        { id: '00000000-0000-0000-0000-000000000402', name: 'Qualified', kind: 'calculated' as const, formula: "=SUM(@'Target'!A[1]:A[2])+1" },
         { id: '00000000-0000-0000-0000-000000000403', name: 'Anchored', kind: 'calculated' as const, formula: '=@$A[$1]+1' },
         { id: '00000000-0000-0000-0000-000000000404', name: 'String', kind: 'calculated' as const, formula: '=SUM("@A[1]", @A[1])' },
       ],
@@ -247,15 +247,57 @@ describe('backend formula contract conformance', () => {
   });
 
   it('defines six one-component ownership tamper variants from the captured nonempty bind bundle', () => {
-    const original = cases.mutationStages['bind-nonempty'].documents.flatMap((document) => document.content.cells);
-    const components = new Set(cases.ownershipTampers.map((tamper) => tamper.component));
-    expect(components).toEqual(new Set(['qualifier', 'stable-identity', 'anchor', 'range-endpoint', 'operator', 'literal']));
+    const localId = '00000000-0000-0000-0000-000000000001';
+    const targetId = '00000000-0000-0000-0000-000000000002';
+    const rowId = '00000000-0000-0000-0000-000000000101';
+    const inputColumnId = '00000000-0000-0000-0000-000000000201';
+    const qualifiedColumnId = '00000000-0000-0000-0000-000000000202';
+    const anchoredColumnId = '00000000-0000-0000-0000-000000000203';
+    const targetColumnId = '00000000-0000-0000-0000-000000000211';
+    const targetFirstRowId = '00000000-0000-0000-0000-000000000111';
+    const targetSecondRowId = '00000000-0000-0000-0000-000000000112';
+    const targetThirdRowId = '00000000-0000-0000-0000-000000000113';
+    const anchoredRaw = `=@$${inputColumnId}[$${rowId}]+1`;
+    const qualifiedRaw = `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])+1`;
+    const expectations = [
+      ['qualifier', anchoredColumnId, anchoredRaw, `=@${localId}!$${inputColumnId}[$${rowId}]+1`],
+      ['stable-identity', anchoredColumnId, anchoredRaw, `=@$${qualifiedColumnId}[$${rowId}]+1`],
+      ['anchor', anchoredColumnId, anchoredRaw, `=@${inputColumnId}[$${rowId}]+1`],
+      ['range-endpoint', qualifiedColumnId, qualifiedRaw, `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetThirdRowId}])+1`],
+      ['operator', qualifiedColumnId, qualifiedRaw, `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])-1`],
+      ['literal', qualifiedColumnId, qualifiedRaw, `=SUM(@${targetId}!${targetColumnId}[${targetFirstRowId}]:${targetColumnId}[${targetSecondRowId}])+2`],
+    ] as const;
+    const baseline = cases.mutationStages['bind-nonempty'];
+    const resolver = workbookFormulaReferenceResolver(workbookWithSheets([
+      fixedSheet(localId, 'Local', 3, 2), fixedSheet(targetId, 'Target', 3, 3),
+    ]), localId);
+
+    expect(cases.ownershipTampers).toHaveLength(expectations.length);
     for (const tamper of cases.ownershipTampers) {
-      const changed = tamper.bundle.documents.flatMap((document) => document.content.cells)
-        .filter((cell, index) => cell.content !== original[index]!.content);
-      expect(changed, tamper.id).toHaveLength(1);
-      expect(['00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000203'], tamper.id)
-        .toContain(changed[0]!.columnId);
+      const expectation = expectations.find(([component]) => component === tamper.component);
+      expect(expectation, tamper.id).toBeDefined();
+      if (!expectation) continue;
+      const [, columnId, originalRaw, changedRaw] = expectation;
+      const expected = structuredClone(baseline);
+      const expectedCell = expected.documents[0]!.content.cells.find((cell) => cell.rowId === rowId && cell.columnId === columnId);
+      expect(expectedCell, tamper.id).toBeDefined();
+      if (!expectedCell) continue;
+      expect(expectedCell.content, tamper.id).toBe(originalRaw);
+      expectedCell.content = changedRaw;
+      expect(tamper.bundle, tamper.id).toEqual(expected);
+      expect(parseFormula(changedRaw).kind, tamper.id).toBe('formula');
+      for (const token of formulaReferenceTokens(changedRaw)) {
+        for (const endpoint of token.endpoints) {
+          if (!endpoint || endpoint.kind !== 'canonical') continue;
+          const sheetId = token.qualifier.kind === 'explicit' ? token.qualifier.sheetId : localId;
+          expect(resolver.addressOf(sheetId, endpoint.coordinate), tamper.id).toBeDefined();
+        }
+      }
+      expect(copyCanonicalFormula(changedRaw,
+        { columnId: inputColumnId, rowId },
+        { columnId: inputColumnId, rowId },
+        resolver,
+      ), tamper.id).toEqual({ ok: true, raw: changedRaw });
     }
   });
 
