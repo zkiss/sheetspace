@@ -10,8 +10,8 @@ import { workbookApi } from '@infrastructure/persistence/workbookApi';
 /** Fixed contexts shared by the backend formula contract conformance tests. */
 describe('backend formula contract conformance', () => {
   afterEach(() => vi.unstubAllGlobals());
-  const local = sheetDocument({ id: 'sheet-0', name: 'Local', columnCount: 2, rowCount: 2 });
-  const other = sheetDocument({ id: 'sheet-1', name: 'Other sheet', columnCount: 2, rowCount: 2 });
+  const local = sheetDocument({ id: '00000000-0000-0000-0000-000000000001', name: 'Local', columnCount: 2, rowCount: 2 });
+  const other = sheetDocument({ id: '00000000-0000-0000-0000-000000000002', name: 'Other sheet', columnCount: 2, rowCount: 2 });
   const resolver = workbookFormulaReferenceResolver(workbookWithSheets([local, other]), local.id);
 
   it('derives qualified canonical and copy raws with exact source spelling', () => {
@@ -20,8 +20,8 @@ describe('backend formula contract conformance', () => {
     expect(canonical).toBe(cases.canonical.output);
     expect(copyCanonicalFormula(
       canonical,
-      { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' },
-      { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' },
+      { columnId: '00000000-0000-0000-0000-000000000001:column:1', rowId: '00000000-0000-0000-0000-000000000001:row:1' },
+      { columnId: '00000000-0000-0000-0000-000000000001:column:2', rowId: '00000000-0000-0000-0000-000000000001:row:2' },
       resolver,
     )).toEqual({ ok: true, raw: cases.canonical.copied });
   });
@@ -29,27 +29,27 @@ describe('backend formula contract conformance', () => {
   it('recovers and copies stable references after generated error text', () => {
     expect(copyCanonicalFormula(
       cases.storedCopy.raw,
-      { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' },
-      { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' },
+      { columnId: '00000000-0000-0000-0000-000000000001:column:1', rowId: '00000000-0000-0000-0000-000000000001:row:1' },
+      { columnId: '00000000-0000-0000-0000-000000000001:column:2', rowId: '00000000-0000-0000-0000-000000000001:row:2' },
       resolver,
     )).toEqual({ ok: true, raw: cases.storedCopy.copied });
 
-    const threeColumnLocal = sheetDocument({ id: 'sheet-0', name: 'Local', columnCount: 3, rowCount: 2 });
+    const threeColumnLocal = sheetDocument({ id: '00000000-0000-0000-0000-000000000001', name: 'Local', columnCount: 3, rowCount: 2 });
     const threeColumnResolver = workbookFormulaReferenceResolver(workbookWithSheets([threeColumnLocal, other]), threeColumnLocal.id);
     expect(copyCanonicalFormula(
       cases.storedCopyMultiple.raw,
-      { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' },
-      { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' },
+      { columnId: '00000000-0000-0000-0000-000000000001:column:1', rowId: '00000000-0000-0000-0000-000000000001:row:1' },
+      { columnId: '00000000-0000-0000-0000-000000000001:column:2', rowId: '00000000-0000-0000-0000-000000000001:row:2' },
       threeColumnResolver,
     )).toEqual({ ok: true, raw: cases.storedCopyMultiple.copied });
   });
 
   it('uses the shared corpus for anchors, ranges, qualifiers, literals, and recovered stored raws', () => {
-    const local = sheetDocument({ id: 'sheet-0', name: 'Local', columnCount: 3, rowCount: 3 });
-    const other = { ...sheetDocument({ id: 'sheet-1', name: "O'Brien", columnCount: 3, rowCount: 3 }), name: "O'Brien" };
+    const local = sheetDocument({ id: '00000000-0000-0000-0000-000000000001', name: 'Local', columnCount: 3, rowCount: 3 });
+    const other = { ...sheetDocument({ id: '00000000-0000-0000-0000-000000000002', name: "O'Brien", columnCount: 3, rowCount: 3 }), name: "O'Brien" };
     const resolver = workbookFormulaReferenceResolver(workbookWithSheets([local, other]), local.id);
-    const source = { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' };
-    const destination = { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' };
+    const source = { columnId: '00000000-0000-0000-0000-000000000001:column:1', rowId: '00000000-0000-0000-0000-000000000001:row:1' };
+    const destination = { columnId: '00000000-0000-0000-0000-000000000001:column:2', rowId: '00000000-0000-0000-0000-000000000001:row:2' };
 
     for (const entry of cases.transforms) {
       const raw = entry.canonical
@@ -62,14 +62,26 @@ describe('backend formula contract conformance', () => {
   });
 
   it('uses the shared corpus for unresolved canonical copy failures', () => {
-    const local = sheetDocument({ id: 'sheet-0', name: 'Local', columnCount: 2, rowCount: 2 });
+    const local = sheetDocument({ id: '00000000-0000-0000-0000-000000000001', name: 'Local', columnCount: 2, rowCount: 2 });
     const resolver = workbookFormulaReferenceResolver(workbookWithSheets([local]), local.id);
-    const source = { columnId: 'sheet-0:column:1', rowId: 'sheet-0:row:1' };
-    const destination = { columnId: 'sheet-0:column:2', rowId: 'sheet-0:row:2' };
-    for (const raw of cases.copyFailures) {
-      expect(copyCanonicalFormula(raw, source, destination, resolver), raw)
+    const source = { columnId: '00000000-0000-0000-0000-000000000001:column:1', rowId: '00000000-0000-0000-0000-000000000001:row:1' };
+    const destination = { columnId: '00000000-0000-0000-0000-000000000001:column:2', rowId: '00000000-0000-0000-0000-000000000001:row:2' };
+    for (const entry of cases.copyFailures) {
+      expect(copyCanonicalFormula(entry.raw, source, destination, resolver), entry.id)
         .toEqual({ ok: false, reason: 'unresolved-coordinate' });
     }
+  });
+
+  it('uses the shared corpus for cross-sheet copy context', () => {
+    const local = sheetDocument({ id: '00000000-0000-0000-0000-000000000001', name: 'Local', columnCount: 3, rowCount: 3 });
+    const other = sheetDocument({ id: '00000000-0000-0000-0000-000000000002', name: 'Other sheet', columnCount: 3, rowCount: 3 });
+    const resolver = workbookFormulaReferenceResolver(workbookWithSheets([local, other]), local.id);
+    expect(copyCanonicalFormula(cases.crossSheetCopy.raw,
+      { columnId: '00000000-0000-0000-0000-000000000001:column:1', rowId: '00000000-0000-0000-0000-000000000001:row:1' },
+      { columnId: '00000000-0000-0000-0000-000000000002:column:2', rowId: '00000000-0000-0000-0000-000000000002:row:2' },
+      resolver,
+      { sourceSheetId: local.id, destinationSheetId: other.id },
+    ), cases.crossSheetCopy.id).toEqual({ ok: true, raw: cases.crossSheetCopy.copied });
   });
 
   it('asserts the shared fixture classifications with the authoritative parser', () => {

@@ -225,7 +225,7 @@ class FormulaReferenceContractTest {
     @Test fun `later model rows copy their stored canonical first row instead of the declaration`() {
         val content = TabularContent(columnCount = 3, rowCount = 2)
         val stored = "=@${content.columns[0].value}[${content.rows[0].value}]*2"
-        val sheet = SheetDocument(SheetId("sheet-0"), name = "Local", content = content.updateCell("B1", stored))
+        val sheet = SheetDocument(SheetId("00000000-0000-0000-0000-000000000001"), name = "Local", content = content.updateCell("B1", stored))
         val workbook = WorkbookState(WorkbookManifest(sheetIds = listOf(sheet.id)), mapOf(sheet.id to sheet))
 
         assertEquals(
@@ -248,8 +248,8 @@ class FormulaReferenceContractTest {
             )
         }
         val canonical = fixture.getValue("canonical").jsonObject
-        val local = fixedContent("sheet-0")
-        val other = fixedContent("sheet-1")
+        val local = fixedContent("00000000-0000-0000-0000-000000000001")
+        val other = fixedContent("00000000-0000-0000-0000-000000000002")
         val (workbook, sheet) = workbook(local, other)
         val raw = canonical.getValue("raw").jsonPrimitive.content
         assertEquals(canonical.getValue("output").jsonPrimitive.content, FormulaReferenceContract.canonicalize(raw, workbook, sheet))
@@ -269,7 +269,7 @@ class FormulaReferenceContractTest {
             ),
         )
         val storedCopyMultiple = fixture.getValue("storedCopyMultiple").jsonObject
-        val threeColumnLocal = fixedContent("sheet-0", columnCount = 3)
+        val threeColumnLocal = fixedContent("00000000-0000-0000-0000-000000000001", columnCount = 3)
         val (threeColumnWorkbook, threeColumnSheet) = workbook(threeColumnLocal, other)
         assertEquals(
             storedCopyMultiple.getValue("copied").jsonPrimitive.content,
@@ -282,8 +282,8 @@ class FormulaReferenceContractTest {
             ),
         )
 
-        val transformLocal = fixedContent("sheet-0", columnCount = 3, rowCount = 3)
-        val transformOther = fixedContent("sheet-1", columnCount = 3, rowCount = 3)
+        val transformLocal = fixedContent("00000000-0000-0000-0000-000000000001", columnCount = 3, rowCount = 3)
+        val transformOther = fixedContent("00000000-0000-0000-0000-000000000002", columnCount = 3, rowCount = 3)
         val (transformWorkbook, transformSheet, transformOtherSheet) = workbook(transformLocal, transformOther)
         val namedWorkbook = transformWorkbook.replaceSheet(transformWorkbook.findSheet(transformOtherSheet)!!.rename("O'Brien"))
         val source = CellCoordinate(transformLocal.rows[0], transformLocal.columns[0])
@@ -301,12 +301,27 @@ class FormulaReferenceContractTest {
                 case.getValue("id").jsonPrimitive.content,
             )
         }
-        fixture.getValue("copyFailures").jsonArray.forEach { raw ->
+        fixture.getValue("copyFailures").jsonArray.forEach { entry ->
+            val case = entry.jsonObject
             assertNull(
-                FormulaReferenceContract.copyCanonical(raw.jsonPrimitive.content, source, destination, namedWorkbook, transformSheet),
-                raw.jsonPrimitive.content,
+                FormulaReferenceContract.copyCanonical(case.getValue("raw").jsonPrimitive.content, source, destination, namedWorkbook, transformSheet),
+                case.getValue("id").jsonPrimitive.content,
             )
         }
+        val crossSheetCopy = fixture.getValue("crossSheetCopy").jsonObject
+        assertEquals(
+            crossSheetCopy.getValue("copied").jsonPrimitive.content,
+            FormulaReferenceContract.copyCanonical(
+                crossSheetCopy.getValue("raw").jsonPrimitive.content,
+                source,
+                CellCoordinate(transformOther.rows[1], transformOther.columns[1]),
+                namedWorkbook,
+                transformSheet,
+                sourceSheetId = transformSheet,
+                destinationSheetId = transformOtherSheet,
+            ),
+            crossSheetCopy.getValue("id").jsonPrimitive.content,
+        )
     }
 
     @Test fun `accepts the exact bundle captured by the frontend mutation and transport path`() {
@@ -366,7 +381,9 @@ class FormulaReferenceContractTest {
     )
 
     private fun workbook(vararg contents: TabularContent): Triple<WorkbookState, SheetId, SheetId> {
-        val ids = contents.indices.map { SheetId("sheet-$it") }
+        val ids = contents.indices.map { index ->
+            SheetId(if (index == 0) "00000000-0000-0000-0000-000000000001" else "00000000-0000-0000-0000-00000000000${index + 1}")
+        }
         val documents = contents.mapIndexed { index, content -> ids[index] to SheetDocument(ids[index], name = if (index == 1) "Other sheet" else "Local", content = content) }.toMap()
         return Triple(WorkbookState(WorkbookManifest(sheetIds = ids), documents), ids[0], ids.getOrElse(1) { ids[0] })
     }
