@@ -22,6 +22,9 @@ class FormulaReferenceContractTest {
         val (workbook, sheet) = workbook(content)
         assertEquals("=@${content.columns.first().value}[${content.rows.first().value}]*2", FormulaReferenceContract.canonicalize("=@A[1]*2", workbook, sheet))
         assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@Z[999]", workbook, sheet))
+        assertTrue(FormulaReferenceContract.isFormula("=@A[2147483648]"))
+        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@A[2147483648]", workbook, sheet))
+        assertFalse(FormulaReferenceContract.isFormula("=@A[9007199254740992]"))
     }
 
     @Test fun `rejects incomplete syntax while preserving literal reference text`() {

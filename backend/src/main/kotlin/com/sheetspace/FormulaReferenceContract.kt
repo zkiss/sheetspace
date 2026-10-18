@@ -8,7 +8,7 @@ package com.sheetspace
 internal object FormulaReferenceContract {
     data class Endpoint(
         val column: Int,
-        val row: Int,
+        val row: Long,
         val columnAnchored: Boolean,
         val rowAnchored: Boolean,
         val span: IntRange,
@@ -32,7 +32,7 @@ internal object FormulaReferenceContract {
             if (reference.qualifier != null) replacements += reference.qualifierSpan!! to target.id.value
             reference.endpoints.forEach { endpoint ->
                 val column = target.tabularContent.columns.getOrNull(endpoint.column)?.value
-                val row = target.tabularContent.rows.getOrNull(endpoint.row)?.value
+                val row = target.tabularContent.rows.getOrNull(endpoint.row.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())?.value
                 if (column == null || row == null) return@transform listOf(reference.span to "#REF!")
                 replacements += endpoint.span to "${if (endpoint.columnAnchored) "$" else ""}$column[${if (endpoint.rowAnchored) "$" else ""}$row]"
             }
@@ -197,14 +197,15 @@ internal object FormulaReferenceContract {
                 if (!token.all { it.isLetter() }) {
                     // Canonical IDs are already stable.  Store their address as a sentinel; copy
                     // preserves their spelling below by returning it unchanged.
-                    return Endpoint(-1, -1, match.groupValues[1] == "$", match.groupValues[3] == "$", start..match.range.last, true, token, match.groupValues[4])
+                    return Endpoint(-1, -1L, match.groupValues[1] == "$", match.groupValues[3] == "$", start..match.range.last, true, token, match.groupValues[4])
                 }
             }
             index = start; val a1 = Regex("(\\$?)([A-Za-z]+)\\[(\\$?)([1-9][0-9]*)]").find(input, index) ?: return null
             if (a1.range.first != index) return null; index = a1.range.last + 1
             if (index < input.length && input[index].isLetterOrDigit()) return null
             val column = column(a1.groupValues[2]) ?: return null
-            val row = a1.groupValues[4].toIntOrNull()?.minus(1) ?: return null
+            val row = a1.groupValues[4].toLongOrNull()?.minus(1)
+                ?.takeIf { it < MAX_A1_INDEX } ?: return null
             return Endpoint(column, row, a1.groupValues[1] == "$", a1.groupValues[3] == "$", start..a1.range.last)
         }
         private fun text(): Boolean { index++; while (index < input.length) { if (input[index] != '"') index++ else if (index + 1 < input.length && input[index + 1] == '"') index += 2 else { index++; return true } }; return false }
@@ -222,6 +223,11 @@ internal object FormulaReferenceContract {
         private fun skip() { while (index < input.length && input[index].isWhitespace()) index++ }
         private fun take(char: Char): Boolean = (peek() == char).also { if (it) index++ }
         private fun peek(): Char? = input.getOrNull(index)
+
+        private companion object {
+            // JavaScript addresses are bounded by Number.MAX_SAFE_INTEGER, not JVM Int.MAX_VALUE.
+            const val MAX_A1_INDEX = 9_007_199_254_740_991L
+        }
     }
 
 }
