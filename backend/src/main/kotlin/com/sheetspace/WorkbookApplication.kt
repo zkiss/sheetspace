@@ -406,10 +406,10 @@ private fun hasModelOwnedCalculatedAppends(
 
 /**
  * The client stores formula references as stable column/row identifiers.  Model formulas are
- * first-row A1 templates, so materializing one here requires only reference translation, never
- * evaluation.  Keeping the references in the result is what makes this an ownership check.
+ * first-row A1 templates. The persisted first-row canonical formula is authoritative for later
+ * rows, so structural changes cannot silently retarget their stable references.
  */
-private fun materializeModelFormula(
+internal fun materializeModelFormula(
     formula: String,
     workbook: WorkbookState,
     sheetId: SheetId,
@@ -417,10 +417,10 @@ private fun materializeModelFormula(
 ): String? {
     val content = workbook.findSheet(sheetId)?.tabularContent ?: return null
     val firstRow = content.rows.firstOrNull() ?: return null
-    val first = FormulaReferenceContract.canonicalize(formula, workbook, sheetId) ?: return null
     val source = CellCoordinate(firstRow, destination.columnId)
-    return if (destination.rowId == firstRow) first
-    else FormulaReferenceContract.copyCanonical(first, source, destination, workbook, sheetId)
+    if (destination.rowId == firstRow) return FormulaReferenceContract.canonicalize(formula, workbook, sheetId)
+    val first = content.cellContents[source] ?: return null
+    return FormulaReferenceContract.copyCanonical(first, source, destination, workbook, sheetId)
 }
 
 internal fun isSupportedFormula(raw: String): Boolean = FormulaReferenceContract.isFormula(raw)

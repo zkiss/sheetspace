@@ -137,7 +137,7 @@ internal object FormulaReferenceContract {
             val start = index
             if (peek() == '\'') {
                 index++; val value = StringBuilder()
-                while (index < input.length) { if (input[index] != '\'') value.append(input[index++]) else if (index + 1 < input.length && input[index + 1] == '\'') { value.append('\''); index += 2 } else { index++; skip(); if (!take('!')) return null; skip(); return value.toString() to (start..index - 2) } }
+                while (index < input.length) { if (input[index] != '\'') value.append(input[index++]) else if (index + 1 < input.length && input[index + 1] == '\'') { value.append('\''); index += 2 } else { index++; val end = index; skip(); if (!take('!')) return null; skip(); return value.toString() to (start..end - 1) } }
                 return null
             }
             val match = Regex("(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\\s*!").find(input, index)
@@ -169,5 +169,5 @@ internal object FormulaReferenceContract {
         private fun peek(): Char? = input.getOrNull(index)
     }
 
-    private val ERROR_LITERAL = Regex("#[A-Za-z0-9/!?]+")
+    private val ERROR_LITERAL = Regex("#(?:PARSE!|REF!|NAME!|VALUE!|DIV/0!|CYCLE!|N/A)")
 }

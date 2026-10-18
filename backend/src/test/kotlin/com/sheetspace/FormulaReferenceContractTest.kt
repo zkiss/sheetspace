@@ -28,6 +28,7 @@ class FormulaReferenceContractTest {
         assertTrue(FormulaReferenceContract.isFormula("=\"a \"\"quoted\"\" @A[1]\""))
         assertTrue(FormulaReferenceContract.isFormula("=@A[1]:\$B[\$2]"))
         assertTrue(FormulaReferenceContract.isFormula("=#DIV/0!"))
+        assertFalse(FormulaReferenceContract.isFormula("=#NOT-A-FRONTEND-ERROR!"))
         assertFalse(FormulaReferenceContract.isFormula("not a formula"))
         assertFalse(FormulaReferenceContract.isFormula("="))
         assertFalse(FormulaReferenceContract.isFormula("=SUM(1,)"))
@@ -60,6 +61,10 @@ class FormulaReferenceContractTest {
         assertEquals(
             "=@${otherSheet.value}!${other.columns[0].value}[${other.rows[0].value}]",
             FormulaReferenceContract.canonicalize("=@'O''Brien'!A[1]", escapedName, sheet),
+        )
+        assertEquals(
+            "=@${otherSheet.value} ! ${other.columns[0].value}[${other.rows[0].value}]",
+            FormulaReferenceContract.canonicalize("=@'Other sheet' ! A[1]", workbook, sheet),
         )
         assertNull(FormulaReferenceContract.canonicalize("plain text", workbook, sheet))
     }
@@ -159,6 +164,18 @@ class FormulaReferenceContractTest {
         )
 
         assertFalse(hasOnlyModelOwnedCalculatedContents(workbook, SheetId("missing-sheet"), model))
+    }
+
+    @Test fun `later model rows copy their stored canonical first row instead of the declaration`() {
+        val content = TabularContent(columnCount = 3, rowCount = 2)
+        val stored = "=@${content.columns[0].value}[${content.rows[0].value}]*2"
+        val sheet = SheetDocument(SheetId("sheet-0"), name = "Local", content = content.updateCell("B1", stored))
+        val workbook = WorkbookState(WorkbookManifest(sheetIds = listOf(sheet.id)), mapOf(sheet.id to sheet))
+
+        assertEquals(
+            "=@${content.columns[0].value}[${content.rows[1].value}]*2",
+            materializeModelFormula("=@C[1]*2", workbook, sheet.id, CellCoordinate(content.rows[1], content.columns[1])),
+        )
     }
 
     private fun workbook(vararg contents: TabularContent): Triple<WorkbookState, SheetId, SheetId> {
