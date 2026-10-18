@@ -171,13 +171,34 @@ describe('backend formula contract conformance', () => {
     if (!added.ok) return;
     expect(await capture(added.value)).toEqual(cases.mutationStages['add-unbound']);
 
+    const targetSheet = fixedSheet('00000000-0000-0000-0000-000000000002', 'Target', 3, 3);
+    const richSheet = {
+      ...sheet,
+      content: { kind: 'tabular' as const, rows, columns: [...columns, '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000204'], cells: {} },
+    };
+    const richModel = {
+      ...model,
+      properties: [
+        model.properties[0]!,
+        { id: '00000000-0000-0000-0000-000000000402', name: 'Qualified', kind: 'calculated' as const, formula: "=@'Target'!A[1]+1" },
+        { id: '00000000-0000-0000-0000-000000000403', name: 'Anchored', kind: 'calculated' as const, formula: '=@$A[$1]+1' },
+        { id: '00000000-0000-0000-0000-000000000404', name: 'String', kind: 'calculated' as const, formula: '=SUM("@A[1]", @A[1])' },
+      ],
+    };
+    const addedForRichBind = addDataModel(workbookWithSheets([richSheet, targetSheet]), richModel);
+    expect(addedForRichBind.ok).toBe(true);
+    if (!addedForRichBind.ok) return;
+    const richBound = bindSheetToDataModel(addedForRichBind.value, sheetId, richModel.id, []);
+    expect(richBound.ok).toBe(true);
+    if (!richBound.ok) return;
+    expect(await capture(richBound.value)).toEqual(cases.mutationStages['bind-nonempty']);
+
     const addedForBind = addDataModel(workbookWithSheets([sheet]), model);
     expect(addedForBind.ok).toBe(true);
     if (!addedForBind.ok) return;
     const bound = bindSheetToDataModel(addedForBind.value, sheetId, model.id, []);
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
-    expect(await capture(bound.value)).toEqual(cases.mutationStages['bind-nonempty']);
 
     const replacement = {
       ...model,
