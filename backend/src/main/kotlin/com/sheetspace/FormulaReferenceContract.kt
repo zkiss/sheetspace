@@ -7,7 +7,7 @@ package com.sheetspace
  */
 internal object FormulaReferenceContract {
     data class Endpoint(
-        val column: Int,
+        val column: Long,
         val row: Long,
         val columnAnchored: Boolean,
         val rowAnchored: Boolean,
@@ -31,8 +31,8 @@ internal object FormulaReferenceContract {
             val replacements = mutableListOf<Pair<IntRange, String>>()
             if (reference.qualifier != null) replacements += reference.qualifierSpan!! to target.id.value
             reference.endpoints.forEach { endpoint ->
-                val column = target.tabularContent.columns.getOrNull(endpoint.column)?.value
-                val row = target.tabularContent.rows.getOrNull(endpoint.row.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())?.value
+                val column = target.tabularContent.columns.at(endpoint.column)?.value
+                val row = target.tabularContent.rows.at(endpoint.row)?.value
                 if (column == null || row == null) return@transform listOf(reference.span to "#REF!")
                 replacements += endpoint.span to "${if (endpoint.columnAnchored) "$" else ""}$column[${if (endpoint.rowAnchored) "$" else ""}$row]"
             }
@@ -197,7 +197,7 @@ internal object FormulaReferenceContract {
                 if (!token.all { it.isLetter() }) {
                     // Canonical IDs are already stable.  Store their address as a sentinel; copy
                     // preserves their spelling below by returning it unchanged.
-                    return Endpoint(-1, -1L, match.groupValues[1] == "$", match.groupValues[3] == "$", start..match.range.last, true, token, match.groupValues[4])
+                    return Endpoint(-1L, -1L, match.groupValues[1] == "$", match.groupValues[3] == "$", start..match.range.last, true, token, match.groupValues[4])
                 }
             }
             index = start; val a1 = Regex("(\\$?)([A-Za-z]+)\\[(\\$?)([1-9][0-9]*)]").find(input, index) ?: return null
@@ -211,13 +211,14 @@ internal object FormulaReferenceContract {
         private fun text(): Boolean { index++; while (index < input.length) { if (input[index] != '"') index++ else if (index + 1 < input.length && input[index + 1] == '"') index += 2 else { index++; return true } }; return false }
         private fun number(): String? { val match = Regex("(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?").find(input, index) ?: return null; if (match.range.first != index) return null; index = match.range.last + 1; return match.value }
         private fun identifier(): String? { val match = Regex("[A-Za-z][A-Za-z0-9_]*").find(input, index) ?: return null; if (match.range.first != index) return null; index = match.range.last + 1; return match.value }
-        private fun column(label: String): Int? {
+        private fun column(label: String): Long? {
             var value = 0L
             for (char in label) {
-                value = value * 26 + (char.uppercaseChar() - 'A' + 1)
-                if (value > Int.MAX_VALUE) return null
+                val digit = char.uppercaseChar() - 'A' + 1
+                if (value > (MAX_A1_INDEX - digit) / 26) return null
+                value = value * 26 + digit
             }
-            return (value - 1).toInt()
+            return value - 1
         }
         private fun operator(values: List<String>): Boolean = values.firstOrNull { input.startsWith(it, index) }?.also { index += it.length } != null
         private fun skip() { while (index < input.length && input[index].isWhitespace()) index++ }
@@ -229,5 +230,8 @@ internal object FormulaReferenceContract {
             const val MAX_A1_INDEX = 9_007_199_254_740_991L
         }
     }
+
+    private fun <T> List<T>.at(index: Long): T? =
+        if (index < size.toLong()) this[index.toInt()] else null
 
 }

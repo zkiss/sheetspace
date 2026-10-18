@@ -19,7 +19,8 @@
     { "raw": "=@sheet-0:column:2[sheet-0:row:2]:sheet-0:column:1[sheet-0:row:1]", "accepted": true },
     { "raw": "=@A[0]", "accepted": false },
     { "raw": "=@A[999999999999999999999999]", "accepted": false },
-    { "raw": "=@A[2147483648]", "accepted": true }
+    { "raw": "=@A[2147483648]", "accepted": true },
+    { "raw": "=@FXSHRXY[1]", "accepted": true }
   ],
   "canonical": {
     "raw": "=@'Other sheet' ! A[1] + @A[1]",

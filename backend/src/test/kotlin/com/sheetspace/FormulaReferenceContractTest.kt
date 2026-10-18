@@ -24,6 +24,10 @@ class FormulaReferenceContractTest {
         assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@Z[999]", workbook, sheet))
         assertTrue(FormulaReferenceContract.isFormula("=@A[2147483648]"))
         assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@A[2147483648]", workbook, sheet))
+        assertTrue(FormulaReferenceContract.isFormula("=@FXSHRXY[1]"))
+        assertEquals("=#REF!", FormulaReferenceContract.canonicalize("=@FXSHRXY[1]", workbook, sheet))
+        assertTrue(FormulaReferenceContract.isFormula("=@BKTXHSOGHKKE[1]"))
+        assertFalse(FormulaReferenceContract.isFormula("=@BKTXHSOGHKKF[1]"))
         assertFalse(FormulaReferenceContract.isFormula("=@A[9007199254740992]"))
     }
 
