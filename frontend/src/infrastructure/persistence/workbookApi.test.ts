@@ -158,7 +158,7 @@ describe('workbook API read decoding', () => {
     mockFetch({
       manifest: { ...contractFixture.manifest, sheetIds: documents.map((document) => document.id) },
       documents,
-      dataModels: [],
+      dataModels: contractFixture.dataModels,
     });
 
     const workbook = await workbookApi.loadWorkbook();
@@ -184,6 +184,10 @@ describe('workbook API read decoding', () => {
     ['duplicate data model id', {
       ...contractFixture,
       dataModels: [contractFixture.dataModels[0], contractFixture.dataModels[0]],
+    }],
+    ['dangling sheet model id', {
+      ...contractFixture,
+      documents: [{ ...outputsResponse, modelId: 'missing-model' }, inputsResponse],
     }],
   ])('rejects %s bundle contracts', (_label, payload) => {
     expect(() => decodeWorkbookBundle(payload as WorkbookBundleResponse)).toThrowError(

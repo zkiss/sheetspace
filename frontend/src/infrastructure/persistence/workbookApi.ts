@@ -321,10 +321,17 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
   if (new Set(bundle.dataModels.map((model) => model.id)).size !== bundle.dataModels.length) {
     invalidReadContract('duplicate data model id');
   }
+  const dataModels = Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)]));
+  for (const document of decodedDocuments) {
+    if (document.modelId !== undefined && !Object.hasOwn(dataModels, document.modelId)) {
+      invalidReadContract(`sheet ${document.id} references unknown data model ${document.modelId}`);
+    }
+  }
+
   return {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
-    dataModels: Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)])),
+    dataModels,
   };
 }
 
