@@ -17,7 +17,7 @@ internal object DataModelTransitionPolicy {
     fun permitsTransition(before: WorkbookState, after: WorkbookState): Boolean {
         if (!hasModelTransition(before, after)) return true
         if (!hasValidIdentities(after)) return false
-        if (before.manifest != after.manifest || before.documents.keys != after.documents.keys) return false
+        if (before.manifest != after.manifest) return false
 
         return before.sheetsInOrder.all { oldSheet ->
             val newSheet = after.documents.getValue(oldSheet.id)
@@ -52,9 +52,7 @@ internal object DataModelTransitionPolicy {
                     model.properties.map { it.name.trim().lowercase() }.distinct().size != model.properties.size
             }) return false
         return workbook.sheetsInOrder.all { sheet ->
-            sheet.id.value.toUuidBytesOrNull() != null && sheet.dataModelId?.let(workbook.dataModels::containsKey) != false &&
-                sheet.tabularContent.rows.distinct().size == sheet.tabularContent.rows.size &&
-                sheet.tabularContent.columns.distinct().size == sheet.tabularContent.columns.size
+            sheet.id.value.toUuidBytesOrNull() != null && sheet.dataModelId?.let(workbook.dataModels::containsKey) != false
         }
     }
 
@@ -72,8 +70,7 @@ internal object DataModelTransitionPolicy {
     private fun validUnbind(oldSheet: SheetDocument, newSheet: SheetDocument, model: DataModel): Boolean {
         if (oldSheet.name != newSheet.name || oldSheet.frame != newSheet.frame ||
             oldSheet.presentation != newSheet.presentation || oldSheet.tabularContent.rows != newSheet.tabularContent.rows ||
-            oldSheet.tabularContent.columns != newSheet.tabularContent.columns ||
-            oldSheet.tabularContent.columns.size != model.properties.size
+            oldSheet.tabularContent.columns != newSheet.tabularContent.columns
         ) return false
         return oldSheet.tabularContent.cellContents.keys.union(newSheet.tabularContent.cellContents.keys).all { coordinate ->
             val old = oldSheet.tabularContent.cellContents[coordinate]
@@ -98,7 +95,6 @@ internal object DataModelTransitionPolicy {
             !hasOnlyModelOwnedCalculatedContents(after, newSheet.id, newModel)
         ) return false
         val oldColumnsByProperty = oldModel.properties.mapIndexed { index, property -> property.id to oldSheet.tabularContent.columns.getOrNull(index) }.toMap()
-        if (newSheet.tabularContent.columns.size != newModel.properties.size) return false
         return newModel.properties.withIndex().all { (newIndex, property) ->
             val newColumn = newSheet.tabularContent.columns[newIndex]
             val oldIndex = oldModel.properties.indexOfFirst { it.id == property.id }
