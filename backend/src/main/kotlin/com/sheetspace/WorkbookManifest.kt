@@ -69,7 +69,11 @@ fun emptyWorkbookState(): WorkbookState = WorkbookState()
 internal fun WorkbookState.withPublishedSheetRevisionsFrom(current: WorkbookState): WorkbookState = copy(
     documents = documents.mapValues { (sheetId, candidate) ->
         val stored = current.documents[sheetId]
-        if (stored != null && stored != candidate) candidate.copy(revision = stored.revision + 1) else candidate
+        when {
+            stored == null -> candidate.copy(revision = 0)
+            stored != candidate -> candidate.copy(revision = stored.revision + 1)
+            else -> candidate
+        }
     },
 )
 

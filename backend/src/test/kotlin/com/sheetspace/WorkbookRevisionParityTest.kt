@@ -7,6 +7,30 @@ import kotlin.test.assertFailsWith
 
 class WorkbookRevisionParityTest {
     @Test
+    fun `SQLite and memory initialize new aggregate sheets instead of publishing caller revisions`() {
+        val initialWorkbook = testWorkbookOf(testDocument(TEST_SHEET_1, "Initial"))
+        val snapshotAdded = testDocument(TEST_SHEET_2, "Snapshot add").copy(revision = 99)
+        val liveAdded = testDocument("00000000-0000-0000-0000-000000000003", "Live add").copy(revision = 99)
+        val results = parityStores().map { store ->
+            store.useForRevisionParity {
+                store.saveWorkbook(initialWorkbook)
+                val initial = store.loadWorkbookBundle()
+
+                store.saveWorkbook(initial.addSheet(snapshotAdded), initial.manifest.revision)
+                val afterSnapshotAdd = store.loadWorkbookBundle()
+                assertEquals(0, afterSnapshotAdd.documents.getValue(SheetId(TEST_SHEET_2)).revision)
+
+                store.updateWorkbook { current -> current.addSheet(liveAdded) }
+                store.loadWorkbookBundle().also { afterLiveAdd ->
+                    assertEquals(0, afterLiveAdd.documents.getValue(liveAdded.id).revision)
+                }
+            }
+        }
+
+        assertEquals(results[0], results[1])
+    }
+
+    @Test
     fun `SQLite and memory publish matching aggregate revisions`() {
         val initial = testWorkbookOf(
             testDocument(TEST_SHEET_1, "Inputs"),
