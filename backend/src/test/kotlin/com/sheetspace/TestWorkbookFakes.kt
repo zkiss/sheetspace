@@ -15,6 +15,10 @@ class InMemoryWorkbookStore(
     override fun saveWorkbook(workbook: WorkbookState) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
         synchronized(this) {
+            if (!(if (this.workbook.documents.isEmpty()) DataModelTransitionPolicy.permitsBootstrap(workbook)
+                else DataModelTransitionPolicy.permitsTransition(this.workbook, workbook))) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
             this.workbook = workbook
         }
     }
@@ -138,3 +142,14 @@ internal fun SheetDocument.cellWrite(address: String, raw: String): SheetCellWri
     val coordinate = tabularContent.coordinateAt(address) ?: error("Unknown test address: $address")
     return SheetCellWrite(id.value, coordinate.rowId.value, coordinate.columnId.value, raw)
 }
+
+internal fun SheetDocument.unboundWithCalculatedScalars(): SheetDocument = copy(
+    dataModelId = null,
+    content = TabularContent(
+        tabularContent.rows,
+        tabularContent.columns,
+        tabularContent.cellContents.mapValues { (coordinate, raw) ->
+            if (coordinate.columnId == tabularContent.columns[1] && raw.startsWith("=")) "10" else raw
+        },
+    ),
+)

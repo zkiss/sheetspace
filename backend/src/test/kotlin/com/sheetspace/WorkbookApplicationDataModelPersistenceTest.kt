@@ -251,7 +251,7 @@ class WorkbookApplicationDataModelPersistenceTest {
         val fixture = dataModelFixture()
         fixture.application.replaceDataModelState(fixture.command(fixture.boundWorkbook))
         val bound = fixture.application.loadWorkbookBundle()
-        val unbound = bound.copy(documents = bound.documents.mapValues { (_, sheet) -> sheet.copy(dataModelId = null) })
+        val unbound = bound.copy(documents = bound.documents.mapValues { (_, sheet) -> sheet.unboundWithCalculatedScalars() })
 
         val updated = fixture.application.replaceDataModelState(DataModelStateCommand(
             listOf(ExpectedSheetRevision(fixture.sheet.id.value, bound.documents.getValue(fixture.sheet.id).revision)),

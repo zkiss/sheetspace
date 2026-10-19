@@ -65,7 +65,18 @@ class SqliteWorkbookStoreSchemaTest {
     @Test
     fun `persists data models properties and sheet bindings in the workbook aggregate`() = withSqliteStore { store ->
         val modelId = "00000000-0000-0000-0000-000000000101"
-        val sheet = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val content = TabularContent(columnCount = 2)
+        val sheet = testDocument(
+            TEST_SHEET_1,
+            "Inputs",
+            tabular = TabularContent(
+                content.rows,
+                content.columns,
+                content.rows.associate { row ->
+                    CellCoordinate(row, content.columns[1]) to "=@${content.columns[0].value}[${row.value}]*2"
+                },
+            ),
+        ).copy(dataModelId = modelId)
         val model = DataModel(
             modelId,
             "Inputs",
@@ -89,7 +100,11 @@ class SqliteWorkbookStoreSchemaTest {
             ManualDataModelProperty("00000000-0000-0000-0000-0000000002${index}1", "Manual $type", type),
             CalculatedDataModelProperty("00000000-0000-0000-0000-0000000002${index}2", "Calculated $type", "=1/0", type),
         ) }
-        val zeroRowBoundSheet = testDocument(TEST_SHEET_1, "Empty").copy(dataModelId = boundModelId)
+        val zeroRowBoundSheet = testDocument(
+            TEST_SHEET_1,
+            "Empty",
+            tabular = TabularContent(columnCount = properties.size, rowCount = 0),
+        ).copy(dataModelId = boundModelId)
         val expected = testWorkbookOf(zeroRowBoundSheet).copy(dataModels = mapOf(
             boundModelId to DataModel(boundModelId, "Bound", properties),
             unboundModelId to DataModel(unboundModelId, "Unbound", properties),
@@ -104,7 +119,11 @@ class SqliteWorkbookStoreSchemaTest {
     fun `persists a bound model type-only replacement without changing property identity`() = withSqliteStore { store ->
         val modelId = "00000000-0000-0000-0000-000000000121"
         val propertyId = "00000000-0000-0000-0000-000000000122"
-        val sheet = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val sheet = testDocument(
+            TEST_SHEET_1,
+            "Inputs",
+            tabular = TabularContent(columnCount = 1, rowCount = 0),
+        ).copy(dataModelId = modelId)
         val initialModel = DataModel(modelId, "Inputs", listOf(
             CalculatedDataModelProperty(propertyId, "Result", "=1/0", DataModelPropertyType.INT),
         ))
@@ -122,7 +141,11 @@ class SqliteWorkbookStoreSchemaTest {
     @Test
     fun `aggregate updates replace model properties and restore every sheet binding`() = withSqliteStore { store ->
         val modelId = "00000000-0000-0000-0000-000000000101"
-        val inputs = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val inputs = testDocument(
+            TEST_SHEET_1,
+            "Inputs",
+            tabular = TabularContent(columnCount = 1, rowCount = 0),
+        ).copy(dataModelId = modelId)
         val outputs = testDocument(TEST_SHEET_2, "Outputs")
         val initial = testWorkbookOf(inputs, outputs).copy(dataModels = mapOf(modelId to DataModel(
             modelId,
@@ -135,7 +158,12 @@ class SqliteWorkbookStoreSchemaTest {
             ManualDataModelProperty("00000000-0000-0000-0000-000000000104", "Note", DataModelPropertyType.STRING),
         ))
 
-        val updated = store.updateWorkbook { it.copy(dataModels = mapOf(modelId to updatedModel)) }
+        val updated = store.updateWorkbook { workbook ->
+            val current = workbook.documents.getValue(inputs.id)
+            workbook.copy(dataModels = mapOf(modelId to updatedModel)).replaceSheet(
+                current.copy(content = TabularContent(current.tabularContent.rows, listOf(ColumnId.generate(), ColumnId.generate()), emptyMap())),
+            )
+        }
 
         assertEquals(mapOf(modelId to updatedModel), updated.dataModels)
         assertEquals(modelId, updated.documents.getValue(inputs.id).dataModelId)

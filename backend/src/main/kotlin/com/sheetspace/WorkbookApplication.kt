@@ -437,16 +437,7 @@ private fun String.toDataModelPropertyTypeOrNull(): DataModelPropertyType? =
  * model-owned shape and calculated contents invariant at that shared transactional boundary.
  */
 internal fun hasValidChangedModelOwnership(current: WorkbookState, updated: WorkbookState): Boolean =
-    updated.documents.values
-        .filter { sheet ->
-            val before = current.findSheet(sheet.id)
-            before == null || before.dataModelId != sheet.dataModelId || before.tabularContent != sheet.tabularContent
-        }
-        .all { sheet ->
-            val modelId = sheet.dataModelId ?: return@all true
-            val model = updated.dataModels[modelId] ?: return@all false
-            hasOnlyModelOwnedCalculatedContents(updated, sheet.id, model)
-        }
+    DataModelTransitionPolicy.permitsTransition(current, updated)
 
 private fun validateFrameCommand(
     position: WorkspacePosition,

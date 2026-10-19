@@ -46,6 +46,11 @@ class SqliteWorkbookStore internal constructor(
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
+                val current = reader.loadWorkbookBundle()
+                if (!(if (current.documents.isEmpty()) DataModelTransitionPolicy.permitsBootstrap(workbook)
+                    else DataModelTransitionPolicy.permitsTransition(current, workbook))) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                }
                 SqliteWorkbookWriter(conn, reader).replaceAll(workbook)
             }
         }

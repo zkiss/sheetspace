@@ -8,7 +8,18 @@ class SqliteWorkbookStoreCellBatchTest {
     @Test
     fun `calculated model cells reject mixed batches without persisting manual writes`() = withSqliteStore { store ->
         val modelId = "00000000-0000-0000-0000-000000000101"
-        val sheet = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
+        val content = TabularContent(columnCount = 2)
+        val sheet = testDocument(
+            TEST_SHEET_1,
+            "Inputs",
+            tabular = TabularContent(
+                content.rows,
+                content.columns,
+                content.rows.associate { row ->
+                    CellCoordinate(row, content.columns[1]) to "=@${content.columns[0].value}[${row.value}]*2"
+                },
+            ),
+        ).copy(dataModelId = modelId)
         val model = DataModel(
             modelId,
             "Inputs",
