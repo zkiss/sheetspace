@@ -72,6 +72,30 @@ class DataModelTransitionPolicyTest {
     }
 
     @Test
+    fun `model changes freeze unrelated unbound sheets`() {
+        val before = plainWorkbook().addSheet(testDocument(TEST_SHEET_2, "Notes"))
+        val first = before.findSheet(SheetId(TEST_SHEET_1))!!
+        val second = before.findSheet(SheetId(TEST_SHEET_2))!!
+        val unusedModel = boundWorkbook().dataModels.values.single()
+        val changedModel = before.copy(dataModels = mapOf(unusedModel.id to unusedModel))
+
+        assertTrue(DataModelTransitionPolicy.permitsTransition(before, changedModel))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, changedModel.replaceSheet(second.rename("Changed"))))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, changedModel.replaceSheet(
+            second.copy(frame = FrameState(position = WorkspacePosition(1.0, 1.0))),
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, changedModel.replaceSheet(
+            second.copy(presentation = SheetPresentation(rowHeights = mapOf("1" to 42.0))),
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, changedModel.replaceSheet(
+            second.updateTabularContent { it.updateCell("A1", "smuggled") },
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, changedModel.replaceSheet(
+            first.updateTabularContent { it.updateCell("A1", "smuggled") },
+        )))
+    }
+
+    @Test
     fun `binding requires model shape and canonical calculated contents`() {
         val unbound = plainWorkbook()
         val bound = boundWorkbook(unbound)

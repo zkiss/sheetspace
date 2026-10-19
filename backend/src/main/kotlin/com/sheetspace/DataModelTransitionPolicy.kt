@@ -15,15 +15,28 @@ internal object DataModelTransitionPolicy {
     }
 
     fun permitsTransition(before: WorkbookState, after: WorkbookState): Boolean {
+        val aggregateTransition = requiresAggregateCas(before, after)
         if (!hasModelTransition(before, after)) return true
         if (!hasValidIdentities(after)) return false
-        if (before.manifest != after.manifest) return false
+        if (aggregateTransition &&
+            (before.manifest != after.manifest || before.documents.keys != after.documents.keys)
+        ) return false
+
+        val changedModelIds = (before.dataModels.keys + after.dataModels.keys).filter { modelId ->
+            before.dataModels[modelId] != after.dataModels[modelId]
+        }.toSet()
 
         return before.sheetsInOrder.all { oldSheet ->
             val newSheet = after.documents.getValue(oldSheet.id)
             val oldModel = oldSheet.dataModelId?.let(before.dataModels::get)
             val newModel = newSheet.dataModelId?.let(after.dataModels::get)
+            val affectedByAggregateTransition = oldSheet.dataModelId != newSheet.dataModelId ||
+                oldSheet.dataModelId in changedModelIds
+
+            if (aggregateTransition && !affectedByAggregateTransition) return@all oldSheet == newSheet
+
             when {
+                // The aggregate-mode guard above has already required untouched sheets to match.
                 oldModel == null && newModel == null -> true
                 oldModel == null -> validBind(before, after, oldSheet, newSheet, newModel!!)
                 newModel == null -> validUnbind(oldSheet, newSheet, oldModel)
@@ -32,11 +45,16 @@ internal object DataModelTransitionPolicy {
         }
     }
 
+    /** A model or binding change needs an aggregate baseline, even when no sheets use that model. */
+    fun requiresAggregateCas(before: WorkbookState, after: WorkbookState): Boolean =
+        before.dataModels != after.dataModels || (before.documents.keys + after.documents.keys).any { sheetId ->
+            before.documents[sheetId]?.dataModelId != after.documents[sheetId]?.dataModelId
+        }
+
     private fun hasModelTransition(before: WorkbookState, after: WorkbookState): Boolean =
-        before.dataModels != after.dataModels || before.documents.any { (id, sheet) ->
+        requiresAggregateCas(before, after) || before.documents.any { (id, sheet) ->
             after.documents[id]?.let { updated ->
-                updated.dataModelId != sheet.dataModelId ||
-                    (sheet.dataModelId != null && updated.tabularContent != sheet.tabularContent)
+                sheet.dataModelId != null && updated.tabularContent != sheet.tabularContent
             } ?: false
         }
 
@@ -45,8 +63,8 @@ internal object DataModelTransitionPolicy {
             workbook.manifest.sheetIds != workbook.documents.keys.toList() ||
             workbook.dataModels.keys.any { it.toUuidBytesOrNull() == null }
         ) return false
-        if (workbook.dataModels.values.any { model ->
-                model.id.toUuidBytesOrNull() == null || model.name.isBlank() ||
+        if (workbook.dataModels.any { (id, model) ->
+                id != model.id || model.id.toUuidBytesOrNull() == null || model.name.isBlank() ||
                     model.properties.map { it.id }.distinct().size != model.properties.size ||
                     model.properties.any { it.id.toUuidBytesOrNull() == null || it.name.isBlank() } ||
                     model.properties.map { it.name.trim().lowercase() }.distinct().size != model.properties.size

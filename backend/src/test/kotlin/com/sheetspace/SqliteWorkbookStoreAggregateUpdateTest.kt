@@ -90,6 +90,39 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         }
         assertEquals(2, updated.manifest.revision)
     }
+
+    @Test
+    fun `aggregate model changes cannot include unbound sheet edits in SQLite or memory`() {
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
+        val unusedModel = boundAggregate(initial).dataModels.values.single()
+        val stores = listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore())
+
+        stores.forEach { store ->
+            store.useWhenCloseable {
+                store.saveWorkbook(initial)
+                val before = store.loadWorkbookBundle()
+
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(expectedManifestRevision = before.manifest.revision) { current ->
+                        val sheet = current.sheetsInOrder.single()
+                        current.copy(dataModels = mapOf(unusedModel.id to unusedModel)).replaceSheet(
+                            sheet.rename("Smuggled").updateTabularContent { it.updateCell("A1", "smuggled") },
+                        )
+                    }
+                }
+
+                assertEquals(before, store.loadWorkbookBundle())
+            }
+        }
+    }
+}
+
+private inline fun WorkbookStore.useWhenCloseable(block: () -> Unit) {
+    try {
+        block()
+    } finally {
+        (this as? AutoCloseable)?.close()
+    }
 }
 
 private fun boundAggregate(workbook: WorkbookState): WorkbookState {

@@ -47,11 +47,12 @@ class SqliteWorkbookStore internal constructor(
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
                 val current = reader.loadWorkbookBundle()
-                val isTransition = current.documents.isNotEmpty() && current.dataModels != workbook.dataModels
+                val isPristine = current == emptyWorkbookState()
+                val isTransition = !isPristine && DataModelTransitionPolicy.requiresAggregateCas(current, workbook)
                 if (isTransition && expectedManifestRevision != current.manifest.revision) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
-                if (!(if (current.documents.isEmpty()) DataModelTransitionPolicy.permitsBootstrap(workbook)
+                if (!(if (isPristine) DataModelTransitionPolicy.permitsBootstrap(workbook)
                     else DataModelTransitionPolicy.permitsTransition(current, workbook))) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
@@ -132,14 +133,12 @@ class SqliteWorkbookStore internal constructor(
             val writer = SqliteWorkbookWriter(conn, reader)
             val current = reader.loadWorkbookBundle()
             val transformed = transform(current)
-            val hasModelTransition = current.dataModels != transformed.dataModels || current.documents.any { (id, sheet) ->
-                transformed.documents[id]?.dataModelId != sheet.dataModelId
-            }
+            val hasModelTransition = DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
             if (hasModelTransition && expectedManifestRevision != current.manifest.revision) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
             val authorized = if (hasModelTransition) transformed.copy(manifest = current.manifest) else transformed
-            if (!hasValidChangedModelOwnership(current, authorized)) {
+            if (!DataModelTransitionPolicy.permitsTransition(current, authorized)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
             val updated = if (hasModelTransition) authorized.copy(manifest = current.manifest.copy(revision = current.manifest.revision + 1)) else transformed
