@@ -14,14 +14,16 @@ class WorkbookModelWriteRoutesTest {
     fun `model writes persist through HTTP to a reopened SQLite database`() {
         val database = Files.createTempFile("sheetspace-model-routes-", ".sqlite")
         val modelId = "30000000-0000-0000-0000-000000000001"
+        val firstSheet = shapedZeroRowSheet()
+        val secondSheet = shapedSheetWithValuesAndFormula()
         lateinit var firstSheetId: String
         lateinit var secondSheetId: String
         try {
             SqliteWorkbookStore(database).use { store ->
                 store.saveWorkbook(
                     testWorkbookOf(
-                        testDocument(TEST_SHEET_1, "Inputs"),
-                        testDocument(TEST_SHEET_2, "Outputs"),
+                        firstSheet,
+                        secondSheet,
                     ),
                 )
                 testApplication {
@@ -38,15 +40,26 @@ class WorkbookModelWriteRoutesTest {
                     assertEquals(HttpStatusCode.OK, client.put("/api/sheets/$secondSheetId/model") {
                         jsonBody("""{"modelId":"$modelId"}""")
                     }.status)
+                    assertPersistedSheetMetadata(
+                        client.get("/api/workbook/bundle").decodeBody(),
+                        firstSheet to modelId,
+                        secondSheet to modelId,
+                    )
                     assertEquals(HttpStatusCode.OK, client.put("/api/data-models/$modelId") {
-                        jsonBody(allTypesModelWriteBody("Invoices", "=SUM(unfinished, renamed)"))
+                        jsonBody(reorderedAndRetypedModelWriteBody("Invoices", "=SUM(unfinished, renamed)"))
                     }.status)
+                    assertPersistedSheetMetadata(
+                        client.get("/api/workbook/bundle").decodeBody(),
+                        firstSheet to modelId,
+                        secondSheet to modelId,
+                    )
                     assertEquals(HttpStatusCode.OK, client.put("/api/sheets/$firstSheetId/model") {
                         jsonBody("""{"modelId":null}""")
                     }.status)
 
                     val bundle = client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>()
                     assertPersistedModelMetadata(bundle, modelId, firstSheetId, secondSheetId)
+                    assertPersistedSheetMetadata(bundle, firstSheet to null, secondSheet to modelId)
                 }
             }
 
@@ -58,6 +71,11 @@ class WorkbookModelWriteRoutesTest {
                         modelId,
                         firstSheetId,
                         secondSheetId,
+                    )
+                    assertPersistedSheetMetadata(
+                        client.get("/api/workbook/bundle").decodeBody(),
+                        firstSheet to null,
+                        secondSheet to modelId,
                     )
                 }
             }
@@ -167,12 +185,87 @@ private fun assertPersistedModelMetadata(
     assertEquals(modelId, model.id)
     assertEquals("Invoices", model.name)
     assertEquals(
-        listOf("Enabled", "Amount", "Quantity", "Label"),
+        listOf("Label", "Quantity", "Amount", "Enabled"),
         model.columns.map(ModelColumnResponse::name),
     )
-    assertEquals("=SUM(unfinished, renamed)", model.columns.first().formula)
+    assertEquals(
+        listOf(
+            "31000000-0000-0000-0000-000000000001" to ("manual" to "boolean"),
+            "31000000-0000-0000-0000-000000000002" to ("manual" to "float"),
+            "31000000-0000-0000-0000-000000000003" to ("manual" to "int"),
+            "31000000-0000-0000-0000-000000000004" to ("calculated" to "string"),
+        ),
+        model.columns.map { it.id to (it.kind to it.type) },
+    )
+    assertEquals("=SUM(unfinished, renamed)", model.columns.last().formula)
     assertEquals(null, bundle.documents.single { it.id == unboundSheetId }.modelId)
     assertEquals(modelId, bundle.documents.single { it.id == boundSheetId }.modelId)
+}
+
+private fun assertPersistedSheetMetadata(
+    bundle: WorkbookBundleResponse,
+    vararg expectedSheets: Pair<SheetDocument, String?>,
+) {
+    expectedSheets.forEach { (expected, expectedModelId) ->
+        val actual = bundle.documents.single { it.id == expected.id.value }
+        assertEquals(expectedModelId, actual.modelId)
+        assertEquals(expected.name, actual.name)
+        assertEquals(expected.frame.position, actual.frame.position)
+        assertEquals(expected.frame.size, actual.frame.size)
+        assertEquals(expected.frame.visualScale, actual.frame.visualScale)
+        assertEquals(expected.frame.zIndex, actual.frame.zIndex)
+        assertEquals(expected.presentation.rowHeights, actual.presentation.rowHeights)
+        assertEquals(expected.presentation.columnWidths, actual.presentation.columnWidths)
+        assertEquals(expected.presentation.formatOverrides, actual.presentation.formatOverrides)
+        assertEquals(expected.tabularContent.rows.map(RowId::value), actual.content.rows)
+        assertEquals(expected.tabularContent.columns.map(ColumnId::value), actual.content.columns)
+        assertEquals(
+            expected.tabularContent.cellContents.map { (coordinate, content) ->
+                CellContentResponse(coordinate.rowId.value, coordinate.columnId.value, content)
+            }.toSet(),
+            actual.content.cells.toSet(),
+        )
+    }
+}
+
+private fun shapedZeroRowSheet(): SheetDocument {
+    val content = TabularContent(columnCount = 3, rowCount = 0)
+    return testDocument(
+        TEST_SHEET_1,
+        "Inputs",
+        FrameState(WorkspacePosition(12.0, 34.0), SheetFrameSize(480.0, 260.0), 1.25, 2),
+        content,
+    ).copy(
+        presentation = SheetPresentation(
+            columnWidths = mapOf(content.columns[0].value to 144.0),
+            formatOverrides = SheetFormatOverrides(
+                columns = mapOf(content.columns[1].value to CellFormat(fontWeight = "bold")),
+            ),
+        ),
+    )
+}
+
+private fun shapedSheetWithValuesAndFormula(): SheetDocument {
+    val content = TabularContent(
+        columnCount = 2,
+        rowCount = 2,
+        cells = mapOf("A1" to "47", "B1" to "=A1*2", "A2" to "Invoice"),
+    )
+    return testDocument(
+        TEST_SHEET_2,
+        "Outputs",
+        FrameState(WorkspacePosition(-80.0, 56.0), SheetFrameSize(640.0, 320.0), 0.8, 3),
+        content,
+    ).copy(
+        presentation = SheetPresentation(
+            rowHeights = mapOf(content.rows[1].value to 42.0),
+            columnWidths = mapOf(content.columns[0].value to 180.0),
+            formatOverrides = SheetFormatOverrides(
+                rows = mapOf(content.rows[0].value to CellFormat(fillColor = "#aabbcc")),
+                cells = mapOf("${content.rows[0].value}\u0000${content.columns[1].value}" to CellFormat(horizontalAlignment = "right")),
+            ),
+        ),
+    )
 }
 
 private fun modelWriteBody(firstColumnName: String, formula: String): String = """
@@ -193,6 +286,18 @@ private fun allTypesModelWriteBody(name: String, formula: String): String = """
         {"id":"31000000-0000-0000-0000-000000000003","name":"Amount","kind":"manual","type":"float"},
         {"id":"31000000-0000-0000-0000-000000000002","name":"Quantity","kind":"manual","type":"int"},
         {"id":"31000000-0000-0000-0000-000000000001","name":"Label","kind":"manual","type":"string"}
+      ]
+    }
+""".trimIndent()
+
+private fun reorderedAndRetypedModelWriteBody(name: String, formula: String): String = """
+    {
+      "name":"$name",
+      "columns":[
+        {"id":"31000000-0000-0000-0000-000000000001","name":"Label","kind":"manual","type":"boolean"},
+        {"id":"31000000-0000-0000-0000-000000000002","name":"Quantity","kind":"manual","type":"float"},
+        {"id":"31000000-0000-0000-0000-000000000003","name":"Amount","kind":"manual","type":"int"},
+        {"id":"31000000-0000-0000-0000-000000000004","name":"Enabled","kind":"calculated","type":"string","formula":"$formula"}
       ]
     }
 """.trimIndent()
