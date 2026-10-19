@@ -175,4 +175,25 @@ class WorkbookManifestRevisionAdmissionTest {
             }
         }
     }
+
+    @Test
+    fun `singleton update cannot authorize unrelated sheet creation in SQLite or memory`() {
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            try {
+                val existing = testDocument(TEST_SHEET_1, "Inputs")
+                store.saveWorkbook(testWorkbookOf(existing))
+                val before = store.loadWorkbookBundle()
+
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(ExpectedSheetRevision(existing.id.value, existing.revision)) { current ->
+                        current.addSheet(testDocument(TEST_SHEET_2, "Unrelated"))
+                    }
+                }
+
+                assertEquals(before, store.loadWorkbookBundle())
+            } finally {
+                (store as? AutoCloseable)?.close()
+            }
+        }
+    }
 }

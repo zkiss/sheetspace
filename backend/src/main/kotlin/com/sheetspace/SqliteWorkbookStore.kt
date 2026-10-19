@@ -240,9 +240,15 @@ class SqliteWorkbookStore internal constructor(
         }
         if (expectedRevision != null) {
             val target = SheetId(expectedRevision.sheetId)
-            if (changed.any { it != target }) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             val sheet = current.documents[target]
-            if (sheet != null && sheet.revision != expectedRevision.revision) {
+            if (sheet == null) {
+                if (candidate == current) return
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
+            if (!DataModelTransitionPolicy.isSingletonUpdateOf(current, candidate, target)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
+            if (sheet.revision != expectedRevision.revision) {
                 throw SheetRevisionConflict(expectedRevision.sheetId, expectedRevision.revision, sheet.revision)
             }
             return

@@ -94,6 +94,16 @@ internal object DataModelTransitionPolicy {
     fun changedOrDeletedSheets(before: WorkbookState, after: WorkbookState): Set<SheetId> =
         before.documents.filter { (id, sheet) -> after.documents[id] != sheet }.keys
 
+    /** A singleton update guard can authorize its existing target only, including its deletion. */
+    fun isSingletonUpdateOf(before: WorkbookState, after: WorkbookState, target: SheetId): Boolean =
+        target in before.documents &&
+            changedOrDeletedSheets(before, after).all { it == target } &&
+            after.documents.keys.none { it !in before.documents } &&
+            after.manifest.sheetIds in listOf(
+                before.manifest.sheetIds,
+                before.manifest.sheetIds.filter { it != target },
+            )
+
     /** A snapshot may not use client supplied counters to overwrite stored authority. */
     fun preservesStoredSheetRevisions(before: WorkbookState, after: WorkbookState): Boolean =
         before.documents.all { (id, sheet) -> after.documents[id]?.let { it.revision == sheet.revision } ?: true }
