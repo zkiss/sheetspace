@@ -184,6 +184,168 @@ class WorkbookRevisionParityTest {
 
         assertEquals(results[0], results[1])
     }
+
+    @Test
+    fun `SQLite and memory publish every aggregate transition identically through save and update`() {
+        val initial = testWorkbookOf(
+            testDocument(TEST_SHEET_1, "Inputs"),
+            testDocument(TEST_SHEET_2, "Outputs"),
+            testDocument("00000000-0000-0000-0000-000000000003", "Unbound"),
+        )
+
+        aggregateTransitionCases().forEach { transition ->
+            listOf("save" to true, "update" to false).forEach { (entryPoint, isSave) ->
+                val bound = publishedBoundAggregate(initial)
+                val candidate = transition.apply(bound)
+                val results = parityStores().map { store ->
+                    store.useForRevisionParity {
+                        store.saveWorkbook(initial)
+                        store.saveWorkbook(bindFullAggregate(initial), initial.manifest.revision, initial.revisionGuards().take(2))
+
+                        if (isSave) {
+                            saveAggregate(store, candidate, bound)
+                        } else {
+                            updateAggregate(store, candidate, bound)
+                        }
+                        store.loadWorkbookBundle()
+                    }
+                }
+                assertEquals(results[0], results[1], "${transition.name} through $entryPoint")
+            }
+        }
+    }
+
+    @Test
+    fun `SQLite and memory keep bound deletion and appends in full bundle parity`() {
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"), testDocument(TEST_SHEET_2, "Outputs"))
+        val bound = publishedBoundAggregate(initial)
+        val firstAppend = appendFullBoundRow(bound, SheetId(TEST_SHEET_1))
+        val afterFirstAppend = firstAppend.withRevision(TEST_SHEET_1, 2)
+        val laterAppend = appendFullBoundRow(afterFirstAppend, SheetId(TEST_SHEET_2))
+        val afterLaterAppend = laterAppend.withRevision(TEST_SHEET_2, 2)
+        val deleted = afterLaterAppend.removeSheet(SheetId(TEST_SHEET_1))
+        val results = parityStores().map { store ->
+            store.useForRevisionParity {
+                store.saveWorkbook(initial)
+                store.saveWorkbook(bindFullAggregate(initial), initial.manifest.revision, initial.revisionGuards())
+
+                store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 1)) { firstAppend }
+                assertEquals(2, store.loadWorkbookBundle().documents.getValue(SheetId(TEST_SHEET_1)).revision)
+
+                store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 1)) { laterAppend }
+                assertEquals(2, store.loadWorkbookBundle().documents.getValue(SheetId(TEST_SHEET_2)).revision)
+
+                store.updateWorkbook(
+                    expectedManifestRevision = afterLaterAppend.manifest.revision,
+                    expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 2)),
+                ) { deleted }
+                store.loadWorkbookBundle()
+            }
+        }
+
+        assertEquals(results[0], results[1])
+    }
+}
+
+private data class AggregateTransitionCase(
+    val name: String,
+    val apply: (WorkbookState) -> WorkbookState,
+)
+
+private fun aggregateTransitionCases(): List<AggregateTransitionCase> = listOf(
+    AggregateTransitionCase("schema and formula reconciliation") { before ->
+        val model = before.dataModels.values.single()
+        val added = ManualDataModelProperty("00000000-0000-0000-0000-000000000404", "Note", DataModelPropertyType.STRING)
+        val changedModel = model.copy(properties = listOf(
+            model.properties[0],
+            (model.properties[1] as CalculatedDataModelProperty).copy(formula = "=@A[1]*3"),
+            added,
+        ))
+        before.sheetsInOrder.filter { it.dataModelId == model.id }.fold(before.copy(dataModels = mapOf(model.id to changedModel))) { state, sheet ->
+            val content = sheet.tabularContent.appendColumn()
+            state.replaceSheet(sheet.copy(content = TabularContent(content.rows, content.columns, content.cellContents.mapValues { (coordinate, raw) ->
+                if (coordinate.columnId == content.columns[1]) raw.replace("*2", "*3") else raw
+            })))
+        }
+    },
+    AggregateTransitionCase("same id rename and type edit with unchanged projections") { before ->
+        val model = before.dataModels.values.single()
+        val changed = model.copy(properties = model.properties.mapIndexed { index, property ->
+            if (index == 0) (property as ManualDataModelProperty).copy(name = "Renamed amount", type = DataModelPropertyType.INT) else property
+        })
+        before.copy(dataModels = mapOf(model.id to changed))
+    },
+    AggregateTransitionCase("scalar unbind") { before ->
+        before.sheetsInOrder.filter { it.dataModelId != null }.fold(before) { state, sheet ->
+            state.replaceSheet(sheet.copy(dataModelId = null, content = TabularContent(
+                sheet.tabularContent.rows,
+                sheet.tabularContent.columns,
+                sheet.tabularContent.cellContents.mapValues { (coordinate, raw) ->
+                    if (coordinate.columnId == sheet.tabularContent.columns[1]) "0" else raw
+                },
+            )))
+        }
+    },
+    AggregateTransitionCase("unused model edit") { before ->
+        val unused = DataModel("00000000-0000-0000-0000-000000000405", "Unused", emptyList())
+        before.copy(dataModels = before.dataModels + (unused.id to unused))
+    },
+)
+
+private fun saveAggregate(store: WorkbookStore, candidate: WorkbookState, before: WorkbookState) {
+    store.saveWorkbook(candidate, before.manifest.revision, before.aggregateRevisionGuardsFor(candidate))
+}
+
+private fun updateAggregate(store: WorkbookStore, candidate: WorkbookState, before: WorkbookState) {
+    store.updateWorkbook(
+        expectedManifestRevision = before.manifest.revision,
+        expectedSheetRevisions = before.aggregateRevisionGuardsFor(candidate),
+    ) { candidate }
+}
+
+private fun bindFullAggregate(workbook: WorkbookState): WorkbookState {
+    val model = DataModel(
+        "00000000-0000-0000-0000-000000000401",
+        "Metrics",
+        listOf(
+            ManualDataModelProperty("00000000-0000-0000-0000-000000000402", "Amount", DataModelPropertyType.FLOAT),
+            CalculatedDataModelProperty("00000000-0000-0000-0000-000000000403", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
+        ),
+    )
+    return workbook.sheetsInOrder.take(2).fold(workbook.copy(dataModels = mapOf(model.id to model))) { state, sheet ->
+        val columns = sheet.tabularContent.columns.take(2)
+        state.replaceSheet(sheet.copy(
+            dataModelId = model.id,
+            content = TabularContent(sheet.tabularContent.rows, columns, sheet.tabularContent.rows.associate { row ->
+                CellCoordinate(row, columns[1]) to "=@${columns[0].value}[${row.value}]*2"
+            }),
+        ))
+    }
+}
+
+private fun publishedBoundAggregate(workbook: WorkbookState): WorkbookState =
+    bindFullAggregate(workbook).copy(
+        manifest = workbook.manifest.copy(revision = 1),
+        documents = bindFullAggregate(workbook).documents.mapValues { (sheetId, sheet) ->
+            if (sheetId in workbook.manifest.sheetIds.take(2)) sheet.copy(revision = 1) else sheet
+        },
+    )
+
+private fun WorkbookState.withRevision(sheetId: String, revision: Long): WorkbookState =
+    replaceSheet(documents.getValue(SheetId(sheetId)).copy(revision = revision))
+
+private fun appendFullBoundRow(before: WorkbookState, sheetId: SheetId): WorkbookState {
+    val sheet = before.findSheet(sheetId)!!
+    val content = sheet.tabularContent.appendRow(RowId.generate())
+    val provisional = before.replaceSheet(sheet.copy(content = content))
+    val coordinate = CellCoordinate(content.rows.last(), content.columns[1])
+    val formula = (before.dataModels.values.single().properties[1] as CalculatedDataModelProperty).formula
+    return provisional.replaceSheet(provisional.findSheet(sheetId)!!.copy(content = TabularContent(
+        content.rows,
+        content.columns,
+        content.cellContents + (coordinate to (materializeModelFormula(formula, provisional, sheetId, coordinate)
+            ?: error("Calculated row must materialize"))),
+    )))
 }
 
 private fun boundRevisionAggregate(workbook: WorkbookState): WorkbookState {
@@ -207,6 +369,11 @@ private fun WorkbookState.revisionGuards(): List<ExpectedSheetRevision> =
 
 private fun WorkbookState.boundRevisionGuards(): List<ExpectedSheetRevision> =
     sheetsInOrder.filter { it.dataModelId != null }.map { ExpectedSheetRevision(it.id.value, it.revision) }
+
+private fun WorkbookState.aggregateRevisionGuardsFor(candidate: WorkbookState): List<ExpectedSheetRevision> =
+    DataModelTransitionPolicy.affectedAggregateSheets(this, candidate).map { sheetId ->
+        documents.getValue(sheetId).let { ExpectedSheetRevision(sheetId.value, it.revision) }
+    }
 
 private fun WorkbookState.unboundRevisionGuards(): List<ExpectedSheetRevision> =
     sheetsInOrder.filter { it.dataModelId == null }.map { ExpectedSheetRevision(it.id.value, it.revision) }
