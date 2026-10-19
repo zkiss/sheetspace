@@ -39,7 +39,7 @@ class SqliteWorkbookStore internal constructor(
         SqliteWorkbookReader(conn, aggregateReadCheckpoint, sheetReadObserver).loadWorkbookBundle()
     }
 
-    override fun saveWorkbook(workbook: WorkbookState) {
+    override fun saveWorkbook(workbook: WorkbookState, expectedManifestRevision: Long?) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
@@ -47,11 +47,16 @@ class SqliteWorkbookStore internal constructor(
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
                 val current = reader.loadWorkbookBundle()
+                val isTransition = current.documents.isNotEmpty() && current.dataModels != workbook.dataModels
+                if (isTransition && expectedManifestRevision != current.manifest.revision) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                }
                 if (!(if (current.documents.isEmpty()) DataModelTransitionPolicy.permitsBootstrap(workbook)
                     else DataModelTransitionPolicy.permitsTransition(current, workbook))) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
-                SqliteWorkbookWriter(conn, reader).replaceAll(workbook)
+                val persisted = if (isTransition) workbook.copy(manifest = workbook.manifest.copy(revision = current.manifest.revision + 1)) else workbook
+                SqliteWorkbookWriter(conn, reader).replaceAll(persisted)
             }
         }
     }
@@ -119,16 +124,25 @@ class SqliteWorkbookStore internal constructor(
 
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
+        expectedManifestRevision: Long?,
         transform: (WorkbookState) -> WorkbookState,
     ): WorkbookState = synchronized(updateLock) {
         database.transaction { conn ->
             val reader = SqliteWorkbookReader(conn)
             val writer = SqliteWorkbookWriter(conn, reader)
             val current = reader.loadWorkbookBundle()
-            val updated = transform(current)
-            if (!hasValidChangedModelOwnership(current, updated)) {
+            val transformed = transform(current)
+            val hasModelTransition = current.dataModels != transformed.dataModels || current.documents.any { (id, sheet) ->
+                transformed.documents[id]?.dataModelId != sheet.dataModelId
+            }
+            if (hasModelTransition && expectedManifestRevision != current.manifest.revision) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
+            val authorized = if (hasModelTransition) transformed.copy(manifest = current.manifest) else transformed
+            if (!hasValidChangedModelOwnership(current, authorized)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
+            val updated = if (hasModelTransition) authorized.copy(manifest = current.manifest.copy(revision = current.manifest.revision + 1)) else transformed
             if (expectedRevision != null) {
                 val currentSheet = current.findSheet(SheetId(expectedRevision.sheetId))
                 if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {

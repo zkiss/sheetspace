@@ -66,7 +66,11 @@ data class CellPatchRequest(
 data class CellPatchResponse(val sheets: List<SheetRevisionResponse>)
 
 @Serializable
-data class DataModelStateRequest(val expectedRevisions: List<CellRevisionRequest>, val workbook: WorkbookBundleResponse)
+data class DataModelStateRequest(
+    val expectedRevisions: List<CellRevisionRequest>,
+    val workbook: WorkbookBundleResponse,
+    val expectedManifestRevision: Long = workbook.manifest.revision,
+)
 
 @Serializable
 data class SheetZOrderUpdateRequest(
@@ -233,7 +237,11 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             val request = call.receiveRequest<DataModelStateRequest>() ?: return@put
             call.respondApplicationResult {
                 val sheets = workbookApplication.replaceDataModelState(
-                    DataModelStateCommand(request.expectedRevisions.map { ExpectedSheetRevision(it.sheetId, it.revision) }, request.workbook),
+                    DataModelStateCommand(
+                        request.expectedRevisions.map { ExpectedSheetRevision(it.sheetId, it.revision) },
+                        request.workbook,
+                        request.expectedManifestRevision,
+                    ),
                 )
                 call.respond(CellPatchResponse(sheets.map { SheetRevisionResponse(it.id.value, it.revision) }))
             }

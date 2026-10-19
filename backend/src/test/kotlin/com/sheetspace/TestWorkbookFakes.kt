@@ -12,14 +12,19 @@ class InMemoryWorkbookStore(
 
     override fun loadWorkbookBundle(): WorkbookState = synchronized(this) { workbook }
 
-    override fun saveWorkbook(workbook: WorkbookState) {
+    override fun saveWorkbook(workbook: WorkbookState, expectedManifestRevision: Long?) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
         synchronized(this) {
+            val isTransition = this.workbook.documents.isNotEmpty() && this.workbook.dataModels != workbook.dataModels
+            if (isTransition && expectedManifestRevision != this.workbook.manifest.revision) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
             if (!(if (this.workbook.documents.isEmpty()) DataModelTransitionPolicy.permitsBootstrap(workbook)
                 else DataModelTransitionPolicy.permitsTransition(this.workbook, workbook))) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
-            this.workbook = workbook
+            val persisted = if (isTransition) workbook.copy(manifest = workbook.manifest.copy(revision = this.workbook.manifest.revision + 1)) else workbook
+            this.workbook = persisted
         }
     }
 
@@ -90,13 +95,22 @@ class InMemoryWorkbookStore(
 
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
+        expectedManifestRevision: Long?,
         transform: (WorkbookState) -> WorkbookState,
     ): WorkbookState = synchronized(this) {
         val current = workbook
-        val updated = transform(current)
-        if (!hasValidChangedModelOwnership(current, updated)) {
+        val transformed = transform(current)
+        val hasModelTransition = current.dataModels != transformed.dataModels || current.documents.any { (id, sheet) ->
+            transformed.documents[id]?.dataModelId != sheet.dataModelId
+        }
+        if (hasModelTransition && expectedManifestRevision != current.manifest.revision) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
+        val authorized = if (hasModelTransition) transformed.copy(manifest = current.manifest) else transformed
+        if (!hasValidChangedModelOwnership(current, authorized)) {
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
+        val updated = if (hasModelTransition) authorized.copy(manifest = current.manifest.copy(revision = current.manifest.revision + 1)) else transformed
         workbook = if (expectedRevision == null) {
             updated
         } else {

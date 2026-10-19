@@ -17,7 +17,7 @@ class WorkbookApplicationDataModelPersistenceTest {
         val command = fixture.command(fixture.boundWorkbook)
         val updated = fixture.application.replaceDataModelState(command)
         assertEquals(listOf(fixture.boundSheet), updated)
-        assertEquals(fixture.boundWorkbook, fixture.store.loadWorkbookBundle())
+        assertEquals(fixture.boundWorkbook.copy(manifest = fixture.boundWorkbook.manifest.copy(revision = fixture.store.loadManifest().revision)), fixture.store.loadWorkbookBundle())
     }
     @Test
     fun `model state replacement rejects malformed aggregate payloads without mutation`() {
@@ -142,7 +142,7 @@ class WorkbookApplicationDataModelPersistenceTest {
             }))),
         )
         fixture.application.replaceDataModelState(fixture.command(anchored))
-        assertEquals(anchored, WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
+        assertEquals(anchored.copy(manifest = anchored.manifest.copy(revision = fixture.store.loadManifest().revision)), WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
         val broken = anchored.copy(
             dataModels = listOf(anchored.dataModels.single().copy(properties = anchored.dataModels.single().properties.mapIndexed { index, property ->
                 if (index == 1) property.copy(formula = "=@Z[999]") else property
@@ -153,9 +153,10 @@ class WorkbookApplicationDataModelPersistenceTest {
         )
         fixture.application.replaceDataModelState(DataModelStateCommand(
             listOf(ExpectedSheetRevision(fixture.sheet.id.value, fixture.application.loadSheet(fixture.sheet.id.value).revision)),
-            broken,
+            broken.copy(manifest = broken.manifest.copy(revision = fixture.application.loadManifest().revision)),
+            fixture.application.loadManifest().revision,
         ))
-        assertEquals(broken, WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
+        assertEquals(broken.copy(manifest = broken.manifest.copy(revision = fixture.store.loadManifest().revision)), WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
     }
 
     @Test
@@ -173,7 +174,7 @@ class WorkbookApplicationDataModelPersistenceTest {
                 }))),
             )
             fixture.application.replaceDataModelState(fixture.command(broken))
-            assertEquals(broken, WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
+            assertEquals(broken.copy(manifest = broken.manifest.copy(revision = fixture.store.loadManifest().revision)), WorkbookReadTransportAdapter.bundle(fixture.store.loadWorkbookBundle()))
         }
     }
 
@@ -242,7 +243,8 @@ class WorkbookApplicationDataModelPersistenceTest {
         val current = fixture.application.loadWorkbookBundle()
         fixture.application.replaceDataModelState(DataModelStateCommand(
             listOf(ExpectedSheetRevision(fixture.sheet.id.value, current.documents.getValue(fixture.sheet.id).revision)),
-            WorkbookReadTransportAdapter.bundle(next),
+            WorkbookReadTransportAdapter.bundle(next).copy(manifest = WorkbookReadTransportAdapter.bundle(next).manifest.copy(revision = fixture.application.loadManifest().revision)),
+            fixture.application.loadManifest().revision,
         ))
     }
 
@@ -359,7 +361,7 @@ class WorkbookApplicationDataModelPersistenceTest {
         val model = fixture.boundWorkbook.dataModels.values.single()
         val manualOnlyWorkbook = fixture.boundWorkbook.copy(dataModels = mapOf(model.id to model.copy(
             properties = model.properties.map { property -> ManualDataModelProperty(property.id, property.name, DataModelPropertyType.STRING) },
-        )))
+        ))).replaceSheet(fixture.boundSheet.copy(content = TabularContent(fixture.boundSheet.tabularContent.rows, fixture.boundSheet.tabularContent.columns, fixture.boundSheet.tabularContent.cellContents.filterKeys { it.columnId != fixture.boundSheet.tabularContent.columns[1] })))
         fixture.application.replaceDataModelState(fixture.command(manualOnlyWorkbook))
 
         val appended = fixture.application.appendRow(fixture.sheet.id.value, fixture.sheet.revision)
@@ -445,12 +447,12 @@ class WorkbookApplicationDataModelPersistenceTest {
         }
 
     private fun dataModelFixture(): DataModelFixture {
-        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        val sheet = testDocument(TEST_SHEET_1, "Inputs").updateTabularContent { it.updateCell("A1", "5") }
         val modelId = "00000000-0000-0000-0000-000000000101"
         val model = modelForDefaultColumns(modelId)
         val boundSheet = sheet.copy(
             dataModelId = modelId,
-            content = contentWithCalculatedTemplates(sheet.tabularContent.updateCell("A1", "5")),
+            content = contentWithCalculatedTemplates(sheet.tabularContent),
         )
         val boundWorkbook = testWorkbookOf(boundSheet).copy(dataModels = mapOf(modelId to model))
         val store = InMemoryWorkbookStore(testWorkbookOf(sheet))
@@ -481,14 +483,12 @@ class WorkbookApplicationDataModelPersistenceTest {
         val boundSheet: SheetDocument,
         val boundWorkbook: WorkbookState,
     ) {
-        fun command(workbook: WorkbookState) = DataModelStateCommand(
-            listOf(ExpectedSheetRevision(sheet.id.value, sheet.revision)),
-            WorkbookReadTransportAdapter.bundle(workbook),
-        )
+        fun command(workbook: WorkbookState) = command(WorkbookReadTransportAdapter.bundle(workbook))
 
         fun command(bundle: WorkbookBundleResponse) = DataModelStateCommand(
             listOf(ExpectedSheetRevision(sheet.id.value, sheet.revision)),
-            bundle,
+            bundle.copy(manifest = bundle.manifest.copy(revision = application.loadManifest().revision)),
+            application.loadManifest().revision,
         )
     }
 

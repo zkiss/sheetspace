@@ -41,6 +41,7 @@ data class CellPatchCommand(
 data class DataModelStateCommand(
     val expectedRevisions: List<ExpectedSheetRevision>,
     val workbook: WorkbookBundleResponse,
+    val expectedManifestRevision: Long = workbook.manifest.revision,
 )
 
 enum class WorkbookApplicationError {
@@ -280,8 +281,12 @@ class DefaultWorkbookApplication(
         }
         val updated = dataModelState(command.workbook)
         lateinit var affectedSheetIds: Set<String>
-        val persisted = store.updateWorkbook { current ->
-            if (updated.manifest != current.manifest) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        val persisted = store.updateWorkbook(expectedManifestRevision = command.expectedManifestRevision) { current ->
+            if (updated.manifest.version != current.manifest.version || updated.manifest.sheetIds != current.manifest.sheetIds ||
+                updated.manifest.revision != command.expectedManifestRevision
+            ) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
             affectedSheetIds = affectedDataModelSheets(current, updated)
             if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != affectedSheetIds) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)

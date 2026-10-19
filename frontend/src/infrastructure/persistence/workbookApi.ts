@@ -275,7 +275,7 @@ export const workbookApi = {
     expectedRevisions: readonly { sheetId: string; revision: number }[],
   ): Promise<CellPatchResponse> {
     return requestJson<CellPatchResponse>('/api/workbook/data-model-state', {
-      method: 'PUT', body: JSON.stringify({ workbook: encodeWorkbookBundle(workbook), expectedRevisions }),
+      method: 'PUT', body: JSON.stringify({ workbook: encodeWorkbookBundle(workbook), expectedRevisions, expectedManifestRevision: workbook.manifest.revision }),
     });
   },
 };

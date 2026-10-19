@@ -63,9 +63,20 @@ internal object DataModelTransitionPolicy {
         newSheet: SheetDocument,
         model: DataModel,
     ): Boolean =
-        oldSheet.tabularContent.rows == newSheet.tabularContent.rows &&
+        oldSheet.name == newSheet.name && oldSheet.frame == newSheet.frame &&
+            oldSheet.presentation == newSheet.presentation &&
+            oldSheet.tabularContent.rows == newSheet.tabularContent.rows &&
             newSheet.tabularContent.columns.size == model.properties.size &&
-            hasOnlyModelOwnedCalculatedContents(after, newSheet.id, model)
+            oldSheet.tabularContent.columns.indices.all { index ->
+                val oldColumn = oldSheet.tabularContent.columns[index]
+                val newColumn = newSheet.tabularContent.columns.getOrNull(index) ?: return@all true
+                if (oldColumn != newColumn) return@all false
+                if (model.properties[index] is CalculatedDataModelProperty) return@all true
+                oldSheet.tabularContent.rows.all { row ->
+                    oldSheet.tabularContent.cellContents[CellCoordinate(row, oldColumn)] ==
+                        newSheet.tabularContent.cellContents[CellCoordinate(row, newColumn)]
+                }
+            } && hasOnlyModelOwnedCalculatedContents(after, newSheet.id, model)
 
     private fun validUnbind(oldSheet: SheetDocument, newSheet: SheetDocument, model: DataModel): Boolean {
         if (oldSheet.name != newSheet.name || oldSheet.frame != newSheet.frame ||
@@ -90,7 +101,8 @@ internal object DataModelTransitionPolicy {
     ): Boolean {
         if (oldSheet.dataModelId != newSheet.dataModelId || oldSheet.name != newSheet.name ||
             oldSheet.frame != newSheet.frame || oldSheet.presentation != newSheet.presentation ||
-            newSheet.tabularContent.rows.take(oldSheet.tabularContent.rows.size) != oldSheet.tabularContent.rows ||
+            (oldModel != newModel && newSheet.tabularContent.rows != oldSheet.tabularContent.rows) ||
+            (oldModel == newModel && newSheet.tabularContent.rows.take(oldSheet.tabularContent.rows.size) != oldSheet.tabularContent.rows) ||
             !hasOnlyModelOwnedCalculatedContents(before, oldSheet.id, oldModel) ||
             !hasOnlyModelOwnedCalculatedContents(after, newSheet.id, newModel)
         ) return false
