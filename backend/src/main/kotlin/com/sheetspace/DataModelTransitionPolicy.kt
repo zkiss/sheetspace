@@ -8,7 +8,7 @@ internal object DataModelTransitionPolicy {
     fun permitsBootstrap(workbook: WorkbookState): Boolean {
         // A pristine aggregate save is still an authority boundary.  In particular, an
         // unbound workbook is not exempt from durable UUID/shape validation.
-        return hasValidIdentities(workbook) && workbook.sheetsInOrder.all { sheet ->
+        return hasValidIdentities(workbook) && hasValidModelDefinitions(workbook) && workbook.sheetsInOrder.all { sheet ->
             sheet.dataModelId?.let(workbook.dataModels::get)?.let { model ->
                 hasOnlyModelOwnedCalculatedContents(workbook, sheet.id, model)
             } ?: true
@@ -18,7 +18,7 @@ internal object DataModelTransitionPolicy {
     fun permitsTransition(before: WorkbookState, after: WorkbookState): Boolean {
         val aggregateTransition = requiresAggregateCas(before, after)
         if (!hasModelTransition(before, after)) return true
-        if (!hasValidIdentities(after)) return false
+        if (!hasValidIdentities(after) || !hasValidModelDefinitions(after)) return false
         if (aggregateTransition &&
             (before.manifest != after.manifest || before.documents.keys != after.documents.keys)
         ) return false
@@ -100,6 +100,16 @@ internal object DataModelTransitionPolicy {
         }
     }
 
+    /**
+     * Formula ownership has rows to compare, but formula admission must not depend on there being
+     * a row (or a binding) at all.  Models are aggregate state in their own right.
+     */
+    private fun hasValidModelDefinitions(workbook: WorkbookState): Boolean =
+        workbook.dataModels.values.all { model ->
+            model.properties.filterIsInstance<CalculatedDataModelProperty>()
+                .all { property -> isSupportedFormula(property.formula) }
+        }
+
     private fun hasValidTabularIdentities(content: TabularContent): Boolean =
         content.rows.distinct().size == content.rows.size &&
             content.columns.distinct().size == content.columns.size &&
@@ -120,14 +130,22 @@ internal object DataModelTransitionPolicy {
             newSheet.presentation == oldSheet.presentation.prunedTo(newSheet.tabularContent) &&
             oldSheet.tabularContent.rows == newSheet.tabularContent.rows &&
             newSheet.tabularContent.columns.size == model.properties.size &&
-            oldSheet.tabularContent.columns.indices.all { index ->
-                val oldColumn = oldSheet.tabularContent.columns[index]
-                val newColumn = newSheet.tabularContent.columns.getOrNull(index) ?: return@all true
-                if (oldColumn != newColumn) return@all false
-                if (model.properties[index] is CalculatedDataModelProperty) return@all true
-                oldSheet.tabularContent.rows.all { row ->
-                    oldSheet.tabularContent.cellContents[CellCoordinate(row, oldColumn)] ==
-                        newSheet.tabularContent.cellContents[CellCoordinate(row, newColumn)]
+            model.properties.withIndex().all { (index, property) ->
+                val newColumn = newSheet.tabularContent.columns[index]
+                val oldColumn = oldSheet.tabularContent.columns.getOrNull(index)
+                if (oldColumn == null) {
+                    property is CalculatedDataModelProperty || newSheet.tabularContent.rows.all { row ->
+                        CellCoordinate(row, newColumn) !in newSheet.tabularContent.cellContents
+                    }
+                } else if (oldColumn != newColumn) {
+                    false
+                } else if (property is CalculatedDataModelProperty) {
+                    true
+                } else {
+                    oldSheet.tabularContent.rows.all { row ->
+                        oldSheet.tabularContent.cellContents[CellCoordinate(row, oldColumn)] ==
+                            newSheet.tabularContent.cellContents[CellCoordinate(row, newColumn)]
+                    }
                 }
             } && hasOnlyModelOwnedCalculatedContents(after, newSheet.id, model)
 

@@ -3,6 +3,12 @@ package com.sheetspace
 class InMemoryWorkbookStore(
     initialWorkbook: WorkbookState = emptyWorkbookState(),
 ) : WorkbookStore {
+    init {
+        require(DataModelTransitionPolicy.permitsBootstrap(initialWorkbook)) {
+            "Initial workbook must satisfy the same aggregate validation as persistent bootstrap"
+        }
+    }
+
     private var workbook = initialWorkbook
 
     override fun loadManifest(): WorkbookManifest = synchronized(this) { workbook.manifest }

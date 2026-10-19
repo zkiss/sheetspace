@@ -441,7 +441,7 @@ private fun validBoundAppend(before: WorkbookState): WorkbookState {
     )))
 }
 
-private fun plainWorkbook(): WorkbookState = testWorkbookOf(testDocument(
+fun plainWorkbook(): WorkbookState = testWorkbookOf(testDocument(
     TEST_SHEET_1,
     "Inputs",
     tabular = TabularContent(rowCount = 2, columnCount = 2),
@@ -461,7 +461,7 @@ private fun manualBoundWorkbook(): WorkbookState {
     ))
 }
 
-private fun boundWorkbook(plain: WorkbookState = plainWorkbook()): WorkbookState {
+fun boundWorkbook(plain: WorkbookState = plainWorkbook()): WorkbookState {
     val sheet = plain.sheetsInOrder.single()
     val model = DataModel(
         "00000000-0000-0000-0000-000000000101",

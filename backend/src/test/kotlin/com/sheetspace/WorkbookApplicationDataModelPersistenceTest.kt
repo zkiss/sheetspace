@@ -179,16 +179,15 @@ class WorkbookApplicationDataModelPersistenceTest {
     }
 
     @Test
-    fun `row append rejects calculated templates that bypass model-state validation`() {
+    fun `model state replacement rejects calculated templates`() {
         listOf("=", "not a formula").forEach { template ->
             val fixture = dataModelFixture()
             val model = fixture.boundWorkbook.dataModels.values.single().copy(properties = fixture.boundWorkbook.dataModels.values.single().properties.mapIndexed { index, property ->
                 if (index == 1) CalculatedDataModelProperty(property.id, property.name, template, DataModelPropertyType.FLOAT) else property
             })
-            val application = DefaultWorkbookApplication(InMemoryWorkbookStore(fixture.boundWorkbook.copy(dataModels = mapOf(model.id to model))))
             assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
-                application.appendRow(fixture.boundSheet.id.value, fixture.boundSheet.revision, listOf(
-                    CalculatedCellAppend(fixture.boundSheet.tabularContent.columns[1].value, "=1"),
+                fixture.application.replaceDataModelState(fixture.command(
+                    fixture.boundWorkbook.copy(dataModels = mapOf(model.id to model)),
                 ))
             }
         }
@@ -392,9 +391,8 @@ class WorkbookApplicationDataModelPersistenceTest {
         val unbound = testWorkbookOf(fixture.sheet)
         assertEquals(emptyList(), fixture.application.replaceDataModelState(fixture.command(unbound).copy(expectedRevisions = emptyList())))
         val orphanedBinding = fixture.sheet.copy(dataModelId = "00000000-0000-0000-0000-000000000199")
-        val orphanedApplication = DefaultWorkbookApplication(InMemoryWorkbookStore(testWorkbookOf(orphanedBinding)))
-        assertApplicationError(WorkbookApplicationError.INVALID_CELL_PATCH) {
-            orphanedApplication.appendRow(orphanedBinding.id.value, orphanedBinding.revision)
+        assertFailsWith<IllegalArgumentException> {
+            InMemoryWorkbookStore(testWorkbookOf(orphanedBinding))
         }
     }
 
