@@ -323,7 +323,7 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
   }
   const dataModels = Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)]));
   for (const document of decodedDocuments) {
-    if (document.modelId !== undefined && !Object.hasOwn(dataModels, document.modelId)) {
+    if (document.modelId !== undefined && !Object.prototype.hasOwnProperty.call(dataModels, document.modelId)) {
       invalidReadContract(`sheet ${document.id} references unknown data model ${document.modelId}`);
     }
   }
