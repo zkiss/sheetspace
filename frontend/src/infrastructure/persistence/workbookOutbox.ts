@@ -154,7 +154,6 @@ function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceInte
     case 'update-sheet-visual-scale': return { ...intent };
     case 'update-sheet-z-order': return { ...intent, updates: intent.updates.map((update) => ({ ...update })) };
     case 'write-cells': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
-    case 'replace-data-model-state': return { ...intent, workbook: structuredClone(intent.workbook), sheetIds: [...intent.sheetIds] };
   }
 }
 function policyFor(intent: WorkbookPersistenceIntent): OutboxEntry['policy'] {
@@ -171,7 +170,6 @@ function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
 function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
   if (intent.kind === 'update-sheet-z-order') return [...new Set(intent.updates.map(({ sheetId }) => sheetId))];
   if (intent.kind === 'write-cells') return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
-  if (intent.kind === 'replace-data-model-state') return [...intent.sheetIds];
   return [intent.sheetId];
 }
 function intersects(left: readonly string[], right: readonly string[]) { return left.some((value) => right.includes(value)); }

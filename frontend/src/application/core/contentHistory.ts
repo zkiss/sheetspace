@@ -45,13 +45,6 @@ export class ContentHistory {
     this.undoStack.push(transaction); this.undoBytes += transaction.bytes;
     this.trimUndo();
   }
-  /** Structural content ownership changes make every retained cell replay unsafe. */
-  invalidate() {
-    this.undoStack = [];
-    this.redoStack = [];
-    this.undoBytes = 0;
-    this.redoBytes = 0;
-  }
   commitUndo() { const transaction = this.undoStack.pop(); if (!transaction) return; this.undoBytes -= transaction.bytes; this.pushRedo(transaction); }
   commitRedo() { const transaction = this.redoStack.pop(); if (!transaction) return; this.redoBytes -= transaction.bytes; this.pushUndo(transaction); }
 

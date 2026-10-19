@@ -51,17 +51,6 @@ describe('ContentHistory', () => {
     expect(history.canRedo).toBe(false);
   });
 
-  it('invalidates both replay stacks after a content ownership transition', () => {
-    const history = new ContentHistory();
-    history.record([write(null, 'first')], affected);
-    history.commitUndo();
-
-    history.invalidate();
-
-    expect(history.canUndo).toBe(false);
-    expect(history.canRedo).toBe(false);
-  });
-
   it('evicts the oldest entries by count and does not retain oversized entries', () => {
     const history = new ContentHistory();
     for (let index = 0; index <= CONTENT_HISTORY_MAX_ENTRIES; index += 1) {

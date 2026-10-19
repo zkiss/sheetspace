@@ -54,28 +54,13 @@ data class WorkbookState(
     )
 }
 
-data class DataModel(val id: String, val name: String, val properties: List<DataModelProperty>)
-enum class DataModelPropertyType { STRING, INT, FLOAT, BOOLEAN }
-sealed interface DataModelProperty { val id: String; val name: String; val type: DataModelPropertyType }
-data class ManualDataModelProperty(override val id: String, override val name: String, override val type: DataModelPropertyType) : DataModelProperty
-data class CalculatedDataModelProperty(override val id: String, override val name: String, val formula: String, override val type: DataModelPropertyType) : DataModelProperty
+data class DataModel(val id: String, val name: String, val columns: List<ModelColumn>)
+enum class ModelColumnType { STRING, INT, FLOAT, BOOLEAN }
+sealed interface ModelColumn { val id: String; val name: String; val type: ModelColumnType }
+data class ManualModelColumn(override val id: String, override val name: String, override val type: ModelColumnType) : ModelColumn
+data class CalculatedModelColumn(override val id: String, override val name: String, override val type: ModelColumnType, val formula: String) : ModelColumn
 
 fun emptyWorkbookState(): WorkbookState = WorkbookState()
-
-/**
- * Publishes aggregate sheet revisions from the stored state after admission has accepted a
- * candidate. Client revisions are CAS baselines, never the revisions persisted for a change.
- */
-internal fun WorkbookState.withPublishedSheetRevisionsFrom(current: WorkbookState): WorkbookState = copy(
-    documents = documents.mapValues { (sheetId, candidate) ->
-        val stored = current.documents[sheetId]
-        when {
-            stored == null -> candidate.copy(revision = 0)
-            stored != candidate -> candidate.copy(revision = stored.revision + 1)
-            else -> candidate
-        }
-    },
-)
 
 fun createSheetDocument(
     name: String,

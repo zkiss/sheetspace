@@ -17,6 +17,18 @@ internal class SqliteWorkbookReader(
         return WorkbookState(manifest, documents, loadDataModels())
     }
 
+    private fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models ORDER BY rowid").use { statement ->
+        statement.executeQuery().use { rs -> buildMap {
+            while (rs.next()) { val id = rs.getBytes("id").toUuidString(); put(id, DataModel(id, rs.getString("name"), loadColumns(id))) }
+        } }
+    }
+
+    private fun loadColumns(modelId: String): List<ModelColumn> = connection.prepareStatement("SELECT id, name, column_kind, column_type, formula FROM data_model_columns WHERE model_id = ? ORDER BY column_order").use { statement ->
+        statement.setBytes(1, modelId.toUuidBytes()); statement.executeQuery().use { rs -> buildList {
+            while (rs.next()) { val id = rs.getBytes("id").toUuidString(); val type = ModelColumnType.valueOf(rs.getString("column_type")); add(if (rs.getString("column_kind") == "MANUAL") ManualModelColumn(id, rs.getString("name"), type) else CalculatedModelColumn(id, rs.getString("name"), type, rs.getString("formula"))) }
+        } }
+    }
+
     fun loadManifest(): WorkbookManifest {
         val metadata = connection.prepareStatement(
             "SELECT schema_version, manifest_revision FROM workbook_metadata WHERE singleton_key = 1",
@@ -45,7 +57,7 @@ internal class SqliteWorkbookReader(
     fun loadSheet(sheetId: SheetId): SheetDocument? {
         val document = connection.prepareStatement(
             """
-            SELECT d.id, d.name, d.revision, d.data_model_id,
+            SELECT d.id, d.name, d.revision, d.model_id,
                    f.position_x, f.position_y, f.frame_width, f.frame_height, f.visual_scale, f.z_index
             FROM sheet_documents d
             JOIN frame_state f ON f.sheet_id = d.id
@@ -60,7 +72,7 @@ internal class SqliteWorkbookReader(
                     id = SheetId(rs.getBytes("id").toUuidString()),
                     name = rs.getString("name"),
                     revision = rs.getLong("revision"),
-                    dataModelId = rs.getBytes("data_model_id")?.toUuidString(),
+                    modelId = rs.getBytes("model_id")?.toUuidString(),
                     frame = FrameState(
                         position = WorkspacePosition(
                             rs.getDouble("position_x"),
@@ -81,6 +93,7 @@ internal class SqliteWorkbookReader(
             name = document.name,
             revision = document.revision,
             frame = document.frame,
+            modelId = document.modelId,
             presentation = SheetPresentation(
                 rowHeights = loadSizes(sheetId, "row_presentation", "row_id", "height"),
                 columnWidths = loadSizes(sheetId, "column_presentation", "column_id", "width"),
@@ -95,7 +108,6 @@ internal class SqliteWorkbookReader(
                 columns = loadColumns(sheetId),
                 cellContents = loadCells(sheetId),
             ),
-            dataModelId = document.dataModelId,
         )
     }
 
@@ -200,29 +212,6 @@ internal class SqliteWorkbookReader(
             SheetReadEvent(part, requestedSheetId, SheetId(returnedSheetId.toUuidString())),
         )
     }
-
-    private fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models").use { statement ->
-        statement.executeQuery().use { models -> buildMap {
-            while (models.next()) {
-                val id = models.getBytes("id").toUuidString()
-                put(id, DataModel(id, models.getString("name"), loadDataModelProperties(id)))
-            }
-        } }
-    }
-
-    private fun loadDataModelProperties(modelId: String): List<DataModelProperty> = connection.prepareStatement(
-        "SELECT id, name, property_kind, property_type, formula FROM data_model_properties WHERE model_id = ? ORDER BY property_order",
-    ).use { statement ->
-        statement.setBytes(1, modelId.toUuidBytes())
-        statement.executeQuery().use { properties -> buildList {
-            while (properties.next()) {
-                val id = properties.getBytes("id").toUuidString()
-                val name = properties.getString("name")
-                val type = DataModelPropertyType.valueOf(properties.getString("property_type"))
-                add(if (properties.getString("property_kind") == "CALCULATED") CalculatedDataModelProperty(id, name, properties.getString("formula"), type) else ManualDataModelProperty(id, name, type))
-            }
-        } }
-    }
 }
 
 internal enum class SheetReadPart {
@@ -242,6 +231,6 @@ private data class SheetRecord(
     val id: SheetId,
     val name: String,
     val revision: Long,
+    val modelId: String?,
     val frame: FrameState,
-    val dataModelId: String?,
 )

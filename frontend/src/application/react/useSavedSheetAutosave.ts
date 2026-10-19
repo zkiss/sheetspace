@@ -119,8 +119,6 @@ export function useSavedSheetAutosave({
     if (!autosaveEnabled || !intent) return;
     const sheetIds = intent.kind === 'update-sheet-z-order'
       ? intent.updates.map(({ sheetId }) => sheetId)
-      : intent.kind === 'replace-data-model-state'
-        ? intent.sheetIds
       : intent.kind === 'write-cells'
         ? intent.writes.map(({ sheetId }) => sheetId)
         : [intent.sheetId];

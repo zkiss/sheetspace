@@ -138,17 +138,6 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     if (intent.kind === 'update-sheet-position') return this.record(await this.method('updateSheetPosition')(intent.sheetId, intent.position, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'update-sheet-frame-layout') return this.record(await this.method('updateSheetFrameLayout')(intent.sheetId, intent.position, intent.size, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'update-sheet-visual-scale') return this.record(await this.method('updateSheetVisualScale')(intent.sheetId, intent.visualScale, { revision: this.revision(intent.sheetId) }));
-    if (intent.kind === 'replace-data-model-state') {
-      const expectedRevisions = intent.sheetIds.map((sheetId) => {
-        const revision = this.revision(sheetId);
-        return revision === undefined ? undefined : { sheetId, revision };
-      });
-      if (expectedRevisions.some((revision) => revision === undefined)) return { kind: 'blocked', reason: 'Missing revision for a data model transition.' };
-      return this.recordMany((await this.method('replaceDataModelState')(
-        intent.workbook,
-        expectedRevisions as { sheetId: SheetId; revision: number }[],
-      )).sheets);
-    }
     const updates = intent.updates.map((update) => { const expectedRevision = this.revision(update.sheetId); return expectedRevision === undefined ? undefined : { ...update, expectedRevision }; });
     if (updates.some((update) => update === undefined)) return { kind: 'blocked', reason: 'Missing revision for a z-order update.' };
     return this.recordMany((await this.method('updateSheetZOrder')(updates as { sheetId: SheetId; zIndex: number; expectedRevision: number }[])).sheets);

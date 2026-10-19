@@ -14,15 +14,6 @@ internal fun String.toUuidBytes(): ByteArray {
 internal fun String.toUuidBytesOrNull(): ByteArray? =
     runCatching { toUuidBytes() }.getOrNull()
 
-/**
- * IDs are stored as UUID bytes, so differently cased spellings identify the same durable value.
- * Check uniqueness before collection operations such as associate can discard an entry.
- */
-internal fun Iterable<String>.hasDistinctUuidIdentities(): Boolean {
-    val identities = map { value -> runCatching { UUID.fromString(value) }.getOrNull() ?: return false }
-    return identities.distinct().size == identities.size
-}
-
 internal fun ByteArray.toUuidString(): String {
     require(size == 16) { "Stored id must be exactly 16 bytes" }
     val bytes = ByteBuffer.wrap(this)

@@ -3,12 +3,6 @@ package com.sheetspace
 class InMemoryWorkbookStore(
     initialWorkbook: WorkbookState = emptyWorkbookState(),
 ) : WorkbookStore {
-    init {
-        require(DataModelTransitionPolicy.permitsBootstrap(initialWorkbook)) {
-            "Initial workbook must satisfy the same aggregate validation as persistent bootstrap"
-        }
-    }
-
     private var workbook = initialWorkbook
 
     override fun loadManifest(): WorkbookManifest = synchronized(this) { workbook.manifest }
@@ -18,38 +12,10 @@ class InMemoryWorkbookStore(
 
     override fun loadWorkbookBundle(): WorkbookState = synchronized(this) { workbook }
 
-    override fun saveWorkbook(
-        workbook: WorkbookState,
-        expectedManifestRevision: Long?,
-        expectedSheetRevisions: List<ExpectedSheetRevision>,
-    ) {
+    override fun saveWorkbook(workbook: WorkbookState) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
         synchronized(this) {
-            val isPristine = this.workbook == emptyWorkbookState()
-            val isTransition = !isPristine && DataModelTransitionPolicy.requiresAggregateCas(this.workbook, workbook)
-            val isSnapshotDeletion = isTransition && DataModelTransitionPolicy.isLiveDelete(this.workbook, workbook)
-            val requiresSheetBaseline = !isPristine && DataModelTransitionPolicy.requiresBoundAppendCas(this.workbook, workbook)
-            val membershipChanged = !isPristine && DataModelTransitionPolicy.changesMembershipOrOrder(this.workbook, workbook)
-            if (!isPristine && !DataModelTransitionPolicy.hasAuthorizedManifestRevision(this.workbook, workbook)) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            if ((isTransition || membershipChanged) && expectedManifestRevision != this.workbook.manifest.revision) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            if (isTransition && !isSnapshotDeletion) validateAffectedSheetRevisions(this.workbook, workbook, expectedSheetRevisions)
-            else if (!isPristine) validateSnapshotSheetRevisions(this.workbook, workbook, expectedSheetRevisions)
-            if (requiresSheetBaseline) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            if (!(if (isPristine) DataModelTransitionPolicy.permitsBootstrap(workbook)
-                else DataModelTransitionPolicy.permitsTransition(this.workbook, workbook))) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            if (!isPristine && !DataModelTransitionPolicy.preservesStoredSheetRevisions(this.workbook, workbook)) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            val authorized = if (isTransition) {
-                workbook.copy(manifest = workbook.manifest.copy(revision = this.workbook.manifest.revision + 1))
-            } else workbook
-            this.workbook = if (isPristine) authorized else authorized.withPublishedSheetRevisionsFrom(this.workbook)
+            this.workbook = workbook
         }
     }
 
@@ -57,26 +23,10 @@ class InMemoryWorkbookStore(
         expectedRevisions: List<ExpectedSheetRevision>,
         writes: List<SheetCellWrite>,
     ): List<SheetDocument> = synchronized(this) {
-        require(writes.isNotEmpty()) { "At least one cell write is required" }
-        require(expectedRevisions.isNotEmpty()) { "Expected sheet revisions are required" }
-        require(writes.map { Triple(it.sheetId, it.rowId, it.columnId) }.distinct().size == writes.size) {
-            "Cell writes must target distinct coordinates"
-        }
-        require(expectedRevisions.map(ExpectedSheetRevision::sheetId).distinct().size == expectedRevisions.size) {
-            "Expected sheet revisions must be distinct"
-        }
         val order = writes.map(SheetCellWrite::sheetId).distinct()
         require(order.toSet() == expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet())
         val current = order.associateWith { sheetId ->
             workbook.findSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
-        }
-        writes.forEach { write ->
-            val sheet = current.getValue(write.sheetId)
-            val model = sheet.dataModelId?.let(workbook.dataModels::get) ?: return@forEach
-            val columnIndex = sheet.tabularContent.columns.indexOf(ColumnId(write.columnId))
-            if (model.properties.getOrNull(columnIndex) is CalculatedDataModelProperty) {
-                throw WorkbookApplicationException(WorkbookApplicationError.READ_ONLY_CALCULATED_CELL)
-            }
         }
         expectedRevisions.forEach { expected ->
             val sheet = current.getValue(expected.sheetId)
@@ -136,124 +86,34 @@ class InMemoryWorkbookStore(
 
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
-        expectedManifestRevision: Long?,
-        expectedSheetRevisions: List<ExpectedSheetRevision>,
         transform: (WorkbookState) -> WorkbookState,
     ): WorkbookState = synchronized(this) {
         val current = workbook
-        val transformed = transform(current)
-        if (transformed.manifest.version != WORKBOOK_SCHEMA_VERSION) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        val updated = transform(current)
+        workbook = if (expectedRevision == null) {
+            updated
+        } else {
+            applyRevision(current, updated, expectedRevision)
         }
-        val liveCreate = expectedRevision == null && expectedSheetRevisions.isEmpty() &&
-            DataModelTransitionPolicy.isLiveCreate(current, transformed)
-        val exactDeletion = DataModelTransitionPolicy.isLiveDelete(current, transformed)
-        val liveDelete = expectedRevision?.let { expected ->
-            expectedSheetRevisions.isEmpty() && SheetId(expected.sheetId) in current.documents &&
-                exactDeletion &&
-                SheetId(expected.sheetId) !in transformed.documents
-        } == true
-        val hasModelTransition = !exactDeletion && DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
-        val requiresSheetBaseline = !exactDeletion && DataModelTransitionPolicy.requiresBoundAppendCas(current, transformed)
-        val changedBoundSheets = DataModelTransitionPolicy.boundContentChanges(current, transformed)
-        val membershipChanged = DataModelTransitionPolicy.changesMembershipOrOrder(current, transformed)
-        val liveMembershipCommand = liveCreate || liveDelete
-        if (!DataModelTransitionPolicy.hasAuthorizedManifestRevision(current, transformed)) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        if ((hasModelTransition || (membershipChanged && !liveMembershipCommand)) &&
-            expectedManifestRevision != current.manifest.revision
-        ) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        if (liveMembershipCommand && expectedManifestRevision != null &&
-            expectedManifestRevision != current.manifest.revision
-        ) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        if (hasModelTransition && (expectedRevision != null || transformed.manifest != current.manifest)) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        if (hasModelTransition) validateAffectedSheetRevisions(current, transformed, expectedSheetRevisions)
-        if (requiresSheetBaseline && (
-                changedBoundSheets.size != 1 ||
-                    expectedRevision == null ||
-                    SheetId(expectedRevision.sheetId) != changedBoundSheets.single() ||
-                    expectedSheetRevisions.isNotEmpty()
-                )
-        ) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        if (!hasModelTransition && !requiresSheetBaseline) {
-            validateOrdinaryUpdateRevisions(current, transformed, expectedRevision, expectedSheetRevisions)
-        }
-        if (!DataModelTransitionPolicy.preservesStoredSheetRevisions(current, transformed)) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        val authorized = if (hasModelTransition) transformed.copy(manifest = current.manifest) else transformed
-        if (!DataModelTransitionPolicy.permitsTransition(current, authorized)) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        val updated = if (hasModelTransition) authorized.copy(manifest = current.manifest.copy(revision = current.manifest.revision + 1)) else transformed
-        workbook = updated.withPublishedSheetRevisionsFrom(current)
         workbook
     }
 
-    private fun validateAffectedSheetRevisions(
+    private fun applyRevision(
         current: WorkbookState,
-        candidate: WorkbookState,
-        expected: List<ExpectedSheetRevision>,
-    ) {
-        val affected = DataModelTransitionPolicy.affectedAggregateSheets(current, candidate)
-        if (expected.map(ExpectedSheetRevision::sheetId).distinct().size != expected.size ||
-            expected.map { SheetId(it.sheetId) }.toSet() != affected
-        ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        expected.forEach { guard ->
-            val sheet = current.documents.getValue(SheetId(guard.sheetId))
-            if (sheet.revision != guard.revision) throw SheetRevisionConflict(guard.sheetId, guard.revision, sheet.revision)
+        updated: WorkbookState,
+        expected: ExpectedSheetRevision,
+    ): WorkbookState {
+        val sheetId = SheetId(expected.sheetId)
+        val currentSheet = current.findSheet(sheetId)
+        if (currentSheet != null && currentSheet.revision != expected.revision) {
+            throw SheetRevisionConflict(expected.sheetId, expected.revision, currentSheet.revision)
         }
-    }
-
-    private fun validateSnapshotSheetRevisions(current: WorkbookState, candidate: WorkbookState, expected: List<ExpectedSheetRevision>) =
-        validateExactSheetRevisions(current, DataModelTransitionPolicy.changedOrDeletedSheets(current, candidate), expected)
-
-    private fun validateOrdinaryUpdateRevisions(
-        current: WorkbookState,
-        candidate: WorkbookState,
-        expectedRevision: ExpectedSheetRevision?,
-        expectedSheetRevisions: List<ExpectedSheetRevision>,
-    ) {
-        val changed = DataModelTransitionPolicy.changedOrDeletedSheets(current, candidate)
-        if (expectedRevision != null && expectedSheetRevisions.isNotEmpty()) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        val updatedSheet = updated.findSheet(sheetId)
+        if (currentSheet == null || updatedSheet == null || currentSheet == updatedSheet) {
+            return updated
         }
-        if (expectedRevision != null) {
-            val target = SheetId(expectedRevision.sheetId)
-            val sheet = current.documents[target]
-            if (sheet == null) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            if (!DataModelTransitionPolicy.isSingletonUpdateOf(current, candidate, target) &&
-                !(target !in candidate.documents && DataModelTransitionPolicy.isLiveDelete(current, candidate))
-            ) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            if (sheet.revision != expectedRevision.revision) {
-                throw SheetRevisionConflict(expectedRevision.sheetId, expectedRevision.revision, sheet.revision)
-            }
-        } else validateExactSheetRevisions(current, changed, expectedSheetRevisions)
+        return updated.replaceSheet(updatedSheet.copy(revision = currentSheet.revision + 1))
     }
-
-    private fun validateExactSheetRevisions(current: WorkbookState, targets: Set<SheetId>, expected: List<ExpectedSheetRevision>) {
-        if (expected.map(ExpectedSheetRevision::sheetId).distinct().size != expected.size ||
-            expected.map { SheetId(it.sheetId) }.toSet() != targets
-        ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        expected.forEach { guard ->
-            val sheet = current.documents.getValue(SheetId(guard.sheetId))
-            if (sheet.revision != guard.revision) throw SheetRevisionConflict(guard.sheetId, guard.revision, sheet.revision)
-        }
-    }
-
 }
 
 class StatefulFakeWorkbookApplication(
@@ -275,14 +135,3 @@ internal fun SheetDocument.cellWrite(address: String, raw: String): SheetCellWri
     val coordinate = tabularContent.coordinateAt(address) ?: error("Unknown test address: $address")
     return SheetCellWrite(id.value, coordinate.rowId.value, coordinate.columnId.value, raw)
 }
-
-internal fun SheetDocument.unboundWithCalculatedScalars(): SheetDocument = copy(
-    dataModelId = null,
-    content = TabularContent(
-        tabularContent.rows,
-        tabularContent.columns,
-        tabularContent.cellContents.mapValues { (coordinate, raw) ->
-            if (coordinate.columnId == tabularContent.columns[1] && raw.startsWith("=")) "10" else raw
-        },
-    ),
-)

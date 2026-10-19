@@ -18,7 +18,8 @@ internal class SqliteWorkbookWriter(
 
     fun replaceAll(workbook: WorkbookState) {
         connection.createStatement().use { it.executeUpdate("DELETE FROM sheet_documents") }
-        replaceDataModels(workbook.dataModels)
+        connection.createStatement().use { it.executeUpdate("DELETE FROM data_models") }
+        workbook.dataModels.values.forEach(::insertDataModel)
         workbook.sheetsInOrder.forEach(::insertSheet)
         replaceManifest(workbook.manifest)
     }
@@ -27,20 +28,11 @@ internal class SqliteWorkbookWriter(
         expectedRevisions: List<ExpectedSheetRevision>,
         writes: List<SheetCellWrite>,
     ): List<SheetDocument> {
-        val workbook = reader.loadWorkbookBundle()
         val sheetOrder = writes.map(SheetCellWrite::sheetId).distinct()
         val expectedBySheet = expectedRevisions.associateBy(ExpectedSheetRevision::sheetId)
         require(expectedBySheet.keys == sheetOrder.toSet()) { "Expected revisions must match written sheets" }
         val currentBySheet = sheetOrder.associateWith { sheetId ->
             reader.loadSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
-        }
-        writes.forEach { write ->
-            val sheet = workbook.findSheet(SheetId(write.sheetId)) ?: return@forEach
-            val model = sheet.dataModelId?.let(workbook.dataModels::get) ?: return@forEach
-            val columnIndex = sheet.tabularContent.columns.indexOf(ColumnId(write.columnId))
-            if (model.properties.getOrNull(columnIndex) is CalculatedDataModelProperty) {
-                throw WorkbookApplicationException(WorkbookApplicationError.READ_ONLY_CALCULATED_CELL)
-            }
         }
         expectedRevisions.forEach { expected ->
             val current = currentBySheet.getValue(expected.sheetId)
@@ -86,8 +78,6 @@ internal class SqliteWorkbookWriter(
     }
 
     fun persistChanges(current: WorkbookState, updated: WorkbookState) {
-        val modelsChanged = current.dataModels != updated.dataModels
-        if (modelsChanged) replaceDataModels(updated.dataModels)
         current.documents.keys
             .filterNot(updated.documents::containsKey)
             .forEach(::deleteSheet)
@@ -100,19 +90,17 @@ internal class SqliteWorkbookWriter(
             }
         }
 
-        if (modelsChanged) restoreSheetDataModelBindings(updated)
-
         if (current.manifest != updated.manifest) replaceManifest(updated.manifest)
     }
 
     private fun insertSheet(sheet: SheetDocument) {
         connection.prepareStatement(
-            "INSERT INTO sheet_documents (id, name, content_kind, revision, data_model_id) VALUES (?, ?, 'TABULAR', ?, ?)",
+            "INSERT INTO sheet_documents (id, name, content_kind, revision, model_id) VALUES (?, ?, 'TABULAR', ?, ?)",
         ).use { statement ->
             statement.setBytes(1, sheet.id.value.toUuidBytes())
             statement.setString(2, sheet.name)
             statement.setLong(3, sheet.revision)
-            statement.setBytes(4, sheet.dataModelId?.toUuidBytes())
+            statement.setBytes(4, sheet.modelId?.toUuidBytes())
             statement.executeUpdate()
         }
         insertFrame(sheet)
@@ -120,18 +108,27 @@ internal class SqliteWorkbookWriter(
         presentationWriter.persistChanges(sheet.id, SheetPresentation(), sheet.presentation)
     }
 
+    private fun insertDataModel(model: DataModel) {
+        connection.prepareStatement("INSERT INTO data_models (id, name) VALUES (?, ?)").use { statement -> statement.setBytes(1, model.id.toUuidBytes()); statement.setString(2, model.name); statement.executeUpdate() }
+        connection.prepareStatement("INSERT INTO data_model_columns (model_id, id, name, column_kind, column_type, formula, column_order) VALUES (?, ?, ?, ?, ?, ?, ?)").use { statement ->
+            model.columns.forEachIndexed { index, column ->
+                statement.setBytes(1, model.id.toUuidBytes()); statement.setBytes(2, column.id.toUuidBytes()); statement.setString(3, column.name)
+                statement.setString(4, if (column is ManualModelColumn) "MANUAL" else "CALCULATED"); statement.setString(5, column.type.name); statement.setString(6, (column as? CalculatedModelColumn)?.formula); statement.setInt(7, index); statement.addBatch()
+            }; statement.executeBatch()
+        }
+    }
+
     private fun persistSheetChanges(current: SheetDocument, updated: SheetDocument) {
         val updatedRows = connection.prepareStatement(
             """
             UPDATE sheet_documents
-            SET name = ?, content_kind = 'TABULAR', data_model_id = ?, revision = revision + 1
+            SET name = ?, content_kind = 'TABULAR', revision = revision + 1
             WHERE id = ? AND revision = ?
             """.trimIndent(),
         ).use { statement ->
             statement.setString(1, updated.name)
-            statement.setBytes(2, updated.dataModelId?.toUuidBytes())
-            statement.setBytes(3, updated.id.value.toUuidBytes())
-            statement.setLong(4, current.revision)
+            statement.setBytes(2, updated.id.value.toUuidBytes())
+            statement.setLong(3, current.revision)
             statement.executeUpdate()
         }
         if (updatedRows == 0) {
@@ -338,34 +335,6 @@ internal class SqliteWorkbookWriter(
             manifest.sheetIds.forEachIndexed { index, sheetId ->
                 statement.setBytes(1, sheetId.value.toUuidBytes())
                 statement.setInt(2, index)
-                statement.addBatch()
-            }
-            statement.executeBatch()
-        }
-    }
-
-    private fun replaceDataModels(models: Map<String, DataModel>) {
-        connection.createStatement().use { it.executeUpdate("UPDATE sheet_documents SET data_model_id = NULL") }
-        connection.createStatement().use { it.executeUpdate("DELETE FROM data_models") }
-        connection.prepareStatement("INSERT INTO data_models (id, name) VALUES (?, ?)").use { statement ->
-            models.values.forEach { model ->
-                statement.setBytes(1, model.id.toUuidBytes()); statement.setString(2, model.name); statement.addBatch()
-            }; statement.executeBatch()
-        }
-        connection.prepareStatement("INSERT INTO data_model_properties (model_id, id, name, property_kind, property_type, formula, property_order) VALUES (?, ?, ?, ?, ?, ?, ?)").use { statement ->
-            models.values.forEach { model -> model.properties.forEachIndexed { index, property ->
-                statement.setBytes(1, model.id.toUuidBytes()); statement.setBytes(2, property.id.toUuidBytes()); statement.setString(3, property.name)
-                statement.setString(4, if (property is CalculatedDataModelProperty) "CALCULATED" else "MANUAL")
-                statement.setString(5, property.type.name); statement.setString(6, (property as? CalculatedDataModelProperty)?.formula); statement.setInt(7, index); statement.addBatch()
-            } }; statement.executeBatch()
-        }
-    }
-
-    private fun restoreSheetDataModelBindings(workbook: WorkbookState) {
-        connection.prepareStatement("UPDATE sheet_documents SET data_model_id = ? WHERE id = ?").use { statement ->
-            workbook.sheetsInOrder.forEach { sheet ->
-                statement.setBytes(1, sheet.dataModelId?.toUuidBytes())
-                statement.setBytes(2, sheet.id.value.toUuidBytes())
                 statement.addBatch()
             }
             statement.executeBatch()

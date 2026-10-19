@@ -12,26 +12,24 @@ CREATE TABLE sheet_documents (
     name TEXT NOT NULL UNIQUE,
     content_kind TEXT NOT NULL CHECK (content_kind = 'TABULAR'),
     revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
-    data_model_id BLOB
+    model_id BLOB
 );
+
 
 CREATE TABLE data_models (
     id BLOB PRIMARY KEY CHECK (typeof(id) = 'blob' AND length(id) = 16),
     name TEXT NOT NULL
 );
-
-CREATE TABLE data_model_properties (
+CREATE TABLE data_model_columns (
     model_id BLOB NOT NULL REFERENCES data_models(id) ON DELETE CASCADE,
     id BLOB NOT NULL CHECK (typeof(id) = 'blob' AND length(id) = 16),
     name TEXT NOT NULL,
-    property_kind TEXT NOT NULL CHECK (property_kind IN ('MANUAL', 'CALCULATED')),
-    property_type TEXT NOT NULL CHECK (property_type IN ('STRING', 'INT', 'FLOAT', 'BOOLEAN')),
+    column_kind TEXT NOT NULL CHECK (column_kind IN ('MANUAL', 'CALCULATED')),
+    column_type TEXT NOT NULL CHECK (column_type IN ('STRING', 'INT', 'FLOAT', 'BOOLEAN')),
     formula TEXT,
-    property_order INTEGER NOT NULL CHECK (property_order >= 0),
-    PRIMARY KEY (model_id, id),
-    UNIQUE (model_id, name),
-    UNIQUE (model_id, property_order),
-    CHECK ((property_kind = 'MANUAL' AND formula IS NULL) OR (property_kind = 'CALCULATED' AND formula IS NOT NULL))
+    column_order INTEGER NOT NULL CHECK (column_order >= 0),
+    PRIMARY KEY (model_id, id), UNIQUE (model_id, name), UNIQUE (model_id, column_order),
+    CHECK ((column_kind = 'MANUAL' AND formula IS NULL) OR (column_kind = 'CALCULATED' AND formula IS NOT NULL AND trim(formula) <> ''))
 );
 
 CREATE TABLE workbook_sheets (

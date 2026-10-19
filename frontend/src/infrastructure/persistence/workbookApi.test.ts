@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import workbookReadContract from '../../../../test-fixtures/workbook-read-contract.json';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, sheetsInOrder } from '@workbook/read/queries';
-import { type DataModel, type DataModelPropertyType, type SheetDocument, type Workbook } from '@workbook/core/model';
+import { type SheetDocument } from '@workbook/core/model';
 import {
   decodeSheetDocument,
   decodeWorkbookBundle,
@@ -191,65 +191,6 @@ describe('workbook API read decoding', () => {
 });
 
 describe('workbook API mutations', () => {
-  it('round-trips every declared type for bound zero-row and unbound models', async () => {
-    const propertyTypes: readonly DataModelPropertyType[] = ['string', 'int', 'float', 'boolean'];
-    const properties: DataModel['properties'] = propertyTypes.flatMap((type) => [
-      { id: `manual-${type}`, name: `Manual ${type}`, kind: 'manual' as const, type },
-      { id: `calculated-${type}`, name: `Calculated ${type}`, kind: 'calculated' as const, type, formula: '=1/0' },
-    ]);
-    const boundModel: DataModel = { id: 'bound-model', name: 'Bound', properties };
-    const unboundModel: DataModel = { id: 'unbound-model', name: 'Unbound', properties };
-    const zeroRowDocument = {
-      ...inputsResponse,
-      dataModelId: boundModel.id,
-      content: { ...inputsResponse.content, rows: [], columns: [], cells: [] },
-    };
-    const workbook: Workbook = {
-      manifest: { version: 1, revision: 8, sheetIds: [zeroRowDocument.id] },
-      documents: { [zeroRowDocument.id]: { ...expectedDocument(zeroRowDocument), dataModelId: boundModel.id } },
-      dataModels: { [boundModel.id]: boundModel, [unboundModel.id]: unboundModel },
-    };
-    const response: WorkbookBundleResponse = {
-      manifest: workbook.manifest,
-      documents: [zeroRowDocument],
-      dataModels: [boundModel, unboundModel].map((model) => ({ ...model, properties: [...model.properties] })),
-    };
-    const fetchMock = mockFetch({ sheets: [] });
-
-    await workbookApi.replaceDataModelState(workbook, []);
-
-    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
-      workbook: response,
-      expectedRevisions: [],
-      expectedManifestRevision: workbook.manifest.revision,
-    });
-    expect(decodeWorkbookBundle(response)).toEqual(workbook);
-    for (const invalidType of [undefined, null, 'decimal']) {
-      expect(() => decodeWorkbookBundle({
-        ...response,
-        dataModels: [{ ...boundModel, properties: [{ id: 'bad', name: 'Bad', kind: 'manual', type: invalidType }] }],
-      } as unknown as WorkbookBundleResponse)).toThrowError(expect.objectContaining({ code: 'invalid-workbook-read-contract' }));
-    }
-  });
-
-  it('preserves a type-only model replacement through API save and reload decoding', async () => {
-    const initial: DataModel = { id: 'model', name: 'Model', properties: [{ id: 'property', name: 'Property', kind: 'calculated', type: 'int', formula: '=1/0' }] };
-    const replacement: DataModel = { ...initial, properties: [{ ...initial.properties[0]!, type: 'boolean' }] };
-    const document = { ...inputsResponse, dataModelId: initial.id };
-    const workbook: Workbook = {
-      manifest: { version: 1, revision: 8, sheetIds: [document.id] },
-      documents: { [document.id]: { ...expectedDocument(document), dataModelId: initial.id } },
-      dataModels: { [replacement.id]: replacement },
-    };
-    const saved = mockFetch({ sheets: [] });
-
-    await workbookApi.replaceDataModelState(workbook, []);
-    expect(JSON.parse(saved.mock.calls[0]![1]!.body as string).workbook.dataModels[0].properties[0]).toEqual(replacement.properties[0]);
-
-    mockFetch({ manifest: workbook.manifest, documents: [document], dataModels: [replacement] });
-    await expect(workbookApi.loadWorkbook()).resolves.toEqual(workbook);
-  });
-
   it('creates sheets from focused frame input and decodes returned stable document', async () => {
     const fetchMock = mockFetch(inputsResponse);
 
@@ -358,24 +299,6 @@ describe('workbook API mutations', () => {
     });
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sheets/sheet%201/columns', {
       method: 'POST', headers: {},
-    });
-  });
-
-  it('sends the client row identity with materialized calculated contents', async () => {
-    const fetchMock = mockFetch({ sheetId: 'sheet-1', revision: 4, rowCount: 2, rowId: 'row-2' });
-    await workbookApi.appendRow('sheet-1', {
-      revision: 3,
-      rowId: '00000000-0000-0000-0000-000000000201',
-      calculatedCells: [{ columnId: 'column-2', raw: '=@column-1[00000000-0000-0000-0000-000000000201]*2' }],
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet-1/rows', {
-      method: 'POST',
-      body: JSON.stringify({
-        calculatedCells: [{ columnId: 'column-2', raw: '=@column-1[00000000-0000-0000-0000-000000000201]*2' }],
-        rowId: '00000000-0000-0000-0000-000000000201',
-      }),
-      headers: { 'Content-Type': 'application/json', 'If-Match': '3' },
     });
   });
 

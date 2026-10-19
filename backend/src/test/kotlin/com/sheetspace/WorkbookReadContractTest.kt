@@ -3,7 +3,6 @@ package com.sheetspace
 import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 class WorkbookReadContractTest {
     @Test
@@ -17,82 +16,6 @@ class WorkbookReadContractTest {
             testJson.parseToJsonElement(fixtureText),
             testJson.parseToJsonElement(testJson.encodeToString(actual)),
         )
-    }
-
-    @Test
-    fun `transport includes bound data models and calculated property formulas`() {
-        val modelId = "00000000-0000-0000-0000-000000000101"
-        val sheet = testDocument(TEST_SHEET_1, "Inputs").copy(dataModelId = modelId)
-        val workbook = testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to DataModel(
-            modelId,
-            "Inputs",
-            listOf(
-                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount", DataModelPropertyType.STRING),
-                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
-            ),
-        )))
-
-        val expected =
-            WorkbookBundleResponse(
-                WorkbookManifestResponse(WORKBOOK_SCHEMA_VERSION, 0, listOf(sheet.id.value)),
-                listOf(WorkbookReadTransportAdapter.sheetDocument(sheet)),
-                listOf(DataModelResponse(modelId, "Inputs", listOf(
-                    DataModelPropertyResponse("00000000-0000-0000-0000-000000000102", "Amount", "manual", "string"),
-                    DataModelPropertyResponse("00000000-0000-0000-0000-000000000103", "Double", "calculated", "float", "=@A[1]*2"),
-                ))),
-            )
-        val actual = WorkbookReadTransportAdapter.bundle(workbook)
-
-        assertEquals(expected, actual)
-        assertEquals(expected, testJson.decodeFromString(testJson.encodeToString(actual)))
-
-        val model = actual.dataModels.single()
-        assertEquals(modelId, model.id)
-        assertEquals("Inputs", model.name)
-        assertEquals(listOf("manual", "calculated"), model.properties.map { it.kind })
-        assertEquals(listOf(null, "=@A[1]*2"), model.properties.map { it.formula })
-        assertEquals(listOf("Amount", "Double"), model.properties.map { it.name })
-        assertEquals(
-            listOf("00000000-0000-0000-0000-000000000102", "00000000-0000-0000-0000-000000000103"),
-            model.properties.map { it.id },
-        )
-    }
-
-    @Test
-    fun `transport preserves every declared property type and rejects unsupported types`() {
-        val types = DataModelPropertyType.entries.toList()
-        val properties = types.flatMapIndexed { index, type -> listOf(
-            ManualDataModelProperty("00000000-0000-0000-0000-0000000001${index}1", "Manual $type", type),
-            CalculatedDataModelProperty("00000000-0000-0000-0000-0000000001${index}2", "Calculated $type", "=1", type),
-        ) }
-        val workbook = emptyWorkbookState().copy(dataModels = mapOf(
-            "00000000-0000-0000-0000-000000000101" to DataModel("00000000-0000-0000-0000-000000000101", "Typed", properties),
-        ))
-
-        val response = WorkbookReadTransportAdapter.bundle(workbook)
-
-        assertEquals(types.flatMap { listOf(it.name.lowercase(), it.name.lowercase()) }, response.dataModels.single().properties.map { it.type })
-        assertEquals(workbook, dataModelState(response))
-        assertFailsWith<WorkbookApplicationException> {
-            dataModelState(response.copy(dataModels = listOf(DataModelResponse(
-                "00000000-0000-0000-0000-000000000101", "Typed",
-                listOf(DataModelPropertyResponse("00000000-0000-0000-0000-000000000102", "Bad", "manual", "decimal")),
-            ))))
-        }
-        assertFailsWith<WorkbookApplicationException> {
-            dataModelState(response.copy(dataModels = listOf(DataModelResponse(
-                "00000000-0000-0000-0000-000000000101", "Typed",
-                listOf(DataModelPropertyResponse("00000000-0000-0000-0000-000000000102", "Bad", "calculated", "decimal", "=1")),
-            ))))
-        }
-        listOf("STRING", "Int", "FLOAT", "BOOLEAN").forEach { type ->
-            assertFailsWith<WorkbookApplicationException> {
-                dataModelState(response.copy(dataModels = listOf(DataModelResponse(
-                    "00000000-0000-0000-0000-000000000101", "Typed",
-                    listOf(DataModelPropertyResponse("00000000-0000-0000-0000-000000000102", "Bad", "manual", type)),
-                ))))
-            }
-        }
     }
 }
 

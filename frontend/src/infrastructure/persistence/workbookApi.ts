@@ -1,4 +1,4 @@
-import type { AxisSizeWrite, DataModel, DataModelProperty, DataModelPropertyType, FormatWrite, SheetPresentation } from '@workbook/core/model';
+import type { AxisSizeWrite, DataModel, ModelColumnType, FormatWrite, SheetPresentation } from '@workbook/core/model';
 import { isValidCellAppearance, validFormatWrites } from '@workbook/core/numberFormat';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
@@ -37,7 +37,6 @@ export type SheetDocumentResponse = {
     columns: string[];
     cells: CellContentResponse[];
   };
-  dataModelId?: string;
 };
 
 export type WorkbookBundleResponse = {
@@ -46,8 +45,8 @@ export type WorkbookBundleResponse = {
   dataModels?: DataModelResponse[];
 };
 
-export type DataModelResponse = { id: string; name: string; properties: DataModelPropertyResponse[] };
-export type DataModelPropertyResponse = { id: string; name: string; kind: 'manual' | 'calculated'; type: DataModelPropertyType; formula?: string };
+export type DataModelResponse = { id: string; name: string; columns: ModelColumnResponse[] };
+export type ModelColumnResponse = { id: string; name: string; kind: 'manual' | 'calculated'; type: ModelColumnType; formula?: string };
 
 export type SheetRevisionResponse = {
   sheetId: string;
@@ -88,8 +87,6 @@ export type UpdateSheetZOrderResponse = {
 export type RevisionedMutationOptions = {
   revision?: number;
 };
-
-export type RowAppendOptions = RevisionedMutationOptions & { calculatedCells?: readonly { columnId: string; raw: string }[]; rowId?: string };
 
 export class WorkbookApiError extends Error {
   constructor(
@@ -257,9 +254,9 @@ export const workbookApi = {
     });
   },
 
-  appendRow(sheetId: string, options: RowAppendOptions = {}): Promise<RowAppendResponse> {
+  appendRow(sheetId: string, options: RevisionedMutationOptions = {}): Promise<RowAppendResponse> {
     return requestJson<RowAppendResponse>(`/api/sheets/${encodePathSegment(sheetId)}/rows`, {
-      method: 'POST', body: options.calculatedCells === undefined && options.rowId === undefined ? undefined : JSON.stringify({ calculatedCells: options.calculatedCells ?? [], rowId: options.rowId }),
+      method: 'POST',
       headers: revisionHeaders(options),
     });
   },
@@ -268,14 +265,6 @@ export const workbookApi = {
     return requestJson<ColumnAppendResponse>(`/api/sheets/${encodePathSegment(sheetId)}/columns`, {
       method: 'POST',
       headers: revisionHeaders(options),
-    });
-  },
-  replaceDataModelState(
-    workbook: Workbook,
-    expectedRevisions: readonly { sheetId: string; revision: number }[],
-  ): Promise<CellPatchResponse> {
-    return requestJson<CellPatchResponse>('/api/workbook/data-model-state', {
-      method: 'PUT', body: JSON.stringify({ workbook: encodeWorkbookBundle(workbook), expectedRevisions, expectedManifestRevision: workbook.manifest.revision }),
     });
   },
 };
@@ -316,60 +305,8 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
   return {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
-    ...(bundle.dataModels === undefined ? {} : { dataModels: Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)])) }),
+    dataModels: Object.fromEntries((bundle.dataModels ?? []).map((model) => [model.id, decodeDataModel(model)])),
   };
-}
-
-function encodeWorkbookBundle(workbook: Workbook): WorkbookBundleResponse {
-  return {
-    manifest: { ...workbook.manifest, sheetIds: [...workbook.manifest.sheetIds] },
-    documents: workbook.manifest.sheetIds.map((sheetId) => {
-      const sheet = workbook.documents[sheetId]!;
-      return {
-        id: sheet.id,
-        revision: sheet.revision,
-        name: sheet.name,
-        frame: { position: { ...sheet.frame.position }, size: { ...sheet.frame.size }, visualScale: sheet.frame.visualScale, zIndex: sheet.frame.zIndex },
-        presentation: sheet.presentation,
-        content: {
-          kind: 'tabular' as const,
-          rows: [...sheet.content.rows],
-          columns: [...sheet.content.columns],
-          cells: Object.entries(sheet.content.cells).map(([identity, content]) => {
-            const [rowId, columnId] = identity.split('\u0000');
-            return { rowId: rowId!, columnId: columnId!, content };
-          }),
-        },
-        ...(sheet.dataModelId === undefined ? {} : { dataModelId: sheet.dataModelId }),
-      };
-    }),
-    dataModels: Object.values(workbook.dataModels ?? {}).map((model) => ({ ...model, properties: model.properties.map((property) => ({ ...property })) })),
-  };
-}
-
-function decodeDataModel(model: DataModelResponse): DataModel {
-  if (!model || typeof model.id !== 'string' || typeof model.name !== 'string' || !Array.isArray(model.properties)) {
-    invalidReadContract('malformed data model');
-  }
-  return {
-    id: model.id,
-    name: model.name,
-    properties: model.properties.map((property): DataModelProperty => {
-      if (!property || typeof property.id !== 'string' || typeof property.name !== 'string'
-          || !isDataModelPropertyType(property.type)) invalidReadContract('invalid data model property type');
-      if (property.kind === 'manual' && property.formula === undefined) {
-        return { id: property.id, name: property.name, kind: 'manual', type: property.type };
-      }
-      if (property.kind === 'calculated' && typeof property.formula === 'string') {
-        return { id: property.id, name: property.name, kind: 'calculated', formula: property.formula, type: property.type };
-      }
-      return invalidReadContract('malformed data model property');
-    }),
-  };
-}
-
-function isDataModelPropertyType(type: unknown): type is DataModelPropertyType {
-  return type === 'string' || type === 'int' || type === 'float' || type === 'boolean';
 }
 
 export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocument {
@@ -439,7 +376,6 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       columns: [...document.content.columns],
       cells,
     },
-    ...(document.dataModelId === undefined ? {} : { dataModelId: document.dataModelId }),
   };
 }
 
@@ -451,4 +387,15 @@ function uniqueIndices(ids: string[], label: string): Map<string, number> {
 
 function invalidReadContract(detail: string): never {
   throw new WorkbookApiError(`Invalid workbook read contract: ${detail}.`, undefined, 'invalid-workbook-read-contract');
+}
+
+function decodeDataModel(model: DataModelResponse): DataModel {
+  if (!model.id.trim() || !model.name.trim() || new Set(model.columns.map((column) => column.id)).size !== model.columns.length || new Set(model.columns.map((column) => column.name.trim())).size !== model.columns.length) invalidReadContract('invalid model declaration');
+  const columns = model.columns.map((column) => {
+    if (!column.id.trim() || !column.name.trim() || !['string', 'int', 'float', 'boolean'].includes(column.type)) invalidReadContract('invalid model column');
+    if (column.kind === 'manual' && column.formula === undefined) return { id: column.id, name: column.name, kind: 'manual' as const, type: column.type };
+    if (column.kind === 'calculated' && typeof column.formula === 'string' && column.formula.trim()) return { id: column.id, name: column.name, kind: 'calculated' as const, type: column.type, formula: column.formula };
+    invalidReadContract('invalid model formula');
+  });
+  return { id: model.id, name: model.name, columns };
 }

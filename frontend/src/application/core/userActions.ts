@@ -9,9 +9,8 @@ import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
-import { appendRow, moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
-import { addDataModel, bindSheetToDataModel, replaceDataModel, unbindSheetFromDataModel } from '@workbook/mutations/dataModel';
-import { isValidSheetVisualScale, type ColumnId, type DataModel, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
+import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
+import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 
 export type WorkbookOperationId = string;
 /** A stable workbook-wide cell target. The raw content is the final persisted value. */
@@ -32,10 +31,6 @@ export type WorkbookOperation =
   | { kind: 'delete-sheet'; operationId: WorkbookOperationId; sheetId: SheetId }
   | { kind: 'rename-sheet'; operationId: WorkbookOperationId; sheetId: SheetId; name: string }
   | { kind: 'write-cells'; operationId: WorkbookOperationId; writes: readonly CellWrite[] }
-  | { kind: 'add-data-model'; operationId: WorkbookOperationId; model: DataModel }
-  | { kind: 'bind-sheet-to-data-model'; operationId: WorkbookOperationId; sheetId: SheetId; modelId: string; newColumnIds: readonly ColumnId[] }
-  | { kind: 'replace-data-model'; operationId: WorkbookOperationId; model: DataModel; newColumnIdsBySheet: Readonly<Record<string, readonly ColumnId[]>> }
-  | { kind: 'unbind-sheet-from-data-model'; operationId: WorkbookOperationId; sheetId: SheetId; materializedValues: Readonly<Record<string, string>> }
   | { kind: 'move-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition }
   | { kind: 'resize-sheet-frame'; operationId: WorkbookOperationId; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'set-sheet-visual-scale'; operationId: WorkbookOperationId; sheetId: SheetId; visualScale: number }
@@ -55,9 +50,7 @@ export type WorkbookPersistenceIntent =
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'update-sheet-visual-scale'; sheetId: SheetId; visualScale: number }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
-  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] }
-  /** A model transition changes its definition and every affected sheet as one server transaction. */
-  | { kind: 'replace-data-model-state'; workbook: Workbook; sheetIds: readonly SheetId[] };
+  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
 
 export type AffectedWorkbookEntities = {
   sheetIds: readonly SheetId[];
@@ -83,7 +76,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'already-bound' | 'column-id-required' | 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-model' | 'duplicate-property-id' | 'duplicate-property-name' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-formula' | 'invalid-number-format' | 'invalid-property-id' | 'invalid-property-type' | 'invalid-visual-scale' | 'unknown-model' | 'unknown-sheet';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
 export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
@@ -297,7 +290,6 @@ export function replayCellPersistenceWrites(
   });
   if (resolved.some(({ sheet }) => !sheet)) return { ok: false, reason: 'unknown-sheet' };
   if (resolved.some(({ address }) => !address)) return { ok: false, reason: 'invalid-cell' };
-  if (resolved.some(({ sheet, cell }) => isCalculatedModelCell(workbook, sheet!, cell))) return { ok: false, reason: 'invalid-cell' };
   const identities = new Set<string>();
   for (const { write } of resolved) {
     const identity = `${write.sheetId}\u0000${write.rowId}\u0000${write.columnId}`;
@@ -345,10 +337,6 @@ export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOp
     case 'delete-sheet': return applyDeleteSheet(workbook, operation);
     case 'rename-sheet': return applyRenameSheet(workbook, operation);
     case 'write-cells': return applyCellWrites(workbook, operation);
-    case 'add-data-model': return applyDataModelMutation(workbook, addDataModel(workbook, operation.model));
-    case 'bind-sheet-to-data-model': return applyDataModelMutation(workbook, bindSheetToDataModel(workbook, operation.sheetId, operation.modelId, operation.newColumnIds));
-    case 'replace-data-model': return applyDataModelMutation(workbook, replaceDataModel(workbook, operation.model, operation.newColumnIdsBySheet));
-    case 'unbind-sheet-from-data-model': return applyDataModelMutation(workbook, unbindSheetFromDataModel(workbook, operation.sheetId, operation.materializedValues));
     case 'move-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position }));
     case 'resize-sheet-frame': return applyFrameChange(workbook, operation, (sheet) => ({ ...sheet.frame, position: operation.position, size: operation.size }));
     case 'set-sheet-visual-scale': return applyVisualScaleChange(workbook, operation);
@@ -356,32 +344,13 @@ export function applyWorkbookOperation(workbook: Workbook, operation: WorkbookOp
   }
 }
 
-function applyDataModelMutation(workbook: Workbook, result: ReturnType<typeof addDataModel>): WorkbookOperationResult {
-  if (!result.ok) return result;
-  // A transition must guard sheets which were unbound as well as those which remain bound.
-  // The backend verifies this exact set against the aggregate it receives.
-  const changedModelIds = new Set([...Object.keys(workbook.dataModels ?? {}), ...Object.keys(result.value.dataModels ?? {})]
-    .filter((id) => workbook.dataModels?.[id] !== result.value.dataModels?.[id]));
-  const sheetIds = Object.keys(workbook.documents).filter((sheetId) => {
-    const before = workbook.documents[sheetId]!;
-    const after = result.value.documents[sheetId]!;
-    return before.dataModelId !== after.dataModelId || changedModelIds.has(before.dataModelId ?? '') || changedModelIds.has(after.dataModelId ?? '');
-  });
-  return success(result.value, { kind: 'structure' }, {
-    kind: 'replace-data-model-state', workbook: result.value, sheetIds,
-  });
-}
-
 export function applyBackendWorkbookReconciliation(workbook: Workbook, reconciliation: BackendWorkbookReconciliation): WorkbookOperationResult {
   const sheet = findSheetById(workbook, reconciliation.sheetId);
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (reconciliation.kind === 'append-row') {
     if (sheet.content.rows.includes(reconciliation.rowId)) return { ok: false, reason: 'duplicate-row-id' };
-    const model = sheet.dataModelId === undefined ? undefined : workbook.dataModels?.[sheet.dataModelId];
-    if (sheet.dataModelId !== undefined && !model) return { ok: false, reason: 'invalid-cell' };
-    return sheetSuccess(workbook, appendRow(sheet, reconciliation.rowId, model, workbook), { kind: 'structure' });
+    return sheetSuccess(workbook, { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, reconciliation.rowId] } }, { kind: 'structure' });
   }
-  if (sheet.dataModelId !== undefined) return { ok: false, reason: 'invalid-cell' };
   if (sheet.content.columns.includes(reconciliation.columnId)) return { ok: false, reason: 'duplicate-column-id' };
   return sheetSuccess(workbook, { ...sheet, content: { ...sheet.content, columns: [...sheet.content.columns, reconciliation.columnId] } }, { kind: 'structure' });
 }
@@ -409,7 +378,6 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
   });
   if (resolved.some(({ sheet }) => !sheet)) return { ok: false, reason: 'unknown-sheet' };
   if (resolved.some(({ address }) => !address)) return { ok: false, reason: 'invalid-cell' };
-  if (resolved.some(({ sheet, cell }) => isCalculatedModelCell(workbook, sheet!, cell))) return { ok: false, reason: 'invalid-cell' };
   const identities = new Set<string>();
   for (const { write } of resolved) {
     const identity = `${write.sheetId}\u0000${write.rowId}\u0000${write.columnId}`;
@@ -491,13 +459,6 @@ function noChange(workbook: Workbook): WorkbookOperationResult {
   return { ok: true, value: { nextWorkbook: workbook, changed: false, calculationImpact: { kind: 'none' }, persistence: undefined, affected: { sheetIds: [], cells: [] }, inverse: undefined } };
 }
 function affectedSheets(...sheetIds: SheetId[]): AffectedWorkbookEntities { return { sheetIds, cells: [] }; }
-
-function isCalculatedModelCell(workbook: Workbook, sheet: SheetDocument, cell: StableCellIdentity): boolean {
-  if (!sheet.dataModelId) return false;
-  const model = workbook.dataModels?.[sheet.dataModelId];
-  const columnIndex = sheet.content.columns.indexOf(cell.columnId);
-  return model?.properties[columnIndex]?.kind === 'calculated';
-}
 
 function validMoveDimensions(dimensions: ClipboardSourceSnapshot['dimensions']): boolean {
   return Number.isSafeInteger(dimensions.rowCount) && dimensions.rowCount > 0

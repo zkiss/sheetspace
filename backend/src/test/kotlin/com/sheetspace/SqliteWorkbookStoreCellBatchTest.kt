@@ -6,41 +6,6 @@ import kotlin.test.assertFailsWith
 
 class SqliteWorkbookStoreCellBatchTest {
     @Test
-    fun `calculated model cells reject mixed batches without persisting manual writes`() = withSqliteStore { store ->
-        val modelId = "00000000-0000-0000-0000-000000000101"
-        val content = TabularContent(columnCount = 2)
-        val sheet = testDocument(
-            TEST_SHEET_1,
-            "Inputs",
-            tabular = TabularContent(
-                content.rows,
-                content.columns,
-                content.rows.associate { row ->
-                    CellCoordinate(row, content.columns[1]) to "=@${content.columns[0].value}[${row.value}]*2"
-                },
-            ),
-        ).copy(dataModelId = modelId)
-        val model = DataModel(
-            modelId,
-            "Inputs",
-            listOf(
-                ManualDataModelProperty("00000000-0000-0000-0000-000000000102", "Amount", DataModelPropertyType.STRING),
-                CalculatedDataModelProperty("00000000-0000-0000-0000-000000000103", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
-            ),
-        )
-        store.saveWorkbook(testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model)))
-
-        val error = assertRejectedWithoutPersisting<WorkbookApplicationException>(store) {
-            store.writeCells(
-                listOf(ExpectedSheetRevision(sheet.id.value, sheet.revision)),
-                listOf(sheet.cellWrite("A1", "3"), sheet.cellWrite("B1", "=6")),
-            )
-        }
-
-        assertEquals(WorkbookApplicationError.READ_ONLY_CALCULATED_CELL, error.error)
-    }
-
-    @Test
     fun `cell batches reject empty expected revisions without persisting`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Inputs")
         store.saveWorkbook(testWorkbookOf(sheet))
