@@ -29,6 +29,11 @@ class InMemoryWorkbookStore(
             val isTransition = !isPristine && DataModelTransitionPolicy.requiresAggregateCas(this.workbook, workbook)
             val requiresSheetBaseline = !isPristine && DataModelTransitionPolicy.requiresBoundAppendCas(this.workbook, workbook)
             val membershipChanged = !isPristine && DataModelTransitionPolicy.changesMembershipOrOrder(this.workbook, workbook)
+            if (!isPristine && !membershipChanged &&
+                !DataModelTransitionPolicy.preservesStoredManifestRevision(this.workbook, workbook)
+            ) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
             if ((isTransition || membershipChanged) && expectedManifestRevision != this.workbook.manifest.revision) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
@@ -142,6 +147,9 @@ class InMemoryWorkbookStore(
         val membershipChanged = DataModelTransitionPolicy.changesMembershipOrOrder(current, transformed)
         val liveMembershipCommand = DataModelTransitionPolicy.isLiveCreate(current, transformed) ||
             DataModelTransitionPolicy.isLiveDelete(current, transformed)
+        if (!membershipChanged && !DataModelTransitionPolicy.preservesStoredManifestRevision(current, transformed)) {
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
         if ((hasModelTransition || (membershipChanged && !liveMembershipCommand)) &&
             expectedManifestRevision != current.manifest.revision
         ) {
