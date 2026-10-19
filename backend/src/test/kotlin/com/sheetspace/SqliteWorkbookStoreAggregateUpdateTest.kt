@@ -113,14 +113,15 @@ class SqliteWorkbookStoreAggregateUpdateTest {
     }
 
     @Test
-    fun `aggregate writes leave the full bundle unchanged for an absent revision target`() = withSqliteStore { store ->
+    fun `ordinary updates reject an absent revision target even when unchanged`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Inputs")
         store.saveWorkbook(testWorkbookOf(sheet))
         val before = store.loadWorkbookBundle()
 
-        val updated = store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 0)) { it }
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 0)) { it }
+        }
 
-        assertEquals(before, updated)
         assertEquals(before, store.loadWorkbookBundle())
     }
 

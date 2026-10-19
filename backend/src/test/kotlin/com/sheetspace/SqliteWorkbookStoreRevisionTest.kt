@@ -17,7 +17,7 @@ class SqliteWorkbookStoreRevisionTest {
         ).map { sheet ->
             thread {
                 gate.await()
-                store.updateWorkbook(expectedManifestRevision = 0) { workbook ->
+                store.updateWorkbook { workbook ->
                     val nextZIndex = (workbook.documents.values.maxOfOrNull { it.frame.zIndex } ?: 0) + 1
                     workbook.addSheet(sheet.updateFrame { it.update(zIndex = nextZIndex) })
                 }

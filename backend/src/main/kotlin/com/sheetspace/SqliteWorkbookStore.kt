@@ -151,16 +151,30 @@ class SqliteWorkbookStore internal constructor(
             val writer = SqliteWorkbookWriter(conn, reader)
             val current = reader.loadWorkbookBundle()
             val transformed = transform(current)
-            val liveDelete = DataModelTransitionPolicy.isLiveDelete(current, transformed)
+            if (transformed.manifest.version != WORKBOOK_SCHEMA_VERSION) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
+            val liveCreate = expectedRevision == null && expectedSheetRevisions.isEmpty() &&
+                DataModelTransitionPolicy.isLiveCreate(current, transformed)
+            val liveDelete = expectedRevision?.let { expected ->
+                expectedSheetRevisions.isEmpty() && SheetId(expected.sheetId) in current.documents &&
+                    DataModelTransitionPolicy.isLiveDelete(current, transformed) &&
+                    SheetId(expected.sheetId) !in transformed.documents
+            } == true
             val hasModelTransition = !liveDelete && DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
             val requiresSheetBaseline = !liveDelete && DataModelTransitionPolicy.requiresBoundAppendCas(current, transformed)
             val changedBoundSheets = DataModelTransitionPolicy.boundContentChanges(current, transformed)
             val membershipChanged = DataModelTransitionPolicy.changesMembershipOrOrder(current, transformed)
-            val liveMembershipCommand = DataModelTransitionPolicy.isLiveCreate(current, transformed) || liveDelete
+            val liveMembershipCommand = liveCreate || liveDelete
             if (!DataModelTransitionPolicy.hasAuthorizedManifestRevision(current, transformed)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
             if ((hasModelTransition || (membershipChanged && !liveMembershipCommand)) &&
+                expectedManifestRevision != current.manifest.revision
+            ) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            }
+            if (liveMembershipCommand && expectedManifestRevision != null &&
                 expectedManifestRevision != current.manifest.revision
             ) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
@@ -242,10 +256,11 @@ class SqliteWorkbookStore internal constructor(
             val target = SheetId(expectedRevision.sheetId)
             val sheet = current.documents[target]
             if (sheet == null) {
-                if (candidate == current) return
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
-            if (!DataModelTransitionPolicy.isSingletonUpdateOf(current, candidate, target)) {
+            if (!DataModelTransitionPolicy.isSingletonUpdateOf(current, candidate, target) &&
+                !(target !in candidate.documents && DataModelTransitionPolicy.isLiveDelete(current, candidate))
+            ) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
             if (sheet.revision != expectedRevision.revision) {

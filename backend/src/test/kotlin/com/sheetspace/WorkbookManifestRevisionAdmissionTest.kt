@@ -196,4 +196,38 @@ class WorkbookManifestRevisionAdmissionTest {
             }
         }
     }
+
+    @Test
+    fun `live create admits only the exact application projection in SQLite and memory`() {
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            try {
+                val first = testDocument(TEST_SHEET_1, "Inputs")
+                val second = testDocument(TEST_SHEET_2, "Outputs")
+                store.saveWorkbook(testWorkbookOf(first, second))
+                val before = store.loadWorkbookBundle()
+                val added = testDocument("00000000-0000-0000-0000-000000000003", "New")
+                val created = before.addSheet(added)
+
+                listOf(
+                    created.copy(manifest = created.manifest.copy(sheetIds = listOf(second.id, first.id, added.id))),
+                    created.copy(manifest = created.manifest.copy(version = WORKBOOK_SCHEMA_VERSION + 1)),
+                    created.copy(manifest = created.manifest.copy(revision = before.manifest.revision)),
+                ).forEach { malformed ->
+                    assertFailsWith<WorkbookApplicationException> {
+                        store.updateWorkbook { malformed }
+                    }
+                    assertEquals(before, store.loadWorkbookBundle())
+                }
+
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(expectedManifestRevision = before.manifest.revision + 1) { created }
+                }
+                assertEquals(before, store.loadWorkbookBundle())
+
+                assertEquals(created, store.updateWorkbook(expectedManifestRevision = before.manifest.revision) { created })
+            } finally {
+                (store as? AutoCloseable)?.close()
+            }
+        }
+    }
 }

@@ -94,15 +94,10 @@ internal object DataModelTransitionPolicy {
     fun changedOrDeletedSheets(before: WorkbookState, after: WorkbookState): Set<SheetId> =
         before.documents.filter { (id, sheet) -> after.documents[id] != sheet }.keys
 
-    /** A singleton update guard can authorize its existing target only, including its deletion. */
+    /** A singleton update guard can authorize precisely one existing-sheet replacement. */
     fun isSingletonUpdateOf(before: WorkbookState, after: WorkbookState, target: SheetId): Boolean =
         target in before.documents &&
-            changedOrDeletedSheets(before, after).all { it == target } &&
-            after.documents.keys.none { it !in before.documents } &&
-            after.manifest.sheetIds in listOf(
-                before.manifest.sheetIds,
-                before.manifest.sheetIds.filter { it != target },
-            )
+            after.documents[target]?.let { replacement -> after == before.replaceSheet(replacement) } == true
 
     /** A snapshot may not use client supplied counters to overwrite stored authority. */
     fun preservesStoredSheetRevisions(before: WorkbookState, after: WorkbookState): Boolean =
@@ -122,10 +117,12 @@ internal object DataModelTransitionPolicy {
     fun changesMembershipOrOrder(before: WorkbookState, after: WorkbookState): Boolean =
         before.manifest.sheetIds != after.manifest.sheetIds
 
-    fun isLiveCreate(before: WorkbookState, after: WorkbookState): Boolean =
-        (after.documents.keys - before.documents.keys).let { additions ->
-            additions.size == 1 && before.documents.all { (id, sheet) -> after.documents[id] == sheet }
-        }
+    fun isLiveCreate(before: WorkbookState, after: WorkbookState): Boolean {
+        val additions = after.documents.keys - before.documents.keys
+        if (additions.size != 1) return false
+        val addedSheetId = additions.single()
+        return after == before.addSheet(after.documents.getValue(addedSheetId))
+    }
 
     fun isLiveDelete(before: WorkbookState, after: WorkbookState): Boolean =
         (before.documents.keys - after.documents.keys).singleOrNull()?.let { removedSheetId ->
