@@ -145,13 +145,14 @@ class InMemoryWorkbookStore(
         }
         val liveCreate = expectedRevision == null && expectedSheetRevisions.isEmpty() &&
             DataModelTransitionPolicy.isLiveCreate(current, transformed)
+        val exactDeletion = DataModelTransitionPolicy.isLiveDelete(current, transformed)
         val liveDelete = expectedRevision?.let { expected ->
             expectedSheetRevisions.isEmpty() && SheetId(expected.sheetId) in current.documents &&
-                DataModelTransitionPolicy.isLiveDelete(current, transformed) &&
+                exactDeletion &&
                 SheetId(expected.sheetId) !in transformed.documents
         } == true
-        val hasModelTransition = !liveDelete && DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
-        val requiresSheetBaseline = !liveDelete && DataModelTransitionPolicy.requiresBoundAppendCas(current, transformed)
+        val hasModelTransition = !exactDeletion && DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
+        val requiresSheetBaseline = !exactDeletion && DataModelTransitionPolicy.requiresBoundAppendCas(current, transformed)
         val changedBoundSheets = DataModelTransitionPolicy.boundContentChanges(current, transformed)
         val membershipChanged = DataModelTransitionPolicy.changesMembershipOrOrder(current, transformed)
         val liveMembershipCommand = liveCreate || liveDelete

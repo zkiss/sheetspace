@@ -224,6 +224,41 @@ class WorkbookManifestRevisionAdmissionTest {
     }
 
     @Test
+    fun `bound snapshot deletion through list update requires snapshot guards in SQLite and memory`() {
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            try {
+                val initial = boundWorkbook()
+                store.saveWorkbook(initial)
+                val before = store.loadWorkbookBundle()
+                val deleted = before.sheetsInOrder.single()
+                val candidate = before.removeSheet(deleted.id)
+                val guard = ExpectedSheetRevision(deleted.id.value, deleted.revision)
+
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(expectedManifestRevision = before.manifest.revision) { candidate }
+                }
+                assertEquals(before, store.loadWorkbookBundle())
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(
+                        expectedManifestRevision = before.manifest.revision - 1,
+                        expectedSheetRevisions = listOf(guard),
+                    ) { candidate }
+                }
+                assertEquals(before, store.loadWorkbookBundle())
+
+                val updated = store.updateWorkbook(
+                    expectedManifestRevision = before.manifest.revision,
+                    expectedSheetRevisions = listOf(guard),
+                ) { candidate }
+                assertEquals(candidate, updated)
+                assertEquals(candidate, store.loadWorkbookBundle())
+            } finally {
+                (store as? AutoCloseable)?.close()
+            }
+        }
+    }
+
+    @Test
     fun `singleton update cannot authorize unrelated sheet creation in SQLite or memory`() {
         listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
             try {
