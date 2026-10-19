@@ -138,7 +138,7 @@ describe('workbook API read decoding', () => {
     const saveFetch = mockFetch(model);
     await expect(workbookApi.saveDataModel(model)).resolves.toEqual(model);
     expect(saveFetch).toHaveBeenCalledWith(`/api/data-models/${model.id}`, {
-      method: 'PUT', body: JSON.stringify(model), headers: { 'Content-Type': 'application/json' },
+      method: 'PUT', body: JSON.stringify({ name: model.name, columns: model.columns }), headers: { 'Content-Type': 'application/json' },
     });
 
     const bound = { ...inputsResponse, modelId: model.id };

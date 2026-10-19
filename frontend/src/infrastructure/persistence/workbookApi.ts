@@ -270,9 +270,10 @@ export const workbookApi = {
   },
 
   saveDataModel(model: DataModel): Promise<DataModel> {
+    const request = { name: model.name, columns: model.columns };
     return requestJson<DataModelResponse>(`/api/data-models/${encodePathSegment(model.id)}`, {
       method: 'PUT',
-      body: JSON.stringify(model),
+      body: JSON.stringify(request),
     }).then(decodeDataModel);
   },
 
