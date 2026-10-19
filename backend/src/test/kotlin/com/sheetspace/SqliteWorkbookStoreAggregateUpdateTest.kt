@@ -137,6 +137,25 @@ class SqliteWorkbookStoreAggregateUpdateTest {
     }
 
     @Test
+    fun `initial aggregate saves reject duplicate sheet row and column identities in SQLite and memory`() {
+        val invalidWorkbooks = listOf(
+            duplicateSheetIdentityWorkbook(),
+            duplicateRowIdentityWorkbook(),
+            duplicateColumnIdentityWorkbook(),
+        )
+        val stores = listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore())
+
+        stores.forEach { store ->
+            store.useWhenCloseable {
+                invalidWorkbooks.forEach { invalid ->
+                    assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(invalid) }
+                    assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
+                }
+            }
+        }
+    }
+
+    @Test
     fun `model removal persists mechanically pruned presentation in SQLite and memory`() {
         val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
         val stores = listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore())
@@ -240,6 +259,52 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         }
     }
 }
+
+internal fun duplicateSheetIdentityWorkbook(): WorkbookState = validIdentityWorkbook().apply {
+    @Suppress("UNCHECKED_CAST")
+    (manifest.sheetIds as MutableList<SheetId>) += manifest.sheetIds.first()
+}
+
+internal fun duplicateRowIdentityWorkbook(): WorkbookState = validIdentityWorkbook().apply {
+    @Suppress("UNCHECKED_CAST")
+    (sheetsInOrder.single().tabularContent.rows as MutableList<RowId>) += sheetsInOrder.single().tabularContent.rows.first()
+}
+
+internal fun duplicateColumnIdentityWorkbook(): WorkbookState = validIdentityWorkbook().apply {
+    @Suppress("UNCHECKED_CAST")
+    (sheetsInOrder.single().tabularContent.columns as MutableList<ColumnId>) += sheetsInOrder.single().tabularContent.columns.first()
+}
+
+internal fun mismatchedDocumentIdentityWorkbook(): WorkbookState = validIdentityWorkbook().apply {
+    @Suppress("UNCHECKED_CAST")
+    (documents as MutableMap<SheetId, SheetDocument>)[SheetId(TEST_SHEET_1)] =
+        sheetsInOrder.single().copy(id = SheetId(TEST_SHEET_2))
+}
+
+internal fun foreignCellCoordinateWorkbook(): WorkbookState {
+    val workbook = validIdentityWorkbook()
+    val sheet = workbook.sheetsInOrder.single()
+    val content = TabularContent(
+        sheet.tabularContent.rows,
+        sheet.tabularContent.columns,
+        mapOf(
+            CellCoordinate(sheet.tabularContent.rows[0], sheet.tabularContent.columns[0]) to "first",
+            CellCoordinate(sheet.tabularContent.rows[1], sheet.tabularContent.columns[1]) to "second",
+        ),
+    )
+    return workbook.replaceSheet(sheet.copy(content = content)).apply {
+        @Suppress("UNCHECKED_CAST")
+        (content.cellContents as MutableMap<CellCoordinate, String>)[
+            CellCoordinate(RowId.generate(), content.columns.first()),
+        ] = "foreign"
+    }
+}
+
+private fun validIdentityWorkbook(): WorkbookState = testWorkbookOf(testDocument(
+    TEST_SHEET_1,
+    "Inputs",
+    tabular = TabularContent(rowCount = 2, columnCount = 2),
+))
 
 private fun WorkbookState.sheetGuards(): List<ExpectedSheetRevision> =
     sheetsInOrder.map { ExpectedSheetRevision(it.id.value, it.revision) }

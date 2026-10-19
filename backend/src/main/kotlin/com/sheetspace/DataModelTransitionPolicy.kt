@@ -82,7 +82,9 @@ internal object DataModelTransitionPolicy {
 
     private fun hasValidIdentities(workbook: WorkbookState): Boolean {
         if (workbook.manifest.version != WORKBOOK_SCHEMA_VERSION ||
+            workbook.manifest.sheetIds.distinct().size != workbook.manifest.sheetIds.size ||
             workbook.manifest.sheetIds.toSet() != workbook.documents.keys ||
+            workbook.documents.any { (id, sheet) -> id != sheet.id } ||
             workbook.dataModels.keys.any { it.toUuidBytesOrNull() == null }
         ) return false
         if (workbook.dataModels.any { (id, model) ->
@@ -99,8 +101,13 @@ internal object DataModelTransitionPolicy {
     }
 
     private fun hasValidTabularIdentities(content: TabularContent): Boolean =
-        content.rows.all { it.value.toUuidBytesOrNull() != null } &&
-            content.columns.all { it.value.toUuidBytesOrNull() != null }
+        content.rows.distinct().size == content.rows.size &&
+            content.columns.distinct().size == content.columns.size &&
+            content.rows.all { it.value.toUuidBytesOrNull() != null } &&
+            content.columns.all { it.value.toUuidBytesOrNull() != null } &&
+            content.cellContents.keys.all { coordinate ->
+                coordinate.rowId in content.rows && coordinate.columnId in content.columns
+            }
 
     private fun validBind(
         before: WorkbookState,
