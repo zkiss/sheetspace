@@ -1,6 +1,6 @@
 import { applyAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import type { AxisSizeWrite } from '@workbook/core/model';
+import type { AxisSizeWrite, DataModel } from '@workbook/core/model';
 import { applyFormatWrites } from '@workbook/core/numberFormat';
 import type { FormatWrite } from '@workbook/core/model';
 import { vi } from 'vitest';
@@ -39,6 +39,8 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     })),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, rowCount: 0, rowId: 'row-appended' })),
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0, columnId: 'column-appended' })),
+    saveDataModel: vi.fn(),
+    setSheetModel: vi.fn(),
     ...overrides,
   } satisfies Partial<WorkbookApi>;
 }
@@ -158,6 +160,21 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
         columnCount: sheet?.content.columns.length ?? 0,
         columnId,
       };
+    }),
+    saveDataModel: vi.fn().mockImplementation(async (model: DataModel) => {
+      persistedWorkbook = {
+        ...persistedWorkbook,
+        dataModels: { ...persistedWorkbook.dataModels, [model.id]: model },
+      };
+      return model;
+    }),
+    setSheetModel: vi.fn().mockImplementation(async (sheetId: string, modelId?: string) => {
+      updateSheet(sheetId, (sheet) => {
+        const { modelId: previousModelId, ...withoutModel } = sheet;
+        void previousModelId;
+        return modelId === undefined ? withoutModel : { ...sheet, modelId };
+      });
+      return findSheetById(persistedWorkbook, sheetId)!;
     }),
   } satisfies WorkbookApi;
 }

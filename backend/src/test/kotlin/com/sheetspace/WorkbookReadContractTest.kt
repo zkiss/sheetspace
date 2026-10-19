@@ -20,6 +20,7 @@ class WorkbookReadContractTest {
 }
 
 private fun fixtureWorkbook(): WorkbookState {
+    val modelId = "30000000-0000-0000-0000-000000000001"
     val outputs = SheetDocument(
         id = SheetId(TEST_SHEET_2),
         revision = 4,
@@ -43,6 +44,7 @@ private fun fixtureWorkbook(): WorkbookState {
                     "11000000-0000-0000-0000-000000000002[10000000-0000-0000-0000-000000000002])",
             ),
         ),
+        modelId = modelId,
     )
     val inputRows = listOf(
         RowId("10000000-0000-0000-0000-000000000001"),
@@ -71,10 +73,21 @@ private fun fixtureWorkbook(): WorkbookState {
                 CellCoordinate(inputRows[1], inputColumns[1]) to "5",
             ),
         ),
+        modelId = modelId,
     )
     val manifest = WorkbookManifest(
         revision = 7,
         sheetIds = listOf(outputs.id, inputs.id),
     )
-    return WorkbookState(manifest, mapOf(inputs.id to inputs, outputs.id to outputs))
+    val model = DataModel(
+        modelId,
+        "Invoice",
+        listOf(
+            ManualModelColumn("31000000-0000-0000-0000-000000000001", "Description", ModelColumnType.STRING),
+            ManualModelColumn("31000000-0000-0000-0000-000000000002", "Quantity", ModelColumnType.INT),
+            ManualModelColumn("31000000-0000-0000-0000-000000000003", "Rate", ModelColumnType.FLOAT),
+            CalculatedModelColumn("31000000-0000-0000-0000-000000000004", "Taxable", ModelColumnType.BOOLEAN, "=SUM(quantity, tax)"),
+        ),
+    )
+    return WorkbookState(manifest, mapOf(inputs.id to inputs, outputs.id to outputs), mapOf(modelId to model))
 }

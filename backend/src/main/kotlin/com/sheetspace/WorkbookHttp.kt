@@ -16,8 +16,10 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 
 @Serializable
@@ -96,9 +98,28 @@ data class ColumnAppendResponse(
 @Serializable
 data class ErrorResponse(val error: String)
 
+@Serializable
+data class DataModelWriteRequest(val name: String, val columns: List<ModelColumnWriteRequest>)
+
+@Serializable
+data class ModelColumnWriteRequest(
+    val id: String,
+    val name: String,
+    val kind: String,
+    val type: String,
+    val formula: String? = null,
+)
+
+@Serializable
+data class SheetModelWriteRequest(val modelId: String? = null)
+
+@OptIn(ExperimentalSerializationApi::class)
 fun Application.configureHttp(workbookApplication: WorkbookApplication) {
     install(ContentNegotiation) {
-        json()
+        json(Json {
+            explicitNulls = false
+            allowSpecialFloatingPointValues = true
+        })
     }
 
     routing {
@@ -122,6 +143,28 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             call.respondApplicationResult {
                 call.respond(
                     WorkbookReadTransportAdapter.sheetDocument(workbookApplication.loadSheet(sheetId)),
+                )
+            }
+        }
+
+        put("/api/data-models/{modelId}") {
+            val modelId = call.parameters["modelId"] ?: return@put call.respondError(HttpStatusCode.BadRequest, "model-id-required")
+            val request = call.receiveRequest<DataModelWriteRequest>() ?: return@put
+            call.respondApplicationResult {
+                val model = request.toDataModel(modelId)
+                    ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
+                call.respond(WorkbookReadTransportAdapter.dataModel(model = workbookApplication.saveDataModel(model)))
+            }
+        }
+
+        put("/api/sheets/{sheetId}/model") {
+            val sheetId = call.parameters["sheetId"] ?: return@put call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            val request = call.receiveRequest<SheetModelWriteRequest>() ?: return@put
+            call.respondApplicationResult {
+                call.respond(
+                    WorkbookReadTransportAdapter.sheetDocument(
+                        workbookApplication.updateSheetModel(sheetId, UpdateSheetModelCommand(request.modelId)),
+                    ),
                 )
             }
         }
@@ -305,6 +348,8 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.DUPLICATE_SHEET_Z_ORDER_UPDATE ->
             HttpStatusCode.BadRequest to "duplicate-sheet-z-order-update"
         WorkbookApplicationError.INVALID_SHEET_PRESENTATION -> HttpStatusCode.BadRequest to "invalid-sheet-presentation"
+        WorkbookApplicationError.INVALID_DATA_MODEL -> HttpStatusCode.BadRequest to "invalid-data-model"
+        WorkbookApplicationError.UNKNOWN_DATA_MODEL -> HttpStatusCode.BadRequest to "unknown-data-model"
         WorkbookApplicationError.EMPTY_CELL_PATCH -> HttpStatusCode.BadRequest to "empty-cell-patch"
         WorkbookApplicationError.DUPLICATE_CELL_WRITE -> HttpStatusCode.BadRequest to "duplicate-cell-write"
         WorkbookApplicationError.DUPLICATE_SHEET_REVISION -> HttpStatusCode.BadRequest to "duplicate-sheet-revision"
@@ -312,6 +357,18 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.INVALID_CELL_PATCH -> HttpStatusCode.BadRequest to "invalid-cell-patch"
     }
     respondError(status, code)
+}
+
+private fun DataModelWriteRequest.toDataModel(id: String): DataModel? {
+    val convertedColumns = columns.map { column ->
+        val type = ModelColumnType.entries.firstOrNull { it.name.lowercase() == column.type } ?: return null
+        when (column.kind) {
+            "manual" -> if (column.formula == null) ManualModelColumn(column.id, column.name, type) else return null
+            "calculated" -> column.formula?.let { CalculatedModelColumn(column.id, column.name, type, it) } ?: return null
+            else -> return null
+        }
+    }
+    return DataModel(id, name, convertedColumns)
 }
 
 private suspend fun ApplicationCall.respondError(status: HttpStatusCode, error: String) {

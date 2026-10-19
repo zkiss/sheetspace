@@ -1,4 +1,4 @@
-import type { AxisSizeWrite, FormatWrite, SheetPresentation } from '@workbook/core/model';
+import type { AxisSizeWrite, DataModel, ModelColumnType, FormatWrite, SheetPresentation } from '@workbook/core/model';
 import { isValidCellAppearance, validFormatWrites } from '@workbook/core/numberFormat';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
@@ -37,12 +37,17 @@ export type SheetDocumentResponse = {
     columns: string[];
     cells: CellContentResponse[];
   };
+  modelId?: string;
 };
 
 export type WorkbookBundleResponse = {
   manifest: WorkbookManifestResponse;
   documents: SheetDocumentResponse[];
+  dataModels: DataModelResponse[];
 };
+
+export type DataModelResponse = { id: string; name: string; columns: ModelColumnResponse[] };
+export type ModelColumnResponse = { id: string; name: string; kind: 'manual' | 'calculated'; type: ModelColumnType; formula?: string };
 
 export type SheetRevisionResponse = {
   sheetId: string;
@@ -263,6 +268,21 @@ export const workbookApi = {
       headers: revisionHeaders(options),
     });
   },
+
+  saveDataModel(model: DataModel): Promise<DataModel> {
+    const request = { name: model.name, columns: model.columns };
+    return requestJson<DataModelResponse>(`/api/data-models/${encodePathSegment(model.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    }).then(decodeDataModel);
+  },
+
+  setSheetModel(sheetId: string, modelId?: string): Promise<SheetDocument> {
+    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/model`, {
+      method: 'PUT',
+      body: JSON.stringify({ modelId: modelId ?? null }),
+    }).then(decodeSheetDocument);
+  },
 };
 
 export type WorkbookApi = typeof workbookApi;
@@ -298,9 +318,20 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
       if (!document) invalidReadContract(`missing sheet document ${sheetId}`);
       return decodeSheetDocument(document);
     });
+  if (new Set(bundle.dataModels.map((model) => model.id)).size !== bundle.dataModels.length) {
+    invalidReadContract('duplicate data model id');
+  }
+  const dataModels = Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)]));
+  for (const document of decodedDocuments) {
+    if (document.modelId !== undefined && !Object.prototype.hasOwnProperty.call(dataModels, document.modelId)) {
+      invalidReadContract(`sheet ${document.id} references unknown data model ${document.modelId}`);
+    }
+  }
+
   return {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
+    dataModels,
   };
 }
 
@@ -371,6 +402,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       columns: [...document.content.columns],
       cells,
     },
+    ...(document.modelId === undefined ? {} : { modelId: document.modelId }),
   };
 }
 
@@ -382,4 +414,15 @@ function uniqueIndices(ids: string[], label: string): Map<string, number> {
 
 function invalidReadContract(detail: string): never {
   throw new WorkbookApiError(`Invalid workbook read contract: ${detail}.`, undefined, 'invalid-workbook-read-contract');
+}
+
+export function decodeDataModel(model: DataModelResponse): DataModel {
+  if (!model.id.trim() || !model.name.trim() || new Set(model.columns.map((column) => column.id)).size !== model.columns.length || new Set(model.columns.map((column) => column.name.trim())).size !== model.columns.length) invalidReadContract('invalid model declaration');
+  const columns = model.columns.map((column) => {
+    if (!column.id.trim() || !column.name.trim() || !['string', 'int', 'float', 'boolean'].includes(column.type)) invalidReadContract('invalid model column');
+    if (column.kind === 'manual' && column.formula === undefined) return { id: column.id, name: column.name, kind: 'manual' as const, type: column.type };
+    if (column.kind === 'calculated' && typeof column.formula === 'string' && column.formula.trim()) return { id: column.id, name: column.name, kind: 'calculated' as const, type: column.type, formula: column.formula };
+    invalidReadContract('invalid model formula');
+  });
+  return { id: model.id, name: model.name, columns };
 }

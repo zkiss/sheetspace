@@ -15,10 +15,12 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlin.test.assertEquals
 
-internal val testJson = Json { ignoreUnknownKeys = false }
+@OptIn(ExperimentalSerializationApi::class)
+internal val testJson = Json { ignoreUnknownKeys = false; explicitNulls = false }
 
 internal fun testWorkbookApplication(
     block: suspend ApplicationTestBuilder.(StatefulFakeWorkbookApplication) -> Unit,

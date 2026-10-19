@@ -25,6 +25,7 @@ data class WorkbookManifest(
 data class WorkbookState(
     val manifest: WorkbookManifest = WorkbookManifest(),
     val documents: Map<SheetId, SheetDocument> = emptyMap(),
+    val dataModels: Map<String, DataModel> = emptyMap(),
 ) {
     init {
         require(manifest.sheetIds.toSet() == documents.keys) {
@@ -52,6 +53,12 @@ data class WorkbookState(
         documents = documents - id,
     )
 }
+
+data class DataModel(val id: String, val name: String, val columns: List<ModelColumn>)
+enum class ModelColumnType { STRING, INT, FLOAT, BOOLEAN }
+sealed interface ModelColumn { val id: String; val name: String; val type: ModelColumnType }
+data class ManualModelColumn(override val id: String, override val name: String, override val type: ModelColumnType) : ModelColumn
+data class CalculatedModelColumn(override val id: String, override val name: String, override val type: ModelColumnType, val formula: String) : ModelColumn
 
 fun emptyWorkbookState(): WorkbookState = WorkbookState()
 

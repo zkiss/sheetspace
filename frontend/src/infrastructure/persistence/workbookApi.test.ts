@@ -37,6 +37,7 @@ function expectedDocument(response: SheetDocumentResponse): SheetDocument {
         cell.content,
       ])),
     },
+    ...(response.modelId === undefined ? {} : { modelId: response.modelId }),
   };
 }
 
@@ -73,6 +74,18 @@ describe('workbook API read decoding', () => {
       documents: {
         [outputsDocument.id]: outputsDocument,
         [inputsDocument.id]: inputsDocument,
+      },
+      dataModels: {
+        '30000000-0000-0000-0000-000000000001': {
+          id: '30000000-0000-0000-0000-000000000001',
+          name: 'Invoice',
+          columns: [
+            { id: '31000000-0000-0000-0000-000000000001', name: 'Description', kind: 'manual', type: 'string' },
+            { id: '31000000-0000-0000-0000-000000000002', name: 'Quantity', kind: 'manual', type: 'int' },
+            { id: '31000000-0000-0000-0000-000000000003', name: 'Rate', kind: 'manual', type: 'float' },
+            { id: '31000000-0000-0000-0000-000000000004', name: 'Taxable', kind: 'calculated', type: 'boolean', formula: '=SUM(quantity, tax)' },
+          ],
+        },
       },
     });
     expect(sheetsInOrder(workbook).map((sheet) => sheet.name)).toEqual(['Outputs', 'Inputs']);
@@ -116,6 +129,26 @@ describe('workbook API read decoding', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', { headers: {} });
   });
 
+  it('saves model declarations and sheet bindings through narrow metadata endpoints', async () => {
+    const model = {
+      id: '30000000-0000-0000-0000-000000000001',
+      name: 'Invoice',
+      columns: [{ id: '31000000-0000-0000-0000-000000000001', name: 'Amount', kind: 'manual' as const, type: 'float' as const }],
+    };
+    const saveFetch = mockFetch(model);
+    await expect(workbookApi.saveDataModel(model)).resolves.toEqual(model);
+    expect(saveFetch).toHaveBeenCalledWith(`/api/data-models/${model.id}`, {
+      method: 'PUT', body: JSON.stringify({ name: model.name, columns: model.columns }), headers: { 'Content-Type': 'application/json' },
+    });
+
+    const bound = { ...inputsResponse, modelId: model.id };
+    const bindingFetch = mockFetch(bound);
+    await expect(workbookApi.setSheetModel(inputsResponse.id, model.id)).resolves.toEqual(expectedDocument(bound));
+    expect(bindingFetch).toHaveBeenCalledWith(`/api/sheets/${inputsResponse.id}/model`, {
+      method: 'PUT', body: JSON.stringify({ modelId: model.id }), headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
   it('loads a medium bundle with one request and complete membership', async () => {
     const documents = Array.from({ length: 30 }, (_, index) => ({
       ...outputsResponse,
@@ -125,6 +158,7 @@ describe('workbook API read decoding', () => {
     mockFetch({
       manifest: { ...contractFixture.manifest, sheetIds: documents.map((document) => document.id) },
       documents,
+      dataModels: contractFixture.dataModels,
     });
 
     const workbook = await workbookApi.loadWorkbook();
@@ -146,6 +180,14 @@ describe('workbook API read decoding', () => {
     ['unsupported version', {
       ...contractFixture,
       manifest: { ...contractFixture.manifest, version: 2 },
+    }],
+    ['duplicate data model id', {
+      ...contractFixture,
+      dataModels: [contractFixture.dataModels[0], contractFixture.dataModels[0]],
+    }],
+    ['dangling sheet model id', {
+      ...contractFixture,
+      documents: [{ ...outputsResponse, modelId: 'missing-model' }, inputsResponse],
     }],
   ])('rejects %s bundle contracts', (_label, payload) => {
     expect(() => decodeWorkbookBundle(payload as WorkbookBundleResponse)).toThrowError(

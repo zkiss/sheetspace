@@ -71,10 +71,55 @@ class SqliteWorkbookStoreSchemaTest {
                     }
                 }
             }
-            assertEquals(setOf("id", "name", "content_kind", "revision"), documentColumns)
+            assertEquals(setOf("id", "name", "content_kind", "revision", "model_id"), documentColumns)
             assertFalse("cells_json" in documentColumns)
             assertFalse("row_count" in documentColumns)
             assertFalse("column_count" in documentColumns)
+        }
+    }
+
+
+    @Test
+    fun `roundtrips ordered model declarations and sheet metadata without changing content`() = withSqliteStore { store ->
+        val modelId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        val model = DataModel(modelId, "Invoice", listOf(
+            ManualModelColumn("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "Amount", ModelColumnType.FLOAT),
+            CalculatedModelColumn("cccccccc-cccc-cccc-cccc-cccccccccccc", "Note", ModelColumnType.STRING, "=SUM(total, )"),
+        ))
+        val first = testDocument(TEST_SHEET_1, "Inputs").copy(modelId = modelId)
+        val second = testDocument(TEST_SHEET_2, "Other")
+        val workbook = testWorkbookOf(first, second).copy(dataModels = mapOf(modelId to model))
+        store.saveWorkbook(workbook)
+        assertEquals(workbook, store.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `rejects invalid model metadata without changing the stored workbook`() = withSqliteStore { store ->
+        val modelId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        val columnId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        val model = DataModel(modelId, "Invoice", listOf(ManualModelColumn(columnId, "Amount", ModelColumnType.FLOAT)))
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+
+        listOf(
+            testWorkbookOf(sheet).copy(dataModels = mapOf("not-a-uuid" to model)),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(id = "cccccccc-cccc-cccc-cccc-cccccccccccc"))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(name = " "))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(ManualModelColumn("not-a-uuid", "Amount", ModelColumnType.FLOAT))))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(ManualModelColumn("", "Amount", ModelColumnType.FLOAT))))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(ManualModelColumn(columnId, " ", ModelColumnType.FLOAT))))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(
+                ManualModelColumn(columnId, "Amount", ModelColumnType.FLOAT),
+                ManualModelColumn(columnId, " amount ", ModelColumnType.FLOAT),
+            )))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(
+                ManualModelColumn(columnId, "Amount", ModelColumnType.FLOAT),
+                ManualModelColumn("cccccccc-cccc-cccc-cccc-cccccccccccc", " Amount ", ModelColumnType.FLOAT),
+            )))),
+            testWorkbookOf(sheet.copy(modelId = modelId)),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(CalculatedModelColumn(columnId, "Amount", ModelColumnType.FLOAT, " "))))),
+        ).forEach { invalid ->
+            assertRejectedWithoutPersisting<IllegalArgumentException>(store) { store.saveWorkbook(invalid) }
         }
     }
 

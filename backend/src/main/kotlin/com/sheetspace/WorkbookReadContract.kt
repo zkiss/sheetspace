@@ -13,6 +13,7 @@ data class WorkbookManifestResponse(
 data class WorkbookBundleResponse(
     val manifest: WorkbookManifestResponse,
     val documents: List<SheetDocumentResponse>,
+    val dataModels: List<DataModelResponse>,
 )
 
 @Serializable
@@ -23,6 +24,23 @@ data class SheetDocumentResponse(
     val frame: FrameStateResponse,
     val presentation: SheetPresentationResponse,
     val content: TabularContentResponse,
+    val modelId: String? = null,
+)
+
+@Serializable
+data class DataModelResponse(
+    val id: String,
+    val name: String,
+    val columns: List<ModelColumnResponse>,
+)
+
+@Serializable
+data class ModelColumnResponse(
+    val id: String,
+    val name: String,
+    val kind: String,
+    val type: String,
+    val formula: String? = null,
 )
 
 @Serializable
@@ -61,6 +79,7 @@ internal object WorkbookReadTransportAdapter {
     fun bundle(workbook: WorkbookState): WorkbookBundleResponse = WorkbookBundleResponse(
         manifest = manifest(workbook.manifest),
         documents = workbook.sheetsInOrder.map(::sheetDocument),
+        dataModels = workbook.dataModels.values.map(::dataModel),
     )
 
     fun sheetDocument(document: SheetDocument): SheetDocumentResponse {
@@ -88,6 +107,18 @@ internal object WorkbookReadTransportAdapter {
                     )
                 },
             ),
+            modelId = document.modelId,
         )
+    }
+
+    fun dataModel(model: DataModel): DataModelResponse = DataModelResponse(
+        id = model.id,
+        name = model.name,
+        columns = model.columns.map(::modelColumn),
+    )
+
+    private fun modelColumn(column: ModelColumn): ModelColumnResponse = when (column) {
+        is ManualModelColumn -> ModelColumnResponse(column.id, column.name, "manual", column.type.name.lowercase())
+        is CalculatedModelColumn -> ModelColumnResponse(column.id, column.name, "calculated", column.type.name.lowercase(), column.formula)
     }
 }

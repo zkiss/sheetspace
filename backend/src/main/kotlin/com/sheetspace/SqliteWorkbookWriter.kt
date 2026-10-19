@@ -18,6 +18,8 @@ internal class SqliteWorkbookWriter(
 
     fun replaceAll(workbook: WorkbookState) {
         connection.createStatement().use { it.executeUpdate("DELETE FROM sheet_documents") }
+        connection.createStatement().use { it.executeUpdate("DELETE FROM data_models") }
+        workbook.dataModels.values.forEach(::insertDataModel)
         workbook.sheetsInOrder.forEach(::insertSheet)
         replaceManifest(workbook.manifest)
     }
@@ -76,6 +78,14 @@ internal class SqliteWorkbookWriter(
     }
 
     fun persistChanges(current: WorkbookState, updated: WorkbookState) {
+        updated.dataModels.values.forEach { updatedModel ->
+            val currentModel = current.dataModels[updatedModel.id]
+            when {
+                currentModel == null -> insertDataModel(updatedModel)
+                currentModel != updatedModel -> persistDataModelChanges(updatedModel)
+            }
+        }
+
         current.documents.keys
             .filterNot(updated.documents::containsKey)
             .forEach(::deleteSheet)
@@ -93,11 +103,12 @@ internal class SqliteWorkbookWriter(
 
     private fun insertSheet(sheet: SheetDocument) {
         connection.prepareStatement(
-            "INSERT INTO sheet_documents (id, name, content_kind, revision) VALUES (?, ?, 'TABULAR', ?)",
+            "INSERT INTO sheet_documents (id, name, content_kind, revision, model_id) VALUES (?, ?, 'TABULAR', ?, ?)",
         ).use { statement ->
             statement.setBytes(1, sheet.id.value.toUuidBytes())
             statement.setString(2, sheet.name)
             statement.setLong(3, sheet.revision)
+            statement.setBytes(4, sheet.modelId?.toUuidBytes())
             statement.executeUpdate()
         }
         insertFrame(sheet)
@@ -105,17 +116,45 @@ internal class SqliteWorkbookWriter(
         presentationWriter.persistChanges(sheet.id, SheetPresentation(), sheet.presentation)
     }
 
+    private fun insertDataModel(model: DataModel) {
+        connection.prepareStatement("INSERT INTO data_models (id, name) VALUES (?, ?)").use { statement -> statement.setBytes(1, model.id.toUuidBytes()); statement.setString(2, model.name); statement.executeUpdate() }
+        insertDataModelColumns(model)
+    }
+
+    private fun persistDataModelChanges(model: DataModel) {
+        connection.prepareStatement("UPDATE data_models SET name = ? WHERE id = ?").use { statement ->
+            statement.setString(1, model.name)
+            statement.setBytes(2, model.id.toUuidBytes())
+            statement.executeUpdate()
+        }
+        connection.prepareStatement("DELETE FROM data_model_columns WHERE model_id = ?").use { statement ->
+            statement.setBytes(1, model.id.toUuidBytes())
+            statement.executeUpdate()
+        }
+        insertDataModelColumns(model)
+    }
+
+    private fun insertDataModelColumns(model: DataModel) {
+        connection.prepareStatement("INSERT INTO data_model_columns (model_id, id, name, column_kind, column_type, formula, column_order) VALUES (?, ?, ?, ?, ?, ?, ?)").use { statement ->
+            model.columns.forEachIndexed { index, column ->
+                statement.setBytes(1, model.id.toUuidBytes()); statement.setBytes(2, column.id.toUuidBytes()); statement.setString(3, column.name)
+                statement.setString(4, if (column is ManualModelColumn) "MANUAL" else "CALCULATED"); statement.setString(5, column.type.name); statement.setString(6, (column as? CalculatedModelColumn)?.formula); statement.setInt(7, index); statement.addBatch()
+            }; statement.executeBatch()
+        }
+    }
+
     private fun persistSheetChanges(current: SheetDocument, updated: SheetDocument) {
         val updatedRows = connection.prepareStatement(
             """
             UPDATE sheet_documents
-            SET name = ?, content_kind = 'TABULAR', revision = revision + 1
+            SET name = ?, content_kind = 'TABULAR', model_id = ?, revision = revision + 1
             WHERE id = ? AND revision = ?
             """.trimIndent(),
         ).use { statement ->
             statement.setString(1, updated.name)
-            statement.setBytes(2, updated.id.value.toUuidBytes())
-            statement.setLong(3, current.revision)
+            statement.setBytes(2, updated.modelId?.toUuidBytes())
+            statement.setBytes(3, updated.id.value.toUuidBytes())
+            statement.setLong(4, current.revision)
             statement.executeUpdate()
         }
         if (updatedRows == 0) {

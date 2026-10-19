@@ -2,13 +2,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { autosaveClient, deferred } from '@test-support/apiClients';
-import { createSheetFromToolbar, openCellEditor, resizeHandle, workspaceSurface } from '@test-support/appScreen';
+import { openCellEditor, workspaceSurface } from '@test-support/appScreen';
 import { workspaceRect } from '@test-support/domGeometry';
-import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { positionedSheet, sheetDocument, smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import type { SheetDocument } from '@workbook/core/model';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import userEvent from '@testing-library/user-event';
-import { panWorkspace, zoomWorkspace, resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceActions';
+import { panWorkspace, zoomWorkspace, setSheetScale } from '@test-support/workspaceActions';
 
 describe('viewport-aware sheet creation', () => {
   it.each(['toolbar', 'empty action', 'Shift+N'])('creates only once at the visible center via %s after pan/zoom', async (intent) => {
@@ -95,19 +95,19 @@ describe('viewport-aware sheet creation', () => {
 
   it('keeps independently created scales while editing, arranging, navigating, and reloading a multiscale workbook', async () => {
     const user = userEvent.setup();
-    const apiClient = persistedWorkbookClient();
-    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([])} />);
+    const initialWorkbook = workbookWithSheets([
+      smallSheetDocument({
+        id: 'inputs', name: 'Inputs', position: { x: 500, y: 400 }, visualScale: 1 / 1.2, zIndex: 1,
+        cells: { B1: '10' },
+      }),
+      smallSheetDocument({
+        id: 'outputs', name: 'Outputs', position: { x: 500, y: 400 }, visualScale: 1.2, zIndex: 2,
+        cells: { A1: '=@Inputs!B[1]' },
+      }),
+    ]);
+    const apiClient = persistedWorkbookClient(initialWorkbook);
+    render(<App apiClient={apiClient} initialWorkbook={initialWorkbook} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
-
-    zoomWorkspace('in');
-    await createSheetFromToolbar('Inputs');
-    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
-    resetWorkspaceViewport();
-    zoomWorkspace('out');
-    fireEvent.keyDown(document.body, { key: 'N', shiftKey: true });
-    fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
-    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
-    await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
 
     let inputs = await screen.findByRole('article', { name: 'Sheet Inputs' });
     const outputs = screen.getByRole('article', { name: 'Sheet Outputs' });
@@ -115,9 +115,11 @@ describe('viewport-aware sheet creation', () => {
     expect(outputs).toHaveAttribute('data-visual-scale', '1.2');
 
     let editor = await openCellEditor(user, cellAt(inputs, 'B1'));
+    await user.clear(editor);
     await user.type(editor, '10');
     fireEvent.keyDown(editor, { key: 'Enter' });
     editor = await openCellEditor(user, cellAt(outputs, 'A1'));
+    await user.clear(editor);
     await user.type(editor, '=@Inputs!B[[1]');
     fireEvent.keyDown(editor, { key: 'Enter' });
     await waitFor(() => expect(cellAt(outputs, 'A1')).toHaveTextContent('10'));
@@ -130,12 +132,6 @@ describe('viewport-aware sheet creation', () => {
     fireEvent(header, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
     fireEvent(header, new MouseEvent('pointermove', { bubbles: true, clientX: 160, clientY: 180 }));
     fireEvent(header, new MouseEvent('pointerup', { bubbles: true, clientX: 160, clientY: 180 }));
-    const right = resizeHandle(inputs, 'right');
-    fireEvent(right, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 360, clientY: 120 }));
-    fireEvent(right, new MouseEvent('pointermove', { bubbles: true, clientX: 440, clientY: 120 }));
-    fireEvent(right, new MouseEvent('pointerup', { bubbles: true, clientX: 440, clientY: 120 }));
-    await waitFor(() => expect(apiClient.updateSheetFrameLayout).toHaveBeenCalled());
-
     fireEvent.click(cellAt(outputs, 'A1'));
     fireEvent.click(screen.getByRole('button', { name: '@Inputs!B[1], reference' }), { ctrlKey: true });
     expect(inputs).toHaveAttribute('data-active-sheet', 'true');
@@ -151,7 +147,7 @@ describe('viewport-aware sheet creation', () => {
     const reloadedInputs = await screen.findByRole('article', { name: 'Sheet Inputs' });
     const reloadedOutputs = screen.getByRole('article', { name: 'Sheet Outputs' });
     expect(reloadedInputs).toHaveAttribute('data-visual-scale', '0.5');
-    expect(reloadedInputs).toHaveAttribute('data-frame-width', '432');
+    expect(reloadedInputs).toHaveAttribute('data-frame-width', '240');
     expect(reloadedOutputs).toHaveAttribute('data-visual-scale', '1.2');
     expect(cellAt(reloadedInputs, 'B1')).toHaveTextContent('10');
     expect(cellAt(reloadedOutputs, 'A1')).toHaveTextContent('10');

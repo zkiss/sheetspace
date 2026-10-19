@@ -14,7 +14,23 @@ internal class SqliteWorkbookReader(
         val documents = manifest.sheetIds.associateWith { sheetId ->
             loadSheet(sheetId) ?: error("Manifest references missing sheet: ${sheetId.value}")
         }
-        return WorkbookState(manifest, documents)
+        val dataModels = loadDataModels()
+        require(documents.values.all { it.modelId == null || it.modelId in dataModels }) {
+            "Unknown sheet model"
+        }
+        return WorkbookState(manifest, documents, dataModels)
+    }
+
+    private fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models ORDER BY rowid").use { statement ->
+        statement.executeQuery().use { rs -> buildMap {
+            while (rs.next()) { val id = rs.getBytes("id").toUuidString(); put(id, DataModel(id, rs.getString("name"), loadColumns(id))) }
+        } }
+    }
+
+    private fun loadColumns(modelId: String): List<ModelColumn> = connection.prepareStatement("SELECT id, name, column_kind, column_type, formula FROM data_model_columns WHERE model_id = ? ORDER BY column_order").use { statement ->
+        statement.setBytes(1, modelId.toUuidBytes()); statement.executeQuery().use { rs -> buildList {
+            while (rs.next()) { val id = rs.getBytes("id").toUuidString(); val type = ModelColumnType.valueOf(rs.getString("column_type")); add(if (rs.getString("column_kind") == "MANUAL") ManualModelColumn(id, rs.getString("name"), type) else CalculatedModelColumn(id, rs.getString("name"), type, rs.getString("formula"))) }
+        } }
     }
 
     fun loadManifest(): WorkbookManifest {
@@ -45,7 +61,7 @@ internal class SqliteWorkbookReader(
     fun loadSheet(sheetId: SheetId): SheetDocument? {
         val document = connection.prepareStatement(
             """
-            SELECT d.id, d.name, d.revision,
+            SELECT d.id, d.name, d.revision, d.model_id,
                    f.position_x, f.position_y, f.frame_width, f.frame_height, f.visual_scale, f.z_index
             FROM sheet_documents d
             JOIN frame_state f ON f.sheet_id = d.id
@@ -60,6 +76,7 @@ internal class SqliteWorkbookReader(
                     id = SheetId(rs.getBytes("id").toUuidString()),
                     name = rs.getString("name"),
                     revision = rs.getLong("revision"),
+                    modelId = rs.getBytes("model_id")?.toUuidString(),
                     frame = FrameState(
                         position = WorkspacePosition(
                             rs.getDouble("position_x"),
@@ -80,6 +97,7 @@ internal class SqliteWorkbookReader(
             name = document.name,
             revision = document.revision,
             frame = document.frame,
+            modelId = document.modelId,
             presentation = SheetPresentation(
                 rowHeights = loadSizes(sheetId, "row_presentation", "row_id", "height"),
                 columnWidths = loadSizes(sheetId, "column_presentation", "column_id", "width"),
@@ -217,5 +235,6 @@ private data class SheetRecord(
     val id: SheetId,
     val name: String,
     val revision: Long,
+    val modelId: String?,
     val frame: FrameState,
 )
