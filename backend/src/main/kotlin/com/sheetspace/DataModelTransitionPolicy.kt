@@ -118,11 +118,11 @@ internal object DataModelTransitionPolicy {
         }
 
     fun isLiveDelete(before: WorkbookState, after: WorkbookState): Boolean =
-        (before.documents.keys - after.documents.keys).let { removals ->
-            removals.size == 1 &&
-                after.documents.all { (id, sheet) -> before.documents[id] == sheet } &&
-                after.manifest.sheetIds == before.manifest.sheetIds.filter { it !in removals }
-        }
+        (before.documents.keys - after.documents.keys).singleOrNull()?.let { removedSheetId ->
+            // The singleton revision channel authorizes precisely the application deletion
+            // command, not an aggregate update that happens to remove a sheet.
+            after == before.removeSheet(removedSheetId)
+        } ?: false
 
     private fun hasModelTransition(before: WorkbookState, after: WorkbookState): Boolean =
         requiresAggregateCas(before, after) || before.documents.any { (id, sheet) ->

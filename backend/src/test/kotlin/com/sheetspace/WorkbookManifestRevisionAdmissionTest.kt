@@ -156,6 +156,15 @@ class WorkbookManifestRevisionAdmissionTest {
                 }
                 assertEquals(before, store.loadWorkbookBundle())
 
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(ExpectedSheetRevision(removed.id.value, removed.revision)) { current ->
+                        current.removeSheet(removed.id).copy(
+                            dataModels = current.dataModels + (model.id to model.copy(name = "Renamed")),
+                        )
+                    }
+                }
+                assertEquals(before, store.loadWorkbookBundle())
+
                 DefaultWorkbookApplication(store).deleteSheet(removed.id.value, removed.revision)
                 val after = store.loadWorkbookBundle()
                 assertEquals(before.manifest.revision + 1, after.manifest.revision)
