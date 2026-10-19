@@ -43,6 +43,7 @@ class SqliteWorkbookStore internal constructor(
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
+        validateModelMetadata(workbook)
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
@@ -157,7 +158,7 @@ class SqliteWorkbookStore internal constructor(
 private fun validateModelMetadata(workbook: WorkbookState) {
     require(workbook.dataModels.keys.all { it.toUuidBytesOrNull() != null }) { "Model IDs must be UUIDs" }
     workbook.dataModels.values.forEach { model ->
-        require(model.id.isNotBlank() && model.name.isNotBlank() && model.id.toUuidBytesOrNull() != null) { "Model ID and name are required" }
+        require(model.id in workbook.dataModels && model.name.isNotBlank()) { "Model ID and name are required" }
         require(model.columns.map { it.id }.distinct().size == model.columns.size && model.columns.map { it.name.trim() }.distinct().size == model.columns.size) { "Model columns must have unique identities and names" }
         model.columns.forEach { column ->
             require(column.id.isNotBlank() && column.id.toUuidBytesOrNull() != null && column.name.isNotBlank()) { "Column ID and name are required" }

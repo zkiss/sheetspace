@@ -74,6 +74,7 @@ describe('workbook API read decoding', () => {
         [outputsDocument.id]: outputsDocument,
         [inputsDocument.id]: inputsDocument,
       },
+      dataModels: {},
     });
     expect(sheetsInOrder(workbook).map((sheet) => sheet.name)).toEqual(['Outputs', 'Inputs']);
     expect(fetchMock).toHaveBeenCalledTimes(1);

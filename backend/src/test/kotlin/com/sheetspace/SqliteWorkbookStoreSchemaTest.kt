@@ -94,6 +94,36 @@ class SqliteWorkbookStoreSchemaTest {
     }
 
     @Test
+    fun `rejects invalid model metadata without changing the stored workbook`() = withSqliteStore { store ->
+        val modelId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        val columnId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        val model = DataModel(modelId, "Invoice", listOf(ManualModelColumn(columnId, "Amount", ModelColumnType.FLOAT)))
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+
+        listOf(
+            testWorkbookOf(sheet).copy(dataModels = mapOf("not-a-uuid" to model)),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(id = "cccccccc-cccc-cccc-cccc-cccccccccccc"))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(name = " "))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(ManualModelColumn("not-a-uuid", "Amount", ModelColumnType.FLOAT))))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(ManualModelColumn("", "Amount", ModelColumnType.FLOAT))))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(ManualModelColumn(columnId, " ", ModelColumnType.FLOAT))))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(
+                ManualModelColumn(columnId, "Amount", ModelColumnType.FLOAT),
+                ManualModelColumn(columnId, " amount ", ModelColumnType.FLOAT),
+            )))),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(
+                ManualModelColumn(columnId, "Amount", ModelColumnType.FLOAT),
+                ManualModelColumn("cccccccc-cccc-cccc-cccc-cccccccccccc", " Amount ", ModelColumnType.FLOAT),
+            )))),
+            testWorkbookOf(sheet.copy(modelId = modelId)),
+            testWorkbookOf(sheet).copy(dataModels = mapOf(modelId to model.copy(columns = listOf(CalculatedModelColumn(columnId, "Amount", ModelColumnType.FLOAT, " "))))),
+        ).forEach { invalid ->
+            assertRejectedWithoutPersisting<IllegalArgumentException>(store) { store.saveWorkbook(invalid) }
+        }
+    }
+
+    @Test
     fun `schema rejects malformed and text sheet ids`() = withSqliteStore { store ->
         DriverManager.getConnection(store.jdbcUrl).use { connection ->
             connection.createStatement().use { statement ->
