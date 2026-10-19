@@ -1,6 +1,7 @@
 package com.sheetspace
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -30,6 +31,54 @@ class DataModelTransitionAppendTest {
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, firstAppend.replaceSheet(
             firstAppend.findSheet(boundSecond.id)!!.rename("Smuggled"),
         )))
+    }
+
+    @Test
+    fun `bound append rejects an edit to an existing cell`() {
+        val before = boundWorkbook()
+        val appended = appendBoundSheet(before, before.sheetsInOrder.single().id)
+        val sheet = appended.sheetsInOrder.single()
+        val manualCoordinate = CellCoordinate(sheet.tabularContent.rows.first(), sheet.tabularContent.columns.first())
+        val smuggled = appended.replaceSheet(sheet.copy(content = TabularContent(
+            sheet.tabularContent.rows,
+            sheet.tabularContent.columns,
+            sheet.tabularContent.cellContents + (manualCoordinate to "Smuggled"),
+        )))
+
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, smuggled))
+    }
+
+    @Test
+    fun `bound append rejects an invalid fresh row identity`() {
+        val before = boundWorkbook()
+        val appended = appendBoundSheet(before, before.sheetsInOrder.single().id)
+        val sheet = appended.sheetsInOrder.single()
+        val oldRow = sheet.tabularContent.rows.last()
+        val invalidRow = RowId("not-a-uuid")
+        val invalidContent = TabularContent(
+            sheet.tabularContent.rows.dropLast(1) + invalidRow,
+            sheet.tabularContent.columns,
+            sheet.tabularContent.cellContents.mapKeys { (coordinate, _) ->
+                if (coordinate.rowId == oldRow) coordinate.copy(rowId = invalidRow) else coordinate
+            },
+        )
+
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, appended.replaceSheet(sheet.copy(content = invalidContent))))
+    }
+
+    @Test
+    fun `aggregate changes retain their manifest and freeze unaffected sheets`() {
+        val bound = boundWorkbook()
+        val unrelated = testDocument(TEST_SHEET_2, "Unrelated")
+        val before = bound.addSheet(unrelated)
+        val renamedModel = before.dataModels.values.single().copy(name = "Renamed")
+        val after = before.copy(dataModels = mapOf(renamedModel.id to renamedModel))
+
+        assertTrue(DataModelTransitionPolicy.permitsTransition(before, after))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, after.copy(
+            manifest = after.manifest.copy(revision = after.manifest.revision + 1),
+        )))
+        assertEquals(setOf(SheetId(TEST_SHEET_1)), DataModelTransitionPolicy.affectedAggregateSheets(before, after.removeSheet(unrelated.id)))
     }
 
     private fun appendBoundSheet(before: WorkbookState, sheetId: SheetId): WorkbookState {

@@ -203,6 +203,13 @@ class SqliteWorkbookStoreAggregateUpdateTest {
             store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 0)) { appended }
         }
         assertEquals(before, store.loadWorkbookBundle())
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(
+                ExpectedSheetRevision(TEST_SHEET_1, before.sheetsInOrder.single().revision),
+                expectedSheetRevisions = before.sheetGuards(),
+            ) { appended }
+        }
+        assertEquals(before, store.loadWorkbookBundle())
 
         store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, before.sheetsInOrder.single().revision)) { appended }
         assertEquals(appended.sheetsInOrder.single().tabularContent.rows, store.loadWorkbookBundle().sheetsInOrder.single().tabularContent.rows)

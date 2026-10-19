@@ -29,16 +29,13 @@ internal object DataModelTransitionPolicy {
                 if (oldSheet.id != appendedSheetId) oldSheet == newSheet
                 else {
                     val model = before.dataModels.getValue(oldSheet.dataModelId!!)
-                    newSheet.dataModelId == oldSheet.dataModelId &&
-                        validBoundTransition(before, after, oldSheet, newSheet, model, model)
+                    validBoundTransition(before, after, oldSheet, newSheet, model, model)
                 }
             }
         }
         if (!hasModelTransition(before, after)) return true
         if (!hasValidIdentities(after) || !hasValidModelDefinitions(after)) return false
-        if (aggregateTransition &&
-            (before.manifest != after.manifest || before.documents.keys != after.documents.keys)
-        ) return false
+        if (before.manifest != after.manifest || before.documents.keys != after.documents.keys) return false
 
         val changedModelIds = (before.dataModels.keys + after.dataModels.keys).filter { modelId ->
             before.dataModels[modelId] != after.dataModels[modelId]
@@ -51,7 +48,7 @@ internal object DataModelTransitionPolicy {
             val affectedByAggregateTransition = oldSheet.dataModelId != newSheet.dataModelId ||
                 oldSheet.dataModelId in changedModelIds
 
-            if (aggregateTransition && !affectedByAggregateTransition) return@all oldSheet == newSheet
+            if (!affectedByAggregateTransition) return@all oldSheet == newSheet
 
             when {
                 // The aggregate-mode guard above has already required untouched sheets to match.
