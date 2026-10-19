@@ -130,7 +130,13 @@ class InMemoryWorkbookStore(
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         if (hasModelTransition) validateAffectedSheetRevisions(current, transformed, expectedSheetRevisions)
-        if (requiresSheetBaseline && (expectedRevision == null || SheetId(expectedRevision.sheetId) !in changedBoundSheets)) {
+        if (requiresSheetBaseline && (
+                changedBoundSheets.size != 1 ||
+                    expectedRevision == null ||
+                    SheetId(expectedRevision.sheetId) != changedBoundSheets.single() ||
+                    expectedSheetRevisions.isNotEmpty()
+                )
+        ) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         val authorized = if (hasModelTransition) transformed.copy(manifest = current.manifest) else transformed

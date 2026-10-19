@@ -17,6 +17,23 @@ internal object DataModelTransitionPolicy {
 
     fun permitsTransition(before: WorkbookState, after: WorkbookState): Boolean {
         val aggregateTransition = requiresAggregateCas(before, after)
+        val appendedBoundSheets = boundContentChanges(before, after)
+        // Append is a command-shaped operation, not a composition of independently valid sheet
+        // projections.  In particular, accepting two otherwise valid appends here would let the
+        // singleton updateWorkbook revision precondition protect only one of them.
+        if (!aggregateTransition && appendedBoundSheets.isNotEmpty()) {
+            if (appendedBoundSheets.size != 1 || before.manifest != after.manifest) return false
+            val appendedSheetId = appendedBoundSheets.single()
+            return before.sheetsInOrder.all { oldSheet ->
+                val newSheet = after.documents.getValue(oldSheet.id)
+                if (oldSheet.id != appendedSheetId) oldSheet == newSheet
+                else {
+                    val model = before.dataModels.getValue(oldSheet.dataModelId!!)
+                    newSheet.dataModelId == oldSheet.dataModelId &&
+                        validBoundTransition(before, after, oldSheet, newSheet, model, model)
+                }
+            }
+        }
         if (!hasModelTransition(before, after)) return true
         if (!hasValidIdentities(after) || !hasValidModelDefinitions(after)) return false
         if (aggregateTransition &&

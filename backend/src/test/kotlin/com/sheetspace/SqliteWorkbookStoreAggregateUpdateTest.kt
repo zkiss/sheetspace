@@ -209,6 +209,28 @@ class SqliteWorkbookStoreAggregateUpdateTest {
     }
 
     @Test
+    fun `direct bound append rejects multiple targets and preserves both adapters`() {
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"), testDocument(TEST_SHEET_2, "Outputs"))
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            store.useWhenCloseable {
+                store.saveWorkbook(initial)
+                val bound = boundAggregate(initial)
+                store.saveWorkbook(bound, 0, initial.sheetGuards())
+                val before = store.loadWorkbookBundle()
+                val firstAppend = boundAggregateAppend(before, SheetId(TEST_SHEET_1))
+                val twoAppends = boundAggregateAppend(firstAppend, SheetId(TEST_SHEET_2))
+
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, before.findSheet(SheetId(TEST_SHEET_1))!!.revision)) {
+                        twoAppends
+                    }
+                }
+                assertEquals(before, store.loadWorkbookBundle())
+            }
+        }
+    }
+
+    @Test
     fun `direct aggregate saves require exact affected sheet guards and reject stale snapshots in SQLite and memory`() {
         val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
         val stores = listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore())
@@ -318,7 +340,6 @@ private inline fun WorkbookStore.useWhenCloseable(block: () -> Unit) {
 }
 
 private fun boundAggregate(workbook: WorkbookState): WorkbookState {
-    val sheet = workbook.sheetsInOrder.single()
     val model = DataModel(
         "00000000-0000-0000-0000-000000000301",
         "Metrics",
@@ -327,23 +348,25 @@ private fun boundAggregate(workbook: WorkbookState): WorkbookState {
             CalculatedDataModelProperty("00000000-0000-0000-0000-000000000303", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
         ),
     )
-    val content = sheet.tabularContent
-    val columns = content.columns.take(model.properties.size)
-    return workbook.copy(dataModels = mapOf(model.id to model)).replaceSheet(sheet.copy(
-        dataModelId = model.id,
-        content = TabularContent(content.rows, columns, content.rows.associate { row ->
-            CellCoordinate(row, columns[1]) to "=@${columns[0].value}[${row.value}]*2"
-        }),
-    ))
+    return workbook.sheetsInOrder.fold(workbook.copy(dataModels = mapOf(model.id to model))) { bound, sheet ->
+        val content = sheet.tabularContent
+        val columns = content.columns.take(model.properties.size)
+        bound.replaceSheet(sheet.copy(
+            dataModelId = model.id,
+            content = TabularContent(content.rows, columns, content.rows.associate { row ->
+                CellCoordinate(row, columns[1]) to "=@${columns[0].value}[${row.value}]*2"
+            }),
+        ))
+    }
 }
 
-private fun boundAggregateAppend(workbook: WorkbookState): WorkbookState {
-    val sheet = workbook.sheetsInOrder.single()
+private fun boundAggregateAppend(workbook: WorkbookState, sheetId: SheetId = workbook.sheetsInOrder.single().id): WorkbookState {
+    val sheet = workbook.findSheet(sheetId)!!
     val content = sheet.tabularContent.appendRow(RowId.generate())
     val provisional = workbook.replaceSheet(sheet.copy(content = content))
     val coordinate = CellCoordinate(content.rows.last(), content.columns[1])
     val formula = (workbook.dataModels.values.single().properties[1] as CalculatedDataModelProperty).formula
-    return provisional.replaceSheet(provisional.sheetsInOrder.single().copy(content = TabularContent(
+    return provisional.replaceSheet(provisional.findSheet(sheetId)!!.copy(content = TabularContent(
         content.rows,
         content.columns,
         content.cellContents + (coordinate to (materializeModelFormula(formula, provisional, sheet.id, coordinate)
