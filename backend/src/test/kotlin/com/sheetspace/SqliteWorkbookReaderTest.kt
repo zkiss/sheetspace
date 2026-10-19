@@ -1,7 +1,9 @@
 package com.sheetspace
 
+import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class SqliteWorkbookReaderTest {
@@ -25,5 +27,20 @@ class SqliteWorkbookReaderTest {
             assertEquals(1, reader.loadSheetRevision(sheet.id))
             assertNull(reader.loadSheetRevision(SheetId(TEST_SHEET_2)))
         } }
+    }
+
+    @Test
+    fun `reader rejects a persisted sheet model reference without a declaration`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        DriverManager.getConnection(store.jdbcUrl).use { connection ->
+            connection.prepareStatement("UPDATE sheet_documents SET model_id = ? WHERE id = ?").use { statement ->
+                statement.setBytes(1, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa".toUuidBytes())
+                statement.setBytes(2, sheet.id.value.toUuidBytes())
+                statement.executeUpdate()
+            }
+        }
+
+        assertFailsWith<IllegalArgumentException> { store.loadWorkbookBundle() }
     }
 }

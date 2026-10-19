@@ -14,7 +14,11 @@ internal class SqliteWorkbookReader(
         val documents = manifest.sheetIds.associateWith { sheetId ->
             loadSheet(sheetId) ?: error("Manifest references missing sheet: ${sheetId.value}")
         }
-        return WorkbookState(manifest, documents, loadDataModels())
+        val dataModels = loadDataModels()
+        require(documents.values.all { it.modelId == null || it.modelId in dataModels }) {
+            "Unknown sheet model"
+        }
+        return WorkbookState(manifest, documents, dataModels)
     }
 
     private fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models ORDER BY rowid").use { statement ->

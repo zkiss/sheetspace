@@ -12,7 +12,7 @@ CREATE TABLE sheet_documents (
     name TEXT NOT NULL UNIQUE,
     content_kind TEXT NOT NULL CHECK (content_kind = 'TABULAR'),
     revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
-    model_id BLOB
+    model_id BLOB REFERENCES data_models(id)
 );
 
 
