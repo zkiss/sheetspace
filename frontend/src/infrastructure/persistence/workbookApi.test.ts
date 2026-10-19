@@ -218,7 +218,11 @@ describe('workbook API mutations', () => {
 
     await workbookApi.replaceDataModelState(workbook, []);
 
-    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({ workbook: response, expectedRevisions: [] });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      workbook: response,
+      expectedRevisions: [],
+      expectedManifestRevision: workbook.manifest.revision,
+    });
     expect(decodeWorkbookBundle(response)).toEqual(workbook);
     for (const invalidType of [undefined, null, 'decimal']) {
       expect(() => decodeWorkbookBundle({

@@ -88,6 +88,24 @@ class DataModelTransitionPolicyTest {
                 bound.sheetsInOrder.single().tabularContent.cellContents,
             )),
         )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(unbound, bound.replaceSheet(
+            bound.sheetsInOrder.single().copy(name = "Renamed"),
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(unbound, bound.replaceSheet(
+            bound.sheetsInOrder.single().copy(frame = FrameState(position = WorkspacePosition(1.0, 1.0))),
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(unbound, bound.replaceSheet(
+            bound.sheetsInOrder.single().copy(presentation = SheetPresentation(rowHeights = mapOf("1" to 42.0))),
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(unbound, bound.replaceSheet(
+            bound.sheetsInOrder.single().copy(content = TabularContent(
+                bound.sheetsInOrder.single().tabularContent.rows,
+                bound.sheetsInOrder.single().tabularContent.columns.mapIndexed { index, column ->
+                    if (index == 0) ColumnId.generate() else column
+                },
+                bound.sheetsInOrder.single().tabularContent.cellContents,
+            )),
+        )))
     }
 
     @Test
@@ -168,6 +186,9 @@ class DataModelTransitionPolicyTest {
 
         assertTrue(DataModelTransitionPolicy.permitsTransition(before, after))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, after.withCalculatedRaw("=1")))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.replaceSheet(sheet.copy(content = TabularContent(
+            sheet.tabularContent.rows.reversed(), sheet.tabularContent.columns, sheet.tabularContent.cellContents,
+        )))))
         assertTrue(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(renamedModel.id to renamedModel))))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(
             dataModels = mapOf(renamedModel.id to renamedModel),
@@ -209,7 +230,28 @@ class DataModelTransitionPolicyTest {
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(model.id to addedModel))))
         assertTrue(DataModelTransitionPolicy.permitsTransition(before, validAddition))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(model.id to model.copy(name = "Changed"))).replaceSheet(shiftedColumns)))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(model.id to model.copy(name = "Changed"))).replaceSheet(
+            sheet.copy(name = "Renamed"),
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, afterWithAppendedRowAndModelChange(before)))
+        val replacement = ManualDataModelProperty(
+            "00000000-0000-0000-0000-000000000106", "Replacement", DataModelPropertyType.STRING,
+        )
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(model.id to model.copy(
+            properties = listOf(model.properties[1], replacement),
+        ))).replaceSheet(sheet.copy(content = TabularContent(
+            sheet.tabularContent.rows,
+            sheet.tabularContent.columns.reversed(),
+            sheet.tabularContent.cellContents,
+        )))))
     }
+}
+
+private fun afterWithAppendedRowAndModelChange(before: WorkbookState): WorkbookState {
+    val sheet = before.sheetsInOrder.single()
+    val appended = sheet.tabularContent.appendRow(RowId.generate())
+    val model = before.dataModels.values.single().copy(name = "Changed")
+    return before.copy(dataModels = mapOf(model.id to model)).replaceSheet(sheet.copy(content = appended))
 }
 
 private fun plainWorkbook(): WorkbookState = testWorkbookOf(testDocument(

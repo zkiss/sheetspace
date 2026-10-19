@@ -52,4 +52,62 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         assertEquals(before, updated)
         assertEquals(before, store.loadWorkbookBundle())
     }
+
+    @Test
+    fun `aggregate model changes require the current manifest revision and reject invalid snapshots atomically`() = withSqliteStore { store ->
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
+        val bound = boundAggregate(initial)
+        store.saveWorkbook(initial)
+
+        assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(bound, expectedManifestRevision = 1) }
+        assertEquals(initial, store.loadWorkbookBundle())
+
+        store.saveWorkbook(bound, expectedManifestRevision = 0)
+        val persisted = store.loadWorkbookBundle()
+        assertEquals(1, persisted.manifest.revision)
+
+        val missingBaseline = persisted.copy(dataModels = persisted.dataModels.mapValues { (_, model) ->
+            model.copy(name = "Missing baseline")
+        })
+        assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(missingBaseline) }
+        assertEquals(persisted, store.loadWorkbookBundle())
+
+        val forged = persisted.copy(documents = persisted.documents.mapValues { (_, sheet) ->
+            sheet.copy(content = sheet.tabularContent.updateCell("B1", "=1"))
+        })
+        assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(forged) }
+        assertEquals(persisted, store.loadWorkbookBundle())
+
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(expectedManifestRevision = 0) { current ->
+                current.copy(dataModels = current.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") })
+            }
+        }
+        assertEquals(persisted, store.loadWorkbookBundle())
+
+        val updated = store.updateWorkbook(expectedManifestRevision = 1) { current ->
+            current.copy(dataModels = current.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") })
+        }
+        assertEquals(2, updated.manifest.revision)
+    }
+}
+
+private fun boundAggregate(workbook: WorkbookState): WorkbookState {
+    val sheet = workbook.sheetsInOrder.single()
+    val model = DataModel(
+        "00000000-0000-0000-0000-000000000301",
+        "Metrics",
+        listOf(
+            ManualDataModelProperty("00000000-0000-0000-0000-000000000302", "Amount", DataModelPropertyType.FLOAT),
+            CalculatedDataModelProperty("00000000-0000-0000-0000-000000000303", "Double", "=@A[1]*2", DataModelPropertyType.FLOAT),
+        ),
+    )
+    val content = sheet.tabularContent
+    val columns = content.columns.take(model.properties.size)
+    return workbook.copy(dataModels = mapOf(model.id to model)).replaceSheet(sheet.copy(
+        dataModelId = model.id,
+        content = TabularContent(content.rows, columns, content.rows.associate { row ->
+            CellCoordinate(row, columns[1]) to "=@${columns[0].value}[${row.value}]*2"
+        }),
+    ))
 }
