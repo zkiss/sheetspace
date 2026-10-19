@@ -122,6 +122,7 @@ class SqliteWorkbookStore internal constructor(
             val writer = SqliteWorkbookWriter(conn, reader)
             val current = reader.loadWorkbookBundle()
             val updated = transform(current)
+            validateModelMetadata(updated)
             if (expectedRevision != null) {
                 val currentSheet = current.findSheet(SheetId(expectedRevision.sheetId))
                 if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {
