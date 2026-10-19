@@ -186,10 +186,9 @@ if [[ $phase != ready ]] && [[ $(jq -r '.type' <<<"$message") == idle ]]; then
 fi
 save_phase "$phase"
 
+quota_failure_observed=false
 while [[ $phase != done ]]; do
-  exhausted=false
-  [[ $phase != quota ]] || exhausted=true
-  wait_for_quota "$exhausted"
+  wait_for_quota "$quota_failure_observed"
   active=$(api get /api/session/active)
   jq -e --arg session "$session" '.data | has($session) | not' >/dev/null <<<"$active" ||
     fail 'Session already running; refusing concurrent work'
@@ -223,6 +222,7 @@ while [[ $phase != done ]]; do
   elif [[ $outcome == failed ]] && quota_error "$result"; then
     printf 'Quota exhausted; preserving the session and waiting.\n'
     phase=quota
+    quota_failure_observed=true
   else
     fail "Session stopped ($outcome, CLI exit $status): $(jq -r '.error.message // "inspect session"' <<<"$result")"
   fi
