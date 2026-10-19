@@ -62,6 +62,17 @@ data class CalculatedDataModelProperty(override val id: String, override val nam
 
 fun emptyWorkbookState(): WorkbookState = WorkbookState()
 
+/**
+ * Publishes aggregate sheet revisions from the stored state after admission has accepted a
+ * candidate. Client revisions are CAS baselines, never the revisions persisted for a change.
+ */
+internal fun WorkbookState.withPublishedSheetRevisionsFrom(current: WorkbookState): WorkbookState = copy(
+    documents = documents.mapValues { (sheetId, candidate) ->
+        val stored = current.documents[sheetId]
+        if (stored != null && stored != candidate) candidate.copy(revision = stored.revision + 1) else candidate
+    },
+)
+
 fun createSheetDocument(
     name: String,
     existingSheets: Collection<SheetDocument> = emptyList(),

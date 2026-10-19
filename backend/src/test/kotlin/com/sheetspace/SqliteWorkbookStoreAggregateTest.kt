@@ -160,7 +160,7 @@ class SqliteWorkbookStoreAggregateTest {
             expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0), ExpectedSheetRevision(TEST_SHEET_2, 0)),
         )
 
-        assertEquals(listOf(renamed), store.loadWorkbookBundle().sheetsInOrder)
+        assertEquals(listOf(renamed.copy(revision = 1)), store.loadWorkbookBundle().sheetsInOrder)
     }
 
     @Test

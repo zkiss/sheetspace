@@ -46,8 +46,10 @@ class InMemoryWorkbookStore(
             if (!isPristine && !DataModelTransitionPolicy.preservesStoredSheetRevisions(this.workbook, workbook)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
-            val persisted = if (isTransition) workbook.copy(manifest = workbook.manifest.copy(revision = this.workbook.manifest.revision + 1)) else workbook
-            this.workbook = persisted
+            val authorized = if (isTransition) {
+                workbook.copy(manifest = workbook.manifest.copy(revision = this.workbook.manifest.revision + 1))
+            } else workbook
+            this.workbook = if (isPristine) authorized else authorized.withPublishedSheetRevisionsFrom(this.workbook)
         }
     }
 
@@ -193,11 +195,7 @@ class InMemoryWorkbookStore(
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         val updated = if (hasModelTransition) authorized.copy(manifest = current.manifest.copy(revision = current.manifest.revision + 1)) else transformed
-        workbook = if (expectedRevision == null) {
-            updated
-        } else {
-            applyRevision(current, updated, expectedRevision)
-        }
+        workbook = updated.withPublishedSheetRevisionsFrom(current)
         workbook
     }
 
@@ -256,22 +254,6 @@ class InMemoryWorkbookStore(
         }
     }
 
-    private fun applyRevision(
-        current: WorkbookState,
-        updated: WorkbookState,
-        expected: ExpectedSheetRevision,
-    ): WorkbookState {
-        val sheetId = SheetId(expected.sheetId)
-        val currentSheet = current.findSheet(sheetId)
-        if (currentSheet != null && currentSheet.revision != expected.revision) {
-            throw SheetRevisionConflict(expected.sheetId, expected.revision, currentSheet.revision)
-        }
-        val updatedSheet = updated.findSheet(sheetId)
-        if (currentSheet == null || updatedSheet == null || currentSheet == updatedSheet) {
-            return updated
-        }
-        return updated.replaceSheet(updatedSheet.copy(revision = currentSheet.revision + 1))
-    }
 }
 
 class StatefulFakeWorkbookApplication(

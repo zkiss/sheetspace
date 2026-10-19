@@ -253,8 +253,9 @@ class SqliteWorkbookStoreAggregateUpdateTest {
                 val boundSheet = bound.sheetsInOrder.single()
                 val discardedColumn = boundSheet.tabularContent.columns.last()
                 store.saveWorkbook(bound, expectedManifestRevision = 0, expectedSheetRevisions = initial.sheetGuards())
+                val persistedBound = store.loadWorkbookBundle().sheetsInOrder.single()
                 store.writePresentation(
-                    ExpectedSheetRevision(boundSheet.id.value, 0),
+                    ExpectedSheetRevision(boundSheet.id.value, persistedBound.revision),
                     listOf(AxisSizeWrite("column", discardedColumn.value, 42.0)),
                 )
                 val presented = store.loadWorkbookBundle()

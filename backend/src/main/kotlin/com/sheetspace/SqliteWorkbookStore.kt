@@ -74,7 +74,10 @@ class SqliteWorkbookStore internal constructor(
                 if (!isPristine && !DataModelTransitionPolicy.preservesStoredSheetRevisions(current, workbook)) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
-                val persisted = if (isTransition) workbook.copy(manifest = workbook.manifest.copy(revision = current.manifest.revision + 1)) else workbook
+                val authorized = if (isTransition) {
+                    workbook.copy(manifest = workbook.manifest.copy(revision = current.manifest.revision + 1))
+                } else workbook
+                val persisted = if (isPristine) authorized else authorized.withPublishedSheetRevisionsFrom(current)
                 SqliteWorkbookWriter(conn, reader).replaceAll(persisted)
             }
         }
@@ -218,7 +221,7 @@ class SqliteWorkbookStore internal constructor(
                 }
             }
 
-            writer.persistChanges(current, updated)
+            writer.persistChanges(current, updated.withPublishedSheetRevisionsFrom(current))
             reader.loadWorkbookBundle()
         }
     }
