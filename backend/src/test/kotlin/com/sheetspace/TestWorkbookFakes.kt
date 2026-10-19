@@ -27,6 +27,7 @@ class InMemoryWorkbookStore(
         synchronized(this) {
             val isPristine = this.workbook == emptyWorkbookState()
             val isTransition = !isPristine && DataModelTransitionPolicy.requiresAggregateCas(this.workbook, workbook)
+            val isSnapshotDeletion = isTransition && DataModelTransitionPolicy.isLiveDelete(this.workbook, workbook)
             val requiresSheetBaseline = !isPristine && DataModelTransitionPolicy.requiresBoundAppendCas(this.workbook, workbook)
             val membershipChanged = !isPristine && DataModelTransitionPolicy.changesMembershipOrOrder(this.workbook, workbook)
             if (!isPristine && !DataModelTransitionPolicy.hasAuthorizedManifestRevision(this.workbook, workbook)) {
@@ -35,7 +36,7 @@ class InMemoryWorkbookStore(
             if ((isTransition || membershipChanged) && expectedManifestRevision != this.workbook.manifest.revision) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
-            if (isTransition) validateAffectedSheetRevisions(this.workbook, workbook, expectedSheetRevisions)
+            if (isTransition && !isSnapshotDeletion) validateAffectedSheetRevisions(this.workbook, workbook, expectedSheetRevisions)
             else if (!isPristine) validateSnapshotSheetRevisions(this.workbook, workbook, expectedSheetRevisions)
             if (requiresSheetBaseline) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             if (!(if (isPristine) DataModelTransitionPolicy.permitsBootstrap(workbook)

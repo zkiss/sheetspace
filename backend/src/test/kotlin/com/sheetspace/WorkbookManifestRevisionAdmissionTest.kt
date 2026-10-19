@@ -177,6 +177,53 @@ class WorkbookManifestRevisionAdmissionTest {
     }
 
     @Test
+    fun `bound snapshot deletion requires its deleted sheet guard in SQLite and memory`() {
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            try {
+                val initial = boundWorkbook()
+                val model = initial.dataModels.values.single()
+                val other = testDocument(TEST_SHEET_2, "Other", tabular = TabularContent(rowCount = 2, columnCount = 2))
+                val boundOther = other.copy(
+                    dataModelId = model.id,
+                    content = TabularContent(
+                        other.tabularContent.rows,
+                        other.tabularContent.columns,
+                        other.tabularContent.rows.associate { row ->
+                            CellCoordinate(row, other.tabularContent.columns[1]) to
+                                "=@${other.tabularContent.columns[0].value}[${row.value}]*2"
+                        },
+                    ),
+                )
+                store.saveWorkbook(initial.addSheet(boundOther))
+                val before = store.loadWorkbookBundle()
+                val deleted = before.sheetsInOrder.first()
+                val survivor = before.sheetsInOrder.last()
+                val candidate = before.removeSheet(deleted.id)
+
+                listOf(
+                    emptyList(),
+                    listOf(ExpectedSheetRevision(deleted.id.value, deleted.revision + 1)),
+                    listOf(ExpectedSheetRevision(deleted.id.value, deleted.revision), ExpectedSheetRevision(survivor.id.value, survivor.revision)),
+                ).forEach { guards ->
+                    assertFailsWith<RuntimeException> {
+                        store.saveWorkbook(candidate, before.manifest.revision, guards)
+                    }
+                    assertEquals(before, store.loadWorkbookBundle())
+                }
+
+                store.saveWorkbook(
+                    candidate,
+                    before.manifest.revision,
+                    listOf(ExpectedSheetRevision(deleted.id.value, deleted.revision)),
+                )
+                assertEquals(candidate, store.loadWorkbookBundle())
+            } finally {
+                (store as? AutoCloseable)?.close()
+            }
+        }
+    }
+
+    @Test
     fun `singleton update cannot authorize unrelated sheet creation in SQLite or memory`() {
         listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
             try {

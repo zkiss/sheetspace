@@ -53,6 +53,7 @@ class SqliteWorkbookStore internal constructor(
                 val current = reader.loadWorkbookBundle()
                 val isPristine = current == emptyWorkbookState()
                 val isTransition = !isPristine && DataModelTransitionPolicy.requiresAggregateCas(current, workbook)
+                val isSnapshotDeletion = isTransition && DataModelTransitionPolicy.isLiveDelete(current, workbook)
                 val requiresSheetBaseline = !isPristine && DataModelTransitionPolicy.requiresBoundAppendCas(current, workbook)
                 val membershipChanged = !isPristine && DataModelTransitionPolicy.changesMembershipOrOrder(current, workbook)
                 if (!isPristine && !DataModelTransitionPolicy.hasAuthorizedManifestRevision(current, workbook)) {
@@ -61,7 +62,7 @@ class SqliteWorkbookStore internal constructor(
                 if ((isTransition || membershipChanged) && expectedManifestRevision != current.manifest.revision) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
-                if (isTransition) validateAffectedSheetRevisions(current, workbook, expectedSheetRevisions)
+                if (isTransition && !isSnapshotDeletion) validateAffectedSheetRevisions(current, workbook, expectedSheetRevisions)
                 else if (!isPristine) validateSnapshotSheetRevisions(current, workbook, expectedSheetRevisions)
                 if (requiresSheetBaseline) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
