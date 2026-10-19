@@ -18,6 +18,7 @@ import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 
 @Serializable
@@ -96,9 +97,13 @@ data class ColumnAppendResponse(
 @Serializable
 data class ErrorResponse(val error: String)
 
+@OptIn(ExperimentalSerializationApi::class)
 fun Application.configureHttp(workbookApplication: WorkbookApplication) {
     install(ContentNegotiation) {
-        json()
+        json(Json {
+            explicitNulls = false
+            allowSpecialFloatingPointValues = true
+        })
     }
 
     routing {

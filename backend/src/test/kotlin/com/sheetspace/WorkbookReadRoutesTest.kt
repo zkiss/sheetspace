@@ -63,6 +63,31 @@ class WorkbookReadRoutesTest {
     }
 
     @Test
+    fun `bundle endpoint returns ordered model declarations and shared sheet bindings`() = testApplication {
+        val modelId = "30000000-0000-0000-0000-000000000001"
+        val model = DataModel(
+            modelId,
+            "Invoice",
+            listOf(
+                ManualModelColumn("31000000-0000-0000-0000-000000000001", "Quantity", ModelColumnType.INT),
+                CalculatedModelColumn("31000000-0000-0000-0000-000000000002", "Tax", ModelColumnType.FLOAT, "=SUM(quantity, tax)"),
+            ),
+        )
+        val first = testDocument(TEST_SHEET_1, "Inputs").copy(modelId = modelId)
+        val second = testDocument(TEST_SHEET_2, "Outputs").copy(modelId = modelId)
+        application { module(DefaultWorkbookApplication(InMemoryWorkbookStore(
+            testWorkbookOf(first, second).copy(dataModels = mapOf(modelId to model)),
+        ))) }
+
+        val bundle = client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>()
+
+        assertEquals(listOf(modelId), bundle.dataModels.map(DataModelResponse::id))
+        assertEquals(listOf("Quantity", "Tax"), bundle.dataModels.single().columns.map(ModelColumnResponse::name))
+        assertEquals("=SUM(quantity, tax)", bundle.dataModels.single().columns[1].formula)
+        assertEquals(listOf(modelId, modelId), bundle.documents.map(SheetDocumentResponse::modelId))
+    }
+
+    @Test
     fun `health endpoint returns ok payload`() = testWorkbookApplication {
         val response = client.get("/api/health")
 

@@ -19,6 +19,7 @@
         "zIndex": 2
       },
       "presentation": { "rowHeights": {}, "columnWidths": {} },
+      "modelId": "30000000-0000-0000-0000-000000000001",
       "content": {
         "kind": "tabular",
         "rows": ["20000000-0000-0000-0000-000000000001"],
@@ -43,6 +44,7 @@
         "zIndex": 1
       },
       "presentation": { "rowHeights": {}, "columnWidths": {} },
+      "modelId": "30000000-0000-0000-0000-000000000001",
       "content": {
         "kind": "tabular",
         "rows": [
@@ -71,6 +73,18 @@
           }
         ]
       }
+    }
+  ],
+  "dataModels": [
+    {
+      "id": "30000000-0000-0000-0000-000000000001",
+      "name": "Invoice",
+      "columns": [
+        { "id": "31000000-0000-0000-0000-000000000001", "name": "Description", "kind": "manual", "type": "string" },
+        { "id": "31000000-0000-0000-0000-000000000002", "name": "Quantity", "kind": "manual", "type": "int" },
+        { "id": "31000000-0000-0000-0000-000000000003", "name": "Rate", "kind": "manual", "type": "float" },
+        { "id": "31000000-0000-0000-0000-000000000004", "name": "Taxable", "kind": "calculated", "type": "boolean", "formula": "=SUM(quantity, tax)" }
+      ]
     }
   ]
 }

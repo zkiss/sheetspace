@@ -37,12 +37,13 @@ export type SheetDocumentResponse = {
     columns: string[];
     cells: CellContentResponse[];
   };
+  modelId?: string;
 };
 
 export type WorkbookBundleResponse = {
   manifest: WorkbookManifestResponse;
   documents: SheetDocumentResponse[];
-  dataModels?: DataModelResponse[];
+  dataModels: DataModelResponse[];
 };
 
 export type DataModelResponse = { id: string; name: string; columns: ModelColumnResponse[] };
@@ -302,10 +303,13 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
       if (!document) invalidReadContract(`missing sheet document ${sheetId}`);
       return decodeSheetDocument(document);
     });
+  if (new Set(bundle.dataModels.map((model) => model.id)).size !== bundle.dataModels.length) {
+    invalidReadContract('duplicate data model id');
+  }
   return {
     manifest,
     documents: Object.fromEntries(decodedDocuments.map((document) => [document.id, document])),
-    dataModels: Object.fromEntries((bundle.dataModels ?? []).map((model) => [model.id, decodeDataModel(model)])),
+    dataModels: Object.fromEntries(bundle.dataModels.map((model) => [model.id, decodeDataModel(model)])),
   };
 }
 
@@ -376,6 +380,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       columns: [...document.content.columns],
       cells,
     },
+    ...(document.modelId === undefined ? {} : { modelId: document.modelId }),
   };
 }
 

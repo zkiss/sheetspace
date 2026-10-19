@@ -37,6 +37,7 @@ function expectedDocument(response: SheetDocumentResponse): SheetDocument {
         cell.content,
       ])),
     },
+    ...(response.modelId === undefined ? {} : { modelId: response.modelId }),
   };
 }
 
@@ -74,7 +75,18 @@ describe('workbook API read decoding', () => {
         [outputsDocument.id]: outputsDocument,
         [inputsDocument.id]: inputsDocument,
       },
-      dataModels: {},
+      dataModels: {
+        '30000000-0000-0000-0000-000000000001': {
+          id: '30000000-0000-0000-0000-000000000001',
+          name: 'Invoice',
+          columns: [
+            { id: '31000000-0000-0000-0000-000000000001', name: 'Description', kind: 'manual', type: 'string' },
+            { id: '31000000-0000-0000-0000-000000000002', name: 'Quantity', kind: 'manual', type: 'int' },
+            { id: '31000000-0000-0000-0000-000000000003', name: 'Rate', kind: 'manual', type: 'float' },
+            { id: '31000000-0000-0000-0000-000000000004', name: 'Taxable', kind: 'calculated', type: 'boolean', formula: '=SUM(quantity, tax)' },
+          ],
+        },
+      },
     });
     expect(sheetsInOrder(workbook).map((sheet) => sheet.name)).toEqual(['Outputs', 'Inputs']);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -126,6 +138,7 @@ describe('workbook API read decoding', () => {
     mockFetch({
       manifest: { ...contractFixture.manifest, sheetIds: documents.map((document) => document.id) },
       documents,
+      dataModels: [],
     });
 
     const workbook = await workbookApi.loadWorkbook();
@@ -147,6 +160,10 @@ describe('workbook API read decoding', () => {
     ['unsupported version', {
       ...contractFixture,
       manifest: { ...contractFixture.manifest, version: 2 },
+    }],
+    ['duplicate data model id', {
+      ...contractFixture,
+      dataModels: [contractFixture.dataModels[0], contractFixture.dataModels[0]],
     }],
   ])('rejects %s bundle contracts', (_label, payload) => {
     expect(() => decodeWorkbookBundle(payload as WorkbookBundleResponse)).toThrowError(
