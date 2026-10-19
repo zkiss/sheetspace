@@ -82,20 +82,19 @@ internal object DataModelTransitionPolicy {
 
     private fun hasValidIdentities(workbook: WorkbookState): Boolean {
         if (workbook.manifest.version != WORKBOOK_SCHEMA_VERSION ||
-            workbook.manifest.sheetIds.distinct().size != workbook.manifest.sheetIds.size ||
+            !workbook.manifest.sheetIds.map(SheetId::value).hasDistinctUuidIdentities() ||
             workbook.manifest.sheetIds.toSet() != workbook.documents.keys ||
             workbook.documents.any { (id, sheet) -> id != sheet.id } ||
-            workbook.dataModels.keys.any { it.toUuidBytesOrNull() == null }
+            !workbook.dataModels.keys.hasDistinctUuidIdentities()
         ) return false
         if (workbook.dataModels.any { (id, model) ->
-                id != model.id || model.id.toUuidBytesOrNull() == null || model.name.isBlank() ||
-                    model.properties.map { it.id }.distinct().size != model.properties.size ||
-                    model.properties.any { it.id.toUuidBytesOrNull() == null || it.name.isBlank() } ||
+                id != model.id || model.name.isBlank() ||
+                    !model.properties.map(DataModelProperty::id).hasDistinctUuidIdentities() ||
+                    model.properties.any { it.name.isBlank() } ||
                     model.properties.map { it.name.trim().lowercase() }.distinct().size != model.properties.size
             }) return false
         return workbook.sheetsInOrder.all { sheet ->
-            sheet.id.value.toUuidBytesOrNull() != null &&
-                sheet.dataModelId?.let(workbook.dataModels::containsKey) != false &&
+            sheet.dataModelId?.let(workbook.dataModels::containsKey) != false &&
                 hasValidTabularIdentities(sheet.tabularContent)
         }
     }
@@ -111,10 +110,8 @@ internal object DataModelTransitionPolicy {
         }
 
     private fun hasValidTabularIdentities(content: TabularContent): Boolean =
-        content.rows.distinct().size == content.rows.size &&
-            content.columns.distinct().size == content.columns.size &&
-            content.rows.all { it.value.toUuidBytesOrNull() != null } &&
-            content.columns.all { it.value.toUuidBytesOrNull() != null } &&
+        content.rows.map(RowId::value).hasDistinctUuidIdentities() &&
+            content.columns.map(ColumnId::value).hasDistinctUuidIdentities() &&
             content.cellContents.keys.all { coordinate ->
                 coordinate.rowId in content.rows && coordinate.columnId in content.columns
             }

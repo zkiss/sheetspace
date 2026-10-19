@@ -326,15 +326,22 @@ class DefaultWorkbookApplication(
 
 /** Decodes the same client bundle accepted by the data-model-state transport endpoint. */
 internal fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
-    if (bundle.manifest.version != WORKBOOK_SCHEMA_VERSION || bundle.manifest.sheetIds.distinct().size != bundle.manifest.sheetIds.size) {
+    if (bundle.manifest.version != WORKBOOK_SCHEMA_VERSION ||
+        !bundle.manifest.sheetIds.hasDistinctUuidIdentities() ||
+        !bundle.dataModels.map(DataModelResponse::id).hasDistinctUuidIdentities() ||
+        !bundle.documents.map { it.id }.hasDistinctUuidIdentities()
+    ) {
         throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
     }
     val models = bundle.dataModels.associate { response ->
-        if (response.id.toUuidBytesOrNull() == null || response.name.isBlank() || response.properties.map { it.name }.distinct().size != response.properties.size) {
+        if (response.name.isBlank() ||
+            !response.properties.map(DataModelPropertyResponse::id).hasDistinctUuidIdentities() ||
+            response.properties.map { it.name }.distinct().size != response.properties.size
+        ) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         response.id to DataModel(response.id, response.name, response.properties.map { property ->
-            if (property.id.toUuidBytesOrNull() == null || property.name.isBlank()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+            if (property.name.isBlank()) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             when (property.kind) {
                 "manual" -> if (property.formula == null) ManualDataModelProperty(property.id, property.name, property.type.toDataModelPropertyTypeOrNull() ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)) else throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 "calculated" -> property.formula?.takeIf(::isSupportedFormula)
@@ -345,7 +352,10 @@ internal fun dataModelState(bundle: WorkbookBundleResponse): WorkbookState {
         })
     }
     val documents = bundle.documents.associate { response ->
-        if (response.id.toUuidBytesOrNull() == null || response.content.kind != "tabular" || response.content.rows.any { it.toUuidBytesOrNull() == null } || response.content.columns.any { it.toUuidBytesOrNull() == null } || response.content.rows.distinct().size != response.content.rows.size || response.content.columns.distinct().size != response.content.columns.size) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        if (response.content.kind != "tabular" ||
+            !response.content.rows.hasDistinctUuidIdentities() ||
+            !response.content.columns.hasDistinctUuidIdentities()
+        ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         val rows = response.content.rows.map(::RowId); val columns = response.content.columns.map(::ColumnId)
         if (response.dataModelId?.let(models::get) == null && response.dataModelId != null) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         val cells = response.content.cells.associate { cell ->
