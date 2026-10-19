@@ -12,7 +12,11 @@ class InMemoryWorkbookStore(
 
     override fun loadWorkbookBundle(): WorkbookState = synchronized(this) { workbook }
 
-    override fun saveWorkbook(workbook: WorkbookState, expectedManifestRevision: Long?) {
+    override fun saveWorkbook(
+        workbook: WorkbookState,
+        expectedManifestRevision: Long?,
+        expectedSheetRevisions: List<ExpectedSheetRevision>,
+    ) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
         synchronized(this) {
             val isPristine = this.workbook == emptyWorkbookState()
@@ -21,6 +25,7 @@ class InMemoryWorkbookStore(
             if (isTransition && expectedManifestRevision != this.workbook.manifest.revision) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
+            if (isTransition) validateAffectedSheetRevisions(this.workbook, workbook, expectedSheetRevisions)
             if (requiresSheetBaseline) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             if (!(if (isPristine) DataModelTransitionPolicy.permitsBootstrap(workbook)
                 else DataModelTransitionPolicy.permitsTransition(this.workbook, workbook))) {
@@ -99,6 +104,7 @@ class InMemoryWorkbookStore(
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
         expectedManifestRevision: Long?,
+        expectedSheetRevisions: List<ExpectedSheetRevision>,
         transform: (WorkbookState) -> WorkbookState,
     ): WorkbookState = synchronized(this) {
         val current = workbook
@@ -109,6 +115,7 @@ class InMemoryWorkbookStore(
         if (hasModelTransition && expectedManifestRevision != current.manifest.revision) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
+        if (hasModelTransition) validateAffectedSheetRevisions(current, transformed, expectedSheetRevisions)
         if (requiresSheetBaseline && (expectedRevision == null || SheetId(expectedRevision.sheetId) !in changedBoundSheets)) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
@@ -123,6 +130,21 @@ class InMemoryWorkbookStore(
             applyRevision(current, updated, expectedRevision)
         }
         workbook
+    }
+
+    private fun validateAffectedSheetRevisions(
+        current: WorkbookState,
+        candidate: WorkbookState,
+        expected: List<ExpectedSheetRevision>,
+    ) {
+        val affected = DataModelTransitionPolicy.affectedAggregateSheets(current, candidate)
+        if (expected.map(ExpectedSheetRevision::sheetId).distinct().size != expected.size ||
+            expected.map { SheetId(it.sheetId) }.toSet() != affected
+        ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        expected.forEach { guard ->
+            val sheet = current.documents.getValue(SheetId(guard.sheetId))
+            if (sheet.revision != guard.revision) throw SheetRevisionConflict(guard.sheetId, guard.revision, sheet.revision)
+        }
     }
 
     private fun applyRevision(

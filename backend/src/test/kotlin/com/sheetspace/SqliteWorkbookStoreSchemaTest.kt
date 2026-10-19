@@ -132,7 +132,11 @@ class SqliteWorkbookStoreSchemaTest {
             CalculatedDataModelProperty(propertyId, "Result", "=1/0", DataModelPropertyType.BOOLEAN),
         ))
 
-        val updated = store.updateWorkbook(expectedManifestRevision = store.loadManifest().revision) { it.copy(dataModels = mapOf(modelId to replacement)) }
+        val current = store.loadWorkbookBundle()
+        val updated = store.updateWorkbook(
+            expectedManifestRevision = current.manifest.revision,
+            expectedSheetRevisions = current.sheetsInOrder.map { ExpectedSheetRevision(it.id.value, it.revision) },
+        ) { it.copy(dataModels = mapOf(modelId to replacement)) }
 
         assertEquals(replacement, updated.dataModels.getValue(modelId))
         assertEquals(updated, store.loadWorkbookBundle())
@@ -158,7 +162,11 @@ class SqliteWorkbookStoreSchemaTest {
             ManualDataModelProperty("00000000-0000-0000-0000-000000000104", "Note", DataModelPropertyType.STRING),
         ))
 
-        val updated = store.updateWorkbook(expectedManifestRevision = store.loadManifest().revision) { workbook ->
+        val before = store.loadWorkbookBundle()
+        val updated = store.updateWorkbook(
+            expectedManifestRevision = before.manifest.revision,
+            expectedSheetRevisions = listOf(ExpectedSheetRevision(inputs.id.value, before.documents.getValue(inputs.id).revision)),
+        ) { workbook ->
             val current = workbook.documents.getValue(inputs.id)
             workbook.copy(dataModels = mapOf(modelId to updatedModel)).replaceSheet(
                 current.copy(content = TabularContent(current.tabularContent.rows, listOf(ColumnId.generate(), ColumnId.generate()), emptyMap())),

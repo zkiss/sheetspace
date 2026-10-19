@@ -35,7 +35,11 @@ interface WorkbookStore {
 
     fun loadWorkbookBundle(): WorkbookState
 
-    fun saveWorkbook(workbook: WorkbookState, expectedManifestRevision: Long? = null)
+    fun saveWorkbook(
+        workbook: WorkbookState,
+        expectedManifestRevision: Long? = null,
+        expectedSheetRevisions: List<ExpectedSheetRevision> = emptyList(),
+    )
 
     fun writeCells(expectedRevisions: List<ExpectedSheetRevision>, writes: List<SheetCellWrite>): List<SheetDocument>
 
@@ -46,6 +50,7 @@ interface WorkbookStore {
     fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision? = null,
         expectedManifestRevision: Long? = null,
+        expectedSheetRevisions: List<ExpectedSheetRevision> = emptyList(),
         transform: (WorkbookState) -> WorkbookState,
     ): WorkbookState
 }

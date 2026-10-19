@@ -52,6 +52,18 @@ internal object DataModelTransitionPolicy {
             before.documents[sheetId]?.dataModelId != after.documents[sheetId]?.dataModelId
         }
 
+    /** Every sheet whose binding or model-owned projection can change needs a direct-store guard. */
+    fun affectedAggregateSheets(before: WorkbookState, after: WorkbookState): Set<SheetId> {
+        val changedModelIds = (before.dataModels.keys + after.dataModels.keys)
+            .filter { before.dataModels[it] != after.dataModels[it] }
+            .toSet()
+        return before.documents.values.filter { sheet ->
+            val updated = after.documents[sheet.id] ?: return@filter false
+            sheet.dataModelId != updated.dataModelId ||
+                sheet.dataModelId in changedModelIds
+        }.map(SheetDocument::id).toSet()
+    }
+
     /** A normal bound append is not an aggregate change, but still must carry its sheet baseline. */
     fun requiresBoundAppendCas(before: WorkbookState, after: WorkbookState): Boolean =
         !requiresAggregateCas(before, after) && boundContentChanges(before, after).isNotEmpty()

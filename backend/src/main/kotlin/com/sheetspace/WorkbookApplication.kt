@@ -281,27 +281,31 @@ class DefaultWorkbookApplication(
         }
         val updated = dataModelState(command.workbook)
         lateinit var affectedSheetIds: Set<String>
-        val persisted = store.updateWorkbook(expectedManifestRevision = command.expectedManifestRevision) { current ->
-            if (updated.manifest.version != current.manifest.version || updated.manifest.sheetIds != current.manifest.sheetIds ||
-                updated.manifest.revision != command.expectedManifestRevision
-            ) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            affectedSheetIds = affectedDataModelSheets(current, updated)
-            if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != affectedSheetIds) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            command.expectedRevisions.forEach { expected ->
-                val sheet = current.findSheet(SheetId(expected.sheetId))
-                    ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
-                if (sheet.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
-            }
-            val changedDocuments = current.documents.keys.filter { current.documents.getValue(it) != updated.documents.getValue(it) }
-            if (changedDocuments.any { it.value !in affectedSheetIds }) {
-                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-            }
-            updated
-        }
+        val persisted = store.updateWorkbook(
+            expectedManifestRevision = command.expectedManifestRevision,
+            transform = { current ->
+                if (updated.manifest.version != current.manifest.version || updated.manifest.sheetIds != current.manifest.sheetIds ||
+                    updated.manifest.revision != command.expectedManifestRevision
+                ) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                }
+                affectedSheetIds = affectedDataModelSheets(current, updated)
+                if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != affectedSheetIds) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                }
+                command.expectedRevisions.forEach { expected ->
+                    val sheet = current.findSheet(SheetId(expected.sheetId))
+                        ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+                    if (sheet.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
+                }
+                val changedDocuments = current.documents.keys.filter { current.documents.getValue(it) != updated.documents.getValue(it) }
+                if (changedDocuments.any { it.value !in affectedSheetIds }) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+                }
+                updated
+            },
+            expectedSheetRevisions = command.expectedRevisions,
+        )
         return persisted.sheetsInOrder.filter { it.id.value in affectedSheetIds }
     }
 

@@ -39,7 +39,11 @@ class SqliteWorkbookStore internal constructor(
         SqliteWorkbookReader(conn, aggregateReadCheckpoint, sheetReadObserver).loadWorkbookBundle()
     }
 
-    override fun saveWorkbook(workbook: WorkbookState, expectedManifestRevision: Long?) {
+    override fun saveWorkbook(
+        workbook: WorkbookState,
+        expectedManifestRevision: Long?,
+        expectedSheetRevisions: List<ExpectedSheetRevision>,
+    ) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
@@ -53,6 +57,7 @@ class SqliteWorkbookStore internal constructor(
                 if (isTransition && expectedManifestRevision != current.manifest.revision) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
+                if (isTransition) validateAffectedSheetRevisions(current, workbook, expectedSheetRevisions)
                 if (requiresSheetBaseline) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
@@ -130,6 +135,7 @@ class SqliteWorkbookStore internal constructor(
     override fun updateWorkbook(
         expectedRevision: ExpectedSheetRevision?,
         expectedManifestRevision: Long?,
+        expectedSheetRevisions: List<ExpectedSheetRevision>,
         transform: (WorkbookState) -> WorkbookState,
     ): WorkbookState = synchronized(updateLock) {
         database.transaction { conn ->
@@ -143,6 +149,7 @@ class SqliteWorkbookStore internal constructor(
             if (hasModelTransition && expectedManifestRevision != current.manifest.revision) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
+            if (hasModelTransition) validateAffectedSheetRevisions(current, transformed, expectedSheetRevisions)
             if (requiresSheetBaseline && (expectedRevision == null || SheetId(expectedRevision.sheetId) !in changedBoundSheets)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
@@ -164,6 +171,23 @@ class SqliteWorkbookStore internal constructor(
 
             writer.persistChanges(current, updated)
             reader.loadWorkbookBundle()
+        }
+    }
+
+    private fun validateAffectedSheetRevisions(
+        current: WorkbookState,
+        candidate: WorkbookState,
+        expected: List<ExpectedSheetRevision>,
+    ) {
+        val affected = DataModelTransitionPolicy.affectedAggregateSheets(current, candidate)
+        if (expected.map(ExpectedSheetRevision::sheetId).distinct().size != expected.size ||
+            expected.map { SheetId(it.sheetId) }.toSet() != affected
+        ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        expected.forEach { guard ->
+            val sheet = current.documents.getValue(SheetId(guard.sheetId))
+            if (sheet.revision != guard.revision) {
+                throw SheetRevisionConflict(guard.sheetId, guard.revision, sheet.revision)
+            }
         }
     }
 

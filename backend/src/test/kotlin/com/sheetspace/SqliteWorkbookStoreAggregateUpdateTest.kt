@@ -62,7 +62,7 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(bound, expectedManifestRevision = 1) }
         assertEquals(initial, store.loadWorkbookBundle())
 
-        store.saveWorkbook(bound, expectedManifestRevision = 0)
+        store.saveWorkbook(bound, expectedManifestRevision = 0, expectedSheetRevisions = initial.sheetGuards())
         val persisted = store.loadWorkbookBundle()
         assertEquals(1, persisted.manifest.revision)
 
@@ -85,9 +85,10 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         }
         assertEquals(persisted, store.loadWorkbookBundle())
 
-        val updated = store.updateWorkbook(expectedManifestRevision = 1) { current ->
-            current.copy(dataModels = current.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") })
-        }
+        val updated = store.updateWorkbook(
+            expectedManifestRevision = 1,
+            expectedSheetRevisions = persisted.sheetGuards(),
+        ) { current -> current.copy(dataModels = current.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") }) }
         assertEquals(2, updated.manifest.revision)
     }
 
@@ -146,7 +147,7 @@ class SqliteWorkbookStoreAggregateUpdateTest {
                 val bound = boundAggregate(initial)
                 val boundSheet = bound.sheetsInOrder.single()
                 val discardedColumn = boundSheet.tabularContent.columns.last()
-                store.saveWorkbook(bound, expectedManifestRevision = 0)
+                store.saveWorkbook(bound, expectedManifestRevision = 0, expectedSheetRevisions = initial.sheetGuards())
                 store.writePresentation(
                     ExpectedSheetRevision(boundSheet.id.value, 0),
                     listOf(AxisSizeWrite("column", discardedColumn.value, 42.0)),
@@ -160,7 +161,7 @@ class SqliteWorkbookStoreAggregateUpdateTest {
                         presentation = SheetPresentation(),
                     ),
                 )
-                store.saveWorkbook(reduced, expectedManifestRevision = 1)
+                store.saveWorkbook(reduced, expectedManifestRevision = 1, expectedSheetRevisions = presented.sheetGuards())
 
                 assertEquals(SheetPresentation(), store.loadWorkbookBundle().sheetsInOrder.single().presentation)
             }
@@ -171,7 +172,7 @@ class SqliteWorkbookStoreAggregateUpdateTest {
     fun `bound append requires a sheet revision baseline and rolls back in SQLite`() = withSqliteStore { store ->
         val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
         store.saveWorkbook(initial)
-        store.saveWorkbook(boundAggregate(initial), expectedManifestRevision = 0)
+        store.saveWorkbook(boundAggregate(initial), expectedManifestRevision = 0, expectedSheetRevisions = initial.sheetGuards())
         val before = store.loadWorkbookBundle()
         val appended = boundAggregateAppend(before)
 
@@ -187,7 +188,61 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, before.sheetsInOrder.single().revision)) { appended }
         assertEquals(appended.sheetsInOrder.single().tabularContent.rows, store.loadWorkbookBundle().sheetsInOrder.single().tabularContent.rows)
     }
+
+    @Test
+    fun `direct aggregate saves require exact affected sheet guards and reject stale snapshots in SQLite and memory`() {
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
+        val stores = listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore())
+
+        stores.forEach { store ->
+            store.useWhenCloseable {
+                store.saveWorkbook(initial)
+                store.saveWorkbook(boundAggregate(initial), 0, initial.sheetGuards())
+                val stale = store.loadWorkbookBundle()
+                val renamed = stale.copy(dataModels = stale.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") })
+
+                assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(renamed, 1) }
+                assertFailsWith<WorkbookApplicationException> {
+                    store.saveWorkbook(renamed, 1, stale.sheetGuards() + stale.sheetGuards())
+                }
+                assertFailsWith<WorkbookApplicationException> {
+                    store.saveWorkbook(renamed, 1, listOf(ExpectedSheetRevision(TEST_SHEET_2, 0)))
+                }
+                assertEquals(stale, store.loadWorkbookBundle())
+
+                val sheet = stale.sheetsInOrder.single()
+                store.writePresentation(ExpectedSheetRevision(sheet.id.value, sheet.revision), listOf(AxisSizeWrite("column", sheet.tabularContent.columns.first().value, 32.0)))
+                assertFailsWith<SheetRevisionConflict> { store.saveWorkbook(renamed, 1, stale.sheetGuards()) }
+                assertEquals("Inputs", store.loadWorkbookBundle().sheetsInOrder.single().name)
+            }
+        }
+    }
+
+    @Test
+    fun `direct aggregate updates accept exact affected sheet guards in SQLite and memory`() {
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            store.useWhenCloseable {
+                store.saveWorkbook(initial)
+                store.saveWorkbook(boundAggregate(initial), 0, initial.sheetGuards())
+                val before = store.loadWorkbookBundle()
+
+                val updated = store.updateWorkbook(
+                    expectedManifestRevision = before.manifest.revision,
+                    expectedSheetRevisions = before.sheetGuards(),
+                ) { current ->
+                    current.copy(dataModels = current.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") })
+                }
+
+                assertEquals("Renamed", updated.dataModels.values.single().name)
+                assertEquals(2, updated.manifest.revision)
+            }
+        }
+    }
 }
+
+private fun WorkbookState.sheetGuards(): List<ExpectedSheetRevision> =
+    sheetsInOrder.map { ExpectedSheetRevision(it.id.value, it.revision) }
 
 private inline fun WorkbookStore.useWhenCloseable(block: () -> Unit) {
     try {
