@@ -17,9 +17,11 @@ class InMemoryWorkbookStore(
         synchronized(this) {
             val isPristine = this.workbook == emptyWorkbookState()
             val isTransition = !isPristine && DataModelTransitionPolicy.requiresAggregateCas(this.workbook, workbook)
+            val requiresSheetBaseline = !isPristine && DataModelTransitionPolicy.requiresBoundAppendCas(this.workbook, workbook)
             if (isTransition && expectedManifestRevision != this.workbook.manifest.revision) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
+            if (requiresSheetBaseline) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             if (!(if (isPristine) DataModelTransitionPolicy.permitsBootstrap(workbook)
                 else DataModelTransitionPolicy.permitsTransition(this.workbook, workbook))) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
@@ -102,7 +104,12 @@ class InMemoryWorkbookStore(
         val current = workbook
         val transformed = transform(current)
         val hasModelTransition = DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
+        val requiresSheetBaseline = DataModelTransitionPolicy.requiresBoundAppendCas(current, transformed)
+        val changedBoundSheets = DataModelTransitionPolicy.boundContentChanges(current, transformed)
         if (hasModelTransition && expectedManifestRevision != current.manifest.revision) {
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
+        if (requiresSheetBaseline && (expectedRevision == null || SheetId(expectedRevision.sheetId) !in changedBoundSheets)) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
         val authorized = if (hasModelTransition) transformed.copy(manifest = current.manifest) else transformed

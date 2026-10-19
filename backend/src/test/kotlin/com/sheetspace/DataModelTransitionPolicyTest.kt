@@ -3,6 +3,7 @@ package com.sheetspace
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class DataModelTransitionPolicyTest {
     @Test
@@ -210,6 +211,14 @@ class DataModelTransitionPolicyTest {
 
         assertTrue(DataModelTransitionPolicy.permitsTransition(before, after))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, after.withCalculatedRaw("=1")))
+        val secondRow = RowId.generate()
+        val twoRows = after.sheetsInOrder.single().tabularContent.appendRow(secondRow)
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, after.replaceSheet(
+            after.sheetsInOrder.single().copy(content = twoRows),
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, after.replaceSheet(
+            after.sheetsInOrder.single().updateTabularContent { it.updateCell("A3", "smuggled") },
+        )))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.replaceSheet(sheet.copy(content = TabularContent(
             sheet.tabularContent.rows.reversed(), sheet.tabularContent.columns, sheet.tabularContent.cellContents,
         )))))
@@ -227,6 +236,56 @@ class DataModelTransitionPolicyTest {
         ).replaceSheet(sheet.copy(content = TabularContent(
             sheet.tabularContent.rows.reversed(), sheet.tabularContent.columns, sheet.tabularContent.cellContents,
         )))))
+    }
+
+    @Test
+    fun `bound appends require one fresh row and a sheet baseline`() {
+        val before = boundWorkbook()
+        val after = validBoundAppend(before)
+        val sheet = before.sheetsInOrder.single()
+
+        assertTrue(DataModelTransitionPolicy.requiresBoundAppendCas(before, after))
+        assertFalse(DataModelTransitionPolicy.requiresBoundAppendCas(before, before))
+        val unbound = plainWorkbook()
+        assertFalse(DataModelTransitionPolicy.requiresBoundAppendCas(
+            unbound,
+            unbound.replaceSheet(unbound.sheetsInOrder.single().updateTabularContent { it.updateCell("A1", "changed") }),
+        ))
+        assertFalse(DataModelTransitionPolicy.requiresBoundAppendCas(before, before.copy(
+            dataModels = before.dataModels.mapValues { (_, model) -> model.copy(name = "Changed") },
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, after.replaceSheet(
+            after.sheetsInOrder.single().updateTabularContent { it.updateCell("A1", "changed") },
+        )))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.replaceSheet(
+            before.sheetsInOrder.single().updateTabularContent { it.updateCell("A1", "changed") },
+        )))
+
+        val store = InMemoryWorkbookStore(before)
+        assertFailsWith<WorkbookApplicationException> { store.updateWorkbook { after } }
+        assertTrue(store.loadWorkbookBundle() == before)
+        store.updateWorkbook(ExpectedSheetRevision(sheet.id.value, sheet.revision)) { after }
+        assertTrue(store.loadWorkbookBundle().sheetsInOrder.single().tabularContent.rows == after.sheetsInOrder.single().tabularContent.rows)
+    }
+
+    @Test
+    fun `bound append rejects reordered and malformed row identities`() {
+        val before = manualBoundWorkbook()
+        val sheet = before.sheetsInOrder.single()
+        val content = sheet.tabularContent
+        val reordered = TabularContent(
+            listOf(RowId.generate()) + content.rows,
+            content.columns,
+            content.cellContents,
+        )
+        val malformed = TabularContent(
+            content.rows + RowId("bad"),
+            content.columns,
+            content.cellContents,
+        )
+
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.replaceSheet(sheet.copy(content = reordered))))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.replaceSheet(sheet.copy(content = malformed))))
     }
 
     @Test
@@ -253,6 +312,38 @@ class DataModelTransitionPolicyTest {
         )))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(model.id to addedModel))))
         assertTrue(DataModelTransitionPolicy.permitsTransition(before, validAddition))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, validAddition.replaceSheet(
+            validAddition.sheetsInOrder.single().updateTabularContent { it.updateCell("C1", "smuggled") },
+        )))
+        val calculatedAddition = model.copy(properties = model.properties + CalculatedDataModelProperty(
+            "00000000-0000-0000-0000-000000000107", "One", "=1", DataModelPropertyType.INT,
+        ))
+        val calculatedContent = sheet.tabularContent.appendColumn()
+        val calculatedWorkbook = before.copy(dataModels = mapOf(model.id to calculatedAddition)).replaceSheet(
+            sheet.copy(content = TabularContent(
+                calculatedContent.rows,
+                calculatedContent.columns,
+                calculatedContent.cellContents + calculatedContent.rows.associate { row ->
+                    CellCoordinate(row, calculatedContent.columns.last()) to "=1"
+                },
+            )),
+        )
+        assertTrue(DataModelTransitionPolicy.permitsTransition(before, calculatedWorkbook))
+        val calculatedToManual = model.copy(properties = listOf(
+            model.properties.first(),
+            ManualDataModelProperty(model.properties[1].id, "Double", DataModelPropertyType.FLOAT),
+        ))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(
+            dataModels = mapOf(model.id to calculatedToManual),
+        )))
+        val clearedCalculated = before.replaceSheet(sheet.copy(content = TabularContent(
+            sheet.tabularContent.rows,
+            sheet.tabularContent.columns,
+            sheet.tabularContent.cellContents.filterKeys { it.columnId != sheet.tabularContent.columns[1] },
+        )))
+        assertTrue(DataModelTransitionPolicy.permitsTransition(before, clearedCalculated.copy(
+            dataModels = mapOf(model.id to calculatedToManual),
+        )))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(model.id to model.copy(name = "Changed"))).replaceSheet(shiftedColumns)))
         assertFalse(DataModelTransitionPolicy.permitsTransition(before, before.copy(dataModels = mapOf(model.id to model.copy(name = "Changed"))).replaceSheet(
             sheet.copy(name = "Renamed"),
@@ -278,11 +369,42 @@ private fun afterWithAppendedRowAndModelChange(before: WorkbookState): WorkbookS
     return before.copy(dataModels = mapOf(model.id to model)).replaceSheet(sheet.copy(content = appended))
 }
 
+private fun validBoundAppend(before: WorkbookState): WorkbookState {
+    val sheet = before.sheetsInOrder.single()
+    val appended = sheet.tabularContent.appendRow(RowId.generate())
+    val provisional = before.replaceSheet(sheet.copy(content = appended))
+    val coordinate = CellCoordinate(appended.rows.last(), appended.columns[1])
+    return provisional.replaceSheet(provisional.sheetsInOrder.single().copy(content = TabularContent(
+        appended.rows,
+        appended.columns,
+        appended.cellContents + (coordinate to (materializeModelFormula(
+            (before.dataModels.values.single().properties[1] as CalculatedDataModelProperty).formula,
+            provisional,
+            sheet.id,
+            coordinate,
+        ) ?: error("Calculated row must materialize"))),
+    )))
+}
+
 private fun plainWorkbook(): WorkbookState = testWorkbookOf(testDocument(
     TEST_SHEET_1,
     "Inputs",
     tabular = TabularContent(rowCount = 2, columnCount = 2),
 ))
+
+private fun manualBoundWorkbook(): WorkbookState {
+    val plain = plainWorkbook()
+    val sheet = plain.sheetsInOrder.single()
+    val model = DataModel(
+        "00000000-0000-0000-0000-000000000108",
+        "Manual",
+        listOf(ManualDataModelProperty("00000000-0000-0000-0000-000000000109", "Amount", DataModelPropertyType.FLOAT)),
+    )
+    return plain.copy(dataModels = mapOf(model.id to model)).replaceSheet(sheet.copy(
+        dataModelId = model.id,
+        content = TabularContent(sheet.tabularContent.rows, listOf(sheet.tabularContent.columns.first()), emptyMap()),
+    ))
+}
 
 private fun boundWorkbook(plain: WorkbookState = plainWorkbook()): WorkbookState {
     val sheet = plain.sheetsInOrder.single()

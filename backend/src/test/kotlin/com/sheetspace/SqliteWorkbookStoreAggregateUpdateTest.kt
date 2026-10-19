@@ -115,6 +115,27 @@ class SqliteWorkbookStoreAggregateUpdateTest {
             }
         }
     }
+
+    @Test
+    fun `bound append requires a sheet revision baseline and rolls back in SQLite`() = withSqliteStore { store ->
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
+        store.saveWorkbook(initial)
+        store.saveWorkbook(boundAggregate(initial), expectedManifestRevision = 0)
+        val before = store.loadWorkbookBundle()
+        val appended = boundAggregateAppend(before)
+
+        assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(appended) }
+        assertEquals(before, store.loadWorkbookBundle())
+        assertFailsWith<WorkbookApplicationException> { store.updateWorkbook { appended } }
+        assertEquals(before, store.loadWorkbookBundle())
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 0)) { appended }
+        }
+        assertEquals(before, store.loadWorkbookBundle())
+
+        store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, before.sheetsInOrder.single().revision)) { appended }
+        assertEquals(appended.sheetsInOrder.single().tabularContent.rows, store.loadWorkbookBundle().sheetsInOrder.single().tabularContent.rows)
+    }
 }
 
 private inline fun WorkbookStore.useWhenCloseable(block: () -> Unit) {
@@ -143,4 +164,18 @@ private fun boundAggregate(workbook: WorkbookState): WorkbookState {
             CellCoordinate(row, columns[1]) to "=@${columns[0].value}[${row.value}]*2"
         }),
     ))
+}
+
+private fun boundAggregateAppend(workbook: WorkbookState): WorkbookState {
+    val sheet = workbook.sheetsInOrder.single()
+    val content = sheet.tabularContent.appendRow(RowId.generate())
+    val provisional = workbook.replaceSheet(sheet.copy(content = content))
+    val coordinate = CellCoordinate(content.rows.last(), content.columns[1])
+    val formula = (workbook.dataModels.values.single().properties[1] as CalculatedDataModelProperty).formula
+    return provisional.replaceSheet(provisional.sheetsInOrder.single().copy(content = TabularContent(
+        content.rows,
+        content.columns,
+        content.cellContents + (coordinate to (materializeModelFormula(formula, provisional, sheet.id, coordinate)
+            ?: error("Calculated row must materialize"))),
+    )))
 }

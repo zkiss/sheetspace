@@ -51,6 +51,15 @@ internal object DataModelTransitionPolicy {
             before.documents[sheetId]?.dataModelId != after.documents[sheetId]?.dataModelId
         }
 
+    /** A normal bound append is not an aggregate change, but still must carry its sheet baseline. */
+    fun requiresBoundAppendCas(before: WorkbookState, after: WorkbookState): Boolean =
+        !requiresAggregateCas(before, after) && boundContentChanges(before, after).isNotEmpty()
+
+    fun boundContentChanges(before: WorkbookState, after: WorkbookState): Set<SheetId> =
+        before.documents.filter { (id, sheet) ->
+            sheet.dataModelId != null && after.documents[id]?.tabularContent != sheet.tabularContent
+        }.keys
+
     private fun hasModelTransition(before: WorkbookState, after: WorkbookState): Boolean =
         requiresAggregateCas(before, after) || before.documents.any { (id, sheet) ->
             after.documents[id]?.let { updated ->
@@ -119,23 +128,48 @@ internal object DataModelTransitionPolicy {
     ): Boolean {
         if (oldSheet.dataModelId != newSheet.dataModelId || oldSheet.name != newSheet.name ||
             oldSheet.frame != newSheet.frame || oldSheet.presentation != newSheet.presentation ||
-            (oldModel != newModel && newSheet.tabularContent.rows != oldSheet.tabularContent.rows) ||
-            (oldModel == newModel && newSheet.tabularContent.rows.take(oldSheet.tabularContent.rows.size) != oldSheet.tabularContent.rows) ||
             !hasOnlyModelOwnedCalculatedContents(before, oldSheet.id, oldModel) ||
             !hasOnlyModelOwnedCalculatedContents(after, newSheet.id, newModel)
         ) return false
+        if (oldModel == newModel) return validBoundAppend(oldSheet, newSheet, oldModel)
+        if (newSheet.tabularContent.rows != oldSheet.tabularContent.rows) return false
         val oldColumnsByProperty = oldModel.properties.mapIndexed { index, property -> property.id to oldSheet.tabularContent.columns.getOrNull(index) }.toMap()
         return newModel.properties.withIndex().all { (newIndex, property) ->
             val newColumn = newSheet.tabularContent.columns[newIndex]
             val oldIndex = oldModel.properties.indexOfFirst { it.id == property.id }
-            if (oldIndex < 0) return@all newColumn !in oldSheet.tabularContent.columns
-            val oldColumn = oldColumnsByProperty[property.id] ?: return@all false
+            if (oldIndex < 0) {
+                return@all newColumn !in oldSheet.tabularContent.columns &&
+                    (property is CalculatedDataModelProperty || newSheet.tabularContent.rows.all { row ->
+                        CellCoordinate(row, newColumn) !in newSheet.tabularContent.cellContents
+                    })
+            }
+            val oldColumn = oldColumnsByProperty.getValue(property.id)
             if (oldColumn != newColumn) return@all false
             oldSheet.tabularContent.rows.all { row ->
                 val oldRaw = oldSheet.tabularContent.cellContents[CellCoordinate(row, oldColumn)]
                 val newRaw = newSheet.tabularContent.cellContents[CellCoordinate(row, newColumn)]
-                if (property is CalculatedDataModelProperty || oldModel.properties[oldIndex] is CalculatedDataModelProperty) true else oldRaw == newRaw
+                when {
+                    property is CalculatedDataModelProperty -> true
+                    oldModel.properties[oldIndex] is CalculatedDataModelProperty -> newRaw == null
+                    else -> oldRaw == newRaw
+                }
             }
+        }
+    }
+
+    /** A bound-content mutation is only the single row append produced by the application command. */
+    private fun validBoundAppend(oldSheet: SheetDocument, newSheet: SheetDocument, model: DataModel): Boolean {
+        val oldContent = oldSheet.tabularContent
+        val newContent = newSheet.tabularContent
+        if (newContent.columns != oldContent.columns || newContent.rows.size != oldContent.rows.size + 1 ||
+            newContent.rows.take(oldContent.rows.size) != oldContent.rows
+        ) return false
+        val appendedRow = newContent.rows.last()
+        if (appendedRow.value.toUuidBytesOrNull() == null) return false
+        if (newContent.cellContents.filterKeys { it.rowId in oldContent.rows } != oldContent.cellContents) return false
+        return model.properties.withIndex().all { (index, property) ->
+            property is CalculatedDataModelProperty ||
+                CellCoordinate(appendedRow, newContent.columns[index]) !in newContent.cellContents
         }
     }
 }
