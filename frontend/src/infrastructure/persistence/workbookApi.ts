@@ -268,6 +268,20 @@ export const workbookApi = {
       headers: revisionHeaders(options),
     });
   },
+
+  saveDataModel(model: DataModel): Promise<DataModel> {
+    return requestJson<DataModelResponse>(`/api/data-models/${encodePathSegment(model.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(model),
+    }).then(decodeDataModel);
+  },
+
+  setSheetModel(sheetId: string, modelId?: string): Promise<SheetDocument> {
+    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/model`, {
+      method: 'PUT',
+      body: JSON.stringify({ modelId: modelId ?? null }),
+    }).then(decodeSheetDocument);
+  },
 };
 
 export type WorkbookApi = typeof workbookApi;
@@ -394,7 +408,7 @@ function invalidReadContract(detail: string): never {
   throw new WorkbookApiError(`Invalid workbook read contract: ${detail}.`, undefined, 'invalid-workbook-read-contract');
 }
 
-function decodeDataModel(model: DataModelResponse): DataModel {
+export function decodeDataModel(model: DataModelResponse): DataModel {
   if (!model.id.trim() || !model.name.trim() || new Set(model.columns.map((column) => column.id)).size !== model.columns.length || new Set(model.columns.map((column) => column.name.trim())).size !== model.columns.length) invalidReadContract('invalid model declaration');
   const columns = model.columns.map((column) => {
     if (!column.id.trim() || !column.name.trim() || !['string', 'int', 'float', 'boolean'].includes(column.type)) invalidReadContract('invalid model column');

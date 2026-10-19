@@ -111,7 +111,7 @@ internal object WorkbookReadTransportAdapter {
         )
     }
 
-    private fun dataModel(model: DataModel): DataModelResponse = DataModelResponse(
+    fun dataModel(model: DataModel): DataModelResponse = DataModelResponse(
         id = model.id,
         name = model.name,
         columns = model.columns.map(::modelColumn),

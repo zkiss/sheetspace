@@ -129,6 +129,26 @@ describe('workbook API read decoding', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201', { headers: {} });
   });
 
+  it('saves model declarations and sheet bindings through narrow metadata endpoints', async () => {
+    const model = {
+      id: '30000000-0000-0000-0000-000000000001',
+      name: 'Invoice',
+      columns: [{ id: '31000000-0000-0000-0000-000000000001', name: 'Amount', kind: 'manual' as const, type: 'float' as const }],
+    };
+    const saveFetch = mockFetch(model);
+    await expect(workbookApi.saveDataModel(model)).resolves.toEqual(model);
+    expect(saveFetch).toHaveBeenCalledWith(`/api/data-models/${model.id}`, {
+      method: 'PUT', body: JSON.stringify(model), headers: { 'Content-Type': 'application/json' },
+    });
+
+    const bound = { ...inputsResponse, modelId: model.id };
+    const bindingFetch = mockFetch(bound);
+    await expect(workbookApi.setSheetModel(inputsResponse.id, model.id)).resolves.toEqual(expectedDocument(bound));
+    expect(bindingFetch).toHaveBeenCalledWith(`/api/sheets/${inputsResponse.id}/model`, {
+      method: 'PUT', body: JSON.stringify({ modelId: model.id }), headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
   it('loads a medium bundle with one request and complete membership', async () => {
     const documents = Array.from({ length: 30 }, (_, index) => ({
       ...outputsResponse,

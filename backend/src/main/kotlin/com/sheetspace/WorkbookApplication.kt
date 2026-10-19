@@ -36,6 +36,8 @@ data class CellPatchCommand(
     val cells: List<SheetCellWrite>,
 )
 
+data class UpdateSheetModelCommand(val modelId: String?)
+
 enum class WorkbookApplicationError {
     SHEET_NOT_FOUND,
     SHEET_NAME_REQUIRED,
@@ -53,6 +55,8 @@ enum class WorkbookApplicationError {
     INVALID_CELL_COORDINATE,
     INVALID_CELL_PATCH,
     INVALID_SHEET_PRESENTATION,
+    INVALID_DATA_MODEL,
+    UNKNOWN_DATA_MODEL,
 }
 
 class WorkbookApplicationException(
@@ -81,6 +85,10 @@ interface WorkbookApplication {
     fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
+
+    fun saveDataModel(model: DataModel): DataModel
+
+    fun updateSheetModel(sheetId: String, command: UpdateSheetModelCommand): SheetDocument
 }
 
 class DefaultWorkbookApplication(
@@ -239,6 +247,25 @@ class DefaultWorkbookApplication(
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
     }
 
+    override fun saveDataModel(model: DataModel): DataModel {
+        if (!isValidDataModel(model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
+        return store.updateWorkbook { workbook ->
+            workbook.copy(dataModels = workbook.dataModels + (model.id to model))
+        }.dataModels.getValue(model.id)
+    }
+
+    override fun updateSheetModel(sheetId: String, command: UpdateSheetModelCommand): SheetDocument {
+        val id = SheetId(sheetId)
+        return store.updateWorkbook { workbook ->
+            val sheet = workbook.findSheet(id)
+                ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+            if (command.modelId != null && command.modelId !in workbook.dataModels) {
+                throw WorkbookApplicationException(WorkbookApplicationError.UNKNOWN_DATA_MODEL)
+            }
+            workbook.replaceSheet(sheet.copy(modelId = command.modelId))
+        }.documents.getValue(id)
+    }
+
     private fun updateExistingSheet(
         sheetId: String,
         expectedRevision: Long,
@@ -251,6 +278,16 @@ class DefaultWorkbookApplication(
             transform(workbook, current)
         }
         return updated.documents.getValue(id)
+    }
+}
+
+private fun isValidDataModel(model: DataModel): Boolean {
+    if (model.id.toUuidBytesOrNull() == null || model.name.isBlank()) return false
+    if (model.columns.map(ModelColumn::id).distinct().size != model.columns.size) return false
+    if (model.columns.map { it.name.trim() }.distinct().size != model.columns.size) return false
+    return model.columns.all { column ->
+        column.id.toUuidBytesOrNull() != null && column.name.isNotBlank() &&
+            (column !is CalculatedModelColumn || column.formula.isNotBlank())
     }
 }
 
