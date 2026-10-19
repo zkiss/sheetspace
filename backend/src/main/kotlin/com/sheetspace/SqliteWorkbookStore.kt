@@ -55,9 +55,7 @@ class SqliteWorkbookStore internal constructor(
                 val isTransition = !isPristine && DataModelTransitionPolicy.requiresAggregateCas(current, workbook)
                 val requiresSheetBaseline = !isPristine && DataModelTransitionPolicy.requiresBoundAppendCas(current, workbook)
                 val membershipChanged = !isPristine && DataModelTransitionPolicy.changesMembershipOrOrder(current, workbook)
-                if (!isPristine && !membershipChanged &&
-                    !DataModelTransitionPolicy.preservesStoredManifestRevision(current, workbook)
-                ) {
+                if (!isPristine && !DataModelTransitionPolicy.hasAuthorizedManifestRevision(current, workbook)) {
                     throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
                 }
                 if ((isTransition || membershipChanged) && expectedManifestRevision != current.manifest.revision) {
@@ -159,7 +157,7 @@ class SqliteWorkbookStore internal constructor(
             val membershipChanged = DataModelTransitionPolicy.changesMembershipOrOrder(current, transformed)
             val liveMembershipCommand = DataModelTransitionPolicy.isLiveCreate(current, transformed) ||
                 DataModelTransitionPolicy.isLiveDelete(current, transformed)
-            if (!membershipChanged && !DataModelTransitionPolicy.preservesStoredManifestRevision(current, transformed)) {
+            if (!DataModelTransitionPolicy.hasAuthorizedManifestRevision(current, transformed)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
             if ((hasModelTransition || (membershipChanged && !liveMembershipCommand)) &&

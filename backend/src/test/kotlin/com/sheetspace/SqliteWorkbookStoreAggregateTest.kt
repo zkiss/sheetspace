@@ -151,8 +151,11 @@ class SqliteWorkbookStoreAggregateTest {
         store.saveWorkbook(testWorkbookOf(first, second))
 
         val renamed = second.rename("Renamed Outputs")
+        val replacement = store.loadWorkbookBundle()
+            .removeSheet(first.id)
+            .replaceSheet(renamed)
         store.saveWorkbook(
-            testWorkbookOf(renamed),
+            replacement,
             expectedManifestRevision = 0,
             expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0), ExpectedSheetRevision(TEST_SHEET_2, 0)),
         )

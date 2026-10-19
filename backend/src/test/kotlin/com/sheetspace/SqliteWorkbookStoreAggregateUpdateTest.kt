@@ -91,7 +91,9 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         val first = testDocument(TEST_SHEET_1, "Inputs")
         val second = testDocument(TEST_SHEET_2, "Outputs")
         store.saveWorkbook(testWorkbookOf(first, second))
-        val candidate = testWorkbookOf(first.rename("Renamed"))
+        val candidate = testWorkbookOf(first.rename("Renamed")).copy(
+            manifest = WorkbookManifest(sheetIds = listOf(first.id), revision = 1),
+        )
 
         assertFailsWith<WorkbookApplicationException> {
             store.updateWorkbook(expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0))) { candidate }

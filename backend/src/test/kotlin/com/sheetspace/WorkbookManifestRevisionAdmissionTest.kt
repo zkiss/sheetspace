@@ -53,4 +53,73 @@ class WorkbookManifestRevisionAdmissionTest {
             }
         }
     }
+
+    @Test
+    fun `membership snapshots require the helper derived manifest revision in SQLite and memory`() {
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            try {
+                val first = testDocument(TEST_SHEET_1, "Inputs")
+                val second = testDocument(TEST_SHEET_2, "Outputs")
+                store.saveWorkbook(testWorkbookOf(first, second))
+                val before = store.loadWorkbookBundle()
+
+                listOf(99L, before.manifest.revision).forEach { forgedRevision ->
+                    val forgedDelete = before.removeSheet(second.id).copy(
+                        manifest = before.manifest.copy(
+                            revision = forgedRevision,
+                            sheetIds = listOf(first.id),
+                        ),
+                    )
+                    assertFailsWith<WorkbookApplicationException> {
+                        store.saveWorkbook(
+                            forgedDelete,
+                            expectedManifestRevision = before.manifest.revision,
+                            expectedSheetRevisions = listOf(ExpectedSheetRevision(second.id.value, second.revision)),
+                        )
+                    }
+                    assertEquals(before, store.loadWorkbookBundle())
+                }
+
+                store.saveWorkbook(
+                    before.removeSheet(second.id),
+                    expectedManifestRevision = before.manifest.revision,
+                    expectedSheetRevisions = listOf(ExpectedSheetRevision(second.id.value, second.revision)),
+                )
+                val afterDelete = store.loadWorkbookBundle()
+                assertEquals(before.manifest.revision + 1, afterDelete.manifest.revision)
+
+                val restored = afterDelete.addSheet(second)
+                listOf(99L, afterDelete.manifest.revision).forEach { forgedRevision ->
+                    assertFailsWith<WorkbookApplicationException> {
+                        store.updateWorkbook(expectedManifestRevision = afterDelete.manifest.revision) {
+                            restored.copy(manifest = restored.manifest.copy(revision = forgedRevision))
+                        }
+                    }
+                    assertEquals(afterDelete, store.loadWorkbookBundle())
+                }
+
+                val restoredByUpdate = store.updateWorkbook(expectedManifestRevision = afterDelete.manifest.revision) {
+                    restored
+                }
+                assertEquals(afterDelete.manifest.revision + 1, restoredByUpdate.manifest.revision)
+
+                val reordered = restoredByUpdate.copy(
+                    manifest = restoredByUpdate.manifest.copy(
+                        revision = restoredByUpdate.manifest.revision + 1,
+                        sheetIds = restoredByUpdate.manifest.sheetIds.reversed(),
+                    ),
+                )
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook(expectedManifestRevision = restoredByUpdate.manifest.revision) {
+                        reordered.copy(manifest = reordered.manifest.copy(revision = 99))
+                    }
+                }
+                assertEquals(restoredByUpdate, store.loadWorkbookBundle())
+                store.updateWorkbook(expectedManifestRevision = restoredByUpdate.manifest.revision) { reordered }
+                assertEquals(reordered, store.loadWorkbookBundle())
+            } finally {
+                (store as? AutoCloseable)?.close()
+            }
+        }
+    }
 }

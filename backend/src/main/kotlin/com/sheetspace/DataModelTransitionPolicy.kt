@@ -95,9 +95,16 @@ internal object DataModelTransitionPolicy {
     fun preservesStoredSheetRevisions(before: WorkbookState, after: WorkbookState): Boolean =
         before.documents.all { (id, sheet) -> after.documents[id]?.let { it.revision == sheet.revision } ?: true }
 
-    /** Aggregate revisions are storage authority, never part of a client snapshot delta. */
-    fun preservesStoredManifestRevision(before: WorkbookState, after: WorkbookState): Boolean =
-        before.manifest.revision == after.manifest.revision
+    /**
+     * Aggregate revisions are storage authority. Ordinary snapshots retain the stored revision;
+     * a membership delta advances it exactly once.
+     */
+    fun hasAuthorizedManifestRevision(before: WorkbookState, after: WorkbookState): Boolean =
+        if (changesMembershipOrOrder(before, after)) {
+            after.manifest.revision == before.manifest.revision + 1
+        } else {
+            before.manifest.revision == after.manifest.revision
+        }
 
     fun changesMembershipOrOrder(before: WorkbookState, after: WorkbookState): Boolean =
         before.manifest.sheetIds != after.manifest.sheetIds
