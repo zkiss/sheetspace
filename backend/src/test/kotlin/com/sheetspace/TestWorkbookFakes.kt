@@ -51,6 +51,14 @@ class InMemoryWorkbookStore(
         val current = order.associateWith { sheetId ->
             workbook.findSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
         }
+        writes.forEach { write ->
+            val sheet = current.getValue(write.sheetId)
+            val model = sheet.dataModelId?.let(workbook.dataModels::get) ?: return@forEach
+            val columnIndex = sheet.tabularContent.columns.indexOf(ColumnId(write.columnId))
+            if (model.properties.getOrNull(columnIndex) is CalculatedDataModelProperty) {
+                throw WorkbookApplicationException(WorkbookApplicationError.READ_ONLY_CALCULATED_CELL)
+            }
+        }
         expectedRevisions.forEach { expected ->
             val sheet = current.getValue(expected.sheetId)
             if (sheet.revision != expected.revision) throw SheetRevisionConflict(expected.sheetId, expected.revision, sheet.revision)
