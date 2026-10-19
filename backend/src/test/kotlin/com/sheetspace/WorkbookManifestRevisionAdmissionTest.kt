@@ -122,4 +122,48 @@ class WorkbookManifestRevisionAdmissionTest {
             }
         }
     }
+
+    @Test
+    fun `bound live deletion uses its singleton guard in SQLite and memory`() {
+        listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore()).forEach { store ->
+            try {
+                val initial = boundWorkbook()
+                val model = initial.dataModels.values.single()
+                val second = testDocument(TEST_SHEET_2, "Other", tabular = TabularContent(rowCount = 2, columnCount = 2))
+                val boundSecond = second.copy(
+                    dataModelId = model.id,
+                    content = TabularContent(
+                        second.tabularContent.rows,
+                        second.tabularContent.columns,
+                        second.tabularContent.rows.associate { row ->
+                            CellCoordinate(row, second.tabularContent.columns[1]) to
+                                "=@${second.tabularContent.columns[0].value}[${row.value}]*2"
+                        },
+                    ),
+                )
+                store.saveWorkbook(initial.addSheet(boundSecond))
+                val before = store.loadWorkbookBundle()
+                val removed = before.sheetsInOrder.first()
+
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook { it.removeSheet(removed.id) }
+                }
+                assertEquals(before, store.loadWorkbookBundle())
+                assertFailsWith<SheetRevisionConflict> {
+                    store.updateWorkbook(ExpectedSheetRevision(removed.id.value, removed.revision + 1)) {
+                        it.removeSheet(removed.id)
+                    }
+                }
+                assertEquals(before, store.loadWorkbookBundle())
+
+                DefaultWorkbookApplication(store).deleteSheet(removed.id.value, removed.revision)
+                val after = store.loadWorkbookBundle()
+                assertEquals(before.manifest.revision + 1, after.manifest.revision)
+                assertEquals(boundSecond.dataModelId, after.findSheet(boundSecond.id)?.dataModelId)
+                assertEquals(after, store.loadWorkbookBundle())
+            } finally {
+                (store as? AutoCloseable)?.close()
+            }
+        }
+    }
 }

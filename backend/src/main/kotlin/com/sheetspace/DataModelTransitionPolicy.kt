@@ -16,6 +16,9 @@ internal object DataModelTransitionPolicy {
     }
 
     fun permitsTransition(before: WorkbookState, after: WorkbookState): Boolean {
+        // A deletion removes its binding along with its document.  It is not an unbind of a
+        // surviving sheet, so classify this command before aggregate binding transition checks.
+        if (isLiveDelete(before, after)) return true
         val aggregateTransition = requiresAggregateCas(before, after)
         val appendedBoundSheets = boundContentChanges(before, after)
         // Append is a command-shaped operation, not a composition of independently valid sheet
@@ -116,7 +119,9 @@ internal object DataModelTransitionPolicy {
 
     fun isLiveDelete(before: WorkbookState, after: WorkbookState): Boolean =
         (before.documents.keys - after.documents.keys).let { removals ->
-            removals.size == 1 && after.documents.all { (id, sheet) -> before.documents[id] == sheet }
+            removals.size == 1 &&
+                after.documents.all { (id, sheet) -> before.documents[id] == sheet } &&
+                after.manifest.sheetIds == before.manifest.sheetIds.filter { it !in removals }
         }
 
     private fun hasModelTransition(before: WorkbookState, after: WorkbookState): Boolean =

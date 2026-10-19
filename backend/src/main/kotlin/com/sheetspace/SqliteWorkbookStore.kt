@@ -151,12 +151,12 @@ class SqliteWorkbookStore internal constructor(
             val writer = SqliteWorkbookWriter(conn, reader)
             val current = reader.loadWorkbookBundle()
             val transformed = transform(current)
-            val hasModelTransition = DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
-            val requiresSheetBaseline = DataModelTransitionPolicy.requiresBoundAppendCas(current, transformed)
+            val liveDelete = DataModelTransitionPolicy.isLiveDelete(current, transformed)
+            val hasModelTransition = !liveDelete && DataModelTransitionPolicy.requiresAggregateCas(current, transformed)
+            val requiresSheetBaseline = !liveDelete && DataModelTransitionPolicy.requiresBoundAppendCas(current, transformed)
             val changedBoundSheets = DataModelTransitionPolicy.boundContentChanges(current, transformed)
             val membershipChanged = DataModelTransitionPolicy.changesMembershipOrOrder(current, transformed)
-            val liveMembershipCommand = DataModelTransitionPolicy.isLiveCreate(current, transformed) ||
-                DataModelTransitionPolicy.isLiveDelete(current, transformed)
+            val liveMembershipCommand = DataModelTransitionPolicy.isLiveCreate(current, transformed) || liveDelete
             if (!DataModelTransitionPolicy.hasAuthorizedManifestRevision(current, transformed)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
             }
