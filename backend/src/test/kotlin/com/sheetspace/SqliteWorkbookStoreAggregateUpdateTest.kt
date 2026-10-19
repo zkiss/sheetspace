@@ -12,8 +12,11 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         val second = testDocument(TEST_SHEET_2, "Outputs")
         store.saveWorkbook(testWorkbookOf(first))
         val changed = first.rename("Renamed").updateFrame { it.update(position = WorkspacePosition(7.0, 8.0)) }.updateTabularContent { it.copy(rowCount = DEFAULT_ROW_COUNT - 1, columnCount = DEFAULT_COLUMN_COUNT + 1) }
-        store.updateWorkbook { it.replaceSheet(changed).addSheet(second) }
-        store.updateWorkbook { it.removeSheet(second.id) }
+        store.updateWorkbook(
+            expectedManifestRevision = 0,
+            expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)),
+        ) { it.replaceSheet(changed).addSheet(second) }
+        store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 0), expectedManifestRevision = 1) { it.removeSheet(second.id) }
         val loaded = store.loadSheet(first.id)!!
         assertEquals("Renamed", loaded.name)
         assertEquals(WorkspacePosition(7.0, 8.0), loaded.frame.position)
@@ -39,6 +42,72 @@ class SqliteWorkbookStoreAggregateUpdateTest {
             assertEquals(1, conflict.actualRevision)
         } }
         assertEquals(before, store.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `ordinary snapshot saves require exact existing sheet baselines`() = withSqliteStore { store ->
+        val first = testDocument(TEST_SHEET_1, "Inputs")
+        val second = testDocument(TEST_SHEET_2, "Outputs")
+        store.saveWorkbook(testWorkbookOf(first, second))
+        val candidate = testWorkbookOf(first.rename("Renamed"), second)
+
+        assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(candidate) }
+        assertFailsWith<WorkbookApplicationException> {
+            store.saveWorkbook(candidate, expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_2, 0)))
+        }
+        assertFailsWith<SheetRevisionConflict> {
+            store.saveWorkbook(candidate, expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 1)))
+        }
+        store.saveWorkbook(candidate, expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)))
+
+        assertEquals("Renamed", store.loadSheet(first.id)!!.name)
+    }
+
+    @Test
+    fun `ordinary updates reject mixed revision channels and forged stored counters`() = withSqliteStore { store ->
+        val first = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(first))
+        val renamed = first.rename("Renamed")
+
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(
+                expectedRevision = ExpectedSheetRevision(TEST_SHEET_1, 0),
+                expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)),
+            ) { it.replaceSheet(renamed) }
+        }
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) {
+                it.replaceSheet(renamed.copy(revision = 4))
+            }
+        }
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 0)) { it.replaceSheet(renamed) }
+        }
+        assertEquals(first, store.loadSheet(first.id))
+    }
+
+    @Test
+    fun `ordinary multi-sheet snapshots require manifest and distinct exact guards`() = withSqliteStore { store ->
+        val first = testDocument(TEST_SHEET_1, "Inputs")
+        val second = testDocument(TEST_SHEET_2, "Outputs")
+        store.saveWorkbook(testWorkbookOf(first, second))
+        val candidate = testWorkbookOf(first.rename("Renamed"))
+
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0))) { candidate }
+        }
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(
+                expectedManifestRevision = 0,
+                expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0), ExpectedSheetRevision(TEST_SHEET_1, 0)),
+            ) { candidate }
+        }
+        store.updateWorkbook(
+            expectedManifestRevision = 0,
+            expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0), ExpectedSheetRevision(TEST_SHEET_2, 0)),
+        ) { candidate }
+
+        assertEquals(listOf("Renamed"), store.loadWorkbookBundle().sheetsInOrder.map { it.name })
     }
 
     @Test
@@ -81,6 +150,20 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         assertFailsWith<WorkbookApplicationException> {
             store.updateWorkbook(expectedManifestRevision = 0) { current ->
                 current.copy(dataModels = current.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") })
+            }
+        }
+        assertEquals(persisted, store.loadWorkbookBundle())
+
+        assertFailsWith<WorkbookApplicationException> {
+            store.updateWorkbook(
+                expectedRevision = ExpectedSheetRevision(TEST_SHEET_1, persisted.sheetsInOrder.single().revision),
+                expectedManifestRevision = persisted.manifest.revision,
+                expectedSheetRevisions = persisted.sheetGuards(),
+            ) { current ->
+                current.copy(
+                    manifest = current.manifest.copy(revision = current.manifest.revision + 1),
+                    dataModels = current.dataModels.mapValues { (_, model) -> model.copy(name = "Smuggled") },
+                )
             }
         }
         assertEquals(persisted, store.loadWorkbookBundle())

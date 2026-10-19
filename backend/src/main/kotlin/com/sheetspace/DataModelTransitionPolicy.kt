@@ -87,6 +87,27 @@ internal object DataModelTransitionPolicy {
             sheet.dataModelId != null && after.documents[id]?.tabularContent != sheet.tabularContent
         }.keys
 
+    /** Existing sheets whose submitted snapshot differs from the stored aggregate. */
+    fun changedOrDeletedSheets(before: WorkbookState, after: WorkbookState): Set<SheetId> =
+        before.documents.filter { (id, sheet) -> after.documents[id] != sheet }.keys
+
+    /** A snapshot may not use client supplied counters to overwrite stored authority. */
+    fun preservesStoredSheetRevisions(before: WorkbookState, after: WorkbookState): Boolean =
+        before.documents.all { (id, sheet) -> after.documents[id]?.let { it.revision == sheet.revision } ?: true }
+
+    fun changesMembershipOrOrder(before: WorkbookState, after: WorkbookState): Boolean =
+        before.manifest.sheetIds != after.manifest.sheetIds
+
+    fun isLiveCreate(before: WorkbookState, after: WorkbookState): Boolean =
+        (after.documents.keys - before.documents.keys).let { additions ->
+            additions.size == 1 && before.documents.all { (id, sheet) -> after.documents[id] == sheet }
+        }
+
+    fun isLiveDelete(before: WorkbookState, after: WorkbookState): Boolean =
+        (before.documents.keys - after.documents.keys).let { removals ->
+            removals.size == 1 && after.documents.all { (id, sheet) -> before.documents[id] == sheet }
+        }
+
     private fun hasModelTransition(before: WorkbookState, after: WorkbookState): Boolean =
         requiresAggregateCas(before, after) || before.documents.any { (id, sheet) ->
             after.documents[id]?.let { updated ->

@@ -2,8 +2,35 @@ package com.sheetspace
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class InMemoryWorkbookStoreCellBatchTest {
+    @Test
+    fun `direct cell writes require nonempty distinct coordinates and exact guards`() {
+        val first = testDocument(TEST_SHEET_1, "Inputs")
+        val second = testDocument(TEST_SHEET_2, "Outputs")
+        val store = InMemoryWorkbookStore(testWorkbookOf(first, second))
+        val firstWrite = first.cellWrite("A1", "first")
+        val secondWrite = second.cellWrite("A1", "second")
+        val before = store.loadWorkbookBundle()
+
+        assertFailsWith<IllegalArgumentException> { store.writeCells(emptyList(), emptyList()) }
+        assertFailsWith<IllegalArgumentException> {
+            store.writeCells(listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)), listOf(firstWrite, firstWrite))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            store.writeCells(
+                listOf(ExpectedSheetRevision(TEST_SHEET_1, 0), ExpectedSheetRevision(TEST_SHEET_1, 0)),
+                listOf(firstWrite),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            store.writeCells(listOf(ExpectedSheetRevision(TEST_SHEET_1, 0)), listOf(secondWrite))
+        }
+
+        assertEquals(before, store.loadWorkbookBundle())
+    }
+
     @Test
     fun `calculated model cells reject direct writes without persisting`() {
         val modelId = "00000000-0000-0000-0000-000000000101"

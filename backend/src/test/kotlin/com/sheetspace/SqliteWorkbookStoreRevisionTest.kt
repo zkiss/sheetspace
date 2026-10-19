@@ -17,7 +17,7 @@ class SqliteWorkbookStoreRevisionTest {
         ).map { sheet ->
             thread {
                 gate.await()
-                store.updateWorkbook { workbook ->
+                store.updateWorkbook(expectedManifestRevision = 0) { workbook ->
                     val nextZIndex = (workbook.documents.values.maxOfOrNull { it.frame.zIndex } ?: 0) + 1
                     workbook.addSheet(sheet.updateFrame { it.update(zIndex = nextZIndex) })
                 }
@@ -44,7 +44,7 @@ class SqliteWorkbookStoreRevisionTest {
 
         val beforeConflict = store.loadWorkbookBundle()
         val conflict = assertFailsWith<SheetRevisionConflict> {
-            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) { workbook ->
+            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0), expectedManifestRevision = 0) { workbook ->
                 val sheet = workbook.documents.getValue(SheetId(TEST_SHEET_1))
                 workbook.replaceSheet(
                     sheet.updateTabularContent { it.copy(cells = mapOf("A1" to "stale value")) },
@@ -100,7 +100,7 @@ class SqliteWorkbookStoreRevisionTest {
 
         val beforeStale = store.loadWorkbookBundle()
         val stale = assertFailsWith<SheetRevisionConflict> {
-            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) { workbook ->
+            store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0), expectedManifestRevision = 0) { workbook ->
                 workbook.removeSheet(SheetId(TEST_SHEET_1))
             }
         }
@@ -108,7 +108,7 @@ class SqliteWorkbookStoreRevisionTest {
         assertEquals(0, stale.expectedRevision)
         assertEquals(1, stale.actualRevision)
         assertEquals(beforeStale, store.loadWorkbookBundle())
-        val deleted = store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 1)) { workbook ->
+        val deleted = store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 1), expectedManifestRevision = 0) { workbook ->
             workbook.removeSheet(SheetId(TEST_SHEET_1))
         }
         assertEquals(emptyList(), deleted.sheetsInOrder)

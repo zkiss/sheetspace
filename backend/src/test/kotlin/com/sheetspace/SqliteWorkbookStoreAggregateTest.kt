@@ -98,7 +98,7 @@ class SqliteWorkbookStoreAggregateTest {
 
                     assertTrue(manifestLoaded.await(5, TimeUnit.SECONDS))
                     try {
-                        writer.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0)) { workbook ->
+                        writer.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 0), expectedManifestRevision = 0) { workbook ->
                             workbook.removeSheet(SheetId(TEST_SHEET_1))
                         }
                     } finally {
@@ -151,7 +151,11 @@ class SqliteWorkbookStoreAggregateTest {
         store.saveWorkbook(testWorkbookOf(first, second))
 
         val renamed = second.rename("Renamed Outputs")
-        store.saveWorkbook(testWorkbookOf(renamed))
+        store.saveWorkbook(
+            testWorkbookOf(renamed),
+            expectedManifestRevision = 0,
+            expectedSheetRevisions = listOf(ExpectedSheetRevision(TEST_SHEET_1, 0), ExpectedSheetRevision(TEST_SHEET_2, 0)),
+        )
 
         assertEquals(listOf(renamed), store.loadWorkbookBundle().sheetsInOrder)
     }

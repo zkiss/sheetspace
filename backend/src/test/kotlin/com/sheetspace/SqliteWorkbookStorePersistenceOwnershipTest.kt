@@ -113,7 +113,7 @@ class SqliteWorkbookStorePersistenceOwnershipTest {
             )
         }
         store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 1)) { workbook ->
-            workbook.replaceSheet(columnUpdated)
+            workbook.replaceSheet(columnUpdated.copy(revision = 1))
         }
         val reloaded = store.loadSheet(columnUpdated.id)!!.tabularContent
         assertEquals(columnUpdated.tabularContent.rows, reloaded.rows)
@@ -153,7 +153,7 @@ class SqliteWorkbookStorePersistenceOwnershipTest {
                 )
             }
             store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_1, 1)) { workbook ->
-                workbook.replaceSheet(columnUpdated)
+                workbook.replaceSheet(columnUpdated.copy(revision = 1))
             }
             assertEquals(
                 setOf("sheet_columns:INSERT", "sheet_columns:UPDATE", "sheet_documents:UPDATE"),
