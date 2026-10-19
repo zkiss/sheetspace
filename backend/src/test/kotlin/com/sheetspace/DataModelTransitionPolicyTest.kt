@@ -58,6 +58,22 @@ class DataModelTransitionPolicyTest {
     }
 
     @Test
+    fun `bootstrap validates row and column UUID identities even for unbound workbooks`() {
+        val plain = plainWorkbook()
+        val sheet = plain.sheetsInOrder.single()
+        val content = sheet.tabularContent
+        val malformedRows = plain.replaceSheet(sheet.copy(content = TabularContent(
+            listOf(RowId("not-a-uuid")) + content.rows.drop(1), content.columns, content.cellContents,
+        )))
+        val malformedColumns = plain.replaceSheet(sheet.copy(content = TabularContent(
+            content.rows, listOf(ColumnId("not-a-uuid")) + content.columns.drop(1), emptyMap(),
+        )))
+
+        assertFalse(DataModelTransitionPolicy.permitsBootstrap(malformedRows))
+        assertFalse(DataModelTransitionPolicy.permitsBootstrap(malformedColumns))
+    }
+
+    @Test
     fun `ordinary changes pass while model transitions require unchanged aggregate topology`() {
         val bound = boundWorkbook()
         val renamed = bound.replaceSheet(bound.sheetsInOrder.single().rename("Renamed"))
@@ -130,6 +146,45 @@ class DataModelTransitionPolicyTest {
                 },
                 bound.sheetsInOrder.single().tabularContent.cellContents,
             )),
+        )))
+    }
+
+    @Test
+    fun `binding and model removal prune discarded column presentation`() {
+        val before = boundWorkbook()
+        val sheet = before.sheetsInOrder.single()
+        val removedColumn = sheet.tabularContent.columns.last()
+        val retainedColumn = sheet.tabularContent.columns.first()
+        val row = sheet.tabularContent.rows.first()
+        val presented = before.replaceSheet(sheet.copy(presentation = SheetPresentation(
+            columnWidths = mapOf(removedColumn.value to 42.0),
+            formatOverrides = SheetFormatOverrides(
+                columns = mapOf(removedColumn.value to CellFormat(fontWeight = "bold")),
+                cells = mapOf(
+                    "${row.value}\u0000${retainedColumn.value}" to CellFormat(fontWeight = "bold"),
+                    "${row.value}\u0000${removedColumn.value}" to CellFormat(fontWeight = "bold"),
+                    "removed-row\u0000${retainedColumn.value}" to CellFormat(fontWeight = "bold"),
+                    "malformed-target" to CellFormat(fontWeight = "bold"),
+                ),
+            ),
+        )))
+        val oldModel = presented.dataModels.values.single()
+        val reducedModel = oldModel.copy(properties = oldModel.properties.take(1))
+        val reducedContent = sheet.tabularContent.let { content ->
+            TabularContent(content.rows, content.columns.take(1), emptyMap())
+        }
+        val after = presented.copy(dataModels = mapOf(reducedModel.id to reducedModel)).replaceSheet(
+            presented.sheetsInOrder.single().copy(
+                content = reducedContent,
+                presentation = SheetPresentation(formatOverrides = SheetFormatOverrides(cells = mapOf(
+                    "${row.value}\u0000${retainedColumn.value}" to CellFormat(fontWeight = "bold"),
+                ))),
+            ),
+        )
+
+        assertTrue(DataModelTransitionPolicy.permitsTransition(presented, after))
+        assertFalse(DataModelTransitionPolicy.permitsTransition(presented, after.replaceSheet(
+            after.sheetsInOrder.single().copy(presentation = SheetPresentation(columnWidths = mapOf(removedColumn.value to 42.0))),
         )))
     }
 

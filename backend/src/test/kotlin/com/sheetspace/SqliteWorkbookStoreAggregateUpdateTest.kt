@@ -117,6 +117,57 @@ class SqliteWorkbookStoreAggregateUpdateTest {
     }
 
     @Test
+    fun `initial aggregate saves reject invalid unbound identities in SQLite and memory`() {
+        val valid = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
+        val sheet = valid.sheetsInOrder.single()
+        val invalid = valid.replaceSheet(sheet.copy(content = TabularContent(
+            listOf(RowId("not-a-uuid")) + sheet.tabularContent.rows.drop(1),
+            sheet.tabularContent.columns,
+            emptyMap(),
+        )))
+        val stores = listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore())
+
+        stores.forEach { store ->
+            store.useWhenCloseable {
+                assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(invalid) }
+                assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
+            }
+        }
+    }
+
+    @Test
+    fun `model removal persists mechanically pruned presentation in SQLite and memory`() {
+        val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
+        val stores = listOf<WorkbookStore>(SqliteWorkbookStore.inMemory(), InMemoryWorkbookStore())
+
+        stores.forEach { store ->
+            store.useWhenCloseable {
+                store.saveWorkbook(initial)
+                val bound = boundAggregate(initial)
+                val boundSheet = bound.sheetsInOrder.single()
+                val discardedColumn = boundSheet.tabularContent.columns.last()
+                store.saveWorkbook(bound, expectedManifestRevision = 0)
+                store.writePresentation(
+                    ExpectedSheetRevision(boundSheet.id.value, 0),
+                    listOf(AxisSizeWrite("column", discardedColumn.value, 42.0)),
+                )
+                val presented = store.loadWorkbookBundle()
+
+                val model = presented.dataModels.values.single().copy(properties = presented.dataModels.values.single().properties.take(1))
+                val reduced = presented.copy(dataModels = mapOf(model.id to model)).replaceSheet(
+                    presented.sheetsInOrder.single().copy(
+                        content = TabularContent(boundSheet.tabularContent.rows, boundSheet.tabularContent.columns.take(1), emptyMap()),
+                        presentation = SheetPresentation(),
+                    ),
+                )
+                store.saveWorkbook(reduced, expectedManifestRevision = 1)
+
+                assertEquals(SheetPresentation(), store.loadWorkbookBundle().sheetsInOrder.single().presentation)
+            }
+        }
+    }
+
+    @Test
     fun `bound append requires a sheet revision baseline and rolls back in SQLite`() = withSqliteStore { store ->
         val initial = testWorkbookOf(testDocument(TEST_SHEET_1, "Inputs"))
         store.saveWorkbook(initial)

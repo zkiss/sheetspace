@@ -6,7 +6,8 @@ package com.sheetspace
  */
 internal object DataModelTransitionPolicy {
     fun permitsBootstrap(workbook: WorkbookState): Boolean {
-        if (workbook.dataModels.isEmpty() && workbook.sheetsInOrder.none { it.dataModelId != null }) return true
+        // A pristine aggregate save is still an authority boundary.  In particular, an
+        // unbound workbook is not exempt from durable UUID/shape validation.
         return hasValidIdentities(workbook) && workbook.sheetsInOrder.all { sheet ->
             sheet.dataModelId?.let(workbook.dataModels::get)?.let { model ->
                 hasOnlyModelOwnedCalculatedContents(workbook, sheet.id, model)
@@ -69,7 +70,7 @@ internal object DataModelTransitionPolicy {
 
     private fun hasValidIdentities(workbook: WorkbookState): Boolean {
         if (workbook.manifest.version != WORKBOOK_SCHEMA_VERSION ||
-            workbook.manifest.sheetIds != workbook.documents.keys.toList() ||
+            workbook.manifest.sheetIds.toSet() != workbook.documents.keys ||
             workbook.dataModels.keys.any { it.toUuidBytesOrNull() == null }
         ) return false
         if (workbook.dataModels.any { (id, model) ->
@@ -79,9 +80,15 @@ internal object DataModelTransitionPolicy {
                     model.properties.map { it.name.trim().lowercase() }.distinct().size != model.properties.size
             }) return false
         return workbook.sheetsInOrder.all { sheet ->
-            sheet.id.value.toUuidBytesOrNull() != null && sheet.dataModelId?.let(workbook.dataModels::containsKey) != false
+            sheet.id.value.toUuidBytesOrNull() != null &&
+                sheet.dataModelId?.let(workbook.dataModels::containsKey) != false &&
+                hasValidTabularIdentities(sheet.tabularContent)
         }
     }
+
+    private fun hasValidTabularIdentities(content: TabularContent): Boolean =
+        content.rows.all { it.value.toUuidBytesOrNull() != null } &&
+            content.columns.all { it.value.toUuidBytesOrNull() != null }
 
     private fun validBind(
         before: WorkbookState,
@@ -91,7 +98,7 @@ internal object DataModelTransitionPolicy {
         model: DataModel,
     ): Boolean =
         oldSheet.name == newSheet.name && oldSheet.frame == newSheet.frame &&
-            oldSheet.presentation == newSheet.presentation &&
+            newSheet.presentation == oldSheet.presentation.prunedTo(newSheet.tabularContent) &&
             oldSheet.tabularContent.rows == newSheet.tabularContent.rows &&
             newSheet.tabularContent.columns.size == model.properties.size &&
             oldSheet.tabularContent.columns.indices.all { index ->
@@ -127,7 +134,8 @@ internal object DataModelTransitionPolicy {
         newModel: DataModel,
     ): Boolean {
         if (oldSheet.dataModelId != newSheet.dataModelId || oldSheet.name != newSheet.name ||
-            oldSheet.frame != newSheet.frame || oldSheet.presentation != newSheet.presentation ||
+            oldSheet.frame != newSheet.frame ||
+            newSheet.presentation != oldSheet.presentation.prunedTo(newSheet.tabularContent) ||
             !hasOnlyModelOwnedCalculatedContents(before, oldSheet.id, oldModel) ||
             !hasOnlyModelOwnedCalculatedContents(after, newSheet.id, newModel)
         ) return false
@@ -171,5 +179,22 @@ internal object DataModelTransitionPolicy {
             property is CalculatedDataModelProperty ||
                 CellCoordinate(appendedRow, newContent.columns[index]) !in newContent.cellContents
         }
+    }
+
+    /** Remove sparse presentation that belonged to columns/cells discarded by reconciliation. */
+    private fun SheetPresentation.prunedTo(content: TabularContent): SheetPresentation {
+        val rowIds = content.rows.map(RowId::value).toSet()
+        val columnIds = content.columns.map(ColumnId::value).toSet()
+        return copy(
+            rowHeights = rowHeights.filterKeys(rowIds::contains),
+            columnWidths = columnWidths.filterKeys(columnIds::contains),
+            formatOverrides = SheetFormatOverrides(
+                rows = formatOverrides.rows.filterKeys(rowIds::contains),
+                columns = formatOverrides.columns.filterKeys(columnIds::contains),
+                cells = formatOverrides.cells.filterKeys { target ->
+                    target.split("\u0000").let { ids -> ids.size == 2 && ids[0] in rowIds && ids[1] in columnIds }
+                },
+            ),
+        )
     }
 }
