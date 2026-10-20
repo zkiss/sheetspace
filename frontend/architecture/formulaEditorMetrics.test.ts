@@ -4,14 +4,26 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, it } from 'vitest';
-import { parseFormulaSyntax } from '@workbook/formula/syntax';
 
 it('aligns coloured token advances and every wrapped character with the editable textarea in Chromium', () => {
-  const draft = `=SUM(@'Revenue'[12], @$'Cost'[$12]) + @'Revenue'[12] * 123.45 - @'Cost'[12] / 2 + TRUE + "literal"\n${'@A[1]+@B[2]*12345+'.repeat(8)}`;
-  const tokens = parseFormulaSyntax(draft).tokens;
-  const spans = tokens.map(({ kind, sourceSpan }) =>
-    `<span class="formula-syntax-token formula-syntax-token-${kind}">${escapeHtml(draft.slice(sourceSpan.start, sourceSpan.end))}</span>`).join('');
-  const css = fs.readFileSync(new URL('./SheetGridCell.css', import.meta.url), 'utf8');
+  const tokens = [
+    { kind: 'punctuation', text: '=' }, { kind: 'function', text: 'SUM' },
+    { kind: 'punctuation', text: '(' }, { kind: 'reference', text: "@'Revenue'[12]" },
+    { kind: 'punctuation', text: ', ' }, { kind: 'reference', text: "@$'Cost'[$12]" },
+    { kind: 'punctuation', text: ') ' }, { kind: 'operator', text: '+' },
+    { kind: 'literal', text: ' 123.45 ' }, { kind: 'operator', text: '-' },
+    { kind: 'literal', text: ' TRUE ' }, { kind: 'operator', text: '+' },
+    { kind: 'literal', text: ' "literal"' }, { kind: 'whitespace', text: '\n' },
+    ...Array.from({ length: 8 }, () => [
+      { kind: 'reference', text: '@A[1]' }, { kind: 'operator', text: '+' },
+      { kind: 'reference', text: '@B[2]' }, { kind: 'operator', text: '*' },
+      { kind: 'literal', text: '12345' }, { kind: 'operator', text: '+' },
+    ]).flat(),
+  ];
+  const draft = tokens.map(({ text }) => text).join('');
+  const spans = tokens.map(({ kind, text }) =>
+    `<span class="formula-syntax-token formula-syntax-token-${kind}">${escapeHtml(text)}</span>`).join('');
+  const css = fs.readFileSync(new URL('../src/grid/SheetGridCell.css', import.meta.url), 'utf8');
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sheetspace-editor-metrics-'));
   try {
     const page = path.join(directory, 'metrics.html');
