@@ -1,7 +1,7 @@
 import { columnIndexToLabel, type CellAddress } from '../core/address';
 import type { ColumnId, RowId, SheetId, Workbook } from '../core/model';
 import { findSheetById, sheetsInOrder } from '../read/queries';
-import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
+import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
 
 export type FormulaCoordinate = { columnId: ColumnId; rowId: RowId };
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
@@ -31,7 +31,7 @@ export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceReso
   const diagnostics = lexemeMatches(raw)
     .filter((match) => !referenceMatchResolves(match, resolver))
     .map((match) => ({ kind: 'reference' as const, code: '#REF!' as const, sourceSpan: match.sourceSpan }));
-  return { ...analysis, diagnostics: [...analysis.diagnostics, ...diagnostics] };
+  return { ...analysis, diagnostics: mergeFormulaDiagnostics(analysis.diagnostics, diagnostics) };
 }
 
 export function formulaRawToCanonical(raw: string, resolver: FormulaReferenceResolver): string {

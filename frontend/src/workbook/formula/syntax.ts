@@ -8,6 +8,8 @@ import type {
 } from './syntaxTypes';
 import { FormulaParser } from './syntaxParser';
 
+export { mergeFormulaDiagnostics } from './diagnostics';
+
 export type {
   BinaryFormula,
   FormulaErrorCode,

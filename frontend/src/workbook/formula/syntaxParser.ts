@@ -12,6 +12,8 @@ import type {
   FormulaSyntaxToken,
   FormulaDiagnostic,
 } from './syntaxTypes';
+import { mergeFormulaDiagnostics } from './diagnostics';
+import { decodeStableId } from './stableId';
 
 type ReadResult<T> =
   | { ok: true; value: T }
@@ -32,7 +34,9 @@ export class FormulaParser {
     const expression = this.readComparison();
     this.skipWhitespace();
     const trailingSyntax = expression.ok && !this.atEnd();
+    const trailingSyntaxStart = this.index;
     if (!expression.ok || trailingSyntax) {
+      if (trailingSyntax) this.recordSyntaxDiagnostic(trailingSyntaxStart, trailingSyntaxStart + 1);
       this.recoverRemainingReferences();
     }
     const result: FormulaParseResult = !expression.ok
@@ -40,13 +44,12 @@ export class FormulaParser {
       : trailingSyntax
         ? { kind: 'error', raw, error: '#PARSE!' }
         : { kind: 'formula', raw, expression: expression.value };
-    if (trailingSyntax) this.recordSyntaxDiagnostic(this.index, this.index + 1);
     return {
       result,
       references: [...this.references],
       referenceLexemes: [...this.referenceLexemes],
       tokens: this.completeTokens(raw),
-      diagnostics: [...this.diagnostics],
+      diagnostics: mergeFormulaDiagnostics(this.diagnostics),
     };
   }
 
@@ -517,7 +520,13 @@ export class FormulaParser {
   }
 
   private recordSyntaxDiagnostic(start: number, end: number): void {
-    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: start === end ? { start: 0, end: 1 } : this.spanTo(start, end) });
+    if (this.input.length === 0) {
+      this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: { start: 0, end: 1 } });
+      return;
+    }
+    const boundedStart = Math.min(Math.max(start, 0), this.input.length - 1);
+    const boundedEnd = Math.min(Math.max(end, boundedStart + 1), this.input.length);
+    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(boundedStart, boundedEnd) });
   }
 
   private recordToken(kind: FormulaSyntaxToken['kind'], start: number, end: number): void {
@@ -538,12 +547,4 @@ export class FormulaParser {
     if (cursor < raw.length) complete.push({ kind: 'invalid', sourceSpan: { start: cursor, end: raw.length } });
     return complete;
   }
-}
-
-/** Decodes the fixed-width UTF-16 representation emitted for named stable IDs. */
-function decodeStableId(value: string): string | undefined {
-  if (value.length === 0 || value.length % 4 !== 0) return undefined;
-  let decoded = '';
-  for (let index = 0; index < value.length; index += 4) decoded += String.fromCharCode(Number.parseInt(value.slice(index, index + 4), 16));
-  return decoded;
 }

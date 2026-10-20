@@ -6,6 +6,7 @@ import {
   parseFormulaSyntax,
   replaceFormulaQualifiers,
 } from '@workbook/formula/syntax';
+import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
 
 describe('formula syntax', () => {
   it('uses one function-call node for built-ins and unknown functions', () => {
@@ -86,6 +87,40 @@ describe('formula syntax', () => {
     expect(analysis.references.map((reference) => raw.slice(reference.sourceSpan.start, reference.sourceSpan.end)))
       .toEqual(['@A[1]', '@B[2]']);
     expect(parseFormulaSyntax('=SUM(@A[1], @B[2])').diagnostics).toEqual([]);
+  });
+
+  it('keeps trailing and semantic diagnostics bounded and source ordered across the analysis corpus', () => {
+    const resolver: FormulaReferenceResolver = {
+      currentSheetId: 'sheet',
+      sheetByQualifier: (qualifier) => qualifier === 'missing' ? undefined : 'sheet',
+      coordinateAt: (_sheetId, address) => address.columnIndex === 10 ? undefined : { columnId: `column-${address.columnIndex}`, rowId: `row-${address.rowIndex}` },
+      addressOf: () => undefined,
+    };
+    const cases = [
+      { raw: '=@A[1] trailing', fragments: ['t'] },
+      { raw: '=@K[1] + )', fragments: ['@K[1]', ')'] },
+      { raw: '=SUM(@A[1],)', fragments: [')'] },
+      { raw: '=SUM(@A[1],) + @broken + @B[2]', fragments: [')', '@'] },
+      { raw: '=@missing!A[1]', fragments: ['@missing!A[1]'] },
+      { raw: '=@A[1]:B[2]', fragments: [] },
+      { raw: '="@K[1]"', fragments: [] },
+      { raw: "=@'Revenue'[1] + @A[1]", fragments: ['@\'Revenue\'[1]'] },
+    ];
+
+    for (const { raw, fragments } of cases) {
+      const diagnostics = analyzeFormulaSyntax(raw, resolver).diagnostics;
+      expect(diagnostics.map((diagnostic) => raw.slice(diagnostic.sourceSpan.start, diagnostic.sourceSpan.end)))
+        .toEqual(fragments);
+      for (const diagnostic of diagnostics) {
+        expect(diagnostic.sourceSpan.start).toBeGreaterThanOrEqual(0);
+        expect(diagnostic.sourceSpan.end).toBeGreaterThan(diagnostic.sourceSpan.start);
+        expect(diagnostic.sourceSpan.end).toBeLessThanOrEqual(raw.length);
+      }
+      expect(diagnostics.map(({ sourceSpan }) => `${sourceSpan.start}:${sourceSpan.end}`))
+        .toEqual([...new Set(diagnostics.map(({ sourceSpan }) => `${sourceSpan.start}:${sourceSpan.end}`))]);
+      expect(diagnostics).toEqual([...diagnostics].sort((left, right) =>
+        left.sourceSpan.start - right.sourceSpan.start || left.sourceSpan.end - right.sourceSpan.end));
+    }
   });
 
   it('recovers qualifiers after an earlier syntax error for inspection and remapping', () => {
