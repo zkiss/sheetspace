@@ -21,6 +21,8 @@ type ReadResult<T> =
 
 export class FormulaParser {
   private index = 0;
+  // Speculative endpoint parsing may rewind, but recovery must not enter quoted text.
+  private quotedFragmentEnd = 0;
   private readonly references: FormulaReference[] = [];
   private readonly referenceLexemes: FormulaReferenceLexeme[] = [];
   private readonly syntaxTokens: FormulaSyntaxToken[] = [];
@@ -59,6 +61,7 @@ export class FormulaParser {
    * maintaining a second interpretation of reference syntax.
    */
   private recoverRemainingReferences(): void {
+    this.index = Math.max(this.index, this.quotedFragmentEnd);
     while (!this.atEnd()) {
       this.skipWhitespace();
       if (this.atEnd()) return;
@@ -82,7 +85,7 @@ export class FormulaParser {
       const attemptedEnd = this.index;
       [this.references.length, this.referenceLexemes.length, this.syntaxTokens.length, this.diagnostics.length] = state;
       this.recordSyntaxDiagnostic(candidateStart, Math.max(candidateStart + 1, attemptedEnd));
-      this.index = this.input[candidateStart + 1] === "'" ? Math.max(candidateStart + 1, attemptedEnd) : candidateStart + 1;
+      this.index = Math.max(candidateStart + 1, this.quotedFragmentEnd);
     }
   }
 
@@ -478,9 +481,11 @@ export class FormulaParser {
         this.index += 2;
       } else {
         this.index += 1;
+        this.quotedFragmentEnd = this.index;
         return name || false;
       }
     }
+    this.quotedFragmentEnd = this.index;
     return false;
   }
 
