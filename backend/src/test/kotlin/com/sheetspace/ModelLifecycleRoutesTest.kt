@@ -11,6 +11,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 
 class ModelLifecycleRoutesTest {
@@ -198,6 +199,38 @@ class ModelLifecycleRoutesTest {
                     )
                 }
             }
+        }
+    }
+
+    @Test
+    fun `SQLite rejects template removal and stale derived calculated contents atomically`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
+            val sheet = bound.sheetsInOrder.first()
+            store.saveWorkbook(bound)
+
+            assertEquals(
+                WorkbookApplicationError.CALCULATED_CELL_WRITE,
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook { current -> current.replaceSheet(sheet.copy(modelFormulaBindings = null)) }
+                }.error,
+            )
+            assertEquals(bound, store.loadWorkbookBundle())
+
+            val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+            val coordinate = CellCoordinate(sheet.tabularContent.rows.first(), output)
+            assertEquals(
+                WorkbookApplicationError.CALCULATED_CELL_WRITE,
+                assertFailsWith<WorkbookApplicationException> {
+                    store.updateWorkbook { current ->
+                        current.replaceSheet(
+                            sheet.copy(content = sheet.tabularContent.updateCell(sheet.tabularContent.addressOf(coordinate)!!, "=stale")),
+                        )
+                    }
+                }.error,
+            )
+            assertEquals(bound, store.loadWorkbookBundle())
+            assertEquals(sheet.tabularContent.cellContents[coordinate], store.loadWorkbookBundle().documents.getValue(sheet.id).tabularContent.cellContents[coordinate])
         }
     }
 }

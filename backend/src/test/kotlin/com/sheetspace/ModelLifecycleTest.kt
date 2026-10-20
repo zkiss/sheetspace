@@ -158,6 +158,187 @@ class ModelLifecycleTest {
             assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, assertFailsWith<WorkbookApplicationException> { invalid.toLifecycleWorkbook() }.error)
         }
     }
+
+    @Test
+    fun `derived-content validation distinguishes complete calculated bindings from omitted or stale values`() {
+        val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val sheet = bound.sheetsInOrder.first()
+        val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+        val missingOutput = bound.replaceSheet(
+            sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, sheet.tabularContent.cellContents - CellCoordinate(sheet.tabularContent.rows.first(), output))),
+        )
+        val staleTemplate = bound.replaceSheet(
+            sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) -> template.copy(raw = "=stale") }),
+        )
+        val missingTemplates = bound.replaceSheet(sheet.copy(modelFormulaBindings = null))
+        val incompleteTemplates = bound.replaceSheet(sheet.copy(modelFormulaBindings = emptyMap()))
+
+        assertEquals(true, calculatedContentsAreDerived(bound))
+        assertEquals(false, calculatedContentsAreDerived(missingOutput))
+        assertEquals(true, calculatedContentsAreDerived(missingOutput) { candidate, row -> candidate.id == sheet.id && row == sheet.tabularContent.rows.first() })
+        assertEquals(false, calculatedContentsAreDerived(staleTemplate))
+        assertEquals(false, calculatedContentsAreDerived(missingTemplates))
+        assertEquals(false, calculatedContentsAreDerived(incompleteTemplates))
+        assertEquals(true, calculatedContentsAreDerived(lifecycleWorkbook()))
+    }
+
+    @Test
+    fun `derived formulas preserve valid references and replace unresolved bindings with ref errors`() {
+        val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val sheet = bound.sheetsInOrder.first()
+        val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
+        val input = sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT)
+        val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+        val expected = "=@${input.value}[${sheet.tabularContent.rows[1].value}]*2"
+        val derivedWrite = SheetCellWrite(sheet.id.value, sheet.tabularContent.rows[1].value, output.value, expected)
+
+        assertEquals(expected, derivedFormulaRaw(template, bound, 1))
+        assertEquals(true, isDerivedCalculatedWrite(bound, sheet, derivedWrite))
+        assertEquals(false, isDerivedCalculatedWrite(bound, sheet, derivedWrite.copy(raw = "=stale")))
+        assertEquals(false, isDerivedCalculatedWrite(bound, sheet, derivedWrite.copy(columnId = input.value)))
+        assertEquals(false, isDerivedCalculatedWrite(bound, sheet.copy(modelFormulaBindings = null), derivedWrite))
+        assertEquals(false, isDerivedCalculatedWrite(bound, sheet.copy(modelId = null), derivedWrite))
+        val extraCalculatedProperty = "31000000-0000-0000-0000-000000000098"
+        val modelWithLeadingCalculatedProperty = bound.dataModels.getValue(LIFECYCLE_MODEL).copy(
+            columns = listOf(CalculatedModelColumn(extraCalculatedProperty, "Earlier", ModelColumnType.FLOAT, "=1")) + bound.dataModels.getValue(LIFECYCLE_MODEL).columns,
+        )
+        val workbookWithLeadingCalculatedProperty = bound.copy(dataModels = bound.dataModels + (LIFECYCLE_MODEL to modelWithLeadingCalculatedProperty)).replaceSheet(
+            sheet.copy(modelColumnBindings = sheet.modelColumnBindings + (extraCalculatedProperty to input)),
+        )
+        assertEquals(true, isDerivedCalculatedWrite(workbookWithLeadingCalculatedProperty, workbookWithLeadingCalculatedProperty.documents.getValue(sheet.id), derivedWrite))
+        assertEquals(
+            expected,
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = LIFECYCLE_INPUT) })
+                }),
+                bound,
+                1,
+            ),
+        )
+        assertEquals(
+            "=@${output.value}[${sheet.tabularContent.rows[1].value}]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(columnId = output.value, propertyId = LIFECYCLE_OUTPUT) })
+                }),
+                bound,
+                1,
+            ),
+        )
+        assertEquals("=@#REF!A[1]*2", derivedFormulaRaw(template.copy(references = template.references.map { it.copy(sheetId = "missing") }), bound, 0))
+        assertEquals("=@#REF!A[1]*2", derivedFormulaRaw(template.copy(references = template.references.map { it.copy(sheetId = null) }), bound, 0))
+        assertEquals(
+            "=@#REF!A[1]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(sheetId = "missing", endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = LIFECYCLE_INPUT) })
+                }),
+                bound,
+                0,
+            ),
+        )
+        val missingPropertyBinding = bound.replaceSheet(sheet.copy(modelColumnBindings = sheet.modelColumnBindings - LIFECYCLE_INPUT))
+        assertEquals(
+            "=@#REF!A[1]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = LIFECYCLE_INPUT) })
+                }),
+                missingPropertyBinding,
+                0,
+            ),
+        )
+        assertEquals(
+            "=@#REF!A[1]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = "missing") })
+                }),
+                bound,
+                0,
+            ),
+        )
+        val undeclaredProperty = "31000000-0000-0000-0000-000000000099"
+        val sheetWithUndeclaredBinding = sheet.copy(modelColumnBindings = sheet.modelColumnBindings + (undeclaredProperty to input))
+        val workbookWithUndeclaredBinding = bound.replaceSheet(sheetWithUndeclaredBinding)
+        assertEquals(
+            "=@#REF!A[1]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = undeclaredProperty) })
+                }),
+                workbookWithUndeclaredBinding,
+                0,
+            ),
+        )
+        assertEquals(
+            "=@#REF!A[1]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(columnId = ColumnId.generate().value) })
+                }),
+                bound,
+                0,
+            ),
+        )
+        assertEquals(
+            "=@#REF!A[1]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(rowIndex = 100.0) })
+                }),
+                bound,
+                0,
+            ),
+        )
+        assertEquals(
+            "=@#REF!A[1]*2",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = listOf(null))
+                }),
+                bound,
+                0,
+            ),
+        )
+        val qualified = BoundModelFormula(
+            "=One!@A[1]",
+            listOf(
+                ModelFormulaReference(
+                    ModelFormulaSpan(5, 10),
+                    sheet.id.value,
+                    ModelFormulaSpan(1, 4),
+                    listOf(ModelFormulaEndpoint(ModelFormulaSpan(6, 10), input.value, 0.0, ModelFormulaAnchors(false, false))),
+                ),
+            ),
+        )
+        assertEquals("=${sheet.id.value}!@${input.value}[${sheet.tabularContent.rows[0].value}]", derivedFormulaRaw(qualified, bound, 0))
+    }
+
+    @Test
+    fun `template-free declaration edits remain available before a calculated model is bound`() {
+        val before = lifecycleWorkbook()
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore(before))
+        val original = before.dataModels.getValue(LIFECYCLE_MODEL)
+        val changed = original.copy(columns = listOf(original.columns[0], (original.columns[1] as CalculatedModelColumn).copy(formula = "=@A[1]*3")))
+
+        assertEquals(changed, application.saveDataModel(changed))
+        assertEquals(
+            WorkbookApplicationError.SHEET_NOT_FOUND,
+            assertFailsWith<WorkbookApplicationException> {
+                application.updateSheetModel("40000000-0000-0000-0000-000000000099", UpdateSheetModelCommand(LIFECYCLE_MODEL))
+            }.error,
+        )
+    }
+
+    @Test
+    fun `model validation rejects malformed calculated declarations before lifecycle selection`() {
+        val model = lifecycleWorkbook().dataModels.getValue(LIFECYCLE_MODEL)
+
+        assertEquals(false, isValidDataModel(model.copy(columns = listOf(model.columns[0], (model.columns[1] as CalculatedModelColumn).copy(formula = " ")))))
+        assertEquals(false, isValidDataModel(model.copy(columns = listOf(ManualModelColumn("invalid", "Input", ModelColumnType.FLOAT), model.columns[1]))))
+    }
 }
 
 internal fun formulaChangedWorkbook(before: WorkbookState, model: DataModel): WorkbookState = before.copy(
