@@ -145,6 +145,7 @@ function referenceDependencies(
     return dependencies;
   }
   if (reference.propertyId && (targetSheet.modelColumnBindings?.[reference.propertyId] !== reference.coordinate.columnId || !targetSheet.modelPropertyIds?.has(reference.propertyId))) return new Set();
+  if (reference.range?.endPropertyId && (targetSheet.modelColumnBindings?.[reference.range.endPropertyId] !== reference.range.end.columnId || !targetSheet.modelPropertyIds?.has(reference.range.endPropertyId))) return new Set();
   if (!reference.range) {
     const key = calculationCellKey(targetSheet, reference.coordinate);
     return key ? new Set([sheetCellNodeId(targetSheet.id, key)]) : new Set();

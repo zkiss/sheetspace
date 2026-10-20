@@ -125,7 +125,9 @@ function inspectionReference(
     const identity = !reference.range
       ? { rowId: reference.coordinate.rowId, columnId: reference.coordinate.columnId }
       : undefined;
-    const propertyValid = !reference.propertyId || (targetSheet?.modelColumnBindings?.[reference.propertyId] === reference.coordinate.columnId && Boolean(targetSheet.modelId && workbook.dataModels?.[targetSheet.modelId]?.columns.some((column) => column.id === reference.propertyId)));
+    const hasProperty = (propertyId: string | undefined, columnId: string) => !propertyId || (targetSheet?.modelColumnBindings?.[propertyId] === columnId && Boolean(targetSheet.modelId && workbook.dataModels?.[targetSheet.modelId]?.columns.some((column) => column.id === propertyId)));
+    const propertyValid = hasProperty(reference.propertyId, reference.coordinate.columnId)
+      && hasProperty(reference.range?.endPropertyId, reference.range?.end.columnId ?? '');
     const valid = propertyValid && targetSheet && (range
       ? targetSheet.content.rows.includes(range.start.rowId) && targetSheet.content.columns.includes(range.start.columnId)
         && targetSheet.content.rows.includes(range.end.rowId) && targetSheet.content.columns.includes(range.end.columnId)
