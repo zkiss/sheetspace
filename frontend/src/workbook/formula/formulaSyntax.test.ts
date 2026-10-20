@@ -75,6 +75,19 @@ describe('formula syntax', () => {
     expect(incomplete.tokens.map((token) => incomplete.result.raw.slice(token.sourceSpan.start, token.sourceSpan.end)).join('')).toBe(incomplete.result.raw);
   });
 
+  it('reports one ordered, non-empty diagnostic for each malformed reference fragment during recovery', () => {
+    const raw = '=SUM(@A[1],) + @broken + @B[2]';
+    const analysis = parseFormulaSyntax(raw);
+
+    expect(analysis.diagnostics).toEqual([
+      { kind: 'syntax', code: '#PARSE!', sourceSpan: { start: raw.indexOf(')'), end: raw.indexOf(')') + 1 } },
+      { kind: 'syntax', code: '#PARSE!', sourceSpan: { start: raw.indexOf('@broken'), end: raw.indexOf('@broken') + 1 } },
+    ]);
+    expect(analysis.references.map((reference) => raw.slice(reference.sourceSpan.start, reference.sourceSpan.end)))
+      .toEqual(['@A[1]', '@B[2]']);
+    expect(parseFormulaSyntax('=SUM(@A[1], @B[2])').diagnostics).toEqual([]);
+  });
+
   it('recovers qualifiers after an earlier syntax error for inspection and remapping', () => {
     const raw = '=SUM(@A[1],) + @source-sheet!B[2] + @saved-sheet!C[3] + @#REF!D[4]';
     const parsed = parseFormulaSyntax(raw);

@@ -40,7 +40,7 @@ export class FormulaParser {
       : trailingSyntax
         ? { kind: 'error', raw, error: '#PARSE!' }
         : { kind: 'formula', raw, expression: expression.value };
-    if (trailingSyntax) this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(this.index, this.index) });
+    if (trailingSyntax) this.recordSyntaxDiagnostic(this.index, this.index + 1);
     return {
       result,
       references: [...this.references],
@@ -58,36 +58,28 @@ export class FormulaParser {
   private recoverRemainingReferences(): void {
     while (!this.atEnd()) {
       this.skipWhitespace();
-      if (this.atEnd()) {
-        return;
-      }
+      if (this.atEnd()) return;
       if (this.peek() === '"') {
         this.skipTextLiteral();
         continue;
       }
 
+      if (this.peek() !== '@') { this.index += 1; continue; }
+
       const candidateStart = this.index;
-      const existingCount = this.references.length;
+      const state = [this.references.length, this.referenceLexemes.length, this.syntaxTokens.length, this.diagnostics.length];
       const candidate = this.readReference();
       if (candidate.ok) {
         const recovered = this.references[this.references.length - 1];
-        const duplicate = recovered && this.references
-          .slice(0, -1)
-          .some((reference) =>
-            reference.sourceSpan.start === recovered.sourceSpan.start
-            && reference.sourceSpan.end === recovered.sourceSpan.end,
-          );
-        if (duplicate) {
-          this.references.pop();
-        }
+        const duplicate = recovered && this.references.slice(0, -1).some((reference) => reference.sourceSpan.start === recovered.sourceSpan.start && reference.sourceSpan.end === recovered.sourceSpan.end);
+        if (duplicate) this.references.pop();
         continue;
       }
 
       const attemptedEnd = this.index;
-      this.references.length = existingCount;
-      this.index = this.input[candidateStart + 1] === "'"
-        ? Math.max(candidateStart + 1, attemptedEnd)
-        : candidateStart + 1;
+      [this.references.length, this.referenceLexemes.length, this.syntaxTokens.length, this.diagnostics.length] = state;
+      this.recordSyntaxDiagnostic(candidateStart, Math.max(candidateStart + 1, attemptedEnd));
+      this.index = this.input[candidateStart + 1] === "'" ? Math.max(candidateStart + 1, attemptedEnd) : candidateStart + 1;
     }
   }
 
@@ -520,8 +512,12 @@ export class FormulaParser {
   private atEnd(): boolean { return this.index >= this.input.length; }
 
   private error(): ReadResult<never> {
-    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(this.index, this.index) });
+    this.recordSyntaxDiagnostic(this.atEnd() ? Math.max(0, this.index - 1) : this.index, this.atEnd() ? this.index : this.index + 1);
     return { ok: false, error: '#PARSE!' };
+  }
+
+  private recordSyntaxDiagnostic(start: number, end: number): void {
+    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: start === end ? { start: 0, end: 1 } : this.spanTo(start, end) });
   }
 
   private recordToken(kind: FormulaSyntaxToken['kind'], start: number, end: number): void {
