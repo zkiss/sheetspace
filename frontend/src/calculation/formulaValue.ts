@@ -2,6 +2,7 @@ import type { CellKey } from '@workbook/core/address';
 import { APPLICATION_DEFAULT_NUMBER_FORMAT } from '@workbook/core/numberFormat';
 import type { NumberFormat } from '@workbook/core/model';
 import type { FormulaErrorCode } from '@workbook/formula/syntax';
+import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 
 export type FormulaScalarValue =
   | { kind: 'number'; value: number }
@@ -41,6 +42,8 @@ export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaSc
 }
 
 export function classifyCellValue(raw: string): FormulaScalarValue {
+  const literal = decodeCellTextLiteral(raw);
+  if (literal !== undefined) return { kind: 'text', value: literal };
   if (raw.length === 0) {
     return { kind: 'blank' };
   }
@@ -59,6 +62,17 @@ export function classifyCellValue(raw: string): FormulaScalarValue {
     return { kind: 'boolean', value: false };
   }
   return { kind: 'text', value: raw };
+}
+
+/** Freezes underlying values, independently of display formatting. */
+export function materializeFormulaValue(value: FormulaScalarValue): string {
+  switch (value.kind) {
+    case 'text': return encodeCellTextLiteral(value.value);
+    case 'error': return encodeCellTextLiteral(value.error);
+    case 'number': return Object.is(value.value, -0) ? '-0' : String(value.value);
+    case 'boolean': return value.value ? 'TRUE' : 'FALSE';
+    case 'blank': return '';
+  }
 }
 
 export function displayRawCellValue(raw: string, format: NumberFormat = APPLICATION_DEFAULT_NUMBER_FORMAT): FormulaDisplayResult {
