@@ -1,4 +1,4 @@
-import { normalizeRange, parseA1Address, type CellAddress } from '../core/address';
+import { parseA1Address } from '../core/address';
 import type {
   BinaryFormula,
   FormulaErrorCode,
@@ -14,6 +14,7 @@ import type {
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
 import { decodeStableId } from './stableId';
+import { makeFormulaReference } from './syntaxReference';
 
 type ReadResult<T> =
   | { ok: true; value: T }
@@ -335,22 +336,8 @@ export class FormulaParser {
     return { ok: true, value: reference };
   }
 
-  /**
-   * Ranges have one spelling representation.  In particular, a raw property
-   * name is not interchangeable with its persisted identity encoding: mixing
-   * them would manufacture a partial canonical identity.
-   */
-  private endpointKind(endpoint: FormulaReferenceLexeme['endpoints'][number]): 'a1' | 'canonical' | 'raw-named' | 'stored-named' {
-    if (endpoint.kind !== 'named') return endpoint.kind;
-    return (endpoint.value as { columnId: string }).columnId ? 'stored-named' : 'raw-named';
-  }
-
   private referenceEndpointsMatch(first: FormulaReferenceLexeme['endpoints'][number], second: FormulaReferenceLexeme['endpoints'][number]): boolean {
-    return this.endpointKind(first) === this.endpointKind(second);
-  }
-
-  private isStoredNamedEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number]): boolean {
-    return this.endpointKind(endpoint) === 'stored-named';
+    return first.kind === second.kind;
   }
 
   private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
@@ -362,7 +349,7 @@ export class FormulaParser {
       const rowId = decodeStableId(named[5]);
       if (propertyId === undefined || columnId === undefined || rowId === undefined) return undefined;
       this.index += named[0].length;
-      return { kind: 'named', value: { propertyId, columnId, rowId }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start) };
+      return { kind: 'stored-named', value: { propertyId, columnId, rowId }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start) };
     }
     const propertyStart = this.index;
     const propertyAnchor = this.consume('$');
@@ -371,7 +358,7 @@ export class FormulaParser {
       const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
       if (!row) return undefined;
       this.index += row[0].length;
-      return { kind: 'named', value: { propertyId: property, columnId: '', rowId: row[2] }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
+      return { kind: 'named', value: { propertyName: property, row: Number(row[2]) }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
     }
     this.index = propertyStart;
     const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
@@ -406,27 +393,11 @@ export class FormulaParser {
     start: number,
     end: number,
   ): FormulaReference {
-    const base = {
+    return makeFormulaReference(first, second, {
       ...(qualifier.sheetId === undefined ? {} : { sheetId: qualifier.sheetId }),
       sourceSpan: this.spanTo(start, end),
       ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
-    };
-    const firstKind = this.endpointKind(first);
-    if (firstKind === 'canonical' || firstKind === 'stored-named' || firstKind === 'raw-named') {
-      const named = firstKind === 'stored-named';
-      const value = first.value as { propertyId?: string; columnId: string; rowId: string };
-      const coordinate = { columnId: value.columnId, rowId: value.rowId };
-      const endValue = second?.value as { propertyId?: string; columnId: string; rowId: string } | undefined;
-      return {
-        kind: 'canonical',
-        ...base,
-        coordinate,
-        ...(named ? { propertyId: value.propertyId } : {}),
-        ...(second ? { range: { start: coordinate, end: { columnId: endValue!.columnId, rowId: endValue!.rowId }, ...(named || this.isStoredNamedEndpoint(second) ? { startPropertyId: named ? value.propertyId : undefined, endPropertyId: this.isStoredNamedEndpoint(second) ? endValue!.propertyId : undefined } : {}) } } : {}),
-      };
-    }
-    if (!second) return { kind: 'cell', ...base, address: first.value as CellAddress };
-    return { kind: 'range', ...base, range: normalizeRange({ start: first.value as CellAddress, end: second.value as CellAddress }) };
+    });
   }
 
   private recordReference(

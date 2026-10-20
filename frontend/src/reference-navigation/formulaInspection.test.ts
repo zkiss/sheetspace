@@ -278,6 +278,15 @@ describe('formula inspection', () => {
       "@'Missing'[1]", "@'Revenue'[21]", "@'Cost'[1]",
     ]);
     expect(result?.references).toHaveLength(3);
+    expect(result?.references.slice(0, 2)).toMatchObject([
+      { target: { kind: 'cell' }, broken: true, navigable: false },
+      { target: { kind: 'cell' }, broken: true, navigable: false },
+    ]);
+    expect(result?.references[2]).toMatchObject({
+      target: { kind: 'cell', sheetId: sheet.id, identity: { columnId: sheet.content.columns[1], rowId: sheet.content.rows[0] } },
+      broken: false,
+      navigable: true,
+    });
     expect(result?.diagnostics).toEqual([
       { kind: 'reference', code: '#REF!', sourceSpan: result?.references[0].sourceSpan },
       { kind: 'reference', code: '#REF!', sourceSpan: result?.references[1].sourceSpan },

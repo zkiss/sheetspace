@@ -232,6 +232,7 @@ export class FormulaEvaluator {
   }
 
   private evaluateReference(reference: FormulaReference, currentSheet: CalculationSheet): FormulaValue {
+    if (reference.kind === 'named') return formulaErrorValue('#REF!');
     const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
     if (!sheet) {
       return formulaErrorValue('#REF!');

@@ -58,11 +58,12 @@ export function inspectFormula(
     : parsed.references)
     .sort((first, second) => first.sourceSpan.start - second.sourceSpan.start);
   const raw = formulaRawForDisplay(canonicalRaw, workbook, currentSheet.id);
-  const hasCanonicalReference = formulaReferenceTokens(canonicalRaw)
-    .some((reference) => reference.endpoints.some((endpoint) => endpoint?.kind === 'canonical'));
-  const displaySpans = hasCanonicalReference
+  const canonicalReferences = formulaReferenceTokens(canonicalRaw)
+    .filter((reference) => reference.endpoints.some((endpoint) => endpoint?.kind === 'canonical'));
+  const displaySpans = canonicalReferences.length > 0
     ? referenceDisplaySpans(
       formulaReferences,
+      canonicalReferences.map((reference) => reference.sourceSpan),
       formulaRawToDisplayProjection(
         canonicalRaw,
         workbookFormulaReferenceResolver(workbook, currentSheet.id),
@@ -100,16 +101,16 @@ function parsedDisplaySpans(raw: string, references: readonly FormulaReference[]
  */
 function referenceDisplaySpans(
   references: readonly FormulaReference[],
+  canonical: readonly FormulaSourceSpan[],
   canonicalSpans: readonly FormulaSourceSpan[],
 ): FormulaSourceSpan[] {
-  const canonical = references.filter((reference) => reference.kind === 'canonical');
   let canonicalIndex = 0;
   return references.map((reference) => {
-    if (reference.kind === 'canonical') return canonicalSpans[canonicalIndex++]!;
+    if (canonical[canonicalIndex]?.start === reference.sourceSpan.start) return canonicalSpans[canonicalIndex++]!;
     const priorCanonical = canonicalSpans.slice(0, canonicalIndex)
-      .filter((_, index) => canonical[index]!.sourceSpan.end <= reference.sourceSpan.start);
+      .filter((_, index) => canonical[index]!.end <= reference.sourceSpan.start);
     const sourceLength = canonical.slice(0, priorCanonical.length)
-      .reduce((total, item) => total + item.sourceSpan.end - item.sourceSpan.start, 0);
+      .reduce((total, item) => total + item.end - item.start, 0);
     const displayLength = priorCanonical.reduce((total, span) => total + span.end - span.start, 0);
     const shift = displayLength - sourceLength;
     return { start: reference.sourceSpan.start + shift, end: reference.sourceSpan.end + shift };
@@ -124,6 +125,17 @@ function inspectionReference(
   currentSheet: SheetDocument,
   hasReferenceDiagnostic: boolean,
 ): FormulaInspectionReference {
+  if (reference.kind === 'named') {
+    return {
+      kind: 'reference',
+      text: displayRaw.slice(displaySpan.start, displaySpan.end),
+      sourceSpan: reference.sourceSpan,
+      displaySpan,
+      target: { kind: reference.end ? 'range' : 'cell', sheetId: reference.sheetId ?? currentSheet.id },
+      broken: true,
+      navigable: false,
+    };
+  }
   if (reference.kind === 'canonical') {
     const sheetId = reference.sheetId ?? currentSheet.id;
     const targetSheet = findSheetById(workbook, sheetId);

@@ -60,6 +60,7 @@ export function collectFormulaReferences(expression: FormulaExpression): Formula
     case 'cell':
     case 'range':
     case 'canonical':
+    case 'named':
       return [expression];
     case 'number':
     case 'text':

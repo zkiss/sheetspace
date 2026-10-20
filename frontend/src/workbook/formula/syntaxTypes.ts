@@ -13,6 +13,14 @@ export type FormulaSourceSpan = { start: number; end: number };
 
 export type FormulaReference =
   | {
+      kind: 'named';
+      sheetId?: string;
+      endpoint: { propertyName: string; row: number };
+      end?: { propertyName: string; row: number };
+      sourceSpan: FormulaSourceSpan;
+      sheetReferenceSpan?: FormulaSourceSpan;
+    }
+  | {
       kind: 'cell';
       sheetId?: string;
       address: CellAddress;
@@ -111,5 +119,10 @@ export type FormulaSyntaxResult = {
 export type FormulaReferenceLexeme = {
   sourceSpan: FormulaSourceSpan;
   qualifier?: { value: string; sourceSpan: FormulaSourceSpan; broken: boolean };
-  endpoints: readonly { kind: 'a1' | 'canonical' | 'named'; value: CellAddress | { columnId: string; rowId: string } | { propertyId: string; columnId: string; rowId: string }; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan }[];
+  endpoints: readonly ({ anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan } & (
+    | { kind: 'a1'; value: CellAddress }
+    | { kind: 'canonical'; value: { columnId: string; rowId: string } }
+    | { kind: 'named'; value: { propertyName: string; row: number } }
+    | { kind: 'stored-named'; value: { propertyId: string; columnId: string; rowId: string } }
+  ))[];
 };
