@@ -115,7 +115,14 @@ export function formulaRawForStorage(raw: string, workbook: Workbook, currentShe
 
 export function formulaRawForDisplay(raw: string, workbook: Workbook, currentSheetId?: SheetId): string {
   if (currentSheetId && formulaReferenceTokens(raw).some((reference) => reference.endpoints.some((endpoint) => endpoint?.kind === 'canonical'))) return formulaRawToDisplay(raw, workbookFormulaReferenceResolver(workbook, currentSheetId));
-  return replaceFormulaQualifiers(raw, (sheetReference) => { const sheet = findSheetById(workbook, sheetReference) ?? sheetsInOrder(workbook).find((sheet) => sheet.name === sheetReference); return sheet ? formatSheetReferenceToken(sheet.name) : '#REF'; });
+  const edits = formulaReferenceTokens(raw).flatMap((reference): Edit[] => {
+    if (reference.qualifier.kind !== 'explicit') return [];
+    const qualifier = reference.qualifier;
+    const sheet = findSheetById(workbook, qualifier.sheetId)
+      ?? (reference.endpoints[0].kind === 'named' ? sheetsInOrder(workbook).find((sheet) => sheet.name === qualifier.sheetId) : undefined);
+    return [{ ...qualifier.sourceSpan, value: sheet ? formatSheetReferenceToken(sheet.name) : '#REF' }];
+  });
+  return applyEdits(raw, edits);
 }
 
 export function formulaSheetReferenceIds(raw: string): string[] { return formulaSheetReferences(raw).filter((sheetId) => sheetId !== '#REF'); }

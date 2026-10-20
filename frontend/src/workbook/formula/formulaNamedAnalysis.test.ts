@@ -99,6 +99,18 @@ describe('resolver-backed named draft analysis', () => {
     expect(inspection.references.every((reference) => reference.navigable && !reference.broken)).toBe(true);
   });
 
+  it('does not reinterpret persisted A1 sheet identities as names alongside a raw named qualifier', () => {
+    const workbook = boundWorkbook();
+    const sheet = workbook.documents.sheet!;
+    const inspection = inspectFormula("=@Budget!A[1] + @Budget!'Revenue'[1]", workbook, sheet)!;
+
+    expect(inspection.references[0]).toMatchObject({ text: '@#REF!A[1]', broken: true, navigable: false });
+    expect(inspection.references[1]).toMatchObject({
+      text: "@Budget!'Revenue'[1]", broken: false, navigable: true,
+      target: { kind: 'cell', sheetId: sheet.id, identity: { columnId: sheet.content.columns[0], rowId: sheet.content.rows[0] } },
+    });
+  });
+
   it.each(["=@'Missing'[1]", "=@'Revenue'[999]", "=@Missing!'Revenue'[1]", "=@'Revenue'[1]:'Missing'[2]"])(
     'keeps unresolved draft %s broken without inventing stable coordinates', (raw) => {
       const workbook = boundWorkbook();
