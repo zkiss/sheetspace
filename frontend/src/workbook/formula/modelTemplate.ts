@@ -1,5 +1,6 @@
 import { cellIdentityKey } from '../core/cellIdentity';
 import type { SheetDocument, Workbook } from '../core/model';
+import type { BoundModelFormula, ModelFormulaBindings } from '../core/modelFormula';
 import { formatCanonicalFormulaEndpoint, formulaReferenceTokens, workbookFormulaReferenceResolver, type FormulaAxisAnchor, type FormulaReferenceEndpoint, type FormulaSourceSpan } from './reference';
 
 type TemplateEndpoint = {
@@ -9,18 +10,6 @@ type TemplateEndpoint = {
   anchors: FormulaAxisAnchor;
   propertyId?: string;
 };
-
-/** Serializable per-sheet bindings: row positions deliberately contain no row identities. */
-export type BoundModelFormula = {
-  raw: string;
-  references: {
-    sourceSpan: FormulaSourceSpan;
-    sheetId?: string;
-    qualifierSpan?: FormulaSourceSpan;
-    endpoints: (TemplateEndpoint | null)[];
-  }[];
-};
-export type ModelFormulaBindings = Readonly<Record<string, BoundModelFormula>>;
 
 export function bindModelFormula(raw: string, workbook: Workbook, sheetId: string): BoundModelFormula {
   const resolver = workbookFormulaReferenceResolver(workbook, sheetId);

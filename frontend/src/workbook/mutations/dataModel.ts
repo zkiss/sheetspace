@@ -8,7 +8,7 @@ export function validateDataModel(model: DataModel): ModelMutationResult | undef
   const ids = model.columns.map((column) => column.id);
   const names = model.columns.map((column) => column.name.trim());
   if (ids.some((id) => !nonBlank(id)) || names.some((name) => !name) || new Set(ids).size !== ids.length || new Set(names).size !== names.length) return { ok: false, reason: 'invalid-model' };
-  if (model.columns.some((column) => !['string', 'int', 'float', 'boolean'].includes(column.type) || (column.kind === 'calculated' ? !nonBlank(column.formula) : 'formula' in column))) return { ok: false, reason: 'invalid-model' };
+  if (model.columns.some((column) => !['manual', 'calculated'].includes(column.kind) || !['string', 'int', 'float', 'boolean'].includes(column.type) || (column.kind === 'calculated' ? !nonBlank(column.formula) : 'formula' in column))) return { ok: false, reason: 'invalid-model' };
   return undefined;
 }
 
@@ -44,7 +44,7 @@ export function setSheetModelId(workbook: Workbook, sheetId: SheetId, modelId?: 
     ? undefined
     : Object.fromEntries(model.columns.slice(0, sheet.content.columns.length)
       .map((property, index) => [property.id, sheet.content.columns[index]!]));
-  const updatedSheet = { ...sheet, modelId, modelColumnBindings: bindings };
+  const updatedSheet = { ...sheet, modelId, modelColumnBindings: bindings, modelFormulaBindings: undefined };
   return { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: updatedSheet } } };
 }
 
