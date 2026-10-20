@@ -282,16 +282,21 @@ class DefaultWorkbookApplication(
             if (command.modelId != null && command.modelId !in workbook.dataModels) {
                 throw WorkbookApplicationException(WorkbookApplicationError.UNKNOWN_DATA_MODEL)
             }
-            if (sheet.modelId == command.modelId && command.modelColumnBindings == null) return@updateWorkbook workbook
             val bindings = command.modelColumnBindings ?: command.modelId?.let { modelId ->
                 workbook.dataModels.getValue(modelId).columns.zip(sheet.tabularContent.columns)
                     .associate { (property, column) -> property.id to column }
             }.orEmpty()
-            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings, modelFormulaBindings = null)
+            if (sheet.modelId == command.modelId && sheet.modelColumnBindings == bindings) return@updateWorkbook workbook
+            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings)
             if (!validModelColumnBindings(updated, workbook.dataModels)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
             }
-            workbook.replaceSheet(updated)
+            val model = command.modelId?.let(workbook.dataModels::get)
+            if (model?.columns?.any { it is CalculatedModelColumn } == true) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
+            }
+            val withoutFormulaBindings = updated.copy(modelFormulaBindings = null)
+            workbook.replaceSheet(withoutFormulaBindings)
         }.documents.getValue(id)
     }
 

@@ -46,8 +46,6 @@ class SqliteModelColumnBindingsTest {
             assertEquals(mapOf(costId to sheet.tabularContent.columns[1]), reloaded.modelColumnBindings)
             assertEquals(boundSheet.content, reloaded.content)
             assertEquals(boundSheet.presentation, reloaded.presentation)
-            application.updateSheetModel(sheet.id.value, UpdateSheetModelCommand(modelId))
-            assertEquals(reloaded, store.loadSheet(sheet.id))
         }
     }
 

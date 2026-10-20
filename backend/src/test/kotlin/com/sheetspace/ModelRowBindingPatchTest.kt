@@ -44,6 +44,28 @@ private fun rowTemplate(sheetId: String, columnId: String): BoundModelFormula = 
     ),
 )
 
+private fun bindRowModel(application: WorkbookApplication, sheetId: String): SheetDocument {
+    val before = application.loadWorkbookBundle()
+    val sheet = before.documents.getValue(SheetId(sheetId))
+    val input = sheet.tabularContent.columns[0]
+    val output = sheet.tabularContent.columns[1]
+    val template = rowTemplate(sheetId, input.value)
+    val content = sheet.tabularContent
+    val bound = sheet.copy(
+        modelId = ROW_MODEL,
+        modelColumnBindings = mapOf(ROW_INPUT to input, ROW_OUTPUT to output),
+        modelFormulaBindings = mapOf(ROW_OUTPUT to template),
+        content = TabularContent(
+            content.rows,
+            content.columns,
+            content.cellContents + content.rows.withIndex().associate { (index, row) ->
+                CellCoordinate(row, output) to derivedFormulaRaw(template, before, index)
+            },
+        ),
+    )
+    return application.saveModelLifecycle(before, before.replaceSheet(bound)).documents.getValue(sheet.id)
+}
+
 class ModelRowBindingPatchTest {
     @Test
     fun `ordinary HTTP patches reject calculated writes carrying claimed template bindings`() {
@@ -51,8 +73,7 @@ class ModelRowBindingPatchTest {
             val sheetId = "40000000-0000-0000-0000-000000000001"
             store.saveWorkbook(rowWorkbook(sheetId))
             val application = DefaultWorkbookApplication(store)
-            application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
-            val sheet = application.loadSheet(sheetId)
+            val sheet = bindRowModel(application, sheetId)
             val coordinate = sheet.tabularContent.coordinateAt("B1")!!
             val template = rowTemplate(sheetId, sheet.tabularContent.columns[0].value)
 
@@ -66,7 +87,7 @@ class ModelRowBindingPatchTest {
 
                 assertEquals(HttpStatusCode.BadRequest, response.status)
                 assertEquals(ErrorResponse("invalid-request"), response.decodeBody())
-                assertNull(store.loadSheet(SheetId(sheetId))!!.modelFormulaBindings)
+                assertEquals(mapOf(ROW_OUTPUT to template), store.loadSheet(SheetId(sheetId))!!.modelFormulaBindings)
             }
         }
     }
@@ -77,8 +98,7 @@ class ModelRowBindingPatchTest {
             val sheetId = "40000000-0000-0000-0000-000000000002"
             store.saveWorkbook(rowWorkbook(sheetId))
             val application = DefaultWorkbookApplication(store)
-            application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
-            val sheet = application.loadSheet(sheetId)
+            val sheet = bindRowModel(application, sheetId)
             val coordinate = sheet.tabularContent.coordinateAt("B1")!!
             val stale = BoundModelFormula("=@A[1]*3", rowTemplate(sheetId, sheet.tabularContent.columns[0].value).references)
             val baseline = store.loadWorkbookBundle()
@@ -105,8 +125,7 @@ class ModelRowBindingPatchTest {
             val sheetId = "40000000-0000-0000-0000-000000000009"
             store.saveWorkbook(rowWorkbook(sheetId))
             val application = DefaultWorkbookApplication(store)
-            application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
-            val sheet = application.loadSheet(sheetId)
+            val sheet = bindRowModel(application, sheetId)
             val row = sheet.tabularContent.rows.single()
             val input = sheet.tabularContent.columns[0]
             val output = sheet.tabularContent.columns[1]
@@ -140,12 +159,11 @@ class ModelRowBindingPatchTest {
             val sheetId = "40000000-0000-0000-0000-000000000003"
             store.saveWorkbook(rowWorkbook(sheetId))
             val application = DefaultWorkbookApplication(store)
-            application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
-            val sheet = application.loadSheet(sheetId)
+            val sheet = bindRowModel(application, sheetId)
             val template = rowTemplate(sheetId, sheet.tabularContent.columns[0].value)
             store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(
                 listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
-                listOf(SheetCellWrite(sheetId, sheet.tabularContent.rows[0].value, sheet.tabularContent.columns[1].value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, sheet.tabularContent.rows[0].value))),
+                listOf(SheetCellWrite(sheetId, sheet.tabularContent.rows[0].value, sheet.tabularContent.columns[0].value, "")),
                 listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
             )) }
             val baseline = store.loadWorkbookBundle()
@@ -167,8 +185,7 @@ class ModelRowBindingPatchTest {
             val sheetId = "40000000-0000-0000-0000-000000000004"
             store.saveWorkbook(rowWorkbook(sheetId))
             val application = DefaultWorkbookApplication(store)
-            application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
-            val sheet = application.loadSheet(sheetId)
+            val sheet = bindRowModel(application, sheetId)
             val template = rowTemplate(sheetId, sheet.tabularContent.columns[0].value)
             val expected = ExpectedSheetRevision(sheetId, sheet.revision)
             val baseline = store.loadWorkbookBundle()
@@ -289,8 +306,7 @@ class ModelRowBindingPatchTest {
             SqliteWorkbookStore(database).use { store ->
                 store.saveWorkbook(rowWorkbook(sheetId))
                 val application = DefaultWorkbookApplication(store)
-                application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
-                val sheet = application.loadSheet(sheetId)
+                val sheet = bindRowModel(application, sheetId)
                 expected = mapOf(ROW_OUTPUT to rowTemplate(sheetId, sheet.tabularContent.columns[0].value))
                 store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(
                     listOf(ExpectedSheetRevision(sheetId, sheet.revision)),

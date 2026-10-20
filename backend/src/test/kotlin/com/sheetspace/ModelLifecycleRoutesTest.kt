@@ -120,6 +120,53 @@ class ModelLifecycleRoutesTest {
             }
         }
     }
+
+    @Test
+    fun `template-free model binding rejects calculated models while lifecycle binding and unbinding remain atomic`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val before = lifecycleWorkbook()
+            val bound = lifecycleBoundWorkbook(before)
+            val sheet = before.sheetsInOrder.first()
+            store.saveWorkbook(before)
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+
+                val rejected = client.put("/api/sheets/${sheet.id.value}/model") { jsonBody("""{"modelId":"$LIFECYCLE_MODEL"}""") }
+                assertEquals(HttpStatusCode.BadRequest, rejected.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), rejected.decodeBody())
+                assertEquals(before, store.loadWorkbookBundle())
+
+                assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, bound)) }.status)
+                val saved = store.loadWorkbookBundle()
+                val savedSheet = saved.documents.getValue(sheet.id)
+                val idempotent = client.put("/api/sheets/${sheet.id.value}/model") {
+                    jsonBody("""{"modelId":"$LIFECYCLE_MODEL","modelColumnBindings":{"$LIFECYCLE_INPUT":"${savedSheet.tabularContent.columns[0].value}","$LIFECYCLE_OUTPUT":"${savedSheet.tabularContent.columns[1].value}"}}""")
+                }
+                assertEquals(HttpStatusCode.OK, idempotent.status)
+                assertEquals(saved, store.loadWorkbookBundle())
+
+                assertEquals(HttpStatusCode.OK, client.put("/api/sheets/${sheet.id.value}/model") { jsonBody("""{"modelId":null}""") }.status)
+                val unbound = store.loadWorkbookBundle().documents.getValue(sheet.id)
+                assertEquals(null, unbound.modelId)
+                assertEquals(null, unbound.modelFormulaBindings)
+                assertEquals(savedSheet.tabularContent, unbound.tabularContent)
+                assertEquals(savedSheet.presentation, unbound.presentation)
+
+                val zeroRow = lifecycleWorkbook().let { workbook ->
+                    val zeroSheet = workbook.sheetsInOrder.first().let { current ->
+                        current.copy(content = TabularContent(emptyList(), current.tabularContent.columns, emptyMap()))
+                    }
+                    workbook.replaceSheet(zeroSheet)
+                }
+                store.saveWorkbook(zeroRow)
+                val zeroRowSheet = zeroRow.sheetsInOrder.first()
+                val zeroRowRejected = client.put("/api/sheets/${zeroRowSheet.id.value}/model") { jsonBody("""{"modelId":"$LIFECYCLE_MODEL"}""") }
+                assertEquals(HttpStatusCode.BadRequest, zeroRowRejected.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), zeroRowRejected.decodeBody())
+                assertEquals(zeroRow, store.loadWorkbookBundle())
+            }
+        }
+    }
 }
 
 internal const val LIFECYCLE_MODEL = "30000000-0000-0000-0000-000000000001"
