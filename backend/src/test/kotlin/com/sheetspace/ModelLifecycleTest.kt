@@ -333,6 +333,46 @@ class ModelLifecycleTest {
     }
 
     @Test
+    fun `template-free model binding rejects calculated custom and partial mappings without mutation`() {
+        val before = lifecycleWorkbook()
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore(before))
+        val sheet = before.sheetsInOrder.first()
+        val customBindings = mapOf(
+            LIFECYCLE_INPUT to sheet.tabularContent.columns[2],
+            LIFECYCLE_OUTPUT to sheet.tabularContent.columns[1],
+        )
+        val partialBindings = mapOf(LIFECYCLE_INPUT to sheet.tabularContent.columns[2])
+
+        listOf(customBindings, partialBindings).forEach { bindings ->
+            assertEquals(
+                WorkbookApplicationError.INVALID_MODEL_LIFECYCLE,
+                assertFailsWith<WorkbookApplicationException> {
+                    application.updateSheetModel(sheet.id.value, UpdateSheetModelCommand(LIFECYCLE_MODEL, bindings))
+                }.error,
+            )
+            assertEquals(before, application.loadWorkbookBundle())
+        }
+
+        val bound = application.saveModelLifecycle(before, lifecycleBoundWorkbook(before))
+        val boundSheet = bound.documents.getValue(sheet.id)
+        val changedBindings = mapOf(
+            LIFECYCLE_INPUT to boundSheet.tabularContent.columns[1],
+            LIFECYCLE_OUTPUT to boundSheet.tabularContent.columns[0],
+        )
+        val clearedCalculatedBinding = mapOf(LIFECYCLE_INPUT to boundSheet.tabularContent.columns[1])
+
+        listOf(changedBindings, clearedCalculatedBinding).forEach { bindings ->
+            assertEquals(
+                WorkbookApplicationError.INVALID_MODEL_LIFECYCLE,
+                assertFailsWith<WorkbookApplicationException> {
+                    application.updateSheetModel(sheet.id.value, UpdateSheetModelCommand(LIFECYCLE_MODEL, bindings))
+                }.error,
+            )
+            assertEquals(bound, application.loadWorkbookBundle())
+        }
+    }
+
+    @Test
     fun `model validation rejects malformed calculated declarations before lifecycle selection`() {
         val model = lifecycleWorkbook().dataModels.getValue(LIFECYCLE_MODEL)
 

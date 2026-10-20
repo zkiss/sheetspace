@@ -137,6 +137,20 @@ class ModelLifecycleRoutesTest {
                 assertEquals(ErrorResponse("invalid-model-lifecycle"), rejected.decodeBody())
                 assertEquals(before, store.loadWorkbookBundle())
 
+                val customAttachment = client.put("/api/sheets/${sheet.id.value}/model") {
+                    jsonBody("""{"modelId":"$LIFECYCLE_MODEL","modelColumnBindings":{"$LIFECYCLE_INPUT":"${sheet.tabularContent.columns[2].value}","$LIFECYCLE_OUTPUT":"${sheet.tabularContent.columns[1].value}"}}""")
+                }
+                assertEquals(HttpStatusCode.BadRequest, customAttachment.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), customAttachment.decodeBody())
+                assertEquals(before, store.loadWorkbookBundle())
+
+                val partialAttachment = client.put("/api/sheets/${sheet.id.value}/model") {
+                    jsonBody("""{"modelId":"$LIFECYCLE_MODEL","modelColumnBindings":{"$LIFECYCLE_INPUT":"${sheet.tabularContent.columns[2].value}"}}""")
+                }
+                assertEquals(HttpStatusCode.BadRequest, partialAttachment.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), partialAttachment.decodeBody())
+                assertEquals(before, store.loadWorkbookBundle())
+
                 assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, bound)) }.status)
                 val saved = store.loadWorkbookBundle()
                 val savedSheet = saved.documents.getValue(sheet.id)
@@ -144,6 +158,20 @@ class ModelLifecycleRoutesTest {
                     jsonBody("""{"modelId":"$LIFECYCLE_MODEL","modelColumnBindings":{"$LIFECYCLE_INPUT":"${savedSheet.tabularContent.columns[0].value}","$LIFECYCLE_OUTPUT":"${savedSheet.tabularContent.columns[1].value}"}}""")
                 }
                 assertEquals(HttpStatusCode.OK, idempotent.status)
+                assertEquals(saved, store.loadWorkbookBundle())
+
+                val customRebinding = client.put("/api/sheets/${sheet.id.value}/model") {
+                    jsonBody("""{"modelId":"$LIFECYCLE_MODEL","modelColumnBindings":{"$LIFECYCLE_INPUT":"${savedSheet.tabularContent.columns[1].value}","$LIFECYCLE_OUTPUT":"${savedSheet.tabularContent.columns[0].value}"}}""")
+                }
+                assertEquals(HttpStatusCode.BadRequest, customRebinding.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), customRebinding.decodeBody())
+                assertEquals(saved, store.loadWorkbookBundle())
+
+                val clearedCalculatedBinding = client.put("/api/sheets/${sheet.id.value}/model") {
+                    jsonBody("""{"modelId":"$LIFECYCLE_MODEL","modelColumnBindings":{"$LIFECYCLE_INPUT":"${savedSheet.tabularContent.columns[1].value}"}}""")
+                }
+                assertEquals(HttpStatusCode.BadRequest, clearedCalculatedBinding.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), clearedCalculatedBinding.decodeBody())
                 assertEquals(saved, store.loadWorkbookBundle())
 
                 assertEquals(HttpStatusCode.OK, client.put("/api/sheets/${sheet.id.value}/model") { jsonBody("""{"modelId":null}""") }.status)
