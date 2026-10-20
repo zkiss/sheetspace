@@ -67,6 +67,13 @@ class SqliteWorkbookStore internal constructor(
         return synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
+                val workbook = reader.loadWorkbookBundle()
+                writes.forEach { write ->
+                    val sheet = workbook.findSheet(SheetId(write.sheetId)) ?: throw NoSuchElementException("Sheet not found: ${write.sheetId}")
+                    if (ColumnId(write.columnId) in calculatedModelColumns(sheet, workbook.dataModels) && !isDerivedCalculatedWrite(workbook, sheet, write)) {
+                        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                    }
+                }
                 SqliteWorkbookWriter(conn, reader).writeCells(expectedRevisions, writes)
             }
         }
@@ -123,6 +130,7 @@ class SqliteWorkbookStore internal constructor(
             val current = reader.loadWorkbookBundle()
             val updated = transform(current)
             validateModelMetadata(updated)
+            rejectCalculatedOverrides(current, updated)
             if (expectedRevision != null) {
                 val currentSheet = current.findSheet(SheetId(expectedRevision.sheetId))
                 if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {
@@ -151,6 +159,24 @@ class SqliteWorkbookStore internal constructor(
                 DriverManager.getConnection(jdbcUrl),
                 sheetReadObserver = sheetReadObserver,
             )
+        }
+    }
+}
+
+private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) {
+    updated.documents.forEach { (id, sheet) ->
+        val before = current.documents[id] ?: return@forEach
+        // Binding and declaration transitions are lifecycle authority. Once ownership is stable,
+        // an aggregate persistence caller cannot replace any owned content.
+        if (before.modelId != sheet.modelId || before.modelColumnBindings != sheet.modelColumnBindings ||
+            before.modelFormulaBindings != sheet.modelFormulaBindings || current.dataModels != updated.dataModels) return@forEach
+        calculatedModelColumns(sheet, updated.dataModels).forEach { column ->
+            sheet.tabularContent.rows.forEach { row ->
+                val coordinate = CellCoordinate(row, column)
+                if (before.tabularContent.cellContents[coordinate] != sheet.tabularContent.cellContents[coordinate]) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                }
+            }
         }
     }
 }

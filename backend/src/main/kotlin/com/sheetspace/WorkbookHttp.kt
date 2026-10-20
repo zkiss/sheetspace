@@ -364,6 +364,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.INVALID_DATA_MODEL -> HttpStatusCode.BadRequest to "invalid-data-model"
         WorkbookApplicationError.UNKNOWN_DATA_MODEL -> HttpStatusCode.BadRequest to "unknown-data-model"
         WorkbookApplicationError.INVALID_MODEL_LIFECYCLE -> HttpStatusCode.BadRequest to "invalid-model-lifecycle"
+        WorkbookApplicationError.CALCULATED_CELL_WRITE -> HttpStatusCode.BadRequest to "calculated-cell-write"
         WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT -> HttpStatusCode.Conflict to "model-lifecycle-conflict"
         WorkbookApplicationError.EMPTY_CELL_PATCH -> HttpStatusCode.BadRequest to "empty-cell-patch"
         WorkbookApplicationError.DUPLICATE_CELL_WRITE -> HttpStatusCode.BadRequest to "duplicate-cell-write"

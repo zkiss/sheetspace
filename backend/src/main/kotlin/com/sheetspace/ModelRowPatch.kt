@@ -30,5 +30,11 @@ internal fun applyModelRowPatch(current: WorkbookState, command: CellPatchComman
         )
     })
     validateLifecycleWorkbook(updated)
+    command.cells.forEach { write ->
+        val sheet = updated.documents.getValue(SheetId(write.sheetId))
+        if (ColumnId(write.columnId) in calculatedModelColumns(sheet, updated.dataModels) && !isDerivedCalculatedWrite(updated, sheet, write)) {
+            throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+        }
+    }
     return updated
 }
