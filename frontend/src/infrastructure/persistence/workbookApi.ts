@@ -257,10 +257,11 @@ export const workbookApi = {
   writeCells(
     expectedRevisions: readonly { sheetId: string; revision: number }[],
     cells: readonly CellPatchWrite[],
+    modelFormulaBindings?: readonly { sheetId: string; bindings: NonNullable<SheetDocument['modelFormulaBindings']> }[],
   ): Promise<CellPatchResponse> {
     return requestJson<CellPatchResponse>('/api/cells', {
       method: 'PATCH',
-      body: JSON.stringify({ expectedRevisions, cells }),
+      body: JSON.stringify({ expectedRevisions, cells, modelFormulaBindings }),
     });
   },
 

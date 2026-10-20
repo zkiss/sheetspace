@@ -42,6 +42,12 @@ export type BackendWorkbookReconciliation =
   | { kind: 'append-row'; sheetId: SheetId; rowId: RowId }
   | { kind: 'append-column'; sheetId: SheetId; columnId: ColumnId };
 
+export type ModelFormulaBindingWrite = {
+  sheetId: SheetId;
+  before: Workbook['documents'][string]['modelFormulaBindings'];
+  after: NonNullable<Workbook['documents'][string]['modelFormulaBindings']>;
+};
+
 export type WorkbookPersistenceIntent =
   | { kind: 'model-lifecycle'; before: Workbook; after: Workbook }
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
@@ -52,7 +58,7 @@ export type WorkbookPersistenceIntent =
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'update-sheet-visual-scale'; sheetId: SheetId; visualScale: number }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
-  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
+  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[]; modelFormulaBindings?: readonly ModelFormulaBindingWrite[] };
 
 export type AffectedWorkbookEntities = {
   sheetIds: readonly SheetId[];

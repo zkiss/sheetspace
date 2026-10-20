@@ -66,16 +66,16 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   }
   private async recoverUnsafeCellWrite(operationId: WorkbookOperationId, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>): Promise<TransportResult | undefined> {
     const failure = this.unsafeCellWriteFailures.get(operationId);
-    const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
+    const latest = await this.loadSheets(cellPatchSheetIds(intent));
     const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
     if (missingSheetIds.length > 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
     const sheets = latest.flatMap((result) => result.kind === 'loaded' ? [result.sheet] : []);
     sheets.forEach((sheet) => this.recordRevision(sheet.id, sheet.revision));
-    if (matchesCellStates(intent.writes, sheets, 'afterRaw')) {
+    if (matchesCellStates(intent, sheets, 'afterRaw')) {
       this.unsafeCellWriteFailures.delete(operationId);
       return this.recordMany(sheets.map((sheet) => ({ sheetId: sheet.id, revision: sheet.revision })));
     }
-    if (matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
+    if (matchesCellStates(intent, sheets, 'beforeRaw')) {
       return undefined;
     }
     throw failure;
@@ -101,16 +101,16 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   ): Promise<TransportResult> {
     if (!isRevisionConflict(failure) && !isAmbiguousResponse(failure)) throw failure;
     if (operationId !== undefined) this.unsafeCellWriteFailures.set(operationId, failure);
-    const latest = await this.loadSheets([...new Set(intent.writes.map(({ sheetId }) => sheetId))]);
+    const latest = await this.loadSheets(cellPatchSheetIds(intent));
     const missingSheetIds = latest.flatMap((result) => result.kind === 'missing' ? [result.sheetId] : []);
     if (missingSheetIds.length > 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
     const sheets = latest.flatMap((result) => result.kind === 'loaded' ? [result.sheet] : []);
     sheets.forEach((sheet) => this.recordRevision(sheet.id, sheet.revision));
-    if (matchesCellStates(intent.writes, sheets, 'afterRaw')) {
+    if (matchesCellStates(intent, sheets, 'afterRaw')) {
       if (operationId !== undefined) this.unsafeCellWriteFailures.delete(operationId);
       return this.recordMany(sheets.map((sheet) => ({ sheetId: sheet.id, revision: sheet.revision })));
     }
-    if (mayRetryConflict && isRevisionConflict(failure) && matchesCellStates(intent.writes, sheets, 'beforeRaw')) {
+    if (mayRetryConflict && isRevisionConflict(failure) && matchesCellStates(intent, sheets, 'beforeRaw')) {
       return this.requestCellWrite(operationId, intent, false);
     }
     throw failure;
@@ -129,14 +129,16 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     if (intent.kind === 'write-axis-sizes') return this.record(await this.method('writeAxisSizes')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-number-formats') return this.record(await this.method('writeNumberFormats')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-cells') {
-      const expectedRevisions = [...new Set(intent.writes.map(({ sheetId }) => sheetId))].map((sheetId) => {
+      const expectedRevisions = cellPatchSheetIds(intent).map((sheetId) => {
         const revision = this.revision(sheetId);
         return revision === undefined ? undefined : { sheetId, revision };
       });
       if (expectedRevisions.some((revision) => revision === undefined)) return { kind: 'blocked', reason: 'Missing revision for a cell patch.' };
+      const modelFormulaBindings = intent.modelFormulaBindings?.map(({ sheetId, after }) => ({ sheetId, bindings: after }));
       const response = await this.method('writeCells')(
         expectedRevisions as { sheetId: SheetId; revision: number }[],
         intent.writes.map(({ sheetId, rowId, columnId, afterRaw }) => ({ sheetId, rowId, columnId, raw: afterRaw ?? '' })),
+        modelFormulaBindings,
       );
       return this.recordMany(response.sheets);
     }
@@ -157,13 +159,20 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
 function isRevisionConflict(error: unknown) { return error instanceof WorkbookApiError && error.status === 409 && error.code === 'sheet-revision-conflict'; }
 function isMissingSheet(error: unknown) { return error instanceof WorkbookApiError && error.status === 404 && error.code === 'sheet-not-found'; }
 function isAmbiguousResponse(error: unknown) { return !(error instanceof WorkbookApiError); }
+type CellPatchIntent = Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>;
+function cellPatchSheetIds(intent: CellPatchIntent) {
+  return [...new Set([...intent.writes, ...intent.modelFormulaBindings ?? []].map(({ sheetId }) => sheetId))];
+}
 function matchesCellStates(
-  writes: Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>['writes'],
+  intent: CellPatchIntent,
   sheets: readonly SheetDocument[],
   state: 'beforeRaw' | 'afterRaw',
 ) {
   const byId = new Map(sheets.map((sheet) => [sheet.id, sheet]));
-  return writes.every((write) => {
+  return (intent.modelFormulaBindings ?? []).every((write) => {
+    const sheet = byId.get(write.sheetId);
+    return sheet !== undefined && JSON.stringify(sheet.modelFormulaBindings) === JSON.stringify(write[state === 'beforeRaw' ? 'before' : 'after']);
+  }) && intent.writes.every((write) => {
     const sheet = byId.get(write.sheetId);
     if (!sheet) return false;
     return (sheet.content.cells[cellIdentityKey(write)] ?? null) === write[state];

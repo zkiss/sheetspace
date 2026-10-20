@@ -294,11 +294,11 @@ export function useWorkbookController({
     const before = optimisticWorkbook.current;
     const applied = applyResult(applyBackendWorkbookReconciliation(before, reconciliation));
     if (!applied || reconciliation.kind !== 'append-row') return applied;
-    const { nextWorkbook: next, writes } = refreshAppendedModelRows(applied.nextWorkbook);
-    if (writes.length > 0) {
+    const { nextWorkbook: next, writes, modelFormulaBindings } = refreshAppendedModelRows(applied.nextWorkbook);
+    if (writes.length > 0 || modelFormulaBindings.length > 0) {
       optimisticWorkbook.current = next;
       setWorkbook(next, { kind: 'structure' });
-      savedAutosave.enqueue(crypto.randomUUID(), { kind: 'write-cells', writes });
+      savedAutosave.enqueue(crypto.randomUUID(), { kind: 'write-cells', writes, ...(modelFormulaBindings.length > 0 ? { modelFormulaBindings } : {}) });
     }
     return applied;
   }

@@ -31,7 +31,7 @@ describe('appended model row refresh', () => {
   it('does not manufacture writes for unbound sheets or already-instantiated calculations', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
     const workbook: Workbook = { ...workbookWithSheets([sheet]), dataModels: { model } };
-    expect(refreshAppendedModelRows(workbook)).toEqual({ nextWorkbook: workbook, writes: [] });
+    expect(refreshAppendedModelRows(workbook)).toEqual({ nextWorkbook: workbook, writes: [], modelFormulaBindings: [] });
     const bound = bindSheetToModel(workbook, sheet.id, model.id, () => 'new');
     if (!bound.ok) throw new Error(bound.reason);
     expect(refreshAppendedModelRows(bound.value).writes).toEqual([]);

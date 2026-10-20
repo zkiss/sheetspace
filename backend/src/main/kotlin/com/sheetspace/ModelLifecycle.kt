@@ -23,7 +23,7 @@ private fun sameWorkbookContent(left: WorkbookState, right: WorkbookState): Bool
     left.copy(manifest = left.manifest.copy(revision = 0), documents = left.documents.mapValues { (_, sheet) -> sheet.copy(revision = 0) }) ==
         right.copy(manifest = right.manifest.copy(revision = 0), documents = right.documents.mapValues { (_, sheet) -> sheet.copy(revision = 0) })
 
-private fun validateLifecycleWorkbook(workbook: WorkbookState) {
+internal fun validateLifecycleWorkbook(workbook: WorkbookState) {
     requireLifecycle(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
     requireLifecycle(workbook.documents.values.map { it.name.trim() }.distinct().size == workbook.documents.size)
     workbook.dataModels.values.forEach { model -> requireLifecycle(isValidDataModel(model)) }

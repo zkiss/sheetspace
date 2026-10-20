@@ -171,7 +171,7 @@ function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceInte
     case 'update-sheet-frame-layout': return { ...intent, position: { ...intent.position }, size: { ...intent.size } };
     case 'update-sheet-visual-scale': return { ...intent };
     case 'update-sheet-z-order': return { ...intent, updates: intent.updates.map((update) => ({ ...update })) };
-    case 'write-cells': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
+    case 'write-cells': return structuredClone(intent);
   }
 }
 function policyFor(intent: WorkbookPersistenceIntent): OutboxEntry['policy'] {
@@ -185,10 +185,10 @@ function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
   if (intent.kind === 'update-sheet-visual-scale') return `visual-scale:${intent.sheetId}`;
   return undefined;
 }
-function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
+export function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
   if (intent.kind === 'model-lifecycle') return [...intent.before.manifest.sheetIds];
   if (intent.kind === 'update-sheet-z-order') return [...new Set(intent.updates.map(({ sheetId }) => sheetId))];
-  if (intent.kind === 'write-cells') return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
+  if (intent.kind === 'write-cells') return [...new Set([...intent.writes, ...intent.modelFormulaBindings ?? []].map(({ sheetId }) => sheetId))];
   return [intent.sheetId];
 }
 function intersects(left: readonly string[], right: readonly string[]) { return left.some((value) => right.includes(value)); }

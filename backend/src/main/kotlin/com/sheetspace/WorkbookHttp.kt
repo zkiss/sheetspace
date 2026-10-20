@@ -61,6 +61,7 @@ data class CellWriteRequest(val sheetId: String, val rowId: String, val columnId
 data class CellPatchRequest(
     val expectedRevisions: List<CellRevisionRequest>,
     val cells: List<CellWriteRequest>,
+    val modelFormulaBindings: List<SheetFormulaBindingWrite> = emptyList(),
 )
 
 @Serializable
@@ -267,6 +268,7 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
                     CellPatchCommand(
                         request.expectedRevisions.map { ExpectedSheetRevision(it.sheetId, it.revision) },
                         request.cells.map { SheetCellWrite(it.sheetId, it.rowId, it.columnId, it.raw) },
+                        request.modelFormulaBindings,
                     ),
                 )
                 call.respond(CellPatchResponse(sheets.map { SheetRevisionResponse(it.id.value, it.revision) }))

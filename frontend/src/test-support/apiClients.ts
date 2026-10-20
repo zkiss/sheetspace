@@ -137,6 +137,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
     writeCells: vi.fn().mockImplementation(async (
       expectedRevisions: readonly { sheetId: string }[],
       cells: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[],
+      modelFormulaBindings: readonly { sheetId: string; bindings: NonNullable<SheetDocument['modelFormulaBindings']> }[] = [],
     ) => {
       for (const cell of cells) {
         updateSheet(cell.sheetId, (sheet) => {
@@ -145,6 +146,9 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
           if (cell.raw.length === 0) delete nextCells[key]; else nextCells[key] = cell.raw;
           return { ...sheet, content: { ...sheet.content, cells: nextCells } };
         });
+      }
+      for (const { sheetId, bindings } of modelFormulaBindings) {
+        updateSheet(sheetId, (sheet) => ({ ...sheet, modelFormulaBindings: structuredClone(bindings) }));
       }
       return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
