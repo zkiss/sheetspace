@@ -98,14 +98,19 @@ export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, des
     const originalSheet = targetSheet(match.qualifier, sourceSheetId);
     if (!originalSheet) return { ok: false, reason: 'unresolved-coordinate' };
     const resultSheet = match.qualifier.kind === 'unqualified' ? destinationSheetId : originalSheet;
+    const translated = [];
     for (const endpoint of match.endpoints) {
       const address = endpoint.coordinate && resolver.addressOf(originalSheet, endpoint.coordinate);
       if (!address) return { ok: false, reason: 'unresolved-coordinate' };
       const coordinate = resolver.coordinateAt(resultSheet, translateCopyAddress(address, endpoint.anchors, origin, target));
       if (!coordinate) return { ok: false, reason: 'unresolved-coordinate' };
       if (endpoint.propertyId && !resolver.namedAddressOf?.(originalSheet, endpoint.propertyId, endpoint.coordinate!)) return { ok: false, reason: 'unresolved-coordinate' };
-      const named = endpoint.propertyId && resolver.namedAddressAt?.(resultSheet, coordinate);
-      edits.push({ ...endpoint.sourceSpan, value: named ? formatNamedCanonical(named.propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
+      translated.push({ endpoint, coordinate, named: endpoint.propertyId && resolver.namedAddressAt?.(resultSheet, coordinate) });
+    }
+    const useNamedRange = translated.length === 2 && translated.every(({ named }) => named);
+    for (const { endpoint, coordinate, named } of translated) {
+      const useNamedEndpoint = named && (translated.length === 1 || useNamedRange);
+      edits.push({ ...endpoint.sourceSpan, value: useNamedEndpoint ? formatNamedCanonical(named.propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
     }
   }
   return { ok: true, raw: applyEdits(raw, edits) };

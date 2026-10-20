@@ -301,7 +301,6 @@ export class FormulaParser {
     this.skipWhitespace();
     const second = this.readReferenceEndpoint();
     if (!second || !this.referenceEndpointsMatch(first, second)) {
-      this.recordReference(this.makeReference(first, undefined, qualifier, start, firstEnd), qualifier, [first]);
       return this.error();
     }
     const reference = this.makeReference(first, second, qualifier, start, this.index);
@@ -310,9 +309,7 @@ export class FormulaParser {
   }
 
   private referenceEndpointsMatch(first: FormulaReferenceLexeme['endpoints'][number], second: FormulaReferenceLexeme['endpoints'][number]): boolean {
-    if (first.kind === second.kind) return true;
-    return (first.kind === 'canonical' && this.isStoredNamedEndpoint(second))
-      || (second.kind === 'canonical' && this.isStoredNamedEndpoint(first));
+    return first.kind === second.kind;
   }
 
   private isStoredNamedEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number]): boolean {

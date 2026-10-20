@@ -220,6 +220,13 @@ describe('canonical formula references', () => {
     expect(canonical).toMatch(/^=@~[0-9a-f]+~[0-9a-f]+\[[0-9a-f]+\]:\$~[0-9a-f]+~[0-9a-f]+\[\$[0-9a-f]+\]$/i);
     expect(formulaRawToDisplay(canonical, namedResolver)).toBe("=@'Revenue'[1]:$'Owner''s Cost'[$2]");
 
+    const ordinaryCanonical = formulaRawToCanonical('=@C[1]', namedResolver);
+    const storedNamedCanonical = formulaRawToCanonical("=@'Revenue'[1]", namedResolver);
+    const mixedStoredRange = `${ordinaryCanonical}:${storedNamedCanonical.slice(2)}`;
+    expect(formulaReferenceTokens(mixedStoredRange)).toEqual([]);
+    expect(formulaRawToCanonical(mixedStoredRange, namedResolver)).toBe(mixedStoredRange);
+    expect(formulaRawToDisplay(mixedStoredRange, namedResolver)).toBe(mixedStoredRange);
+
     const renamed = {
       ...workbookWithModel,
       dataModels: { budget: { ...workbookWithModel.dataModels.budget, columns: [
@@ -266,9 +273,9 @@ describe('canonical formula references', () => {
 
     const copiedCost = formulaRawToCanonical("=@'Cost'[2]", namedResolver);
     expect(copiedCell).toEqual({ ok: true, raw: copiedCost });
-    expect(copiedRange).toEqual({ ok: true, raw: `${copiedCost}:${source.content.columns[2]}[${source.content.rows[2]}]` });
+    expect(copiedRange).toEqual({ ok: true, raw: `=@${source.content.columns[1]}[${source.content.rows[1]}]:${source.content.columns[2]}[${source.content.rows[2]}]` });
     if (!copiedRange.ok) throw new Error('copy should resolve');
-    expect(formulaRawToDisplay(copiedRange.raw, namedResolver)).toBe("=@'Cost'[2]:C[3]");
+    expect(formulaRawToDisplay(copiedRange.raw, namedResolver)).toBe('=@B[2]:C[3]');
   });
 
   it('round-trips arbitrary stable IDs through stored named references and reload', () => {
