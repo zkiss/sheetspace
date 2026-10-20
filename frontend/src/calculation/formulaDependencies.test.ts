@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { sheetCellNodeId } from '@calculation/nodeIdentity';
+import { cellIdentityKey } from '@workbook/core/cellIdentity';
+import type { Workbook } from '@workbook/core/model';
 import {
   buildFormulaDependencyGraph,
   dependentClosure,
   formulaNodes,
   updateFormulaDependencyGraph,
 } from '@calculation/formulaDependencies';
-import type { CalculationProjection } from '@workbook/read/calculationProjection';
+import { calculationProjection as workbookCalculationProjection, type CalculationProjection } from '@workbook/read/calculationProjection';
+import { commitCellRawContent } from '@workbook/mutations/operations';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('formula dependencies', () => {
   it('builds direct, range, and cross-sheet edges', () => {
@@ -97,6 +101,29 @@ describe('formula dependencies', () => {
       node('sheet', 'C1'),
     ]));
   });
+
+  it('tracks persisted named range edges and removes them when a binding becomes stale', () => {
+    let workbook = namedBoundWorkbook();
+    workbook = commitCellRawContent(workbook, 'sheet-budget', 'D1', "=SUM(@'Revenue'[1]:'Cost'[2])");
+    const graph = buildFormulaDependencyGraph(workbookCalculationProjection(workbook));
+    const formula = namedNode(workbook, 'D1');
+
+    expect(graph.dependencies.get(formula)).toEqual(new Set([
+      namedNode(workbook, 'A1'), namedNode(workbook, 'B1'),
+      namedNode(workbook, 'A2'), namedNode(workbook, 'B2'),
+    ]));
+    expect(graph.dependents.get(namedNode(workbook, 'A1'))).toEqual(new Set([formula]));
+
+    const staleSheet = {
+      ...workbook.documents['sheet-budget']!,
+      modelColumnBindings: { revenue: 'sheet-budget:column:3', cost: 'sheet-budget:column:2' },
+    };
+    workbook = { ...workbook, documents: { ...workbook.documents, [staleSheet.id]: staleSheet } };
+    const stale = buildFormulaDependencyGraph(workbookCalculationProjection(workbook));
+    expect(stale.dependencies.get(formula)).toEqual(new Set());
+    expect(stale.dependents.has(namedNode(workbook, 'A1'))).toBe(false);
+  });
+
 });
 
 function calculationProjection(
@@ -114,4 +141,33 @@ function calculationProjection(
 
 function node(sheetId: string, key: string): string {
   return sheetCellNodeId(sheetId, key);
+}
+
+function namedBoundWorkbook(): Workbook {
+  const sheet = {
+    ...sheetDocument({ id: 'sheet-budget', name: 'Budget', cells: { A1: '2', A2: '3', B1: '4', B2: '5' } }),
+    modelId: 'budget',
+    modelColumnBindings: { revenue: 'sheet-budget:column:1', cost: 'sheet-budget:column:2' },
+  };
+  return {
+    ...workbookWithSheets([sheet]),
+    dataModels: {
+      budget: {
+        id: 'budget', name: 'Budget', columns: [
+          { id: 'revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+          { id: 'cost', name: 'Cost', kind: 'manual' as const, type: 'float' as const },
+        ],
+      },
+    },
+  };
+}
+
+function namedNode(workbook: Workbook, address: string): string {
+  const sheet = workbook.documents['sheet-budget']!;
+  const match = /^([A-Z]+)(\d+)$/.exec(address)!;
+  const columnIndex = match[1]!.charCodeAt(0) - 'A'.charCodeAt(0);
+  const rowIndex = Number(match[2]) - 1;
+  return sheetCellNodeId(sheet.id, cellIdentityKey({
+    rowId: sheet.content.rows[rowIndex]!, columnId: sheet.content.columns[columnIndex]!,
+  }));
 }

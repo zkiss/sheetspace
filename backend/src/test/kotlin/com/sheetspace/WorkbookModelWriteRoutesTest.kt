@@ -16,6 +16,10 @@ class WorkbookModelWriteRoutesTest {
         val modelId = "30000000-0000-0000-0000-000000000001"
         val firstSheet = shapedZeroRowSheet()
         val secondSheet = shapedSheetWithValuesAndFormula()
+        val expectedSecondBindings = mapOf(
+            "31000000-0000-0000-0000-000000000004" to secondSheet.tabularContent.columns[0].value,
+            "31000000-0000-0000-0000-000000000003" to secondSheet.tabularContent.columns[1].value,
+        )
         lateinit var firstSheetId: String
         lateinit var secondSheetId: String
         try {
@@ -40,6 +44,16 @@ class WorkbookModelWriteRoutesTest {
                     assertEquals(HttpStatusCode.OK, client.put("/api/sheets/$secondSheetId/model") {
                         jsonBody("""{"modelId":"$modelId"}""")
                     }.status)
+                    val expectedFirstBindings = mapOf(
+                        "31000000-0000-0000-0000-000000000004" to firstSheet.tabularContent.columns[0].value,
+                        "31000000-0000-0000-0000-000000000003" to firstSheet.tabularContent.columns[1].value,
+                        "31000000-0000-0000-0000-000000000002" to firstSheet.tabularContent.columns[2].value,
+                    )
+                    assertEquals(
+                        expectedFirstBindings,
+                        client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>()
+                            .documents.single { it.id == firstSheetId }.modelColumnBindings,
+                    )
                     assertPersistedSheetMetadata(
                         client.get("/api/workbook/bundle").decodeBody(),
                         firstSheet to modelId,
@@ -48,6 +62,10 @@ class WorkbookModelWriteRoutesTest {
                     assertEquals(HttpStatusCode.OK, client.put("/api/data-models/$modelId") {
                         jsonBody(reorderedAndRetypedModelWriteBody("Invoices", "=SUM(unfinished, renamed)"))
                     }.status)
+                    val reattached = client.put("/api/sheets/$secondSheetId/model") {
+                        jsonBody("""{"modelId":"$modelId"}""")
+                    }.decodeBody<SheetDocumentResponse>()
+                    assertEquals(expectedSecondBindings, reattached.modelColumnBindings)
                     assertPersistedSheetMetadata(
                         client.get("/api/workbook/bundle").decodeBody(),
                         firstSheet to modelId,
@@ -76,6 +94,11 @@ class WorkbookModelWriteRoutesTest {
                         client.get("/api/workbook/bundle").decodeBody(),
                         firstSheet to null,
                         secondSheet to modelId,
+                    )
+                    assertEquals(
+                        expectedSecondBindings,
+                        client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>()
+                            .documents.single { it.id == secondSheetId }.modelColumnBindings,
                     )
                 }
             }
@@ -199,6 +222,7 @@ private fun assertPersistedModelMetadata(
     )
     assertEquals("=SUM(unfinished, renamed)", model.columns.last().formula)
     assertEquals(null, bundle.documents.single { it.id == unboundSheetId }.modelId)
+    assertEquals(emptyMap(), bundle.documents.single { it.id == unboundSheetId }.modelColumnBindings)
     assertEquals(modelId, bundle.documents.single { it.id == boundSheetId }.modelId)
 }
 

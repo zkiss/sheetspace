@@ -9,6 +9,8 @@ export type CalculationSheet = {
   readonly columns: readonly string[];
   /** Raw values keyed by durable row/column identity, never by A1 position. */
   readonly cells: Readonly<Record<string, string>>;
+  readonly modelColumnBindings?: Readonly<Record<string, string>>;
+  readonly modelPropertyIds?: ReadonlySet<string>;
 };
 
 export type CalculationProjection = {
@@ -37,6 +39,8 @@ export function calculationProjection(
       rows: sheet.content.rows,
       columns: sheet.content.columns,
       cells: sheet.content.cells,
+      modelColumnBindings: sheet.modelColumnBindings,
+      modelPropertyIds: sheet.modelId ? new Set(source.dataModels?.[sheet.modelId]?.columns.map((column) => column.id)) : undefined,
     })),
   };
 }

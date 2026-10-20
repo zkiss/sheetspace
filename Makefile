@@ -2,6 +2,10 @@
 
 .PHONY: build frontend backend
 
+.PHONY: setup
+setup:
+	$(MAKE) -C frontend install
+
 build:
 	$(MAKE) -C backend test compile
 	$(MAKE) -C frontend test build

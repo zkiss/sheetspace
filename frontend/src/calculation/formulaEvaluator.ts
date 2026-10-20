@@ -232,12 +232,14 @@ export class FormulaEvaluator {
   }
 
   private evaluateReference(reference: FormulaReference, currentSheet: CalculationSheet): FormulaValue {
+    if (reference.kind === 'named') return formulaErrorValue('#REF!');
     const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
     if (!sheet) {
       return formulaErrorValue('#REF!');
     }
 
     if (reference.kind === 'canonical') {
+      if (!namedReferenceIsValid(reference, sheet)) return formulaErrorValue('#REF!');
       const key = calculationCellKey(sheet, reference.coordinate);
       if (!key) return formulaErrorValue('#REF!');
       if (!reference.range) return this.evaluateReferencedCell(sheet, key);
@@ -278,6 +280,7 @@ export class FormulaEvaluator {
       const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
       return { ok: true, value: { values: this.evaluateRangeCells(sheet, keys), rowCount: expression.range.end.rowIndex - expression.range.start.rowIndex + 1, columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1 } };
     }
+    if (!namedReferenceIsValid(expression, sheet)) return { ok: false, error: '#REF!' };
     const key = calculationCellKey(sheet, expression.coordinate);
     if (!key) return { ok: false, error: '#REF!' };
     if (!expression.range) {
@@ -349,4 +352,10 @@ function resolveFormulaReferenceSheet(
     return workbook.sheets.find((candidate) => candidate.id === reference.sheetId);
   }
   return defaultSheet;
+}
+
+function namedReferenceIsValid(reference: Extract<FormulaReference, { kind: 'canonical' }>, sheet: CalculationSheet): boolean {
+  const validProperty = (propertyId: string | undefined, columnId: string) => !propertyId || Boolean(sheet.modelColumnBindings?.[propertyId] === columnId && sheet.modelPropertyIds?.has(propertyId));
+  return validProperty(reference.propertyId, reference.coordinate.columnId)
+    && validProperty(reference.range?.endPropertyId, reference.range?.end.columnId ?? '');
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
 import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
+import type { Workbook } from '@workbook/core/model';
 import { commitCellRawContent } from '@workbook/mutations/operations';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
@@ -123,6 +124,9 @@ describe('formula inspection', () => {
       broken: true,
       navigable: false,
     });
+    expect(missing?.diagnostics).toEqual([{
+      kind: 'reference', code: '#REF!', sourceSpan: { start: 1, end: 20 },
+    }]);
     expect(outOfBounds?.references.map((reference) => ({
       text: reference.text,
       broken: reference.broken,
@@ -130,6 +134,10 @@ describe('formula inspection', () => {
     }))).toEqual([
       { text: '@A[21]', broken: true, navigable: false },
       { text: '@K[1]', broken: true, navigable: false },
+    ]);
+    expect(outOfBounds?.diagnostics).toEqual([
+      { kind: 'reference', code: '#REF!', sourceSpan: { start: 1, end: 7 } },
+      { kind: 'reference', code: '#REF!', sourceSpan: { start: 10, end: 15 } },
     ]);
   });
 
@@ -211,4 +219,97 @@ describe('formula inspection', () => {
       { text: '@#REF!C[3]', sheetId: '#REF', broken: true },
     ]);
   });
+
+  it('inspects persisted named ranges by stable identity and marks replaced properties broken', () => {
+    let model = namedBoundWorkbook();
+    model = commitCellRawContent(model, 'sheet-budget', 'D1', "=SUM(@'Revenue'[1]:'Cost'[2])");
+    const sheet = model.documents['sheet-budget']!;
+    const canonical = sheet.content.cells[cellIdentityKey({
+      rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[3]!,
+    })]!;
+
+    expect(inspectFormula(canonical, model, sheet)?.references[0]).toMatchObject({
+      target: {
+        kind: 'range', sheetId: sheet.id,
+        range: {
+          start: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] },
+          end: { rowId: sheet.content.rows[1], columnId: sheet.content.columns[1] },
+        },
+      },
+      broken: false,
+      navigable: true,
+    });
+
+    model = {
+      ...model,
+      dataModels: {
+        budget: {
+          ...model.dataModels!.budget!,
+          columns: [
+            { id: 'replacement-revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+            ...model.dataModels!.budget!.columns.slice(1),
+          ],
+        },
+      },
+    };
+    const broken = inspectFormula(canonical, model, model.documents['sheet-budget']!)?.references[0];
+    expect(broken).toMatchObject({
+      target: {
+        kind: 'range', sheetId: 'sheet-budget',
+        range: {
+          start: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] },
+          end: { rowId: sheet.content.rows[1], columnId: sheet.content.columns[1] },
+        },
+      },
+      broken: true,
+      navigable: false,
+    });
+    expect(inspectFormula(canonical, model, model.documents['sheet-budget']!)?.diagnostics).toEqual([
+      { kind: 'reference', code: '#REF!', sourceSpan: broken?.sourceSpan },
+    ]);
+  });
+
+  it('reports semantic diagnostics for missing named properties and rows without losing adjacent targets', () => {
+    const model = namedBoundWorkbook();
+    const sheet = model.documents['sheet-budget']!;
+    const result = inspectFormula("=@'Missing'[1] + @'Revenue'[21] + @'Cost'[1]", model, sheet);
+
+    expect(result?.references.map((reference) => reference.text)).toEqual([
+      "@'Missing'[1]", "@'Revenue'[21]", "@'Cost'[1]",
+    ]);
+    expect(result?.references).toHaveLength(3);
+    expect(result?.references.slice(0, 2)).toMatchObject([
+      { target: { kind: 'cell' }, broken: true, navigable: false },
+      { target: { kind: 'cell' }, broken: true, navigable: false },
+    ]);
+    expect(result?.references[2]).toMatchObject({
+      target: { kind: 'cell', sheetId: sheet.id, identity: { columnId: sheet.content.columns[1], rowId: sheet.content.rows[0] } },
+      broken: false,
+      navigable: true,
+    });
+    expect(result?.diagnostics).toEqual([
+      { kind: 'reference', code: '#REF!', sourceSpan: result?.references[0].sourceSpan },
+      { kind: 'reference', code: '#REF!', sourceSpan: result?.references[1].sourceSpan },
+    ]);
+  });
+
 });
+
+function namedBoundWorkbook(): Workbook {
+  const budget = {
+    ...sheetDocument({ id: 'sheet-budget', name: 'Budget', cells: { A1: '2', A2: '3', B1: '4', B2: '5' } }),
+    modelId: 'budget',
+    modelColumnBindings: { revenue: 'sheet-budget:column:1', cost: 'sheet-budget:column:2' },
+  };
+  return {
+    ...workbookWithSheets([budget]),
+    dataModels: {
+      budget: {
+        id: 'budget', name: 'Budget', columns: [
+          { id: 'revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+          { id: 'cost', name: 'Cost', kind: 'manual' as const, type: 'float' as const },
+        ],
+      },
+    },
+  };
+}

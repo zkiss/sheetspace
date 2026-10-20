@@ -166,5 +166,7 @@ private fun validateModelMetadata(workbook: WorkbookState) {
             if (column is CalculatedModelColumn) require(column.formula.isNotBlank()) { "Calculated columns require a formula" }
         }
     }
-    workbook.documents.values.forEach { sheet -> require(sheet.modelId == null || sheet.modelId in workbook.dataModels) { "Unknown sheet model" } }
+    workbook.documents.values.forEach { sheet ->
+        require(validModelColumnBindings(sheet, workbook.dataModels)) { "Invalid sheet model column bindings" }
+    }
 }

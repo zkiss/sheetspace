@@ -1,4 +1,4 @@
-import type { DataModel, SheetId, Workbook } from '../core/model';
+import type { DataModel, SheetDocument, SheetId, Workbook } from '../core/model';
 
 export type ModelMutationResult = { ok: true; value: Workbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'invalid-model' };
 
@@ -19,14 +19,41 @@ export function addDataModel(workbook: Workbook, model: DataModel): ModelMutatio
 
 export function replaceDataModel(workbook: Workbook, model: DataModel): ModelMutationResult {
   if (!workbook.dataModels?.[model.id]) return { ok: false, reason: 'unknown-model' };
-  return validateDataModel(model) ?? { ok: true, value: { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } } };
+  const invalid = validateDataModel(model);
+  if (invalid) return invalid;
+  const propertyIds = new Set(model.columns.map((column) => column.id));
+  return {
+    ok: true,
+    value: {
+      ...workbook,
+      dataModels: { ...workbook.dataModels, [model.id]: model },
+      documents: Object.fromEntries(Object.entries(workbook.documents).map(([sheetId, sheet]) => [
+        sheetId, retainPropertyBindings(sheet, model.id, propertyIds),
+      ])),
+    },
+  };
 }
 
 export function setSheetModelId(workbook: Workbook, sheetId: SheetId, modelId?: string): ModelMutationResult {
   const sheet = workbook.documents[sheetId];
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (modelId !== undefined && !workbook.dataModels?.[modelId]) return { ok: false, reason: 'unknown-model' };
-  return { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: { ...sheet, modelId } } } };
+  if (sheet.modelId === modelId) return { ok: true, value: workbook };
+  const model = modelId === undefined ? undefined : workbook.dataModels![modelId]!;
+  const bindings = model === undefined
+    ? undefined
+    : Object.fromEntries(model.columns.slice(0, sheet.content.columns.length)
+      .map((property, index) => [property.id, sheet.content.columns[index]!]));
+  const updatedSheet = { ...sheet, modelId, modelColumnBindings: bindings };
+  return { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: updatedSheet } } };
+}
+
+function retainPropertyBindings(sheet: SheetDocument, modelId: string, propertyIds: Set<string>): SheetDocument {
+  if (sheet.modelId !== modelId || sheet.modelColumnBindings === undefined) return sheet;
+  return {
+    ...sheet,
+    modelColumnBindings: Object.fromEntries(Object.entries(sheet.modelColumnBindings).filter(([propertyId]) => propertyIds.has(propertyId))),
+  };
 }
 
 function nonBlank(value: unknown): value is string { return typeof value === 'string' && value.trim().length > 0; }

@@ -1,4 +1,4 @@
-import { normalizeRange, parseA1Address, type CellAddress } from '../core/address';
+import { parseA1Address } from '../core/address';
 import type {
   BinaryFormula,
   FormulaErrorCode,
@@ -9,7 +9,12 @@ import type {
   FormulaReferenceLexeme,
   FormulaSourceSpan,
   FormulaSyntaxResult,
+  FormulaSyntaxToken,
+  FormulaDiagnostic,
 } from './syntaxTypes';
+import { mergeFormulaDiagnostics } from './diagnostics';
+import { decodeStableId } from './stableId';
+import { makeFormulaReference } from './syntaxReference';
 
 type ReadResult<T> =
   | { ok: true; value: T }
@@ -17,17 +22,24 @@ type ReadResult<T> =
 
 export class FormulaParser {
   private index = 0;
+  // Speculative endpoint parsing may rewind, but recovery must not enter quoted text.
+  private quotedFragmentEnd = 0;
   private readonly references: FormulaReference[] = [];
   private readonly referenceLexemes: FormulaReferenceLexeme[] = [];
+  private readonly syntaxTokens: FormulaSyntaxToken[] = [];
+  private readonly diagnostics: FormulaDiagnostic[] = [];
 
   constructor(private readonly input: string) {}
 
   parse(raw: string): FormulaSyntaxResult {
+    this.recordToken('punctuation', -1, 0);
     this.skipWhitespace();
     const expression = this.readComparison();
     this.skipWhitespace();
     const trailingSyntax = expression.ok && !this.atEnd();
+    const trailingSyntaxStart = this.index;
     if (!expression.ok || trailingSyntax) {
+      if (trailingSyntax) this.recordSyntaxDiagnostic(trailingSyntaxStart, trailingSyntaxStart + 1);
       this.recoverRemainingReferences();
     }
     const result: FormulaParseResult = !expression.ok
@@ -35,7 +47,13 @@ export class FormulaParser {
       : trailingSyntax
         ? { kind: 'error', raw, error: '#PARSE!' }
         : { kind: 'formula', raw, expression: expression.value };
-    return { result, references: [...this.references], referenceLexemes: [...this.referenceLexemes] };
+    return {
+      result,
+      references: [...this.references],
+      referenceLexemes: [...this.referenceLexemes],
+      tokens: this.completeTokens(raw),
+      diagnostics: mergeFormulaDiagnostics(this.diagnostics),
+    };
   }
 
   /**
@@ -44,38 +62,31 @@ export class FormulaParser {
    * maintaining a second interpretation of reference syntax.
    */
   private recoverRemainingReferences(): void {
+    this.index = Math.max(this.index, this.quotedFragmentEnd);
     while (!this.atEnd()) {
       this.skipWhitespace();
-      if (this.atEnd()) {
-        return;
-      }
+      if (this.atEnd()) return;
       if (this.peek() === '"') {
         this.skipTextLiteral();
         continue;
       }
 
+      if (this.peek() !== '@') { this.index += 1; continue; }
+
       const candidateStart = this.index;
-      const existingCount = this.references.length;
+      const state = [this.references.length, this.referenceLexemes.length, this.syntaxTokens.length, this.diagnostics.length];
       const candidate = this.readReference();
       if (candidate.ok) {
         const recovered = this.references[this.references.length - 1];
-        const duplicate = recovered && this.references
-          .slice(0, -1)
-          .some((reference) =>
-            reference.sourceSpan.start === recovered.sourceSpan.start
-            && reference.sourceSpan.end === recovered.sourceSpan.end,
-          );
-        if (duplicate) {
-          this.references.pop();
-        }
+        const duplicate = recovered && this.references.slice(0, -1).some((reference) => reference.sourceSpan.start === recovered.sourceSpan.start && reference.sourceSpan.end === recovered.sourceSpan.end);
+        if (duplicate) this.references.pop();
         continue;
       }
 
       const attemptedEnd = this.index;
-      this.references.length = existingCount;
-      this.index = this.input[candidateStart + 1] === "'"
-        ? Math.max(candidateStart + 1, attemptedEnd)
-        : candidateStart + 1;
+      [this.references.length, this.referenceLexemes.length, this.syntaxTokens.length, this.diagnostics.length] = state;
+      this.recordSyntaxDiagnostic(candidateStart, Math.max(candidateStart + 1, attemptedEnd));
+      this.index = Math.max(candidateStart + 1, this.quotedFragmentEnd);
     }
   }
 
@@ -116,7 +127,9 @@ export class FormulaParser {
   private readComparisonOperator(): BinaryFormula['operator'] | undefined {
     for (const operator of ['<>', '<=', '>=', '=', '<', '>'] as const) {
       if (this.input.startsWith(operator, this.index)) {
+        const start = this.index;
         this.index += operator.length;
+        this.recordToken('operator', start, this.index);
         return operator;
       }
     }
@@ -130,7 +143,9 @@ export class FormulaParser {
       this.skipWhitespace();
       const operator = this.peek();
       if (operator !== '+' && operator !== '-') return left;
+      const start = this.index;
       this.index += 1;
+      this.recordToken('operator', start, this.index);
       const right = this.readMultiplicative();
       if (!right.ok) return right;
       left = {
@@ -153,7 +168,9 @@ export class FormulaParser {
       this.skipWhitespace();
       const operator = this.peek();
       if (operator !== '*' && operator !== '/') return left;
+      const start = this.index;
       this.index += 1;
+      this.recordToken('operator', start, this.index);
       const right = this.readUnary();
       if (!right.ok) return right;
       left = {
@@ -175,6 +192,7 @@ export class FormulaParser {
     const operator = this.peek();
     if (operator === '+' || operator === '-') {
       this.index += 1;
+      this.recordToken('operator', start, this.index);
       const operand = this.readUnary();
       return operand.ok
         ? {
@@ -189,10 +207,12 @@ export class FormulaParser {
         : operand;
     }
     if (this.consume('(')) {
+      this.recordToken('punctuation', start, this.index);
       const expression = this.readComparison();
       if (!expression.ok) return expression;
       this.skipWhitespace();
       if (!this.consume(')')) return this.error();
+      this.recordToken('punctuation', this.index - 1, this.index);
       return {
         ok: true,
         value: { kind: 'group', expression: expression.value, sourceSpan: this.span(start) },
@@ -208,6 +228,7 @@ export class FormulaParser {
     if (identifier) {
       const normalized = identifier.toUpperCase();
       if ((normalized === 'TRUE' || normalized === 'FALSE') && !this.identifierChar(this.peek())) {
+        this.recordToken('literal', identifierStart, this.index);
         return {
           ok: true,
           value: {
@@ -225,10 +246,13 @@ export class FormulaParser {
   }
 
   private readFunction(functionName: string, start: number): ReadResult<FormulaExpression> {
+    this.recordToken('function', start, start + functionName.length);
     this.consume('(');
+    this.recordToken('punctuation', this.index - 1, this.index);
     const args: FormulaExpression[] = [];
     this.skipWhitespace();
     if (this.consume(')')) {
+      this.recordToken('punctuation', this.index - 1, this.index);
       return {
         ok: true,
         value: { kind: 'function', functionName, arguments: args, sourceSpan: this.span(start) },
@@ -240,11 +264,13 @@ export class FormulaParser {
       args.push(argument.value);
       this.skipWhitespace();
       if (this.consume(',')) {
+        this.recordToken('punctuation', this.index - 1, this.index);
         this.skipWhitespace();
         if (this.peek() === ')' || this.atEnd()) return this.error();
         continue;
       }
       if (!this.consume(')')) return this.error();
+      this.recordToken('punctuation', this.index - 1, this.index);
       return {
         ok: true,
         value: { kind: 'function', functionName, arguments: args, sourceSpan: this.span(start) },
@@ -259,6 +285,7 @@ export class FormulaParser {
     );
     if (!match) return undefined;
     this.index += match[0].length;
+    this.recordToken('literal', start, this.index);
     return { kind: 'number', value: Number(match[0]), sourceSpan: this.span(start) };
   }
 
@@ -274,6 +301,7 @@ export class FormulaParser {
         this.index += 2;
       } else {
         this.index += 1;
+        this.recordToken('literal', start, this.index);
         return {
           ok: true,
           value: { kind: 'text', value, sourceSpan: this.span(start) },
@@ -300,8 +328,7 @@ export class FormulaParser {
 
     this.skipWhitespace();
     const second = this.readReferenceEndpoint();
-    if (!second || second.kind !== first.kind) {
-      this.recordReference(this.makeReference(first, undefined, qualifier, start, firstEnd), qualifier, [first]);
+    if (!second || !this.referenceEndpointsMatch(first, second)) {
       return this.error();
     }
     const reference = this.makeReference(first, second, qualifier, start, this.index);
@@ -309,8 +336,31 @@ export class FormulaParser {
     return { ok: true, value: reference };
   }
 
+  private referenceEndpointsMatch(first: FormulaReferenceLexeme['endpoints'][number], second: FormulaReferenceLexeme['endpoints'][number]): boolean {
+    return first.kind === second.kind;
+  }
+
   private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
+    const named = /^(\$?)~([0-9a-f]+)~([0-9a-f]+)\[(\$?)([0-9a-f]+)\]/i.exec(this.input.slice(this.index));
+    if (named) {
+      const propertyId = decodeStableId(named[2]);
+      const columnId = decodeStableId(named[3]);
+      const rowId = decodeStableId(named[5]);
+      if (propertyId === undefined || columnId === undefined || rowId === undefined) return undefined;
+      this.index += named[0].length;
+      return { kind: 'stored-named', value: { propertyId, columnId, rowId }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start) };
+    }
+    const propertyStart = this.index;
+    const propertyAnchor = this.consume('$');
+    const property = this.readQuotedProperty();
+    if (property !== undefined) {
+      const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
+      if (!row) return undefined;
+      this.index += row[0].length;
+      return { kind: 'named', value: { propertyName: property, row: Number(row[2]) }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
+    }
+    this.index = propertyStart;
     const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
     if (canonical && !/^[A-Za-z]+$/.test(canonical[2])) {
       this.index += canonical[0].length;
@@ -343,22 +393,11 @@ export class FormulaParser {
     start: number,
     end: number,
   ): FormulaReference {
-    const base = {
+    return makeFormulaReference(first, second, {
       ...(qualifier.sheetId === undefined ? {} : { sheetId: qualifier.sheetId }),
       sourceSpan: this.spanTo(start, end),
       ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
-    };
-    if (first.kind === 'canonical') {
-      const coordinate = first.value as { columnId: string; rowId: string };
-      return {
-        kind: 'canonical',
-        ...base,
-        coordinate,
-        ...(second ? { range: { start: coordinate, end: second.value as { columnId: string; rowId: string } } } : {}),
-      };
-    }
-    if (!second) return { kind: 'cell', ...base, address: first.value as CellAddress };
-    return { kind: 'range', ...base, range: normalizeRange({ start: first.value as CellAddress, end: second.value as CellAddress }) };
+    });
   }
 
   private recordReference(
@@ -367,6 +406,7 @@ export class FormulaParser {
     endpoints: FormulaReferenceLexeme['endpoints'],
   ): void {
     this.references.push(reference);
+    this.recordToken('reference', reference.sourceSpan.start - 1, reference.sourceSpan.end - 1);
     this.referenceLexemes.push({
       sourceSpan: reference.sourceSpan,
       ...(qualifier.sourceSpan && qualifier.sheetId !== undefined
@@ -383,7 +423,7 @@ export class FormulaParser {
     if (quoted !== undefined) {
       const end = this.index;
       this.skipWhitespace();
-      if (!this.consume('!')) return false;
+      if (!this.consume('!')) { this.index = start; return {}; }
       this.skipWhitespace();
       return { sheetId: quoted, sourceSpan: this.spanTo(start, end) };
     }
@@ -412,45 +452,32 @@ export class FormulaParser {
         this.index += 2;
       } else {
         this.index += 1;
+        this.quotedFragmentEnd = this.index;
         return name || false;
       }
     }
+    this.quotedFragmentEnd = this.index;
     return false;
   }
 
-  private findUnquotedSheetSeparator(): number {
-    const match = /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\s*!/.exec(this.input.slice(this.index));
-    return match ? this.index + match[0].length - 1 : -1;
-  }
+  private readQuotedProperty(): string | undefined { const start = this.index; if (this.peek() !== "'") return undefined; const name = this.readQuotedSheetName(); if (name === false || name === undefined) { this.index = start; return undefined; } return name; }
 
-  private readA1Token(): string | undefined {
-    const match = /^(?:\$?[A-Za-z]+\[\$?[1-9][0-9]*\])/.exec(this.input.slice(this.index));
-    if (!match) return undefined;
-    this.index += match[0].length;
-    return this.peek() && /[A-Za-z0-9]/.test(this.peek()) ? undefined : match[0];
-  }
+  private findUnquotedSheetSeparator(): number { const match = /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\s*!/.exec(this.input.slice(this.index)); return match ? this.index + match[0].length - 1 : -1; }
 
-  private readIdentifier(): string | undefined {
-    const match = /^[A-Za-z][A-Za-z0-9_]*/.exec(this.input.slice(this.index));
-    if (!match) return undefined;
-    this.index += match[0].length;
-    return match[0];
-  }
+  private readA1Token(): string | undefined { const match = /^(?:\$?[A-Za-z]+\[\$?[1-9][0-9]*\])/.exec(this.input.slice(this.index)); if (!match) return undefined; this.index += match[0].length; return this.peek() && /[A-Za-z0-9]/.test(this.peek()) ? undefined : match[0]; }
 
-  private identifierChar(char: string): boolean {
-    return char.length > 0 && /[A-Za-z0-9_]/.test(char);
-  }
+  private readIdentifier(): string | undefined { const match = /^[A-Za-z][A-Za-z0-9_]*/.exec(this.input.slice(this.index)); if (!match) return undefined; this.index += match[0].length; return match[0]; }
 
-  private span(start: number): FormulaSourceSpan {
-    return this.spanTo(start, this.index);
-  }
+  private identifierChar(char: string): boolean { return char.length > 0 && /[A-Za-z0-9_]/.test(char); }
 
-  private spanTo(start: number, end: number): FormulaSourceSpan {
-    return { start: start + 1, end: end + 1 };
-  }
+  private span(start: number): FormulaSourceSpan { return this.spanTo(start, this.index); }
+
+  private spanTo(start: number, end: number): FormulaSourceSpan { return { start: start + 1, end: end + 1 }; }
 
   private skipWhitespace(): void {
+    const start = this.index;
     while (!this.atEnd() && /\s/.test(this.peek())) this.index += 1;
+    if (this.index > start) this.recordToken('whitespace', start, this.index);
   }
 
   private consume(char: string): boolean {
@@ -459,15 +486,41 @@ export class FormulaParser {
     return true;
   }
 
-  private peek(): string {
-    return this.input[this.index] ?? '';
-  }
+  private peek(): string { return this.input[this.index] ?? ''; }
 
-  private atEnd(): boolean {
-    return this.index >= this.input.length;
-  }
+  private atEnd(): boolean { return this.index >= this.input.length; }
 
   private error(): ReadResult<never> {
+    this.recordSyntaxDiagnostic(this.atEnd() ? Math.max(0, this.index - 1) : this.index, this.atEnd() ? this.index : this.index + 1);
     return { ok: false, error: '#PARSE!' };
+  }
+
+  private recordSyntaxDiagnostic(start: number, end: number): void {
+    if (this.input.length === 0) {
+      this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: { start: 0, end: 1 } });
+      return;
+    }
+    const boundedStart = Math.min(Math.max(start, 0), this.input.length - 1);
+    const boundedEnd = Math.min(Math.max(end, boundedStart + 1), this.input.length);
+    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(boundedStart, boundedEnd) });
+  }
+
+  private recordToken(kind: FormulaSyntaxToken['kind'], start: number, end: number): void {
+    if (end > start) this.syntaxTokens.push({ kind, sourceSpan: this.spanTo(start, end) });
+  }
+
+  /** Fill only parser-unrecognised draft fragments; recognised tokens remain parser-owned. */
+  private completeTokens(raw: string): FormulaSyntaxToken[] {
+    const selected = [...this.syntaxTokens]
+      .sort((left, right) => left.sourceSpan.start - right.sourceSpan.start || right.sourceSpan.end - left.sourceSpan.end)
+      .filter((token, index, tokens) => !tokens.slice(0, index).some((prior) => prior.sourceSpan.start < token.sourceSpan.end && token.sourceSpan.start < prior.sourceSpan.end));
+    const complete: FormulaSyntaxToken[] = []; let cursor = 0;
+    for (const token of selected) {
+      if (cursor < token.sourceSpan.start) complete.push({ kind: 'invalid', sourceSpan: { start: cursor, end: token.sourceSpan.start } });
+      complete.push(token);
+      cursor = token.sourceSpan.end;
+    }
+    if (cursor < raw.length) complete.push({ kind: 'invalid', sourceSpan: { start: cursor, end: raw.length } });
+    return complete;
   }
 }

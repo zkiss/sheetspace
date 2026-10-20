@@ -113,6 +113,7 @@ internal class SqliteWorkbookWriter(
         }
         insertFrame(sheet)
         insertTabularContent(sheet.id, sheet.tabularContent)
+        insertModelColumnBindings(sheet)
         presentationWriter.persistChanges(sheet.id, SheetPresentation(), sheet.presentation)
     }
 
@@ -182,7 +183,27 @@ internal class SqliteWorkbookWriter(
             statement.executeUpdate()
         }
         persistTabularChanges(updated.id, current.tabularContent, updated.tabularContent)
+        if (current.modelColumnBindings != updated.modelColumnBindings) {
+            connection.prepareStatement("DELETE FROM sheet_model_column_bindings WHERE sheet_id = ?").use { statement ->
+                statement.setBytes(1, updated.id.value.toUuidBytes())
+                statement.executeUpdate()
+            }
+            insertModelColumnBindings(updated)
+        }
         presentationWriter.persistChanges(updated.id, current.presentation, updated.presentation)
+    }
+
+    private fun insertModelColumnBindings(sheet: SheetDocument) {
+        if (sheet.modelColumnBindings.isEmpty()) return
+        connection.prepareStatement("INSERT INTO sheet_model_column_bindings (sheet_id, property_id, column_id) VALUES (?, ?, ?)").use { statement ->
+            sheet.modelColumnBindings.forEach { (propertyId, columnId) ->
+                statement.setBytes(1, sheet.id.value.toUuidBytes())
+                statement.setBytes(2, propertyId.toUuidBytes())
+                statement.setBytes(3, columnId.value.toUuidBytes())
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
     }
 
     private fun persistTabularChanges(

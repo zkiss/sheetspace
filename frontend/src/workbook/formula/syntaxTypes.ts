@@ -13,6 +13,14 @@ export type FormulaSourceSpan = { start: number; end: number };
 
 export type FormulaReference =
   | {
+      kind: 'named';
+      sheetId?: string;
+      endpoint: { propertyName: string; row: number };
+      end?: { propertyName: string; row: number };
+      sourceSpan: FormulaSourceSpan;
+      sheetReferenceSpan?: FormulaSourceSpan;
+    }
+  | {
       kind: 'cell';
       sheetId?: string;
       address: CellAddress;
@@ -30,7 +38,9 @@ export type FormulaReference =
       kind: 'canonical';
       sheetId?: string;
       coordinate: { columnId: string; rowId: string };
-      range?: { start: { columnId: string; rowId: string }; end: { columnId: string; rowId: string } };
+      /** Present only for the parser-owned stable representation of a named property. */
+      propertyId?: string;
+      range?: { start: { columnId: string; rowId: string }; end: { columnId: string; rowId: string }; startPropertyId?: string; endPropertyId?: string };
       sourceSpan: FormulaSourceSpan;
       sheetReferenceSpan?: FormulaSourceSpan;
     };
@@ -81,17 +91,38 @@ export type FormulaParseResult =
   | { kind: 'formula'; raw: string; expression: FormulaExpression }
   | { kind: 'error'; raw: string; error: FormulaErrorCode };
 
+/** A source-preserving presentation token. Spans are half-open offsets into raw input. */
+export type FormulaSyntaxToken = {
+  kind: 'text' | 'function' | 'literal' | 'operator' | 'reference' | 'punctuation' | 'whitespace' | 'invalid';
+  sourceSpan: FormulaSourceSpan;
+};
+
+export type FormulaDiagnostic = {
+  kind: 'syntax' | 'reference';
+  code: '#PARSE!' | '#REF!';
+  sourceSpan: FormulaSourceSpan;
+};
+
 export type FormulaSyntaxResult = {
   result: FormulaParseResult;
   /** Ordered references parsed before success or failure. */
   references: FormulaReference[];
   /** Exact transform tokens emitted by the parser in normal grammar contexts. */
   referenceLexemes: FormulaReferenceLexeme[];
+  /** Ordered, non-overlapping tokens that reproduce raw input exactly. */
+  tokens: FormulaSyntaxToken[];
+  /** Recovery diagnostics leave the draft and valid surrounding references intact. */
+  diagnostics: FormulaDiagnostic[];
 };
 
 /** Exact reference lexemes for source-preserving transforms.  This is the sole lexical authority. */
 export type FormulaReferenceLexeme = {
   sourceSpan: FormulaSourceSpan;
   qualifier?: { value: string; sourceSpan: FormulaSourceSpan; broken: boolean };
-  endpoints: readonly { kind: 'a1' | 'canonical'; value: CellAddress | { columnId: string; rowId: string }; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan }[];
+  endpoints: readonly ({ anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan } & (
+    | { kind: 'a1'; value: CellAddress }
+    | { kind: 'canonical'; value: { columnId: string; rowId: string } }
+    | { kind: 'named'; value: { propertyName: string; row: number } }
+    | { kind: 'stored-named'; value: { propertyId: string; columnId: string; rowId: string } }
+  ))[];
 };

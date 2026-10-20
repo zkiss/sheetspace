@@ -66,6 +66,16 @@ CREATE TABLE sheet_columns (
     FOREIGN KEY (sheet_id) REFERENCES sheet_documents(id) ON DELETE CASCADE
 );
 
+CREATE TABLE sheet_model_column_bindings (
+    sheet_id BLOB NOT NULL,
+    property_id BLOB NOT NULL CHECK (typeof(property_id) = 'blob' AND length(property_id) = 16),
+    column_id BLOB NOT NULL CHECK (typeof(column_id) = 'blob' AND length(column_id) = 16),
+    PRIMARY KEY (sheet_id, property_id),
+    UNIQUE (sheet_id, column_id),
+    FOREIGN KEY (sheet_id) REFERENCES sheet_documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (sheet_id, column_id) REFERENCES sheet_columns(sheet_id, column_id) ON DELETE CASCADE
+);
+
 CREATE TABLE cells (
     sheet_id BLOB NOT NULL,
     row_id BLOB NOT NULL,

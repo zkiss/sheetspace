@@ -19,7 +19,8 @@ export type ModelColumnType = 'string' | 'int' | 'float' | 'boolean';
 export type ModelColumn = { id: string; name: string; kind: 'manual'; type: ModelColumnType; formula?: never } | { id: string; name: string; kind: 'calculated'; type: ModelColumnType; formula: string };
 export type DataModel = { id: string; name: string; columns: readonly ModelColumn[] };
 export type Workbook = { manifest: WorkbookManifest; documents: Record<SheetId, SheetDocument>; dataModels?: Readonly<Record<string, DataModel>> };
-export type SheetDocument = { id: SheetId; revision: number; name: string; frame: FrameState; presentation: SheetPresentation; content: TabularContent; modelId?: string };
+/** Stable declaration-to-grid association. It is deliberately keyed by model property ID, never name or position. */
+export type SheetDocument = { id: SheetId; revision: number; name: string; frame: FrameState; presentation: SheetPresentation; content: TabularContent; modelId?: string; modelColumnBindings?: Readonly<Record<string, ColumnId>> };
 export type FrameState = { position: WorkspacePosition; size: SheetFrameSize; visualScale: number; zIndex: number };
 export type TabularContent = { kind: 'tabular'; rows: RowId[]; columns: ColumnId[]; cells: Record<CellIdentityKey, string> };
 export type StableCellIdentity = { rowId: RowId; columnId: ColumnId };

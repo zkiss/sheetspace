@@ -143,13 +143,46 @@
   border: 1px solid #2f747e;
   padding: 0.2rem 0.35rem;
   overflow: auto;
-  color: inherit;
+  color: transparent;
+  caret-color: #17202a;
+  background: transparent;
+  box-shadow: 0 0.4rem 1rem rgb(23 32 42 / 18%);
+  font: inherit;
+  font-size: inherit;
+  line-height: 1.2;
+  letter-spacing: normal;
+  outline: none;
+  resize: none;
+  tab-size: 8;
+  user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.sheet-grid-cell-editor-highlight {
+  display: block;
+  position: fixed;
+  z-index: 99;
+  box-sizing: border-box;
+  margin: 0;
+  border: 1px solid #2f747e;
+  padding: 0.2rem 0.35rem;
+  pointer-events: none;
+  color: #17202a;
   background: #ffffff;
   box-shadow: 0 0.4rem 1rem rgb(23 32 42 / 18%);
   font: inherit;
+  font-size: inherit;
   line-height: 1.2;
-  outline: none;
-  resize: none;
-  user-select: text;
+  letter-spacing: normal;
+  tab-size: 8;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
+
+.formula-syntax-token-function { color: #6f42c1; }
+.formula-syntax-token-literal { color: #a34a00; }
+.formula-syntax-token-operator { color: #0b7285; }
+.formula-syntax-token-reference { color: #1c7c54; }
+.formula-syntax-token-invalid { text-decoration: wavy underline #c92a2a; }
 .sheet-grid-cell[data-pending-cut='true'] { opacity: 0.45; outline: 2px dashed #4f7cff; outline-offset: -3px; }

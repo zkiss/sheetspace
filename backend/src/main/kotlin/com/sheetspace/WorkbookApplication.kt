@@ -36,7 +36,7 @@ data class CellPatchCommand(
     val cells: List<SheetCellWrite>,
 )
 
-data class UpdateSheetModelCommand(val modelId: String?)
+data class UpdateSheetModelCommand(val modelId: String?, val modelColumnBindings: Map<String, ColumnId>? = null)
 
 enum class WorkbookApplicationError {
     SHEET_NOT_FOUND,
@@ -250,7 +250,15 @@ class DefaultWorkbookApplication(
     override fun saveDataModel(model: DataModel): DataModel {
         if (!isValidDataModel(model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
         return store.updateWorkbook { workbook ->
-            workbook.copy(dataModels = workbook.dataModels + (model.id to model))
+            val propertyIds = model.columns.map(ModelColumn::id).toSet()
+            workbook.copy(
+                dataModels = workbook.dataModels + (model.id to model),
+                documents = workbook.documents.mapValues { (_, sheet) ->
+                    if (sheet.modelId != model.id) sheet else sheet.copy(
+                        modelColumnBindings = sheet.modelColumnBindings.filterKeys(propertyIds::contains),
+                    )
+                },
+            )
         }.dataModels.getValue(model.id)
     }
 
@@ -262,7 +270,16 @@ class DefaultWorkbookApplication(
             if (command.modelId != null && command.modelId !in workbook.dataModels) {
                 throw WorkbookApplicationException(WorkbookApplicationError.UNKNOWN_DATA_MODEL)
             }
-            workbook.replaceSheet(sheet.copy(modelId = command.modelId))
+            if (sheet.modelId == command.modelId && command.modelColumnBindings == null) return@updateWorkbook workbook
+            val bindings = command.modelColumnBindings ?: command.modelId?.let { modelId ->
+                workbook.dataModels.getValue(modelId).columns.zip(sheet.tabularContent.columns)
+                    .associate { (property, column) -> property.id to column }
+            }.orEmpty()
+            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings)
+            if (!validModelColumnBindings(updated, workbook.dataModels)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
+            }
+            workbook.replaceSheet(updated)
         }.documents.getValue(id)
     }
 

@@ -38,6 +38,7 @@ export type SheetDocumentResponse = {
     cells: CellContentResponse[];
   };
   modelId?: string;
+  modelColumnBindings?: Record<string, string>;
 };
 
 export type WorkbookBundleResponse = {
@@ -277,10 +278,10 @@ export const workbookApi = {
     }).then(decodeDataModel);
   },
 
-  setSheetModel(sheetId: string, modelId?: string): Promise<SheetDocument> {
+  setSheetModel(sheetId: string, modelId?: string, modelColumnBindings?: Readonly<Record<string, string>>): Promise<SheetDocument> {
     return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/model`, {
       method: 'PUT',
-      body: JSON.stringify({ modelId: modelId ?? null }),
+      body: JSON.stringify({ modelId: modelId ?? null, ...(modelColumnBindings === undefined ? {} : { modelColumnBindings }) }),
     }).then(decodeSheetDocument);
   },
 };
@@ -326,6 +327,11 @@ export function decodeWorkbookBundle(bundle: WorkbookBundleResponse): Workbook {
     if (document.modelId !== undefined && !Object.prototype.hasOwnProperty.call(dataModels, document.modelId)) {
       invalidReadContract(`sheet ${document.id} references unknown data model ${document.modelId}`);
     }
+    const bindings = document.modelColumnBindings ?? {};
+    const model = document.modelId === undefined ? undefined : dataModels[document.modelId];
+    if (Object.keys(bindings).some((propertyId) => !model?.columns.some((property) => property.id === propertyId))) {
+      invalidReadContract(`invalid model column bindings for sheet ${document.id}`);
+    }
   }
 
   return {
@@ -340,6 +346,15 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
   const rowIndices = uniqueIndices(document.content.rows, 'row');
   const columnIndices = uniqueIndices(document.content.columns, 'column');
   const cells: Record<string, string> = {};
+
+  if (document.modelColumnBindings !== undefined && (!document.modelColumnBindings || Array.isArray(document.modelColumnBindings)
+      || typeof document.modelColumnBindings !== 'object'
+      || Object.entries(document.modelColumnBindings).some(([propertyId, columnId]) => !propertyId || typeof columnId !== 'string' || !columnId)
+      || (document.modelId === undefined && Object.keys(document.modelColumnBindings).length > 0)
+      || Object.values(document.modelColumnBindings).some((columnId) => !columnIndices.has(columnId))
+      || new Set(Object.values(document.modelColumnBindings)).size !== Object.keys(document.modelColumnBindings).length)) {
+    invalidReadContract('invalid model column bindings');
+  }
 
   for (const cell of document.content.cells) {
     const rowIndex = rowIndices.get(cell.rowId);
@@ -403,6 +418,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
       cells,
     },
     ...(document.modelId === undefined ? {} : { modelId: document.modelId }),
+    ...(document.modelColumnBindings === undefined ? {} : { modelColumnBindings: { ...document.modelColumnBindings } }),
   };
 }
 
