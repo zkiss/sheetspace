@@ -124,6 +124,9 @@ describe('formula inspection', () => {
       broken: true,
       navigable: false,
     });
+    expect(missing?.diagnostics).toEqual([{
+      kind: 'reference', code: '#REF!', sourceSpan: { start: 1, end: 20 },
+    }]);
     expect(outOfBounds?.references.map((reference) => ({
       text: reference.text,
       broken: reference.broken,
@@ -131,6 +134,10 @@ describe('formula inspection', () => {
     }))).toEqual([
       { text: '@A[21]', broken: true, navigable: false },
       { text: '@K[1]', broken: true, navigable: false },
+    ]);
+    expect(outOfBounds?.diagnostics).toEqual([
+      { kind: 'reference', code: '#REF!', sourceSpan: { start: 1, end: 7 } },
+      { kind: 'reference', code: '#REF!', sourceSpan: { start: 10, end: 15 } },
     ]);
   });
 
@@ -257,6 +264,24 @@ describe('formula inspection', () => {
       broken: true,
       navigable: false,
     });
+    expect(inspectFormula(canonical, model, model.documents['sheet-budget']!)?.diagnostics).toEqual([
+      { kind: 'reference', code: '#REF!', sourceSpan: broken?.sourceSpan },
+    ]);
+  });
+
+  it('reports semantic diagnostics for missing named properties and rows without losing adjacent targets', () => {
+    const model = namedBoundWorkbook();
+    const sheet = model.documents['sheet-budget']!;
+    const result = inspectFormula("=@'Missing'[1] + @'Revenue'[21] + @'Cost'[1]", model, sheet);
+
+    expect(result?.references.map((reference) => reference.text)).toEqual([
+      "@'Missing'[1]", "@'Revenue'[21]", "@'Cost'[1]",
+    ]);
+    expect(result?.references).toHaveLength(3);
+    expect(result?.diagnostics).toEqual([
+      { kind: 'reference', code: '#REF!', sourceSpan: result?.references[0].sourceSpan },
+      { kind: 'reference', code: '#REF!', sourceSpan: result?.references[1].sourceSpan },
+    ]);
   });
 
 });

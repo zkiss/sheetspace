@@ -1,7 +1,7 @@
 import { columnIndexToLabel, type CellAddress } from '../core/address';
 import type { ColumnId, RowId, SheetId, Workbook } from '../core/model';
 import { findSheetById, sheetsInOrder } from '../read/queries';
-import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, replaceFormulaQualifiers, type FormulaReferenceLexeme } from './syntax';
+import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
 
 export type FormulaCoordinate = { columnId: ColumnId; rowId: RowId };
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
@@ -20,6 +20,19 @@ type Edit = FormulaSourceSpan & { value: string };
 
 /** Reference recognition is delegated to formulaSyntax, including malformed-formula recovery. */
 export function formulaReferenceTokens(raw: string): FormulaReferenceToken[] { return lexemeMatches(raw).map(toToken); }
+
+/**
+ * Adds resolver-backed reference diagnostics to the parser's lossless analysis.
+ * Syntax recognition remains exclusively owned by formulaSyntax; this only asks
+ * the existing resolver whether each recognised target still exists.
+ */
+export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver): FormulaSyntaxResult {
+  const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true });
+  const diagnostics = lexemeMatches(raw)
+    .filter((match) => !referenceMatchResolves(match, resolver))
+    .map((match) => ({ kind: 'reference' as const, code: '#REF!' as const, sourceSpan: match.sourceSpan }));
+  return { ...analysis, diagnostics: [...analysis.diagnostics, ...diagnostics] };
+}
 
 export function formulaRawToCanonical(raw: string, resolver: FormulaReferenceResolver): string {
   const edits: Edit[] = [];
@@ -134,6 +147,18 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
 
 function rawMatches(raw: string): Match[] { return lexemeMatches(raw).filter((match) => !match.canonical); }
 function lexemeMatches(raw: string): Match[] { return formulaReferenceLexemes(raw).map(matchFromLexeme); }
+function referenceMatchResolves(match: Match, resolver: FormulaReferenceResolver): boolean {
+  const sheetId = match.canonical
+    ? targetSheet(match.qualifier, resolver.currentSheetId)
+    : rawTargetSheet(match.qualifier, resolver);
+  if (!sheetId) return false;
+  return match.endpoints.every((endpoint) => {
+    if (endpoint.kind === 'a1') return Boolean(resolver.coordinateAt(sheetId, endpoint.address!));
+    if (endpoint.kind === 'named') return Boolean(resolver.namedCoordinateAt?.(sheetId, endpoint.propertyName!, endpoint.row!));
+    if (!endpoint.coordinate || !resolver.addressOf(sheetId, endpoint.coordinate)) return false;
+    return !endpoint.propertyId || Boolean(resolver.namedAddressOf?.(sheetId, endpoint.propertyId, endpoint.coordinate));
+  });
+}
 function matchFromLexeme(lexeme: FormulaReferenceLexeme): Match { const qualifier: FormulaQualifier = !lexeme.qualifier ? { kind: 'unqualified' } : lexeme.qualifier.broken ? { kind: 'broken', sourceSpan: lexeme.qualifier.sourceSpan } : { kind: 'explicit', sheetId: lexeme.qualifier.value, sourceSpan: lexeme.qualifier.sourceSpan }; return { sourceSpan: lexeme.sourceSpan, qualifier, endpoints: lexeme.endpoints.map((endpoint) => endpoint.kind === 'a1' ? { kind: 'a1', address: endpoint.value as CellAddress, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan } : endpoint.kind === 'named' ? (() => { const value = endpoint.value as { propertyId: string; columnId: string; rowId: string }; return value.columnId ? { kind: 'canonical', coordinate: { columnId: value.columnId, rowId: value.rowId }, propertyId: value.propertyId, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan } : { kind: 'named', propertyName: value.propertyId, row: Number(value.rowId), anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan }; })() : { kind: 'canonical', coordinate: endpoint.value as FormulaCoordinate, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan }), canonical: lexeme.endpoints[0]?.kind === 'canonical' || (lexeme.endpoints[0]?.kind === 'named' && Boolean((lexeme.endpoints[0]?.value as { columnId: string }).columnId)) }; }
 function canonicalMatches(raw: string): Match[] { return lexemeMatches(raw).filter((match) => match.canonical); }
 function toToken(match: Match): FormulaReferenceToken { return { kind: match.endpoints.length === 2 ? 'range' : 'cell', qualifier: match.qualifier, endpoints: match.endpoints.map((endpoint) => endpoint.kind === 'canonical' ? { kind: 'canonical', coordinate: endpoint.coordinate!, ...(endpoint.propertyId ? { propertyId: endpoint.propertyId } : {}), anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan } : endpoint.kind === 'named' ? { kind: 'named', propertyName: endpoint.propertyName!, row: endpoint.row!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan } : { kind: 'a1', address: endpoint.address!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan }) as [FormulaReferenceEndpoint, FormulaReferenceEndpoint?], sourceSpan: match.sourceSpan }; }
