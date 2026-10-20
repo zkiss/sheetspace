@@ -135,6 +135,14 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             call.respond(WorkbookReadTransportAdapter.bundle(workbookApplication.loadWorkbookBundle()))
         }
 
+        put("/api/workbook/model-lifecycle") {
+            val request = call.receiveRequest<ModelLifecycleRequest>() ?: return@put
+            call.respondApplicationResult {
+                val result = workbookApplication.saveModelLifecycle(request.before.toLifecycleWorkbook(), request.after.toLifecycleWorkbook())
+                call.respond(WorkbookReadTransportAdapter.bundle(result))
+            }
+        }
+
         get("/api/sheets/{sheetId}") {
             val sheetId = call.parameters["sheetId"] ?: return@get call.respondError(
                 HttpStatusCode.BadRequest,
@@ -353,6 +361,8 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.INVALID_SHEET_PRESENTATION -> HttpStatusCode.BadRequest to "invalid-sheet-presentation"
         WorkbookApplicationError.INVALID_DATA_MODEL -> HttpStatusCode.BadRequest to "invalid-data-model"
         WorkbookApplicationError.UNKNOWN_DATA_MODEL -> HttpStatusCode.BadRequest to "unknown-data-model"
+        WorkbookApplicationError.INVALID_MODEL_LIFECYCLE -> HttpStatusCode.BadRequest to "invalid-model-lifecycle"
+        WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT -> HttpStatusCode.Conflict to "model-lifecycle-conflict"
         WorkbookApplicationError.EMPTY_CELL_PATCH -> HttpStatusCode.BadRequest to "empty-cell-patch"
         WorkbookApplicationError.DUPLICATE_CELL_WRITE -> HttpStatusCode.BadRequest to "duplicate-cell-write"
         WorkbookApplicationError.DUPLICATE_SHEET_REVISION -> HttpStatusCode.BadRequest to "duplicate-sheet-revision"
@@ -362,7 +372,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
     respondError(status, code)
 }
 
-private fun DataModelWriteRequest.toDataModel(id: String): DataModel? {
+internal fun DataModelWriteRequest.toDataModel(id: String): DataModel? {
     val convertedColumns = columns.map { column ->
         val type = ModelColumnType.entries.firstOrNull { it.name.lowercase() == column.type } ?: return null
         when (column.kind) {

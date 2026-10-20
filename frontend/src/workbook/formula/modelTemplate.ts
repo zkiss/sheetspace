@@ -40,7 +40,7 @@ function bindEndpoint(endpoint: FormulaReferenceEndpoint, workbook: Workbook, sh
   if (endpoint.kind === 'named') {
     const property = (sheet.modelId ? workbook.dataModels?.[sheet.modelId] : undefined)?.columns.find((column) => column.name === endpoint.propertyName);
     const columnId = property && sheet.modelColumnBindings?.[property.id];
-    return property && columnId && sheet.content.columns.includes(columnId)
+    return property && columnId && sheet.content.columns.includes(columnId) && Number.isFinite(endpoint.row)
       ? { ...base, columnId, rowIndex: endpoint.row - 1, propertyId: property.id } : undefined;
   }
   const rowIndex = sheet.content.rows.indexOf(endpoint.coordinate.rowId);

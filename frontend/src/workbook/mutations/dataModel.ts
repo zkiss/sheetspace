@@ -21,14 +21,13 @@ export function replaceDataModel(workbook: Workbook, model: DataModel): ModelMut
   if (!workbook.dataModels?.[model.id]) return { ok: false, reason: 'unknown-model' };
   const invalid = validateDataModel(model);
   if (invalid) return invalid;
-  const propertyIds = new Set(model.columns.map((column) => column.id));
   return {
     ok: true,
     value: {
       ...workbook,
       dataModels: { ...workbook.dataModels, [model.id]: model },
       documents: Object.fromEntries(Object.entries(workbook.documents).map(([sheetId, sheet]) => [
-        sheetId, retainPropertyBindings(sheet, model.id, propertyIds),
+        sheetId, retainPropertyBindings(sheet, model),
       ])),
     },
   };
@@ -48,11 +47,13 @@ export function setSheetModelId(workbook: Workbook, sheetId: SheetId, modelId?: 
   return { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: updatedSheet } } };
 }
 
-function retainPropertyBindings(sheet: SheetDocument, modelId: string, propertyIds: Set<string>): SheetDocument {
-  if (sheet.modelId !== modelId || sheet.modelColumnBindings === undefined) return sheet;
+function retainPropertyBindings(sheet: SheetDocument, model: DataModel): SheetDocument {
+  if (sheet.modelId !== model.id) return sheet;
+  const propertyIds = new Set(model.columns.map((column) => column.id));
   return {
     ...sheet,
-    modelColumnBindings: Object.fromEntries(Object.entries(sheet.modelColumnBindings).filter(([propertyId]) => propertyIds.has(propertyId))),
+    ...(sheet.modelColumnBindings === undefined ? {} : { modelColumnBindings: Object.fromEntries(Object.entries(sheet.modelColumnBindings).filter(([propertyId]) => propertyIds.has(propertyId))) }),
+    ...(sheet.modelFormulaBindings === undefined ? {} : { modelFormulaBindings: Object.fromEntries(Object.entries(sheet.modelFormulaBindings).filter(([propertyId, template]) => model.columns.some((property) => property.id === propertyId && property.kind === 'calculated' && property.formula === template.raw))) }),
   };
 }
 

@@ -3,6 +3,7 @@ import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { SheetDocument, Workbook } from '@workbook/core/model';
 import { findSheetById } from '@workbook/read/queries';
 import { formulaRawForDisplay } from '@workbook/formula/reference';
+import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import type {
   ClipboardDimensions,
   ClipboardGrid,
@@ -104,7 +105,7 @@ export class ClipboardPayloadStore {
       const raw = sheet.content.cells[cellIdentityKey(identity)] ?? '';
       return { identity, raw };
     }));
-    const displayRows = cells.map((row) => row.map((cell) => cell.raw.startsWith('=') ? formulaRawForDisplay(cell.raw, workbook, sheet.id) : cell.raw));
+    const displayRows = cells.map((row) => row.map((cell) => decodeCellTextLiteral(cell.raw) ?? (cell.raw.startsWith('=') ? formulaRawForDisplay(cell.raw, workbook, sheet.id) : cell.raw)));
     const text = encodeTsv(displayRows);
     const source: ClipboardSourceSnapshot = {
       sheetId: sheet.id,

@@ -57,6 +57,8 @@ enum class WorkbookApplicationError {
     INVALID_SHEET_PRESENTATION,
     INVALID_DATA_MODEL,
     UNKNOWN_DATA_MODEL,
+    INVALID_MODEL_LIFECYCLE,
+    MODEL_LIFECYCLE_CONFLICT,
 }
 
 class WorkbookApplicationException(
@@ -64,6 +66,7 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
+    fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState
     fun loadManifest(): WorkbookManifest
 
     fun loadWorkbookBundle(): WorkbookState
@@ -94,6 +97,8 @@ interface WorkbookApplication {
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
 ) : WorkbookApplication {
+    override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
+        store.updateWorkbook { current -> reconcileModelLifecycle(current, before, after) }
     override fun loadManifest(): WorkbookManifest = store.loadManifest()
 
     override fun loadWorkbookBundle(): WorkbookState = store.loadWorkbookBundle()
@@ -256,6 +261,9 @@ class DefaultWorkbookApplication(
                 documents = workbook.documents.mapValues { (_, sheet) ->
                     if (sheet.modelId != model.id) sheet else sheet.copy(
                         modelColumnBindings = sheet.modelColumnBindings.filterKeys(propertyIds::contains),
+                        modelFormulaBindings = sheet.modelFormulaBindings?.filter { (propertyId, template) ->
+                            model.columns.any { it.id == propertyId && it is CalculatedModelColumn && it.formula == template.raw }
+                        },
                     )
                 },
             )
@@ -275,7 +283,7 @@ class DefaultWorkbookApplication(
                 workbook.dataModels.getValue(modelId).columns.zip(sheet.tabularContent.columns)
                     .associate { (property, column) -> property.id to column }
             }.orEmpty()
-            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings)
+            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings, modelFormulaBindings = null)
             if (!validModelColumnBindings(updated, workbook.dataModels)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
             }
@@ -298,7 +306,7 @@ class DefaultWorkbookApplication(
     }
 }
 
-private fun isValidDataModel(model: DataModel): Boolean {
+internal fun isValidDataModel(model: DataModel): Boolean {
     if (model.id.toUuidBytesOrNull() == null || model.name.isBlank()) return false
     if (model.columns.map(ModelColumn::id).distinct().size != model.columns.size) return false
     if (model.columns.map { it.name.trim() }.distinct().size != model.columns.size) return false

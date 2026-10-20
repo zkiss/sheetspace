@@ -117,7 +117,7 @@ export function useSavedSheetAutosave({
 
   const enqueue = useCallback((operationId: WorkbookOperationId, intent: WorkbookPersistenceIntent | undefined) => {
     if (!autosaveEnabled || !intent) return;
-    const sheetIds = intent.kind === 'update-sheet-z-order'
+    const sheetIds = intent.kind === 'model-lifecycle' ? intent.before.manifest.sheetIds : intent.kind === 'update-sheet-z-order'
       ? intent.updates.map(({ sheetId }) => sheetId)
       : intent.kind === 'write-cells'
         ? intent.writes.map(({ sheetId }) => sheetId)
@@ -147,6 +147,8 @@ export function useSavedSheetAutosave({
     hasRetryableFailures,
     markSaved: useCallback(() => undefined, []),
     outboxSnapshot: snapshot,
+    hasModelTransition: () => outbox.hasModelTransition(),
+    waitForModelTransitions: () => outbox.waitForModelTransitions(),
     retryFailedSaves,
     saveStatus,
     supersedeSheetOperations,

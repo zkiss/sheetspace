@@ -29,6 +29,19 @@ function expand(workbook: Workbook): Workbook {
 }
 
 describe('model formula row templates', () => {
+  it.each(['@A', "@'Owner''s input'"])('keeps oversized %s row targets serializable and broken rather than rejecting their declarations', (reference) => {
+    const workbook = instances();
+    const finite = bindModelFormula(`=${reference}[3000000000]`, workbook, 'one');
+    expect(finite.references[0].endpoints[0]?.rowIndex).toBe(2999999999);
+    expect(instantiateModelFormula(JSON.parse(JSON.stringify(finite)), workbook, 0)).toBe('=@#REF!A[1]');
+  });
+
+  it('serializes unrepresentable named row targets as broken endpoints', () => {
+    const workbook = instances();
+    const unrepresentable = bindModelFormula(`=@'Owner''s input'[${'9'.repeat(400)}]`, workbook, 'one');
+    expect(unrepresentable.references[0].endpoints).toEqual([null]);
+    expect(instantiateModelFormula(JSON.parse(JSON.stringify(unrepresentable)), workbook, 0)).toBe('=@#REF!A[1]');
+  });
   it('calculates independent instances and multiple properties from declarations rather than first-row cells', () => {
     const workbook = instances();
     const expanded = expand(workbook);

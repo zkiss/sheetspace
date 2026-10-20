@@ -3,6 +3,7 @@ import { ClipboardPayloadStore, decodeTsv, encodeTsv } from '@grid/clipboardPayl
 import { cellTargetAt } from '@grid/cellInteraction';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { formulaRawForStorage } from '@workbook/formula/reference';
+import { encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 
 describe('TSV clipboard codec', () => {
   it('round trips blank cells, rows, trailing fields, ragged rows, and scalar values as a rectangular footprint', () => {
@@ -35,6 +36,17 @@ describe('TSV clipboard codec', () => {
 });
 
 describe('clipboard payload provenance', () => {
+  it('exports readable frozen text while retaining its non-executable storage for internal copy', () => {
+    const raw = encodeCellTextLiteral('=not a formula');
+    const sheet = sheetDocument({ id: 'literal', name: 'Literal', cells: { A1: raw } });
+    const workbook = workbookWithSheets([sheet]);
+    const store = new ClipboardPayloadStore();
+    const target = cellTargetAt(sheet, 'A1')!;
+    const copied = store.copy(workbook, { mode: 'cells', anchor: target, extent: target });
+    if (!copied.ok) throw new Error('copy failed');
+    expect(copied.value.text).toBe('=not a formula');
+    expect(store.parse(workbook, copied.value)).toMatchObject({ ok: true, value: { kind: 'internal', source: { cells: [[{ raw }]] } } });
+  });
   it('keeps a cut pending only for its exact clipboard payload, and cancels it on replacement', () => {
     const sheet = sheetDocument({ id: 'source', name: 'Source', cells: { A1: 'one', B1: 'two' } });
     const workbook = workbookWithSheets([sheet]);

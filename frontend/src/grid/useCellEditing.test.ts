@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useCellEditing } from '@grid/useCellEditing';
+import { encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 
 function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 })) {
   const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
@@ -15,6 +16,14 @@ function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x
 }
 
 describe('useCellEditing', () => {
+  it.each(['=1+2', '123', '', '\u001eSheetspace:text:"nested"'])('edits frozen text %j without exposing its envelope or executing an unchanged draft', (text) => {
+    const sheet = sheetDocument({ id: 'literal', name: 'Literal', cells: { A1: encodeCellTextLiteral(text) } });
+    const { result, commands } = renderCellEditing(sheet);
+    act(() => result.current.startEditingCell(cellTargetAt(sheet, 'A1')!));
+    expect(result.current.editingCell?.draft).toBe(text);
+    act(() => result.current.commitActiveEdit());
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
+  });
   it('keeps focus with the extent through repeated Shift-arrow extension and reversal', () => {
     const { result, sheet } = renderCellEditing();
     const b1 = cellTargetAt(sheet, 'B1')!;

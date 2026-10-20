@@ -29,6 +29,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   private async executeKnownSheets(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]): Promise<TransportResult> {
     const missingSheetIds = affectedSheetIds.filter((sheetId) => this.coordinator.isSheetMissing(sheetId));
     if (missingSheetIds.length === 0) return this.executeWithRetry(operationId, intent, affectedSheetIds);
+    if (intent.kind === 'model-lifecycle') return { kind: 'blocked', reason: 'Structural snapshot includes a missing sheet; reload required.' };
     if (intent.kind !== 'update-sheet-z-order') return { kind: 'missing-sheet', sheetIds: missingSheetIds };
     const updates = intent.updates.filter(({ sheetId }) => !missingSheetIds.includes(sheetId));
     if (updates.length === 0) return { kind: 'missing-sheet', sheetIds: missingSheetIds };
@@ -39,6 +40,8 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   }
 
   private async executeWithRetry(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
+    // A structural snapshot is a compare-and-swap, never a revision-only replay.
+    if (intent.kind === 'model-lifecycle') return this.request(intent);
     if (intent.kind === 'write-cells' && operationId !== undefined && this.unsafeCellWriteFailures.has(operationId)) {
       const recovered = await this.recoverUnsafeCellWrite(operationId, intent);
       if (recovered) return recovered;
@@ -119,6 +122,10 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     }));
   }
   private async request(intent: WorkbookPersistenceIntent): Promise<TransportResult> {
+    if (intent.kind === 'model-lifecycle') {
+      const workbook = await this.method('saveModelLifecycle')(intent.before, intent.after);
+      return this.recordMany(Object.values(workbook.documents).map(({ id, revision }) => ({ sheetId: id, revision })));
+    }
     if (intent.kind === 'write-axis-sizes') return this.record(await this.method('writeAxisSizes')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-number-formats') return this.record(await this.method('writeNumberFormats')(intent.sheetId, intent.writes, { revision: this.revision(intent.sheetId) }));
     if (intent.kind === 'write-cells') {

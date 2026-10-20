@@ -27,6 +27,7 @@ class GridAxisCreationQueue {
   private idleWaiters: Array<{ sheetId: string; resolve: () => void }> = [];
 
   snapshot() { return this.entries.map((entry) => ({ ...entry })); }
+  hasUnsettled() { return this.entries.some((entry) => ['queued', 'running', 'failed'].includes(entry.status)); }
   subscribe(listener: (entries: readonly AxisCreation[]) => void) {
     this.listeners.add(listener);
     listener(this.snapshot());
@@ -114,6 +115,7 @@ class GridAxisCreationQueue {
 /** Backend-authoritative row/column creation, kept separate from replayable workbook operations. */
 export function useGridAxisCreationOperations({
   autosaveEnabled,
+  beforeCreate,
   currentWorkbook,
   persistenceCoordinator,
   reconcile,
@@ -121,6 +123,7 @@ export function useGridAxisCreationOperations({
   setWorkbook,
 }: {
   autosaveEnabled: boolean;
+  beforeCreate?: () => Promise<void> | undefined;
   currentWorkbook: () => Workbook;
   persistenceCoordinator: WorkbookPersistenceCoordinator;
   reconcile: (entry: { kind: 'append-row'; sheetId: string; rowId: string } | { kind: 'append-column'; sheetId: string; columnId: string }) => void;
@@ -152,34 +155,38 @@ export function useGridAxisCreationOperations({
     }, { kind: 'none' });
   }, [persistenceCoordinator, setWorkbook]);
 
-  const execute = useCallback(async (entry: AxisCreation) => persistenceCoordinator.serialize([entry.sheetId], async () => {
-    if (persistenceCoordinator.isSheetMissing(entry.sheetId)) return;
-    const request = async (revision: number | undefined) => entry.axis === 'row'
-      ? (resolvedApiClient.appendRow ?? workbookApi.appendRow)(entry.sheetId, { revision })
-      : (resolvedApiClient.appendColumn ?? workbookApi.appendColumn)(entry.sheetId, { revision });
-    const revision = () => persistenceCoordinator.revision(entry.sheetId)
-      ?? findSheetById(currentWorkbook(), entry.sheetId)?.revision;
-    let response;
-    try {
-      response = await request(revision());
-    } catch (failure) {
-      if (!(failure instanceof WorkbookApiError) || failure.status !== 409 || failure.code !== 'sheet-revision-conflict') throw failure;
+  const execute = useCallback(async (entry: AxisCreation) => {
+    const wait = beforeCreate?.();
+    if (wait) await wait;
+    return persistenceCoordinator.serialize([entry.sheetId], async () => {
+      if (persistenceCoordinator.isSheetMissing(entry.sheetId)) return;
+      const request = async (revision: number | undefined) => entry.axis === 'row'
+        ? (resolvedApiClient.appendRow ?? workbookApi.appendRow)(entry.sheetId, { revision })
+        : (resolvedApiClient.appendColumn ?? workbookApi.appendColumn)(entry.sheetId, { revision });
+      const revision = () => persistenceCoordinator.revision(entry.sheetId)
+        ?? findSheetById(currentWorkbook(), entry.sheetId)?.revision;
+      let response;
       try {
-        const latest = await (resolvedApiClient.loadSheet ?? workbookApi.loadSheet)(entry.sheetId);
-        recordRevision(latest.id, latest.revision);
         response = await request(revision());
-      } catch (reloadFailure) {
-        if (reloadFailure instanceof WorkbookApiError && reloadFailure.status === 404 && reloadFailure.code === 'sheet-not-found') {
-          persistenceCoordinator.confirmSheetMissing(entry.sheetId, { axisOperationId: entry.operationId });
-          return;
+      } catch (failure) {
+        if (!(failure instanceof WorkbookApiError) || failure.status !== 409 || failure.code !== 'sheet-revision-conflict') throw failure;
+        try {
+          const latest = await (resolvedApiClient.loadSheet ?? workbookApi.loadSheet)(entry.sheetId);
+          recordRevision(latest.id, latest.revision);
+          response = await request(revision());
+        } catch (reloadFailure) {
+          if (reloadFailure instanceof WorkbookApiError && reloadFailure.status === 404 && reloadFailure.code === 'sheet-not-found') {
+            persistenceCoordinator.confirmSheetMissing(entry.sheetId, { axisOperationId: entry.operationId });
+            return;
+          }
+          throw reloadFailure;
         }
-        throw reloadFailure;
       }
-    }
-    recordRevision(response.sheetId, response.revision);
-    if ('rowId' in response) reconcileRef.current({ kind: 'append-row', sheetId: entry.sheetId, rowId: response.rowId });
-    else reconcileRef.current({ kind: 'append-column', sheetId: entry.sheetId, columnId: response.columnId });
-  }), [currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient]);
+      recordRevision(response.sheetId, response.revision);
+      if ('rowId' in response) reconcileRef.current({ kind: 'append-row', sheetId: entry.sheetId, rowId: response.rowId });
+      else reconcileRef.current({ kind: 'append-column', sheetId: entry.sheetId, columnId: response.columnId });
+    });
+  }, [beforeCreate, currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient]);
 
   const pump = useCallback(function pumpAvailable() {
     for (const execution of queue.executeAvailable(execute)) void execution.finally(pumpAvailable);
@@ -207,6 +214,7 @@ export function useGridAxisCreationOperations({
     appendColumn: (sheetId: string) => append(sheetId, 'column'),
     appendRow: (sheetId: string) => append(sheetId, 'row'),
     creatingAxes,
+    hasUnsettled: () => queue.hasUnsettled(),
     prepareSheetDeletion: (sheetId: string) => queue.prepareSheetDeletion(sheetId),
     saveStatus: failed ? 'failed' as const : saving ? 'saving' as const : 'saved' as const,
   };

@@ -71,7 +71,7 @@ class SqliteWorkbookStoreSchemaTest {
                     }
                 }
             }
-            assertEquals(setOf("id", "name", "content_kind", "revision", "model_id"), documentColumns)
+            assertEquals(setOf("id", "name", "content_kind", "revision", "model_id", "model_formula_bindings"), documentColumns)
             assertFalse("cells_json" in documentColumns)
             assertFalse("row_count" in documentColumns)
             assertFalse("column_count" in documentColumns)

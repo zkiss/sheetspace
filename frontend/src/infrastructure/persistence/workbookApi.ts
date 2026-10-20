@@ -3,6 +3,8 @@ import { isValidCellAppearance, validFormatWrites } from '@workbook/core/numberF
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
+import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
+import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 
 type ApiErrorBody = {
   error?: string;
@@ -39,6 +41,7 @@ export type SheetDocumentResponse = {
   };
   modelId?: string;
   modelColumnBindings?: Record<string, string>;
+  modelFormulaBindings?: ModelFormulaBindings;
 };
 
 export type WorkbookBundleResponse = {
@@ -153,6 +156,11 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  saveModelLifecycle(before: Workbook, after: Workbook): Promise<Workbook> {
+    return requestJson<WorkbookBundleResponse>('/api/workbook/model-lifecycle', {
+      method: 'PUT', body: JSON.stringify({ before: encodeWorkbookBundle(before), after: encodeWorkbookBundle(after) }),
+    }).then(decodeWorkbookBundle);
+  },
   writeAxisSizes(sheetId: string, writes: readonly AxisSizeWrite[], options: RevisionedMutationOptions = {}): Promise<SheetRevisionResponse> {
     return requestJson<SheetRevisionResponse>(`/api/sheets/${encodePathSegment(sheetId)}/presentation`, {
       method: 'PATCH', body: JSON.stringify({ writes }), headers: revisionHeaders(options),
@@ -419,6 +427,18 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
     },
     ...(document.modelId === undefined ? {} : { modelId: document.modelId }),
     ...(document.modelColumnBindings === undefined ? {} : { modelColumnBindings: { ...document.modelColumnBindings } }),
+    ...(document.modelFormulaBindings === undefined ? {} : { modelFormulaBindings: structuredClone(document.modelFormulaBindings) }),
+  };
+}
+
+export function encodeWorkbookBundle(workbook: Workbook): WorkbookBundleResponse {
+  return {
+    manifest: workbook.manifest,
+    dataModels: Object.values(workbook.dataModels ?? {}).map((model) => ({ ...model, columns: [...model.columns] })),
+    documents: workbook.manifest.sheetIds.map((id) => {
+      const sheet = workbook.documents[id]!;
+      return { ...sheet, content: { ...sheet.content, cells: Object.entries(sheet.content.cells).map(([key, content]) => ({ ...cellIdentityFromKey(key)!, content })) } };
+    }),
   };
 }
 

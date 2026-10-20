@@ -27,6 +27,11 @@ import {
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
+import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
+import type { ModelMutationResult } from '@workbook/mutations/dataModel';
+import type { DataModel } from '@workbook/core/model';
+import { refreshAppendedModelRows } from '@application/core/modelRowAppend';
+import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
@@ -42,6 +47,9 @@ import {
 } from '@calculation/workbookCalculation';
 
 export type WorkbookCommands = {
+  bindSheetToModel: (sheetId: string, modelId: string) => ModelCommandResult;
+  unbindSheetFromModel: (sheetId: string) => ModelCommandResult;
+  replaceModelDeclaration: (model: DataModel) => ModelCommandResult;
   writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => void;
   writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => void;
   appendColumn: (sheetId: string) => void;
@@ -61,6 +69,8 @@ export type WorkbookCommands = {
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
 };
+
+export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' };
 
 export type PasteCellsResult =
   | { ok: true; changed: boolean }
@@ -112,12 +122,13 @@ function contentHistorySnapshot(
     const sheet = workbook && findSheetById(workbook, write.sheetId);
     const address = sheet && cellAddressOf(sheet.content, write);
     const value = write[raw];
+    const ordinaryValue = value === null ? null : decodeCellTextLiteral(value) ?? value;
     return Object.freeze({
       sheetId: write.sheetId,
       rowId: write.rowId,
       columnId: write.columnId,
       raw: value,
-      display: address ? formulaResults?.[write.sheetId]?.[cellKey(address)]?.display ?? value : value,
+      display: address ? formulaResults?.[write.sheetId]?.[cellKey(address)]?.display ?? ordinaryValue : ordinaryValue,
     });
   }));
 }
@@ -208,8 +219,9 @@ export function useWorkbookController({
     setWorkbook,
     workbook,
   });
-  const { createSheet, creatingFrames, saveStatus: creationSaveStatus } = useSheetCreationOperations({
+  const { createSheet, creatingFrames, hasPendingCreations, saveStatus: creationSaveStatus } = useSheetCreationOperations({
     autosaveEnabled,
+    beforeCreate: savedAutosave.waitForModelTransitions,
     currentWorkbook: () => optimisticWorkbook.current,
     resolvedApiClient,
     setWorkbook,
@@ -237,6 +249,21 @@ export function useWorkbookController({
     appliedCalculation.current = pendingCalculation;
   }, [calculated, pendingCalculation]);
   const formulaResults = calculated.results;
+  const resetHistory = () => {
+    contentHistory.clear();
+    setContentHistoryFeedback(undefined);
+    setHistoryRevision((revision) => revision + 1);
+  };
+  const completedModelTransitions = useRef(new Set<string>());
+  useEffect(() => {
+    for (const entry of savedAutosave.outboxSnapshot) {
+      if (entry.intent.kind !== 'model-lifecycle' || entry.status !== 'succeeded' || completedModelTransitions.current.has(entry.operationId)) continue;
+      completedModelTransitions.current.add(entry.operationId);
+      contentHistory.clear();
+      setContentHistoryFeedback(undefined);
+      setHistoryRevision((revision) => revision + 1);
+    }
+  }, [savedAutosave.outboxSnapshot, contentHistory]);
 
   type WorkbookOperationInput = WorkbookOperation extends infer Operation
     ? Operation extends unknown ? Omit<Operation, 'operationId'> : never
@@ -264,7 +291,31 @@ export function useWorkbookController({
   }
 
   function applyReconciliation(reconciliation: Parameters<typeof applyBackendWorkbookReconciliation>[1]) {
-    return applyResult(applyBackendWorkbookReconciliation(optimisticWorkbook.current, reconciliation));
+    const before = optimisticWorkbook.current;
+    const applied = applyResult(applyBackendWorkbookReconciliation(before, reconciliation));
+    if (!applied || reconciliation.kind !== 'append-row') return applied;
+    const { nextWorkbook: next, writes } = refreshAppendedModelRows(applied.nextWorkbook);
+    if (writes.length > 0) {
+      optimisticWorkbook.current = next;
+      setWorkbook(next, { kind: 'structure' });
+      savedAutosave.enqueue(crypto.randomUUID(), { kind: 'write-cells', writes });
+    }
+    return applied;
+  }
+
+  function applyModelTransition(transform: (source: Workbook) => ModelMutationResult): ModelCommandResult {
+    const before = optimisticWorkbook.current;
+    // Validate/no-op first: neither needs to reserve a structural boundary.
+    const result = transform(before);
+    if (!result.ok || result.value === before) return result;
+    if (axisCreation.hasUnsettled()) return { ok: false, reason: 'pending-axis-creation' };
+    if (hasPendingCreations()) return { ok: false, reason: 'pending-sheet-creation' };
+    if (savedAutosave.hasModelTransition()) return { ok: false, reason: 'pending-model-transition' };
+    optimisticWorkbook.current = result.value;
+    setWorkbook(result.value, { kind: 'structure' });
+    if (autosaveEnabled) savedAutosave.enqueue(crypto.randomUUID(), { kind: 'model-lifecycle', before, after: result.value });
+    else resetHistory();
+    return result;
   }
 
   function deleteSheetCommand(sheetId: string) {
@@ -295,6 +346,7 @@ export function useWorkbookController({
 
   const axisCreation = useGridAxisCreationOperations({
     autosaveEnabled,
+    beforeCreate: savedAutosave.waitForModelTransitions,
     currentWorkbook: () => optimisticWorkbook.current,
     persistenceCoordinator,
     reconcile: applyReconciliation,
@@ -307,7 +359,7 @@ export function useWorkbookController({
     const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     const cell = currentSheet && cellIdentityAt(currentSheet.content, cellKey);
     if (!currentSheet || !cell) return;
-    writeCells([{ sheetId: localSheetId, ...cell, raw }]);
+    writeCells([{ sheetId: localSheetId, ...cell, raw: decodeCellTextLiteral(raw) === undefined ? raw : encodeCellTextLiteral(raw) }]);
   }
 
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) {
@@ -337,6 +389,7 @@ export function useWorkbookController({
   }
 
   function replayContentHistory(direction: 'undo' | 'redo') {
+    if (savedAutosave.hasModelTransition()) return;
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
     const sourceWorkbook = optimisticWorkbook.current;
@@ -383,6 +436,9 @@ export function useWorkbookController({
 
   return {
     commands: {
+      bindSheetToModel: (sheetId, modelId) => applyModelTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
+      unbindSheetFromModel: (sheetId) => applyModelTransition((source) => unbindSheetFromModel(source, sheetId)),
+      replaceModelDeclaration: (model) => applyModelTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
       writeNumberFormats: (sheetId, writes) => { applyAction({ kind: 'write-number-formats', sheetId, writes }); },
       writeAxisSizes: (sheetId, writes) => { applyAction({ kind: 'write-axis-sizes', sheetId, writes }); },
       appendColumn: axisCreation.appendColumn,
@@ -403,9 +459,9 @@ export function useWorkbookController({
       writeCells,
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
-    canUndo: contentHistory.canUndo,
-    canRedo: contentHistory.canRedo,
-    contentHistoryFeedback,
+    canUndo: !savedAutosave.hasModelTransition() && contentHistory.canUndo,
+    canRedo: !savedAutosave.hasModelTransition() && contentHistory.canRedo,
+    contentHistoryFeedback: savedAutosave.hasModelTransition() ? undefined : contentHistoryFeedback,
     formulaResults,
     retryStartupLoad,
     creatingFrames,
