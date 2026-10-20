@@ -259,6 +259,14 @@ class DefaultWorkbookApplication(
     override fun saveDataModel(model: DataModel): DataModel {
         if (!isValidDataModel(model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
         return store.updateWorkbook { workbook ->
+            val previous = workbook.dataModels[model.id]
+            if (
+                previous != null &&
+                workbook.documents.values.any { it.modelId == model.id } &&
+                previous.calculatedFormulasByProperty() != model.calculatedFormulasByProperty()
+            ) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
+            }
             val propertyIds = model.columns.map(ModelColumn::id).toSet()
             workbook.copy(
                 dataModels = workbook.dataModels + (model.id to model),
@@ -314,6 +322,9 @@ class DefaultWorkbookApplication(
         return updated.documents.getValue(id)
     }
 }
+
+private fun DataModel.calculatedFormulasByProperty(): Map<String, String> =
+    columns.filterIsInstance<CalculatedModelColumn>().associate { it.id to it.formula }
 
 internal fun isValidDataModel(model: DataModel): Boolean {
     if (model.id.toUuidBytesOrNull() == null || model.name.isBlank()) return false

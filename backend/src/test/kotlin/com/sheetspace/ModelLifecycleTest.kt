@@ -8,15 +8,32 @@ import kotlinx.serialization.json.Json
 
 class ModelLifecycleTest {
     @Test
-    fun `metadata writes prune only obsolete templates without invoking lifecycle transformations`() {
+    fun `template-free declaration writes reject calculated formula changes while lifecycle reconciles every bound sheet`() {
         val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore(bound))
         val original = bound.dataModels.getValue(LIFECYCLE_MODEL)
         application.saveDataModel(original.copy(name = "Renamed"))
         assertEquals(bound.sheetsInOrder.map { it.modelFormulaBindings }, application.loadWorkbookBundle().sheetsInOrder.map { it.modelFormulaBindings })
-        application.saveDataModel(original.copy(columns = listOf(original.columns[0], (original.columns[1] as CalculatedModelColumn).copy(formula = "=2"))))
-        assertEquals(listOf(emptyMap(), emptyMap()), application.loadWorkbookBundle().sheetsInOrder.map { it.modelFormulaBindings })
-        assertEquals(bound.sheetsInOrder.map { it.content }, application.loadWorkbookBundle().sheetsInOrder.map { it.content })
+        val formulaChanged = original.copy(columns = listOf(original.columns[0], (original.columns[1] as CalculatedModelColumn).copy(formula = "=@A[1]*3")))
+
+        assertEquals(
+            WorkbookApplicationError.INVALID_MODEL_LIFECYCLE,
+            assertFailsWith<WorkbookApplicationException> { application.saveDataModel(formulaChanged) }.error,
+        )
+        assertEquals(bound.copy(dataModels = bound.dataModels + (original.id to original.copy(name = "Renamed"))), application.loadWorkbookBundle())
+
+        val before = application.loadWorkbookBundle()
+        val reconciled = formulaChangedWorkbook(before, formulaChanged)
+        val saved = application.saveModelLifecycle(before, reconciled)
+
+        assertEquals(formulaChanged, saved.dataModels.getValue(LIFECYCLE_MODEL))
+        saved.sheetsInOrder.forEach { sheet ->
+            assertEquals("=@A[1]*3", sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).raw)
+            assertEquals(
+                sheet.tabularContent.rows.map { row -> "=@${sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT).value}[${row.value}]*3" },
+                sheet.tabularContent.rows.map { row -> sheet.tabularContent.cellContents.getValue(CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT))) },
+            )
+        }
     }
 
     @Test
@@ -142,3 +159,19 @@ class ModelLifecycleTest {
         }
     }
 }
+
+internal fun formulaChangedWorkbook(before: WorkbookState, model: DataModel): WorkbookState = before.copy(
+    dataModels = before.dataModels + (model.id to model),
+    documents = before.documents.mapValues { (_, sheet) ->
+        val input = sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT)
+        val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+        sheet.copy(
+            modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) -> template.copy(raw = "=@A[1]*3") },
+            content = sheet.tabularContent.let { content ->
+                content.rows.fold(content) { updated, row ->
+                    updated.updateCell(updated.addressOf(CellCoordinate(row, output))!!, "=@${input.value}[${row.value}]*3")
+                }
+            },
+        )
+    },
+)

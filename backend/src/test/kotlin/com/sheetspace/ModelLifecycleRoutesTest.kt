@@ -167,6 +167,39 @@ class ModelLifecycleRoutesTest {
             }
         }
     }
+
+    @Test
+    fun `template-free declaration edits reject calculated formula changes while lifecycle reconciles SQLite sheets`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val before = lifecycleBoundWorkbook(lifecycleWorkbook())
+            val original = before.dataModels.getValue(LIFECYCLE_MODEL)
+            val changedModel = original.copy(columns = listOf(original.columns[0], (original.columns[1] as CalculatedModelColumn).copy(formula = "=@A[1]*3")))
+            val reconciled = formulaChangedWorkbook(before, changedModel)
+            store.saveWorkbook(before)
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+
+                val rejected = client.put("/api/data-models/$LIFECYCLE_MODEL") {
+                    jsonBody("""{"name":"Invoice","columns":[{"id":"$LIFECYCLE_INPUT","name":"Input","kind":"manual","type":"float"},{"id":"$LIFECYCLE_OUTPUT","name":"Output","kind":"calculated","type":"float","formula":"=@A[1]*3"}]}""")
+                }
+                assertEquals(HttpStatusCode.BadRequest, rejected.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), rejected.decodeBody())
+                assertEquals(before, store.loadWorkbookBundle())
+
+                val updated = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, reconciled)) }
+                assertEquals(HttpStatusCode.OK, updated.status)
+                val saved = store.loadWorkbookBundle()
+                assertEquals(changedModel, saved.dataModels.getValue(LIFECYCLE_MODEL))
+                saved.sheetsInOrder.forEach { sheet ->
+                    assertEquals("=@A[1]*3", sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).raw)
+                    assertEquals(
+                        sheet.tabularContent.rows.map { row -> "=@${sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT).value}[${row.value}]*3" },
+                        sheet.tabularContent.rows.map { row -> sheet.tabularContent.cellContents.getValue(CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT))) },
+                    )
+                }
+            }
+        }
+    }
 }
 
 internal const val LIFECYCLE_MODEL = "30000000-0000-0000-0000-000000000001"
