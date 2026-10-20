@@ -3,6 +3,7 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { commitCellRawContent,  } from '@workbook/mutations/operations';
 import { cellAddressOf } from '@workbook/core/cellIdentity';
+import type { Workbook } from '@workbook/core/model';
 import { findSheetById } from '@workbook/read/queries';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
@@ -448,4 +449,48 @@ describe('incremental formula calculation', () => {
     expect(clearedPathEvaluated).toEqual([]);
   });
 
+  it('evaluates persisted named cells and ranges, then returns #REF! after property replacement', () => {
+    const calculation = new FormulaCalculation();
+    let workbook = namedBoundWorkbook();
+    workbook = commitCellRawContent(workbook, 'sheet-budget', 'D1', "=SUM(@'Revenue'[1]:'Cost'[2])");
+    workbook = commitCellRawContent(workbook, 'sheet-budget', 'E1', "=@'Revenue'[1]");
+
+    expect(calculation.update(calculationProjection(workbook), { kind: 'structure' })['sheet-budget'])
+      .toMatchObject({ D1: { kind: 'number', value: 14 }, E1: { kind: 'number', value: 2 } });
+
+    workbook = {
+      ...workbook,
+      dataModels: {
+        budget: {
+          ...workbook.dataModels!.budget!,
+          columns: [
+            { id: 'replacement-revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+            ...workbook.dataModels!.budget!.columns.slice(1),
+          ],
+        },
+      },
+    };
+    expect(calculation.update(calculationProjection(workbook), { kind: 'structure' })['sheet-budget'])
+      .toMatchObject({ D1: { kind: 'error', error: '#REF!' }, E1: { kind: 'error', error: '#REF!' } });
+  });
+
 });
+
+function namedBoundWorkbook(): Workbook {
+  const sheet = {
+    ...sheetDocument({ id: 'sheet-budget', name: 'Budget', cells: { A1: '2', A2: '3', B1: '4', B2: '5' } }),
+    modelId: 'budget',
+    modelColumnBindings: { revenue: 'sheet-budget:column:1', cost: 'sheet-budget:column:2' },
+  };
+  return {
+    ...workbookWithSheets([sheet]),
+    dataModels: {
+      budget: {
+        id: 'budget', name: 'Budget', columns: [
+          { id: 'revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+          { id: 'cost', name: 'Cost', kind: 'manual' as const, type: 'float' as const },
+        ],
+      },
+    },
+  };
+}

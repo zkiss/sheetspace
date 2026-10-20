@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
 import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
+import type { Workbook } from '@workbook/core/model';
 import { commitCellRawContent } from '@workbook/mutations/operations';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
@@ -211,4 +212,70 @@ describe('formula inspection', () => {
       { text: '@#REF!C[3]', sheetId: '#REF', broken: true },
     ]);
   });
+
+  it('inspects persisted named ranges by stable identity and marks replaced properties broken', () => {
+    let model = namedBoundWorkbook();
+    model = commitCellRawContent(model, 'sheet-budget', 'D1', "=SUM(@'Revenue'[1]:'Cost'[2])");
+    const sheet = model.documents['sheet-budget']!;
+    const canonical = sheet.content.cells[cellIdentityKey({
+      rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[3]!,
+    })]!;
+
+    expect(inspectFormula(canonical, model, sheet)?.references[0]).toMatchObject({
+      target: {
+        kind: 'range', sheetId: sheet.id,
+        range: {
+          start: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] },
+          end: { rowId: sheet.content.rows[1], columnId: sheet.content.columns[1] },
+        },
+      },
+      broken: false,
+      navigable: true,
+    });
+
+    model = {
+      ...model,
+      dataModels: {
+        budget: {
+          ...model.dataModels!.budget!,
+          columns: [
+            { id: 'replacement-revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+            ...model.dataModels!.budget!.columns.slice(1),
+          ],
+        },
+      },
+    };
+    const broken = inspectFormula(canonical, model, model.documents['sheet-budget']!)?.references[0];
+    expect(broken).toMatchObject({
+      target: {
+        kind: 'range', sheetId: 'sheet-budget',
+        range: {
+          start: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] },
+          end: { rowId: sheet.content.rows[1], columnId: sheet.content.columns[1] },
+        },
+      },
+      broken: true,
+      navigable: false,
+    });
+  });
+
 });
+
+function namedBoundWorkbook(): Workbook {
+  const budget = {
+    ...sheetDocument({ id: 'sheet-budget', name: 'Budget', cells: { A1: '2', A2: '3', B1: '4', B2: '5' } }),
+    modelId: 'budget',
+    modelColumnBindings: { revenue: 'sheet-budget:column:1', cost: 'sheet-budget:column:2' },
+  };
+  return {
+    ...workbookWithSheets([budget]),
+    dataModels: {
+      budget: {
+        id: 'budget', name: 'Budget', columns: [
+          { id: 'revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+          { id: 'cost', name: 'Cost', kind: 'manual' as const, type: 'float' as const },
+        ],
+      },
+    },
+  };
+}
