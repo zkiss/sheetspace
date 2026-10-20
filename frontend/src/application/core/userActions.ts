@@ -7,6 +7,7 @@ import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
+import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
@@ -41,7 +42,14 @@ export type BackendWorkbookReconciliation =
   | { kind: 'append-row'; sheetId: SheetId; rowId: RowId }
   | { kind: 'append-column'; sheetId: SheetId; columnId: ColumnId };
 
+export type ModelFormulaBindingWrite = {
+  sheetId: SheetId;
+  before: Workbook['documents'][string]['modelFormulaBindings'];
+  after: NonNullable<Workbook['documents'][string]['modelFormulaBindings']>;
+};
+
 export type WorkbookPersistenceIntent =
+  | { kind: 'model-lifecycle'; before: Workbook; after: Workbook }
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
   | { kind: 'write-number-formats'; sheetId: SheetId; writes: readonly AppearanceWrite[] }
   | { kind: 'delete-sheet'; sheetId: SheetId }
@@ -50,7 +58,7 @@ export type WorkbookPersistenceIntent =
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'update-sheet-visual-scale'; sheetId: SheetId; visualScale: number }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
-  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
+  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[]; modelFormulaBindings?: readonly ModelFormulaBindingWrite[] };
 
 export type AffectedWorkbookEntities = {
   sheetIds: readonly SheetId[];
@@ -140,6 +148,7 @@ export function preparePasteCellWrites(
       if (targetIdentities.has(targetIdentity)) return { ok: false, reason: 'invalid-paste-footprint' };
       targetIdentities.add(targetIdentity);
       let raw = grid.rows[rowOffset]![columnOffset]!;
+      if (!source && decodeCellTextLiteral(raw) !== undefined) raw = encodeCellTextLiteral(raw);
       if (source) {
         const sourceCell = source.cells[rowOffset]![columnOffset]!;
         const sourceIdentity = `${source.sheetId}\u0000${sourceCell.identity.rowId}\u0000${sourceCell.identity.columnId}`;

@@ -35,6 +35,18 @@ export class WorkbookOutbox {
   private running = new Set<WorkbookOperationId>();
 
   snapshot(): OutboxSnapshot { return this.entries.map(cloneEntry); }
+  hasModelTransition() { return this.entries.some((entry) => entry.intent.kind === 'model-lifecycle' && entry.status !== 'succeeded' && entry.status !== 'superseded'); }
+  waitForModelTransitions(): Promise<void> | undefined {
+    if (!this.hasModelTransition()) return undefined;
+    return new Promise((resolve) => {
+      const listener = () => {
+        if (this.hasModelTransition()) return;
+        this.listeners.delete(listener);
+        resolve();
+      };
+      this.listeners.add(listener);
+    });
+  }
   subscribe(listener: (snapshot: OutboxSnapshot) => void): () => void {
     this.listeners.add(listener); listener(this.snapshot()); return () => this.listeners.delete(listener);
   }
@@ -49,6 +61,7 @@ export class WorkbookOutbox {
     const coalesceKey = coalesceKeyFor(intent);
     if (policy === 'replace-queued' && coalesceKey) {
       for (const entry of this.entries) {
+        if (this.entries.some((boundary) => boundary.intent.kind === 'model-lifecycle' && boundary.sequence > entry.sequence)) continue;
         if (entry.status === 'queued' && entry.coalesceKey === coalesceKey) entry.status = 'superseded';
         if (entry.status === 'running' && entry.coalesceKey === coalesceKey) entry.status = 'superseded';
         // A later frame move replaces a failed predecessor too. Keep its failure
@@ -73,6 +86,8 @@ export class WorkbookOutbox {
     for (const entry of this.entries) {
       if (entry.operationId === exceptOperationId || !entry.affectedSheetIds.includes(sheetId)) continue;
       if (entry.intent.kind === 'update-sheet-z-order') continue;
+      if (entry.intent.kind === 'model-lifecycle') continue;
+      if (this.entries.some((boundary) => boundary.intent.kind === 'model-lifecycle' && boundary.sequence > entry.sequence)) continue;
       if (entry.status === 'queued' || entry.status === 'running' || entry.status === 'failed' || entry.status === 'blocked') {
         entry.status = 'superseded';
         changed = true;
@@ -86,6 +101,7 @@ export class WorkbookOutbox {
     let changed = false;
     for (const entry of this.entries) {
       if (entry.operationId === exceptOperationId || !entry.affectedSheetIds.includes(sheetId)) continue;
+      if (entry.intent.kind === 'model-lifecycle') continue;
       if (entry.status === 'queued' || entry.status === 'running' || entry.status === 'failed' || entry.status === 'blocked') {
         entry.status = 'superseded';
         changed = true;
@@ -129,10 +145,11 @@ export class WorkbookOutbox {
   private nextRunnable() { return this.entries.find((candidate) => candidate.status === 'queued' && this.canRun(candidate)); }
   private canRun(entry: OutboxEntry) {
     return !this.entries.some((earlier) => {
-      if (earlier.sequence >= entry.sequence || !intersects(earlier.affectedSheetIds, entry.affectedSheetIds)) return false;
+      if (earlier.sequence >= entry.sequence) return false;
+      if (earlier.intent.kind !== 'model-lifecycle' && entry.intent.kind !== 'model-lifecycle' && !intersects(earlier.affectedSheetIds, entry.affectedSheetIds)) return false;
       if (earlier.status === 'succeeded') return false;
       if (earlier.status === 'superseded') return this.running.has(earlier.operationId);
-      if (entry.intent.kind === 'delete-sheet' && (earlier.status === 'failed' || earlier.status === 'blocked')) return false;
+      if (entry.intent.kind === 'delete-sheet' && earlier.intent.kind !== 'model-lifecycle' && (earlier.status === 'failed' || earlier.status === 'blocked')) return false;
       return true;
     });
   }
@@ -145,6 +162,7 @@ export class WorkbookOutbox {
 function cloneEntry(entry: OutboxEntry): OutboxEntry { return { ...entry, intent: cloneIntent(entry.intent), affectedSheetIds: [...entry.affectedSheetIds] }; }
 function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceIntent {
   switch (intent.kind) {
+    case 'model-lifecycle': return structuredClone(intent);
     case 'write-axis-sizes': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
     case 'write-number-formats': return { ...intent, writes: intent.writes.map((write) => ({ ...write, properties: { ...write.properties, ...(write.properties.numberFormat ? { numberFormat: { ...write.properties.numberFormat } } : {}) } })) };
     case 'delete-sheet': return { ...intent };
@@ -153,7 +171,7 @@ function cloneIntent(intent: WorkbookPersistenceIntent): WorkbookPersistenceInte
     case 'update-sheet-frame-layout': return { ...intent, position: { ...intent.position }, size: { ...intent.size } };
     case 'update-sheet-visual-scale': return { ...intent };
     case 'update-sheet-z-order': return { ...intent, updates: intent.updates.map((update) => ({ ...update })) };
-    case 'write-cells': return { ...intent, writes: intent.writes.map((write) => ({ ...write })) };
+    case 'write-cells': return structuredClone(intent);
   }
 }
 function policyFor(intent: WorkbookPersistenceIntent): OutboxEntry['policy'] {
@@ -167,9 +185,10 @@ function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
   if (intent.kind === 'update-sheet-visual-scale') return `visual-scale:${intent.sheetId}`;
   return undefined;
 }
-function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
+export function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
+  if (intent.kind === 'model-lifecycle') return [...intent.before.manifest.sheetIds];
   if (intent.kind === 'update-sheet-z-order') return [...new Set(intent.updates.map(({ sheetId }) => sheetId))];
-  if (intent.kind === 'write-cells') return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
+  if (intent.kind === 'write-cells') return [...new Set([...intent.writes, ...intent.modelFormulaBindings ?? []].map(({ sheetId }) => sheetId))];
   return [intent.sheetId];
 }
 function intersects(left: readonly string[], right: readonly string[]) { return left.some((value) => right.includes(value)); }

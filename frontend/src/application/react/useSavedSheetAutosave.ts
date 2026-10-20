@@ -7,6 +7,7 @@ import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
 import type { WorkbookOperationId, WorkbookPersistenceIntent } from '@application/core/userActions';
 import {
+  affectedSheets,
   WorkbookOutbox,
   type OutboxSnapshot,
   type PersistenceTransport,
@@ -117,11 +118,7 @@ export function useSavedSheetAutosave({
 
   const enqueue = useCallback((operationId: WorkbookOperationId, intent: WorkbookPersistenceIntent | undefined) => {
     if (!autosaveEnabled || !intent) return;
-    const sheetIds = intent.kind === 'update-sheet-z-order'
-      ? intent.updates.map(({ sheetId }) => sheetId)
-      : intent.kind === 'write-cells'
-        ? intent.writes.map(({ sheetId }) => sheetId)
-        : [intent.sheetId];
+    const sheetIds = affectedSheets(intent);
     if (sheetIds.some((sheetId) => coordinator.isSheetMissing(sheetId))) return;
     outbox.enqueue(operationId, intent);
     pump();
@@ -147,6 +144,8 @@ export function useSavedSheetAutosave({
     hasRetryableFailures,
     markSaved: useCallback(() => undefined, []),
     outboxSnapshot: snapshot,
+    hasModelTransition: () => outbox.hasModelTransition(),
+    waitForModelTransitions: () => outbox.waitForModelTransitions(),
     retryFailedSaves,
     saveStatus,
     supersedeSheetOperations,

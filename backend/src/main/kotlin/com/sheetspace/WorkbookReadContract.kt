@@ -26,6 +26,7 @@ data class SheetDocumentResponse(
     val content: TabularContentResponse,
     val modelId: String? = null,
     val modelColumnBindings: Map<String, String> = emptyMap(),
+    val modelFormulaBindings: Map<String, BoundModelFormula>? = null,
 )
 
 @Serializable
@@ -110,6 +111,7 @@ internal object WorkbookReadTransportAdapter {
             ),
             modelId = document.modelId,
             modelColumnBindings = document.modelColumnBindings.mapValues { (_, columnId) -> columnId.value },
+            modelFormulaBindings = document.modelFormulaBindings,
         )
     }
 

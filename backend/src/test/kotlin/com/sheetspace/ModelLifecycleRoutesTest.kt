@@ -1,0 +1,149 @@
+package com.sheetspace
+
+import io.ktor.client.request.put
+import io.ktor.client.request.post
+import io.ktor.client.request.patch
+import io.ktor.client.request.header
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.testing.testApplication
+import java.nio.file.Files
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+
+class ModelLifecycleRoutesTest {
+    @Test
+    fun `empty bound sheets retain templates while authoritative appended rows and frontend formulas survive reload`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
+            val empty = bound.copy(documents = bound.documents.mapValues { (_, sheet) -> sheet.copy(content = TabularContent(emptyList(), sheet.tabularContent.columns, emptyMap()), presentation = SheetPresentation()) })
+            val before = empty.copy(documents = empty.documents.mapValues { (_, sheet) -> sheet.copy(modelId = null, modelColumnBindings = emptyMap(), modelFormulaBindings = null) })
+            store.saveWorkbook(before)
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+                assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, empty)) }.status)
+                val id = empty.sheetsInOrder.first().id
+                val inputColumn = empty.documents.getValue(id).tabularContent.columns[0]
+                val outputColumn = empty.documents.getValue(id).tabularContent.columns[1]
+                repeat(2) { index ->
+                    val reloaded = store.loadSheet(id)!!
+                    val row = client.post("/api/sheets/${id.value}/rows") { header("If-Match", reloaded.revision) }.decodeBody<RowAppendResponse>()
+                    val formula = "=@${inputColumn.value}[${row.rowId}]*2"
+                    val request = CellPatchRequest(
+                        listOf(CellRevisionRequest(id.value, row.revision)),
+                        listOf(CellWriteRequest(id.value, row.rowId, inputColumn.value, "5"), CellWriteRequest(id.value, row.rowId, outputColumn.value, formula)),
+                    )
+                    assertEquals(HttpStatusCode.OK, client.patch("/api/cells") { jsonBody(Json.encodeToString(request)) }.status)
+                    val saved = store.loadWorkbookBundle().documents.getValue(id)
+                    assertEquals(index + 1, saved.tabularContent.rowCount)
+                    assertEquals(formula, saved.tabularContent.cellContents[CellCoordinate(RowId(row.rowId), outputColumn)])
+                    assertEquals(empty.documents.getValue(id).modelFormulaBindings, saved.modelFormulaBindings)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `atomic lifecycle writes round trip all instances and frozen literals without backend evaluation`() {
+        val database = Files.createTempFile("sheetspace-lifecycle-", ".sqlite")
+        val before = lifecycleWorkbook()
+        val bound = lifecycleBoundWorkbook(before)
+        lateinit var frozen: WorkbookState
+        try {
+            SqliteWorkbookStore(database).use { store ->
+                store.saveWorkbook(before)
+                testApplication {
+                    application { module(DefaultWorkbookApplication(store)) }
+                    val response = client.put("/api/workbook/model-lifecycle") {
+                        jsonBody(lifecycleBody(before, bound))
+                    }
+                    assertEquals(HttpStatusCode.OK, response.status)
+                    val saved = response.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook()
+                    assertEquals(bound.documents.mapValues { it.value.content }, saved.documents.mapValues { it.value.content })
+                    assertEquals(bound.documents.values.map { it.modelFormulaBindings }, saved.documents.values.map { it.modelFormulaBindings })
+                    assertNotEquals(before.documents.values.first().revision, saved.documents.values.first().revision)
+
+                    val retry = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, bound)) }
+                    assertEquals(HttpStatusCode.OK, retry.status)
+                    assertEquals(saved, retry.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook())
+
+                    val renamed = saved.copy(
+                        dataModels = saved.dataModels.mapValues { (_, model) -> model.copy(name = "Renamed") },
+                        documents = saved.documents.mapValues { (_, sheet) ->
+                            val content = sheet.tabularContent
+                            sheet.copy(content = TabularContent(content.rows, content.columns.reversed(), content.cellContents))
+                        },
+                    )
+                    assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(saved, renamed)) }.status)
+                    val changed = store.loadWorkbookBundle()
+                    frozen = changed.copy(documents = changed.documents.mapValues { (_, sheet) ->
+                        sheet.copy(modelId = null, modelColumnBindings = emptyMap(), modelFormulaBindings = null, content = sheet.tabularContent.updateCell("A1", "\u001eSheetspace:text:\"=not code\"").updateCell("A2", "\u001eSheetspace:text:\"#DIV/0!\""))
+                    })
+                    assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(changed, frozen)) }.status)
+                    frozen = store.loadWorkbookBundle()
+                }
+            }
+            SqliteWorkbookStore(database).use { store ->
+                assertEquals(frozen, store.loadWorkbookBundle())
+                assertEquals("\u001eSheetspace:text:\"=not code\"", store.loadWorkbookBundle().sheetsInOrder.first().tabularContent.cells["A1"])
+            }
+        } finally {
+            Files.deleteIfExists(database)
+            Files.deleteIfExists(database.resolveSibling("${database.fileName}-wal"))
+            Files.deleteIfExists(database.resolveSibling("${database.fileName}-shm"))
+        }
+    }
+
+    @Test
+    fun `stale sheet or model snapshots and malformed writes never partially update durable state`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val before = lifecycleWorkbook()
+            store.saveWorkbook(before)
+            val after = lifecycleBoundWorkbook(before)
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+                val changed = store.updateWorkbook { current -> current.replaceSheet(current.sheetsInOrder.last().rename("Concurrent")) }
+                val conflict = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, after)) }
+                assertEquals(HttpStatusCode.Conflict, conflict.status)
+                assertEquals(ErrorResponse("model-lifecycle-conflict"), conflict.decodeBody())
+                assertEquals(changed, store.loadWorkbookBundle())
+
+                val invalid = after.copy(documents = after.documents.mapValues { (_, sheet) -> sheet.copy(name = "Duplicate") })
+                val rejected = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(changed, invalid)) }
+                assertEquals(HttpStatusCode.BadRequest, rejected.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), rejected.decodeBody())
+                assertEquals(changed, store.loadWorkbookBundle())
+                val malformed = client.put("/api/workbook/model-lifecycle") { jsonBody("{}") }
+                assertEquals(HttpStatusCode.BadRequest, malformed.status)
+            }
+        }
+    }
+}
+
+internal const val LIFECYCLE_MODEL = "30000000-0000-0000-0000-000000000001"
+internal const val LIFECYCLE_INPUT = "31000000-0000-0000-0000-000000000001"
+internal const val LIFECYCLE_OUTPUT = "31000000-0000-0000-0000-000000000002"
+
+internal fun lifecycleWorkbook(): WorkbookState {
+    val model = DataModel(LIFECYCLE_MODEL, "Invoice", listOf(ManualModelColumn(LIFECYCLE_INPUT, "Input", ModelColumnType.FLOAT), CalculatedModelColumn(LIFECYCLE_OUTPUT, "Output", ModelColumnType.FLOAT, "=@A[1]*2")))
+    val first = SheetDocument(id = SheetId.generate(), name = "One", content = TabularContent(rowCount = 2, columnCount = 3, cells = mapOf("A1" to "3")))
+    val second = SheetDocument(id = SheetId.generate(), name = "Two", content = TabularContent(rowCount = 2, columnCount = 1, cells = mapOf("A1" to "7")))
+    return emptyWorkbookState().addSheet(first).addSheet(second).copy(dataModels = mapOf(model.id to model))
+}
+
+internal fun lifecycleBoundWorkbook(before: WorkbookState): WorkbookState = before.copy(documents = before.documents.mapValues { (_, sheet) ->
+    val content = sheet.tabularContent
+    val columns = (content.columns + ColumnId.generate()).take(2)
+    val template = BoundModelFormula("=@A[1]*2", listOf(ModelFormulaReference(ModelFormulaSpan(1, 6), sheet.id.value, endpoints = listOf(ModelFormulaEndpoint(ModelFormulaSpan(2, 6), columns[0].value, 0.0, ModelFormulaAnchors(false, false))))))
+    sheet.copy(
+        modelId = LIFECYCLE_MODEL,
+        modelColumnBindings = mapOf(LIFECYCLE_INPUT to columns[0], LIFECYCLE_OUTPUT to columns[1]),
+        modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template),
+        content = TabularContent(content.rows, columns, content.cellContents).updateCell("B1", "=@A[1]*2").updateCell("B2", "=@A[2]*2"),
+        presentation = SheetPresentation(rowHeights = mapOf(content.rows[0].value to 32.0), columnWidths = mapOf(columns[0].value to 100.0)),
+    )
+})
+
+internal fun lifecycleBody(before: WorkbookState, after: WorkbookState): String = Json.encodeToString(ModelLifecycleRequest(WorkbookReadTransportAdapter.bundle(before), WorkbookReadTransportAdapter.bundle(after)))

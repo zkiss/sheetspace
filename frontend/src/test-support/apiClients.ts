@@ -41,6 +41,7 @@ export function autosaveClient(overrides: Partial<WorkbookApi> = {}) {
     appendColumn: vi.fn().mockImplementation(async (sheetId: string) => ({ sheetId, revision: 0, columnCount: 0, columnId: 'column-appended' })),
     saveDataModel: vi.fn(),
     setSheetModel: vi.fn(),
+    saveModelLifecycle: vi.fn(),
     ...overrides,
   } satisfies Partial<WorkbookApi>;
 }
@@ -60,6 +61,10 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
   };
 
   return {
+    saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => {
+      persistedWorkbook = structuredClone(after);
+      return persistedWorkbook;
+    }),
     writeAxisSizes: vi.fn().mockImplementation(async (sheetId: string, writes: readonly AxisSizeWrite[]) =>
       revisionResponse(updateSheet(sheetId, (sheet) => ({ ...sheet, presentation: applyAxisSizeWrites(sheet.presentation, writes) })), sheetId)),
     writeNumberFormats: vi.fn().mockImplementation(async (sheetId: string, writes: readonly FormatWrite[]) =>
@@ -132,6 +137,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
     writeCells: vi.fn().mockImplementation(async (
       expectedRevisions: readonly { sheetId: string }[],
       cells: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[],
+      modelFormulaBindings: readonly { sheetId: string; bindings: NonNullable<SheetDocument['modelFormulaBindings']> }[] = [],
     ) => {
       for (const cell of cells) {
         updateSheet(cell.sheetId, (sheet) => {
@@ -140,6 +146,9 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
           if (cell.raw.length === 0) delete nextCells[key]; else nextCells[key] = cell.raw;
           return { ...sheet, content: { ...sheet.content, cells: nextCells } };
         });
+      }
+      for (const { sheetId, bindings } of modelFormulaBindings) {
+        updateSheet(sheetId, (sheet) => ({ ...sheet, modelFormulaBindings: structuredClone(bindings) }));
       }
       return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),

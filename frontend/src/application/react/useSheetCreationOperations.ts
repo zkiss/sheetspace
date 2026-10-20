@@ -9,11 +9,13 @@ import type { SetWorkbook } from '@calculation/workbookCalculation';
 
 export function useSheetCreationOperations({
   autosaveEnabled,
+  beforeCreate,
   currentWorkbook,
   resolvedApiClient,
   setWorkbook,
 }: {
   autosaveEnabled: boolean;
+  beforeCreate?: () => Promise<void> | undefined;
   currentWorkbook: () => Workbook;
   resolvedApiClient: Partial<WorkbookApi>;
   setWorkbook: SetWorkbook;
@@ -44,7 +46,9 @@ export function useSheetCreationOperations({
 
     if (autosaveEnabled) {
       const request = resolvedApiClient.createSheet ?? workbookApi.createSheet;
-      void request({ name: validation.name, position, visualScale, zIndex }).then((sheet: SheetDocument) => {
+      const wait = beforeCreate?.();
+      const create = () => request({ name: validation.name, position, visualScale, zIndex });
+      void (wait ? wait.then(create) : create()).then((sheet: SheetDocument) => {
         const removeFrame = (frames: CreatingSheetFrame[]) => frames.filter((frame) => frame.operationKey !== operationKey);
         creatingFramesRef.current = removeFrame(creatingFramesRef.current);
         setCreatingFrames(removeFrame);
@@ -65,8 +69,8 @@ export function useSheetCreationOperations({
       });
     }
     return validation;
-  }, [autosaveEnabled, currentWorkbook, resolvedApiClient, setWorkbook]);
+  }, [autosaveEnabled, beforeCreate, currentWorkbook, resolvedApiClient, setWorkbook]);
 
   const saveStatus: SaveStatus = failed ? 'failed' : creatingFrames.length > 0 ? 'saving' : 'saved';
-  return { createSheet, creatingFrames, saveStatus };
+  return { createSheet, creatingFrames, hasPendingCreations: () => creatingFramesRef.current.length > 0, saveStatus };
 }

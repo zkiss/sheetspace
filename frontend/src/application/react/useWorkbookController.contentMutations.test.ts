@@ -108,6 +108,7 @@ describe('useWorkbookController content mutations', () => {
     expect(writeCells).toHaveBeenCalledWith(
       [{ sheetId: sheet.id, revision: 0 }],
       [{ sheetId: sheet.id, rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1', raw: '7' }],
+      undefined,
     );
 
     await act(async () => {
@@ -120,6 +121,7 @@ describe('useWorkbookController content mutations', () => {
       2,
       [{ sheetId: sheet.id, revision: 1 }],
       [{ sheetId: sheet.id, rowId: 'sheet-inputs:row:1', columnId: 'sheet-inputs:column:1', raw: '' }],
+      undefined,
     );
   });
 

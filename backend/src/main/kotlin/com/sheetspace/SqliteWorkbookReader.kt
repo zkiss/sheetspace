@@ -1,5 +1,7 @@
 package com.sheetspace
 
+import kotlinx.serialization.json.Json
+
 import java.sql.Connection
 
 /** Reads manifest and sheet aggregates from one caller-owned transaction snapshot. */
@@ -61,7 +63,7 @@ internal class SqliteWorkbookReader(
     fun loadSheet(sheetId: SheetId): SheetDocument? {
         val document = connection.prepareStatement(
             """
-            SELECT d.id, d.name, d.revision, d.model_id,
+            SELECT d.id, d.name, d.revision, d.model_id, d.model_formula_bindings,
                    f.position_x, f.position_y, f.frame_width, f.frame_height, f.visual_scale, f.z_index
             FROM sheet_documents d
             JOIN frame_state f ON f.sheet_id = d.id
@@ -77,6 +79,7 @@ internal class SqliteWorkbookReader(
                     name = rs.getString("name"),
                     revision = rs.getLong("revision"),
                     modelId = rs.getBytes("model_id")?.toUuidString(),
+                    modelFormulaBindings = rs.getString("model_formula_bindings")?.let { Json.decodeFromString<Map<String, BoundModelFormula>>(it) },
                     frame = FrameState(
                         position = WorkspacePosition(
                             rs.getDouble("position_x"),
@@ -98,6 +101,7 @@ internal class SqliteWorkbookReader(
             revision = document.revision,
             frame = document.frame,
             modelId = document.modelId,
+            modelFormulaBindings = document.modelFormulaBindings,
             modelColumnBindings = loadModelColumnBindings(sheetId),
             presentation = SheetPresentation(
                 rowHeights = loadSizes(sheetId, "row_presentation", "row_id", "height"),
@@ -245,6 +249,7 @@ internal data class SheetReadEvent(
 )
 
 private data class SheetRecord(
+    val modelFormulaBindings: Map<String, BoundModelFormula>?,
     val id: SheetId,
     val name: String,
     val revision: Long,

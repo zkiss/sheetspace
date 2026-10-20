@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef } from 'react';
 import { cellAddressOf, cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForDisplay } from '@workbook/formula/reference';
+import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import type {
   SelectionGesture,
@@ -66,7 +67,7 @@ export function useCellEditing({
 
     const currentCell = cellRawContent(sheet, key);
     const currentRaw = currentCell ?? '';
-    const currentEditValue = currentCell ? formulaRawForDisplay(currentCell, workbook, sheet.id) : currentRaw;
+    const currentEditValue = decodeCellTextLiteral(currentRaw) ?? (currentCell ? formulaRawForDisplay(currentCell, workbook, sheet.id) : currentRaw);
     if (currentEditValue !== session.draft) {
       const draftSignature = draftKey(session);
       if (committedDrafts.current.has(draftSignature)) return;
@@ -90,7 +91,7 @@ export function useCellEditing({
       type: 'start-edit',
       session: {
         target,
-        draft: initialValue ?? (raw ? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
+        draft: initialValue ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
       },
     });
   }

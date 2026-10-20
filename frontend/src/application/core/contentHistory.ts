@@ -29,6 +29,7 @@ export class ContentHistory {
 
   get canUndo() { return this.undoStack.length > 0; }
   get canRedo() { return this.redoStack.length > 0; }
+  clear() { this.undoStack = []; this.undoBytes = 0; this.clearRedo(); }
   /** Returns a copy so inspection cannot alter a transaction retained for replay. */
   peekUndo() { const transaction = this.undoStack[this.undoStack.length - 1]; return transaction && cloneTransaction(transaction); }
   /** Returns a copy so inspection cannot alter a transaction retained for replay. */

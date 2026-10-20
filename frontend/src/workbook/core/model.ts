@@ -1,3 +1,5 @@
+import type { ModelFormulaBindings } from './modelFormula';
+
 export const WORKBOOK_SCHEMA_VERSION = 1;
 export const DEFAULT_SHEET_FRAME_SIZE: SheetFrameSize = { width: 240, height: 160 };
 export const MIN_SHEET_VISUAL_SCALE = 0.1;
@@ -20,7 +22,7 @@ export type ModelColumn = { id: string; name: string; kind: 'manual'; type: Mode
 export type DataModel = { id: string; name: string; columns: readonly ModelColumn[] };
 export type Workbook = { manifest: WorkbookManifest; documents: Record<SheetId, SheetDocument>; dataModels?: Readonly<Record<string, DataModel>> };
 /** Stable declaration-to-grid association. It is deliberately keyed by model property ID, never name or position. */
-export type SheetDocument = { id: SheetId; revision: number; name: string; frame: FrameState; presentation: SheetPresentation; content: TabularContent; modelId?: string; modelColumnBindings?: Readonly<Record<string, ColumnId>> };
+export type SheetDocument = { id: SheetId; revision: number; name: string; frame: FrameState; presentation: SheetPresentation; content: TabularContent; modelId?: string; modelColumnBindings?: Readonly<Record<string, ColumnId>>; modelFormulaBindings?: ModelFormulaBindings };
 export type FrameState = { position: WorkspacePosition; size: SheetFrameSize; visualScale: number; zIndex: number };
 export type TabularContent = { kind: 'tabular'; rows: RowId[]; columns: ColumnId[]; cells: Record<CellIdentityKey, string> };
 export type StableCellIdentity = { rowId: RowId; columnId: ColumnId };

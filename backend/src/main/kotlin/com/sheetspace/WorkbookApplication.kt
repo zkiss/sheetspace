@@ -34,6 +34,7 @@ data class ColumnAppendResult(
 data class CellPatchCommand(
     val expectedRevisions: List<ExpectedSheetRevision>,
     val cells: List<SheetCellWrite>,
+    val modelFormulaBindings: List<SheetFormulaBindingWrite> = emptyList(),
 )
 
 data class UpdateSheetModelCommand(val modelId: String?, val modelColumnBindings: Map<String, ColumnId>? = null)
@@ -57,6 +58,8 @@ enum class WorkbookApplicationError {
     INVALID_SHEET_PRESENTATION,
     INVALID_DATA_MODEL,
     UNKNOWN_DATA_MODEL,
+    INVALID_MODEL_LIFECYCLE,
+    MODEL_LIFECYCLE_CONFLICT,
 }
 
 class WorkbookApplicationException(
@@ -64,6 +67,7 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
+    fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState
     fun loadManifest(): WorkbookManifest
 
     fun loadWorkbookBundle(): WorkbookState
@@ -94,6 +98,8 @@ interface WorkbookApplication {
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
 ) : WorkbookApplication {
+    override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
+        store.updateWorkbook { current -> reconcileModelLifecycle(current, before, after) }
     override fun loadManifest(): WorkbookManifest = store.loadManifest()
 
     override fun loadWorkbookBundle(): WorkbookState = store.loadWorkbookBundle()
@@ -203,7 +209,7 @@ class DefaultWorkbookApplication(
     }
 
     override fun writeCells(command: CellPatchCommand): List<SheetDocument> {
-        if (command.cells.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.EMPTY_CELL_PATCH)
+        if (command.cells.isEmpty() && command.modelFormulaBindings.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.EMPTY_CELL_PATCH)
         if (command.cells.any { write ->
                 write.sheetId.toUuidBytesOrNull() == null ||
                     write.rowId.toUuidBytesOrNull() == null ||
@@ -219,7 +225,10 @@ class DefaultWorkbookApplication(
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).distinct().size != command.expectedRevisions.size) {
             throw WorkbookApplicationException(WorkbookApplicationError.DUPLICATE_SHEET_REVISION)
         }
-        val touchedSheetIds = command.cells.map(SheetCellWrite::sheetId).distinct()
+        if (command.modelFormulaBindings.map { it.sheetId }.distinct().size != command.modelFormulaBindings.size) {
+            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
+        }
+        val touchedSheetIds = (command.cells.map(SheetCellWrite::sheetId) + command.modelFormulaBindings.map { it.sheetId }).distinct()
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != touchedSheetIds.toSet()) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
@@ -230,6 +239,10 @@ class DefaultWorkbookApplication(
             }
         }
         command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
+        if (command.modelFormulaBindings.isNotEmpty()) {
+            val updated = store.updateWorkbook { current -> applyModelRowPatch(current, command) }
+            return touchedSheetIds.map { updated.documents.getValue(SheetId(it)) }
+        }
         return store.writeCells(command.expectedRevisions, command.cells)
     }
 
@@ -256,6 +269,9 @@ class DefaultWorkbookApplication(
                 documents = workbook.documents.mapValues { (_, sheet) ->
                     if (sheet.modelId != model.id) sheet else sheet.copy(
                         modelColumnBindings = sheet.modelColumnBindings.filterKeys(propertyIds::contains),
+                        modelFormulaBindings = sheet.modelFormulaBindings?.filter { (propertyId, template) ->
+                            model.columns.any { it.id == propertyId && it is CalculatedModelColumn && it.formula == template.raw }
+                        },
                     )
                 },
             )
@@ -275,7 +291,7 @@ class DefaultWorkbookApplication(
                 workbook.dataModels.getValue(modelId).columns.zip(sheet.tabularContent.columns)
                     .associate { (property, column) -> property.id to column }
             }.orEmpty()
-            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings)
+            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings, modelFormulaBindings = null)
             if (!validModelColumnBindings(updated, workbook.dataModels)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
             }
@@ -298,7 +314,7 @@ class DefaultWorkbookApplication(
     }
 }
 
-private fun isValidDataModel(model: DataModel): Boolean {
+internal fun isValidDataModel(model: DataModel): Boolean {
     if (model.id.toUuidBytesOrNull() == null || model.name.isBlank()) return false
     if (model.columns.map(ModelColumn::id).distinct().size != model.columns.size) return false
     if (model.columns.map { it.name.trim() }.distinct().size != model.columns.size) return false

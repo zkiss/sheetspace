@@ -23,7 +23,50 @@ describe('WorkbookPersistenceTransport', () => {
     expect(writeCells).toHaveBeenCalledWith(
       [{ sheetId: 'a', revision: 1 }, { sheetId: 'b', revision: 3 }],
       [{ sheetId: 'a', rowId: 'r', columnId: 'c', raw: '1' }, { sheetId: 'b', rowId: 'r', columnId: 'd', raw: '' }],
+      undefined,
     );
+  });
+  it('sends template bindings with the calculated cells that they describe', async () => {
+    const writeCells = vi.fn().mockResolvedValue({ sheets: [{ sheetId: 'a', revision: 2 }] });
+    const transport = new WorkbookPersistenceTransport({ writeCells } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const bindings = { output: { raw: '=@A[1]', references: [] } };
+
+    await expect(transport.execute({ intent: { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: '=@A[1]' },
+    ], modelFormulaBindings: [{ sheetId: 'a', before: undefined, after: bindings }] }, affectedSheetIds: ['a'] })).resolves.toEqual({ kind: 'saved', revisions: [{ sheetId: 'a', revision: 2 }] });
+
+    expect(writeCells).toHaveBeenCalledWith(
+      [{ sheetId: 'a', revision: 1 }],
+      [{ sheetId: 'a', rowId: 'r', columnId: 'c', raw: '=@A[1]' }],
+      [{ sheetId: 'a', bindings }],
+    );
+  });
+  it('recovers a lost response only when the durable sheet holds the cells and their bindings', async () => {
+    const bindings = { output: { raw: '=@A[1]', references: [] } };
+    const writeCells = vi.fn().mockRejectedValue(new TypeError('network disconnected'));
+    const saved = { ...sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'saved' } }), modelFormulaBindings: bindings };
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(saved) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'saved' },
+    ], modelFormulaBindings: [{ sheetId: 'a', before: undefined, after: bindings }] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+  });
+  it('refuses to recover a lost response whose durable sheet lost the template bindings', async () => {
+    const bindings = { output: { raw: '=@A[1]', references: [] } };
+    const writeCells = vi.fn().mockRejectedValue(new TypeError('network disconnected'));
+    const saved = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'saved' } });
+    const transport = new WorkbookPersistenceTransport({ writeCells, loadSheet: vi.fn().mockResolvedValue(saved) } as Partial<WorkbookApi>);
+    transport.recordRevision('a', 1);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('cell', { kind: 'write-cells', writes: [
+      { sheetId: 'a', rowId: 'a:row:1', columnId: 'a:column:1', beforeRaw: null, afterRaw: 'saved' },
+    ], modelFormulaBindings: [{ sheetId: 'a', before: undefined, after: bindings }] });
+
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
   });
   it('accepts a lost response only when every patched cell is present at its complete after-state', async () => {
     const sheet = sheetDocument({ id: 'a', name: 'A', revision: 2, cells: { A1: 'saved', B1: 'also saved' } });
