@@ -17,6 +17,8 @@ private const val ROW_INPUT = "31000000-0000-0000-0000-000000000001"
 private const val ROW_OUTPUT = "31000000-0000-0000-0000-000000000002"
 private const val ROW_TEMPLATE = "=@A[1]*2"
 
+private fun instantiatedRowFormula(inputColumn: String, row: String) = "=@$inputColumn[$row]*2"
+
 private fun rowWorkbook(sheetId: String): WorkbookState {
     val model = DataModel(
         ROW_MODEL,
@@ -59,14 +61,14 @@ class ModelRowBindingPatchTest {
                 val response = client.patch("/api/cells") {
                     jsonBody(testJson.encodeToString(CellPatchRequest(
                         expectedRevisions = listOf(CellRevisionRequest(sheetId, sheet.revision)),
-                        cells = listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, ROW_TEMPLATE)),
+                        cells = listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, coordinate.rowId.value))),
                         modelFormulaBindings = listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
                     )))
                 }
 
                 assertEquals(HttpStatusCode.OK, response.status)
                 val saved = store.loadSheet(SheetId(sheetId))!!
-                assertEquals(ROW_TEMPLATE, saved.tabularContent.cells.getValue("B1"))
+                assertEquals(instantiatedRowFormula(sheet.tabularContent.columns[0].value, coordinate.rowId.value), saved.tabularContent.cells.getValue("B1"))
                 assertEquals(mapOf(ROW_OUTPUT to template), saved.modelFormulaBindings)
                 assertEquals(sheet.revision + 1, saved.revision)
 
@@ -98,7 +100,7 @@ class ModelRowBindingPatchTest {
                 val response = client.patch("/api/cells") {
                     jsonBody(testJson.encodeToString(CellPatchRequest(
                         expectedRevisions = listOf(CellRevisionRequest(sheetId, sheet.revision)),
-                        cells = listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, ROW_TEMPLATE)),
+                        cells = listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, coordinate.rowId.value))),
                         modelFormulaBindings = listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to stale))),
                     )))
                 }
@@ -121,7 +123,7 @@ class ModelRowBindingPatchTest {
             val template = rowTemplate(sheetId, sheet.tabularContent.columns[0].value)
             application.writeCells(CellPatchCommand(
                 listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
-                emptyList(),
+                listOf(SheetCellWrite(sheetId, sheet.tabularContent.rows[0].value, sheet.tabularContent.columns[1].value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, sheet.tabularContent.rows[0].value))),
                 listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
             ))
             val baseline = store.loadWorkbookBundle()
@@ -184,12 +186,12 @@ class ModelRowBindingPatchTest {
 
         val updated = applyModelRowPatch(workbook, CellPatchCommand(
             listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
-            listOf(SheetCellWrite(sheetId, row, output, ROW_TEMPLATE), SheetCellWrite(sheetId, row, input, "")),
+            listOf(SheetCellWrite(sheetId, row, output, instantiatedRowFormula(input, row)), SheetCellWrite(sheetId, row, input, "")),
             listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
         ))
 
         val patched = updated.documents.getValue(SheetId(sheetId))
-        assertEquals(ROW_TEMPLATE, patched.tabularContent.cells.getValue("B1"))
+        assertEquals(instantiatedRowFormula(input, row), patched.tabularContent.cells.getValue("B1"))
         assertNull(patched.tabularContent.cells["A1"])
         assertEquals(mapOf(ROW_OUTPUT to template), patched.modelFormulaBindings)
         assertEquals(workbook.documents.getValue(SheetId(otherId)), updated.documents.getValue(SheetId(otherId)))
@@ -242,7 +244,7 @@ class ModelRowBindingPatchTest {
                 expected = mapOf(ROW_OUTPUT to rowTemplate(sheetId, sheet.tabularContent.columns[0].value))
                 application.writeCells(CellPatchCommand(
                     listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
-                    emptyList(),
+                    listOf(SheetCellWrite(sheetId, sheet.tabularContent.rows[0].value, sheet.tabularContent.columns[1].value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, sheet.tabularContent.rows[0].value))),
                     listOf(SheetFormulaBindingWrite(sheetId, expected)),
                 ))
             }

@@ -240,7 +240,12 @@ class DefaultWorkbookApplication(
             }
         }
         command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
-        if (command.modelFormulaBindings.isNotEmpty()) {
+        val current = if (command.modelFormulaBindings.isEmpty()) store.loadWorkbookBundle() else null
+        val writesCalculatedContent = current?.let { workbook -> command.cells.any { write ->
+            val sheet = workbook.documents.getValue(SheetId(write.sheetId))
+            ColumnId(write.columnId) in calculatedModelColumns(sheet, workbook.dataModels)
+        } } == true
+        if (command.modelFormulaBindings.isNotEmpty() || writesCalculatedContent) {
             val updated = store.updateWorkbook { current -> applyModelRowPatch(current, command) }
             return touchedSheetIds.map { updated.documents.getValue(SheetId(it)) }
         }

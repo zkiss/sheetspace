@@ -17,7 +17,7 @@ class CalculatedWritePolicyTest {
         val row = sheet.tabularContent.rows.single().value
         val output = sheet.tabularContent.columns[1].value
 
-        assertTrue(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, output, "=@A[1]*2")))
+        assertTrue(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, output, "=@${sheet.tabularContent.columns[0].value}[$row]*2")))
         assertTrue(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, output, "=@${sheet.tabularContent.columns[0].value}[$row]*2")))
         assertFalse(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, output, "=0")))
         assertFalse(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, "10000000-0000-0000-0000-000000000099", output, "=@A[1]*2")))
@@ -38,11 +38,11 @@ class CalculatedWritePolicyTest {
         val missingTarget = sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
             template.copy(references = template.references.map { reference -> reference.copy(endpoints = listOf(null)) })
         })
-        assertTrue(isDerivedCalculatedWrite(base.replaceSheet(missingTarget), missingTarget, SheetCellWrite(sheetId, row, output, "=@A[1]*2")))
+        assertTrue(isDerivedCalculatedWrite(base.replaceSheet(missingTarget), missingTarget, SheetCellWrite(sheetId, row, output, "=@#REF!A[1]*2")))
         val outOfRange = sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
             template.copy(references = template.references.map { reference -> reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(rowIndex = 9.0) }) })
         })
-        assertTrue(isDerivedCalculatedWrite(base.replaceSheet(outOfRange), outOfRange, SheetCellWrite(sheetId, row, output, "=@A[1]*2")))
+        assertTrue(isDerivedCalculatedWrite(base.replaceSheet(outOfRange), outOfRange, SheetCellWrite(sheetId, row, output, "=@#REF!A[1]*2")))
         assertTrue(calculatedModelColumns(sheet.copy(modelColumnBindings = emptyMap()), base.dataModels).isEmpty())
     }
 

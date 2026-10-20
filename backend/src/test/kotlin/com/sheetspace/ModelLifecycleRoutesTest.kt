@@ -141,7 +141,9 @@ internal fun lifecycleBoundWorkbook(before: WorkbookState): WorkbookState = befo
         modelId = LIFECYCLE_MODEL,
         modelColumnBindings = mapOf(LIFECYCLE_INPUT to columns[0], LIFECYCLE_OUTPUT to columns[1]),
         modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template),
-        content = TabularContent(content.rows, columns, content.cellContents).updateCell("B1", "=@A[1]*2").updateCell("B2", "=@A[2]*2"),
+        content = TabularContent(content.rows, columns, content.cellContents)
+            .updateCell("B1", "=@${columns[0].value}[${content.rows[0].value}]*2")
+            .updateCell("B2", "=@${columns[0].value}[${content.rows[1].value}]*2"),
         presentation = SheetPresentation(rowHeights = mapOf(content.rows[0].value to 32.0), columnWidths = mapOf(columns[0].value to 100.0)),
     )
 })
