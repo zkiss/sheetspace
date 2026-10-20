@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { parseFormulaSyntax } from '@workbook/formula/syntax';
 import type { CellEditSession, CellNavigationRequest } from './cellInteractionContracts';
 import './SheetGridCell.css';
 
@@ -23,6 +24,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   const [isAnchored, setIsAnchored] = useState(false);
   const anchorRect = useRef<DOMRect | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const highlightRef = useRef<HTMLPreElement>(null);
   const hasPlacedInitialCaret = useRef(false);
   const hasFinishedEditing = useRef(false);
   const anchorElement = anchor.current;
@@ -34,7 +36,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     anchorRect.current = next;
     // Geometry belongs to the DOM, not the controlled draft. Moving an anchor
     // must not render React (or trigger another layout-effect geometry read).
-    if (editorRef.current) placeEditor(editorRef.current, next);
+    if (editorRef.current) placeEditor(editorRef.current, next, highlightRef.current);
     else setIsAnchored(true);
   }, [anchor]);
   useLayoutEffect(() => { updatePosition(); }, [anchorElement, updatePosition]);
@@ -63,12 +65,21 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
       editor.setSelectionRange(editor.value.length, editor.value.length);
       hasPlacedInitialCaret.current = true;
     }
-    placeEditor(editor, anchorRect.current);
+    placeEditor(editor, anchorRect.current, highlightRef.current);
   }, [isAnchored, editingCell.draft]);
 
   if (!isAnchored) return null;
   const sizing = cellEditorSizing(editingCell.draft, 0);
-  return createPortal(<textarea
+  const analysis = parseFormulaSyntax(editingCell.draft, { preserveUnknownFunctions: true });
+  return createPortal(<>
+    <pre aria-hidden="true" className="sheet-grid-cell-editor-highlight" ref={highlightRef}>
+      {analysis.tokens.map((token) => <span
+        className={`formula-syntax-token formula-syntax-token-${token.kind}`}
+        data-formula-token-kind={token.kind}
+        key={`${token.sourceSpan.start}-${token.sourceSpan.end}`}
+      >{editingCell.draft.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>)}
+    </pre>
+    <textarea
     aria-label={`${sheetName} ${cellKey} editor`}
     autoFocus
     className="sheet-grid-cell-editor"
@@ -117,15 +128,24 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     ref={editorRef}
     style={{ maxHeight: CELL_EDITOR_MAX_HEIGHT, overflow: 'auto' }}
     value={editingCell.draft}
-  />, document.body);
+    />
+  </>, document.body);
 }
 
-function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect) {
+function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect, highlight: HTMLPreElement | null) {
   editor.style.left = `${rect.left}px`;
   editor.style.top = `${rect.top}px`;
   editor.style.maxWidth = `min(${CELL_EDITOR_MAX_WIDTH}, calc(100vw - ${rect.left + 12}px))`;
   editor.style.width = cellEditorSizing(editor.value, rect.width).width;
   sizeEditorToContent(editor, rect.height);
+  if (highlight) {
+    highlight.style.left = editor.style.left;
+    highlight.style.top = editor.style.top;
+    highlight.style.width = editor.style.width;
+    highlight.style.height = editor.style.height;
+    highlight.style.maxWidth = editor.style.maxWidth;
+    highlight.style.overflow = editor.style.overflow;
+  }
 }
 
 function sameRect(left: DOMRect | null, right: DOMRect) {

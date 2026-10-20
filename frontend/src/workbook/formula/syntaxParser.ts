@@ -9,6 +9,8 @@ import type {
   FormulaReferenceLexeme,
   FormulaSourceSpan,
   FormulaSyntaxResult,
+  FormulaSyntaxToken,
+  FormulaDiagnostic,
 } from './syntaxTypes';
 
 type ReadResult<T> =
@@ -19,10 +21,13 @@ export class FormulaParser {
   private index = 0;
   private readonly references: FormulaReference[] = [];
   private readonly referenceLexemes: FormulaReferenceLexeme[] = [];
+  private readonly syntaxTokens: FormulaSyntaxToken[] = [];
+  private readonly diagnostics: FormulaDiagnostic[] = [];
 
   constructor(private readonly input: string) {}
 
   parse(raw: string): FormulaSyntaxResult {
+    this.recordToken('punctuation', -1, 0);
     this.skipWhitespace();
     const expression = this.readComparison();
     this.skipWhitespace();
@@ -35,7 +40,14 @@ export class FormulaParser {
       : trailingSyntax
         ? { kind: 'error', raw, error: '#PARSE!' }
         : { kind: 'formula', raw, expression: expression.value };
-    return { result, references: [...this.references], referenceLexemes: [...this.referenceLexemes] };
+    if (trailingSyntax) this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(this.index, this.index) });
+    return {
+      result,
+      references: [...this.references],
+      referenceLexemes: [...this.referenceLexemes],
+      tokens: this.completeTokens(raw),
+      diagnostics: [...this.diagnostics],
+    };
   }
 
   /**
@@ -116,7 +128,9 @@ export class FormulaParser {
   private readComparisonOperator(): BinaryFormula['operator'] | undefined {
     for (const operator of ['<>', '<=', '>=', '=', '<', '>'] as const) {
       if (this.input.startsWith(operator, this.index)) {
+        const start = this.index;
         this.index += operator.length;
+        this.recordToken('operator', start, this.index);
         return operator;
       }
     }
@@ -130,7 +144,9 @@ export class FormulaParser {
       this.skipWhitespace();
       const operator = this.peek();
       if (operator !== '+' && operator !== '-') return left;
+      const start = this.index;
       this.index += 1;
+      this.recordToken('operator', start, this.index);
       const right = this.readMultiplicative();
       if (!right.ok) return right;
       left = {
@@ -153,7 +169,9 @@ export class FormulaParser {
       this.skipWhitespace();
       const operator = this.peek();
       if (operator !== '*' && operator !== '/') return left;
+      const start = this.index;
       this.index += 1;
+      this.recordToken('operator', start, this.index);
       const right = this.readUnary();
       if (!right.ok) return right;
       left = {
@@ -175,6 +193,7 @@ export class FormulaParser {
     const operator = this.peek();
     if (operator === '+' || operator === '-') {
       this.index += 1;
+      this.recordToken('operator', start, this.index);
       const operand = this.readUnary();
       return operand.ok
         ? {
@@ -189,10 +208,12 @@ export class FormulaParser {
         : operand;
     }
     if (this.consume('(')) {
+      this.recordToken('punctuation', start, this.index);
       const expression = this.readComparison();
       if (!expression.ok) return expression;
       this.skipWhitespace();
       if (!this.consume(')')) return this.error();
+      this.recordToken('punctuation', this.index - 1, this.index);
       return {
         ok: true,
         value: { kind: 'group', expression: expression.value, sourceSpan: this.span(start) },
@@ -208,6 +229,7 @@ export class FormulaParser {
     if (identifier) {
       const normalized = identifier.toUpperCase();
       if ((normalized === 'TRUE' || normalized === 'FALSE') && !this.identifierChar(this.peek())) {
+        this.recordToken('literal', identifierStart, this.index);
         return {
           ok: true,
           value: {
@@ -225,10 +247,13 @@ export class FormulaParser {
   }
 
   private readFunction(functionName: string, start: number): ReadResult<FormulaExpression> {
+    this.recordToken('function', start, start + functionName.length);
     this.consume('(');
+    this.recordToken('punctuation', this.index - 1, this.index);
     const args: FormulaExpression[] = [];
     this.skipWhitespace();
     if (this.consume(')')) {
+      this.recordToken('punctuation', this.index - 1, this.index);
       return {
         ok: true,
         value: { kind: 'function', functionName, arguments: args, sourceSpan: this.span(start) },
@@ -240,11 +265,13 @@ export class FormulaParser {
       args.push(argument.value);
       this.skipWhitespace();
       if (this.consume(',')) {
+        this.recordToken('punctuation', this.index - 1, this.index);
         this.skipWhitespace();
         if (this.peek() === ')' || this.atEnd()) return this.error();
         continue;
       }
       if (!this.consume(')')) return this.error();
+      this.recordToken('punctuation', this.index - 1, this.index);
       return {
         ok: true,
         value: { kind: 'function', functionName, arguments: args, sourceSpan: this.span(start) },
@@ -259,6 +286,7 @@ export class FormulaParser {
     );
     if (!match) return undefined;
     this.index += match[0].length;
+    this.recordToken('literal', start, this.index);
     return { kind: 'number', value: Number(match[0]), sourceSpan: this.span(start) };
   }
 
@@ -274,6 +302,7 @@ export class FormulaParser {
         this.index += 2;
       } else {
         this.index += 1;
+        this.recordToken('literal', start, this.index);
         return {
           ok: true,
           value: { kind: 'text', value, sourceSpan: this.span(start) },
@@ -408,6 +437,7 @@ export class FormulaParser {
     endpoints: FormulaReferenceLexeme['endpoints'],
   ): void {
     this.references.push(reference);
+    this.recordToken('reference', reference.sourceSpan.start - 1, reference.sourceSpan.end - 1);
     this.referenceLexemes.push({
       sourceSpan: reference.sourceSpan,
       ...(qualifier.sourceSpan && qualifier.sheetId !== undefined
@@ -459,49 +489,24 @@ export class FormulaParser {
     return false;
   }
 
-  private readQuotedProperty(): string | undefined {
-    const start = this.index;
-    if (this.peek() !== "'") { this.index = start; return undefined; }
-    const name = this.readQuotedSheetName();
-    if (name === false || name === undefined) { this.index = start; return undefined; }
-    // The raw property name is carried in this temporary endpoint until semantic resolution.
-    // Prefixing it keeps it distinct from persisted IDs before reference.ts replaces it.
-    return name;
-  }
+  private readQuotedProperty(): string | undefined { const start = this.index; if (this.peek() !== "'") return undefined; const name = this.readQuotedSheetName(); if (name === false || name === undefined) { this.index = start; return undefined; } return name; }
 
-  private findUnquotedSheetSeparator(): number {
-    const match = /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\s*!/.exec(this.input.slice(this.index));
-    return match ? this.index + match[0].length - 1 : -1;
-  }
+  private findUnquotedSheetSeparator(): number { const match = /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*|#REF)\s*!/.exec(this.input.slice(this.index)); return match ? this.index + match[0].length - 1 : -1; }
 
-  private readA1Token(): string | undefined {
-    const match = /^(?:\$?[A-Za-z]+\[\$?[1-9][0-9]*\])/.exec(this.input.slice(this.index));
-    if (!match) return undefined;
-    this.index += match[0].length;
-    return this.peek() && /[A-Za-z0-9]/.test(this.peek()) ? undefined : match[0];
-  }
+  private readA1Token(): string | undefined { const match = /^(?:\$?[A-Za-z]+\[\$?[1-9][0-9]*\])/.exec(this.input.slice(this.index)); if (!match) return undefined; this.index += match[0].length; return this.peek() && /[A-Za-z0-9]/.test(this.peek()) ? undefined : match[0]; }
 
-  private readIdentifier(): string | undefined {
-    const match = /^[A-Za-z][A-Za-z0-9_]*/.exec(this.input.slice(this.index));
-    if (!match) return undefined;
-    this.index += match[0].length;
-    return match[0];
-  }
+  private readIdentifier(): string | undefined { const match = /^[A-Za-z][A-Za-z0-9_]*/.exec(this.input.slice(this.index)); if (!match) return undefined; this.index += match[0].length; return match[0]; }
 
-  private identifierChar(char: string): boolean {
-    return char.length > 0 && /[A-Za-z0-9_]/.test(char);
-  }
+  private identifierChar(char: string): boolean { return char.length > 0 && /[A-Za-z0-9_]/.test(char); }
 
-  private span(start: number): FormulaSourceSpan {
-    return this.spanTo(start, this.index);
-  }
+  private span(start: number): FormulaSourceSpan { return this.spanTo(start, this.index); }
 
-  private spanTo(start: number, end: number): FormulaSourceSpan {
-    return { start: start + 1, end: end + 1 };
-  }
+  private spanTo(start: number, end: number): FormulaSourceSpan { return { start: start + 1, end: end + 1 }; }
 
   private skipWhitespace(): void {
+    const start = this.index;
     while (!this.atEnd() && /\s/.test(this.peek())) this.index += 1;
+    if (this.index > start) this.recordToken('whitespace', start, this.index);
   }
 
   private consume(char: string): boolean {
@@ -510,16 +515,32 @@ export class FormulaParser {
     return true;
   }
 
-  private peek(): string {
-    return this.input[this.index] ?? '';
-  }
+  private peek(): string { return this.input[this.index] ?? ''; }
 
-  private atEnd(): boolean {
-    return this.index >= this.input.length;
-  }
+  private atEnd(): boolean { return this.index >= this.input.length; }
 
   private error(): ReadResult<never> {
+    this.diagnostics.push({ kind: 'syntax', code: '#PARSE!', sourceSpan: this.spanTo(this.index, this.index) });
     return { ok: false, error: '#PARSE!' };
+  }
+
+  private recordToken(kind: FormulaSyntaxToken['kind'], start: number, end: number): void {
+    if (end > start) this.syntaxTokens.push({ kind, sourceSpan: this.spanTo(start, end) });
+  }
+
+  /** Fill only parser-unrecognised draft fragments; recognised tokens remain parser-owned. */
+  private completeTokens(raw: string): FormulaSyntaxToken[] {
+    const selected = [...this.syntaxTokens]
+      .sort((left, right) => left.sourceSpan.start - right.sourceSpan.start || right.sourceSpan.end - left.sourceSpan.end)
+      .filter((token, index, tokens) => !tokens.slice(0, index).some((prior) => prior.sourceSpan.start < token.sourceSpan.end && token.sourceSpan.start < prior.sourceSpan.end));
+    const complete: FormulaSyntaxToken[] = []; let cursor = 0;
+    for (const token of selected) {
+      if (cursor < token.sourceSpan.start) complete.push({ kind: 'invalid', sourceSpan: { start: cursor, end: token.sourceSpan.start } });
+      complete.push(token);
+      cursor = token.sourceSpan.end;
+    }
+    if (cursor < raw.length) complete.push({ kind: 'invalid', sourceSpan: { start: cursor, end: raw.length } });
+    return complete;
   }
 }
 

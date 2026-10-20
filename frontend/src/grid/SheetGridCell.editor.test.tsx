@@ -53,6 +53,16 @@ describe('portal cell editor', () => {
     expect(editor).toHaveStyle({ height: '30px', overflowY: 'hidden' });
   });
 
+  it('renders parser-owned formula token colours without replacing the focused textarea', () => {
+    const { editor } = setup('=SUM(@A[1], "text") + TRUE');
+
+    expect(editor).toHaveFocus();
+    expect(document.querySelectorAll('[data-formula-token-kind="function"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-formula-token-kind="reference"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-formula-token-kind="literal"]')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-formula-token-kind="operator"]')).toHaveLength(1);
+  });
+
   it('inserts a newline at the selected caret only for Shift+Enter', () => {
     const { editor, interaction } = setup('first second');
     editor.setSelectionRange(5, 6);

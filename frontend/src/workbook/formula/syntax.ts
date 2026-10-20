@@ -18,6 +18,8 @@ export type {
   FormulaReferenceLexeme,
   FormulaSourceSpan,
   FormulaSyntaxResult,
+  FormulaSyntaxToken,
+  FormulaDiagnostic,
   FunctionFormula,
   GroupFormula,
   UnaryFormula,
@@ -46,7 +48,7 @@ export function parseFormulaSyntax(
 ): FormulaSyntaxResult {
   void _options;
   if (!raw.startsWith('=')) {
-    return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [] };
+    return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [], tokens: raw ? [{ kind: 'invalid', sourceSpan: { start: 0, end: raw.length } }] : [], diagnostics: [] };
   }
   return new FormulaParser(raw.slice(1)).parse(raw);
 }

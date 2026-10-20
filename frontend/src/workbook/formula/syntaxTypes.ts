@@ -83,12 +83,28 @@ export type FormulaParseResult =
   | { kind: 'formula'; raw: string; expression: FormulaExpression }
   | { kind: 'error'; raw: string; error: FormulaErrorCode };
 
+/** A source-preserving presentation token. Spans are half-open offsets into raw input. */
+export type FormulaSyntaxToken = {
+  kind: 'function' | 'literal' | 'operator' | 'reference' | 'punctuation' | 'whitespace' | 'invalid';
+  sourceSpan: FormulaSourceSpan;
+};
+
+export type FormulaDiagnostic = {
+  kind: 'syntax' | 'reference';
+  code: '#PARSE!' | '#REF!';
+  sourceSpan: FormulaSourceSpan;
+};
+
 export type FormulaSyntaxResult = {
   result: FormulaParseResult;
   /** Ordered references parsed before success or failure. */
   references: FormulaReference[];
   /** Exact transform tokens emitted by the parser in normal grammar contexts. */
   referenceLexemes: FormulaReferenceLexeme[];
+  /** Ordered, non-overlapping tokens that reproduce raw input exactly. */
+  tokens: FormulaSyntaxToken[];
+  /** Recovery diagnostics leave the draft and valid surrounding references intact. */
+  diagnostics: FormulaDiagnostic[];
 };
 
 /** Exact reference lexemes for source-preserving transforms.  This is the sole lexical authority. */

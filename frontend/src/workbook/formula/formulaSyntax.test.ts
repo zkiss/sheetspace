@@ -56,6 +56,25 @@ describe('formula syntax', () => {
     )).toBe('=SUM(@archived-sheet!A[1],)');
   });
 
+  it('returns lossless presentation tokens and diagnostics while recovering references', () => {
+    const raw = '=SUM(@A[1], "text") + FALSE';
+    const analysis = parseFormulaSyntax(raw);
+
+    expect(analysis.tokens.map((token) => raw.slice(token.sourceSpan.start, token.sourceSpan.end)).join('')).toBe(raw);
+    expect(analysis.tokens.map((token) => token.kind)).toContain('function');
+    expect(analysis.tokens.map((token) => token.kind)).toContain('reference');
+    expect(analysis.tokens.map((token) => token.kind)).toContain('literal');
+    expect(analysis.tokens.map((token) => token.kind)).toContain('operator');
+
+    const incomplete = parseFormulaSyntax("=SUM(@A[1], @'Revenue'[)");
+    expect(incomplete.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'syntax', code: '#PARSE!' }),
+    ]));
+    expect(incomplete.references.map((reference) => raw.slice(reference.sourceSpan.start, reference.sourceSpan.end))).not.toContain("@'Revenue'[");
+    expect(incomplete.references.map((reference) => incomplete.result.raw.slice(reference.sourceSpan.start, reference.sourceSpan.end))).toContain('@A[1]');
+    expect(incomplete.tokens.map((token) => incomplete.result.raw.slice(token.sourceSpan.start, token.sourceSpan.end)).join('')).toBe(incomplete.result.raw);
+  });
+
   it('recovers qualifiers after an earlier syntax error for inspection and remapping', () => {
     const raw = '=SUM(@A[1],) + @source-sheet!B[2] + @saved-sheet!C[3] + @#REF!D[4]';
     const parsed = parseFormulaSyntax(raw);
