@@ -1,11 +1,9 @@
 // @vitest-environment node
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { chromium } from 'playwright';
 import { expect, it } from 'vitest';
 
-it('aligns coloured token advances and every wrapped character with the editable textarea in Chromium', () => {
+it('aligns coloured token advances and every wrapped character with the editable textarea in Chromium', async () => {
   const tokens = [
     { kind: 'punctuation', text: '=' }, { kind: 'function', text: 'SUM' },
     { kind: 'punctuation', text: '(' }, { kind: 'reference', text: "@'Revenue'[12]" },
@@ -24,31 +22,23 @@ it('aligns coloured token advances and every wrapped character with the editable
   const spans = tokens.map(({ kind, text }) =>
     `<span class="formula-syntax-token formula-syntax-token-${kind}">${escapeHtml(text)}</span>`).join('');
   const css = fs.readFileSync(new URL('../src/grid/SheetGridCell.css', import.meta.url), 'utf8');
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sheetspace-editor-metrics-'));
+  const browser = await chromium.launch();
   try {
-    const page = path.join(directory, 'metrics.html');
-    fs.writeFileSync(page, `<!doctype html><style>
+    const page = await browser.newPage({ offline: true });
+    await page.setContent(`<!doctype html><style>
       body { font: 16px system-ui; }
       ${css}
       .sheet-grid-cell-editor, .sheet-grid-cell-editor-highlight { left: 0; top: 0; width: 280px; height: 1000px; overflow: hidden; }
     </style>
     <pre class="sheet-grid-cell-editor-highlight">${spans}</pre>
-    <textarea class="sheet-grid-cell-editor">${escapeHtml(draft)}</textarea>
-    <script>(${measureEditorMetrics.toString()})();</script>`);
-    const html = execFileSync('chromium', [
-      '--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
-      '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
-      `--user-data-dir=${path.join(directory, 'profile')}`, '--dump-dom', new URL(`file://${page}`).href,
-    ], { encoding: 'utf8', timeout: 20_000, maxBuffer: 2_000_000, stdio: ['ignore', 'pipe', 'pipe'] }) as string;
+    <textarea class="sheet-grid-cell-editor">${escapeHtml(draft)}</textarea>`);
 
-    const result = /<output id="metrics">([^<]+)<\/output>/.exec(html);
-    expect(result, html).not.toBeNull();
-    const metrics = JSON.parse(result![1]) as { errors: string[]; lines: number; characters: number };
+    const metrics = await page.evaluate(measureEditorMetrics);
     expect(metrics.errors).toEqual([]);
     expect(metrics.lines).toBeGreaterThan(5);
     expect(metrics.characters).toBe(draft.length);
   } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
+    await browser.close();
   }
 }, 30_000);
 
@@ -113,8 +103,5 @@ function measureEditorMetrics() {
   // its wrapping, rather than comparing only the outer container geometry.
   for (const element of [editor, overlay, mirror]) element.style.height = '24px';
   if (editor.scrollHeight !== mirror.scrollHeight || editor.scrollHeight !== overlay.scrollHeight) errors.push('wrapped content height');
-  const output = document.createElement('output');
-  output.id = 'metrics';
-  output.textContent = JSON.stringify({ errors, lines: new Set(plain.map(({ y }) => y)).size, characters: plain.length });
-  document.body.append(output);
+  return { errors, lines: new Set(plain.map(({ y }) => y)).size, characters: plain.length };
 }

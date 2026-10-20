@@ -9,6 +9,13 @@ import {
 import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
 
 describe('formula syntax', () => {
+  it.each(['Revenue', '123', 'hello world', '  text\nwith whitespace  '])('preserves ordinary input %j as neutral text without formula errors', (raw) => {
+    expect(parseFormulaSyntax(raw)).toEqual({
+      result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [],
+      tokens: [{ kind: 'text', sourceSpan: { start: 0, end: raw.length } }], diagnostics: [],
+    });
+  });
+
   it('uses one function-call node for built-ins and unknown functions', () => {
     expect(parseFormula('=sUm(@A[1])')).toMatchObject({
       kind: 'formula',

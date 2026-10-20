@@ -1,6 +1,7 @@
 .PHONY: install
 install:
 	npm install
+	npm run setup:browser
 
 .PHONY: build
 build: install

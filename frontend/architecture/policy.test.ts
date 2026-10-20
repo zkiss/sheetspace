@@ -61,6 +61,13 @@ describe('final frontend policy', () => {
     expect(diagnostics({ 'src/app/View.test.ts': "import '../../architecture/analyzer';", 'architecture/analyzer.ts': '' }).map(({ code }) => code)).toContain('forbidden-package-import');
   });
 
+  it('reserves the browser driver for tooling, not application code or component tests', () => {
+    expect(diagnostics({ 'architecture/metrics.test.ts': "import 'playwright';" })).toEqual([]);
+    for (const file of ['src/grid/View.tsx', 'src/grid/View.test.tsx', 'src/test-support/browser.ts']) {
+      expect(diagnostics({ [file]: "import 'playwright';" }).map(({ code }) => code)).toContain('forbidden-external');
+    }
+  });
+
   it('owns isolated performance probes as tests without permitting production or tooling dependencies', () => {
     expect(diagnostics({
       'performance.config.ts': "import 'vite'; import './vite.config';",

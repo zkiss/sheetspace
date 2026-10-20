@@ -47,7 +47,7 @@ export const frontendPolicy: ArchitecturePolicy = {
     })),
     { name: 'performance', files: /^performance\/[^/]+\.probe\.tsx$/, role: 'test', mayImport: [...productionNames, 'test-support'], external: testingExternal },
     { name: 'test-support', files: /^src\/test-support\/(?![^/]*\.test\.tsx?$)[^/]+$/, role: 'test-support', mayImport: productionNames, external: testingExternal },
-    { name: 'architecture', files: /^architecture\/[^/]+$/, role: 'tooling', mayImport: ['configuration'], external: ['node:child_process', 'node:fs', 'node:os', 'node:path', 'node:url', 'typescript', 'vitest', '@csstools/css-tokenizer'] },
+    { name: 'architecture', files: /^architecture\/[^/]+$/, role: 'tooling', mayImport: ['configuration'], external: ['node:child_process', 'node:fs', 'node:os', 'node:path', 'node:url', 'typescript', 'vitest', '@csstools/css-tokenizer', 'playwright'] },
     { name: 'configuration', files: /^(?:package(?:-lock)?\.json|tsconfig(?:\.node)?\.json|(?:vite|performance)\.config\.ts)$/, role: 'tooling', external: ['vite', '@vitejs/plugin-react'] },
   ],
   exactTestData: [{ file: '../test-fixtures/workbook-read-contract.json', importers: ['src/infrastructure/persistence/workbookApi.test.ts'] }],

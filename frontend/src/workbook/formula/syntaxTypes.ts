@@ -85,7 +85,7 @@ export type FormulaParseResult =
 
 /** A source-preserving presentation token. Spans are half-open offsets into raw input. */
 export type FormulaSyntaxToken = {
-  kind: 'function' | 'literal' | 'operator' | 'reference' | 'punctuation' | 'whitespace' | 'invalid';
+  kind: 'text' | 'function' | 'literal' | 'operator' | 'reference' | 'punctuation' | 'whitespace' | 'invalid';
   sourceSpan: FormulaSourceSpan;
 };
 
