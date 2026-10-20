@@ -135,7 +135,12 @@ function toToken(match: Match): FormulaReferenceToken { return { kind: match.end
 function targetSheet(qualifier: FormulaQualifier, current: SheetId): SheetId | undefined { return qualifier.kind === 'broken' ? undefined : qualifier.kind === 'explicit' ? qualifier.sheetId : current; }
 function rawTargetSheet(qualifier: FormulaQualifier, resolver: FormulaReferenceResolver): SheetId | undefined { return qualifier.kind === 'explicit' ? resolver.sheetByQualifier(qualifier.sheetId) : targetSheet(qualifier, resolver.currentSheetId); }
 function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${coordinate.columnId}[${anchors.row ? '$' : ''}${coordinate.rowId}]`; }
-function formatNamedCanonical(propertyId: string, coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}~${propertyId}~${coordinate.columnId}[${anchors.row ? '$' : ''}${coordinate.rowId}]`; }
+/**
+ * Stable IDs admit every non-blank JavaScript string. Encode UTF-16 code units
+ * so the parser-owned delimiters cannot occur in a persisted endpoint.
+ */
+function formatNamedCanonical(propertyId: string, coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}~${encodeStableId(propertyId)}~${encodeStableId(coordinate.columnId)}[${anchors.row ? '$' : ''}${encodeStableId(coordinate.rowId)}]`; }
+function encodeStableId(value: string): string { return Array.from({ length: value.length }, (_, index) => value.charCodeAt(index).toString(16).padStart(4, '0')).join(''); }
 function formatA1(address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${columnIndexToLabel(address.columnIndex)}[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
 function formatNamed(name: string, address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}'${name.replace(/'/g, "''")}'[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
 /** Applies one copy delta while preserving anchors independently on each axis. */

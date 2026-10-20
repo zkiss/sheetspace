@@ -217,7 +217,7 @@ describe('canonical formula references', () => {
     const namedResolver = workbookFormulaReferenceResolver(workbookWithModel, source.id);
     const canonical = formulaRawToCanonical("=@'Revenue'[1]:$'Owner''s Cost'[$2]", namedResolver);
 
-    expect(canonical).toBe(`=@~revenue~${source.content.columns[0]}[${source.content.rows[0]}]:$~cost~${source.content.columns[1]}[$${source.content.rows[1]}]`);
+    expect(canonical).toMatch(/^=@~[0-9a-f]+~[0-9a-f]+\[[0-9a-f]+\]:\$~[0-9a-f]+~[0-9a-f]+\[\$[0-9a-f]+\]$/i);
     expect(formulaRawToDisplay(canonical, namedResolver)).toBe("=@'Revenue'[1]:$'Owner''s Cost'[$2]");
 
     const renamed = {
@@ -264,9 +264,39 @@ describe('canonical formula references', () => {
     const copiedCell = copyCanonicalFormula(formulaRawToCanonical("=@'Revenue'[1]", namedResolver), sourceCell, destinationCell, namedResolver);
     const copiedRange = copyCanonicalFormula(formulaRawToCanonical("=@'Revenue'[1]:'Cost'[2]", namedResolver), sourceCell, destinationCell, namedResolver);
 
-    expect(copiedCell).toEqual({ ok: true, raw: `=@~cost~${source.content.columns[1]}[${source.content.rows[1]}]` });
-    expect(copiedRange).toEqual({ ok: true, raw: `=@~cost~${source.content.columns[1]}[${source.content.rows[1]}]:${source.content.columns[2]}[${source.content.rows[2]}]` });
+    const copiedCost = formulaRawToCanonical("=@'Cost'[2]", namedResolver);
+    expect(copiedCell).toEqual({ ok: true, raw: copiedCost });
+    expect(copiedRange).toEqual({ ok: true, raw: `${copiedCost}:${source.content.columns[2]}[${source.content.rows[2]}]` });
     if (!copiedRange.ok) throw new Error('copy should resolve');
     expect(formulaRawToDisplay(copiedRange.raw, namedResolver)).toBe("=@'Cost'[2]:C[3]");
+  });
+
+  it('round-trips arbitrary stable IDs through stored named references and reload', () => {
+    const specialColumnId = 'column~ [ spaced ]';
+    const specialRowId = 'row~ [ spaced ]';
+    const specialPropertyId = 'property~ [ spaced ]';
+    const special = {
+      ...source,
+      modelId: 'special-model',
+      content: { ...source.content, columns: [specialColumnId, ...source.content.columns.slice(1)], rows: [specialRowId, ...source.content.rows.slice(1)] },
+      modelColumnBindings: { [specialPropertyId]: specialColumnId },
+    };
+    const specialWorkbook = {
+      ...workbookWithSheets([special, destination]),
+      dataModels: {
+        'special-model': {
+          id: 'special-model', name: 'Special', columns: [{ id: specialPropertyId, name: 'Special', kind: 'manual' as const, type: 'float' as const }],
+        },
+      },
+    };
+    const specialResolver = workbookFormulaReferenceResolver(specialWorkbook, special.id);
+    const canonical = formulaRawToCanonical("=@'Special'[1]", specialResolver);
+    const reloaded = JSON.parse(JSON.stringify(specialWorkbook));
+
+    expect(canonical).not.toContain(specialPropertyId);
+    expect(canonical).not.toContain(specialColumnId);
+    expect(canonical).not.toContain(specialRowId);
+    expect(formulaReferenceTokens(canonical)).toMatchObject([{ endpoints: [{ kind: 'canonical', propertyId: specialPropertyId, coordinate: { columnId: specialColumnId, rowId: specialRowId } }] }]);
+    expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(reloaded, special.id))).toBe("=@'Special'[1]");
   });
 });

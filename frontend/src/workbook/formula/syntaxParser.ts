@@ -321,10 +321,14 @@ export class FormulaParser {
 
   private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
-    const named = /^(\$?)~([^~[]+)~([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
+    const named = /^(\$?)~([0-9a-f]+)~([0-9a-f]+)\[(\$?)([0-9a-f]+)\]/i.exec(this.input.slice(this.index));
     if (named) {
+      const propertyId = decodeStableId(named[2]);
+      const columnId = decodeStableId(named[3]);
+      const rowId = decodeStableId(named[5]);
+      if (propertyId === undefined || columnId === undefined || rowId === undefined) return undefined;
       this.index += named[0].length;
-      return { kind: 'named', value: { propertyId: named[2], columnId: named[3], rowId: named[5] }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start) };
+      return { kind: 'named', value: { propertyId, columnId, rowId }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start) };
     }
     const propertyStart = this.index;
     const propertyAnchor = this.consume('$');
@@ -509,4 +513,12 @@ export class FormulaParser {
   private error(): ReadResult<never> {
     return { ok: false, error: '#PARSE!' };
   }
+}
+
+/** Decodes the fixed-width UTF-16 representation emitted for named stable IDs. */
+function decodeStableId(value: string): string | undefined {
+  if (value.length === 0 || value.length % 4 !== 0) return undefined;
+  let decoded = '';
+  for (let index = 0; index < value.length; index += 4) decoded += String.fromCharCode(Number.parseInt(value.slice(index, index + 4), 16));
+  return decoded;
 }
