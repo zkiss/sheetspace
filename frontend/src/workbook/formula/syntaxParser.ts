@@ -311,6 +311,21 @@ export class FormulaParser {
 
   private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
+    const named = /^(\$?)~([^~[]+)~([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
+    if (named) {
+      this.index += named[0].length;
+      return { kind: 'named', value: { propertyId: named[2], columnId: named[3], rowId: named[5] }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start) };
+    }
+    const propertyStart = this.index;
+    const propertyAnchor = this.consume('$');
+    const property = this.readQuotedProperty();
+    if (property !== undefined) {
+      const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
+      if (!row) return undefined;
+      this.index += row[0].length;
+      return { kind: 'named', value: { propertyId: property, columnId: '', rowId: row[2] }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
+    }
+    this.index = propertyStart;
     const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
     if (canonical && !/^[A-Za-z]+$/.test(canonical[2])) {
       this.index += canonical[0].length;
@@ -348,13 +363,16 @@ export class FormulaParser {
       sourceSpan: this.spanTo(start, end),
       ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
     };
-    if (first.kind === 'canonical') {
-      const coordinate = first.value as { columnId: string; rowId: string };
+    if (first.kind === 'canonical' || first.kind === 'named') {
+      const named = first.kind === 'named';
+      const value = first.value as { propertyId?: string; columnId: string; rowId: string };
+      const coordinate = { columnId: value.columnId, rowId: value.rowId };
       return {
         kind: 'canonical',
         ...base,
         coordinate,
-        ...(second ? { range: { start: coordinate, end: second.value as { columnId: string; rowId: string } } } : {}),
+        ...(named ? { propertyId: value.propertyId } : {}),
+        ...(second ? { range: { start: coordinate, end: (() => { const end = second.value as { propertyId?: string; columnId: string; rowId: string }; return { columnId: end.columnId, rowId: end.rowId }; })(), ...(named ? { startPropertyId: value.propertyId, endPropertyId: (second.value as { propertyId?: string }).propertyId } : {}) } } : {}),
       };
     }
     if (!second) return { kind: 'cell', ...base, address: first.value as CellAddress };
@@ -383,7 +401,7 @@ export class FormulaParser {
     if (quoted !== undefined) {
       const end = this.index;
       this.skipWhitespace();
-      if (!this.consume('!')) return false;
+      if (!this.consume('!')) { this.index = start; return {}; }
       this.skipWhitespace();
       return { sheetId: quoted, sourceSpan: this.spanTo(start, end) };
     }
@@ -416,6 +434,16 @@ export class FormulaParser {
       }
     }
     return false;
+  }
+
+  private readQuotedProperty(): string | undefined {
+    const start = this.index;
+    if (this.peek() !== "'") { this.index = start; return undefined; }
+    const name = this.readQuotedSheetName();
+    if (name === false || name === undefined) { this.index = start; return undefined; }
+    // The raw property name is carried in this temporary endpoint until semantic resolution.
+    // Prefixing it keeps it distinct from persisted IDs before reference.ts replaces it.
+    return name;
   }
 
   private findUnquotedSheetSeparator(): number {

@@ -196,4 +196,47 @@ describe('canonical formula references', () => {
     expect(formulaReferenceTokens(canonical)[0]?.qualifier).toMatchObject({ kind: 'explicit', sheetId: 'owner-id' });
     expect(formulaRawToDisplay(canonical, namedResolver)).toBe("=@'Owner''s Sheet'!A[1]");
   });
+
+  it('stores named properties by property and bound-column identity, then displays current names', () => {
+    const bound = {
+      ...source,
+      modelId: 'budget',
+      modelColumnBindings: { revenue: source.content.columns[0]!, cost: source.content.columns[1]! },
+    };
+    const workbookWithModel = {
+      ...workbookWithSheets([bound, destination]),
+      dataModels: {
+        budget: {
+          id: 'budget', name: 'Budget', columns: [
+            { id: 'revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+            { id: 'cost', name: "Owner's Cost", kind: 'manual' as const, type: 'float' as const },
+          ],
+        },
+      },
+    };
+    const namedResolver = workbookFormulaReferenceResolver(workbookWithModel, source.id);
+    const canonical = formulaRawToCanonical("=@'Revenue'[1]:$'Owner''s Cost'[$2]", namedResolver);
+
+    expect(canonical).toBe(`=@~revenue~${source.content.columns[0]}[${source.content.rows[0]}]:$~cost~${source.content.columns[1]}[$${source.content.rows[1]}]`);
+    expect(formulaRawToDisplay(canonical, namedResolver)).toBe("=@'Revenue'[1]:$'Owner''s Cost'[$2]");
+
+    const renamed = {
+      ...workbookWithModel,
+      dataModels: { budget: { ...workbookWithModel.dataModels.budget, columns: [
+        { ...workbookWithModel.dataModels.budget.columns[1]!, name: 'Costs' },
+        { ...workbookWithModel.dataModels.budget.columns[0]!, name: 'Net Revenue' },
+      ] } },
+    };
+    expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(renamed, source.id)))
+      .toBe("=@'Net Revenue'[1]:$'Costs'[$2]");
+
+    const replaced = {
+      ...renamed,
+      dataModels: { budget: { ...renamed.dataModels.budget, columns: [
+        { id: 'new-revenue', name: 'Net Revenue', kind: 'manual' as const, type: 'float' as const },
+        ...renamed.dataModels.budget.columns.slice(1),
+      ] } },
+    };
+    expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(replaced, source.id))).toBe('=#REF!');
+  });
 });

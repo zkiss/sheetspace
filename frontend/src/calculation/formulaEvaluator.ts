@@ -238,6 +238,7 @@ export class FormulaEvaluator {
     }
 
     if (reference.kind === 'canonical') {
+      if (reference.propertyId && (sheet.modelColumnBindings?.[reference.propertyId] !== reference.coordinate.columnId || !sheet.modelPropertyIds?.has(reference.propertyId))) return formulaErrorValue('#REF!');
       const key = calculationCellKey(sheet, reference.coordinate);
       if (!key) return formulaErrorValue('#REF!');
       if (!reference.range) return this.evaluateReferencedCell(sheet, key);
@@ -278,6 +279,7 @@ export class FormulaEvaluator {
       const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
       return { ok: true, value: { values: this.evaluateRangeCells(sheet, keys), rowCount: expression.range.end.rowIndex - expression.range.start.rowIndex + 1, columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1 } };
     }
+    if (expression.propertyId && (sheet.modelColumnBindings?.[expression.propertyId] !== expression.coordinate.columnId || !sheet.modelPropertyIds?.has(expression.propertyId))) return { ok: false, error: '#REF!' };
     const key = calculationCellKey(sheet, expression.coordinate);
     if (!key) return { ok: false, error: '#REF!' };
     if (!expression.range) {

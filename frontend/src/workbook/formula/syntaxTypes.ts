@@ -30,7 +30,9 @@ export type FormulaReference =
       kind: 'canonical';
       sheetId?: string;
       coordinate: { columnId: string; rowId: string };
-      range?: { start: { columnId: string; rowId: string }; end: { columnId: string; rowId: string } };
+      /** Present only for the parser-owned stable representation of a named property. */
+      propertyId?: string;
+      range?: { start: { columnId: string; rowId: string }; end: { columnId: string; rowId: string }; startPropertyId?: string; endPropertyId?: string };
       sourceSpan: FormulaSourceSpan;
       sheetReferenceSpan?: FormulaSourceSpan;
     };
@@ -93,5 +95,5 @@ export type FormulaSyntaxResult = {
 export type FormulaReferenceLexeme = {
   sourceSpan: FormulaSourceSpan;
   qualifier?: { value: string; sourceSpan: FormulaSourceSpan; broken: boolean };
-  endpoints: readonly { kind: 'a1' | 'canonical'; value: CellAddress | { columnId: string; rowId: string }; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan }[];
+  endpoints: readonly { kind: 'a1' | 'canonical' | 'named'; value: CellAddress | { columnId: string; rowId: string } | { propertyId: string; columnId: string; rowId: string }; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan }[];
 };
