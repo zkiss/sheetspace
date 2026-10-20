@@ -239,4 +239,34 @@ describe('canonical formula references', () => {
     };
     expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(replaced, source.id))).toBe('=#REF!');
   });
+
+  it('retargets copied named endpoints to translated properties and uses canonical A1 identities for unbound columns', () => {
+    const bound = {
+      ...source,
+      modelId: 'budget',
+      modelColumnBindings: { revenue: source.content.columns[0]!, cost: source.content.columns[1]! },
+    };
+    const workbookWithModel = {
+      ...workbookWithSheets([bound, destination]),
+      dataModels: {
+        budget: {
+          id: 'budget', name: 'Budget', columns: [
+            { id: 'revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+            { id: 'cost', name: 'Cost', kind: 'manual' as const, type: 'float' as const },
+          ],
+        },
+      },
+    };
+    const namedResolver = workbookFormulaReferenceResolver(workbookWithModel, source.id);
+    const sourceCell = { columnId: source.content.columns[2]!, rowId: source.content.rows[2]! };
+    const destinationCell = { columnId: source.content.columns[3]!, rowId: source.content.rows[3]! };
+
+    const copiedCell = copyCanonicalFormula(formulaRawToCanonical("=@'Revenue'[1]", namedResolver), sourceCell, destinationCell, namedResolver);
+    const copiedRange = copyCanonicalFormula(formulaRawToCanonical("=@'Revenue'[1]:'Cost'[2]", namedResolver), sourceCell, destinationCell, namedResolver);
+
+    expect(copiedCell).toEqual({ ok: true, raw: `=@~cost~${source.content.columns[1]}[${source.content.rows[1]}]` });
+    expect(copiedRange).toEqual({ ok: true, raw: `=@~cost~${source.content.columns[1]}[${source.content.rows[1]}]:${source.content.columns[2]}[${source.content.rows[2]}]` });
+    if (!copiedRange.ok) throw new Error('copy should resolve');
+    expect(formulaRawToDisplay(copiedRange.raw, namedResolver)).toBe("=@'Cost'[2]:C[3]");
+  });
 });

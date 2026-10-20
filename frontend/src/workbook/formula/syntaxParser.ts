@@ -300,13 +300,23 @@ export class FormulaParser {
 
     this.skipWhitespace();
     const second = this.readReferenceEndpoint();
-    if (!second || second.kind !== first.kind) {
+    if (!second || !this.referenceEndpointsMatch(first, second)) {
       this.recordReference(this.makeReference(first, undefined, qualifier, start, firstEnd), qualifier, [first]);
       return this.error();
     }
     const reference = this.makeReference(first, second, qualifier, start, this.index);
     this.recordReference(reference, qualifier, [first, second]);
     return { ok: true, value: reference };
+  }
+
+  private referenceEndpointsMatch(first: FormulaReferenceLexeme['endpoints'][number], second: FormulaReferenceLexeme['endpoints'][number]): boolean {
+    if (first.kind === second.kind) return true;
+    return (first.kind === 'canonical' && this.isStoredNamedEndpoint(second))
+      || (second.kind === 'canonical' && this.isStoredNamedEndpoint(first));
+  }
+
+  private isStoredNamedEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number]): boolean {
+    return endpoint.kind === 'named' && Boolean((endpoint.value as { columnId: string }).columnId);
   }
 
   private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
@@ -364,15 +374,16 @@ export class FormulaParser {
       ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
     };
     if (first.kind === 'canonical' || first.kind === 'named') {
-      const named = first.kind === 'named';
+      const named = this.isStoredNamedEndpoint(first);
       const value = first.value as { propertyId?: string; columnId: string; rowId: string };
       const coordinate = { columnId: value.columnId, rowId: value.rowId };
+      const endValue = second?.value as { propertyId?: string; columnId: string; rowId: string } | undefined;
       return {
         kind: 'canonical',
         ...base,
         coordinate,
         ...(named ? { propertyId: value.propertyId } : {}),
-        ...(second ? { range: { start: coordinate, end: (() => { const end = second.value as { propertyId?: string; columnId: string; rowId: string }; return { columnId: end.columnId, rowId: end.rowId }; })(), ...(named ? { startPropertyId: value.propertyId, endPropertyId: (second.value as { propertyId?: string }).propertyId } : {}) } } : {}),
+        ...(second ? { range: { start: coordinate, end: { columnId: endValue!.columnId, rowId: endValue!.rowId }, ...(named || this.isStoredNamedEndpoint(second) ? { startPropertyId: named ? value.propertyId : undefined, endPropertyId: this.isStoredNamedEndpoint(second) ? endValue!.propertyId : undefined } : {}) } } : {}),
       };
     }
     if (!second) return { kind: 'cell', ...base, address: first.value as CellAddress };
