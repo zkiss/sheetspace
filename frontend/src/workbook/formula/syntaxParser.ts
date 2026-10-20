@@ -308,12 +308,22 @@ export class FormulaParser {
     return { ok: true, value: reference };
   }
 
+  /**
+   * Ranges have one spelling representation.  In particular, a raw property
+   * name is not interchangeable with its persisted identity encoding: mixing
+   * them would manufacture a partial canonical identity.
+   */
+  private endpointKind(endpoint: FormulaReferenceLexeme['endpoints'][number]): 'a1' | 'canonical' | 'raw-named' | 'stored-named' {
+    if (endpoint.kind !== 'named') return endpoint.kind;
+    return (endpoint.value as { columnId: string }).columnId ? 'stored-named' : 'raw-named';
+  }
+
   private referenceEndpointsMatch(first: FormulaReferenceLexeme['endpoints'][number], second: FormulaReferenceLexeme['endpoints'][number]): boolean {
-    return first.kind === second.kind;
+    return this.endpointKind(first) === this.endpointKind(second);
   }
 
   private isStoredNamedEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number]): boolean {
-    return endpoint.kind === 'named' && Boolean((endpoint.value as { columnId: string }).columnId);
+    return this.endpointKind(endpoint) === 'stored-named';
   }
 
   private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
@@ -374,8 +384,9 @@ export class FormulaParser {
       sourceSpan: this.spanTo(start, end),
       ...(qualifier.sourceSpan ? { sheetReferenceSpan: qualifier.sourceSpan } : {}),
     };
-    if (first.kind === 'canonical' || first.kind === 'named') {
-      const named = this.isStoredNamedEndpoint(first);
+    const firstKind = this.endpointKind(first);
+    if (firstKind === 'canonical' || firstKind === 'stored-named' || firstKind === 'raw-named') {
+      const named = firstKind === 'stored-named';
       const value = first.value as { propertyId?: string; columnId: string; rowId: string };
       const coordinate = { columnId: value.columnId, rowId: value.rowId };
       const endValue = second?.value as { propertyId?: string; columnId: string; rowId: string } | undefined;

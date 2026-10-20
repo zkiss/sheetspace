@@ -227,6 +227,26 @@ describe('canonical formula references', () => {
     expect(formulaRawToCanonical(mixedStoredRange, namedResolver)).toBe(mixedStoredRange);
     expect(formulaRawToDisplay(mixedStoredRange, namedResolver)).toBe(mixedStoredRange);
 
+    const rawNamedEndpoint = "'Revenue'[1]";
+    const storedNamedEndpoint = storedNamedCanonical.slice(2);
+    const endpointKinds = [
+      ['a1', 'A[1]'],
+      ['canonical', ordinaryCanonical.slice(2)],
+      ['raw-named', rawNamedEndpoint],
+      ['stored-named', storedNamedEndpoint],
+    ] as const;
+    for (const [leftKind, left] of endpointKinds) {
+      for (const [rightKind, right] of endpointKinds) {
+        const range = `=@${left}:${right}`;
+        const sameKind = leftKind === rightKind;
+        expect(formulaReferenceTokens(range), `${leftKind}/${rightKind} tokens`).toHaveLength(sameKind ? 1 : 0);
+        if (!sameKind) {
+          expect(formulaRawToCanonical(range, namedResolver), `${leftKind}/${rightKind} canonical`).toBe(range);
+          expect(formulaRawToDisplay(range, namedResolver), `${leftKind}/${rightKind} display`).toBe(range);
+        }
+      }
+    }
+
     const renamed = {
       ...workbookWithModel,
       dataModels: { budget: { ...workbookWithModel.dataModels.budget, columns: [
