@@ -111,7 +111,7 @@ data class ModelColumnWriteRequest(
 )
 
 @Serializable
-data class SheetModelWriteRequest(val modelId: String? = null)
+data class SheetModelWriteRequest(val modelId: String? = null, val modelColumnBindings: Map<String, String>? = null)
 
 @OptIn(ExperimentalSerializationApi::class)
 fun Application.configureHttp(workbookApplication: WorkbookApplication) {
@@ -163,7 +163,10 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             call.respondApplicationResult {
                 call.respond(
                     WorkbookReadTransportAdapter.sheetDocument(
-                        workbookApplication.updateSheetModel(sheetId, UpdateSheetModelCommand(request.modelId)),
+                        workbookApplication.updateSheetModel(sheetId, UpdateSheetModelCommand(
+                            request.modelId,
+                            request.modelColumnBindings?.mapValues { (_, columnId) -> ColumnId(columnId) },
+                        )),
                     ),
                 )
             }

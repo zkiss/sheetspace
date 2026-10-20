@@ -39,6 +39,7 @@ class SqliteMigrationTest {
                             "row_format_presentation",
                             "column_format_presentation",
                             "cell_format_presentation",
+                            "sheet_model_column_bindings",
                         ),
                     ),
                 )

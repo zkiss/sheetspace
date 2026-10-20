@@ -17,6 +17,7 @@ data class SheetDocument(
     val presentation: SheetPresentation = SheetPresentation(),
     val content: SheetContent = TabularContent(),
     val modelId: String? = null,
+    val modelColumnBindings: Map<String, ColumnId> = emptyMap(),
 ) {
     val tabularContent: TabularContent
         get() = content as? TabularContent

@@ -98,6 +98,7 @@ internal class SqliteWorkbookReader(
             revision = document.revision,
             frame = document.frame,
             modelId = document.modelId,
+            modelColumnBindings = loadModelColumnBindings(sheetId),
             presentation = SheetPresentation(
                 rowHeights = loadSizes(sheetId, "row_presentation", "row_id", "height"),
                 columnWidths = loadSizes(sheetId, "column_presentation", "column_id", "width"),
@@ -185,6 +186,18 @@ internal class SqliteWorkbookReader(
                     while (rs.next()) {
                         observeRead(SheetReadPart.COLUMN, sheetId, rs.getBytes("sheet_id"))
                         add(ColumnId(rs.getBytes("column_id").toUuidString()))
+                    }
+                }
+            }
+        }
+
+    private fun loadModelColumnBindings(sheetId: SheetId): Map<String, ColumnId> =
+        connection.prepareStatement("SELECT property_id, column_id FROM sheet_model_column_bindings WHERE sheet_id = ?").use { statement ->
+            statement.setBytes(1, sheetId.value.toUuidBytes())
+            statement.executeQuery().use { result ->
+                buildMap {
+                    while (result.next()) {
+                        put(result.getBytes("property_id").toUuidString(), ColumnId(result.getBytes("column_id").toUuidString()))
                     }
                 }
             }

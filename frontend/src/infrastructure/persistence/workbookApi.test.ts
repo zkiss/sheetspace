@@ -3,6 +3,7 @@ import workbookReadContract from '../../../../test-fixtures/workbook-read-contra
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, sheetsInOrder } from '@workbook/read/queries';
 import { type SheetDocument } from '@workbook/core/model';
+import { formulaRawToCanonical, formulaRawToDisplay, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import {
   decodeSheetDocument,
   decodeWorkbookBundle,
@@ -38,6 +39,7 @@ function expectedDocument(response: SheetDocumentResponse): SheetDocument {
       ])),
     },
     ...(response.modelId === undefined ? {} : { modelId: response.modelId }),
+    ...(response.modelColumnBindings === undefined ? {} : { modelColumnBindings: { ...response.modelColumnBindings } }),
   };
 }
 
@@ -123,6 +125,27 @@ describe('workbook API read decoding', () => {
     expect(cellRawContent(decodeSheetDocument(response), 'A1')).toBe(canonical);
   });
 
+  it('decodes persisted property bindings for named-reference resolution', () => {
+    const modelId = contractFixture.dataModels[0]!.id;
+    const propertyId = contractFixture.dataModels[0]!.columns[0]!.id;
+    const response = { ...inputsResponse, modelId, modelColumnBindings: { [propertyId]: inputsResponse.content.columns[0]! } };
+    const persisted = { ...contractFixture, documents: [outputsResponse, response] };
+    const decoded = decodeWorkbookBundle(persisted);
+    const resolver = workbookFormulaReferenceResolver(decoded, response.id);
+    const canonical = formulaRawToCanonical("=@'Description'[1]", resolver);
+    const storedResponse = {
+      ...response,
+      content: { ...response.content, cells: [{ rowId: response.content.rows[0], columnId: response.content.columns[0], content: canonical }] },
+    };
+    const reloaded = decodeWorkbookBundle({ ...persisted, documents: [outputsResponse, storedResponse] });
+
+    expect(decodeSheetDocument(response)).toMatchObject({ modelId, modelColumnBindings: response.modelColumnBindings });
+    expect(canonical).not.toContain('#REF!');
+    expect(canonical).not.toBe("=@'Description'[1]");
+    expect(formulaRawToDisplay(cellRawContent(reloaded.documents[response.id]!, 'A1')!, workbookFormulaReferenceResolver(reloaded, response.id)))
+      .toBe("=@'Description'[1]");
+  });
+
   it('loads one stable sheet document by encoded id', async () => {
     const fetchMock = mockFetch(inputsResponse);
     await expect(workbookApi.loadSheet('sheet 1')).resolves.toEqual(inputsDocument);
@@ -141,11 +164,15 @@ describe('workbook API read decoding', () => {
       method: 'PUT', body: JSON.stringify({ name: model.name, columns: model.columns }), headers: { 'Content-Type': 'application/json' },
     });
 
-    const bound = { ...inputsResponse, modelId: model.id };
+    const bound = { ...inputsResponse, modelId: model.id, modelColumnBindings: { [model.columns[0].id]: inputsResponse.content.columns[0] } };
     const bindingFetch = mockFetch(bound);
     await expect(workbookApi.setSheetModel(inputsResponse.id, model.id)).resolves.toEqual(expectedDocument(bound));
     expect(bindingFetch).toHaveBeenCalledWith(`/api/sheets/${inputsResponse.id}/model`, {
       method: 'PUT', body: JSON.stringify({ modelId: model.id }), headers: { 'Content-Type': 'application/json' },
+    });
+    await expect(workbookApi.setSheetModel(inputsResponse.id, model.id, bound.modelColumnBindings)).resolves.toEqual(expectedDocument(bound));
+    expect(bindingFetch).toHaveBeenLastCalledWith(`/api/sheets/${inputsResponse.id}/model`, {
+      method: 'PUT', body: JSON.stringify({ modelId: model.id, modelColumnBindings: bound.modelColumnBindings }), headers: { 'Content-Type': 'application/json' },
     });
   });
 
@@ -189,6 +216,17 @@ describe('workbook API read decoding', () => {
       ...contractFixture,
       documents: [{ ...outputsResponse, modelId: 'missing-model' }, inputsResponse],
     }],
+    ['unknown bound property', {
+      ...contractFixture,
+      documents: [{ ...outputsResponse, modelId: contractFixture.dataModels[0]!.id, modelColumnBindings: { missing: outputsResponse.content.columns[0] } }, inputsResponse],
+    }],
+    ['duplicate bound column', {
+      ...contractFixture,
+      documents: [{ ...outputsResponse, modelId: contractFixture.dataModels[0]!.id, modelColumnBindings: {
+        [contractFixture.dataModels[0]!.columns[0]!.id]: outputsResponse.content.columns[0],
+        [contractFixture.dataModels[0]!.columns[1]!.id]: outputsResponse.content.columns[0],
+      } }, inputsResponse],
+    }],
   ])('rejects %s bundle contracts', (_label, payload) => {
     expect(() => decodeWorkbookBundle(payload as WorkbookBundleResponse)).toThrowError(
       expect.objectContaining({ code: 'invalid-workbook-read-contract' }),
@@ -196,6 +234,15 @@ describe('workbook API read decoding', () => {
   });
 
   it.each([
+    null, [], 'invalid', { '': inputsResponse.content.columns[0] }, { property: 42 }, { property: '' },
+  ])('rejects invalid property binding shape %j', (modelColumnBindings) => {
+    expect(() => decodeSheetDocument({ ...inputsResponse, modelColumnBindings } as unknown as SheetDocumentResponse))
+      .toThrowError(expect.objectContaining({ code: 'invalid-workbook-read-contract' }));
+  });
+
+  it.each([
+    ['bindings without a model', { ...inputsResponse, modelId: undefined, modelColumnBindings: { property: inputsResponse.content.columns[0] } }],
+    ['unknown bound column', { ...inputsResponse, modelId: contractFixture.dataModels[0].id, modelColumnBindings: { property: 'missing' } }],
     ['duplicate row id', {
       ...inputsResponse,
       content: { ...inputsResponse.content, rows: [inputsResponse.content.rows[0], inputsResponse.content.rows[0]] },
