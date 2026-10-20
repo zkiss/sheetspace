@@ -46,7 +46,7 @@ private fun rowTemplate(sheetId: String, columnId: String): BoundModelFormula = 
 
 class ModelRowBindingPatchTest {
     @Test
-    fun `calculated cells and their template bindings persist together and survive a reload`() {
+    fun `ordinary HTTP patches reject calculated writes carrying claimed template bindings`() {
         SqliteWorkbookStore.inMemory().use { store ->
             val sheetId = "40000000-0000-0000-0000-000000000001"
             store.saveWorkbook(rowWorkbook(sheetId))
@@ -59,26 +59,14 @@ class ModelRowBindingPatchTest {
             testApplication {
                 application { module(DefaultWorkbookApplication(store)) }
                 val response = client.patch("/api/cells") {
-                    jsonBody(testJson.encodeToString(CellPatchRequest(
-                        expectedRevisions = listOf(CellRevisionRequest(sheetId, sheet.revision)),
-                        cells = listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, coordinate.rowId.value))),
-                        modelFormulaBindings = listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
-                    )))
+                    jsonBody(
+                        """{"expectedRevisions":[{"sheetId":"$sheetId","revision":${sheet.revision}}],"cells":[{"sheetId":"$sheetId","rowId":"${coordinate.rowId.value}","columnId":"${coordinate.columnId.value}","raw":"${instantiatedRowFormula(sheet.tabularContent.columns[0].value, coordinate.rowId.value)}"}],"modelFormulaBindings":[{"sheetId":"$sheetId","bindings":{"$ROW_OUTPUT":{}}}]}""",
+                    )
                 }
 
-                assertEquals(HttpStatusCode.OK, response.status)
-                val saved = store.loadSheet(SheetId(sheetId))!!
-                assertEquals(instantiatedRowFormula(sheet.tabularContent.columns[0].value, coordinate.rowId.value), saved.tabularContent.cells.getValue("B1"))
-                assertEquals(mapOf(ROW_OUTPUT to template), saved.modelFormulaBindings)
-                assertEquals(sheet.revision + 1, saved.revision)
-
-                val reloaded = client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>()
-                val reloadedSheet = reloaded.documents.single()
-                assertEquals(mapOf(ROW_OUTPUT to template), reloadedSheet.modelFormulaBindings)
-                assertEquals(
-                    sheet.tabularContent.columns[0].value,
-                    reloadedSheet.modelFormulaBindings!!.getValue(ROW_OUTPUT).references.single().endpoints.single()!!.columnId,
-                )
+                assertEquals(HttpStatusCode.BadRequest, response.status)
+                assertEquals(ErrorResponse("invalid-request"), response.decodeBody())
+                assertNull(store.loadSheet(SheetId(sheetId))!!.modelFormulaBindings)
             }
         }
     }
@@ -101,12 +89,11 @@ class ModelRowBindingPatchTest {
                     jsonBody(testJson.encodeToString(CellPatchRequest(
                         expectedRevisions = listOf(CellRevisionRequest(sheetId, sheet.revision)),
                         cells = listOf(CellWriteRequest(sheetId, coordinate.rowId.value, coordinate.columnId.value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, coordinate.rowId.value))),
-                        modelFormulaBindings = listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to stale))),
                     )))
                 }
 
                 assertEquals(HttpStatusCode.BadRequest, response.status)
-                assertEquals(ErrorResponse("invalid-model-lifecycle"), response.decodeBody())
+                assertEquals(ErrorResponse("calculated-cell-write"), response.decodeBody())
                 assertEquals(baseline, store.loadWorkbookBundle())
             }
         }
@@ -125,11 +112,11 @@ class ModelRowBindingPatchTest {
             val output = sheet.tabularContent.columns[1]
             val formula = instantiatedRowFormula(input.value, row.value)
             val template = rowTemplate(sheetId, input.value)
-            application.writeCells(CellPatchCommand(
+            store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(
                 listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
                 listOf(SheetCellWrite(sheetId, row.value, output.value, formula)),
                 listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
-            ))
+            )) }
             val baseline = store.loadWorkbookBundle()
 
             testApplication {
@@ -156,19 +143,19 @@ class ModelRowBindingPatchTest {
             application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
             val sheet = application.loadSheet(sheetId)
             val template = rowTemplate(sheetId, sheet.tabularContent.columns[0].value)
-            application.writeCells(CellPatchCommand(
+            store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(
                 listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
                 listOf(SheetCellWrite(sheetId, sheet.tabularContent.rows[0].value, sheet.tabularContent.columns[1].value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, sheet.tabularContent.rows[0].value))),
                 listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
-            ))
+            )) }
             val baseline = store.loadWorkbookBundle()
 
             assertFailsWith<SheetRevisionConflict> {
-                application.writeCells(CellPatchCommand(
+                store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(
                     listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
                     emptyList(),
                     listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
-                ))
+                )) }
             }
             assertEquals(baseline, store.loadWorkbookBundle())
         }
@@ -187,16 +174,16 @@ class ModelRowBindingPatchTest {
             val baseline = store.loadWorkbookBundle()
 
             val duplicate = assertFailsWith<WorkbookApplicationException> {
-                application.writeCells(CellPatchCommand(
+                store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(
                     listOf(expected),
                     emptyList(),
                     listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template)), SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
-                ))
+                )) }
             }
             assertEquals(WorkbookApplicationError.INVALID_CELL_PATCH, duplicate.error)
 
             val empty = assertFailsWith<WorkbookApplicationException> {
-                application.writeCells(CellPatchCommand(listOf(expected), emptyList(), emptyList()))
+                store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(listOf(expected), emptyList(), emptyList())) }
             }
             assertEquals(WorkbookApplicationError.EMPTY_CELL_PATCH, empty.error)
 
@@ -219,7 +206,7 @@ class ModelRowBindingPatchTest {
         val input = sheet.tabularContent.columns[0].value
         val output = sheet.tabularContent.columns[1].value
 
-        val updated = applyModelRowPatch(workbook, CellPatchCommand(
+        val updated = applyModelRowPatch(workbook, ModelRowPatchCommand(
             listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
             listOf(SheetCellWrite(sheetId, row, output, instantiatedRowFormula(input, row)), SheetCellWrite(sheetId, row, input, "")),
             listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
@@ -244,7 +231,7 @@ class ModelRowBindingPatchTest {
         val template = rowTemplate(sheetId, sheet.tabularContent.columns[0].value)
         val foreignRow = "40000000-0000-0000-0000-000000000099"
         val foreignColumn = "40000000-0000-0000-0000-000000000098"
-        val command = CellPatchCommand(
+        val command = ModelRowPatchCommand(
             listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
             listOf(SheetCellWrite(sheetId, foreignRow, sheet.tabularContent.columns[0].value, "7")),
             listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
@@ -263,6 +250,34 @@ class ModelRowBindingPatchTest {
         val missingSheet = command.copy(expectedRevisions = listOf(ExpectedSheetRevision("40000000-0000-0000-0000-000000000097", 0)))
         val missing = assertFailsWith<WorkbookApplicationException> { applyModelRowPatch(workbook, missingSheet) }
         assertEquals(WorkbookApplicationError.SHEET_NOT_FOUND, missing.error)
+
+        val calculatedOverride = ModelRowPatchCommand(
+            listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
+            listOf(SheetCellWrite(sheetId, sheet.tabularContent.rows.single().value, sheet.tabularContent.columns[1].value, "=not-derived")),
+            listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
+        )
+        val overrideRejected = assertFailsWith<WorkbookApplicationException> { applyModelRowPatch(workbook, calculatedOverride) }
+        assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE, overrideRejected.error)
+    }
+
+    @Test
+    fun `trusted row materialization requires templates and ignores unbound calculated properties`() {
+        val sheetId = "40000000-0000-0000-0000-000000000010"
+        val source = rowWorkbook(sheetId)
+        val sheet = source.documents.getValue(SheetId(sheetId))
+        val bound = sheet.copy(
+            modelId = ROW_MODEL,
+            modelColumnBindings = mapOf(ROW_INPUT to sheet.tabularContent.columns[0], ROW_OUTPUT to sheet.tabularContent.columns[1]),
+        )
+        val workbook = source.replaceSheet(bound)
+
+        val missingTemplate = assertFailsWith<WorkbookApplicationException> {
+            materializeCalculatedRow(workbook, bound, bound.tabularContent.rows.single())
+        }
+        assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE, missingTemplate.error)
+
+        val manualOnly = bound.copy(modelColumnBindings = mapOf(ROW_INPUT to bound.tabularContent.columns[0]))
+        assertEquals(manualOnly, materializeCalculatedRow(workbook.replaceSheet(manualOnly), manualOnly, manualOnly.tabularContent.rows.single()))
     }
 
     @Test
@@ -277,11 +292,11 @@ class ModelRowBindingPatchTest {
                 application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
                 val sheet = application.loadSheet(sheetId)
                 expected = mapOf(ROW_OUTPUT to rowTemplate(sheetId, sheet.tabularContent.columns[0].value))
-                application.writeCells(CellPatchCommand(
+                store.updateWorkbook { current -> applyModelRowPatch(current, ModelRowPatchCommand(
                     listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
                     listOf(SheetCellWrite(sheetId, sheet.tabularContent.rows[0].value, sheet.tabularContent.columns[1].value, instantiatedRowFormula(sheet.tabularContent.columns[0].value, sheet.tabularContent.rows[0].value))),
                     listOf(SheetFormulaBindingWrite(sheetId, expected)),
-                ))
+                )) }
             }
             SqliteWorkbookStore(database).use { store ->
                 val reloaded = store.loadSheet(SheetId(sheetId))!!

@@ -33,7 +33,7 @@ class ModelLifecycleRoutesTest {
                     val formula = "=@${inputColumn.value}[${row.rowId}]*2"
                     val request = CellPatchRequest(
                         listOf(CellRevisionRequest(id.value, row.revision)),
-                        listOf(CellWriteRequest(id.value, row.rowId, inputColumn.value, "5"), CellWriteRequest(id.value, row.rowId, outputColumn.value, formula)),
+                        listOf(CellWriteRequest(id.value, row.rowId, inputColumn.value, "5")),
                     )
                     assertEquals(HttpStatusCode.OK, client.patch("/api/cells") { jsonBody(Json.encodeToString(request)) }.status)
                     val saved = store.loadWorkbookBundle().documents.getValue(id)

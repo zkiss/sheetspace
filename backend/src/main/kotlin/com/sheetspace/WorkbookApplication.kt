@@ -34,7 +34,6 @@ data class ColumnAppendResult(
 data class CellPatchCommand(
     val expectedRevisions: List<ExpectedSheetRevision>,
     val cells: List<SheetCellWrite>,
-    val modelFormulaBindings: List<SheetFormulaBindingWrite> = emptyList(),
 )
 
 data class UpdateSheetModelCommand(val modelId: String?, val modelColumnBindings: Map<String, ColumnId>? = null)
@@ -210,7 +209,7 @@ class DefaultWorkbookApplication(
     }
 
     override fun writeCells(command: CellPatchCommand): List<SheetDocument> {
-        if (command.cells.isEmpty() && command.modelFormulaBindings.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.EMPTY_CELL_PATCH)
+        if (command.cells.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.EMPTY_CELL_PATCH)
         if (command.cells.any { write ->
                 write.sheetId.toUuidBytesOrNull() == null ||
                     write.rowId.toUuidBytesOrNull() == null ||
@@ -226,10 +225,7 @@ class DefaultWorkbookApplication(
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).distinct().size != command.expectedRevisions.size) {
             throw WorkbookApplicationException(WorkbookApplicationError.DUPLICATE_SHEET_REVISION)
         }
-        if (command.modelFormulaBindings.map { it.sheetId }.distinct().size != command.modelFormulaBindings.size) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        val touchedSheetIds = (command.cells.map(SheetCellWrite::sheetId) + command.modelFormulaBindings.map { it.sheetId }).distinct()
+        val touchedSheetIds = command.cells.map(SheetCellWrite::sheetId).distinct()
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != touchedSheetIds.toSet()) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
@@ -241,39 +237,14 @@ class DefaultWorkbookApplication(
             }
         }
         command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
-        val writesCalculatedContent = command.cells.any { write ->
-            val sheet = sheetsById.getValue(write.sheetId)
-            sheet.modelFormulaBindings?.keys?.any { propertyId ->
-                sheet.modelColumnBindings[propertyId] == ColumnId(write.columnId)
-            } == true
-        }
-        if (command.modelFormulaBindings.isNotEmpty() || writesCalculatedContent) {
-            val current = store.loadWorkbookBundle()
-            if (writesCalculatedContent && command.modelFormulaBindings.isEmpty()) {
-                val calculatedWrites = command.cells.filter { write ->
-                    val sheet = current.documents.getValue(SheetId(write.sheetId))
-                    ColumnId(write.columnId) in calculatedModelColumns(sheet, current.dataModels)
-                }
-                val writesExistingContent = calculatedWrites.any { write ->
-                    val sheet = current.documents.getValue(SheetId(write.sheetId))
-                    CellCoordinate(RowId(write.rowId), ColumnId(write.columnId)) in sheet.tabularContent.cellContents
-                }
-                if (writesExistingContent || calculatedWrites.any { write ->
-                        !isDerivedCalculatedWrite(current, current.documents.getValue(SheetId(write.sheetId)), write)
-                    }
-                ) {
-                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-                }
-            }
-            val updated = store.updateWorkbook { current -> applyModelRowPatch(current, command) }
-            return touchedSheetIds.map { updated.documents.getValue(SheetId(it)) }
-        }
         return store.writeCells(command.expectedRevisions, command.cells)
     }
 
     override fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
-            workbook.replaceSheet(current.updateTabularContent(TabularContent::appendRow))
+            val appended = current.updateTabularContent(TabularContent::appendRow)
+            val provisional = workbook.replaceSheet(appended)
+            provisional.replaceSheet(materializeCalculatedRow(provisional, appended, appended.tabularContent.rows.last()))
         }
         return RowAppendResult(sheet, sheet.tabularContent.rows.last())
     }

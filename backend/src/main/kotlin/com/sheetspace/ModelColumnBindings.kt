@@ -53,7 +53,7 @@ internal fun calculatedContentsAreDerived(
     }
 }
 
-private fun derivedFormulaRaw(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int): String {
+internal fun derivedFormulaRaw(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int): String {
     val edits = buildList {
         template.references.forEach { reference ->
             val sheet = reference.sheetId?.let { workbook.findSheet(SheetId(it)) }
