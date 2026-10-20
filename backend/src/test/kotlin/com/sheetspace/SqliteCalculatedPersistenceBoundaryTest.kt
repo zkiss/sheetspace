@@ -28,10 +28,21 @@ class SqliteCalculatedPersistenceBoundaryTest {
         val sheet = workbook.sheetsInOrder.first()
         val overridden = workbook.replaceSheet(sheet.updateTabularContent { it.updateCell("B1", "=override") })
 
+        val missingTemplates = overridden.replaceSheet(
+            overridden.documents.getValue(sheet.id).copy(modelFormulaBindings = null),
+        )
+        val removedBinding = overridden.replaceSheet(
+            overridden.documents.getValue(sheet.id).copy(
+                modelColumnBindings = mapOf(LIFECYCLE_INPUT to sheet.tabularContent.columns.first()),
+                modelFormulaBindings = emptyMap(),
+            ),
+        )
         val writes: List<() -> Unit> = listOf(
             { store.saveWorkbook(overridden) },
             { store.updateWorkbook { overridden } },
-            { store.updateWorkbook { overridden.replaceSheet(overridden.documents.getValue(sheet.id).copy(modelFormulaBindings = null)) } },
+            { store.saveWorkbook(missingTemplates) },
+            { store.updateWorkbook { missingTemplates } },
+            { store.updateWorkbook { removedBinding } },
         )
         writes.forEach { write ->
             val rejected = assertFailsWith<WorkbookApplicationException> { write() }

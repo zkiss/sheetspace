@@ -233,19 +233,38 @@ class DefaultWorkbookApplication(
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != touchedSheetIds.toSet()) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
+        val sheetsById = command.cells.map(SheetCellWrite::sheetId).distinct().associateWith { sheetId -> loadSheet(sheetId) }
         command.cells.forEach { write ->
-            val sheet = loadSheet(write.sheetId)
+            val sheet = sheetsById.getValue(write.sheetId)
             if (RowId(write.rowId) !in sheet.tabularContent.rows || ColumnId(write.columnId) !in sheet.tabularContent.columns) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_COORDINATE)
             }
         }
         command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
-        val current = if (command.modelFormulaBindings.isEmpty()) store.loadWorkbookBundle() else null
-        val writesCalculatedContent = current?.let { workbook -> command.cells.any { write ->
-            val sheet = workbook.documents.getValue(SheetId(write.sheetId))
-            ColumnId(write.columnId) in calculatedModelColumns(sheet, workbook.dataModels)
-        } } == true
+        val writesCalculatedContent = command.cells.any { write ->
+            val sheet = sheetsById.getValue(write.sheetId)
+            sheet.modelFormulaBindings?.keys?.any { propertyId ->
+                sheet.modelColumnBindings[propertyId] == ColumnId(write.columnId)
+            } == true
+        }
         if (command.modelFormulaBindings.isNotEmpty() || writesCalculatedContent) {
+            val current = store.loadWorkbookBundle()
+            if (writesCalculatedContent && command.modelFormulaBindings.isEmpty()) {
+                val calculatedWrites = command.cells.filter { write ->
+                    val sheet = current.documents.getValue(SheetId(write.sheetId))
+                    ColumnId(write.columnId) in calculatedModelColumns(sheet, current.dataModels)
+                }
+                val writesExistingContent = calculatedWrites.any { write ->
+                    val sheet = current.documents.getValue(SheetId(write.sheetId))
+                    CellCoordinate(RowId(write.rowId), ColumnId(write.columnId)) in sheet.tabularContent.cellContents
+                }
+                if (writesExistingContent || calculatedWrites.any { write ->
+                        !isDerivedCalculatedWrite(current, current.documents.getValue(SheetId(write.sheetId)), write)
+                    }
+                ) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                }
+            }
             val updated = store.updateWorkbook { current -> applyModelRowPatch(current, command) }
             return touchedSheetIds.map { updated.documents.getValue(SheetId(it)) }
         }

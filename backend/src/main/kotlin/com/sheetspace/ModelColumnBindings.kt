@@ -31,11 +31,17 @@ internal fun isDerivedCalculatedWrite(workbook: WorkbookState, sheet: SheetDocum
 internal fun calculatedContentsAreDerived(
     workbook: WorkbookState,
     mayOmit: (SheetDocument, RowId) -> Boolean = { _, _ -> false },
+    requireTemplates: Boolean = false,
 ): Boolean = workbook.documents.values.all { sheet ->
     val model = sheet.modelId?.let(workbook.dataModels::get) ?: return@all true
     val calculated = model.columns.filterIsInstance<CalculatedModelColumn>()
         .filter { it.id in sheet.modelColumnBindings }
-    val templates = sheet.modelFormulaBindings ?: return@all true
+    val templates = sheet.modelFormulaBindings ?: return@all (
+        !requireTemplates || calculated.all { property ->
+            val column = sheet.modelColumnBindings.getValue(property.id)
+            sheet.tabularContent.rows.all { row -> CellCoordinate(row, column) !in sheet.tabularContent.cellContents }
+        }
+    )
     if (templates.keys != calculated.map(ModelColumn::id).toSet()) return@all false
     calculated.all { property ->
         val column = sheet.modelColumnBindings.getValue(property.id)

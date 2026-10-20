@@ -113,6 +113,41 @@ class ModelRowBindingPatchTest {
     }
 
     @Test
+    fun `ordinary HTTP writes cannot resubmit an existing derived calculation`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val sheetId = "40000000-0000-0000-0000-000000000009"
+            store.saveWorkbook(rowWorkbook(sheetId))
+            val application = DefaultWorkbookApplication(store)
+            application.updateSheetModel(sheetId, UpdateSheetModelCommand(ROW_MODEL))
+            val sheet = application.loadSheet(sheetId)
+            val row = sheet.tabularContent.rows.single()
+            val input = sheet.tabularContent.columns[0]
+            val output = sheet.tabularContent.columns[1]
+            val formula = instantiatedRowFormula(input.value, row.value)
+            val template = rowTemplate(sheetId, input.value)
+            application.writeCells(CellPatchCommand(
+                listOf(ExpectedSheetRevision(sheetId, sheet.revision)),
+                listOf(SheetCellWrite(sheetId, row.value, output.value, formula)),
+                listOf(SheetFormulaBindingWrite(sheetId, mapOf(ROW_OUTPUT to template))),
+            ))
+            val baseline = store.loadWorkbookBundle()
+
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+                val response = client.patch("/api/cells") {
+                    jsonBody(testJson.encodeToString(CellPatchRequest(
+                        expectedRevisions = listOf(CellRevisionRequest(sheetId, baseline.documents.getValue(SheetId(sheetId)).revision)),
+                        cells = listOf(CellWriteRequest(sheetId, row.value, output.value, formula)),
+                    )))
+                }
+
+                assertEquals(HttpStatusCode.BadRequest, response.status)
+                assertEquals(baseline, store.loadWorkbookBundle())
+            }
+        }
+    }
+
+    @Test
     fun `a stale revision conflicts and leaves the durable bindings untouched`() {
         SqliteWorkbookStore.inMemory().use { store ->
             val sheetId = "40000000-0000-0000-0000-000000000003"

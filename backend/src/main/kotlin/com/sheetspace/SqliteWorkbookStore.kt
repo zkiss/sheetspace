@@ -44,7 +44,7 @@ class SqliteWorkbookStore internal constructor(
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
         validateModelMetadata(workbook)
-        rejectInvalidCalculatedContents(workbook)
+        rejectInvalidCalculatedContents(workbook, requireTemplates = true)
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
@@ -167,8 +167,23 @@ class SqliteWorkbookStore internal constructor(
 private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) {
     current.documents.forEach { (id, before) ->
         val sheet = updated.documents[id] ?: return@forEach
-        if (before.modelId == sheet.modelId && before.modelFormulaBindings != null && sheet.modelFormulaBindings == null) {
-            throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+        if (before.modelId == sheet.modelId) {
+            val beforeModel = before.modelId?.let(current.dataModels::get)
+            val updatedModel = sheet.modelId?.let(updated.dataModels::get)
+            beforeModel?.columns?.filterIsInstance<CalculatedModelColumn>()?.forEach { property ->
+                val column = before.modelColumnBindings[property.id] ?: return@forEach
+                val stillCalculated = updatedModel?.columns
+                    ?.filterIsInstance<CalculatedModelColumn>()
+                    ?.any { it.id == property.id } == true
+                if (stillCalculated && sheet.modelColumnBindings[property.id] != column) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                }
+                if (stillCalculated && before.modelFormulaBindings?.containsKey(property.id) == true &&
+                    sheet.modelFormulaBindings?.containsKey(property.id) != true
+                ) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                }
+            }
         }
         calculatedModelColumns(before, current.dataModels).forEach { column ->
             sheet.tabularContent.rows.forEach { row ->
@@ -179,16 +194,18 @@ private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookS
             }
         }
     }
-    rejectInvalidCalculatedContents(updated) { sheet, row ->
-        row !in current.documents[sheet.id]?.tabularContent?.rows.orEmpty()
-    }
+    rejectInvalidCalculatedContents(
+        updated,
+        mayOmit = { sheet, row -> row !in current.documents[sheet.id]?.tabularContent?.rows.orEmpty() },
+    )
 }
 
 private fun rejectInvalidCalculatedContents(
     workbook: WorkbookState,
     mayOmit: (SheetDocument, RowId) -> Boolean = { _, _ -> false },
+    requireTemplates: Boolean = false,
 ) {
-    if (!calculatedContentsAreDerived(workbook, mayOmit)) {
+    if (!calculatedContentsAreDerived(workbook, mayOmit, requireTemplates)) {
         throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
     }
 }
