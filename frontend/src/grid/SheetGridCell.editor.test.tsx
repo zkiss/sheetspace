@@ -63,6 +63,26 @@ describe('portal cell editor', () => {
     expect(document.querySelectorAll('[data-formula-token-kind="operator"]')).toHaveLength(1);
   });
 
+  it('keeps the syntax overlay aligned with every textarea draft and scroll position', () => {
+    const longDraft = `=SUM(@A[1],\t${'value '.repeat(40)})\n${Array.from({ length: 12 }, (_, index) => `row ${index}`).join('\n')}`;
+    const { editor, updateDraft } = setup(longDraft);
+    const highlight = document.querySelector('.sheet-grid-cell-editor-highlight') as HTMLPreElement;
+
+    expect(highlight.textContent).toBe(longDraft);
+    editor.scrollTop = 48;
+    editor.scrollLeft = 32;
+    fireEvent.scroll(editor);
+    expect(highlight.scrollTop).toBe(48);
+    expect(highlight.scrollLeft).toBe(32);
+
+    for (const draft of ['', 'x', 'first\nsecond\n', '\tindented', 'single-line']) {
+      updateDraft(draft);
+      expect(highlight.textContent).toBe(draft);
+      expect(highlight.scrollTop).toBe(editor.scrollTop);
+      expect(highlight.scrollLeft).toBe(editor.scrollLeft);
+    }
+  });
+
   it('inserts a newline at the selected caret only for Shift+Enter', () => {
     const { editor, interaction } = setup('first second');
     editor.setSelectionRange(5, 6);

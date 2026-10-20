@@ -148,10 +148,15 @@
   background: transparent;
   box-shadow: 0 0.4rem 1rem rgb(23 32 42 / 18%);
   font: inherit;
+  font-size: inherit;
   line-height: 1.2;
+  letter-spacing: normal;
   outline: none;
   resize: none;
+  tab-size: 8;
   user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .sheet-grid-cell-editor-highlight {
@@ -163,13 +168,16 @@
   border: 1px solid #2f747e;
   padding: 0.2rem 0.35rem;
   pointer-events: none;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   color: #17202a;
   background: #ffffff;
   box-shadow: 0 0.4rem 1rem rgb(23 32 42 / 18%);
   font: inherit;
+  font-size: inherit;
   line-height: 1.2;
+  letter-spacing: normal;
+  tab-size: 8;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .formula-syntax-token-function { color: #6f42c1; }

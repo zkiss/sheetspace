@@ -94,6 +94,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
       interaction.commit({ ...editingCell, draft: event.currentTarget.value });
     }}
     onChange={(event) => interaction.updateValue(event.target.value)}
+    onScroll={(event) => syncHighlightScroll(event.currentTarget, highlightRef.current)}
     onClick={(event) => event.stopPropagation()}
     onDoubleClick={(event) => event.stopPropagation()}
     onKeyDown={(event) => {
@@ -145,7 +146,14 @@ function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect, highlight: HTML
     highlight.style.height = editor.style.height;
     highlight.style.maxWidth = editor.style.maxWidth;
     highlight.style.overflow = editor.style.overflow;
+    syncHighlightScroll(editor, highlight);
   }
+}
+
+function syncHighlightScroll(editor: HTMLTextAreaElement, highlight: HTMLPreElement | null) {
+  if (!highlight) return;
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
 }
 
 function sameRect(left: DOMRect | null, right: DOMRect) {
