@@ -51,6 +51,44 @@ class SqliteCalculatedPersistenceBoundaryTest {
         }
     }
 
+    @Test
+    fun `lifecycle binding rejects omitted calculated templates atomically`() = withSqliteStore { store ->
+        val before = lifecycleWorkbook()
+        store.saveWorkbook(before)
+        val bound = lifecycleBoundWorkbook(before)
+        val after = bound.copy(documents = bound.documents.mapValues { (_, sheet) ->
+            sheet.copy(
+                modelFormulaBindings = null,
+                content = sheet.tabularContent.updateCell("B1", "=override"),
+            )
+        })
+
+        val rejected = assertFailsWith<WorkbookApplicationException> {
+            DefaultWorkbookApplication(store).saveModelLifecycle(before, after)
+        }
+
+        assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE, rejected.error)
+        assertEquals(before, store.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `empty bound workbook requires calculated templates`() = withSqliteStore { store ->
+        val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val emptyWithoutTemplates = bound.copy(documents = bound.documents.mapValues { (_, sheet) ->
+            sheet.copy(
+                content = TabularContent(emptyList(), sheet.tabularContent.columns, emptyMap()),
+                modelFormulaBindings = null,
+            )
+        })
+
+        val rejected = assertFailsWith<WorkbookApplicationException> {
+            store.saveWorkbook(emptyWithoutTemplates)
+        }
+
+        assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE, rejected.error)
+        assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
+    }
+
     private fun derivedLifecycleWorkbook(): WorkbookState {
         val base = lifecycleBoundWorkbook(lifecycleWorkbook())
         return base.copy(documents = base.documents.mapValues { (_, sheet) ->

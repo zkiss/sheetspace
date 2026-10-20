@@ -44,7 +44,7 @@ class SqliteWorkbookStore internal constructor(
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
         validateModelMetadata(workbook)
-        rejectInvalidCalculatedContents(workbook, requireTemplates = true)
+        rejectInvalidCalculatedContents(workbook)
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = SqliteWorkbookReader(conn)
@@ -203,9 +203,8 @@ private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookS
 private fun rejectInvalidCalculatedContents(
     workbook: WorkbookState,
     mayOmit: (SheetDocument, RowId) -> Boolean = { _, _ -> false },
-    requireTemplates: Boolean = false,
 ) {
-    if (!calculatedContentsAreDerived(workbook, mayOmit, requireTemplates)) {
+    if (!calculatedContentsAreDerived(workbook, mayOmit)) {
         throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
     }
 }
