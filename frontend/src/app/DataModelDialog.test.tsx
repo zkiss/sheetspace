@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { DataModel } from '@workbook/core/model';
+import type { DataModel, Workbook } from '@workbook/core/model';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { DataModelDialog } from './DataModelDialog';
 import { App } from './App';
@@ -83,28 +83,49 @@ describe('DataModelDialog', () => {
   });
 
   it('freezes a submitting draft until failure permits an intentional retry or cancellation', async () => {
-    const pending = deferred<{ ok: false; reason: 'persistence-failed' }>();
-    const { onCancel, onSave } = setup([], vi.fn().mockReturnValue(pending.promise));
+    const failedSave = deferred<{ ok: false; reason: 'persistence-failed' }>();
+    const successfulSave = deferred<{ ok: true; value: object }>();
+    const { onCancel, onSave } = setup([], vi.fn()
+      .mockReturnValueOnce(failedSave.promise)
+      .mockReturnValueOnce(successfulSave.promise));
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Create model' }));
     const form = screen.getByRole('form', { name: 'Create data model' });
     await user.type(within(form).getByLabelText('Model name'), 'Frozen');
     await user.type(within(form).getByLabelText('Property 1 name'), 'Input');
+    await user.click(within(form).getByRole('button', { name: 'Add property' }));
+    await user.type(within(form).getByLabelText('Property 2 name'), 'Later input');
     await user.click(within(form).getByRole('button', { name: 'Save' }));
 
     expect(within(form).getByLabelText('Model name')).toBeDisabled();
     expect(within(form).getByRole('button', { name: 'Add property' })).toBeDisabled();
     expect(within(form).getByRole('button', { name: 'Remove property 1' })).toBeDisabled();
-    fireEvent.keyDown(within(form).getByLabelText('Model name'), { key: 'Escape' });
-    fireEvent.submit(form);
+    expect(within(form).getByRole('button', { name: 'Move property 1 down' })).toBeDisabled();
+    await user.keyboard('{Escape}{Escape}');
+    await user.type(within(form).getByLabelText('Model name'), ' changed');
+    await user.click(within(form).getByRole('button', { name: 'Add property' }));
+    await user.click(within(form).getByRole('button', { name: 'Remove property 1' }));
+    await user.click(within(form).getByRole('button', { name: 'Move property 1 down' }));
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
     expect(onCancel).not.toHaveBeenCalled();
     expect(onSave).toHaveBeenCalledOnce();
+    expect(within(form).getByLabelText('Model name')).toHaveValue('Frozen');
+    expect(within(form).getByLabelText('Property 1 name')).toHaveValue('Input');
+    expect(within(form).getByLabelText('Property 2 name')).toHaveValue('Later input');
 
-    await pending.resolve({ ok: false, reason: 'persistence-failed' });
+    await failedSave.resolve({ ok: false, reason: 'persistence-failed' });
     await waitFor(() => expect(within(form).getByRole('button', { name: 'Save' })).toBeEnabled());
     expect(within(form).getByLabelText('Model name')).toHaveValue('Frozen');
     await user.click(within(form).getByRole('button', { name: 'Cancel' }));
     expect(screen.getByRole('button', { name: 'Create model' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Create model' }));
+    const successfulForm = screen.getByRole('form', { name: 'Create data model' });
+    await user.type(within(successfulForm).getByLabelText('Model name'), 'Saved');
+    await user.type(within(successfulForm).getByLabelText('Property 1 name'), 'Input');
+    await user.click(within(successfulForm).getByRole('button', { name: 'Save' }));
+    await successfulSave.resolve({ ok: true, value: {} });
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Create data model' })).not.toBeInTheDocument());
   });
 
   it('keeps Tab and Shift+Tab in the pending dialog when mutation controls are disabled', async () => {
@@ -129,6 +150,24 @@ describe('DataModelDialog', () => {
     expect(onBackgroundActivate).not.toHaveBeenCalled();
 
     await pending.resolve({ ok: false, reason: 'persistence-failed' });
+  });
+
+  it('closes the App modal after a deferred model submission succeeds', async () => {
+    const persisted = deferred<Workbook>();
+    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockImplementation(() => persisted.promise) });
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })])} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Data models' }));
+    await user.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    await user.type(within(form).getByLabelText('Model name'), 'Deferred success');
+    await user.type(within(form).getByLabelText('Property 1 name'), 'Input');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+
+    await persisted.resolve(vi.mocked(apiClient.saveModelLifecycle).mock.calls[0]![1]);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Data models' })).not.toBeInTheDocument());
   });
 
   it('shows immediate validation and command failures without discarding the draft', async () => {
@@ -226,11 +265,16 @@ describe('DataModelDialog', () => {
   });
 
   it('keeps focus in the dialog after removing focused properties, including the last one', async () => {
-    const workbook = { ...workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })]), dataModels: { invoice: savedModel } };
-    render(<App initialWorkbook={workbook} />);
-    const newSheet = screen.getByRole('button', { name: 'New sheet' });
+    const onNewSheet = vi.fn();
+    const onDataModels = vi.fn();
+    render(<>
+      <button onClick={onNewSheet} type="button">New sheet</button>
+      <button onClick={onDataModels} type="button">Data models</button>
+      <DataModelDialog models={[savedModel]} onCancel={vi.fn()} onSave={vi.fn().mockReturnValue({ ok: false, reason: 'invalid-model' })} />
+    </>);
+    const backgroundNewSheet = screen.getByRole('button', { name: 'New sheet' });
+    const backgroundDataModels = screen.getByRole('button', { name: 'Data models' });
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Data models' }));
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     const dialog = screen.getByRole('dialog', { name: 'Data models' });
 
@@ -238,14 +282,21 @@ describe('DataModelDialog', () => {
     await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
     await user.keyboard('{Shift>}{Tab}{/Shift}{Tab}');
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(backgroundNewSheet).not.toHaveFocus();
+    expect(backgroundDataModels).not.toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onNewSheet).not.toHaveBeenCalled();
+    expect(onDataModels).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Remove property 1' }));
     await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
     await user.keyboard('{Tab}');
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
-    expect(newSheet).not.toHaveFocus();
+    expect(backgroundNewSheet).not.toHaveFocus();
+    expect(backgroundDataModels).not.toHaveFocus();
     await user.keyboard('{Enter}');
-    expect(screen.queryByRole('form', { name: 'Create sheet' })).not.toBeInTheDocument();
+    expect(onNewSheet).not.toHaveBeenCalled();
+    expect(onDataModels).not.toHaveBeenCalled();
   });
 
   it('uses the controlled raw formula input in both model and cell editors', () => {
