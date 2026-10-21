@@ -367,7 +367,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           const tabular = tabularProjection(sheet);
           const { calculatedColumnIds, columnLabels } = modelColumnPresentation(sheet, workbook.dataModels);
           const creatingSheetAxes = creatingAxes[sheet.id];
-          const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
+          // The grid overlay and the rich panel are mutually exclusive editing
+          // surfaces. The panel owns the current session while it is open; its
+          // fresh session generation also rejects the overlay's unmount snapshot.
+          const sheetEditingCell = !formulaPanelOpen && editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
             ? selectionAddressRange(sheet, selectionRange)
             : referenceSelection?.kind === 'range'
