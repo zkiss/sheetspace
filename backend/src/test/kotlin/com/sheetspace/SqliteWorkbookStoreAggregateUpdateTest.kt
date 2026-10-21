@@ -23,6 +23,20 @@ class SqliteWorkbookStoreAggregateUpdateTest {
     }
 
     @Test
+    fun `aggregate updates persist a cleared cell`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs", tabular = TabularContent(cells = mapOf("A1" to "existing")))
+        store.saveWorkbook(testWorkbookOf(sheet))
+
+        store.updateWorkbook { workbook ->
+            workbook.replaceSheet(
+                workbook.documents.getValue(sheet.id).updateTabularContent { content -> content.updateCell("A1", "") },
+            )
+        }
+
+        assertNull(store.loadSheet(sheet.id)!!.tabularContent.cells["A1"])
+    }
+
+    @Test
     fun `aggregate writes reject obsolete snapshots without overwriting newer cells`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Inputs")
         store.saveWorkbook(testWorkbookOf(sheet))

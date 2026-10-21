@@ -29,6 +29,17 @@ class SqliteWorkbookStoreCellWriteTest {
         }
 
     @Test
+    fun `a cell write to a missing sheet is rejected without persisting`() = withSqliteStore { store ->
+        val sheet = testDocument(TEST_SHEET_1, "Inputs")
+        store.saveWorkbook(testWorkbookOf(sheet))
+        val write = SheetCellWrite(TEST_SHEET_2, sheet.tabularContent.rows.first().value, sheet.tabularContent.columns.first().value, "value")
+
+        assertRejectedWithoutPersisting<NoSuchElementException>(store) {
+            store.writeCells(listOf(ExpectedSheetRevision(TEST_SHEET_2, 0)), listOf(write))
+        }
+    }
+
+    @Test
     fun `canonical formula content survives sqlite round trip byte for byte`() = withSqliteStore { store ->
         val sheet = testDocument(TEST_SHEET_1, "Outputs")
         val canonical =

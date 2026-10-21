@@ -2,6 +2,7 @@ package com.sheetspace
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -18,39 +19,64 @@ class CalculatedWritePolicyTest {
     private val sheetId = "10000000-0000-0000-0000-000000000004"
 
     @Test
-    fun `derived write policy accepts only current calculated template instances`() {
+    fun `calculated ownership follows the current declaration and the persisted derived instance`() {
         val base = workbook()
         val sheet = base.documents.getValue(SheetId(sheetId))
-        val row = sheet.tabularContent.rows.single().value
-        val output = sheet.tabularContent.columns[1].value
+        val row = sheet.tabularContent.rows.single()
+        val output = sheet.modelColumnBindings.getValue(outputId)
 
-        assertTrue(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, output, "=@${sheet.tabularContent.columns[0].value}[$row]*2")))
-        assertTrue(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, output, "=@${sheet.tabularContent.columns[0].value}[$row]*2")))
-        assertFalse(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, output, "=0")))
-        assertFalse(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, "10000000-0000-0000-0000-000000000099", output, "=@A[1]*2")))
-        assertFalse(isDerivedCalculatedWrite(base, sheet.copy(modelFormulaBindings = null), SheetCellWrite(sheetId, row, output, "=@A[1]*2")))
-        assertFalse(isDerivedCalculatedWrite(base.copy(dataModels = emptyMap()), sheet, SheetCellWrite(sheetId, row, output, "=@A[1]*2")))
-        assertFalse(isDerivedCalculatedWrite(base, sheet, SheetCellWrite(sheetId, row, sheet.tabularContent.columns[0].value, "=@A[1]*2")))
-        assertFalse(isDerivedCalculatedWrite(base, sheet.copy(modelId = null), SheetCellWrite(sheetId, row, output, "=@A[1]*2")))
-        assertFalse(isDerivedCalculatedWrite(base.copy(dataModels = base.dataModels.mapValues { (_, model) ->
+        assertEquals(setOf(output), calculatedModelColumns(sheet, base.dataModels))
+        assertEquals(
+            "=@${sheet.tabularContent.columns[0].value}[${row.value}]*2",
+            sheet.tabularContent.cellContents.getValue(CellCoordinate(row, output)),
+        )
+        assertTrue(calculatedContentsAreDerived(base))
+
+        val stale = base.replaceSheet(sheet.updateTabularContent { it.updateCell("B1", "=0") })
+        assertFalse(calculatedContentsAreDerived(stale))
+
+        val changedDeclaration = base.copy(dataModels = base.dataModels.mapValues { (_, model) ->
             model.copy(columns = listOf(model.columns[0], (model.columns[1] as CalculatedModelColumn).copy(formula = "=3")))
-        }), sheet, SheetCellWrite(sheetId, row, output, "=@A[1]*2")))
-        assertTrue(calculatedModelColumns(sheet, base.dataModels).contains(ColumnId(output)))
-        assertTrue(calculatedModelColumns(sheet.copy(modelId = null), base.dataModels).isEmpty())
-        val anchored = sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
-            template.copy(references = template.references.map { reference -> reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(anchors = ModelFormulaAnchors(true, true)) }) })
         })
-        val anchoredWorkbook = base.replaceSheet(anchored)
-        assertTrue(isDerivedCalculatedWrite(anchoredWorkbook, anchored, SheetCellWrite(sheetId, row, output, "=@\$${sheet.tabularContent.columns[0].value}[\$${row}]*2")))
-        val missingTarget = sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
-            template.copy(references = template.references.map { reference -> reference.copy(endpoints = listOf(null)) })
-        })
-        assertTrue(isDerivedCalculatedWrite(base.replaceSheet(missingTarget), missingTarget, SheetCellWrite(sheetId, row, output, "=@#REF!A[1]*2")))
-        val outOfRange = sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
-            template.copy(references = template.references.map { reference -> reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(rowIndex = 9.0) }) })
-        })
-        assertTrue(isDerivedCalculatedWrite(base.replaceSheet(outOfRange), outOfRange, SheetCellWrite(sheetId, row, output, "=@#REF!A[1]*2")))
-        assertTrue(calculatedModelColumns(sheet.copy(modelColumnBindings = emptyMap()), base.dataModels).isEmpty())
+        assertFalse(calculatedContentsAreDerived(changedDeclaration))
+
+        val missingTemplates = base.replaceSheet(sheet.copy(modelFormulaBindings = null))
+        assertFalse(calculatedContentsAreDerived(missingTemplates))
+
+        val incompleteTemplates = base.replaceSheet(sheet.copy(modelFormulaBindings = emptyMap()))
+        assertFalse(calculatedContentsAreDerived(incompleteTemplates))
+
+        val unbound = sheet.copy(modelId = null, modelColumnBindings = emptyMap(), modelFormulaBindings = null)
+        assertTrue(calculatedModelColumns(unbound, base.dataModels).isEmpty())
+        assertTrue(calculatedContentsAreDerived(base.replaceSheet(unbound)))
+
+        val unboundColumns = sheet.copy(modelColumnBindings = emptyMap())
+        assertTrue(calculatedModelColumns(unboundColumns, base.dataModels).isEmpty())
+    }
+
+    @Test
+    fun `an appended row is materialized from the persisted template and requires one`() {
+        val base = workbook()
+        val sheet = base.documents.getValue(SheetId(sheetId))
+        val appended = sheet.updateTabularContent { it.appendRow() }
+        val appendedRow = appended.tabularContent.rows.last()
+
+        val materialized = materializeCalculatedRow(base.replaceSheet(appended), appended, appendedRow)
+
+        assertEquals(
+            "=@${appended.tabularContent.columns[0].value}[${appendedRow.value}]*2",
+            materialized.tabularContent.cellContents.getValue(CellCoordinate(appendedRow, appended.modelColumnBindings.getValue(outputId))),
+        )
+        assertTrue(calculatedContentsAreDerived(base.replaceSheet(materialized)))
+
+        val withoutTemplate = base.replaceSheet(appended.copy(modelFormulaBindings = null))
+        val rejected = assertFailsWith<WorkbookApplicationException> {
+            materializeCalculatedRow(withoutTemplate, withoutTemplate.documents.getValue(SheetId(sheetId)), appendedRow)
+        }
+        assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE, rejected.error)
+
+        val manualOnly = appended.copy(modelColumnBindings = mapOf(inputId to appended.tabularContent.columns[0]))
+        assertEquals(manualOnly, materializeCalculatedRow(base.replaceSheet(manualOnly), manualOnly, appendedRow))
     }
 
     @Test
@@ -74,6 +100,18 @@ class CalculatedWritePolicyTest {
             derivedFormulaRaw(
                 template.copy(references = template.references.map { reference ->
                     reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = null) })
+                }),
+                workbook,
+                0,
+            ),
+        )
+        assertEquals(
+            "=@\$c[\$r]",
+            derivedFormulaRaw(
+                template.copy(references = template.references.map { reference ->
+                    reference.copy(endpoints = reference.endpoints.map { endpoint ->
+                        endpoint!!.copy(propertyId = null, anchors = ModelFormulaAnchors(true, true))
+                    })
                 }),
                 workbook,
                 0,
@@ -132,7 +170,10 @@ class CalculatedWritePolicyTest {
                 listOf(ModelFormulaReference(ModelFormulaSpan(1, 6), sheetId, endpoints = listOf(ModelFormulaEndpoint(ModelFormulaSpan(2, 6), content.columns[0].value, 0.0, ModelFormulaAnchors(false, false))))),
             )),
         )
-        return emptyWorkbookState().addSheet(sheet).copy(dataModels = mapOf(modelId to DataModel(
+        val derived = sheet.updateTabularContent {
+            it.updateCell("B1", "=@${content.columns[0].value}[${content.rows[0].value}]*2")
+        }
+        return emptyWorkbookState().addSheet(derived).copy(dataModels = mapOf(modelId to DataModel(
             modelId,
             "Policy",
             listOf(ManualModelColumn(inputId, "Input", ModelColumnType.FLOAT), CalculatedModelColumn(outputId, "Output", ModelColumnType.FLOAT, "=@A[1]*2")),

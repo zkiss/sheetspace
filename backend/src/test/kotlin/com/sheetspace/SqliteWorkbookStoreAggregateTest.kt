@@ -43,6 +43,29 @@ class SqliteWorkbookStoreAggregateTest {
     }
 
     @Test
+    fun `ordinary cell writes decode only the written sheet`() {
+        val readEvents = mutableListOf<SheetReadEvent>()
+        SqliteWorkbookStore.inMemory(readEvents::add).use { store ->
+            val documents = mediumDocuments(6)
+            store.saveWorkbook(testWorkbookOf(*documents.toTypedArray()))
+            val target = documents[3]
+
+            readEvents.clear()
+            store.writeCells(
+                listOf(ExpectedSheetRevision(target.id.value, target.revision)),
+                listOf(target.cellWrite("A1", "42")),
+            )
+
+            val eventsPerSheet = 1 + DEFAULT_ROW_COUNT + DEFAULT_COLUMN_COUNT +
+                DEFAULT_ROW_COUNT * DEFAULT_COLUMN_COUNT
+            assertTrue(readEvents.isNotEmpty())
+            assertTrue(readEvents.all { it.requestedSheetId == target.id })
+            assertTrue(readEvents.all { it.returnedSheetId == target.id })
+            assertTrue(readEvents.size <= 2 * eventsPerSheet)
+        }
+    }
+
+    @Test
     fun `medium bundle decodes populated sheet data once in linear work`() {
         val readEvents = mutableListOf<SheetReadEvent>()
         SqliteWorkbookStore.inMemory(readEvents::add).use { store ->

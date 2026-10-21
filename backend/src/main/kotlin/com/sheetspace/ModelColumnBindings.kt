@@ -17,17 +17,6 @@ internal fun calculatedModelColumns(sheet: SheetDocument, models: Map<String, Da
         .toSet()
 }
 
-internal fun isDerivedCalculatedWrite(workbook: WorkbookState, sheet: SheetDocument, write: SheetCellWrite): Boolean {
-    val model = sheet.modelId?.let(workbook.dataModels::get) ?: return false
-    val column = ColumnId(write.columnId)
-    val property = model.columns.filterIsInstance<CalculatedModelColumn>()
-        .firstOrNull { sheet.modelColumnBindings[it.id] == column } ?: return false
-    val template = sheet.modelFormulaBindings?.get(property.id) ?: return false
-    val rowIndex = sheet.tabularContent.rows.indexOf(RowId(write.rowId))
-    return rowIndex >= 0 && template.raw == property.formula &&
-        write.raw == derivedFormulaRaw(template, workbook, rowIndex)
-}
-
 internal fun calculatedContentsAreDerived(
     workbook: WorkbookState,
     mayOmit: (SheetDocument, RowId) -> Boolean = { _, _ -> false },

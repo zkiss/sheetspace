@@ -190,14 +190,15 @@ class ModelLifecycleTest {
         val input = sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT)
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         val expected = "=@${input.value}[${sheet.tabularContent.rows[1].value}]*2"
-        val derivedWrite = SheetCellWrite(sheet.id.value, sheet.tabularContent.rows[1].value, output.value, expected)
 
         assertEquals(expected, derivedFormulaRaw(template, bound, 1))
-        assertEquals(true, isDerivedCalculatedWrite(bound, sheet, derivedWrite))
-        assertEquals(false, isDerivedCalculatedWrite(bound, sheet, derivedWrite.copy(raw = "=stale")))
-        assertEquals(false, isDerivedCalculatedWrite(bound, sheet, derivedWrite.copy(columnId = input.value)))
-        assertEquals(false, isDerivedCalculatedWrite(bound, sheet.copy(modelFormulaBindings = null), derivedWrite))
-        assertEquals(false, isDerivedCalculatedWrite(bound, sheet.copy(modelId = null), derivedWrite))
+        assertEquals(true, calculatedContentsAreDerived(bound))
+        val staleContent = bound.replaceSheet(
+            sheet.updateTabularContent { content ->
+                content.updateCell(content.addressOf(CellCoordinate(sheet.tabularContent.rows[1], output))!!, "=stale")
+            },
+        )
+        assertEquals(false, calculatedContentsAreDerived(staleContent))
         val extraCalculatedProperty = "31000000-0000-0000-0000-000000000098"
         val modelWithLeadingCalculatedProperty = bound.dataModels.getValue(LIFECYCLE_MODEL).copy(
             columns = listOf(CalculatedModelColumn(extraCalculatedProperty, "Earlier", ModelColumnType.FLOAT, "=1")) + bound.dataModels.getValue(LIFECYCLE_MODEL).columns,
@@ -205,7 +206,7 @@ class ModelLifecycleTest {
         val workbookWithLeadingCalculatedProperty = bound.copy(dataModels = bound.dataModels + (LIFECYCLE_MODEL to modelWithLeadingCalculatedProperty)).replaceSheet(
             sheet.copy(modelColumnBindings = sheet.modelColumnBindings + (extraCalculatedProperty to input)),
         )
-        assertEquals(true, isDerivedCalculatedWrite(workbookWithLeadingCalculatedProperty, workbookWithLeadingCalculatedProperty.documents.getValue(sheet.id), derivedWrite))
+        assertEquals(expected, derivedFormulaRaw(template, workbookWithLeadingCalculatedProperty, 1))
         assertEquals(
             "=@${namedCanonicalEndpoint(LIFECYCLE_INPUT, input.value, sheet.tabularContent.rows[1].value)}*2",
             derivedFormulaRaw(
