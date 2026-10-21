@@ -7,6 +7,7 @@ import {
   EMPTY_CELL_INTERACTION_STATE,
   sameTarget,
 } from '@grid/cellInteraction';
+import { formulaDraftKey } from './formulaDrafts';
 import { sheetDocument } from '@test-support/workbookFactories';
 
 const a1: CellTarget = {
@@ -234,11 +235,11 @@ describe('cell interaction lifecycle boundaries', () => {
     });
 
     expect(restored.editing).toEqual({ target: a1, draft: 'first', selection: { start: 1, end: 4 }, scrollTop: 12 });
-    expect(restored.drafts[`${otherSheetA1.sheetId}:${otherSheetA1.cell.rowId}:${otherSheetA1.cell.columnId}`]?.draft).toBe('second');
+    expect(restored.drafts[formulaDraftKey(otherSheetA1)]?.draft).toBe('second');
 
     const committed = cellInteractionReducer(restored, { type: 'commit' });
-    expect(committed.drafts[`${a1.sheetId}:${a1.cell.rowId}:${a1.cell.columnId}`]).toBeUndefined();
-    expect(committed.drafts[`${otherSheetA1.sheetId}:${otherSheetA1.cell.rowId}:${otherSheetA1.cell.columnId}`]?.draft).toBe('second');
+    expect(committed.drafts[formulaDraftKey(a1)]).toBeUndefined();
+    expect(committed.drafts[formulaDraftKey(otherSheetA1)]?.draft).toBe('second');
   });
 
   it('replaces a suspended draft when direct typing starts a new edit', () => {
@@ -256,7 +257,7 @@ describe('cell interaction lifecycle boundaries', () => {
     });
 
     expect(typed.editing).toEqual({ target: a1, draft: 'x' });
-    expect(typed.drafts[`${a1.sheetId}:${a1.cell.rowId}:${a1.cell.columnId}`]).toEqual({ target: a1, draft: 'x' });
+    expect(typed.drafts[formulaDraftKey(a1)]).toEqual({ target: a1, draft: 'x' });
   });
 
   it('prunes drafts for removed or protected targets without writing another target', () => {
