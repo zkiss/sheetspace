@@ -5,5 +5,5 @@ export const RawFormulaInput = forwardRef<HTMLTextAreaElement, Omit<TextareaHTML
   value: string;
   onValueChange: (value: string) => void;
 }>(({ value, onValueChange, ...props }, ref) =>
-  <textarea {...props} onChange={(event) => onValueChange(event.target.value)} ref={ref} value={value} />,
+  <textarea {...props} data-raw-formula-input="true" onChange={(event) => onValueChange(event.target.value)} ref={ref} value={value} />,
 );

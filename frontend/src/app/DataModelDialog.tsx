@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { DataModel, ModelColumn, ModelColumnType } from '@workbook/core/model';
 import type { ModelCommandResult } from '@application/react/useWorkbookController';
 import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
@@ -26,6 +26,7 @@ export function DataModelDialog({ models, onCancel, onSave }: {
   onCancel: () => void;
   onSave: (model: DataModel, isNew: boolean) => ModelCommandResult | Promise<ModelCommandResult>;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
@@ -51,14 +52,27 @@ export function DataModelDialog({ models, onCancel, onSave }: {
     if (!result.ok) { setError(message(result)); return; }
     setDraft(null); setError('');
   }
+  function containFocus(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (draft) setDraft(null); else close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    ) ?? [])];
+    if (focusable.length === 0) return;
+    const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+    const nextIndex = event.shiftKey
+      ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+      : (currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+    event.preventDefault();
+    focusable[nextIndex]!.focus();
+  }
   return <div className="dialog-backdrop" role="presentation">
-    <section aria-label="Data models" aria-modal="true" className="data-model-dialog" onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        if (draft) setDraft(null); else close();
-      }
-    }} role="dialog">
+    <section aria-label="Data models" aria-modal="true" className="data-model-dialog" onKeyDown={containFocus} ref={dialogRef} role="dialog">
       {!draft ? <>
         <div className="data-model-header"><h2>Data models</h2><button autoFocus onClick={openCreate} type="button">Create model</button></div>
         {models.length === 0 ? <p>No data models yet. Create one to define reusable sheet properties.</p> : <ul className="data-model-list">

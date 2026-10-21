@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
-import { deferred } from '@test-support/apiClients';
+import { autosaveClient, deferred } from '@test-support/apiClients';
 import { DataModelDialog } from './DataModelDialog';
 import { App } from './App';
+import { SheetGridCellEditor } from '@grid/SheetGridCellEditor';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 const savedModel: DataModel = {
@@ -80,6 +82,23 @@ describe('DataModelDialog', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
+  it('shows immediate validation and command failures without discarding the draft', async () => {
+    setup([], vi.fn()
+      .mockReturnValueOnce({ ok: false, reason: 'invalid-model' })
+      .mockReturnValueOnce({ ok: false, reason: 'duplicate-model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(form).getByRole('alert')).toHaveTextContent('Enter a model name'));
+    expect(within(form).getByLabelText('Model name')).toHaveValue('');
+    fireEvent.change(within(form).getByLabelText('Model name'), { target: { value: 'Duplicate' } });
+    fireEvent.change(within(form).getByLabelText('Property 1 name'), { target: { value: 'Value' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(form).getByRole('alert')).toHaveTextContent('This model already exists.'));
+    expect(within(form).getByLabelText('Model name')).toHaveValue('Duplicate');
+    expect(within(form).getByLabelText('Property 1 name')).toHaveValue('Value');
+  });
+
   it('cancels drafts with Escape and exposes labeled controls', () => {
     const { onCancel } = setup([savedModel]);
     expect(screen.getByRole('button', { name: 'Create model' })).toHaveFocus();
@@ -102,5 +121,53 @@ describe('DataModelDialog', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Data models' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('keeps keyboard traversal and shortcuts inside the modal', async () => {
+    render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })])} />);
+    const newSheet = screen.getByRole('button', { name: 'New sheet' });
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    const dialog = screen.getByRole('dialog', { name: 'Data models' });
+    const create = within(dialog).getByRole('button', { name: 'Create model' });
+    expect(create).toHaveFocus();
+    fireEvent.keyDown(create, { key: 'Tab', shiftKey: true });
+    expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+    expect(create).toHaveFocus();
+    fireEvent.keyDown(create, { key: 'N', shiftKey: true });
+    expect(screen.queryByRole('form', { name: 'Create sheet' })).not.toBeInTheDocument();
+    await userEvent.setup().keyboard('{Enter}');
+    expect(screen.getByRole('form', { name: 'Create data model' })).toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'Create sheet' })).not.toBeInTheDocument();
+    expect(newSheet).not.toHaveFocus();
+  });
+
+  it('uses the controlled raw formula input in both model and cell editors', () => {
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    fireEvent.change(within(form).getByLabelText('Property 1 kind'), { target: { value: 'calculated' } });
+    expect(within(form).getByLabelText('Property 1 formula')).toHaveAttribute('data-raw-formula-input', 'true');
+    const anchor = { current: document.createElement('div') };
+    render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
+      editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'row', columnId: 'column' } }, draft: '=1' }}
+      interaction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }} />);
+    expect(screen.getByLabelText('Inputs A1 editor')).toHaveAttribute('data-raw-formula-input', 'true');
+  });
+
+  it('retains the ordered draft after the App controller reports persistence failure', async () => {
+    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })])} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    fireEvent.change(within(form).getByLabelText('Model name'), { target: { value: 'Retry' } });
+    fireEvent.change(within(form).getByLabelText('Property 1 name'), { target: { value: 'First' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Add property' }));
+    fireEvent.change(within(form).getByLabelText('Property 2 name'), { target: { value: 'Second' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(form).getByRole('alert')).toHaveTextContent('Review the draft and try again'));
+    expect(within(form).getByLabelText('Property 1 name')).toHaveValue('First');
+    expect(within(form).getByLabelText('Property 2 name')).toHaveValue('Second');
   });
 });
