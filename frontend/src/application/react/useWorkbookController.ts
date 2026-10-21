@@ -75,24 +75,15 @@ export type WorkbookCommands = {
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
 };
 
-export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'persistence-failed' };
-export type DataModelCommandSubmission = Readonly<{
-  result: ModelCommandResult;
-  completion: Promise<ModelCommandResult>;
-}>;
+export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
+export type DataModelCommandSubmission = Readonly<{ result: ModelCommandResult; completion: Promise<ModelCommandResult> }>;
 
 export type PasteCellsResult =
   | { ok: true; changed: boolean }
   | { ok: false; reason: PastePreparationFailureReason | WorkbookOperationFailureReason };
 export type MoveCellsResult = { ok: true; changed: boolean } | { ok: false; reason: MovePreparationFailureReason | WorkbookOperationFailureReason };
 
-export type ContentHistoryCellSnapshot = Readonly<{
-  sheetId: string;
-  rowId: string;
-  columnId: string;
-  raw: string | null;
-  display: string | null;
-}>;
+export type ContentHistoryCellSnapshot = Readonly<{ sheetId: string; rowId: string; columnId: string; raw: string | null; display: string | null }>;
 
 export type ContentHistoryFeedback = Readonly<{
   identity: string;
@@ -339,6 +330,10 @@ export function useWorkbookController({
     }
     if (savedAutosave.hasModelTransition()) {
       const rejected = { ok: false, reason: 'pending-model-transition' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
+    if (savedAutosave.hasFailedPrerequisiteForModelTransition()) {
+      const rejected = { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
     optimisticWorkbook.current = result.value;

@@ -69,6 +69,57 @@ describe('model lifecycle controller wiring', () => {
     expect(result.current.workbook.dataModels).toEqual({ 'new-model': declaration });
   });
 
+  it('keeps a failed ordinary save intact and lets a model draft retry after its prerequisite is repaired', async () => {
+    const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const api = autosaveClient({
+      writeCells: vi.fn().mockRejectedValueOnce(new WorkbookApiError('offline', 500, 'offline')).mockResolvedValue({ sheets: [{ sheetId: 'one', revision: 1 }] }),
+      saveModelLifecycle: vi.fn().mockImplementation(async (_before, after) => after),
+    });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [] };
+
+    act(() => { result.current.commands.updateCellContent('one', 'A1', '9'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+    let blocked: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { blocked = result.current.commands.addDataModel(declaration); });
+    expect(blocked!.result).toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' });
+    await expect(blocked!.completion).resolves.toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' });
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
+
+    act(() => { result.current.commands.retryFailedSaves(); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    let retry: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { retry = result.current.commands.addDataModel(declaration); });
+    await expect(retry!.completion).resolves.toMatchObject({ ok: true });
+    expect(api.saveModelLifecycle).toHaveBeenCalledOnce();
+  });
+
+  it('settles a queued model submission when its running ordinary predecessor fails', async () => {
+    const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const ordinarySave = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
+    const api = autosaveClient({
+      writeCells: vi.fn().mockReturnValue(ordinarySave.promise),
+      saveModelLifecycle: vi.fn(),
+    });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [] };
+
+    act(() => { result.current.commands.updateCellContent('one', 'A1', '9'); });
+    await waitFor(() => expect(api.writeCells).toHaveBeenCalledOnce());
+    let submission: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { submission = result.current.commands.addDataModel(declaration); });
+    expect(submission!.result.ok).toBe(true);
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+
+    await act(async () => ordinarySave.reject(new Error('offline')));
+    await expect(submission!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
+    await waitFor(() => expect(result.current.workbook.dataModels).toBeUndefined());
+    expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(result.current.canRetryFailedSaves).toBe(true);
+  });
+
   it('restores a rejected edit before a subsequent model operation', async () => {
     const workbook = { ...workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]), dataModels: { model } };
     const api = autosaveClient({

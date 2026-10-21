@@ -17,14 +17,16 @@ function message(result: ModelCommandResult): string {
   if (result.reason === 'invalid-model') return 'Enter a model name, unique property names, and a formula for each calculated property.';
   if (result.reason === 'duplicate-model') return 'This model already exists.';
   if (result.reason.startsWith('pending-')) return 'Wait for the current workbook change to finish before saving.';
+  if (result.reason === 'blocked-persistence-prerequisite') return 'Earlier workbook changes need to be retried before this model can be saved.';
   if (result.reason === 'persistence-failed') return 'The model could not be saved. Review the draft and try again.';
   return 'The model could not be saved.';
 }
 
-export function DataModelDialog({ initialModelId, models, onCancel, onSave }: {
+export function DataModelDialog({ initialModelId, models, onCancel, onRetryFailedSaves, onSave }: {
   initialModelId?: string;
   models: readonly DataModel[];
   onCancel: () => void;
+  onRetryFailedSaves?: () => void;
   onSave: (model: DataModel, isNew: boolean) => ModelCommandResult | Promise<ModelCommandResult>;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -95,7 +97,7 @@ export function DataModelDialog({ initialModelId, models, onCancel, onSave }: {
           <button onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>
         </fieldset>
         {!isNew && (draft.columns.some((column) => !savedPropertyIds.has(column.id)) || [...savedPropertyIds].some((id) => !draft.columns.some((column) => column.id === id))) ? <p className="data-model-warning">Removing a property can discard bound data. New replacement properties start empty, even when they reuse a name. Renaming and reordering retain existing property identity.</p> : null}
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        {error ? <div className="form-error" role="alert"><p>{error}</p>{error.includes('need to be retried') ? <button onClick={onRetryFailedSaves} type="button">Retry earlier changes</button> : null}</div> : null}
         {saving ? <p role="status">Saving model…</p> : null}
         <div className="dialog-actions"><button disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
       </form>}

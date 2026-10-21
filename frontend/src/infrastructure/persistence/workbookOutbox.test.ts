@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { deferred } from '@test-support/apiClients';
 import { WorkbookOutbox } from '@infrastructure/persistence/workbookOutbox';
+import type { Workbook } from '@workbook/core/model';
 
 const rename = (sheetId: string, name: string) => ({ kind: 'rename-sheet', sheetId, name } as const);
 
@@ -157,6 +158,19 @@ describe('WorkbookOutbox', () => {
 
     expect(sent).toEqual(['original', 'original', 'undo']);
     expect(outbox.inspect('undo')?.intent).toEqual(inverse);
+  });
+  it('blocks a queued model transition when an earlier ordinary save fails', async () => {
+    const outbox = new WorkbookOutbox();
+    const workbook = { manifest: { version: 1, revision: 0, sheetIds: [] }, documents: {} } as Workbook;
+    outbox.enqueue('ordinary', rename('a', 'Unsaved'));
+    outbox.enqueue('model', { kind: 'model-lifecycle', before: workbook, after: workbook });
+    const completion = outbox.waitFor('model');
+
+    await outbox.executeNext({ execute: async () => { throw new Error('offline'); } });
+
+    await expect(completion).resolves.toMatchObject({ operationId: 'model', status: 'blocked' });
+    expect(outbox.hasFailedPrerequisiteForModelTransition()).toBe(true);
+    expect(outbox.inspect('model')?.failure).toBeInstanceOf(Error);
   });
   it('does not expose a failed entry returned by executeNext for mutation', async () => {
     const outbox = new WorkbookOutbox();

@@ -199,6 +199,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
           models={Object.values(workbook.dataModels ?? {})}
           initialModelId={dataModelEditId}
           onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }}
+          onRetryFailedSaves={commands.retryFailedSaves}
           onSave={async (model, isNew) => {
             const submission = isNew && !workbook.dataModels?.[model.id]
               ? commands.addDataModel(model)
