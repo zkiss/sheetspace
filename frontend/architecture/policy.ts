@@ -14,7 +14,7 @@ function production(name: string, directory: string, mayImport: readonly string[
 const packages: Owner[] = [
   production('workbook/core', 'workbook/core', []),
   production('workbook/read', 'workbook/read', ['workbook/core']),
-  production('workbook/formula', 'workbook/formula', read),
+  production('workbook/formula', 'workbook/formula', read, ['react']),
   production('workbook/mutations', 'workbook/mutations', formula),
   production('calculation', 'calculation', formula),
   production('application/core', 'application/core', ['calculation', ...workbook]),

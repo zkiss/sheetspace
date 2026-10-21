@@ -119,6 +119,26 @@ describe('SheetGridCell', () => {
     expect(props.cellInteraction.select).not.toHaveBeenCalled();
   });
 
+  it('keeps calculated cells selectable while preventing content editing', () => {
+    const props = renderCell({ isCalculated: true });
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 calculated, read-only; edit it in Data models cell' });
+    const target = cellTargetAt(props.sheet, 'A1');
+
+    expect(cell).toHaveAttribute('aria-readonly', 'true');
+    expect(cell).toHaveClass('sheet-grid-cell-calculated');
+    fireEvent.doubleClick(cell);
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(props.cellInteraction.startEditing).not.toHaveBeenCalled();
+
+    // The clear reaches the ownership authority, which rejects it and lets the
+    // workspace report the protection instead of failing silently.
+    fireEvent.keyDown(cell, { key: 'Backspace' });
+    expect(props.cellInteraction.clear).toHaveBeenCalledWith(target);
+
+    fireEvent.keyDown(cell, { key: 'ArrowRight' });
+    expect(props.cellInteraction.navigate).toHaveBeenCalledWith(target, 'right');
+  });
+
   it('does not claim command-modified Tab and Enter shortcuts', () => {
     const navigateKeyboard = vi.fn(() => true);
     renderCell({ cellInteraction: { clear: vi.fn(), navigate: vi.fn(), navigateKeyboard, select: vi.fn(), startEditing: vi.fn() } });

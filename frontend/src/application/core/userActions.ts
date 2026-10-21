@@ -80,7 +80,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet' | 'calculated-cell-write';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet' | 'calculated-cell-write' | 'pending-model-transition';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 /** A rejected write leaves the workbook untouched and reports a stable reason. */
 export type CellWriteResult = { ok: true; changed: boolean } | { ok: false; reason: WorkbookOperationFailureReason };

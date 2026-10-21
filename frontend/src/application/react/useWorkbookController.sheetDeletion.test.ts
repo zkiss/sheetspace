@@ -19,9 +19,10 @@ describe('useWorkbookController sheet deletion', () => {
       }),
     );
 
-    act(() => {
-      result.current.commands.deleteSheet('sheet-inputs');
-    });
+    act(() => expect(result.current.commands.deleteSheet('sheet-inputs')).toMatchObject({
+      ok: true,
+      value: { changed: true },
+    }));
 
     expect(sheetsInOrder(result.current.workbook).map((sheet) => sheet.id)).toEqual(['sheet-outputs']);
     await waitFor(() => expect(apiClient.deleteSheet).toHaveBeenCalledWith('sheet-inputs', { revision: 4 }));

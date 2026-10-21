@@ -39,6 +39,13 @@ import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualizatio
 import { useWorkspaceHistoryReveal } from './useWorkspaceHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
+import { SheetModelControls } from '@workspace/SheetModelControls';
+import { historyCellsForSheet } from './historyCellsForSheet';
+import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './modelColumnPresentation';
+import type { CellWriteResult } from '@application/core/userActions';
+
+const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.';
+
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -59,6 +66,7 @@ export function Workspace({
   onEditValueChange,
   onNavigateCell,
   onNavigateKeyboardCell,
+  onOpenDataModels,
   onOpenRenameDialog,
   onRetryFailedSaves,
   onSelectCell,
@@ -88,15 +96,16 @@ export function Workspace({
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
   onKeyboardFocusRequestCancelled: (requestId: number) => void;
   onCancelEdit: () => void;
-  onClearCell: (target: CellTarget) => void;
+  onClearCell: (target: CellTarget) => CellWriteResult | undefined;
   onClearSelection: () => void;
   onActivateSheet: (sheetId: string, requestFocus?: boolean) => CellTarget | undefined;
-  onCommitEdit: (session?: CellEditSession) => void;
-  onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => void;
+  onCommitEdit: (session?: CellEditSession) => CellWriteResult | undefined;
+  onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | undefined;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
+  onOpenDataModels?: (modelId?: string) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
@@ -118,6 +127,7 @@ export function Workspace({
 }) {
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
+  const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
   const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
@@ -126,6 +136,7 @@ export function Workspace({
   }, []);
   const sheets = sheetsInOrder(workbook);
   const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
+  const dataModels = Object.values(workbook.dataModels ?? {});
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
   const selectedRaw = selectedSheet && selectedCellKey
     ? cellRawContent(selectedSheet, selectedCellKey)
@@ -250,6 +261,11 @@ export function Workspace({
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
       : undefined);
     if (!selection) return undefined;
+    if (selectionIncludesCalculatedColumn(workbook, selection)) {
+      cancelPendingCut();
+      setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+      return undefined;
+    }
     const cut = clipboard.current.cut(workbook, selection);
     if (cut.ok) setClipboardRevision((revision) => revision + 1);
     return cut.ok ? cut.value : undefined;
@@ -270,8 +286,19 @@ export function Workspace({
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     if (parsed.ok && parsed.value.kind === 'cut') {
       const moved = commands.moveCells(destination.id, destinationKey, parsed.value.source);
-      if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source') cancelPendingCut();
-    } else commands.pasteCells(destination.id, destinationKey, parsed);
+      if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source' || moved.reason === 'calculated-cell-write') cancelPendingCut();
+      if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+    } else {
+      const pasted = commands.pasteCells(destination.id, destinationKey, parsed);
+      if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+    }
+  }
+
+  /** Reports a rejected content write instead of leaving the user without a reason. */
+  function reportWriteOutcome(outcome: CellWriteResult | undefined) {
+    if (outcome && !outcome.ok && outcome.reason === 'calculated-cell-write') {
+      setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+    }
   }
 
   return (
@@ -288,11 +315,14 @@ export function Workspace({
             selection={selectionRange}
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        onOpenDataModels={onOpenDataModels}
+        modelControls={selectedSheet ? <SheetModelControls key={selectedSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => onOpenDataModels?.(modelId)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
       />
 
+      {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
@@ -343,6 +373,7 @@ export function Workspace({
           if (!mountedSheetIds.has(sheet.id)) return null;
           const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
+          const { calculatedColumnIds, columnLabels } = modelColumnPresentation(sheet, workbook.dataModels);
           const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
@@ -420,12 +451,14 @@ export function Workspace({
                     axisProjection={axisProjection}
                     presentation={sheet.presentation}
                     pendingCutCells={pendingCutCells}
+                    columnLabels={columnLabels}
+                    calculatedColumnIds={calculatedColumnIds}
                     logicalSelection={selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
-                      clear: onClearCell,
+                      clear: (target) => reportWriteOutcome(onClearCell(target)),
                       navigate: onNavigateCell,
                       navigateKeyboard: onNavigateKeyboardCell,
                       select: onSelectCell,
@@ -437,8 +470,8 @@ export function Workspace({
                     editingCell={sheetEditingCell}
                     editorInteraction={{
                       cancel: onCancelEdit,
-                      commit: onCommitEdit,
-                      commitAndNavigate: onCommitEditAndNavigate,
+                      commit: (session) => reportWriteOutcome(onCommitEdit(session)),
+                      commitAndNavigate: (session, request) => reportWriteOutcome(onCommitEditAndNavigate(session, request)),
                       updateValue: onEditValueChange,
                     }}
                     formulaResults={formulaResults}
@@ -473,27 +506,4 @@ export function Workspace({
       </WorkspaceSurface>
     </>
   );
-}
-
-function historyCellsForSheet(
-  feedback: import('@application/react/useWorkbookController').ContentHistoryFeedback,
-  sheet: SheetDocument,
-) {
-  const beforeByIdentity = new Map(feedback.before.map((cell) => [
-    `${cell.sheetId}:${cell.rowId}:${cell.columnId}`,
-    cell,
-  ]));
-  const cells = new Map<string, { before: string | null; beforeDisplay: string | null; after: string | null }>();
-  for (const after of feedback.after) {
-    if (after.sheetId !== sheet.id) continue;
-    const address = cellAddressOf(sheet.content, after);
-    if (!address) continue;
-    const before = beforeByIdentity.get(`${after.sheetId}:${after.rowId}:${after.columnId}`);
-    cells.set(cellKey(address), {
-      before: before?.raw ?? null,
-      beforeDisplay: before?.display ?? null,
-      after: after.raw,
-    });
-  }
-  return cells;
 }

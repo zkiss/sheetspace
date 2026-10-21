@@ -36,6 +36,17 @@ export class WorkbookOutbox {
 
   snapshot(): OutboxSnapshot { return this.entries.map(cloneEntry); }
   hasModelTransition() { return this.entries.some((entry) => entry.intent.kind === 'model-lifecycle' && entry.status !== 'succeeded' && entry.status !== 'superseded'); }
+  hasFailedPrerequisiteForModelTransition() {
+    return this.entries.some((entry) => entry.intent.kind !== 'model-lifecycle' && (entry.status === 'failed' || entry.status === 'blocked'));
+  }
+  modelTransitionIsBlockedByFailedPrerequisite(operationId: WorkbookOperationId) {
+    const entry = this.find(operationId);
+    return entry?.intent.kind === 'model-lifecycle'
+      && entry.status === 'blocked'
+      && this.entries.some((earlier) => earlier.sequence < entry.sequence
+        && earlier.intent.kind !== 'model-lifecycle'
+        && (earlier.status === 'failed' || earlier.status === 'blocked'));
+  }
   waitForModelTransitions(): Promise<void> | undefined {
     if (!this.hasModelTransition()) return undefined;
     return new Promise((resolve) => {
@@ -45,6 +56,18 @@ export class WorkbookOutbox {
         resolve();
       };
       this.listeners.add(listener);
+    });
+  }
+  waitFor(operationId: WorkbookOperationId): Promise<OutboxEntry> {
+    return new Promise((resolve) => {
+      const listener = () => {
+        const entry = this.inspect(operationId);
+        if (!entry || !['succeeded', 'failed', 'blocked', 'superseded'].includes(entry.status)) return;
+        this.listeners.delete(listener);
+        resolve(entry);
+      };
+      this.listeners.add(listener);
+      listener();
     });
   }
   subscribe(listener: (snapshot: OutboxSnapshot) => void): () => void {
@@ -139,7 +162,20 @@ export class WorkbookOutbox {
     } catch (failure) {
       if (!this.isSuperseded(entry)) { entry.status = 'failed'; entry.failure = failure; }
     }
+    this.blockModelTransitionsBehindFailedPrerequisites();
     this.running.delete(entry.operationId); this.publish(); return cloneEntry(entry);
+  }
+
+  private blockModelTransitionsBehindFailedPrerequisites() {
+    for (const entry of this.entries) {
+      if (entry.intent.kind !== 'model-lifecycle' || entry.status !== 'queued') continue;
+      const prerequisite = this.entries.find((earlier) => earlier.sequence < entry.sequence
+        && earlier.intent.kind !== 'model-lifecycle'
+        && (earlier.status === 'failed' || earlier.status === 'blocked'));
+      if (!prerequisite) continue;
+      entry.status = 'blocked';
+      entry.failure = new Error(`Model transition is waiting for failed operation ${prerequisite.operationId}.`);
+    }
   }
 
   private nextRunnable() { return this.entries.find((candidate) => candidate.status === 'queued' && this.canRun(candidate)); }

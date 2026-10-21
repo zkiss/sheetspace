@@ -23,6 +23,57 @@ function boundWorkbook(): Workbook {
 }
 
 describe('calculated row persistence', () => {
+  it('persists the two-sheet model workflow through editing, reload, append, and unbind', async () => {
+    const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 2, cells: { A1: '3' }, presentation: { rowHeights: { 'first:row:1': 31 }, columnWidths: {} } });
+    const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 2, cells: { A1: '7' }, presentation: { rowHeights: {}, columnWidths: { 'second:column:1': 123 } } });
+    const workflowModel: DataModel = { id: 'model', name: 'Model', columns: [
+      { id: 'input', name: 'Input', kind: 'manual', type: 'float' },
+      { id: 'output', name: 'Output', kind: 'calculated', type: 'float', formula: "=SUM(@'Input'[1])" },
+    ] };
+    const initial: Workbook = workbookWithSheets([first, second]);
+    const api = persistedWorkbookClient(initial);
+    const { result, unmount } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+
+    let creation: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { creation = result.current.commands.addDataModel(workflowModel); });
+    await expect(creation!.completion).resolves.toMatchObject({ ok: true });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+
+    act(() => { result.current.commands.bindSheetToModel('first', 'model'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    act(() => { result.current.commands.bindSheetToModel('second', 'model'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    act(() => { result.current.commands.replaceModelDeclaration({
+      ...workflowModel,
+      name: 'Renamed model',
+      columns: [
+        { id: 'output', name: 'Total', kind: 'calculated', type: 'float', formula: "=SUM(@'Input'[1])" },
+        { id: 'input', name: 'Input', kind: 'manual', type: 'float' },
+      ],
+    }); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    act(() => { result.current.commands.appendRow('first'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+
+    expect(cellRawContent(result.current.workbook.documents.first!, 'B1')).toBe('3');
+    expect(cellRawContent(result.current.workbook.documents.second!, 'B1')).toBe('7');
+    expect(cellRawContent(result.current.workbook.documents.first!, 'A2')).toMatch(/^=SUM\(/);
+    expect(result.current.workbook.documents.first!.presentation.rowHeights['first:row:1']).toBe(31);
+    expect(result.current.workbook.documents.second!.presentation.columnWidths['second:column:1']).toBe(123);
+    unmount();
+
+    const { result: reloaded } = renderHook(() => useWorkbookController({ apiClient: api }));
+    await waitFor(() => expect(reloaded.current.startupLoad.status).toBe('loaded'));
+    expect(reloaded.current.workbook.dataModels?.model?.name).toBe('Renamed model');
+    expect(reloaded.current.workbook.documents.first!.modelId).toBe('model');
+    expect(reloaded.current.workbook.documents.second!.modelId).toBe('model');
+    act(() => { reloaded.current.commands.unbindSheetFromModel('first'); });
+    await waitFor(() => expect(reloaded.current.saveStatus).toBe('saved'));
+    expect(reloaded.current.workbook.documents.first!.modelId).toBeUndefined();
+    expect(cellRawContent(reloaded.current.workbook.documents.first!, 'A1')).toBe('3');
+    expect(reloaded.current.commands.updateCellContent('first', 'A1', '9')).toEqual({ ok: true, changed: true });
+  });
+
   it('materializes an appended calculated row through the append route without an ordinary protected write', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);

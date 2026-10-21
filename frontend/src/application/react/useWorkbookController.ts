@@ -32,7 +32,7 @@ import {
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
-import type { ModelMutationResult } from '@workbook/mutations/dataModel';
+import { addDataModel, type ModelMutationResult } from '@workbook/mutations/dataModel';
 import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
@@ -51,43 +51,39 @@ import {
 } from '@calculation/workbookCalculation';
 
 export type WorkbookCommands = {
-  bindSheetToModel: (sheetId: string, modelId: string) => ModelCommandResult;
-  unbindSheetFromModel: (sheetId: string) => ModelCommandResult;
-  replaceModelDeclaration: (model: DataModel) => ModelCommandResult;
-  writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => void;
-  writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => void;
+  bindSheetToModel: (sheetId: string, modelId: string) => DataModelCommandSubmission;
+  unbindSheetFromModel: (sheetId: string) => DataModelCommandSubmission;
+  addDataModel: (model: DataModel) => DataModelCommandSubmission;
+  replaceModelDeclaration: (model: DataModel) => DataModelCommandSubmission;
+  writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => WorkbookOperationResult;
+  writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => WorkbookOperationResult;
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
-  changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
+  changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
   createSheet: (name: string, position: WorkspacePosition, viewportScale?: number) => ValidationResult;
-  deleteSheet: (sheetId: string) => void;
-  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
+  deleteSheet: (sheetId: string) => WorkbookOperationResult;
+  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
-  renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
+  renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
   retryFailedSaves: () => void;
   undo: () => void;
   redo: () => void;
-  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
-  setSheetVisualScale: (sheetId: string, visualScale: number) => void;
+  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
+  setSheetVisualScale: (sheetId: string, visualScale: number) => WorkbookOperationResult;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
 };
 
-export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' };
+export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
+export type DataModelCommandSubmission = Readonly<{ result: ModelCommandResult; completion: Promise<ModelCommandResult> }>;
 
 export type PasteCellsResult =
   | { ok: true; changed: boolean }
   | { ok: false; reason: PastePreparationFailureReason | WorkbookOperationFailureReason };
 export type MoveCellsResult = { ok: true; changed: boolean } | { ok: false; reason: MovePreparationFailureReason | WorkbookOperationFailureReason };
 
-export type ContentHistoryCellSnapshot = Readonly<{
-  sheetId: string;
-  rowId: string;
-  columnId: string;
-  raw: string | null;
-  display: string | null;
-}>;
+export type ContentHistoryCellSnapshot = Readonly<{ sheetId: string; rowId: string; columnId: string; raw: string | null; display: string | null }>;
 
 export type ContentHistoryFeedback = Readonly<{
   identity: string;
@@ -102,6 +98,7 @@ export type WorkbookController = {
   canUndo: boolean;
   canRedo: boolean;
   contentHistoryFeedback: ContentHistoryFeedback | undefined;
+  mutationFailure: 'pending-model-transition' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];
@@ -176,6 +173,7 @@ export function useWorkbookController({
   const contentHistory = contentHistoryRef.current;
   const [, setHistoryRevision] = useState(0);
   const [contentHistoryFeedback, setContentHistoryFeedback] = useState<WorkbookController['contentHistoryFeedback']>();
+  const [mutationFailure, setMutationFailure] = useState<WorkbookController['mutationFailure']>();
   useEffect(() => {
     if (!contentHistoryFeedback) return;
     const identity = contentHistoryFeedback.identity;
@@ -281,9 +279,12 @@ export function useWorkbookController({
   }
 
   function applyAction(action: WorkbookOperationInput, recordContentHistory = true): WorkbookOperationResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
     const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
+    if (result.ok) setMutationFailure(undefined);
     if (applied?.changed) {
       savedAutosave.enqueue(operation.operationId, applied.persistence);
       if (recordContentHistory && operation.kind === 'write-cells' && applied.persistence?.kind === 'write-cells') {
@@ -293,6 +294,12 @@ export function useWorkbookController({
       }
     }
     return result;
+  }
+
+  function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
+    if (!savedAutosave.hasModelTransition()) return undefined;
+    setMutationFailure('pending-model-transition');
+    return { ok: false, reason: 'pending-model-transition' };
   }
 
   function applyReconciliation(reconciliation: Parameters<typeof applyBackendWorkbookReconciliation>[1]) {
@@ -309,43 +316,74 @@ export function useWorkbookController({
     return applied;
   }
 
-  function applyModelTransition(transform: (source: Workbook) => ModelMutationResult): ModelCommandResult {
+  function applyModelLifecycleTransition(transform: (source: Workbook) => ModelMutationResult): DataModelCommandSubmission {
     const before = optimisticWorkbook.current;
-    // Validate/no-op first: neither needs to reserve a structural boundary.
     const result = transform(before);
-    if (!result.ok || result.value === before) return result;
-    if (axisCreation.hasUnsettled()) return { ok: false, reason: 'pending-axis-creation' };
-    if (hasPendingCreations()) return { ok: false, reason: 'pending-sheet-creation' };
-    if (savedAutosave.hasModelTransition()) return { ok: false, reason: 'pending-model-transition' };
+    if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
+    if (axisCreation.hasUnsettled()) {
+      const rejected = { ok: false, reason: 'pending-axis-creation' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
+    if (hasPendingCreations()) {
+      const rejected = { ok: false, reason: 'pending-sheet-creation' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
+    if (savedAutosave.hasModelTransition()) {
+      const rejected = { ok: false, reason: 'pending-model-transition' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
+    if (savedAutosave.hasFailedPrerequisiteForModelTransition()) {
+      const rejected = { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
     optimisticWorkbook.current = result.value;
     setWorkbook(result.value, { kind: 'structure' });
-    if (autosaveEnabled) savedAutosave.enqueue(crypto.randomUUID(), { kind: 'model-lifecycle', before, after: result.value });
-    else resetHistory();
-    return result;
+    if (!autosaveEnabled) {
+      resetHistory();
+      return { result, completion: Promise.resolve(result) };
+    }
+    const operationId = crypto.randomUUID();
+    savedAutosave.enqueue(operationId, { kind: 'model-lifecycle', before, after: result.value });
+    const completion = savedAutosave.waitFor(operationId).then((entry) => {
+      if (entry.status === 'succeeded') return result;
+      const blockedByPrerequisite = savedAutosave.modelTransitionIsBlockedByFailedPrerequisite(operationId);
+      optimisticWorkbook.current = before;
+      setWorkbook(before, { kind: 'structure' });
+      savedAutosave.discard(operationId);
+      if (blockedByPrerequisite) return { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
+      return { ok: false, reason: 'persistence-failed' } as const;
+    });
+    return { result, completion };
   }
 
-  function deleteSheetCommand(sheetId: string) {
-    if (!findSheetById(optimisticWorkbook.current, sheetId)) {
-      return;
-    }
+  function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
+
+    const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const;
+    const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
+    const applied = applyResult(result);
+    if (result.ok) setMutationFailure(undefined);
+    if (!applied?.changed || !applied.persistence) return result;
 
     savedAutosave.supersedeSheetOperations(sheetId);
-    const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const;
-    const applied = applyResult(applyWorkbookOperation(optimisticWorkbook.current, operation));
-    if (!applied?.changed || !applied.persistence) return;
     const enqueueDelete = () => savedAutosave.enqueue(operation.operationId, applied.persistence);
     const pendingAxisCreation = axisCreation.prepareSheetDeletion(sheetId);
     if (pendingAxisCreation) void pendingAxisCreation.then(enqueueDelete);
     else enqueueDelete();
+    return result;
   }
 
-  function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> {
+  function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' } {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const localSheetId = sheetId;
     const sourceWorkbook = optimisticWorkbook.current;
     const validation = validateSheetName(name, sheetsInOrder(sourceWorkbook), localSheetId);
     if (!findSheetById(sourceWorkbook, localSheetId)) return { ok: false, reason: 'unknown-sheet' };
     if (!validation.ok) return validation;
     const result = applyAction({ kind: 'rename-sheet', sheetId: localSheetId, name });
+    if (!result.ok && result.reason === 'pending-model-transition') return { ok: false, reason: 'pending-model-transition' };
     if (!result.ok) return { ok: false, reason: 'unknown-sheet' };
     return { ok: true, value: result.value.nextWorkbook };
   }
@@ -361,6 +399,8 @@ export function useWorkbookController({
   });
 
   function updateCellContent(sheetId: string, cellKey: CellKey, raw: string): CellWriteResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const localSheetId = sheetId;
     const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     if (!currentSheet) return { ok: false, reason: 'unknown-sheet' };
@@ -376,6 +416,8 @@ export function useWorkbookController({
   }
 
   function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult): PasteCellsResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
@@ -388,6 +430,8 @@ export function useWorkbookController({
   }
 
   function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
@@ -420,24 +464,24 @@ export function useWorkbookController({
     setHistoryRevision((revision) => revision + 1);
   }
 
-  function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
+  function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
     const localSheetId = sheetId;
-    applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
+    return applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
   }
 
-  function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
+  function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize): WorkbookOperationResult {
     const localSheetId = sheetId;
-    applyAction({
+    return applyAction({
       kind: 'resize-sheet-frame', sheetId: localSheetId, position, size: frameSize,
     });
   }
 
-  function setSheetVisualScale(sheetId: string, visualScale: number) {
-    applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
+  function setSheetVisualScale(sheetId: string, visualScale: number): WorkbookOperationResult {
+    return applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
   }
 
-  function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
-    applyAction({
+  function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection): WorkbookOperationResult {
+    return applyAction({
       kind: 'change-sheet-z-order', sheetId, direction,
     });
   }
@@ -447,11 +491,12 @@ export function useWorkbookController({
 
   return {
     commands: {
-      bindSheetToModel: (sheetId, modelId) => applyModelTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
-      unbindSheetFromModel: (sheetId) => applyModelTransition((source) => unbindSheetFromModel(source, sheetId)),
-      replaceModelDeclaration: (model) => applyModelTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
-      writeNumberFormats: (sheetId, writes) => { applyAction({ kind: 'write-number-formats', sheetId, writes }); },
-      writeAxisSizes: (sheetId, writes) => { applyAction({ kind: 'write-axis-sizes', sheetId, writes }); },
+      bindSheetToModel: (sheetId, modelId) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
+      unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)),
+      addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
+      replaceModelDeclaration: (model) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
+      writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
+      writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
       appendColumn: axisCreation.appendColumn,
       appendRow: axisCreation.appendRow,
       changeSheetZOrder,
@@ -473,6 +518,7 @@ export function useWorkbookController({
     canUndo: !savedAutosave.hasModelTransition() && contentHistory.canUndo,
     canRedo: !savedAutosave.hasModelTransition() && contentHistory.canRedo,
     contentHistoryFeedback: savedAutosave.hasModelTransition() ? undefined : contentHistoryFeedback,
+    mutationFailure,
     formulaResults,
     retryStartupLoad,
     creatingFrames,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { parseFormulaSyntax } from '@workbook/formula/syntax';
+import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
 import type { CellEditSession, CellNavigationRequest } from './cellInteractionContracts';
 import './SheetGridCell.css';
 
@@ -79,7 +80,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
         key={`${token.sourceSpan.start}-${token.sourceSpan.end}`}
       >{editingCell.draft.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>)}
     </pre>
-    <textarea
+    <RawFormulaInput
     aria-label={`${sheetName} ${cellKey} editor`}
     autoFocus
     className="sheet-grid-cell-editor"
@@ -93,7 +94,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
       hasFinishedEditing.current = true;
       interaction.commit({ ...editingCell, draft: event.currentTarget.value });
     }}
-    onChange={(event) => interaction.updateValue(event.target.value)}
+     onValueChange={interaction.updateValue}
     onScroll={(event) => syncHighlightScroll(event.currentTarget, highlightRef.current)}
     onClick={(event) => event.stopPropagation()}
     onDoubleClick={(event) => event.stopPropagation()}

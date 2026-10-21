@@ -7,6 +7,7 @@ import {
   type PendingSheetRename,
 } from './sheetDialogContracts';
 import { CreateSheetDialog, RenameSheetDialog } from './SheetDialogs';
+import { DataModelDialog } from './DataModelDialog';
 import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
 import { useCellEditing } from '@grid/useCellEditing';
 import { useWorkbookController } from '@application/react/useWorkbookController';
@@ -17,7 +18,7 @@ type AppProps = {
   initialWorkbook?: Workbook;
 };
 
-function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
+function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet' | 'pending-model-transition') {
   if (reason === 'empty') {
     return 'Sheet name is required.';
   }
@@ -26,15 +27,21 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
     return 'The target sheet could not be found.';
   }
 
+  if (reason === 'pending-model-transition') {
+    return 'Wait for the data model change to finish.';
+  }
+
   return 'A sheet with that name already exists.';
 }
 
 export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
+  const [dataModelsOpen, setDataModelsOpen] = useState(false);
+  const [dataModelEditId, setDataModelEditId] = useState<string | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -75,7 +82,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       const key = event.key.toLowerCase();
       if (!(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest('textarea, input, [contenteditable="true"]')) return;
+      if (dataModelsOpen || target?.closest('textarea, input, [contenteditable="true"]')) return;
       const redo = key === 'y' || event.shiftKey;
       if (redo ? !canRedo : !canUndo) return;
       event.preventDefault();
@@ -83,7 +90,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     };
     window.addEventListener('keydown', handleHistoryShortcut);
     return () => window.removeEventListener('keydown', handleHistoryShortcut);
-  }, [canRedo, canUndo, commands]);
+  }, [canRedo, canUndo, commands, dataModelsOpen]);
 
   function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string) {
     setPendingCreation({ position, viewportScale, label });
@@ -155,7 +162,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         creatingFrames={creatingFrames}
         editingCell={editingCell}
         formulaResults={formulaResults}
-        sheetDialogOpen={Boolean(pendingCreation || pendingRename)}
+        sheetDialogOpen={Boolean(pendingCreation || pendingRename || dataModelsOpen)}
         keyboardFocusRequest={keyboardFocusRequest}
         onKeyboardFocusRequestConsumed={acknowledgeKeyboardFocusRequest}
         onKeyboardFocusRequestCancelled={cancelKeyboardFocusRequest}
@@ -168,6 +175,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onEditValueChange={updateEditingCellValue}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
+        onOpenDataModels={(modelId) => { setDataModelEditId(modelId); setDataModelsOpen(true); }}
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
@@ -184,6 +192,25 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         saveStatus={saveStatus}
         workbook={workbook}
       />
+      {mutationFailure ? <p className="form-error" role="alert">Wait for the data model change to finish. Your change was not applied.</p> : null}
+
+      {dataModelsOpen ? (
+        <DataModelDialog
+          models={Object.values(workbook.dataModels ?? {})}
+          initialModelId={dataModelEditId}
+          onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }}
+          onRetryFailedSaves={commands.retryFailedSaves}
+          onSave={async (model, isNew) => {
+            const submission = isNew && !workbook.dataModels?.[model.id]
+              ? commands.addDataModel(model)
+              : commands.replaceModelDeclaration(model);
+            if (!submission.result.ok) return submission.result;
+            const result = await submission.completion;
+            if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }
+            return result;
+          }}
+        />
+      ) : null}
 
       {pendingCreation ? (
         <CreateSheetDialog
