@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import type { DataModel } from '@workbook/core/model';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -119,6 +120,40 @@ describe('App grid composition', () => {
     await user.keyboard('{F2}');
     const resumedEditor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
     expect(resumedEditor).toHaveValue('unfinished formula');
+    expect(resumedEditor.selectionStart).toBe(2);
+    expect(resumedEditor.selectionEnd).toBe(10);
+    expect(resumedEditor.scrollTop).toBe(14);
+  });
+
+  it('suspends a direct draft when opening its bound model editor', async () => {
+    const user = userEvent.setup();
+    const inputs = {
+      ...sheetDocument({ id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2 }),
+      modelId: 'invoice',
+    };
+    const invoice: DataModel = {
+      id: 'invoice', name: 'Invoice', columns: [{ id: 'amount', name: 'Amount', kind: 'manual', type: 'float' }],
+    };
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={{ ...workbookWithSheets([inputs]), dataModels: { invoice } }} apiClient={apiClient} />);
+
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputsA1 = within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(inputsA1);
+    await user.keyboard('unfinished{Shift>}{Enter}{/Shift}formula');
+    const editor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    editor.setSelectionRange(2, 10);
+    Object.defineProperty(editor, 'scrollTop', { configurable: true, value: 14 });
+
+    await user.click(screen.getByRole('button', { name: 'Edit model' }));
+
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Data models' })).toBeInTheDocument();
+    await user.keyboard('{Escape}{Escape}');
+    await user.click(inputsA1);
+    await user.keyboard('{F2}');
+    const resumedEditor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    expect(resumedEditor).toHaveValue('unfinished\nformula');
     expect(resumedEditor.selectionStart).toBe(2);
     expect(resumedEditor.selectionEnd).toBe(10);
     expect(resumedEditor.scrollTop).toBe(14);
