@@ -4,7 +4,7 @@ import { cellKey } from '@workbook/core/address';
 import { cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
-import { bindModelFormula, bindModelFormulas, instantiateModelFormulas } from '@workbook/formula/modelTemplate';
+import { bindModelFormula, bindModelFormulas, instantiateModelFormulas, refreshDerivedInstances } from '@workbook/formula/modelTemplate';
 import { formulaRawForStorage, formulaReferenceTokens } from '@workbook/formula/reference';
 import { validateDataModel, type ModelMutationResult } from '@workbook/mutations/dataModel';
 import { calculationProjection } from '@workbook/read/calculationProjection';
@@ -26,7 +26,8 @@ export function bindSheetToModel(workbook: Workbook, sheetId: string, modelId: s
   const columns = model.columns.map((_, index) => materialized.content.columns[index] ?? createColumnId());
   const reconciled = reshapeSheet(materialized, model, columns);
   const structured = withSheet(source, reconciled);
-  return { ok: true, value: refreshModelSheet(structured, sheetId, bindModelFormulas(structured, sheetId)) };
+  const bound = refreshModelSheet(structured, sheetId, bindModelFormulas(structured, sheetId));
+  return { ok: true, value: refreshDerivedInstances(bound) };
 }
 
 export function unbindSheetFromModel(workbook: Workbook, sheetId: string): ModelMutationResult {
@@ -39,7 +40,7 @@ export function unbindSheetFromModel(workbook: Workbook, sheetId: string): Model
   delete unbound.modelId;
   delete unbound.modelColumnBindings;
   delete unbound.modelFormulaBindings;
-  return { ok: true, value: withSheet(source, unbound) };
+  return { ok: true, value: refreshDerivedInstances(withSheet(source, unbound)) };
 }
 
 /** Reconcile every structure first, then resolve templates against the complete next workbook. */
@@ -71,7 +72,7 @@ export function replaceModelDeclaration(workbook: Workbook, model: DataModel, cr
     }));
     next = refreshModelSheet(next, sheet.id, bindings);
   }
-  return { ok: true, value: next };
+  return { ok: true, value: refreshDerivedInstances(next) };
 }
 
 function refreshModelSheet(workbook: Workbook, sheetId: string, bindings: ModelFormulaBindings): Workbook {

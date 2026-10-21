@@ -133,7 +133,6 @@ describe('useWorkbookController paste', () => {
         expect.objectContaining({ rowId: 'sheet:row:2', columnId: 'sheet:column:2', raw: '=@sheet:column:3[sheet:row:2]' }),
         expect.objectContaining({ rowId: 'sheet:row:2', columnId: 'sheet:column:3', raw: '' }),
       ]),
-      undefined,
     );
     expect(result.current.canUndo).toBe(true);
 

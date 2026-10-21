@@ -188,7 +188,7 @@ function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
 export function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
   if (intent.kind === 'model-lifecycle') return [...intent.before.manifest.sheetIds];
   if (intent.kind === 'update-sheet-z-order') return [...new Set(intent.updates.map(({ sheetId }) => sheetId))];
-  if (intent.kind === 'write-cells') return [...new Set([...intent.writes, ...intent.modelFormulaBindings ?? []].map(({ sheetId }) => sheetId))];
+  if (intent.kind === 'write-cells') return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
   return [intent.sheetId];
 }
 function intersects(left: readonly string[], right: readonly string[]) { return left.some((value) => right.includes(value)); }

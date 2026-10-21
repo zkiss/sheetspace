@@ -26,15 +26,19 @@ internal class SqliteWorkbookWriter(
         replaceManifest(workbook.manifest)
     }
 
+    /**
+     * Writes the given cells, reusing the sheets the caller already loaded for its own decisions.
+     */
     fun writeCells(
         expectedRevisions: List<ExpectedSheetRevision>,
         writes: List<SheetCellWrite>,
+        loadedSheets: Map<String, SheetDocument> = emptyMap(),
     ): List<SheetDocument> {
         val sheetOrder = writes.map(SheetCellWrite::sheetId).distinct()
         val expectedBySheet = expectedRevisions.associateBy(ExpectedSheetRevision::sheetId)
         require(expectedBySheet.keys == sheetOrder.toSet()) { "Expected revisions must match written sheets" }
         val currentBySheet = sheetOrder.associateWith { sheetId ->
-            reader.loadSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
+            loadedSheets[sheetId] ?: reader.loadSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
         }
         expectedRevisions.forEach { expected ->
             val current = currentBySheet.getValue(expected.sheetId)

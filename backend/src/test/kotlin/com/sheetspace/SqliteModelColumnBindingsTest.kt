@@ -11,12 +11,15 @@ class SqliteModelColumnBindingsTest {
     private val freshId = "31000000-0000-0000-0000-000000000003"
     private val model = DataModel(modelId, "Budget", listOf(
         ManualModelColumn(revenueId, "Revenue", ModelColumnType.FLOAT),
-        CalculatedModelColumn(costId, "Cost", ModelColumnType.FLOAT, "=unfinished("),
+        CalculatedModelColumn(costId, "Cost", ModelColumnType.FLOAT, "=1"),
     ))
     private val sheet = testDocument(TEST_SHEET_1, "Inputs", tabular = TabularContent(columnCount = 3, rowCount = 2))
-    private val boundSheet = sheet.copy(modelId = modelId, modelColumnBindings = mapOf(
-        revenueId to sheet.tabularContent.columns[0], costId to sheet.tabularContent.columns[1],
-    ))
+    private val boundSheet = sheet.copy(
+        modelId = modelId,
+        modelColumnBindings = mapOf(revenueId to sheet.tabularContent.columns[0], costId to sheet.tabularContent.columns[1]),
+        modelFormulaBindings = mapOf(costId to BoundModelFormula("=1", emptyList())),
+        content = sheet.tabularContent.updateCell("B1", "=1").updateCell("B2", "=1"),
+    )
     private val workbook = testWorkbookOf(boundSheet).copy(dataModels = mapOf(modelId to model))
 
     @Test
@@ -36,15 +39,13 @@ class SqliteModelColumnBindingsTest {
             val application = DefaultWorkbookApplication(store)
             application.saveDataModel(model.copy(columns = listOf(
                 ManualModelColumn(freshId, "Revenue", ModelColumnType.FLOAT),
-                CalculatedModelColumn(costId, "Costs", ModelColumnType.FLOAT, "=still unfinished("),
+                CalculatedModelColumn(costId, "Costs", ModelColumnType.FLOAT, "=1"),
             )))
 
             val reloaded = store.loadSheet(sheet.id)!!
             assertEquals(mapOf(costId to sheet.tabularContent.columns[1]), reloaded.modelColumnBindings)
-            assertEquals(sheet.content, reloaded.content)
-            assertEquals(sheet.presentation, reloaded.presentation)
-            application.updateSheetModel(sheet.id.value, UpdateSheetModelCommand(modelId))
-            assertEquals(reloaded, store.loadSheet(sheet.id))
+            assertEquals(boundSheet.content, reloaded.content)
+            assertEquals(boundSheet.presentation, reloaded.presentation)
         }
     }
 

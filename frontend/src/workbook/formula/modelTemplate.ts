@@ -89,3 +89,19 @@ export function instantiateModelFormulas(workbook: Workbook, sheetId: string, bi
   }
   return { ...sheet, content: { ...sheet.content, cells } };
 }
+
+/**
+ * Recomputes the derived instance of every bound calculated cell from its persisted template.
+ *
+ * A structural change that invalidates a derived instance must update the dependent sheets in the
+ * same operation, so no client keeps a calculation its declarations no longer produce.
+ */
+export function refreshDerivedInstances(workbook: Workbook): Workbook {
+  const documents = { ...workbook.documents };
+  for (const sheet of Object.values(workbook.documents)) {
+    const bindings = sheet.modelFormulaBindings;
+    if (!bindings || Object.keys(bindings).length === 0) continue;
+    documents[sheet.id] = instantiateModelFormulas(workbook, sheet.id, bindings);
+  }
+  return { ...workbook, documents };
+}

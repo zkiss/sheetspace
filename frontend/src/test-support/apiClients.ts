@@ -5,6 +5,7 @@ import { applyFormatWrites } from '@workbook/core/numberFormat';
 import type { FormatWrite } from '@workbook/core/model';
 import { vi } from 'vitest';
 import { appendColumn, appendRow, renameSheet, validateSheetName } from '@workbook/mutations/operations';
+import { instantiateModelFormula } from '@workbook/formula/modelTemplate';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type SheetDocument, type SheetFrameSize, type Workbook, type WorkspacePosition } from '@workbook/core/model';
 import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
@@ -137,7 +138,6 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
     writeCells: vi.fn().mockImplementation(async (
       expectedRevisions: readonly { sheetId: string }[],
       cells: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[],
-      modelFormulaBindings: readonly { sheetId: string; bindings: NonNullable<SheetDocument['modelFormulaBindings']> }[] = [],
     ) => {
       for (const cell of cells) {
         updateSheet(cell.sheetId, (sheet) => {
@@ -147,14 +147,15 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
           return { ...sheet, content: { ...sheet.content, cells: nextCells } };
         });
       }
-      for (const { sheetId, bindings } of modelFormulaBindings) {
-        updateSheet(sheetId, (sheet) => ({ ...sheet, modelFormulaBindings: structuredClone(bindings) }));
-      }
       return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
-      const rowId = `${sheetId}:row:${findSheetById(persistedWorkbook, sheetId)!.content.rows.length + 1}`;
-      const sheet = findSheetById(updateSheet(sheetId, (current) => appendRow(current, rowId)), sheetId);
+      const current = findSheetById(persistedWorkbook, sheetId)!;
+      const rowId = `${sheetId}:row:${current.content.rows.length + 1}`;
+      const appended = appendRow(current, rowId);
+      const withRow = { ...persistedWorkbook, documents: { ...persistedWorkbook.documents, [sheetId]: appended } };
+      persistedWorkbook = { ...withRow, documents: { ...withRow.documents, [sheetId]: materializeCalculatedRow(withRow, appended, rowId) } };
+      const sheet = findSheetById(persistedWorkbook, sheetId);
       return {
         ...revisionResponse(persistedWorkbook, sheetId),
         rowCount: sheet?.content.rows.length ?? 0,
@@ -190,6 +191,24 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
 
 function revisionResponse(workbook: Workbook, sheetId: string) {
   return { sheetId, revision: findSheetById(workbook, sheetId)?.revision ?? 0 };
+}
+
+/** Mirrors the backend, which materializes the derived contents of an appended row itself. */
+function materializeCalculatedRow(workbook: Workbook, sheet: SheetDocument, rowId: string): SheetDocument {
+  const model = sheet.modelId ? workbook.dataModels?.[sheet.modelId] : undefined;
+  const templates = sheet.modelFormulaBindings;
+  if (!model || !templates) return sheet;
+  const rowIndex = sheet.content.rows.indexOf(rowId);
+  if (rowIndex < 0) return sheet;
+  const cells = { ...sheet.content.cells };
+  for (const property of model.columns) {
+    if (property.kind !== 'calculated') continue;
+    const columnId = sheet.modelColumnBindings?.[property.id];
+    const template = templates[property.id];
+    if (!columnId || !template) continue;
+    cells[cellIdentityKey({ rowId, columnId })] = instantiateModelFormula(template, workbook, rowIndex);
+  }
+  return { ...sheet, content: { ...sheet.content, cells } };
 }
 
 export function deterministicSheetId(index: number) {

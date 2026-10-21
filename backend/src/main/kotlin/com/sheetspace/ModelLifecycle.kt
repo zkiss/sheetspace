@@ -55,6 +55,6 @@ private fun ModelFormulaSpan.validIn(raw: String) = start >= 0 && end > start &&
 
 private fun appearanceWrite(scope: String, id: String, value: CellFormat) = FormatWrite(scope, id, properties = Json.encodeToJsonElement(value).jsonObject)
 
-private fun requireLifecycle(valid: Boolean) {
+internal fun requireLifecycle(valid: Boolean) {
     if (!valid) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
 }

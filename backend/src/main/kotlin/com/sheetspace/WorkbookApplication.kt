@@ -34,7 +34,6 @@ data class ColumnAppendResult(
 data class CellPatchCommand(
     val expectedRevisions: List<ExpectedSheetRevision>,
     val cells: List<SheetCellWrite>,
-    val modelFormulaBindings: List<SheetFormulaBindingWrite> = emptyList(),
 )
 
 data class UpdateSheetModelCommand(val modelId: String?, val modelColumnBindings: Map<String, ColumnId>? = null)
@@ -55,6 +54,7 @@ enum class WorkbookApplicationError {
     DUPLICATE_SHEET_REVISION,
     INVALID_CELL_COORDINATE,
     INVALID_CELL_PATCH,
+    CALCULATED_CELL_WRITE,
     INVALID_SHEET_PRESENTATION,
     INVALID_DATA_MODEL,
     UNKNOWN_DATA_MODEL,
@@ -84,6 +84,7 @@ interface WorkbookApplication {
 
     fun deleteSheet(sheetId: String, expectedRevision: Long)
 
+    /** Ordinary content editing; a target owned by a calculated property is rejected before any write. */
     fun writeCells(command: CellPatchCommand): List<SheetDocument>
 
     fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult
@@ -99,7 +100,16 @@ class DefaultWorkbookApplication(
     private val store: WorkbookStore,
 ) : WorkbookApplication {
     override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
-        store.updateWorkbook { current -> reconcileModelLifecycle(current, before, after) }
+        store.updateWorkbook { current ->
+            val reconciled = reconcileModelLifecycle(current, before, after)
+            // The transition carries the complete post-state, so every row of every bound
+            // calculated sheet must already carry its derived instance. A transition that leaves a
+            // bound calculated property without its derived content is rejected, never persisted.
+            if (!calculatedContentsAreDerived(after)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+            }
+            reconciled
+        }
     override fun loadManifest(): WorkbookManifest = store.loadManifest()
 
     override fun loadWorkbookBundle(): WorkbookState = store.loadWorkbookBundle()
@@ -204,12 +214,14 @@ class DefaultWorkbookApplication(
             if (workbook.findSheet(id) == null) {
                 throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
             }
-            workbook.removeSheet(id)
+            // Removing a sheet invalidates the derived instances that reference it, so the
+            // dependent sheets are materialized in the same operation.
+            materializeDerivedContents(workbook.removeSheet(id))
         }
     }
 
     override fun writeCells(command: CellPatchCommand): List<SheetDocument> {
-        if (command.cells.isEmpty() && command.modelFormulaBindings.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.EMPTY_CELL_PATCH)
+        if (command.cells.isEmpty()) throw WorkbookApplicationException(WorkbookApplicationError.EMPTY_CELL_PATCH)
         if (command.cells.any { write ->
                 write.sheetId.toUuidBytesOrNull() == null ||
                     write.rowId.toUuidBytesOrNull() == null ||
@@ -225,30 +237,33 @@ class DefaultWorkbookApplication(
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).distinct().size != command.expectedRevisions.size) {
             throw WorkbookApplicationException(WorkbookApplicationError.DUPLICATE_SHEET_REVISION)
         }
-        if (command.modelFormulaBindings.map { it.sheetId }.distinct().size != command.modelFormulaBindings.size) {
-            throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
-        }
-        val touchedSheetIds = (command.cells.map(SheetCellWrite::sheetId) + command.modelFormulaBindings.map { it.sheetId }).distinct()
+        val touchedSheetIds = command.cells.map(SheetCellWrite::sheetId).distinct()
         if (command.expectedRevisions.map(ExpectedSheetRevision::sheetId).toSet() != touchedSheetIds.toSet()) {
             throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_PATCH)
         }
+        val sheetsById = command.cells.map(SheetCellWrite::sheetId).distinct().associateWith { sheetId -> loadSheet(sheetId) }
         command.cells.forEach { write ->
-            val sheet = loadSheet(write.sheetId)
+            val sheet = sheetsById.getValue(write.sheetId)
             if (RowId(write.rowId) !in sheet.tabularContent.rows || ColumnId(write.columnId) !in sheet.tabularContent.columns) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_CELL_COORDINATE)
             }
         }
         command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
-        if (command.modelFormulaBindings.isNotEmpty()) {
-            val updated = store.updateWorkbook { current -> applyModelRowPatch(current, command) }
-            return touchedSheetIds.map { updated.documents.getValue(SheetId(it)) }
+        val dataModels = store.loadDataModels()
+        command.cells.forEach { write ->
+            val sheet = sheetsById.getValue(write.sheetId)
+            if (ColumnId(write.columnId) in calculatedModelColumns(sheet, dataModels)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+            }
         }
         return store.writeCells(command.expectedRevisions, command.cells)
     }
 
     override fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
-            workbook.replaceSheet(current.updateTabularContent(TabularContent::appendRow))
+            val appended = current.updateTabularContent(TabularContent::appendRow)
+            val provisional = workbook.replaceSheet(appended)
+            provisional.replaceSheet(materializeCalculatedRow(provisional, appended, appended.tabularContent.rows.last()))
         }
         return RowAppendResult(sheet, sheet.tabularContent.rows.last())
     }
@@ -263,6 +278,14 @@ class DefaultWorkbookApplication(
     override fun saveDataModel(model: DataModel): DataModel {
         if (!isValidDataModel(model)) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
         return store.updateWorkbook { workbook ->
+            val previous = workbook.dataModels[model.id]
+            if (
+                previous != null &&
+                workbook.documents.values.any { it.modelId == model.id } &&
+                previous.calculatedFormulasByProperty() != model.calculatedFormulasByProperty()
+            ) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
+            }
             val propertyIds = model.columns.map(ModelColumn::id).toSet()
             workbook.copy(
                 dataModels = workbook.dataModels + (model.id to model),
@@ -286,16 +309,23 @@ class DefaultWorkbookApplication(
             if (command.modelId != null && command.modelId !in workbook.dataModels) {
                 throw WorkbookApplicationException(WorkbookApplicationError.UNKNOWN_DATA_MODEL)
             }
-            if (sheet.modelId == command.modelId && command.modelColumnBindings == null) return@updateWorkbook workbook
             val bindings = command.modelColumnBindings ?: command.modelId?.let { modelId ->
                 workbook.dataModels.getValue(modelId).columns.zip(sheet.tabularContent.columns)
                     .associate { (property, column) -> property.id to column }
             }.orEmpty()
-            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings, modelFormulaBindings = null)
+            if (sheet.modelId == command.modelId && sheet.modelColumnBindings == bindings) return@updateWorkbook workbook
+            val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings)
             if (!validModelColumnBindings(updated, workbook.dataModels)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
             }
-            workbook.replaceSheet(updated)
+            val model = command.modelId?.let(workbook.dataModels::get)
+            if (model?.columns?.any { it is CalculatedModelColumn } == true) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
+            }
+            val withoutFormulaBindings = updated.copy(modelFormulaBindings = null)
+            // Detaching a sheet invalidates the derived instances that reference it, so the
+            // dependent sheets are materialized in the same operation.
+            materializeDerivedContents(workbook.replaceSheet(withoutFormulaBindings))
         }.documents.getValue(id)
     }
 
@@ -313,6 +343,9 @@ class DefaultWorkbookApplication(
         return updated.documents.getValue(id)
     }
 }
+
+private fun DataModel.calculatedFormulasByProperty(): Map<String, String> =
+    columns.filterIsInstance<CalculatedModelColumn>().associate { it.id to it.formula }
 
 internal fun isValidDataModel(model: DataModel): Boolean {
     if (model.id.toUuidBytesOrNull() == null || model.name.isBlank()) return false

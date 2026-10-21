@@ -27,16 +27,20 @@ class SqliteWorkbookStore internal constructor(
     override fun close() = database.close()
 
     override fun loadManifest(): WorkbookManifest = database.transaction { conn ->
-        SqliteWorkbookReader(conn).loadManifest()
+        reader(conn).loadManifest()
     }
 
     override fun loadSheet(sheetId: SheetId): SheetDocument? {
         if (sheetId.value.toUuidBytesOrNull() == null) return null
-        return database.transaction { conn -> SqliteWorkbookReader(conn, sheetReadObserver = sheetReadObserver).loadSheet(sheetId) }
+        return database.transaction { conn -> reader(conn).loadSheet(sheetId) }
     }
 
     override fun loadWorkbookBundle(): WorkbookState = database.transaction { conn ->
         SqliteWorkbookReader(conn, aggregateReadCheckpoint, sheetReadObserver).loadWorkbookBundle()
+    }
+
+    override fun loadDataModels(): Map<String, DataModel> = database.transaction { conn ->
+        reader(conn).loadDataModels()
     }
 
     override fun saveWorkbook(workbook: WorkbookState) {
@@ -44,14 +48,21 @@ class SqliteWorkbookStore internal constructor(
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
         validateModelMetadata(workbook)
+        rejectInvalidCalculatedContents(workbook)
         synchronized(updateLock) {
             database.transaction { conn ->
-                val reader = SqliteWorkbookReader(conn)
+                val reader = reader(conn)
                 SqliteWorkbookWriter(conn, reader).replaceAll(workbook)
             }
         }
     }
 
+    /**
+     * Writes cells after rejecting every target owned by a calculated property.
+     *
+     * Ownership is decided from the written sheets and the current declarations, so an ordinary
+     * cell edit reads only the sheets it touches instead of decoding the whole workbook.
+     */
     override fun writeCells(
         expectedRevisions: List<ExpectedSheetRevision>,
         writes: List<SheetCellWrite>,
@@ -66,8 +77,18 @@ class SqliteWorkbookStore internal constructor(
         }
         return synchronized(updateLock) {
             database.transaction { conn ->
-                val reader = SqliteWorkbookReader(conn)
-                SqliteWorkbookWriter(conn, reader).writeCells(expectedRevisions, writes)
+                val reader = reader(conn)
+                val writtenSheets = writes.map(SheetCellWrite::sheetId).distinct().associateWith { sheetId ->
+                    reader.loadSheet(SheetId(sheetId)) ?: throw NoSuchElementException("Sheet not found: $sheetId")
+                }
+                val dataModels = reader.loadDataModels()
+                writes.forEach { write ->
+                    val sheet = writtenSheets.getValue(write.sheetId)
+                    if (ColumnId(write.columnId) in calculatedModelColumns(sheet, dataModels)) {
+                        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                    }
+                }
+                SqliteWorkbookWriter(conn, reader).writeCells(expectedRevisions, writes, writtenSheets)
             }
         }
     }
@@ -75,7 +96,7 @@ class SqliteWorkbookStore internal constructor(
     override fun writePresentation(expectedRevision: ExpectedSheetRevision, writes: List<AxisSizeWrite>, formatWrites: List<FormatWrite>): SheetDocument =
         synchronized(updateLock) {
             database.transaction { conn ->
-                val reader = SqliteWorkbookReader(conn)
+                val reader = reader(conn)
                 SqliteWorkbookWriter(conn, reader).writePresentation(expectedRevision, writes, formatWrites)
             }
         }
@@ -87,7 +108,7 @@ class SqliteWorkbookStore internal constructor(
         }
         return synchronized(updateLock) {
             database.transaction { conn ->
-                val reader = SqliteWorkbookReader(conn)
+                val reader = reader(conn)
                 val writer = SqliteWorkbookWriter(conn, reader)
                 val current = reader.loadWorkbookBundle()
                 val currentSheets = writes.associateWith { write ->
@@ -118,11 +139,12 @@ class SqliteWorkbookStore internal constructor(
         transform: (WorkbookState) -> WorkbookState,
     ): WorkbookState = synchronized(updateLock) {
         database.transaction { conn ->
-            val reader = SqliteWorkbookReader(conn)
+            val reader = reader(conn)
             val writer = SqliteWorkbookWriter(conn, reader)
             val current = reader.loadWorkbookBundle()
             val updated = transform(current)
             validateModelMetadata(updated)
+            rejectCalculatedOverrides(current, updated)
             if (expectedRevision != null) {
                 val currentSheet = current.findSheet(SheetId(expectedRevision.sheetId))
                 if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {
@@ -140,8 +162,11 @@ class SqliteWorkbookStore internal constructor(
     }
 
     internal fun loadStoredSchemaVersion(): Int? = database.connection { conn ->
-        SqliteWorkbookReader(conn).loadStoredSchemaVersion()
+        reader(conn).loadStoredSchemaVersion()
     }
+
+    /** Every sheet read of this store is observable, so read amplification can be asserted. */
+    private fun reader(conn: Connection) = SqliteWorkbookReader(conn, sheetReadObserver = sheetReadObserver)
 
     companion object {
         internal fun inMemory(sheetReadObserver: ((SheetReadEvent) -> Unit)? = null): SqliteWorkbookStore {
@@ -152,6 +177,45 @@ class SqliteWorkbookStore internal constructor(
                 sheetReadObserver = sheetReadObserver,
             )
         }
+    }
+}
+
+private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) {
+    current.documents.forEach { (id, before) ->
+        val sheet = updated.documents[id] ?: return@forEach
+        if (before.modelId == sheet.modelId) {
+            val beforeModel = before.modelId?.let(current.dataModels::get)
+            val updatedModel = sheet.modelId?.let(updated.dataModels::get)
+            beforeModel?.columns?.filterIsInstance<CalculatedModelColumn>()?.forEach { property ->
+                val column = before.modelColumnBindings[property.id] ?: return@forEach
+                val stillCalculated = updatedModel?.columns
+                    ?.filterIsInstance<CalculatedModelColumn>()
+                    ?.any { it.id == property.id } == true
+                if (stillCalculated && sheet.modelColumnBindings[property.id] != column) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                }
+                if (stillCalculated && before.modelFormulaBindings?.containsKey(property.id) == true &&
+                    sheet.modelFormulaBindings?.containsKey(property.id) != true
+                ) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+                }
+            }
+        }
+    }
+    if (!calculatedTemplatesAreValid(updated)) {
+        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+    }
+    if (calculatedOverridesWereIntroduced(current, updated)) {
+        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+    }
+}
+
+/**
+ * A whole-workbook save replaces every cell, so every calculated cell must be a derived instance.
+ */
+private fun rejectInvalidCalculatedContents(workbook: WorkbookState) {
+    if (!calculatedContentsAreDerived(workbook)) {
+        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
     }
 }
 

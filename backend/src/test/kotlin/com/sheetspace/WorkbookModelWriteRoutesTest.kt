@@ -11,14 +11,14 @@ import kotlin.test.assertNotEquals
 
 class WorkbookModelWriteRoutesTest {
     @Test
-    fun `model writes persist through HTTP to a reopened SQLite database`() {
+    fun `manual model writes persist through the template-free HTTP endpoint to a reopened SQLite database`() {
         val database = Files.createTempFile("sheetspace-model-routes-", ".sqlite")
         val modelId = "30000000-0000-0000-0000-000000000001"
         val firstSheet = shapedZeroRowSheet()
         val secondSheet = shapedSheetWithValuesAndFormula()
         val expectedSecondBindings = mapOf(
-            "31000000-0000-0000-0000-000000000004" to secondSheet.tabularContent.columns[0].value,
-            "31000000-0000-0000-0000-000000000003" to secondSheet.tabularContent.columns[1].value,
+            "31000000-0000-0000-0000-000000000001" to secondSheet.tabularContent.columns[0].value,
+            "31000000-0000-0000-0000-000000000002" to secondSheet.tabularContent.columns[1].value,
         )
         lateinit var firstSheetId: String
         lateinit var secondSheetId: String
@@ -36,7 +36,7 @@ class WorkbookModelWriteRoutesTest {
                     secondSheetId = TEST_SHEET_2
 
                     assertEquals(HttpStatusCode.OK, client.put("/api/data-models/$modelId") {
-                        jsonBody(allTypesModelWriteBody("Invoice", "=SUM(unfinished, named)"))
+                        jsonBody(allTypesModelWriteBody("Invoice"))
                     }.status)
                     assertEquals(HttpStatusCode.OK, client.put("/api/sheets/$firstSheetId/model") {
                         jsonBody("""{"modelId":"$modelId"}""")
@@ -60,7 +60,7 @@ class WorkbookModelWriteRoutesTest {
                         secondSheet to modelId,
                     )
                     assertEquals(HttpStatusCode.OK, client.put("/api/data-models/$modelId") {
-                        jsonBody(reorderedAndRetypedModelWriteBody("Invoices", "=SUM(unfinished, renamed)"))
+                        jsonBody(reorderedAndRetypedModelWriteBody("Invoices"))
                     }.status)
                     val reattached = client.put("/api/sheets/$secondSheetId/model") {
                         jsonBody("""{"modelId":"$modelId"}""")
@@ -110,13 +110,13 @@ class WorkbookModelWriteRoutesTest {
     }
 
     @Test
-    fun `model declaration edits and sheet bindings persist through HTTP`() = testWorkbookApplication { application ->
+    fun `manual model declaration edits and sheet bindings persist through HTTP`() = testWorkbookApplication { application ->
         val inputs = client.createSheet()
         val outputs = application.createSheet(CreateSheetCommand("Outputs"))
         val modelId = "30000000-0000-0000-0000-000000000001"
 
         val created = client.put("/api/data-models/$modelId") {
-            jsonBody(modelWriteBody("Quantity", "=SUM(quantity, tax)"))
+            jsonBody(modelWriteBody("Quantity"))
         }
         val firstBinding = client.put("/api/sheets/${inputs.id}/model") {
             jsonBody("""{"modelId":"$modelId"}""")
@@ -125,7 +125,7 @@ class WorkbookModelWriteRoutesTest {
             jsonBody("""{"modelId":"$modelId"}""")
         }
         val edited = client.put("/api/data-models/$modelId") {
-            jsonBody(modelWriteBody("Units", "=SUM(units, tax)"))
+            jsonBody(modelWriteBody("Units"))
         }
 
         assertEquals(HttpStatusCode.OK, created.status)
@@ -133,7 +133,7 @@ class WorkbookModelWriteRoutesTest {
         assertEquals(HttpStatusCode.OK, secondBinding.status)
         assertEquals(HttpStatusCode.OK, edited.status)
         assertEquals("Units", application.loadWorkbookBundle().dataModels.getValue(modelId).columns.first().name)
-        assertEquals("=SUM(units, tax)", application.loadWorkbookBundle().dataModels.getValue(modelId).columns[1].let { (it as CalculatedModelColumn).formula })
+        assertEquals("Tax", application.loadWorkbookBundle().dataModels.getValue(modelId).columns[1].name)
         assertEquals(modelId, application.loadSheet(inputs.id).modelId)
         assertEquals(modelId, application.loadSheet(outputs.id.value).modelId)
     }
@@ -155,16 +155,16 @@ class WorkbookModelWriteRoutesTest {
     fun `model writes reject invalid declarations and allow binding removal`() = testWorkbookApplication { application ->
         val sheet = client.createSheet()
         val modelId = "30000000-0000-0000-0000-000000000001"
-        client.put("/api/data-models/$modelId") { jsonBody(modelWriteBody("Quantity", "=SUM(quantity, tax)")) }
+        client.put("/api/data-models/$modelId") { jsonBody(modelWriteBody("Quantity")) }
 
         val invalidTypes = listOf(
-            modelWriteBody("Quantity", "=SUM(quantity, tax)").replace("\"int\"", "\"decimal\""),
-            modelWriteBody("Quantity", "=SUM(quantity, tax)").replace("\"kind\":\"manual\",\"type\":\"int\"", "\"kind\":\"manual\",\"type\":\"int\",\"formula\":\"=1\""),
-            modelWriteBody("Quantity", "=SUM(quantity, tax)").replace("\"kind\":\"calculated\"", "\"kind\":\"unknown\""),
-            modelWriteBody("Quantity", " "),
-            modelWriteBody("Quantity", "=SUM(quantity, tax)").replace("\"name\":\"Invoice\"", "\"name\":\" \""),
-            modelWriteBody("Quantity", "=SUM(quantity, tax)").replace("\"name\":\"Tax\"", "\"name\":\"Quantity\""),
-            modelWriteBody("Quantity", "=SUM(quantity, tax)").replace("31000000-0000-0000-0000-000000000002", "31000000-0000-0000-0000-000000000001"),
+            modelWriteBody("Quantity").replace("\"int\"", "\"decimal\""),
+            modelWriteBody("Quantity").replace("\"kind\":\"manual\",\"type\":\"int\"", "\"kind\":\"manual\",\"type\":\"int\",\"formula\":\"=1\""),
+            modelWriteBody("Quantity").replaceFirst("\"kind\":\"manual\"", "\"kind\":\"unknown\""),
+            modelWriteBody("Quantity").replace("\"name\":\"Tax\"", "\"name\":\"Tax\",\"formula\":\" \""),
+            modelWriteBody("Quantity").replace("\"name\":\"Invoice\"", "\"name\":\" \""),
+            modelWriteBody("Quantity").replace("\"name\":\"Tax\"", "\"name\":\"Quantity\""),
+            modelWriteBody("Quantity").replace("31000000-0000-0000-0000-000000000002", "31000000-0000-0000-0000-000000000001"),
         )
 
         invalidTypes.forEach { body ->
@@ -178,7 +178,7 @@ class WorkbookModelWriteRoutesTest {
         assertEquals(HttpStatusCode.OK, removal.status)
         assertEquals(null, application.loadSheet(sheet.id).modelId)
 
-        val invalidId = client.put("/api/data-models/not-a-uuid") { jsonBody(modelWriteBody("Quantity", "=SUM(quantity, tax)")) }
+        val invalidId = client.put("/api/data-models/not-a-uuid") { jsonBody(modelWriteBody("Quantity")) }
         assertEquals(HttpStatusCode.BadRequest, invalidId.status)
     }
 
@@ -216,11 +216,11 @@ private fun assertPersistedModelMetadata(
             "31000000-0000-0000-0000-000000000001" to ("manual" to "boolean"),
             "31000000-0000-0000-0000-000000000002" to ("manual" to "float"),
             "31000000-0000-0000-0000-000000000003" to ("manual" to "int"),
-            "31000000-0000-0000-0000-000000000004" to ("calculated" to "string"),
+            "31000000-0000-0000-0000-000000000004" to ("manual" to "string"),
         ),
         model.columns.map { it.id to (it.kind to it.type) },
     )
-    assertEquals("=SUM(unfinished, renamed)", model.columns.last().formula)
+    assertEquals(null, model.columns.last().formula)
     assertEquals(null, bundle.documents.single { it.id == unboundSheetId }.modelId)
     assertEquals(emptyMap(), bundle.documents.single { it.id == unboundSheetId }.modelColumnBindings)
     assertEquals(modelId, bundle.documents.single { it.id == boundSheetId }.modelId)
@@ -292,21 +292,21 @@ private fun shapedSheetWithValuesAndFormula(): SheetDocument {
     )
 }
 
-private fun modelWriteBody(firstColumnName: String, formula: String): String = """
+private fun modelWriteBody(firstColumnName: String): String = """
     {
       "name":"Invoice",
       "columns":[
         {"id":"31000000-0000-0000-0000-000000000001","name":"$firstColumnName","kind":"manual","type":"int"},
-        {"id":"31000000-0000-0000-0000-000000000002","name":"Tax","kind":"calculated","type":"float","formula":"$formula"}
+        {"id":"31000000-0000-0000-0000-000000000002","name":"Tax","kind":"manual","type":"float"}
       ]
     }
 """.trimIndent()
 
-private fun allTypesModelWriteBody(name: String, formula: String): String = """
+private fun allTypesModelWriteBody(name: String): String = """
     {
       "name":"$name",
       "columns":[
-        {"id":"31000000-0000-0000-0000-000000000004","name":"Enabled","kind":"calculated","type":"boolean","formula":"$formula"},
+        {"id":"31000000-0000-0000-0000-000000000004","name":"Enabled","kind":"manual","type":"boolean"},
         {"id":"31000000-0000-0000-0000-000000000003","name":"Amount","kind":"manual","type":"float"},
         {"id":"31000000-0000-0000-0000-000000000002","name":"Quantity","kind":"manual","type":"int"},
         {"id":"31000000-0000-0000-0000-000000000001","name":"Label","kind":"manual","type":"string"}
@@ -314,14 +314,14 @@ private fun allTypesModelWriteBody(name: String, formula: String): String = """
     }
 """.trimIndent()
 
-private fun reorderedAndRetypedModelWriteBody(name: String, formula: String): String = """
+private fun reorderedAndRetypedModelWriteBody(name: String): String = """
     {
       "name":"$name",
       "columns":[
         {"id":"31000000-0000-0000-0000-000000000001","name":"Label","kind":"manual","type":"boolean"},
         {"id":"31000000-0000-0000-0000-000000000002","name":"Quantity","kind":"manual","type":"float"},
         {"id":"31000000-0000-0000-0000-000000000003","name":"Amount","kind":"manual","type":"int"},
-        {"id":"31000000-0000-0000-0000-000000000004","name":"Enabled","kind":"calculated","type":"string","formula":"$formula"}
+        {"id":"31000000-0000-0000-0000-000000000004","name":"Enabled","kind":"manual","type":"string"}
       ]
     }
 """.trimIndent()

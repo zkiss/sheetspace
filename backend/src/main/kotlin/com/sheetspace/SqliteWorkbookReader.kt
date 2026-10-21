@@ -23,7 +23,7 @@ internal class SqliteWorkbookReader(
         return WorkbookState(manifest, documents, dataModels)
     }
 
-    private fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models ORDER BY rowid").use { statement ->
+    fun loadDataModels(): Map<String, DataModel> = connection.prepareStatement("SELECT id, name FROM data_models ORDER BY rowid").use { statement ->
         statement.executeQuery().use { rs -> buildMap {
             while (rs.next()) { val id = rs.getBytes("id").toUuidString(); put(id, DataModel(id, rs.getString("name"), loadColumns(id))) }
         } }
