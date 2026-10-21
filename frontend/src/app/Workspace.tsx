@@ -40,6 +40,8 @@ import { useWorkspaceHistoryReveal } from './useWorkspaceHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
 import { SheetModelControls } from '@workspace/SheetModelControls';
+import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
+import { historyCellsForSheet } from './historyCellsForSheet';
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -120,6 +122,7 @@ export function Workspace({
   workbook: Workbook;
 }) {
   const clipboard = useRef(new ClipboardPayloadStore()); const [, setClipboardRevision] = useState(0);
+  const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() }); const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
     if (gridHistoryReveals.current.identity !== identity) gridHistoryReveals.current = { identity, sheetIds: new Set() };
@@ -245,6 +248,10 @@ export function Workspace({
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
       : undefined);
     if (!selection) return undefined;
+    if (selectionIncludesCalculatedCell(selection)) {
+      setCalculatedCellFeedback('This cell is calculated in the data model. Edit the calculation in Data models.');
+      return undefined;
+    }
     const cut = clipboard.current.cut(workbook, selection);
     if (cut.ok) setClipboardRevision((revision) => revision + 1);
     return cut.ok ? cut.value : undefined;
@@ -263,8 +270,20 @@ export function Workspace({
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     if (parsed.ok && parsed.value.kind === 'cut') {
       const moved = commands.moveCells(destination.id, destinationKey, parsed.value.source);
-      if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source') cancelPendingCut();
-    } else commands.pasteCells(destination.id, destinationKey, parsed);
+      if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source' || moved.reason === 'calculated-cell-write') cancelPendingCut();
+      if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback('This cell is calculated in the data model. Edit the calculation in Data models.');
+    } else {
+      const pasted = commands.pasteCells(destination.id, destinationKey, parsed);
+      if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback('This cell is calculated in the data model. Edit the calculation in Data models.');
+    }
+  }
+  function selectionIncludesCalculatedCell(selection: CellSelection) {
+    const sheet = findSheetById(workbook, selection.anchor.sheetId);
+    const range = sheet && selectionAddressRange(sheet, selection);
+    if (!sheet || !range) return false;
+    const calculatedColumns = calculatedOwnedColumns(sheet, workbook.dataModels);
+    return sheet.content.columns.slice(range.start.columnIndex, range.end.columnIndex + 1)
+      .some((columnId) => calculatedColumns.has(columnId));
   }
   return (
     <>
@@ -286,6 +305,7 @@ export function Workspace({
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
       />
+      {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
@@ -476,26 +496,4 @@ export function Workspace({
       </WorkspaceSurface>
     </>
   );
-}
-function historyCellsForSheet(
-  feedback: import('@application/react/useWorkbookController').ContentHistoryFeedback,
-  sheet: SheetDocument,
-) {
-  const beforeByIdentity = new Map(feedback.before.map((cell) => [
-    `${cell.sheetId}:${cell.rowId}:${cell.columnId}`,
-    cell,
-  ]));
-  const cells = new Map<string, { before: string | null; beforeDisplay: string | null; after: string | null }>();
-  for (const after of feedback.after) {
-    if (after.sheetId !== sheet.id) continue;
-    const address = cellAddressOf(sheet.content, after);
-    if (!address) continue;
-    const before = beforeByIdentity.get(`${after.sheetId}:${after.rowId}:${after.columnId}`);
-    cells.set(cellKey(address), {
-      before: before?.raw ?? null,
-      beforeDisplay: before?.display ?? null,
-      after: after.raw,
-    });
-  }
-  return cells;
 }

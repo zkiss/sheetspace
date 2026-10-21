@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import type { DataModel, Workbook } from '@workbook/core/model';
 
 function clipboardData(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -14,6 +15,31 @@ function clipboardData(initial: Record<string, string> = {}) {
 }
 
 describe('App grid clipboard integration', () => {
+  it('rejects calculated cut, paste, and move with feedback and cancels a rejected pending cut', () => {
+    render(<App initialWorkbook={calculatedWorkbook()} apiClient={autosaveClient()} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+    const cut = clipboardData();
+
+    fireEvent.click(cell('B1'));
+    fireEvent.cut(cell('B1'), { clipboardData: cut });
+    expect(cell('B1')).not.toHaveAttribute('data-pending-cut');
+    expect(screen.getByRole('alert')).toHaveTextContent('calculated in the data model');
+
+    fireEvent.click(cell('B2'));
+    fireEvent.paste(cell('B2'), { clipboardData: clipboardData({ 'text/plain': 'replacement' }) });
+    expect(screen.getByRole('alert')).toHaveTextContent('calculated in the data model');
+    expect(cell('B2')).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(cell('A1'));
+    fireEvent.cut(cell('A1'), { clipboardData: cut });
+    expect(cell('A1')).toHaveAttribute('data-pending-cut', 'true');
+    fireEvent.click(cell('B2'));
+    fireEvent.paste(cell('B2'), { clipboardData: cut });
+    expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
+    expect(cell('B2')).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('copies a grid formula as TSV with provenance and pastes it atomically from the active cell', async () => {
     const sheet = {
       ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }),
@@ -127,3 +153,21 @@ describe('App grid clipboard integration', () => {
     expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
   });
 });
+
+function calculatedWorkbook(): Workbook {
+  const sheet = positionedSheet('inputs', 'Inputs', { x: 48, y: 96 });
+  const model: DataModel = {
+    id: 'model', name: 'Model', columns: [
+      { id: 'input', name: 'Input', kind: 'manual', type: 'float' },
+      { id: 'result', name: 'Result', kind: 'calculated', type: 'float', formula: '=1' },
+    ],
+  };
+  return {
+    ...workbookWithSheets([{
+      ...sheet,
+      modelId: model.id,
+      modelColumnBindings: { input: sheet.content.columns[0]!, result: sheet.content.columns[1]! },
+    }]),
+    dataModels: { [model.id]: model },
+  };
+}
