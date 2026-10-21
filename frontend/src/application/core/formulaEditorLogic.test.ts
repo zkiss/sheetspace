@@ -75,6 +75,29 @@ describe('formula editor logic', () => {
     expect(applyFormulaCompletion(sheetRaw, sheet!)).toBe('=@Budget!A[1]');
   });
 
+  it.each([
+    { raw: '=@$Re[$1]', cursor: 5, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@$'Revenue'[$1]" },
+    { raw: "=@'Inputs'!$Re[$1]", cursor: 14, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@'Inputs'!$'Revenue'[$1]" },
+    { raw: '=@A[1]-SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]-SUM' },
+    { raw: '=@A[1]+SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]+SUM' },
+    { raw: '=@A[1]*SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]*SUM' },
+    { raw: '=@A[1]/SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]/SUM' },
+    { raw: '=SUM(@A[1], SU', cursor: 14, options: { sheetNames: [] }, label: 'SUM', expected: '=SUM(@A[1], SUM' },
+  ])('preserves anchored reference syntax and completes after parser-recognized expression boundaries', ({ raw, cursor, options, label, expected }) => {
+    const completion = formulaCompletions(raw, { start: cursor, end: cursor }, options).find((suggestion) => suggestion.label === label);
+
+    expect(completion).toBeDefined();
+    expect(applyFormulaCompletion(raw, completion!)).toBe(expected);
+  });
+
+  it.each(['+', '-', '*', '/', '=', '<>', '<', '<=', '>', '>='])('completes functions after the %s expression operator', (operator) => {
+    const raw = `=@A[1]${operator}SU`;
+    const completion = formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] })
+      .find((suggestion) => suggestion.label === 'SUM');
+
+    expect(applyFormulaCompletion(raw, completion!)).toBe(`=@A[1]${operator}SUM`);
+  });
+
   it('does not complete inside string literals and honors an explicit replacement selection', () => {
     expect(formulaCompletions('="SUM"', { start: 4, end: 4 }, { sheetNames: [] })).toEqual([]);
     const completion = formulaCompletions('=SMM(@A[1])', { start: 1, end: 4 }, { sheetNames: [] })

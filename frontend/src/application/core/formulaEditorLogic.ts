@@ -1,7 +1,7 @@
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
-import { formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult } from '@workbook/formula/syntax';
+import { formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult, type FormulaSyntaxToken } from '@workbook/formula/syntax';
 
 export type FormulaEditorSelection = { start: number; end: number };
 export type FormulaCompletion = {
@@ -45,9 +45,10 @@ export function formulaCompletions(
 ): FormulaCompletion[] {
   const cursor = clamp(selection.start, 0, raw.length);
   const end = clamp(selection.end, cursor, raw.length);
-  if (cursorIsInStringLiteral(raw, cursor)) return [];
+  const syntax = parseFormulaSyntax(raw);
+  if (cursorIsInStringLiteral(raw, cursor, syntax.tokens)) return [];
   const before = raw.slice(0, cursor);
-  const reference = referenceCompletionContext(before);
+  const reference = referenceCompletionContext(before, syntax.tokens);
   if (reference) {
     const replacement = completionReplacement(raw, cursor, end, reference.prefixStart);
     const candidates = reference.afterQualifier
@@ -150,14 +151,27 @@ export function formulaReferenceHover(
   return { kind: 'range', identity, values: rangeValues.slice(0, maximum), truncated: rangeValues.length > maximum };
 }
 
-function referenceCompletionContext(before: string): { prefixStart: number; query: string; afterQualifier: boolean } | undefined {
+function referenceCompletionContext(before: string, tokens: readonly FormulaSyntaxToken[]): { prefixStart: number; query: string; afterQualifier: boolean } | undefined {
   const at = before.lastIndexOf('@');
-  if (at < 0 || /[\s+*/(),=<>]/.test(before.slice(at + 1, at + 2))) return undefined;
+  if (at < lastCompletionBoundary(tokens, before.length)) return undefined;
   const fragment = before.slice(at + 1);
-  if (/[+*/(),=<>\n\r]/.test(fragment)) return undefined;
   const separator = fragment.lastIndexOf('!');
   const query = separator >= 0 ? fragment.slice(separator + 1) : fragment;
-  return { prefixStart: at + 1 + (separator >= 0 ? separator + 1 : 0), query: unquotePartial(query), afterQualifier: separator >= 0 };
+  const anchorLength = query.startsWith('$') ? 1 : 0;
+  return {
+    prefixStart: at + 1 + (separator >= 0 ? separator + 1 : 0) + anchorLength,
+    query: unquotePartial(query.slice(anchorLength)),
+    afterQualifier: separator >= 0,
+  };
+}
+
+/** Parser tokens define expression boundaries; incomplete reference text remains raw by design. */
+function lastCompletionBoundary(tokens: readonly FormulaSyntaxToken[], cursor: number): number {
+  return tokens.reduce((boundary, token) =>
+    token.sourceSpan.end <= cursor && (token.kind === 'operator' || token.kind === 'punctuation' || token.kind === 'whitespace')
+      ? Math.max(boundary, token.sourceSpan.end)
+      : boundary,
+  0);
 }
 
 function sheetCandidates(names: readonly string[], query: string, raw: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
@@ -181,7 +195,8 @@ function completionReplacement(raw: string, cursor: number, selectionEnd: number
   return { start, end };
 }
 
-function cursorIsInStringLiteral(raw: string, cursor: number): boolean {
+function cursorIsInStringLiteral(raw: string, cursor: number, tokens: readonly FormulaSyntaxToken[]): boolean {
+  if (tokens.some((token) => token.kind === 'literal' && token.sourceSpan.start < cursor && cursor < token.sourceSpan.end)) return true;
   let quoted = false;
   for (let index = 0; index < cursor; index += 1) {
     if (raw[index] !== '"') continue;
