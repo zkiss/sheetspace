@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { autosaveClient, persistedWorkbookClient } from '@test-support/apiClients';
-import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import { openSheetContextMenu } from '@test-support/appScreen';
+import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
 
 afterEach(() => {
@@ -27,13 +28,21 @@ function frame() {
 }
 
 function cellAt(key: string) {
-  const cell = frame().querySelector<HTMLElement>(`[data-cell-key="${key}"]`);
+  return cellInFrame(frame(), key);
+}
+
+function cellInFrame(sheetFrame: HTMLElement, key: string) {
+  const cell = sheetFrame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`);
   if (!cell) throw new Error(`Missing cell ${key}`);
   return cell;
 }
 
 function columnLabels() {
-  return [...frame().querySelectorAll<HTMLElement>('[role="columnheader"]')]
+  return columnLabelsFor(frame());
+}
+
+function columnLabelsFor(sheetFrame: HTMLElement) {
+  return [...sheetFrame.querySelectorAll<HTMLElement>('[role="columnheader"]')]
     .filter((header) => header.getAttribute('aria-label') !== 'Grid corner')
     .map((header) => header.textContent);
 }
@@ -43,6 +52,97 @@ function modelSelect() {
 }
 
 describe('App model binding workflow', () => {
+  it('persists the bounded two-sheet product workflow and leaves a cancelled destructive draft unchanged', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const first = sheetDocument({
+      id: 'first', name: 'First', rowCount: 1, columnCount: 2, cells: { A1: '3' },
+      presentation: { rowHeights: { 'first:row:1': 31 }, columnWidths: {} },
+    });
+    const second = sheetDocument({
+      id: 'second', name: 'Second', rowCount: 1, columnCount: 2, cells: { A1: '7' },
+      presentation: { rowHeights: {}, columnWidths: { 'second:column:1': 123 } },
+    });
+    const initial = workbookWithSheets([first, second]);
+    const apiClient = persistedWorkbookClient(initial);
+    render(<App initialWorkbook={initial} apiClient={apiClient} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
+    const create = screen.getByRole('form', { name: 'Create data model' });
+    fireEvent.change(within(create).getByLabelText('Model name'), { target: { value: 'Invoice' } });
+    fireEvent.change(within(create).getByLabelText('Property 1 name'), { target: { value: 'Input' } });
+    fireEvent.click(within(create).getByRole('button', { name: 'Add property' }));
+    fireEvent.change(within(create).getByLabelText('Property 2 name'), { target: { value: 'Output' } });
+    fireEvent.change(within(create).getByLabelText('Property 2 kind'), { target: { value: 'calculated' } });
+    fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])" } });
+    fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
+
+    const bind = async (sheetName: string) => {
+      const sheet = screen.getByRole('article', { name: `Sheet ${sheetName}` });
+      fireEvent.click(cellInFrame(sheet, 'A1'));
+      const select = screen.getByLabelText(`Model for ${sheetName}`) as HTMLSelectElement;
+      const model = within(select).getByRole('option', { name: 'Invoice' }) as HTMLOptionElement;
+      fireEvent.change(select, { target: { value: model.value } });
+      fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+      await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
+      return sheet;
+    };
+    const firstFrame = await bind('First');
+    const secondFrame = await bind('Second');
+    expect(cellInFrame(firstFrame, 'B1')).toHaveTextContent('3');
+    expect(cellInFrame(secondFrame, 'B1')).toHaveTextContent('7');
+    expect(cellInFrame(firstFrame, 'A1')).toHaveStyle({ height: '31px' });
+    expect(cellInFrame(secondFrame, 'A1')).toHaveStyle({ width: '123px' });
+
+    fireEvent.click(cellInFrame(firstFrame, 'A1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
+    const destructiveDraft = screen.getByRole('form', { name: 'Edit data model' });
+    fireEvent.click(within(destructiveDraft).getByRole('button', { name: 'Remove property 2' }));
+    fireEvent.click(within(destructiveDraft).getByRole('button', { name: 'Add property' }));
+    fireEvent.change(within(destructiveDraft).getByLabelText('Property 2 name'), { target: { value: 'Output' } });
+    expect(within(destructiveDraft).getByText(/New replacement properties start empty/)).toBeInTheDocument();
+    fireEvent.click(within(destructiveDraft).getByRole('button', { name: 'Cancel' }));
+    expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(3);
+    expect(columnLabelsFor(firstFrame)).toEqual(['Input', 'Output']);
+    expect(cellInFrame(firstFrame, 'B1')).toHaveTextContent('3');
+
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Data models' })).getByRole('button', { name: 'Edit' }));
+    const edit = screen.getByRole('form', { name: 'Edit data model' });
+    fireEvent.change(within(edit).getByLabelText('Model name'), { target: { value: 'Receipt' } });
+    fireEvent.change(within(edit).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])*2" } });
+    fireEvent.click(within(edit).getByRole('button', { name: 'Move property 2 up' }));
+    fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByLabelText('Bound to Receipt')).toBeInTheDocument());
+    expect(columnLabelsFor(firstFrame)).toEqual(['Output', 'Input']);
+    expect(cellInFrame(firstFrame, 'A1')).toHaveTextContent('6');
+    expect(cellInFrame(secondFrame, 'A1')).toHaveTextContent('14');
+
+    fireEvent.click(within(openSheetContextMenu(firstFrame)).getByRole('menuitem', { name: 'Append row' }));
+    await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledTimes(1));
+    expect(cellInFrame(firstFrame, 'A2')).toHaveTextContent('0');
+
+    cleanup();
+    render(<App apiClient={apiClient} />);
+    const reloadedFirst = await screen.findByRole('article', { name: 'Sheet First' });
+    const reloadedSecond = screen.getByRole('article', { name: 'Sheet Second' });
+    expect(columnLabelsFor(reloadedFirst)).toEqual(['Output', 'Input']);
+    expect(cellInFrame(reloadedFirst, 'A1')).toHaveTextContent('6');
+    expect(cellInFrame(reloadedSecond, 'A1')).toHaveTextContent('14');
+    expect(reloadedFirst).toHaveAttribute('data-row-count', '2');
+    expect(cellInFrame(reloadedFirst, 'B1')).toHaveStyle({ height: '31px' });
+    expect(cellInFrame(reloadedSecond, 'B1')).toHaveStyle({ width: '123px' });
+
+    fireEvent.click(cellInFrame(reloadedFirst, 'A1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Unbind model' }));
+    await waitFor(() => expect(screen.queryByLabelText('Bound to Receipt')).not.toBeInTheDocument());
+    fireEvent.doubleClick(cellInFrame(reloadedFirst, 'A1'));
+    const editor = screen.getByRole('textbox');
+    fireEvent.change(editor, { target: { value: '9' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    await waitFor(() => expect(cellInFrame(reloadedFirst, 'A1')).toHaveTextContent('9'));
+  });
+
   it('creates a model through the dialog, binds a sheet to it, and follows live property renames and reorders', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { workbook } = inputsWorkbook();
