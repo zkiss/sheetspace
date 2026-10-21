@@ -43,13 +43,13 @@ export type CellInteractionAction =
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'start-edit'; session: CellEditSession; replaceSuspendedDraft?: boolean }
-  | { type: 'update-draft'; session?: CellEditSession; draft: string }
-  | { type: 'update-editor-state'; session?: CellEditSession; selection: { start: number; end: number }; scrollTop: number }
+  | { type: 'update-draft'; session: CellEditSession; draft: string }
+  | { type: 'update-editor-state'; session: CellEditSession; selection: { start: number; end: number }; scrollTop: number }
   // A final DOM snapshot may arrive after navigation has suspended this same
   // overlay.  The reducer owns that ordering decision, not a render-time ref.
-  | { type: 'suspend'; session?: CellEditSession }
-  | { type: 'commit'; session?: CellEditSession }
-  | { type: 'cancel'; session?: CellEditSession }
+  | { type: 'suspend'; session: CellEditSession }
+  | { type: 'commit'; session: CellEditSession }
+  | { type: 'cancel'; session: CellEditSession }
   | { type: 'clear'; target: CellTarget }
   | { type: 'navigate'; target: CellTarget }
   | { type: 'traverse-range'; target: CellTarget }
@@ -193,17 +193,16 @@ export function cellInteractionReducer(
         };
       }
     case 'update-draft': {
-      if (!state.editing || (action.session && !sameSession(state.editing, action.session))) return state;
+      if (!state.editing || !sameSession(state.editing, action.session)) return state;
       const editing = { ...state.editing, draft: action.draft };
       return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
     }
     case 'update-editor-state': {
-      if (!state.editing || (action.session && !sameSession(state.editing, action.session))) return state;
+      if (!state.editing || !sameSession(state.editing, action.session)) return state;
       const editing = { ...state.editing, selection: action.selection, scrollTop: action.scrollTop };
       return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
     }
     case 'suspend': {
-      if (!action.session) return { ...state, ...suspendEdit(state) };
       const snapshot = normalizeSnapshot(action.session);
       if (sameSession(state.editing, snapshot)) {
         return { ...state, editing: null, drafts: { ...state.drafts, [cellDraftKey(snapshot.target)]: snapshot } };
@@ -214,10 +213,10 @@ export function cellInteractionReducer(
         : state;
     }
     case 'commit':
-      return state.editing && (!action.session || sameSession(state.editing, action.session))
+      return state.editing && sameSession(state.editing, action.session)
         ? { ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) } : state;
     case 'cancel':
-      return state.editing && (!action.session || sameSession(state.editing, action.session))
+      return state.editing && sameSession(state.editing, action.session)
         ? withFocusRequest({ ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) }, state.editing.target) : state;
     case 'clear':
       // Clearing contents is not a selection operation. Keep a range (including

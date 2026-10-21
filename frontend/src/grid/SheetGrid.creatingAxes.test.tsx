@@ -248,6 +248,7 @@ describe('SheetGrid creating axis slots', () => {
         editingCell={{
           target: { sheetId: sheet.id, cell: cellIdentityAt(sheet, 'B1')! },
           draft: 'Edited while appending',
+          sessionId: 1,
         }}
         editorInteraction={editorInteraction}
         formulaResults={{
@@ -283,7 +284,7 @@ describe('SheetGrid creating axis slots', () => {
     const editor = screen.getByRole('textbox', { name: 'Inputs B1 editor' });
     expect(editor).toHaveValue('Edited while appending');
     fireEvent.change(editor, { target: { value: 'Committed independently' } });
-    expect(editorInteraction.updateValue).toHaveBeenCalledWith('Committed independently');
+    expect(editorInteraction.updateValue).toHaveBeenCalledWith('Committed independently', expect.objectContaining({ sessionId: 1 }));
 
     const creatingCells = [...document.querySelectorAll<HTMLElement>('.sheet-grid-cell-creating')];
     expect(creatingCells).not.toHaveLength(0);

@@ -48,7 +48,7 @@ export type ReferenceNavigationTarget =
 // Each direct-overlay mount carries a fresh identity, even when it resumes the
 // same target and draft. This lets the editing lifecycle reject callbacks from
 // an overlay that unmounted before a newer session opened for that target.
-export type CellEditSession = FormulaDraftSession<CellTarget> & { sessionId?: number };
+export type CellEditSession = FormulaDraftSession<CellTarget> & { sessionId: number };
 
 export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
 

@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -46,7 +46,6 @@ describe('App grid composition', () => {
       id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 260 }, columnCount: 2, rowCount: 2,
     });
     const apiClient = autosaveClient();
-    const writeCells = vi.mocked(apiClient.writeCells);
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={apiClient} />);
     const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
@@ -84,11 +83,13 @@ describe('App grid composition', () => {
 
     await user.keyboard('{F2}Cross-sheet draft');
     await user.click(outputCell('A1'));
-    await waitFor(() => expect(inputCell('A3')).toHaveTextContent('Cross-sheet draft'));
-    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(5));
-    expect(writeCells.mock.calls[4]?.[1]).toHaveLength(1);
-    expect(writeCells.mock.calls[4]?.[1]?.[0]).toMatchObject({ raw: 'Cross-sheet draft' });
+    expect(inputCell('A3')).toHaveTextContent(/^$/);
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(4);
     expect(outputCell('A1')).toHaveAttribute('data-active-cell', 'true');
     expect(outputFrame).toHaveAttribute('data-active-sheet', 'true');
+
+    await user.click(inputCell('A3'));
+    await user.keyboard('{F2}');
+    expect(await screen.findByRole('textbox', { name: 'Inputs A3 editor' })).toHaveValue('Cross-sheet draft');
   });
 });

@@ -307,7 +307,7 @@ describe('DataModelDialog', () => {
     expect(within(form).getByLabelText('Property 1 formula')).toHaveAttribute('data-raw-formula-input', 'true');
     const anchor = { current: document.createElement('div') };
     render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
-      editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'row', columnId: 'column' } }, draft: '=1' }}
+      editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'row', columnId: 'column' } }, draft: '=1', sessionId: 1 }}
       interaction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }} />);
     expect(screen.getByLabelText('Inputs A1 editor')).toHaveAttribute('data-raw-formula-input', 'true');
   });

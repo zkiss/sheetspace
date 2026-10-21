@@ -28,11 +28,11 @@ describe('cellInteractionReducer', () => {
 
     const editing = cellInteractionReducer(selected, {
       type: 'start-edit',
-      session: { target: a1, draft: 'Draft' },
+      session: { target: a1, draft: 'Draft', sessionId: 1 },
     });
-    expect(editing.editing).toEqual({ target: a1, draft: 'Draft' });
+    expect(editing.editing).toEqual({ target: a1, draft: 'Draft', sessionId: 1 });
 
-    const canceled = cellInteractionReducer(editing, { type: 'cancel' });
+    const canceled = cellInteractionReducer(editing, { type: 'cancel', session: editing.editing! });
     expect(canceled.editing).toBeNull();
     expect(canceled.focusRequest).toMatchObject({ id: 1, target: a1 });
   });
@@ -40,7 +40,7 @@ describe('cellInteractionReducer', () => {
   it('derives keyboard focus and tab-run origin from commit navigation', () => {
     const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
       type: 'start-edit',
-      session: { target: a1, draft: 'Draft' },
+      session: { target: a1, draft: 'Draft', sessionId: 1 },
     });
     const tabbed = cellInteractionReducer(editing, {
       type: 'commit-tab',
@@ -105,7 +105,7 @@ describe('cellInteractionReducer', () => {
       { type: 'extend-selection', target: b1 },
     );
     const retained = cellInteractionReducer(unownedRange, {
-      type: 'start-edit', session: { target: b1, draft: 'Draft' },
+      type: 'start-edit', session: { target: b1, draft: 'Draft', sessionId: 1 },
     });
     expect(retained.rangeSelection).toEqual(unownedRange.rangeSelection);
 
@@ -115,7 +115,7 @@ describe('cellInteractionReducer', () => {
       { type: 'extend-selection', target: b1, gesture: { owner } },
     );
     const replaced = cellInteractionReducer(ownedRange, {
-      type: 'start-edit', session: { target: b1, draft: 'Draft' },
+      type: 'start-edit', session: { target: b1, draft: 'Draft', sessionId: 2 },
     });
     expect(replaced.rangeSelection).toEqual({ mode: 'cells', anchor: b1, extent: b1 });
 
@@ -123,7 +123,7 @@ describe('cellInteractionReducer', () => {
       type: 'settle-selection-gesture', gesture: { owner },
     });
     const retainedPointerRange = cellInteractionReducer(settledRange, {
-      type: 'start-edit', session: { target: b1, draft: 'Draft' },
+      type: 'start-edit', session: { target: b1, draft: 'Draft', sessionId: 3 },
     });
     expect(retainedPointerRange.rangeSelection).toEqual(ownedRange.rangeSelection);
   });
@@ -194,17 +194,18 @@ describe('cell interaction lifecycle boundaries', () => {
   });
 
   it('updates drafts and ends only the exact current focus request', () => {
-    expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'update-draft', draft: 'ignored' }))
+    const absentSession = { target: a1, draft: 'ignored', sessionId: 1 };
+    expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'update-draft', session: absentSession, draft: 'ignored' }))
       .toBe(EMPTY_CELL_INTERACTION_STATE);
-    expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'cancel' }))
+    expect(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'cancel', session: absentSession }))
       .toBe(EMPTY_CELL_INTERACTION_STATE);
 
     const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
-      type: 'start-edit', session: { target: a1, draft: 'before' },
+      type: 'start-edit', session: { target: a1, draft: 'before', sessionId: 1 },
     });
-    const updated = cellInteractionReducer(editing, { type: 'update-draft', draft: 'after' });
+    const updated = cellInteractionReducer(editing, { type: 'update-draft', session: editing.editing!, draft: 'after' });
     expect(updated.editing?.draft).toBe('after');
-    expect(cellInteractionReducer(updated, { type: 'commit' }).editing).toBeNull();
+    expect(cellInteractionReducer(updated, { type: 'commit', session: updated.editing! }).editing).toBeNull();
     const navigated = cellInteractionReducer(updated, { type: 'navigate', target: b1 });
     expect(cellInteractionReducer(navigated, { type: 'acknowledge-focus', requestId: 999 })).toBe(navigated);
     expect(cellInteractionReducer(navigated, { type: 'cancel-focus', requestId: 999 })).toBe(navigated);
@@ -220,24 +221,24 @@ describe('cell interaction lifecycle boundaries', () => {
   it('keeps independent target-keyed drafts and restores their view state after navigation', () => {
     const otherSheetA1 = { ...a1, sheetId: 'sheet-outputs' };
     const first = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
-      type: 'start-edit', session: { target: a1, draft: 'first' },
+      type: 'start-edit', session: { target: a1, draft: 'first', sessionId: 1 },
     });
     const viewed = cellInteractionReducer(first, {
-      type: 'update-editor-state', selection: { start: 1, end: 4 }, scrollTop: 12,
+      type: 'update-editor-state', session: first.editing!, selection: { start: 1, end: 4 }, scrollTop: 12,
     });
     const suspended = cellInteractionReducer(viewed, { type: 'navigate', target: b1 });
     const second = cellInteractionReducer(suspended, {
-      type: 'start-edit', session: { target: otherSheetA1, draft: 'second' },
+      type: 'start-edit', session: { target: otherSheetA1, draft: 'second', sessionId: 2 },
     });
     const switched = cellInteractionReducer(second, { type: 'navigate', target: a1 });
     const restored = cellInteractionReducer(switched, {
-      type: 'start-edit', session: { target: a1, draft: 'stored value must not replace the draft' },
+      type: 'start-edit', session: { target: a1, draft: 'stored value must not replace the draft', sessionId: 3 },
     });
 
-    expect(restored.editing).toEqual({ target: a1, draft: 'first', selection: { start: 1, end: 4 }, scrollTop: 12 });
+    expect(restored.editing).toEqual({ target: a1, draft: 'first', sessionId: 3, selection: { start: 1, end: 4 }, scrollTop: 12 });
     expect(restored.drafts[formulaDraftKey(otherSheetA1)]?.draft).toBe('second');
 
-    const committed = cellInteractionReducer(restored, { type: 'commit' });
+    const committed = cellInteractionReducer(restored, { type: 'commit', session: restored.editing! });
     expect(committed.drafts[formulaDraftKey(a1)]).toBeUndefined();
     expect(committed.drafts[formulaDraftKey(otherSheetA1)]?.draft).toBe('second');
   });
@@ -268,27 +269,46 @@ describe('cell interaction lifecycle boundaries', () => {
     })).toBe(resumed);
   });
 
+  it('rejects every older same-target generation callback after a replacement starts', () => {
+    const older = { target: a1, draft: 'older', sessionId: 1 };
+    const first = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'start-edit', session: older });
+    const newer = cellInteractionReducer(first, {
+      type: 'start-edit', session: { target: a1, draft: 'newer', sessionId: 2 }, replaceSuspendedDraft: true,
+    });
+
+    for (const action of [
+      { type: 'update-draft', session: older, draft: 'stale value' },
+      { type: 'update-editor-state', session: older, selection: { start: 0, end: 1 }, scrollTop: 8 },
+      { type: 'suspend', session: older },
+      { type: 'cancel', session: older },
+      { type: 'commit', session: older },
+    ] as const) {
+      expect(cellInteractionReducer(newer, action)).toBe(newer);
+    }
+    expect(newer.editing).toEqual({ target: a1, draft: 'newer', sessionId: 2 });
+  });
+
   it('replaces a suspended draft when direct typing starts a new edit', () => {
     const suspended = cellInteractionReducer(
       cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
-        type: 'start-edit', session: { target: a1, draft: 'suspended draft' },
+        type: 'start-edit', session: { target: a1, draft: 'suspended draft', sessionId: 1 },
       }),
       { type: 'navigate', target: b1 },
     );
 
     const typed = cellInteractionReducer(suspended, {
       type: 'start-edit',
-      session: { target: a1, draft: 'x' },
+      session: { target: a1, draft: 'x', sessionId: 2 },
       replaceSuspendedDraft: true,
     });
 
-    expect(typed.editing).toEqual({ target: a1, draft: 'x' });
-    expect(typed.drafts[formulaDraftKey(a1)]).toEqual({ target: a1, draft: 'x' });
+    expect(typed.editing).toEqual({ target: a1, draft: 'x', sessionId: 2 });
+    expect(typed.drafts[formulaDraftKey(a1)]).toEqual({ target: a1, draft: 'x', sessionId: 2 });
   });
 
   it('prunes drafts for removed or protected targets without writing another target', () => {
     const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
-      type: 'start-edit', session: { target: a1, draft: 'draft' },
+      type: 'start-edit', session: { target: a1, draft: 'draft', sessionId: 1 },
     });
     const pruned = cellInteractionReducer(editing, { type: 'prune-drafts', targetKeys: new Set() });
     expect(pruned.editing).toBeNull();
@@ -297,8 +317,8 @@ describe('cell interaction lifecycle boundaries', () => {
 
   it('prunes all state associated with removed sheets while retaining surviving state', () => {
     const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 });
-    const editing = cellInteractionReducer(selected, { type: 'start-edit', session: { target: a1, draft: 'draft' } });
-    const focused = cellInteractionReducer(editing, { type: 'cancel' });
+    const editing = cellInteractionReducer(selected, { type: 'start-edit', session: { target: a1, draft: 'draft', sessionId: 1 } });
+    const focused = cellInteractionReducer(editing, { type: 'cancel', session: editing.editing! });
     const retained = cellInteractionReducer(focused, { type: 'prune-sheets', sheetIds: new Set(['sheet-inputs']) });
     expect(retained.selection).toEqual(a1);
     expect(retained.editing).toBeNull();
@@ -311,7 +331,7 @@ describe('cell interaction lifecycle boundaries', () => {
     expect(removed.focusRequest).toBeNull();
 
     const stillEditing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
-      type: 'start-edit', session: { target: a1, draft: 'draft' },
+      type: 'start-edit', session: { target: a1, draft: 'draft', sessionId: 1 },
     });
     expect(cellInteractionReducer(stillEditing, {
       type: 'prune-sheets', sheetIds: new Set(['sheet-inputs']),

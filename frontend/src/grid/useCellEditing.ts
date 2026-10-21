@@ -50,7 +50,9 @@ export function useCellEditing({
 }) {
   const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
   const stateRef = useRef(state);
+  const activeSessionRef = useRef<CellEditSession | null>(state.editing);
   stateRef.current = state;
+  activeSessionRef.current = state.editing;
   const committedDrafts = useRef(new Set<string>());
   const nextSessionId = useRef(1);
 
@@ -100,7 +102,7 @@ export function useCellEditing({
     return undefined;
   }
 
-  function commitActiveEdit(session = stateRef.current.editing) {
+  function commitActiveEdit(session = stateRef.current.editing ?? activeSessionRef.current) {
     if (!session || !sameSession(stateRef.current.editing, session)) return undefined;
     const outcome = commitSession(session);
     if (!outcome || outcome.ok) dispatch({ type: 'commit', session });
@@ -120,14 +122,16 @@ export function useCellEditing({
     if (!sheet || !key) return;
     committedDrafts.current.clear();
     const raw = cellRawContent(sheet, key);
+    const session = {
+      target,
+      draft: initialValue ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
+      sessionId: nextSessionId.current++,
+    };
+    activeSessionRef.current = session;
     dispatch({
       type: 'start-edit',
       replaceSuspendedDraft: initialValue !== undefined,
-      session: {
-        target,
-        draft: initialValue ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
-        sessionId: nextSessionId.current++,
-      },
+      session,
     });
   }
 
@@ -278,7 +282,7 @@ export function useCellEditing({
   return {
     activeCell: state.selection,
     activateSheet,
-    cancelActiveEdit: (session = stateRef.current.editing) => {
+    cancelActiveEdit: (session = stateRef.current.editing ?? activeSessionRef.current) => {
       if (session) dispatch({ type: 'cancel', session });
     },
     clearCellContent,
@@ -311,12 +315,14 @@ export function useCellEditing({
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,
-    updateEditingCellValue: (draft: string, session = stateRef.current.editing) => {
+    updateEditingCellValue: (draft: string, session = stateRef.current.editing ?? activeSessionRef.current) => {
+      if (!session) return;
       committedDrafts.current.clear();
-      dispatch({ type: 'update-draft', session: session ?? undefined, draft });
+      dispatch({ type: 'update-draft', session, draft });
     },
-    updateEditingCellView: (selection: { start: number; end: number }, scrollTop: number, session = stateRef.current.editing) => {
-      dispatch({ type: 'update-editor-state', session: session ?? undefined, selection, scrollTop });
+    updateEditingCellView: (selection: { start: number; end: number }, scrollTop: number, session = stateRef.current.editing ?? activeSessionRef.current) => {
+      if (!session) return;
+      dispatch({ type: 'update-editor-state', session, selection, scrollTop });
     },
   };
 }

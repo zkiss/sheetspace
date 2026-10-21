@@ -7,7 +7,7 @@ it.each(['Revenue', '123', 'hello world', '  text\nwith whitespace  '])('keeps o
   const interaction = { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
   const component = (value: string) => <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
     interaction={interaction}
-    editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: value }} />;
+    editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: value, sessionId: 1 }} />;
   const view = render(component(draft));
   const editor = screen.getByRole('textbox');
   const overlay = document.querySelector('.sheet-grid-cell-editor-highlight')!;

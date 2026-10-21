@@ -173,7 +173,7 @@ describe('SheetGridCell', () => {
     expect(props.cellInteraction.startEditing).not.toHaveBeenCalled();
 
     fireEvent.change(editor, { target: { value: 'Updated' } });
-    expect(props.editorInteraction.updateValue).toHaveBeenCalledWith('Updated');
+    expect(props.editorInteraction.updateValue).toHaveBeenCalledWith('Updated', editingCell);
 
     fireEvent.blur(editor, { target: { value: 'Updated' } });
     expect(props.editorInteraction.commit).toHaveBeenCalledWith(expect.objectContaining({ ...editingCell, draft: 'Updated' }));
