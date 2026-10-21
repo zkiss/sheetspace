@@ -122,6 +122,7 @@ export function useCellEditing({
     const raw = cellRawContent(sheet, key);
     dispatch({
       type: 'start-edit',
+      replaceSuspendedDraft: initialValue !== undefined,
       session: {
         target,
         draft: initialValue ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),

@@ -241,6 +241,24 @@ describe('cell interaction lifecycle boundaries', () => {
     expect(committed.drafts[`${otherSheetA1.sheetId}:${otherSheetA1.cell.rowId}:${otherSheetA1.cell.columnId}`]?.draft).toBe('second');
   });
 
+  it('replaces a suspended draft when direct typing starts a new edit', () => {
+    const suspended = cellInteractionReducer(
+      cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+        type: 'start-edit', session: { target: a1, draft: 'suspended draft' },
+      }),
+      { type: 'navigate', target: b1 },
+    );
+
+    const typed = cellInteractionReducer(suspended, {
+      type: 'start-edit',
+      session: { target: a1, draft: 'x' },
+      replaceSuspendedDraft: true,
+    });
+
+    expect(typed.editing).toEqual({ target: a1, draft: 'x' });
+    expect(typed.drafts[`${a1.sheetId}:${a1.cell.rowId}:${a1.cell.columnId}`]).toEqual({ target: a1, draft: 'x' });
+  });
+
   it('prunes drafts for removed or protected targets without writing another target', () => {
     const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
       type: 'start-edit', session: { target: a1, draft: 'draft' },

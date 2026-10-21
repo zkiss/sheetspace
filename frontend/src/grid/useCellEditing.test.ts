@@ -24,6 +24,20 @@ describe('useCellEditing', () => {
     act(() => result.current.commitActiveEdit());
     expect(commands.updateCellContent).not.toHaveBeenCalled();
   });
+
+  it('replaces a suspended cell draft when typing deliberately starts a new edit', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+
+    act(() => {
+      result.current.startEditingCell(a1, 'suspended draft');
+      result.current.navigateCell(a1, 'right');
+      result.current.startEditingCell(a1, 'x');
+    });
+
+    expect(result.current.editingCell).toEqual({ target: a1, draft: 'x' });
+  });
+
   it('keeps focus with the extent through repeated Shift-arrow extension and reversal', () => {
     const { result, sheet } = renderCellEditing();
     const b1 = cellTargetAt(sheet, 'B1')!;

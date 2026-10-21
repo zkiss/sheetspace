@@ -42,7 +42,7 @@ export type CellInteractionAction =
   | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
-  | { type: 'start-edit'; session: CellEditSession }
+  | { type: 'start-edit'; session: CellEditSession; replaceSuspendedDraft?: boolean }
   | { type: 'update-draft'; draft: string }
   | { type: 'update-editor-state'; selection: { start: number; end: number }; scrollTop: number }
   | { type: 'suspend' }
@@ -163,20 +163,30 @@ export function cellInteractionReducer(
       }, target);
     }
     case 'start-edit':
-      return {
-        ...state,
-        selection: action.session.target,
-        selectionsBySheet: { ...state.selectionsBySheet, [action.session.target.sheetId]: action.session.target },
-        selectionOwner: null,
-        // Editing the active member of a rectangular selection must not lose
-        // that rectangle: Tab/Enter commits traverse its existing bounds.
-        rangeSelection: preservesRectangularRange(state, action.session.target)
-          ? state.rangeSelection
-          : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
-        ...suspendEdit(state),
-        editing: state.drafts[cellDraftKey(action.session.target)] ?? action.session,
-        referenceSelection: null,
-      };
+      {
+        const editing = action.replaceSuspendedDraft
+          ? action.session
+          : state.drafts[cellDraftKey(action.session.target)] ?? action.session;
+        const suspended = suspendEdit(state);
+        const drafts = suspended.drafts ?? state.drafts;
+        return {
+          ...state,
+          selection: action.session.target,
+          selectionsBySheet: { ...state.selectionsBySheet, [action.session.target.sheetId]: action.session.target },
+          selectionOwner: null,
+          // Editing the active member of a rectangular selection must not lose
+          // that rectangle: Tab/Enter commits traverse its existing bounds.
+          rangeSelection: preservesRectangularRange(state, action.session.target)
+            ? state.rangeSelection
+            : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
+          ...suspended,
+          editing,
+          drafts: action.replaceSuspendedDraft
+            ? { ...drafts, [cellDraftKey(action.session.target)]: editing }
+            : drafts,
+          referenceSelection: null,
+        };
+      }
     case 'update-draft': {
       if (!state.editing) return state;
       const editing = { ...state.editing, draft: action.draft };
