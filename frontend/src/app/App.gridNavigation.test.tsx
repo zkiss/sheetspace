@@ -92,4 +92,35 @@ describe('App grid composition', () => {
     await user.keyboard('{F2}');
     expect(await screen.findByRole('textbox', { name: 'Inputs A3 editor' })).toHaveValue('Cross-sheet draft');
   });
+
+  it('suspends a direct draft when a sheet overview takes focus', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2,
+    });
+    const outputs = sheetDocument({
+      id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 260 }, columnCount: 2, rowCount: 2, visualScale: 0.2,
+    });
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={apiClient} />);
+
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputsA1 = within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(inputsA1);
+    await user.keyboard('unfinished formula');
+    const editor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    editor.setSelectionRange(2, 10);
+    Object.defineProperty(editor, 'scrollTop', { configurable: true, value: 14 });
+
+    await user.click(screen.getByRole('button', { name: 'Select sheet Outputs overview' }));
+
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+    await user.click(inputsA1);
+    await user.keyboard('{F2}');
+    const resumedEditor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    expect(resumedEditor).toHaveValue('unfinished formula');
+    expect(resumedEditor.selectionStart).toBe(2);
+    expect(resumedEditor.selectionEnd).toBe(10);
+    expect(resumedEditor.scrollTop).toBe(14);
+  });
 });

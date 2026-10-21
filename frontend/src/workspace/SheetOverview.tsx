@@ -72,6 +72,7 @@ export function SheetOverview({
       aria-pressed={isActive}
       className="sheet-overview"
       data-testid="sheet-overview"
+      data-workspace-navigation
       onClick={onSelect}
       type="button"
     >

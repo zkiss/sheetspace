@@ -132,10 +132,11 @@ describe('portal cell editor', () => {
     });
   });
 
-  it.each(['cell', 'tab', 'dialog'])('suspends rather than commits when focus transfers to a workspace %s', (role) => {
+  it.each(['cell', 'tab', 'dialog'])('suspends rather than commits when focus transfers to a marked workspace %s', (role) => {
     const { editor, interaction, editingCell } = setup();
     const destination = document.createElement('button');
     destination.setAttribute('role', role);
+    destination.setAttribute('data-workspace-navigation', '');
     document.body.append(destination);
 
     fireEvent.blur(editor, { relatedTarget: destination });
@@ -153,6 +154,7 @@ describe('portal cell editor', () => {
     editor.scrollTop = 18;
     const destination = document.createElement('button');
     destination.setAttribute('role', 'cell');
+    destination.setAttribute('data-workspace-navigation', '');
     document.body.append(destination);
 
     fireEvent.blur(editor, { relatedTarget: destination });

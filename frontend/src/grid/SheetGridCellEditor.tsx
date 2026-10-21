@@ -170,7 +170,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
 
 function isWorkspaceTransfer(destination: EventTarget | null) {
   if (!(destination instanceof Element)) return false;
-  return Boolean(destination.closest('[role="cell"], [role="tab"], [role="dialog"], [data-workspace-formula-panel], [data-workspace-navigation]'));
+  return Boolean(destination.closest('[data-workspace-navigation]'));
 }
 
 function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect, highlight: HTMLPreElement | null) {

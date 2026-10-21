@@ -111,7 +111,7 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
     focusable[nextIndex]!.focus();
   }
   return <div className="dialog-backdrop" role="presentation">
-    <section aria-label="Data models" aria-modal="true" className="data-model-dialog" onKeyDown={containFocus} ref={dialogRef} role="dialog">
+    <section aria-label="Data models" aria-modal="true" className="data-model-dialog" data-workspace-navigation onKeyDown={containFocus} ref={dialogRef} role="dialog">
       {!draft ? <>
         <div className="data-model-header"><h2>Data models</h2><button autoFocus onClick={openCreate} type="button">Create model</button></div>
         {models.length === 0 ? <p>No data models yet. Create one to define reusable sheet properties.</p> : <ul className="data-model-list">
