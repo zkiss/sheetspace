@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { applyFormulaCompletion, analyzeFormulaEditor, formatFormula, formulaCompletions, formulaReferenceHover, indentFormulaSelection, outdentFormulaSelection, type FormulaEditorSelection, type FormulaReferenceIdentity } from '@application/core/formulaEditorLogic';
+import { applyFormulaCompletion, analyzeFormulaEditor, formatFormula, formulaCompletions, formulaReferenceHover, indentFormulaSelection, outdentFormulaSelection, referenceIdentityColor, type FormulaEditorSelection, type FormulaReferenceIdentity } from '@application/core/formulaEditorLogic';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';
 import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
@@ -50,7 +50,8 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     <RawFormulaInput aria-label={ariaLabel} className="formula-editor-input" disabled={disabled} onKeyDown={onKeyDown} onScroll={reportView} onSelect={() => { setCompletionIndex(0); setCompletionOpen(completions.length > 0); reportView(); }} onValueChange={(value) => { onRawChange(value); setCompletionIndex(0); setCompletionOpen(formulaCompletions(value, selection(), { sheetNames, propertyNames }).length > 0); }} ref={input} spellCheck={false} value={raw} />
     <div aria-label="Formula syntax" className="formula-editor-syntax">{analysis.tokens.map((token) => {
       const referenceIndex = analysis.references.findIndex((reference) => reference.sourceSpan.start === token.sourceSpan.start && reference.sourceSpan.end === token.sourceSpan.end);
-      return <span className={`formula-syntax-token formula-syntax-token-${token.kind}`} key={`${token.sourceSpan.start}-${token.sourceSpan.end}`} onMouseEnter={() => referenceIndex >= 0 && setHoveredReference(referenceIndex)} onMouseLeave={() => setHoveredReference(undefined)}>{raw.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>;
+      const referenceColour = referenceIdentityColor(analysis.referenceIdentities[referenceIndex]);
+      return <span className={`formula-syntax-token formula-syntax-token-${token.kind}`} key={`${token.sourceSpan.start}-${token.sourceSpan.end}`} onMouseEnter={() => referenceIndex >= 0 && setHoveredReference(referenceIndex)} onMouseLeave={() => setHoveredReference(undefined)} style={referenceColour ? { color: referenceColour } : undefined}>{raw.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>;
     })}</div>
     {hoveredReference !== undefined && analysis.references[hoveredReference] ? <ReferenceHover modelOnly={modelOnly} reference={analysis.references[hoveredReference]} resolver={resolver} values={referenceValues} /> : null}
     {completionOpen && completions.length > 0 ? <ul aria-label="Formula completions" className="formula-editor-completions" role="listbox">{completions.map((completion, index) => <li aria-selected={index === completionIndex} key={`${completion.kind}-${completion.label}`} onMouseDown={(event) => { event.preventDefault(); acceptCompletion(index); }} role="option">{completion.label}</li>)}</ul> : null}

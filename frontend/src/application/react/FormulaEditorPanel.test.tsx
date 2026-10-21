@@ -74,6 +74,16 @@ describe('FormulaEditorPanel', () => {
     expect(document.querySelector('.formula-syntax-token-reference')).toHaveTextContent('@A[1]');
   });
 
+  it('uses deterministic distinct colours for resolved reference targets', () => {
+    const tokenResolver: FormulaReferenceResolver = { ...resolver, coordinateAt: (_sheet, address) => ({ columnId: `column-${address.columnIndex}`, rowId: `row-${address.rowIndex}` }) };
+    render(<FormulaEditorPanel ariaLabel="Reference colours" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=@A[1] + @B[1]" resolver={tokenResolver} sheetNames={[]} />);
+
+    const references = document.querySelectorAll<HTMLElement>('.formula-syntax-token-reference');
+    expect(references).toHaveLength(2);
+    expect(references[0]!.style.color).not.toBe('');
+    expect(references[0]!.style.color).not.toBe(references[1]!.style.color);
+  });
+
   it('disables formatting for an incomplete formula draft', () => {
     render(<FormulaEditorPanel ariaLabel="Incomplete formula" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=SUM(" resolver={resolver} sheetNames={[]} />);
 

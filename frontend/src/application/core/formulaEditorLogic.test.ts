@@ -11,6 +11,7 @@ import {
   formulaReferenceHover,
   indentFormulaSelection,
   outdentFormulaSelection,
+  referenceIdentityColor,
   stableReferenceIdentity,
 } from './formulaEditorLogic';
 
@@ -163,5 +164,26 @@ describe('formula editor logic', () => {
     expect(formulaReferenceHover(valid, resolver, () => ({ kind: 'error', error: '#DIV/0!' }))).toMatchObject({ kind: 'value', value: { kind: 'error', error: '#DIV/0!' } });
     expect(formulaReferenceHover(broken, resolver, () => undefined)).toEqual({ kind: 'broken' });
     expect(formulaReferenceHover(valid, resolver, () => ({ kind: 'number', value: 1 }), { modelOnly: true })).toMatchObject({ kind: 'model-context' });
+  });
+
+  it('resolves named references for model context and bound-sheet hover values', () => {
+    const unqualified = parseFormulaSyntax("=@'Revenue'[1]").references[0]!;
+    const qualified = parseFormulaSyntax("=@Budget!'Revenue'[1]").references[0]!;
+
+    expect(formulaReferenceHover(unqualified, resolver, () => ({ kind: 'number', value: 3 }), { modelOnly: true }))
+      .toMatchObject({ kind: 'model-context', identity: { sheetId: 'budget', columnId: budget.content.columns[0] } });
+    expect(formulaReferenceHover(qualified, resolver, () => ({ kind: 'number', value: 3 })))
+      .toMatchObject({ kind: 'value', value: { kind: 'number', value: 3 } });
+    expect(formulaReferenceHover(qualified, resolver, () => ({ kind: 'error', error: '#DIV/0!' })))
+      .toMatchObject({ kind: 'value', value: { kind: 'error', error: '#DIV/0!' } });
+  });
+
+  it('assigns stable, differentiated colours to resolved reference identities', () => {
+    const revenue = stableReferenceIdentity(parseFormulaSyntax("=@'Revenue'[1]").references[0]!, resolver)!;
+    const cost = stableReferenceIdentity(parseFormulaSyntax("=@'Cost'[1]").references[0]!, resolver)!;
+    const canonicalRevenue = stableReferenceIdentity(analyzeFormulaEditor(formulaRawToCanonical("=@'Revenue'[1]", resolver), resolver).references[0]!, resolver)!;
+
+    expect(referenceIdentityColor(revenue)).toBe(referenceIdentityColor(canonicalRevenue));
+    expect(referenceIdentityColor(revenue)).not.toBe(referenceIdentityColor(cost));
   });
 });
