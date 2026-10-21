@@ -174,6 +174,13 @@ class ModelLifecycleRoutesTest {
                 assertEquals(ErrorResponse("invalid-model-lifecycle"), clearedCalculatedBinding.decodeBody())
                 assertEquals(saved, store.loadWorkbookBundle())
 
+                val emptiedBindings = client.put("/api/sheets/${sheet.id.value}/model") {
+                    jsonBody("""{"modelId":"$LIFECYCLE_MODEL","modelColumnBindings":{}}""")
+                }
+                assertEquals(HttpStatusCode.BadRequest, emptiedBindings.status)
+                assertEquals(ErrorResponse("invalid-model-lifecycle"), emptiedBindings.decodeBody())
+                assertEquals(saved, store.loadWorkbookBundle())
+
                 assertEquals(HttpStatusCode.OK, client.put("/api/sheets/${sheet.id.value}/model") { jsonBody("""{"modelId":null}""") }.status)
                 val unbound = store.loadWorkbookBundle().documents.getValue(sheet.id)
                 assertEquals(null, unbound.modelId)

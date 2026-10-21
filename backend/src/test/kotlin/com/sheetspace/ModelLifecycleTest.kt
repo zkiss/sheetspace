@@ -333,7 +333,7 @@ class ModelLifecycleTest {
     }
 
     @Test
-    fun `template-free model binding rejects calculated custom and partial mappings without mutation`() {
+    fun `template-free model binding rejects calculated custom partial and emptied mappings without mutation`() {
         val before = lifecycleWorkbook()
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore(before))
         val sheet = before.sheetsInOrder.first()
@@ -342,8 +342,9 @@ class ModelLifecycleTest {
             LIFECYCLE_OUTPUT to sheet.tabularContent.columns[1],
         )
         val partialBindings = mapOf(LIFECYCLE_INPUT to sheet.tabularContent.columns[2])
+        val emptiedBindings = emptyMap<String, ColumnId>()
 
-        listOf(customBindings, partialBindings).forEach { bindings ->
+        listOf(customBindings, partialBindings, emptiedBindings).forEach { bindings ->
             assertEquals(
                 WorkbookApplicationError.INVALID_MODEL_LIFECYCLE,
                 assertFailsWith<WorkbookApplicationException> {
@@ -361,7 +362,7 @@ class ModelLifecycleTest {
         )
         val clearedCalculatedBinding = mapOf(LIFECYCLE_INPUT to boundSheet.tabularContent.columns[1])
 
-        listOf(changedBindings, clearedCalculatedBinding).forEach { bindings ->
+        listOf(changedBindings, clearedCalculatedBinding, emptiedBindings).forEach { bindings ->
             assertEquals(
                 WorkbookApplicationError.INVALID_MODEL_LIFECYCLE,
                 assertFailsWith<WorkbookApplicationException> {
