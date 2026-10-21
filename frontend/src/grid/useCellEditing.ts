@@ -22,6 +22,7 @@ import {
   cellDraftKey,
   cellKeyForTarget,
   EMPTY_CELL_INTERACTION_STATE,
+  sameTarget,
 } from '@grid/cellInteraction';
 
 function adjacentTarget(
@@ -121,10 +122,18 @@ export function useCellEditing({
     const key = sheet && cellKeyForTarget(sheet, target);
     if (!sheet || !key) return;
     committedDrafts.current.clear();
+    // A rich-panel handoff is a new DOM callback lifetime, not a new draft.
+    // Seed it from the live session before the reducer transfers ownership.
+    const active = stateRef.current.editing;
+    const transfer = initialValue === undefined && active && sameTarget(active.target, target)
+      ? active
+      : undefined;
     const raw = cellRawContent(sheet, key);
     const session = {
       target,
-      draft: initialValue ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
+      draft: initialValue ?? transfer?.draft ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
+      selection: transfer?.selection,
+      scrollTop: transfer?.scrollTop,
       sessionId: nextSessionId.current++,
     };
     activeSessionRef.current = session;

@@ -52,4 +52,14 @@ describe('FormulaEditorPanel', () => {
     fireEvent.mouseEnter(screen.getByText('@A[1]'));
     expect(screen.getByText('42')).toBeVisible();
   });
+
+  it('renders distinct token classes for functions, literals, operators, and references', () => {
+    const tokenResolver: FormulaReferenceResolver = { ...resolver, coordinateAt: () => ({ columnId: 'column', rowId: 'row' }) };
+    render(<FormulaEditorPanel ariaLabel="Syntax formula" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=SUM(@A[1], 2) + 3" resolver={tokenResolver} sheetNames={[]} />);
+
+    expect(document.querySelector('.formula-syntax-token-function')).toHaveTextContent('SUM');
+    expect(document.querySelector('.formula-syntax-token-literal')).toHaveTextContent('2');
+    expect(document.querySelector('.formula-syntax-token-operator')).toHaveTextContent('+');
+    expect(document.querySelector('.formula-syntax-token-reference')).toHaveTextContent('@A[1]');
+  });
 });

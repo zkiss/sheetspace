@@ -38,6 +38,19 @@ describe('useCellEditing', () => {
     expect(result.current.editingCell).toMatchObject({ target: a1, draft: 'x' });
   });
 
+  it('transfers an active direct draft and its view to a fresh rich-panel session', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+
+    act(() => {
+      result.current.startEditingCell(a1, 'direct draft');
+      result.current.updateEditingCellView({ start: 2, end: 8 }, 24);
+      result.current.startEditingCell(a1);
+    });
+
+    expect(result.current.editingCell).toMatchObject({ target: a1, draft: 'direct draft', selection: { start: 2, end: 8 }, scrollTop: 24 });
+  });
+
   it('keeps focus with the extent through repeated Shift-arrow extension and reversal', () => {
     const { result, sheet } = renderCellEditing();
     const b1 = cellTargetAt(sheet, 'B1')!;
