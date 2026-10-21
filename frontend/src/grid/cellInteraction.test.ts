@@ -242,6 +242,32 @@ describe('cell interaction lifecycle boundaries', () => {
     expect(committed.drafts[formulaDraftKey(otherSheetA1)]?.draft).toBe('second');
   });
 
+  it('accepts a final live snapshot after navigation suspended its generation', () => {
+    const session = { target: a1, draft: 'unfinished\ntext', sessionId: 7 };
+    const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'start-edit', session });
+    const navigated = cellInteractionReducer(editing, { type: 'navigate', target: b1 });
+    const captured = cellInteractionReducer(navigated, {
+      type: 'suspend',
+      session: { ...session, selection: { start: 3, end: 8 }, scrollTop: 19 },
+    });
+
+    expect(captured.selection).toEqual(b1);
+    expect(captured.editing).toBeNull();
+    expect(captured.drafts[formulaDraftKey(a1)]).toEqual({
+      ...session, selection: { start: 3, end: 8 }, scrollTop: 19,
+    });
+
+    const resumed = cellInteractionReducer(captured, {
+      type: 'start-edit', session: { target: a1, draft: 'ignored', sessionId: 8 },
+    });
+    expect(resumed.editing).toEqual({
+      target: a1, draft: 'unfinished\ntext', sessionId: 8, selection: { start: 3, end: 8 }, scrollTop: 19,
+    });
+    expect(cellInteractionReducer(resumed, {
+      type: 'suspend', session: { ...session, draft: 'stale' },
+    })).toBe(resumed);
+  });
+
   it('replaces a suspended draft when direct typing starts a new edit', () => {
     const suspended = cellInteractionReducer(
       cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {

@@ -76,7 +76,7 @@ export function useCellEditing({
 
   useEffect(() => {
     if (state.editing && isCalculatedOwnedColumn(workbook, state.editing.target.sheetId, state.editing.target.cell.columnId)) {
-      dispatch({ type: 'cancel' });
+      dispatch({ type: 'cancel', session: state.editing });
     }
   }, [state.editing, workbook]);
 
@@ -103,15 +103,14 @@ export function useCellEditing({
   function commitActiveEdit(session = stateRef.current.editing) {
     if (!session || !sameSession(stateRef.current.editing, session)) return undefined;
     const outcome = commitSession(session);
-    if (!outcome || outcome.ok) dispatch({ type: 'commit' });
+    if (!outcome || outcome.ok) dispatch({ type: 'commit', session });
     return outcome;
   }
 
   function suspendActiveEdit(session: CellEditSession) {
-    if (!sameSession(stateRef.current.editing, session)) return;
-    dispatch({ type: 'update-draft', draft: session.draft });
-    dispatch({ type: 'update-editor-state', selection: session.selection ?? { start: session.draft.length, end: session.draft.length }, scrollTop: session.scrollTop ?? 0 });
-    dispatch({ type: 'suspend' });
+    // This deliberately also dispatches after navigation has ended activity:
+    // the reducer admits only the matching suspended generation.
+    dispatch({ type: 'suspend', session });
   }
 
   function startEditingCell(target: CellTarget, initialValue?: string) {
@@ -239,7 +238,7 @@ export function useCellEditing({
     if (!sameSession(stateRef.current.editing, session)) return undefined;
     const outcome = commitSession(session);
     if (outcome && !outcome.ok) return outcome;
-    dispatch({ type: 'commit' });
+    dispatch({ type: 'commit', session });
     const sheet = findSheetById(workbook, session.target.sheetId);
     const selection = state.rangeSelection;
     const hasRectangle = Boolean(sheet && selection?.mode === 'cells'
@@ -279,7 +278,9 @@ export function useCellEditing({
   return {
     activeCell: state.selection,
     activateSheet,
-    cancelActiveEdit: () => dispatch({ type: 'cancel' }),
+    cancelActiveEdit: (session = stateRef.current.editing) => {
+      if (session) dispatch({ type: 'cancel', session });
+    },
     clearCellContent,
     clearSelection: () => dispatch({ type: 'clear-selection' }),
     commitActiveEdit,
@@ -310,12 +311,13 @@ export function useCellEditing({
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,
-    updateEditingCellValue: (draft: string) => {
+    updateEditingCellValue: (draft: string, session = stateRef.current.editing) => {
       committedDrafts.current.clear();
-      dispatch({ type: 'update-draft', draft });
+      dispatch({ type: 'update-draft', session: session ?? undefined, draft });
     },
-    updateEditingCellView: (selection: { start: number; end: number }, scrollTop: number) =>
-      dispatch({ type: 'update-editor-state', selection, scrollTop }),
+    updateEditingCellView: (selection: { start: number; end: number }, scrollTop: number, session = stateRef.current.editing) => {
+      dispatch({ type: 'update-editor-state', session: session ?? undefined, selection, scrollTop });
+    },
   };
 }
 

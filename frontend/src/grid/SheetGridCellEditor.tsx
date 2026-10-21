@@ -9,12 +9,12 @@ export const CELL_EDITOR_MAX_WIDTH = '28rem';
 export const CELL_EDITOR_MAX_HEIGHT = '7rem';
 
 export type SheetGridCellEditorInteraction = {
-  cancel: () => void;
+  cancel: (session?: CellEditSession) => void;
   commit: (session?: CellEditSession) => void;
   suspend?: (session: CellEditSession) => void;
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
-  updateValue: (value: string) => void;
-  updateView?: (selection: { start: number; end: number }, scrollTop: number) => void;
+  updateValue: (value: string, session?: CellEditSession) => void;
+  updateView?: (selection: { start: number; end: number }, scrollTop: number, session?: CellEditSession) => void;
 };
 
 export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction, sheetName }: {
@@ -26,10 +26,29 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
 }) {
   const [isAnchored, setIsAnchored] = useState(false);
   const anchorRect = useRef<DOMRect | null>(null);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
   const hasPlacedInitialCaret = useRef(false);
   const hasFinishedEditing = useRef(false);
+  const latest = useRef({ editingCell, interaction });
+  latest.current = { editingCell, interaction };
+  const lastEditor = useRef<HTMLTextAreaElement | null>(null);
+  const attachEditor = useCallback((editor: HTMLTextAreaElement | null) => {
+    if (editor) {
+      lastEditor.current = editor;
+      editorRef.current = editor;
+      return;
+    }
+    const previous = lastEditor.current;
+    lastEditor.current = null;
+    editorRef.current = null;
+    if (!previous || hasFinishedEditing.current) return;
+    // Conditional removal after pointer navigation need not emit native blur.
+    // Capture the actual node before it disappears through the same atomic path.
+    const { editingCell: session, interaction: latestInteraction } = latest.current;
+    latestInteraction.suspend?.({ ...session, draft: previous.value,
+      selection: { start: previous.selectionStart, end: previous.selectionEnd }, scrollTop: previous.scrollTop });
+  }, []);
   const anchorElement = anchor.current;
   const updatePosition = useCallback(() => {
     // Ref replacement during a parent render must not unmount the focused portal.
@@ -105,12 +124,12 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
        if (isWorkspaceTransfer(event.relatedTarget)) interaction.suspend?.(session);
        else interaction.commit(session);
     }}
-     onValueChange={interaction.updateValue}
+      onValueChange={(value) => interaction.updateValue(value, editingCell)}
      onScroll={(event) => {
        syncHighlightScroll(event.currentTarget, highlightRef.current);
-       interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop);
+        interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop, editingCell);
      }}
-     onSelect={(event) => interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop)}
+      onSelect={(event) => interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop, editingCell)}
     onClick={(event) => event.stopPropagation()}
     onDoubleClick={(event) => event.stopPropagation()}
     onKeyDown={(event) => {
@@ -139,10 +158,10 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
         event.preventDefault();
         event.stopPropagation();
         hasFinishedEditing.current = true;
-        interaction.cancel();
+          interaction.cancel(editingCell);
       }
     }}
-    ref={editorRef}
+    ref={attachEditor}
     style={{ maxHeight: CELL_EDITOR_MAX_HEIGHT, overflow: 'auto' }}
     value={editingCell.draft}
     />

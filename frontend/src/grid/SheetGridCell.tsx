@@ -170,6 +170,7 @@ export function SheetGridCell({
       )}
       {isEditing && editingCell ? (
         <SheetGridCellEditor
+          key={editingCell.sessionId}
           anchor={cellElementRef}
           editingCell={editingCell}
           cellKey={cellKey}

@@ -43,11 +43,13 @@ export type CellInteractionAction =
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'start-edit'; session: CellEditSession; replaceSuspendedDraft?: boolean }
-  | { type: 'update-draft'; draft: string }
-  | { type: 'update-editor-state'; selection: { start: number; end: number }; scrollTop: number }
-  | { type: 'suspend' }
-  | { type: 'commit' }
-  | { type: 'cancel' }
+  | { type: 'update-draft'; session?: CellEditSession; draft: string }
+  | { type: 'update-editor-state'; session?: CellEditSession; selection: { start: number; end: number }; scrollTop: number }
+  // A final DOM snapshot may arrive after navigation has suspended this same
+  // overlay.  The reducer owns that ordering decision, not a render-time ref.
+  | { type: 'suspend'; session?: CellEditSession }
+  | { type: 'commit'; session?: CellEditSession }
+  | { type: 'cancel'; session?: CellEditSession }
   | { type: 'clear'; target: CellTarget }
   | { type: 'navigate'; target: CellTarget }
   | { type: 'traverse-range'; target: CellTarget }
@@ -184,28 +186,39 @@ export function cellInteractionReducer(
             : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
           ...suspended,
           editing,
-          drafts: action.replaceSuspendedDraft
-            ? { ...drafts, [cellDraftKey(action.session.target)]: editing }
-            : drafts,
+          // Active and suspended copies always carry the fresh callback
+          // generation.  An older overlay can therefore never refine a resume.
+          drafts: { ...drafts, [cellDraftKey(action.session.target)]: editing },
           referenceSelection: null,
         };
       }
     case 'update-draft': {
-      if (!state.editing) return state;
+      if (!state.editing || (action.session && !sameSession(state.editing, action.session))) return state;
       const editing = { ...state.editing, draft: action.draft };
       return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
     }
     case 'update-editor-state': {
-      if (!state.editing) return state;
+      if (!state.editing || (action.session && !sameSession(state.editing, action.session))) return state;
       const editing = { ...state.editing, selection: action.selection, scrollTop: action.scrollTop };
       return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
     }
-    case 'suspend':
-      return { ...state, ...suspendEdit(state) };
+    case 'suspend': {
+      if (!action.session) return { ...state, ...suspendEdit(state) };
+      const snapshot = normalizeSnapshot(action.session);
+      if (sameSession(state.editing, snapshot)) {
+        return { ...state, editing: null, drafts: { ...state.drafts, [cellDraftKey(snapshot.target)]: snapshot } };
+      }
+      const saved = state.drafts[cellDraftKey(snapshot.target)];
+      return sameSession(saved ?? null, snapshot)
+        ? { ...state, drafts: { ...state.drafts, [cellDraftKey(snapshot.target)]: snapshot } }
+        : state;
+    }
     case 'commit':
-      return state.editing ? { ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) } : state;
+      return state.editing && (!action.session || sameSession(state.editing, action.session))
+        ? { ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) } : state;
     case 'cancel':
-      return state.editing ? withFocusRequest({ ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) }, state.editing.target) : state;
+      return state.editing && (!action.session || sameSession(state.editing, action.session))
+        ? withFocusRequest({ ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) }, state.editing.target) : state;
     case 'clear':
       // Clearing contents is not a selection operation. Keep a range (including
       // a whole-row or whole-column selection) intact for subsequent navigation.
@@ -329,6 +342,18 @@ function withoutDraft(drafts: Readonly<Record<string, CellEditSession>>, target:
 function suspendEdit(state: CellInteractionState) {
   if (!state.editing) return { editing: null };
   return { editing: null, drafts: { ...state.drafts, [cellDraftKey(state.editing.target)]: state.editing } };
+}
+
+function normalizeSnapshot(session: CellEditSession): CellEditSession {
+  return {
+    ...session,
+    selection: session.selection ?? { start: session.draft.length, end: session.draft.length },
+    scrollTop: session.scrollTop ?? 0,
+  };
+}
+
+function sameSession(left: CellEditSession | null, right: CellEditSession) {
+  return Boolean(left && sameTarget(left.target, right.target) && left.sessionId === right.sessionId);
 }
 
 function preservesRectangularRange(state: CellInteractionState, target: CellTarget) {
