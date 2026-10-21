@@ -28,6 +28,24 @@ function bind(workbook: Workbook, sheetId: string): Workbook {
 }
 
 describe('model lifecycle controller wiring', () => {
+  it('creates and persists an unbound model through the lifecycle boundary', async () => {
+    const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const api = persistedWorkbookClient(workbook);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [
+      { id: 'manual', name: 'Manual', kind: 'manual', type: 'string' },
+      { id: 'calculated', name: 'Calculated', kind: 'calculated', type: 'float', formula: '=1' },
+    ] };
+
+    act(() => expect(result.current.commands.addDataModel(declaration)).toEqual({
+      ok: true, value: expect.objectContaining({ dataModels: { 'new-model': declaration } }),
+    }));
+
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    expect((await api.loadWorkbook()).dataModels).toEqual({ 'new-model': declaration });
+  });
+
   it('updates differently sized instances, external dependencies and history through one declaration boundary', async () => {
     const workbook = bind(bind(initialWorkbook(), 'one'), 'two');
     const api = persistedWorkbookClient(workbook);

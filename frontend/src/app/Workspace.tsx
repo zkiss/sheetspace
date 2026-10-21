@@ -59,6 +59,7 @@ export function Workspace({
   onEditValueChange,
   onNavigateCell,
   onNavigateKeyboardCell,
+  onOpenDataModels,
   onOpenRenameDialog,
   onRetryFailedSaves,
   onSelectCell,
@@ -97,6 +98,7 @@ export function Workspace({
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
+  onOpenDataModels?: () => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
@@ -288,6 +290,7 @@ export function Workspace({
             selection={selectionRange}
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        onOpenDataModels={onOpenDataModels}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}

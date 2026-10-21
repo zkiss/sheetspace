@@ -7,6 +7,7 @@ import {
   type PendingSheetRename,
 } from './sheetDialogContracts';
 import { CreateSheetDialog, RenameSheetDialog } from './SheetDialogs';
+import { DataModelDialog } from './DataModelDialog';
 import { StartupErrorScreen, StartupLoadingScreen } from './StartupScreen';
 import { useCellEditing } from '@grid/useCellEditing';
 import { useWorkbookController } from '@application/react/useWorkbookController';
@@ -32,6 +33,7 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet') {
 export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
+  const [dataModelsOpen, setDataModelsOpen] = useState(false);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
   const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
@@ -75,7 +77,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       const key = event.key.toLowerCase();
       if (!(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest('textarea, input, [contenteditable="true"]')) return;
+      if (dataModelsOpen || target?.closest('textarea, input, [contenteditable="true"]')) return;
       const redo = key === 'y' || event.shiftKey;
       if (redo ? !canRedo : !canUndo) return;
       event.preventDefault();
@@ -83,7 +85,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     };
     window.addEventListener('keydown', handleHistoryShortcut);
     return () => window.removeEventListener('keydown', handleHistoryShortcut);
-  }, [canRedo, canUndo, commands]);
+  }, [canRedo, canUndo, commands, dataModelsOpen]);
 
   function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string) {
     setPendingCreation({ position, viewportScale, label });
@@ -155,7 +157,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         creatingFrames={creatingFrames}
         editingCell={editingCell}
         formulaResults={formulaResults}
-        sheetDialogOpen={Boolean(pendingCreation || pendingRename)}
+        sheetDialogOpen={Boolean(pendingCreation || pendingRename || dataModelsOpen)}
         keyboardFocusRequest={keyboardFocusRequest}
         onKeyboardFocusRequestConsumed={acknowledgeKeyboardFocusRequest}
         onKeyboardFocusRequestCancelled={cancelKeyboardFocusRequest}
@@ -168,6 +170,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onEditValueChange={updateEditingCellValue}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
+        onOpenDataModels={() => setDataModelsOpen(true)}
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
@@ -184,6 +187,18 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         saveStatus={saveStatus}
         workbook={workbook}
       />
+
+      {dataModelsOpen ? (
+        <DataModelDialog
+          models={Object.values(workbook.dataModels ?? {})}
+          onCancel={() => { setDataModelsOpen(false); document.getElementById('data-models-button')?.focus(); }}
+          onSave={(model, isNew) => {
+            const result = isNew ? commands.addDataModel(model) : commands.replaceModelDeclaration(model);
+            if (result.ok) { setDataModelsOpen(false); document.getElementById('data-models-button')?.focus(); }
+            return result;
+          }}
+        />
+      ) : null}
 
       {pendingCreation ? (
         <CreateSheetDialog

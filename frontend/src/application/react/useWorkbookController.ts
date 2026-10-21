@@ -32,7 +32,7 @@ import {
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
-import type { ModelMutationResult } from '@workbook/mutations/dataModel';
+import { addDataModel, type ModelMutationResult } from '@workbook/mutations/dataModel';
 import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
@@ -53,6 +53,7 @@ import {
 export type WorkbookCommands = {
   bindSheetToModel: (sheetId: string, modelId: string) => ModelCommandResult;
   unbindSheetFromModel: (sheetId: string) => ModelCommandResult;
+  addDataModel: (model: DataModel) => ModelCommandResult;
   replaceModelDeclaration: (model: DataModel) => ModelCommandResult;
   writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => void;
   writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => void;
@@ -449,6 +450,7 @@ export function useWorkbookController({
     commands: {
       bindSheetToModel: (sheetId, modelId) => applyModelTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
       unbindSheetFromModel: (sheetId) => applyModelTransition((source) => unbindSheetFromModel(source, sheetId)),
+      addDataModel: (model) => applyModelTransition((source) => addDataModel(source, model)),
       replaceModelDeclaration: (model) => applyModelTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
       writeNumberFormats: (sheetId, writes) => { applyAction({ kind: 'write-number-formats', sheetId, writes }); },
       writeAxisSizes: (sheetId, writes) => { applyAction({ kind: 'write-axis-sizes', sheetId, writes }); },
