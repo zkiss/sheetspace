@@ -2,6 +2,7 @@ import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { type SheetDocument, type SheetTabularProjection } from '@workbook/core/model';
 import type { SelectionGesture, CellEditSession, CellSelection, CellSelectionMode, CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
+import { formulaDraftKey } from './formulaDrafts';
 
 export type CellInteractionState = {
   selection: CellTarget | null;
@@ -44,6 +45,7 @@ export type CellInteractionAction =
   | { type: 'start-edit'; session: CellEditSession }
   | { type: 'update-draft'; draft: string }
   | { type: 'update-editor-state'; selection: { start: number; end: number }; scrollTop: number }
+  | { type: 'suspend' }
   | { type: 'commit' }
   | { type: 'cancel' }
   | { type: 'clear'; target: CellTarget }
@@ -185,6 +187,8 @@ export function cellInteractionReducer(
       const editing = { ...state.editing, selection: action.selection, scrollTop: action.scrollTop };
       return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
     }
+    case 'suspend':
+      return { ...state, ...suspendEdit(state) };
     case 'commit':
       return state.editing ? { ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) } : state;
     case 'cancel':
@@ -302,7 +306,7 @@ export function cellInteractionReducer(
 }
 
 export function cellDraftKey(target: CellTarget) {
-  return `${target.sheetId}:${target.cell.rowId}:${target.cell.columnId}`;
+  return formulaDraftKey(target);
 }
 
 function withoutDraft(drafts: Readonly<Record<string, CellEditSession>>, target: CellTarget) {

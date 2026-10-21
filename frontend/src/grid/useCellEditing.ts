@@ -105,6 +105,13 @@ export function useCellEditing({
     return outcome;
   }
 
+  function suspendActiveEdit(session: CellEditSession) {
+    if (!sameSession(stateRef.current.editing, session)) return;
+    dispatch({ type: 'update-draft', draft: session.draft });
+    dispatch({ type: 'update-editor-state', selection: session.selection ?? { start: session.draft.length, end: session.draft.length }, scrollTop: session.scrollTop ?? 0 });
+    dispatch({ type: 'suspend' });
+  }
+
   function startEditingCell(target: CellTarget, initialValue?: string) {
     if (isCalculatedOwnedColumn(workbook, target.sheetId, target.cell.columnId)) return;
     const sheet = findSheetById(workbook, target.sheetId);
@@ -272,6 +279,7 @@ export function useCellEditing({
     clearCellContent,
     clearSelection: () => dispatch({ type: 'clear-selection' }),
     commitActiveEdit,
+    suspendActiveEdit,
     commitEditAndNavigate,
     editingCell: state.editing,
     drafts: state.drafts,

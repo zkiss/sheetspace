@@ -10,7 +10,7 @@ function setup(draft = 'Draft') {
   document.body.append(element);
   const anchor = { current: element };
   const measure = vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(testRect({ left: 40, top: 60, width: 90, height: 26 }));
-  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), cancel: vi.fn(), updateValue: vi.fn() };
+  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), cancel: vi.fn(), suspend: vi.fn(), updateValue: vi.fn() };
   const editingCell = { target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft };
   const component = (value: string) => <SheetGridCellEditor anchor={anchor} editingCell={{ ...editingCell, draft: value }} cellKey="A1" sheetName="Inputs" interaction={interaction} />;
   const view = render(component(draft));
@@ -128,5 +128,18 @@ describe('portal cell editor', () => {
     fireEvent.blur(editor);
     expect(interaction.commit).toHaveBeenCalledOnce();
     expect(interaction.commit).toHaveBeenCalledWith({ ...editingCell, draft: 'Updated' });
+  });
+
+  it.each(['cell', 'tab', 'dialog'])('suspends rather than commits when focus transfers to a workspace %s', (role) => {
+    const { editor, interaction, editingCell } = setup();
+    const destination = document.createElement('button');
+    destination.setAttribute('role', role);
+    document.body.append(destination);
+
+    fireEvent.blur(editor, { relatedTarget: destination });
+
+    expect(interaction.suspend).toHaveBeenCalledWith(editingCell);
+    expect(interaction.commit).not.toHaveBeenCalled();
+    destination.remove();
   });
 });

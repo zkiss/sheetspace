@@ -53,6 +53,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     clearSelection,
     commitActiveEdit,
     commitEditAndNavigate,
+    suspendActiveEdit,
     editingCell,
     extendSelection,
     focusSelection,
@@ -172,6 +173,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onClearSelection={clearSelection}
         onCommitEdit={commitActiveEdit}
         onCommitEditAndNavigate={commitEditAndNavigate}
+        onSuspendEdit={suspendActiveEdit}
         onCreateSheet={openCreationDialog}
         onEditValueChange={updateEditingCellValue}
         onUpdateEditView={updateEditingCellView}

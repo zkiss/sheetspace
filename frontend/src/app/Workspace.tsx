@@ -62,6 +62,7 @@ export function Workspace({
   onActivateSheet,
   onCommitEdit,
   onCommitEditAndNavigate,
+  onSuspendEdit,
   onCreateSheet,
   onEditValueChange,
   onUpdateEditView,
@@ -102,6 +103,7 @@ export function Workspace({
   onActivateSheet: (sheetId: string, requestFocus?: boolean) => CellTarget | undefined;
   onCommitEdit: (session?: CellEditSession) => CellWriteResult | undefined;
   onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | undefined;
+  onSuspendEdit?: (session: CellEditSession) => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   onEditValueChange: (value: string) => void;
   onUpdateEditView?: (selection: { start: number; end: number }, scrollTop: number) => void;
@@ -470,7 +472,7 @@ export function Workspace({
                       startEditing: onStartEdit,
                     }}
                     editingCell={sheetEditingCell}
-                    editorInteraction={{ cancel: onCancelEdit, commit: (session) => reportWriteOutcome(onCommitEdit(session)), commitAndNavigate: (session, request) => reportWriteOutcome(onCommitEditAndNavigate(session, request)), updateValue: onEditValueChange, updateView: onUpdateEditView }}
+                    editorInteraction={{ cancel: onCancelEdit, commit: (session) => reportWriteOutcome(onCommitEdit(session)), commitAndNavigate: (session, request) => reportWriteOutcome(onCommitEditAndNavigate(session, request)), suspend: onSuspendEdit, updateValue: onEditValueChange, updateView: onUpdateEditView }}
                     formulaResults={formulaResults}
                     keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
                       ? {

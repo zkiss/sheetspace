@@ -11,6 +11,7 @@ export const CELL_EDITOR_MAX_HEIGHT = '7rem';
 export type SheetGridCellEditorInteraction = {
   cancel: () => void;
   commit: (session?: CellEditSession) => void;
+  suspend?: (session: CellEditSession) => void;
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
   updateValue: (value: string) => void;
   updateView?: (selection: { start: number; end: number }, scrollTop: number) => void;
@@ -92,10 +93,12 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     data-multiline-editor={sizing.multiline ? 'true' : undefined}
     data-visible-lines={sizing.visibleLineCount}
     data-workspace-sheet-editor={editingCell.target.sheetId}
-    onBlur={(event) => {
-      if (hasFinishedEditing.current) return;
-      hasFinishedEditing.current = true;
-      interaction.commit({ ...editingCell, draft: event.currentTarget.value });
+     onBlur={(event) => {
+       if (hasFinishedEditing.current) return;
+       hasFinishedEditing.current = true;
+       const session = { ...editingCell, draft: event.currentTarget.value };
+       if (isWorkspaceTransfer(event.relatedTarget)) interaction.suspend?.(session);
+       else interaction.commit(session);
     }}
      onValueChange={interaction.updateValue}
      onScroll={(event) => {
@@ -139,6 +142,11 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     value={editingCell.draft}
     />
   </>, document.body);
+}
+
+function isWorkspaceTransfer(destination: EventTarget | null) {
+  if (!(destination instanceof Element)) return false;
+  return Boolean(destination.closest('[role="cell"], [role="tab"], [role="dialog"], [data-workspace-formula-panel], [data-workspace-navigation]'));
 }
 
 function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect, highlight: HTMLPreElement | null) {
