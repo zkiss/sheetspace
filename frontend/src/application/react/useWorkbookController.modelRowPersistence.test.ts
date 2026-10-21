@@ -30,9 +30,14 @@ describe('calculated row persistence', () => {
       { id: 'input', name: 'Input', kind: 'manual', type: 'float' },
       { id: 'output', name: 'Output', kind: 'calculated', type: 'float', formula: "=SUM(@'Input'[1])" },
     ] };
-    const initial: Workbook = { ...workbookWithSheets([first, second]), dataModels: { model: workflowModel } };
+    const initial: Workbook = workbookWithSheets([first, second]);
     const api = persistedWorkbookClient(initial);
     const { result, unmount } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+
+    let creation: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { creation = result.current.commands.addDataModel(workflowModel); });
+    await expect(creation!.completion).resolves.toMatchObject({ ok: true });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
 
     act(() => { result.current.commands.bindSheetToModel('first', 'model'); });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));

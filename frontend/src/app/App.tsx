@@ -38,6 +38,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [dataModelsOpen, setDataModelsOpen] = useState(false);
+  const [dataModelEditId, setDataModelEditId] = useState<string | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
   const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
@@ -174,7 +175,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onEditValueChange={updateEditingCellValue}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
-        onOpenDataModels={() => setDataModelsOpen(true)}
+        onOpenDataModels={(modelId) => { setDataModelEditId(modelId); setDataModelsOpen(true); }}
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
@@ -196,14 +197,15 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       {dataModelsOpen ? (
         <DataModelDialog
           models={Object.values(workbook.dataModels ?? {})}
-          onCancel={() => { setDataModelsOpen(false); document.getElementById('data-models-button')?.focus(); }}
+          initialModelId={dataModelEditId}
+          onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }}
           onSave={async (model, isNew) => {
             const submission = isNew && !workbook.dataModels?.[model.id]
               ? commands.addDataModel(model)
               : commands.replaceModelDeclaration(model);
             if (!submission.result.ok) return submission.result;
             const result = await submission.completion;
-            if (result.ok) { setDataModelsOpen(false); document.getElementById('data-models-button')?.focus(); }
+            if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }
             return result;
           }}
         />

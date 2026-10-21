@@ -21,17 +21,19 @@ function message(result: ModelCommandResult): string {
   return 'The model could not be saved.';
 }
 
-export function DataModelDialog({ models, onCancel, onSave }: {
+export function DataModelDialog({ initialModelId, models, onCancel, onSave }: {
+  initialModelId?: string;
   models: readonly DataModel[];
   onCancel: () => void;
   onSave: (model: DataModel, isNew: boolean) => ModelCommandResult | Promise<ModelCommandResult>;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const initialModel = initialModelId ? models.find((candidate) => candidate.id === initialModelId) : undefined;
+  const [draft, setDraft] = useState<Draft | null>(() => (initialModel ? copy(initialModel) : null));
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [savedPropertyIds, setSavedPropertyIds] = useState<ReadonlySet<string>>(new Set());
+  const [savedPropertyIds, setSavedPropertyIds] = useState<ReadonlySet<string>>(() => new Set(initialModel?.columns.map((column) => column.id) ?? []));
   function openCreate() { setDraft(newDraft()); setIsNew(true); setSavedPropertyIds(new Set()); setError(''); }
   function openEdit(model: DataModel) { setDraft(copy(model)); setIsNew(false); setSavedPropertyIds(new Set(model.columns.map((column) => column.id))); setError(''); }
   function close() { onCancel(); }

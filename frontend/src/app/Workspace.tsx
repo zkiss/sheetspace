@@ -101,7 +101,7 @@ export function Workspace({
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
-  onOpenDataModels?: () => void;
+  onOpenDataModels?: (modelId?: string) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
@@ -300,7 +300,7 @@ export function Workspace({
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onOpenDataModels={onOpenDataModels}
-        modelControls={selectedSheet ? <SheetModelControls models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={onOpenDataModels ?? (() => undefined)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
+        modelControls={selectedSheet ? <SheetModelControls key={selectedSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => onOpenDataModels?.(modelId)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}

@@ -29,7 +29,7 @@ export function WorkspaceToolbar({
     <div className="workspace-chrome">
       <header className="workspace-toolbar" aria-label="Workspace controls">
         <button className="workspace-new-sheet" onClick={onCreateSheet} type="button">New sheet</button>
-        <button className="workspace-new-sheet" id="data-models-button" onClick={onOpenDataModels} type="button">Data models</button>
+        <button className="workspace-new-sheet" id="data-models-button" onClick={() => onOpenDataModels?.()} type="button">Data models</button>
         {modelControls}
         <div className="workspace-format-slot">{formatControls}</div>
         <span className="save-status-indicator" data-status-text={saveStatus === 'failed' && canRetryFailedSaves ? 'Save failed. Click to retry.' : saveStatusText(saveStatus)}>

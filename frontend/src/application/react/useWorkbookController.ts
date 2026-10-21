@@ -51,8 +51,8 @@ import {
 } from '@calculation/workbookCalculation';
 
 export type WorkbookCommands = {
-  bindSheetToModel: (sheetId: string, modelId: string) => ModelCommandResult;
-  unbindSheetFromModel: (sheetId: string) => ModelCommandResult;
+  bindSheetToModel: (sheetId: string, modelId: string) => DataModelCommandSubmission;
+  unbindSheetFromModel: (sheetId: string) => DataModelCommandSubmission;
   addDataModel: (model: DataModel) => DataModelCommandSubmission;
   replaceModelDeclaration: (model: DataModel) => DataModelCommandSubmission;
   writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => WorkbookOperationResult;
@@ -494,8 +494,8 @@ export function useWorkbookController({
 
   return {
     commands: {
-      bindSheetToModel: (sheetId, modelId) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())).result,
-      unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)).result,
+      bindSheetToModel: (sheetId, modelId) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
+      unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)),
       addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
       replaceModelDeclaration: (model) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),

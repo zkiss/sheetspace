@@ -258,7 +258,7 @@ describe('model lifecycle controller wiring', () => {
     act(() => result.current.commands.updateCellContent('one', 'A1', '8'));
     expect(result.current.canUndo).toBe(true);
     act(() => {
-      expect(result.current.commands.bindSheetToModel('missing', 'model')).toEqual({ ok: false, reason: 'unknown-sheet' });
+      expect(result.current.commands.bindSheetToModel('missing', 'model').result).toEqual({ ok: false, reason: 'unknown-sheet' });
       result.current.commands.unbindSheetFromModel('one');
     });
     expect(result.current.canUndo).toBe(true);
@@ -282,7 +282,7 @@ describe('model lifecycle controller wiring', () => {
     act(() => result.current.commands.updateCellContent('one', 'A1', '8'));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     act(() => { result.current.commands.appendRow('one'); });
-    act(() => expect(result.current.commands.bindSheetToModel('one', 'model')).toEqual({ ok: false, reason: 'pending-axis-creation' }));
+    act(() => expect(result.current.commands.bindSheetToModel('one', 'model').result).toEqual({ ok: false, reason: 'pending-axis-creation' }));
     expect(result.current.canUndo).toBe(true);
     await act(async () => append.resolve({ sheetId: 'one', revision: 1, rowCount: 3, rowId: 'server-row' }));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
@@ -299,7 +299,7 @@ describe('model lifecycle controller wiring', () => {
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => {
       result.current.commands.unbindSheetFromModel('one');
-      expect(result.current.commands.bindSheetToModel('two', 'model')).toEqual({ ok: false, reason: 'pending-model-transition' });
+      expect(result.current.commands.bindSheetToModel('two', 'model').result).toEqual({ ok: false, reason: 'pending-model-transition' });
       result.current.commands.appendRow('one');
       result.current.commands.createSheet('New', { x: 0, y: 0 });
     });
@@ -320,7 +320,7 @@ describe('model lifecycle controller wiring', () => {
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initialWorkbook(), apiClient: api }));
     act(() => {
       result.current.commands.createSheet('New', { x: 0, y: 0 });
-      expect(result.current.commands.bindSheetToModel('one', 'model')).toEqual({ ok: false, reason: 'pending-sheet-creation' });
+      expect(result.current.commands.bindSheetToModel('one', 'model').result).toEqual({ ok: false, reason: 'pending-sheet-creation' });
     });
     await act(async () => creation.resolve(sheetDocument({ id: 'new', name: 'New' })));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
