@@ -93,10 +93,15 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     data-multiline-editor={sizing.multiline ? 'true' : undefined}
     data-visible-lines={sizing.visibleLineCount}
     data-workspace-sheet-editor={editingCell.target.sheetId}
-     onBlur={(event) => {
-       if (hasFinishedEditing.current) return;
-       hasFinishedEditing.current = true;
-       const session = { ...editingCell, draft: event.currentTarget.value };
+      onBlur={(event) => {
+        if (hasFinishedEditing.current) return;
+        hasFinishedEditing.current = true;
+        const session = {
+          ...editingCell,
+          draft: event.currentTarget.value,
+          selection: { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd },
+          scrollTop: event.currentTarget.scrollTop,
+        };
        if (isWorkspaceTransfer(event.relatedTarget)) interaction.suspend?.(session);
        else interaction.commit(session);
     }}

@@ -70,6 +70,24 @@ describe('useCellEditing edit persistence', () => {
       expect(result.current.editingCell).toBeNull();
     });
 
+    it('keeps a rejected draft recoverable for an unchanged retry', () => {
+      const { commands, result, sheet } = renderCellEditing();
+      const target = cellTargetAt(sheet, 'A1')!;
+      commands.updateCellContent.mockReturnValueOnce({ ok: false, reason: 'pending-model-transition' }).mockReturnValueOnce({ ok: true, changed: true });
+
+      act(() => {
+        result.current.startEditingCell(target);
+        result.current.updateEditingCellValue('retry me');
+      });
+      act(() => result.current.commitActiveEdit());
+      expect(result.current.editingCell?.draft).toBe('retry me');
+
+      act(() => result.current.commitActiveEdit());
+      expect(commands.updateCellContent).toHaveBeenCalledTimes(2);
+      expect(commands.updateCellContent).toHaveBeenLastCalledWith(sheet.id, 'A1', 'retry me');
+      expect(result.current.editingCell).toBeNull();
+    });
+
     it('opens canonical formula content as user-facing raw text and skips an unchanged commit', () => {
       const inputs = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
       const outputWithoutFormula = sheetDocument({ id: 'sheet-output', name: 'Output' });

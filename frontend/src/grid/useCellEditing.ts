@@ -91,8 +91,9 @@ export function useCellEditing({
     if (currentEditValue !== session.draft) {
       const draftSignature = draftKey(session);
       if (!committedDrafts.current.has(draftSignature)) {
-        committedDrafts.current.add(draftSignature);
-        return commands.updateCellContent(session.target.sheetId, key, session.draft);
+        const outcome = commands.updateCellContent(session.target.sheetId, key, session.draft);
+        if (!outcome || outcome.ok) committedDrafts.current.add(draftSignature);
+        return outcome;
       }
     }
     return undefined;

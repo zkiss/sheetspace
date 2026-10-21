@@ -127,7 +127,9 @@ describe('portal cell editor', () => {
     act(() => editor.blur());
     fireEvent.blur(editor);
     expect(interaction.commit).toHaveBeenCalledOnce();
-    expect(interaction.commit).toHaveBeenCalledWith({ ...editingCell, draft: 'Updated' });
+    expect(interaction.commit).toHaveBeenCalledWith({
+      ...editingCell, draft: 'Updated', selection: { start: 7, end: 7 }, scrollTop: 0,
+    });
   });
 
   it.each(['cell', 'tab', 'dialog'])('suspends rather than commits when focus transfers to a workspace %s', (role) => {
@@ -138,8 +140,26 @@ describe('portal cell editor', () => {
 
     fireEvent.blur(editor, { relatedTarget: destination });
 
-    expect(interaction.suspend).toHaveBeenCalledWith(editingCell);
+    expect(interaction.suspend).toHaveBeenCalledWith({
+      ...editingCell, selection: { start: 5, end: 5 }, scrollTop: 0,
+    });
     expect(interaction.commit).not.toHaveBeenCalled();
+    destination.remove();
+  });
+
+  it('suspends the live selection and scroll position for restoration after navigation', () => {
+    const { editor, interaction, editingCell } = setup('first\nsecond\nthird');
+    editor.setSelectionRange(2, 9);
+    editor.scrollTop = 18;
+    const destination = document.createElement('button');
+    destination.setAttribute('role', 'cell');
+    document.body.append(destination);
+
+    fireEvent.blur(editor, { relatedTarget: destination });
+
+    expect(interaction.suspend).toHaveBeenCalledWith({
+      ...editingCell, selection: { start: 2, end: 9 }, scrollTop: 18,
+    });
     destination.remove();
   });
 });
