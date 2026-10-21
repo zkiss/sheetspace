@@ -39,6 +39,7 @@ import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualizatio
 import { useWorkspaceHistoryReveal } from './useWorkspaceHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
+import { SheetModelControls } from '@workspace/SheetModelControls';
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -118,26 +119,20 @@ export function Workspace({
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
   workbook: Workbook;
 }) {
-  const clipboard = useRef(new ClipboardPayloadStore());
-  const [, setClipboardRevision] = useState(0);
+  const clipboard = useRef(new ClipboardPayloadStore()); const [, setClipboardRevision] = useState(0);
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
-  const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
-  const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
+  const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() }); const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
     if (gridHistoryReveals.current.identity !== identity) gridHistoryReveals.current = { identity, sheetIds: new Set() };
     gridHistoryReveals.current.sheetIds.add(sheetId);
   }, []);
-  const sheets = sheetsInOrder(workbook);
-  const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
-  const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
+  const sheets = sheetsInOrder(workbook); const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
+  const dataModels = Object.values(workbook.dataModels ?? {}); const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
   const selectedRaw = selectedSheet && selectedCellKey
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
-  const formulaInspection = selectedSheet && selectedRaw
-    ? inspectFormula(selectedRaw, workbook, selectedSheet)
-    : undefined;
+  const formulaInspection = selectedSheet && selectedRaw ? inspectFormula(selectedRaw, workbook, selectedSheet) : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
-  const interactionsEnabled = !sheetDialogOpen;
-  const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
+  const interactionsEnabled = !sheetDialogOpen; const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -208,8 +203,7 @@ export function Workspace({
       ? { ...layout, position: frameScalePreview.position, visualScale: frameScalePreview.visualScale }
       : layout;
   });
-  const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
-  const mountedSheetIds = mountedWorkspaceFrameIds({
+  const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame])); const mountedSheetIds = mountedWorkspaceFrameIds({
     frames: projectedFrames,
     pins: {
       editingSheetId: editingCell?.target.sheetId,
@@ -246,7 +240,6 @@ export function Workspace({
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     return copied.ok ? copied.value : undefined;
   }
-
   function cutGridSelection() {
     const selection = selectionRange ?? (activeCell
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
@@ -256,12 +249,10 @@ export function Workspace({
     if (cut.ok) setClipboardRevision((revision) => revision + 1);
     return cut.ok ? cut.value : undefined;
   }
-
   function cancelPendingCut() {
     clipboard.current.cancelCut();
     setClipboardRevision((revision) => revision + 1);
   }
-
   function pasteGridSelection(clipboardData: { text: string; marker?: string }) {
     if (!activeCell) return;
     const destination = findSheetById(workbook, activeCell.sheetId);
@@ -275,7 +266,6 @@ export function Workspace({
       if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source') cancelPendingCut();
     } else commands.pasteCells(destination.id, destinationKey, parsed);
   }
-
   return (
     <>
       <WorkspaceToolbar
@@ -291,11 +281,11 @@ export function Workspace({
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onOpenDataModels={onOpenDataModels}
+        modelControls={selectedSheet ? <SheetModelControls commands={commands} models={dataModels} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
       />
-
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
@@ -346,6 +336,14 @@ export function Workspace({
           if (!mountedSheetIds.has(sheet.id)) return null;
           const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
+          const model = sheet.modelId ? workbook.dataModels?.[sheet.modelId] : undefined;
+          const columnLabels = new Map(model?.columns.flatMap((property) => {
+            const columnId = sheet.modelColumnBindings?.[property.id];
+            return columnId ? [[columnId, property.name] as const] : [];
+          }) ?? []);
+          const calculatedColumnIds = new Set(model?.columns.flatMap((property) => property.kind === 'calculated'
+            ? [sheet.modelColumnBindings?.[property.id]].filter((columnId): columnId is string => Boolean(columnId))
+            : []) ?? []);
           const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
@@ -423,6 +421,8 @@ export function Workspace({
                     axisProjection={axisProjection}
                     presentation={sheet.presentation}
                     pendingCutCells={pendingCutCells}
+                    columnLabels={columnLabels}
+                    calculatedColumnIds={calculatedColumnIds}
                     logicalSelection={selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
@@ -477,7 +477,6 @@ export function Workspace({
     </>
   );
 }
-
 function historyCellsForSheet(
   feedback: import('@application/react/useWorkbookController').ContentHistoryFeedback,
   sheet: SheetDocument,

@@ -104,6 +104,8 @@ export function SheetGrid({
   onPointerInteractionChange,
   onNativeFocusTarget,
   pendingCutCells,
+  columnLabels,
+  calculatedColumnIds,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
@@ -114,6 +116,8 @@ export function SheetGrid({
   /** Publishes native ownership only after focus reaches a concrete cell. */
   onNativeFocusTarget?: (target: CellTarget) => void;
   pendingCutCells?: ReadonlySet<string>;
+  columnLabels?: ReadonlyMap<string, string>;
+  calculatedColumnIds?: ReadonlySet<string>;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -486,13 +490,14 @@ export function SheetGrid({
       <SheetGridHeaders
         columnHeaderRef={columnHeaderRef}
         columns={columns}
+        columnLabels={columnLabels}
         virtualColumns={virtualColumns}
         resize={onWriteAxisSizes ? resize : undefined}
         selectedColumnIndices={selectionMode === 'columns' && selectedRange
           ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
           : undefined}
       />
-      <SheetGridRows {...{ activeCellKey, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
+      <SheetGridRows {...{ activeCellKey, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import type { useAxisResize } from './useAxisResize';
 export function SheetGridHeaders({
   columnHeaderRef,
   columns,
+  columnLabels,
   selectedColumnIndices,
   virtualColumns,
   resize,
@@ -17,6 +18,7 @@ export function SheetGridHeaders({
   resize?: ReturnType<typeof useAxisResize>;
   columnHeaderRef: RefObject<HTMLDivElement>;
   columns: readonly GridAxisEntry<ColumnId>[];
+  columnLabels?: ReadonlyMap<ColumnId, string>;
   selectedColumnIndices?: ReadonlySet<number>;
   virtualColumns: readonly VirtualItem[];
 }) {
@@ -61,7 +63,7 @@ export function SheetGridHeaders({
               width: virtualColumn.size,
             } as CSSProperties}
           >
-            {column.kind === 'creating' ? 'Creating…' : columnIndexToLabel(column.durableIndex)}
+            {column.kind === 'creating' ? 'Creating…' : columnLabels?.get(column.id) ?? columnIndexToLabel(column.durableIndex)}
             {column.kind === 'saved' && resize && <AxisResizeHandle axis="column" id={column.id}
               label={columnIndexToLabel(column.durableIndex)} size={virtualColumn.size} resize={resize} />}
           </div>

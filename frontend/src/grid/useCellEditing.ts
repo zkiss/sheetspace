@@ -4,6 +4,7 @@ import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/que
 import { formulaRawForDisplay } from '@workbook/formula/reference';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
+import { isCalculatedOwnedColumn } from '@workbook/core/calculatedOwnership';
 import type {
   SelectionGesture,
   CellEditSession,
@@ -82,6 +83,7 @@ export function useCellEditing({
   }
 
   function startEditingCell(target: CellTarget, initialValue?: string) {
+    if (isCalculatedOwnedColumn(workbook, target.sheetId, target.cell.columnId)) return;
     const sheet = findSheetById(workbook, target.sheetId);
     const key = sheet && cellKeyForTarget(sheet, target);
     if (!sheet || !key) return;
@@ -97,6 +99,7 @@ export function useCellEditing({
   }
 
   function clearCellContent(target: CellTarget) {
+    if (isCalculatedOwnedColumn(workbook, target.sheetId, target.cell.columnId)) return;
     dispatch({ type: 'clear', target });
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet) return;

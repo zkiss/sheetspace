@@ -33,6 +33,7 @@ export function SheetGridCell({
   isRangeSelected = false,
   selectionEdges,
   isPendingCut = false,
+  isCalculated = false,
   cellInteraction,
   editorInteraction,
   onNativeFocusTarget,
@@ -55,6 +56,7 @@ export function SheetGridCell({
   isRangeSelected?: boolean;
   selectionEdges?: string;
   isPendingCut?: boolean;
+  isCalculated?: boolean;
   cellInteraction: SheetGridCellInteraction;
   editorInteraction: SheetGridCellEditorInteraction;
   onNativeFocusTarget?: (target: CellTarget) => void;
@@ -103,23 +105,25 @@ export function SheetGridCell({
     }
 
     if (action.kind === 'clear-cell') {
+      if (isCalculated) return;
       cellInteraction.clear(target);
       return;
     }
 
-    cellInteraction.startEditing(target, action.initialValue);
+    if (!isCalculated) cellInteraction.startEditing(target, action.initialValue);
   }
 
   return (
     <div
-      aria-label={`${sheet.name} ${cellKey}${cellRawContent(sheet, cellKey) ? '' : ' empty'} cell`}
+      aria-label={`${sheet.name} ${cellKey}${isCalculated ? ' calculated, read-only; edit it in Data models' : cellRawContent(sheet, cellKey) ? '' : ' empty'} cell`}
+      aria-readonly={isCalculated ? 'true' : undefined}
       aria-colindex={columnIndex}
       aria-selected={isActive || isRangeSelected ? 'true' : undefined}
       className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
         isRangeSelected ? ' sheet-grid-cell-range-selected' : ''
       }${selectionEdges ? ` ${selectionEdges}` : ''}${historyEdges ? ` ${historyEdges}` : ''}${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
         isEditing ? ' sheet-grid-cell-editing' : ''
-      }${historyFeedback ? ` sheet-grid-cell-history-${historyFeedback.before === null ? 'insertion' : historyFeedback.after === null ? 'removal' : 'replacement'}` : ''}`}
+      }${isCalculated ? ' sheet-grid-cell-calculated' : ''}${historyFeedback ? ` sheet-grid-cell-history-${historyFeedback.before === null ? 'insertion' : historyFeedback.after === null ? 'removal' : 'replacement'}` : ''}`}
       data-active-cell={isActive ? 'true' : undefined}
       data-cell-key={cellKey}
       data-editing-cell={isEditing ? 'true' : undefined}
@@ -142,7 +146,7 @@ export function SheetGridCell({
       }}
       onDoubleClick={() => {
         const target = cellTargetAt(sheet, cellKey);
-        if (target) cellInteraction.startEditing(target);
+        if (target && !isCalculated) cellInteraction.startEditing(target);
       }}
       onFocus={() => {
         const target = cellTargetAt(sheet, cellKey);

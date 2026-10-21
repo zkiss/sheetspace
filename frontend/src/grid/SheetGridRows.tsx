@@ -18,6 +18,7 @@ import type { useAxisResize } from './useAxisResize';
 type HistoryFeedback = { before: string | null; beforeDisplay: string | null; after: string | null };
 type SheetGridRowsProps = {
   activeCellKey: string | null;
+  calculatedColumnIds?: ReadonlySet<string>;
   cellInteraction: SheetGridCellInteraction;
   columns: GridAxisProjection['columns'];
   editingCell: CellEditSession | null;
@@ -162,6 +163,7 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
 
   return <SheetGridCell
     cellInteraction={props.cellInteraction}
+    isCalculated={props.calculatedColumnIds?.has(column.id) ?? false}
     cellKey={key}
     columnIndex={column.durableIndex + 2}
     displayText={getSheetCellDisplayText({ cellKey: key, formulaResults: props.formulaResults, presentation: props.presentation, sheet: props.sheet })}

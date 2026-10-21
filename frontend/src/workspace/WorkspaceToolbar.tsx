@@ -11,6 +11,7 @@ function saveStatusText(status: SaveStatus) {
 export function WorkspaceToolbar({
   canRetryFailedSaves,
   formatControls,
+  modelControls,
   onCreateSheet,
   onOpenDataModels,
   onRetryFailedSaves,
@@ -18,6 +19,7 @@ export function WorkspaceToolbar({
 }: {
   canRetryFailedSaves: boolean;
   formatControls: ReactNode;
+  modelControls?: ReactNode;
   onCreateSheet: () => void;
   onOpenDataModels?: () => void;
   onRetryFailedSaves: () => void;
@@ -28,6 +30,7 @@ export function WorkspaceToolbar({
       <header className="workspace-toolbar" aria-label="Workspace controls">
         <button className="workspace-new-sheet" onClick={onCreateSheet} type="button">New sheet</button>
         <button className="workspace-new-sheet" id="data-models-button" onClick={onOpenDataModels} type="button">Data models</button>
+        {modelControls}
         <div className="workspace-format-slot">{formatControls}</div>
         <span className="save-status-indicator" data-status-text={saveStatus === 'failed' && canRetryFailedSaves ? 'Save failed. Click to retry.' : saveStatusText(saveStatus)}>
           {saveStatus === 'failed' && canRetryFailedSaves ? (
