@@ -136,7 +136,7 @@ describe('model lifecycle controller wiring', () => {
       result.current.commands.moveSheetFrame('one', { x: 1, y: 2 });
       result.current.commands.unbindSheetFromModel('one');
       expect(result.current.commands.updateCellContent('one', 'A1', '10')).toEqual({ ok: false, reason: 'pending-model-transition' });
-      result.current.commands.moveSheetFrame('one', { x: 3, y: 4 });
+      expect(result.current.commands.moveSheetFrame('one', { x: 3, y: 4 })).toEqual({ ok: false, reason: 'pending-model-transition' });
       result.current.commands.undo();
     });
     expect(calls).toEqual(['old']);
@@ -153,6 +153,30 @@ describe('model lifecycle controller wiring', () => {
     expect(result.current.workbook.documents.one!.modelId).toBe('model');
     expect(result.current.formulaResults.one.B1?.display).toBe('18');
     expect(result.current.workbook.documents.one!.frame.position).toEqual({ x: 1, y: 2 });
+  });
+
+  it.each([
+    ['move a frame', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.moveSheetFrame('one', { x: 3, y: 4 })],
+    ['resize a frame', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.resizeSheetFrame('one', { x: 3, y: 4 }, { width: 200, height: 100 })],
+    ['change visual scale', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.setSheetVisualScale('one', 1.2)],
+    ['change z order', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.changeSheetZOrder('one', 'up')],
+    ['write number formats', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.writeNumberFormats('one', [{ scope: 'row', targetId: 'one:row:1', properties: { numberFormat: { kind: 'number', precision: 2 } } }])],
+    ['write axis sizes', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.writeAxisSizes('one', [{ axis: 'row', axisId: 'one:row:1', size: 44 }])],
+  ])('reports rejected presentation writes while a lifecycle transition is pending: %s', async (_name, submit) => {
+    const save = deferred<Workbook>();
+    const workbook = bind(initialWorkbook(), 'one');
+    const api = autosaveClient({ saveModelLifecycle: () => save.promise });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+
+    act(() => {
+      result.current.commands.unbindSheetFromModel('one');
+      expect(submit(result.current.commands)).toEqual({ ok: false, reason: 'pending-model-transition' });
+    });
+    expect(result.current.mutationFailure).toBe('pending-model-transition');
+    expect(result.current.workbook.documents.one!.modelId).toBeUndefined();
+
+    await act(async () => save.reject(new Error('offline')));
+    await waitFor(() => expect(result.current.workbook).toEqual(workbook));
   });
 
   it.each([

@@ -55,22 +55,22 @@ export type WorkbookCommands = {
   unbindSheetFromModel: (sheetId: string) => ModelCommandResult;
   addDataModel: (model: DataModel) => DataModelCommandSubmission;
   replaceModelDeclaration: (model: DataModel) => DataModelCommandSubmission;
-  writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => void;
-  writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => void;
+  writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => WorkbookOperationResult;
+  writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => WorkbookOperationResult;
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
-  changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
+  changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
   createSheet: (name: string, position: WorkspacePosition, viewportScale?: number) => ValidationResult;
   deleteSheet: (sheetId: string) => void;
-  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
+  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
   retryFailedSaves: () => void;
   undo: () => void;
   redo: () => void;
-  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => void;
-  setSheetVisualScale: (sheetId: string, visualScale: number) => void;
+  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
+  setSheetVisualScale: (sheetId: string, visualScale: number) => WorkbookOperationResult;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
 };
@@ -107,6 +107,7 @@ export type WorkbookController = {
   canUndo: boolean;
   canRedo: boolean;
   contentHistoryFeedback: ContentHistoryFeedback | undefined;
+  mutationFailure: 'pending-model-transition' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;
   creatingFrames: CreatingSheetFrame[];
@@ -181,6 +182,7 @@ export function useWorkbookController({
   const contentHistory = contentHistoryRef.current;
   const [, setHistoryRevision] = useState(0);
   const [contentHistoryFeedback, setContentHistoryFeedback] = useState<WorkbookController['contentHistoryFeedback']>();
+  const [mutationFailure, setMutationFailure] = useState<WorkbookController['mutationFailure']>();
   useEffect(() => {
     if (!contentHistoryFeedback) return;
     const identity = contentHistoryFeedback.identity;
@@ -286,10 +288,14 @@ export function useWorkbookController({
   }
 
   function applyAction(action: WorkbookOperationInput, recordContentHistory = true): WorkbookOperationResult {
-    if (savedAutosave.hasModelTransition()) return { ok: false, reason: 'pending-model-transition' };
+    if (savedAutosave.hasModelTransition()) {
+      setMutationFailure('pending-model-transition');
+      return { ok: false, reason: 'pending-model-transition' };
+    }
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
     const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
+    if (result.ok) setMutationFailure(undefined);
     if (applied?.changed) {
       savedAutosave.enqueue(operation.operationId, applied.persistence);
       if (recordContentHistory && operation.kind === 'write-cells' && applied.persistence?.kind === 'write-cells') {
@@ -447,24 +453,24 @@ export function useWorkbookController({
     setHistoryRevision((revision) => revision + 1);
   }
 
-  function moveSheetFrame(sheetId: string, position: WorkspacePosition) {
+  function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
     const localSheetId = sheetId;
-    applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
+    return applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
   }
 
-  function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) {
+  function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize): WorkbookOperationResult {
     const localSheetId = sheetId;
-    applyAction({
+    return applyAction({
       kind: 'resize-sheet-frame', sheetId: localSheetId, position, size: frameSize,
     });
   }
 
-  function setSheetVisualScale(sheetId: string, visualScale: number) {
-    applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
+  function setSheetVisualScale(sheetId: string, visualScale: number): WorkbookOperationResult {
+    return applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
   }
 
-  function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection) {
-    applyAction({
+  function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection): WorkbookOperationResult {
+    return applyAction({
       kind: 'change-sheet-z-order', sheetId, direction,
     });
   }
@@ -478,8 +484,8 @@ export function useWorkbookController({
       unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)).result,
       addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
       replaceModelDeclaration: (model) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
-      writeNumberFormats: (sheetId, writes) => { applyAction({ kind: 'write-number-formats', sheetId, writes }); },
-      writeAxisSizes: (sheetId, writes) => { applyAction({ kind: 'write-axis-sizes', sheetId, writes }); },
+      writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
+      writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
       appendColumn: axisCreation.appendColumn,
       appendRow: axisCreation.appendRow,
       changeSheetZOrder,
@@ -501,6 +507,7 @@ export function useWorkbookController({
     canUndo: !savedAutosave.hasModelTransition() && contentHistory.canUndo,
     canRedo: !savedAutosave.hasModelTransition() && contentHistory.canRedo,
     contentHistoryFeedback: savedAutosave.hasModelTransition() ? undefined : contentHistoryFeedback,
+    mutationFailure,
     formulaResults,
     retryStartupLoad,
     creatingFrames,

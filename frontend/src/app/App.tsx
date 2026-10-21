@@ -40,7 +40,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [dataModelsOpen, setDataModelsOpen] = useState(false);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -191,6 +191,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         saveStatus={saveStatus}
         workbook={workbook}
       />
+      {mutationFailure ? <p className="form-error" role="alert">Wait for the data model change to finish. Your change was not applied.</p> : null}
 
       {dataModelsOpen ? (
         <DataModelDialog
