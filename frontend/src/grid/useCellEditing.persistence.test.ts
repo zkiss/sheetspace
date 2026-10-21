@@ -105,7 +105,7 @@ describe('useCellEditing edit persistence', () => {
 
       act(() => result.current.startEditingCell(target));
 
-      expect(result.current.editingCell).toEqual({ target, draft: '=@Inputs!A[1]' });
+      expect(result.current.editingCell).toMatchObject({ target, draft: '=@Inputs!A[1]' });
 
       act(() => result.current.commitActiveEdit());
 

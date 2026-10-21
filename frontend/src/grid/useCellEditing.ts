@@ -52,6 +52,7 @@ export function useCellEditing({
   const stateRef = useRef(state);
   stateRef.current = state;
   const committedDrafts = useRef(new Set<string>());
+  const nextSessionId = useRef(1);
 
   function draftKey(session: CellEditSession) {
     return `${session.target.sheetId}:${session.target.cell.rowId}:${session.target.cell.columnId}:${session.draft}`;
@@ -126,6 +127,7 @@ export function useCellEditing({
       session: {
         target,
         draft: initialValue ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
+        sessionId: nextSessionId.current++,
       },
     });
   }
@@ -320,5 +322,6 @@ export function useCellEditing({
 function sameSession(active: CellEditSession | null, candidate: CellEditSession) {
   return Boolean(active && active.target.sheetId === candidate.target.sheetId
     && active.target.cell.rowId === candidate.target.cell.rowId
-    && active.target.cell.columnId === candidate.target.cell.columnId);
+    && active.target.cell.columnId === candidate.target.cell.columnId
+    && active.sessionId === candidate.sessionId);
 }

@@ -161,6 +161,7 @@ describe('SheetGridCell', () => {
   it('renders the editor and commits or cancels editor keyboard actions', () => {
     const sheet = testSheet();
     const editingCell: CellEditSession = {
+      sessionId: 1,
       target: cellTargetAt(sheet, 'A1')!,
       draft: 'Draft',
     };
@@ -175,7 +176,7 @@ describe('SheetGridCell', () => {
     expect(props.editorInteraction.updateValue).toHaveBeenCalledWith('Updated');
 
     fireEvent.blur(editor, { target: { value: 'Updated' } });
-    expect(props.editorInteraction.commit).toHaveBeenCalledWith({ ...editingCell, draft: 'Updated' });
+    expect(props.editorInteraction.commit).toHaveBeenCalledWith(expect.objectContaining({ ...editingCell, draft: 'Updated' }));
 
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledWith(
@@ -203,6 +204,7 @@ describe('SheetGridCell', () => {
   it('anchors multiline editor sizing to the cell with documented maximum dimensions', () => {
     const sheet = testSheet();
     const editingCell: CellEditSession = {
+      sessionId: 1,
       target: cellTargetAt(sheet, 'A1')!,
       draft: '=SUM(\n  @B[1],\n  @B[2],\n  @B[3],\n  @B[4],\n  @B[5],\n  @B[6],\n  @B[7],\n  @B[8],\n  @B[9]\n)',
     };

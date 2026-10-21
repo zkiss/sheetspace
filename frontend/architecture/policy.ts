@@ -3,7 +3,7 @@ import type { ArchitecturePolicy, Owner } from './analyzer';
 const workbook = ['workbook/core', 'workbook/read', 'workbook/formula', 'workbook/mutations'];
 const read = workbook.slice(0, 2);
 const formula = workbook.slice(0, 3);
-const gridModels = 'cellInteraction|cellInteractionContracts|gridAxisMetrics|gridAxisProjection|gridGeometry|sheetGridModel';
+const gridModels = 'cellInteraction|cellInteractionContracts|formulaDrafts|gridAxisMetrics|gridAxisProjection|gridGeometry|sheetGridModel';
 const workspaceModels = 'workspaceContracts|workspaceGeometry|workspaceFrameVirtualization';
 
 // A package owns direct children only. New subtrees require an explicit policy decision.

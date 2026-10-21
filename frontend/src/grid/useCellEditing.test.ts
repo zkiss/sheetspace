@@ -35,7 +35,7 @@ describe('useCellEditing', () => {
       result.current.startEditingCell(a1, 'x');
     });
 
-    expect(result.current.editingCell).toEqual({ target: a1, draft: 'x' });
+    expect(result.current.editingCell).toMatchObject({ target: a1, draft: 'x' });
   });
 
   it('keeps focus with the extent through repeated Shift-arrow extension and reversal', () => {
@@ -233,6 +233,26 @@ describe('useCellEditing', () => {
 
 
   describe('commit navigation', () => {
+    it('ignores all callbacks from an older session reopened for the same target', () => {
+      const { commands, result, sheet } = renderCellEditing();
+      const a1 = cellTargetAt(sheet, 'A1')!;
+
+      act(() => result.current.startEditingCell(a1, 'older draft'));
+      const olderSession = result.current.editingCell!;
+      act(() => result.current.startEditingCell(a1, 'newer draft'));
+      const newerSession = result.current.editingCell!;
+
+      act(() => {
+        result.current.commitActiveEdit(olderSession);
+        result.current.suspendActiveEdit(olderSession);
+        result.current.commitEditAndNavigate(olderSession, 'tab');
+      });
+
+      expect(commands.updateCellContent).not.toHaveBeenCalled();
+      expect(result.current.editingCell).toEqual(newerSession);
+      expect(result.current.activeCell).toEqual(a1);
+    });
+
     it.each([
       ['Tab', { key: 'Tab' as const, shift: true }, 'A2'],
       ['Enter', { key: 'Enter' as const, shift: true }, 'B1'],
@@ -240,10 +260,9 @@ describe('useCellEditing', () => {
       const { commands, result, sheet } = renderCellEditing();
       const b2 = cellTargetAt(sheet, 'B2')!;
       const expected = cellTargetAt(sheet, expectedKey)!;
-      const session = { target: b2, draft: 'revised' };
-
       act(() => result.current.selectCell(b2));
-      act(() => result.current.startEditingCell(b2, session.draft));
+      act(() => result.current.startEditingCell(b2, 'revised'));
+      const session = result.current.editingCell!;
       act(() => result.current.commitEditAndNavigate(session, request));
 
       expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'B2', session.draft);
@@ -261,7 +280,7 @@ describe('useCellEditing', () => {
       act(() => result.current.extendSelection(c1, { owner }));
       act(() => result.current.settleSelectionGesture(owner));
       act(() => result.current.startEditingCell(c1, 'pointer draft'));
-      act(() => result.current.commitEditAndNavigate({ target: c1, draft: 'pointer draft' }, 'tab'));
+      act(() => result.current.commitEditAndNavigate(result.current.editingCell!, 'tab'));
 
       expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'C1', 'pointer draft');
       expect(result.current.activeCell).toEqual(a1);
@@ -272,9 +291,8 @@ describe('useCellEditing', () => {
       const { commands, result, sheet } = renderCellEditing();
       const a1 = cellTargetAt(sheet, 'A1')!;
       const b1 = cellTargetAt(sheet, 'B1')!;
-      const session = { target: a1, draft: 'Region' };
-
-      act(() => result.current.startEditingCell(a1, session.draft));
+      act(() => result.current.startEditingCell(a1, 'Region'));
+      const session = result.current.editingCell!;
       act(() => result.current.commitEditAndNavigate(session, 'tab'));
 
       expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', session.draft);
@@ -287,9 +305,8 @@ describe('useCellEditing', () => {
       const { commands, result, sheet } = renderCellEditing();
       const b1 = cellTargetAt(sheet, 'B1')!;
       const b2 = cellTargetAt(sheet, 'B2')!;
-      const session = { target: b1, draft: 'Value' };
-
-      act(() => result.current.startEditingCell(b1, session.draft));
+      act(() => result.current.startEditingCell(b1, 'Value'));
+      const session = result.current.editingCell!;
       act(() => result.current.commitEditAndNavigate(session, 'enter'));
 
       expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'B1', session.draft);
@@ -304,11 +321,11 @@ describe('useCellEditing', () => {
       const a2 = cellTargetAt(sheet, 'A2')!;
 
       act(() => result.current.startEditingCell(a1, 'First'));
-      act(() => result.current.commitEditAndNavigate({ target: a1, draft: 'First' }, 'tab'));
+      act(() => result.current.commitEditAndNavigate(result.current.editingCell!, 'tab'));
       expect(result.current.activeCell).toEqual(b1);
 
       act(() => result.current.startEditingCell(b1, 'Second'));
-      act(() => result.current.commitEditAndNavigate({ target: b1, draft: 'Second' }, 'enter'));
+      act(() => result.current.commitEditAndNavigate(result.current.editingCell!, 'enter'));
 
       expect(commands.updateCellContent).toHaveBeenNthCalledWith(1, sheet.id, 'A1', 'First');
       expect(commands.updateCellContent).toHaveBeenNthCalledWith(2, sheet.id, 'B1', 'Second');
@@ -350,10 +367,10 @@ describe('useCellEditing', () => {
       );
 
       act(() => result.current.startEditingCell(a1, 'first'));
-      act(() => result.current.commitEditAndNavigate({ target: a1, draft: 'first' }, 'tab'));
+      act(() => result.current.commitEditAndNavigate(result.current.editingCell!, 'tab'));
       rerender({ workbook: workbookWithSheets([revised]) });
       act(() => result.current.startEditingCell(b1, 'second'));
-      act(() => result.current.commitEditAndNavigate({ target: b1, draft: 'second' }, 'enter'));
+      act(() => result.current.commitEditAndNavigate(result.current.editingCell!, 'enter'));
 
       expect(result.current.activeCell).toEqual({
         sheetId: revised.id,

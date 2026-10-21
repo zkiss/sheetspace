@@ -164,9 +164,12 @@ export function cellInteractionReducer(
     }
     case 'start-edit':
       {
-        const editing = action.replaceSuspendedDraft
-          ? action.session
-          : state.drafts[cellDraftKey(action.session.target)] ?? action.session;
+        const suspendedDraft = state.drafts[cellDraftKey(action.session.target)];
+        // Resuming restores the target's draft and view state, but opening the
+        // overlay is still a new callback lifetime.
+        const editing = !action.replaceSuspendedDraft && suspendedDraft
+          ? { ...suspendedDraft, sessionId: action.session.sessionId }
+          : action.session;
         const suspended = suspendEdit(state);
         const drafts = suspended.drafts ?? state.drafts;
         return {
