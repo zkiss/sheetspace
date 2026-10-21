@@ -54,6 +54,6 @@ export const frontendPolicy: ArchitecturePolicy = {
   forbiddenFiles: ['src/workbook.ts', 'src/workbook.tsx', 'src/appTypes.ts', 'src/index.ts', 'src/index.tsx'],
   styles: [
     { files: /^src\/app\/global\.css$/, kind: 'global', importers: ['src/app/main.tsx'] },
-    { files: /^src\/(?:app\/(?!global\.css$)|grid\/|workspace\/|reference-navigation\/)[^/]+\.css$/, kind: 'scoped' },
+    { files: /^src\/(?:app\/(?!global\.css$)|application\/react\/|grid\/|workspace\/|reference-navigation\/)[^/]+\.css$/, kind: 'scoped' },
   ],
 };

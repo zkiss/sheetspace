@@ -32,6 +32,7 @@ describe('DataModelDialog', () => {
     fireEvent.change(within(form).getByLabelText('Property 1 kind'), { target: { value: 'calculated' } });
     fireEvent.change(within(form).getByLabelText('Property 1 type'), { target: { value: 'float' } });
     fireEvent.change(within(form).getByLabelText('Property 1 formula'), { target: { value: '=1+2' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Apply' }));
     fireEvent.click(within(form).getByRole('button', { name: 'Add property' }));
     fireEvent.change(within(form).getByLabelText('Property 2 name'), { target: { value: 'Paid' } });
     fireEvent.change(within(form).getByLabelText('Property 2 type'), { target: { value: 'boolean' } });
@@ -63,6 +64,21 @@ describe('DataModelDialog', () => {
     fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[1][0].columns[1].id).not.toBe('tax');
+  });
+
+  it('keeps a calculated-property formula local until Apply and restores its accepted model draft on Cancel', () => {
+    setup([savedModel]);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('form', { name: 'Edit data model' });
+    const formula = within(form).getByLabelText('Property 2 formula');
+
+    fireEvent.change(formula, { target: { value: '=9' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel formula' }));
+    expect(formula).toHaveValue('=@Amount[1]*0.2');
+
+    fireEvent.change(formula, { target: { value: '=9' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Apply' }));
+    expect(formula).toHaveValue('=9');
   });
 
   it('retains an asynchronous failed-save draft and reports the failure for retry', async () => {

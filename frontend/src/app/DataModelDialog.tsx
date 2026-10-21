@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { DataModel, ModelColumn, ModelColumnType } from '@workbook/core/model';
 import type { ModelCommandResult } from '@application/react/useWorkbookController';
-import { FormulaEditorPanel } from '@workbook/formula/FormulaEditorPanel';
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import type { Workbook } from '@workbook/core/model';
 import './DataModelDialog.css';
@@ -42,9 +42,10 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [formulaDrafts, setFormulaDrafts] = useState<Readonly<Record<string, string>>>({});
   const [savedPropertyIds, setSavedPropertyIds] = useState<ReadonlySet<string>>(() => new Set(initialModel?.columns.map((column) => column.id) ?? []));
-  function openCreate() { setDraft(newDraft()); setIsNew(true); setSavedPropertyIds(new Set()); setError(''); }
-  function openEdit(model: DataModel) { setDraft(copy(model)); setIsNew(false); setSavedPropertyIds(new Set(model.columns.map((column) => column.id))); setError(''); }
+  function openCreate() { setDraft(newDraft()); setIsNew(true); setSavedPropertyIds(new Set()); setFormulaDrafts({}); setError(''); }
+  function openEdit(model: DataModel) { setDraft(copy(model)); setIsNew(false); setSavedPropertyIds(new Set(model.columns.map((column) => column.id))); setFormulaDrafts({}); setError(''); }
   function close() { closing.current = true; onCancel(); }
   function updateColumn(index: number, update: Partial<ModelColumn>) {
     setDraft((current) => current && { ...current, columns: current.columns.map((column, currentIndex) => {
@@ -130,7 +131,11 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
             <label>Property name<input aria-label={`Property ${index + 1} name`} disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} /></label>
             <label>Kind<select aria-label={`Property ${index + 1} kind`} disabled={saving} onChange={(event) => updateColumn(index, { kind: event.target.value as ModelColumn['kind'] })} value={column.kind}><option value="manual">Manual</option><option value="calculated">Calculated</option></select></label>
             <label>Type<select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => updateColumn(index, { type: event.target.value as ModelColumnType })} value={column.type}>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-            {column.kind === 'calculated' ? <FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} onApply={() => undefined} onCancel={() => updateColumn(index, { formula: '' })} onRawChange={(formula) => updateColumn(index, { formula })} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={column.formula} resolver={workbookFormulaReferenceResolver(formulaWorkbook, Object.keys(formulaWorkbook.documents)[0] ?? '')} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
+            {column.kind === 'calculated' ? <FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} disabled={saving} onApply={() => {
+              const formula = formulaDrafts[column.id];
+              if (formula !== undefined) updateColumn(index, { formula });
+              setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
+            }} onCancel={() => setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; })} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} resolver={workbookFormulaReferenceResolver(formulaWorkbook, Object.keys(formulaWorkbook.documents)[0] ?? '')} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
             <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Up</button><button aria-label={`Move property ${index + 1} down`} disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Down</button><button aria-label={`Remove property ${index + 1}`} disabled={saving} onClick={() => removeColumn(index)} type="button">Remove</button></div>
           </div>)}
           <button disabled={saving} onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>

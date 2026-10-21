@@ -12,7 +12,7 @@ import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
-import { FormulaEditorPanel } from '@workbook/formula/FormulaEditorPanel';
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
