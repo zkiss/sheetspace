@@ -216,6 +216,40 @@ describe('cell interaction lifecycle boundaries', () => {
     expect(cellInteractionReducer(replacement, { type: 'cancel-focus', requestId: 2 }).focusRequest).toBeNull();
   });
 
+  it('keeps independent target-keyed drafts and restores their view state after navigation', () => {
+    const otherSheetA1 = { ...a1, sheetId: 'sheet-outputs' };
+    const first = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'start-edit', session: { target: a1, draft: 'first' },
+    });
+    const viewed = cellInteractionReducer(first, {
+      type: 'update-editor-state', selection: { start: 1, end: 4 }, scrollTop: 12,
+    });
+    const suspended = cellInteractionReducer(viewed, { type: 'navigate', target: b1 });
+    const second = cellInteractionReducer(suspended, {
+      type: 'start-edit', session: { target: otherSheetA1, draft: 'second' },
+    });
+    const switched = cellInteractionReducer(second, { type: 'navigate', target: a1 });
+    const restored = cellInteractionReducer(switched, {
+      type: 'start-edit', session: { target: a1, draft: 'stored value must not replace the draft' },
+    });
+
+    expect(restored.editing).toEqual({ target: a1, draft: 'first', selection: { start: 1, end: 4 }, scrollTop: 12 });
+    expect(restored.drafts[`${otherSheetA1.sheetId}:${otherSheetA1.cell.rowId}:${otherSheetA1.cell.columnId}`]?.draft).toBe('second');
+
+    const committed = cellInteractionReducer(restored, { type: 'commit' });
+    expect(committed.drafts[`${a1.sheetId}:${a1.cell.rowId}:${a1.cell.columnId}`]).toBeUndefined();
+    expect(committed.drafts[`${otherSheetA1.sheetId}:${otherSheetA1.cell.rowId}:${otherSheetA1.cell.columnId}`]?.draft).toBe('second');
+  });
+
+  it('prunes drafts for removed or protected targets without writing another target', () => {
+    const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'start-edit', session: { target: a1, draft: 'draft' },
+    });
+    const pruned = cellInteractionReducer(editing, { type: 'prune-drafts', targetKeys: new Set() });
+    expect(pruned.editing).toBeNull();
+    expect(pruned.drafts).toEqual({});
+  });
+
   it('prunes all state associated with removed sheets while retaining surviving state', () => {
     const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 });
     const editing = cellInteractionReducer(selected, { type: 'start-edit', session: { target: a1, draft: 'draft' } });

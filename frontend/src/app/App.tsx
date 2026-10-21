@@ -72,6 +72,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     selectReferenceTarget,
     startEditingCell,
     updateEditingCellValue,
+    updateEditingCellView,
   } = useCellEditing({
     commands,
     workbook,
@@ -173,6 +174,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onCommitEditAndNavigate={commitEditAndNavigate}
         onCreateSheet={openCreationDialog}
         onEditValueChange={updateEditingCellValue}
+        onUpdateEditView={updateEditingCellView}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
         onOpenDataModels={(modelId) => { setDataModelEditId(modelId); setDataModelsOpen(true); }}

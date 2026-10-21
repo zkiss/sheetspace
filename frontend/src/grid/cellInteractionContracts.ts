@@ -30,6 +30,8 @@ export type ReferenceNavigationTarget =
 export type CellEditSession = {
   target: CellTarget;
   draft: string;
+  selection?: { start: number; end: number };
+  scrollTop?: number;
 };
 
 export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';

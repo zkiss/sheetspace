@@ -19,6 +19,7 @@ import type {
 import { resolveCellNavigation } from './cellNavigation';
 import {
   cellInteractionReducer,
+  cellDraftKey,
   cellKeyForTarget,
   EMPTY_CELL_INTERACTION_STATE,
 } from '@grid/cellInteraction';
@@ -48,6 +49,8 @@ export function useCellEditing({
   workbook: Workbook;
 }) {
   const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const committedDrafts = useRef(new Set<string>());
 
   function draftKey(session: CellEditSession) {
@@ -59,6 +62,15 @@ export function useCellEditing({
       type: 'prune-sheets',
       sheetIds: new Set(sheetsInOrder(workbook).map((sheet) => sheet.id)),
     });
+  }, [workbook]);
+
+  useEffect(() => {
+    const targetKeys = new Set(
+      sheetsInOrder(workbook).flatMap((sheet) => sheet.content.rows.flatMap((rowId) => sheet.content.columns
+        .filter((columnId) => !isCalculatedOwnedColumn(workbook, sheet.id, columnId))
+        .map((columnId) => cellDraftKey({ sheetId: sheet.id, cell: { rowId, columnId } })))),
+    );
+    dispatch({ type: 'prune-drafts', targetKeys });
   }, [workbook]);
 
   useEffect(() => {
@@ -86,9 +98,10 @@ export function useCellEditing({
     return undefined;
   }
 
-  function commitActiveEdit(session = state.editing) {
+  function commitActiveEdit(session = stateRef.current.editing) {
+    if (!session || !sameSession(stateRef.current.editing, session)) return undefined;
     const outcome = commitSession(session);
-    dispatch({ type: 'commit' });
+    if (!outcome || outcome.ok) dispatch({ type: 'commit' });
     return outcome;
   }
 
@@ -156,9 +169,7 @@ export function useCellEditing({
       ? { sheetId, cell: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] } }
       : undefined);
     if (!target) return undefined;
-    commitSession(state.editing);
     if (state.selection?.sheetId === sheetId && cellKeyForTarget(sheet, state.selection)) {
-      dispatch({ type: 'commit' });
       if (requestFocus) dispatch({ type: 'focus-current-selection' });
     } else dispatch({ type: 'activate-sheet', target, requestFocus });
     return target;
@@ -214,7 +225,10 @@ export function useCellEditing({
     const normalizedRequest = typeof request === 'string'
       ? { key: request === 'tab' ? 'Tab' as const : 'Enter' as const }
       : request;
+    if (!sameSession(stateRef.current.editing, session)) return undefined;
     const outcome = commitSession(session);
+    if (outcome && !outcome.ok) return outcome;
+    dispatch({ type: 'commit' });
     const sheet = findSheetById(workbook, session.target.sheetId);
     const selection = state.rangeSelection;
     const hasRectangle = Boolean(sheet && selection?.mode === 'cells'
@@ -260,6 +274,7 @@ export function useCellEditing({
     commitActiveEdit,
     commitEditAndNavigate,
     editingCell: state.editing,
+    drafts: state.drafts,
     acknowledgeKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'acknowledge-focus', requestId }),
     cancelKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'cancel-focus', requestId }),
     keyboardFocusRequest: state.focusRequest,
@@ -279,7 +294,6 @@ export function useCellEditing({
       return requestId;
     },
     selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
-      if (!gesture || gesture.start) commitActiveEdit();
       dispatch({ type: 'select-axis', mode, target, extend, gesture });
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
@@ -288,5 +302,13 @@ export function useCellEditing({
       committedDrafts.current.clear();
       dispatch({ type: 'update-draft', draft });
     },
+    updateEditingCellView: (selection: { start: number; end: number }, scrollTop: number) =>
+      dispatch({ type: 'update-editor-state', selection, scrollTop }),
   };
+}
+
+function sameSession(active: CellEditSession | null, candidate: CellEditSession) {
+  return Boolean(active && active.target.sheetId === candidate.target.sheetId
+    && active.target.cell.rowId === candidate.target.cell.rowId
+    && active.target.cell.columnId === candidate.target.cell.columnId);
 }

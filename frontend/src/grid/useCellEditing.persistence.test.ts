@@ -32,7 +32,7 @@ describe('useCellEditing edit persistence', () => {
       expect(result.current.editingCell?.draft).toBe('2');
     });
 
-    it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
+    it.each(['rows', 'columns'] as const)('suspends text, formula and unchanged drafts before selecting %s', (mode) => {
       for (const [raw, draft] of [['', 'Region'], ['', '=SUM(@B[1]:B[2])'], ['', ''], ['Region', 'Region'], ['=SUM(@B[1]:B[2])', '=SUM(@B[1]:B[2])']]) {
         const input = sheetDocument({ id: 'header-drafts', name: 'Header drafts', cells: { A1: raw } });
         const { commands, result, sheet, unmount } = renderCellEditing(input);
@@ -41,13 +41,11 @@ describe('useCellEditing edit persistence', () => {
         act(() => result.current.startEditingCell(a1, draft));
         const session = result.current.editingCell!;
         act(() => result.current.selectAxis(mode, b1, false));
-        const writes = draft === raw ? 0 : 1;
-        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
-        if (writes) expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', draft);
+        expect(commands.updateCellContent).not.toHaveBeenCalled();
         expect(result.current.editingCell).toBeNull();
         expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
         act(() => result.current.commitActiveEdit(session));
-        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
+        expect(commands.updateCellContent).not.toHaveBeenCalled();
         expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
         unmount();
       }

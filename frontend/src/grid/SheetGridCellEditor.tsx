@@ -13,6 +13,7 @@ export type SheetGridCellEditorInteraction = {
   commit: (session?: CellEditSession) => void;
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
   updateValue: (value: string) => void;
+  updateView?: (selection: { start: number; end: number }, scrollTop: number) => void;
 };
 
 export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction, sheetName }: {
@@ -63,11 +64,13 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     const editor = editorRef.current;
     if (!editor || !anchorRect.current) return;
     if (!hasPlacedInitialCaret.current) {
-      editor.setSelectionRange(editor.value.length, editor.value.length);
+      const selection = editingCell.selection ?? { start: editor.value.length, end: editor.value.length };
+      editor.setSelectionRange(selection.start, selection.end);
+      editor.scrollTop = editingCell.scrollTop ?? 0;
       hasPlacedInitialCaret.current = true;
     }
     placeEditor(editor, anchorRect.current, highlightRef.current);
-  }, [isAnchored, editingCell.draft]);
+  }, [isAnchored, editingCell.draft, editingCell.scrollTop, editingCell.selection]);
 
   if (!isAnchored) return null;
   const sizing = cellEditorSizing(editingCell.draft, 0);
@@ -95,7 +98,11 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
       interaction.commit({ ...editingCell, draft: event.currentTarget.value });
     }}
      onValueChange={interaction.updateValue}
-    onScroll={(event) => syncHighlightScroll(event.currentTarget, highlightRef.current)}
+     onScroll={(event) => {
+       syncHighlightScroll(event.currentTarget, highlightRef.current);
+       interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop);
+     }}
+     onSelect={(event) => interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop)}
     onClick={(event) => event.stopPropagation()}
     onDoubleClick={(event) => event.stopPropagation()}
     onKeyDown={(event) => {

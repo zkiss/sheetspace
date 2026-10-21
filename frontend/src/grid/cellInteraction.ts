@@ -9,6 +9,7 @@ export type CellInteractionState = {
   selectionOwner: symbol | null;
   rangeSelection: CellSelection | null;
   editing: CellEditSession | null;
+  drafts: Readonly<Record<string, CellEditSession>>;
   focusRequest: CellFocusRequest | null;
   nextFocusRequestId: number;
   referenceSelection: ReferenceNavigationTarget | null;
@@ -26,6 +27,7 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
   selectionOwner: null,
   rangeSelection: null,
   editing: null,
+  drafts: {},
   focusRequest: null,
   nextFocusRequestId: 1,
   referenceSelection: null,
@@ -41,6 +43,7 @@ export type CellInteractionAction =
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'start-edit'; session: CellEditSession }
   | { type: 'update-draft'; draft: string }
+  | { type: 'update-editor-state'; selection: { start: number; end: number }; scrollTop: number }
   | { type: 'commit' }
   | { type: 'cancel' }
   | { type: 'clear'; target: CellTarget }
@@ -52,7 +55,8 @@ export type CellInteractionAction =
   | { type: 'acknowledge-focus'; requestId: number }
   | { type: 'cancel-focus'; requestId: number }
   | { type: 'clear-selection' }
-  | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> };
+  | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> }
+  | { type: 'prune-drafts'; targetKeys: ReadonlySet<string> };
 
 function referenceStart(target: ReferenceNavigationTarget): CellTarget {
   return target.kind === 'cell'
@@ -78,6 +82,7 @@ export function cellInteractionReducer(
         focusRequest: null,
         referenceSelection: null,
         tabRunOriginColumnId: sameTarget(state.selection, action.target) ? state.tabRunOriginColumnId : null,
+        ...suspendEdit(state),
       };
     case 'activate-sheet': {
       const activated: CellInteractionState = {
@@ -86,7 +91,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         focusRequest: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,
@@ -130,7 +135,7 @@ export function cellInteractionReducer(
           anchor: canExtend ? state.rangeSelection!.anchor : action.target,
           extent: action.target,
         },
-        editing: null,
+        ...suspendEdit(state),
         focusRequest: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,
@@ -150,7 +155,7 @@ export function cellInteractionReducer(
               extent: { sheetId: action.target.sheetId, cell: action.target.range.end },
             }
           : { mode: 'cells', anchor: target, extent: target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: action.target,
         tabRunOriginColumnId: null,
       }, target);
@@ -166,15 +171,24 @@ export function cellInteractionReducer(
         rangeSelection: preservesRectangularRange(state, action.session.target)
           ? state.rangeSelection
           : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
-        editing: action.session,
+        ...suspendEdit(state),
+        editing: state.drafts[cellDraftKey(action.session.target)] ?? action.session,
         referenceSelection: null,
       };
-    case 'update-draft':
-      return state.editing ? { ...state, editing: { ...state.editing, draft: action.draft } } : state;
+    case 'update-draft': {
+      if (!state.editing) return state;
+      const editing = { ...state.editing, draft: action.draft };
+      return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
+    }
+    case 'update-editor-state': {
+      if (!state.editing) return state;
+      const editing = { ...state.editing, selection: action.selection, scrollTop: action.scrollTop };
+      return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
+    }
     case 'commit':
-      return { ...state, editing: null };
+      return state.editing ? { ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) } : state;
     case 'cancel':
-      return state.editing ? withFocusRequest({ ...state, editing: null }, state.editing.target) : state;
+      return state.editing ? withFocusRequest({ ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) }, state.editing.target) : state;
     case 'clear':
       // Clearing contents is not a selection operation. Keep a range (including
       // a whole-row or whole-column selection) intact for subsequent navigation.
@@ -182,7 +196,7 @@ export function cellInteractionReducer(
         return withFocusRequest({
           ...state,
           selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
-          editing: null,
+          ...suspendEdit(state),
           referenceSelection: null,
         }, action.target);
       }
@@ -192,7 +206,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: null,
       }, action.target);
@@ -203,7 +217,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: null,
       }, action.target);
@@ -221,7 +235,7 @@ export function cellInteractionReducer(
         selection: action.target,
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: null,
       }, action.target);
@@ -232,7 +246,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: action.originColumnId,
       }, action.target);
@@ -259,7 +273,7 @@ export function cellInteractionReducer(
       // exact request may release its focus and virtualization pin.
       return state.focusRequest?.id === action.requestId ? { ...state, focusRequest: null } : state;
     case 'clear-selection':
-      return { ...state, selection: null, selectionOwner: null, rangeSelection: null, editing: null, focusRequest: null, referenceSelection: null, tabRunOriginColumnId: null };
+      return { ...state, selection: null, selectionOwner: null, rangeSelection: null, ...suspendEdit(state), focusRequest: null, referenceSelection: null, tabRunOriginColumnId: null };
     case 'prune-sheets': {
       const keep = (target: CellTarget | null) => target && action.sheetIds.has(target.sheetId) ? target : null;
       const referenceSelection = state.referenceSelection
@@ -274,11 +288,30 @@ export function cellInteractionReducer(
         rangeSelection: state.rangeSelection && action.sheetIds.has(state.rangeSelection.anchor.sheetId)
           ? state.rangeSelection : null,
         editing: state.editing && action.sheetIds.has(state.editing.target.sheetId) ? state.editing : null,
+        drafts: Object.fromEntries(Object.entries(state.drafts).filter(([, draft]) => action.sheetIds.has(draft.target.sheetId))),
         focusRequest: state.focusRequest && keep(state.focusRequest.target) ? state.focusRequest : null,
         referenceSelection,
       };
     }
+    case 'prune-drafts': {
+      const drafts = Object.fromEntries(Object.entries(state.drafts).filter(([key]) => action.targetKeys.has(key)));
+      const editing = state.editing && action.targetKeys.has(cellDraftKey(state.editing.target)) ? state.editing : null;
+      return { ...state, drafts, editing };
+    }
   }
+}
+
+export function cellDraftKey(target: CellTarget) {
+  return `${target.sheetId}:${target.cell.rowId}:${target.cell.columnId}`;
+}
+
+function withoutDraft(drafts: Readonly<Record<string, CellEditSession>>, target: CellTarget) {
+  return Object.fromEntries(Object.entries(drafts).filter(([key]) => key !== cellDraftKey(target)));
+}
+
+function suspendEdit(state: CellInteractionState) {
+  if (!state.editing) return { editing: null };
+  return { editing: null, drafts: { ...state.drafts, [cellDraftKey(state.editing.target)]: state.editing } };
 }
 
 function preservesRectangularRange(state: CellInteractionState, target: CellTarget) {
