@@ -201,26 +201,20 @@ private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookS
                 }
             }
         }
-        calculatedModelColumns(before, current.dataModels).forEach { column ->
-            sheet.tabularContent.rows.forEach { row ->
-                val coordinate = CellCoordinate(row, column)
-                if (before.tabularContent.cellContents[coordinate] != sheet.tabularContent.cellContents[coordinate]) {
-                    rejectInvalidCalculatedContents(updated)
-                }
-            }
-        }
     }
-    rejectInvalidCalculatedContents(
-        updated,
-        mayOmit = { sheet, row -> row !in current.documents[sheet.id]?.tabularContent?.rows.orEmpty() },
-    )
+    if (!calculatedTemplatesAreValid(updated)) {
+        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+    }
+    if (calculatedOverridesWereIntroduced(current, updated)) {
+        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+    }
 }
 
-private fun rejectInvalidCalculatedContents(
-    workbook: WorkbookState,
-    mayOmit: (SheetDocument, RowId) -> Boolean = { _, _ -> false },
-) {
-    if (!calculatedContentsAreDerived(workbook, mayOmit)) {
+/**
+ * A whole-workbook save replaces every cell, so every calculated cell must be a derived instance.
+ */
+private fun rejectInvalidCalculatedContents(workbook: WorkbookState) {
+    if (!calculatedContentsAreDerived(workbook)) {
         throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
     }
 }

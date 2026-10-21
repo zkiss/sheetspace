@@ -17,22 +17,72 @@ internal fun calculatedModelColumns(sheet: SheetDocument, models: Map<String, Da
         .toSet()
 }
 
-internal fun calculatedContentsAreDerived(
-    workbook: WorkbookState,
-    mayOmit: (SheetDocument, RowId) -> Boolean = { _, _ -> false },
-): Boolean = workbook.documents.values.all { sheet ->
+/**
+ * Every bound calculated property must carry the template of its current declaration.
+ *
+ * Absent or stale template metadata is invalid, never authority: it must not turn a calculated
+ * column into an unvalidated column.
+ */
+internal fun calculatedTemplatesAreValid(workbook: WorkbookState): Boolean = workbook.documents.values.all { sheet ->
     val model = sheet.modelId?.let(workbook.dataModels::get) ?: return@all true
     val calculated = model.columns.filterIsInstance<CalculatedModelColumn>()
         .filter { it.id in sheet.modelColumnBindings }
     val templates = sheet.modelFormulaBindings ?: return@all calculated.isEmpty()
-    if (templates.keys != calculated.map(ModelColumn::id).toSet()) return@all false
-    calculated.all { property ->
-        val column = sheet.modelColumnBindings.getValue(property.id)
-        val template = templates.getValue(property.id)
-        template.raw == property.formula && sheet.tabularContent.rows.withIndex().all { (rowIndex, row) ->
-            (mayOmit(sheet, row) && CellCoordinate(row, column) !in sheet.tabularContent.cellContents) ||
+    templates.keys == calculated.map(ModelColumn::id).toSet() &&
+        calculated.all { property -> templates.getValue(property.id).raw == property.formula }
+}
+
+/** Every row of a bound calculated sheet carries the derived instance of its persisted template. */
+internal fun calculatedContentsAreDerived(workbook: WorkbookState): Boolean =
+    calculatedTemplatesAreValid(workbook) && workbook.documents.values.all { sheet ->
+        val model = sheet.modelId?.let(workbook.dataModels::get) ?: return@all true
+        val calculated = model.columns.filterIsInstance<CalculatedModelColumn>()
+            .filter { it.id in sheet.modelColumnBindings }
+        val templates = sheet.modelFormulaBindings ?: return@all true
+        calculated.all { property ->
+            val column = sheet.modelColumnBindings.getValue(property.id)
+            val template = templates.getValue(property.id)
+            sheet.tabularContent.rows.withIndex().all { (rowIndex, row) ->
                 sheet.tabularContent.cellContents[CellCoordinate(row, column)] == derivedFormulaRaw(template, workbook, rowIndex)
+            }
         }
+    }
+
+/**
+ * True when the operation changed a calculated cell to content that is not the derived instance.
+ *
+ * Only the cells the operation changed are constrained. A cell the operation left alone keeps its
+ * content even when a structural change elsewhere invalidated its derived instance, so an
+ * unrelated operation never fails for a calculation it did not override.
+ */
+internal fun calculatedOverridesWereIntroduced(current: WorkbookState, updated: WorkbookState): Boolean =
+    updated.documents.values.any { sheet -> sheetOverridesACalculation(current, updated, sheet) }
+
+private fun sheetOverridesACalculation(current: WorkbookState, updated: WorkbookState, sheet: SheetDocument): Boolean {
+    val model = sheet.modelId?.let(updated.dataModels::get) ?: return false
+    val templates = sheet.modelFormulaBindings ?: return false
+    val previous = current.documents[sheet.id]
+    val calculated = model.columns.filterIsInstance<CalculatedModelColumn>()
+        .filter { it.id in sheet.modelColumnBindings }
+    return calculated.any { property ->
+        propertyOverridesCalculation(previous, updated, sheet, property, templates[property.id])
+    }
+}
+
+private fun propertyOverridesCalculation(
+    previous: SheetDocument?,
+    updated: WorkbookState,
+    sheet: SheetDocument,
+    property: CalculatedModelColumn,
+    template: BoundModelFormula?,
+): Boolean {
+    if (template == null) return false
+    val column = sheet.modelColumnBindings.getValue(property.id)
+    return sheet.tabularContent.rows.withIndex().any { (rowIndex, row) ->
+        val coordinate = CellCoordinate(row, column)
+        val previousRaw = previous?.let { it.tabularContent.cellContents[coordinate] }
+        val currentRaw = sheet.tabularContent.cellContents[coordinate]
+        previousRaw != currentRaw && currentRaw != derivedFormulaRaw(template, updated, rowIndex)
     }
 }
 

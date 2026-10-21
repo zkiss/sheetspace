@@ -10,6 +10,7 @@ import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { refreshDerivedInstances } from '@workbook/formula/modelTemplate';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
 import { isValidSheetVisualScale, type ColumnId, type FrameState, type RowId, type SheetDocument, type SheetFrameSize, type SheetId, type SheetZOrderDirection, type StableCellIdentity, type Workbook, type WorkspacePosition } from '@workbook/core/model';
@@ -369,7 +370,11 @@ export function applyBackendWorkbookReconciliation(workbook: Workbook, reconcili
 function applyDeleteSheet(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'delete-sheet' }>): WorkbookOperationResult {
   if (!findSheetById(workbook, operation.sheetId)) return { ok: false, reason: 'unknown-sheet' };
   const documents = { ...workbook.documents }; delete documents[operation.sheetId];
-  return success({ ...workbook, manifest: { ...workbook.manifest, sheetIds: workbook.manifest.sheetIds.filter((id) => id !== operation.sheetId) }, documents }, { kind: 'structure' }, { kind: 'delete-sheet', sheetId: operation.sheetId }, affectedSheets(operation.sheetId));
+  const removed = { ...workbook, manifest: { ...workbook.manifest, sheetIds: workbook.manifest.sheetIds.filter((id) => id !== operation.sheetId) }, documents };
+  // A removed sheet invalidates the derived instances that reference it, so the dependent sheets
+  // are refreshed in the same operation.
+  const next = refreshDerivedInstances(removed);
+  return success(next, { kind: 'structure' }, { kind: 'delete-sheet', sheetId: operation.sheetId }, affectedSheets(operation.sheetId));
 }
 
 function applyRenameSheet(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'rename-sheet' }>): WorkbookOperationResult {

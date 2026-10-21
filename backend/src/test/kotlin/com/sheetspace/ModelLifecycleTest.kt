@@ -175,7 +175,6 @@ class ModelLifecycleTest {
 
         assertEquals(true, calculatedContentsAreDerived(bound))
         assertEquals(false, calculatedContentsAreDerived(missingOutput))
-        assertEquals(true, calculatedContentsAreDerived(missingOutput) { candidate, row -> candidate.id == sheet.id && row == sheet.tabularContent.rows.first() })
         assertEquals(false, calculatedContentsAreDerived(staleTemplate))
         assertEquals(false, calculatedContentsAreDerived(missingTemplates))
         assertEquals(false, calculatedContentsAreDerived(incompleteTemplates))

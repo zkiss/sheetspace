@@ -100,7 +100,16 @@ class DefaultWorkbookApplication(
     private val store: WorkbookStore,
 ) : WorkbookApplication {
     override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
-        store.updateWorkbook { current -> reconcileModelLifecycle(current, before, after) }
+        store.updateWorkbook { current ->
+            val reconciled = reconcileModelLifecycle(current, before, after)
+            // The transition carries the complete post-state, so every row of every bound
+            // calculated sheet must already carry its derived instance. A transition that leaves a
+            // bound calculated property without its derived content is rejected, never persisted.
+            if (!calculatedContentsAreDerived(after)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+            }
+            reconciled
+        }
     override fun loadManifest(): WorkbookManifest = store.loadManifest()
 
     override fun loadWorkbookBundle(): WorkbookState = store.loadWorkbookBundle()
@@ -205,7 +214,9 @@ class DefaultWorkbookApplication(
             if (workbook.findSheet(id) == null) {
                 throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
             }
-            workbook.removeSheet(id)
+            // Removing a sheet invalidates the derived instances that reference it, so the
+            // dependent sheets are materialized in the same operation.
+            materializeDerivedContents(workbook.removeSheet(id))
         }
     }
 
@@ -312,7 +323,9 @@ class DefaultWorkbookApplication(
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
             }
             val withoutFormulaBindings = updated.copy(modelFormulaBindings = null)
-            workbook.replaceSheet(withoutFormulaBindings)
+            // Detaching a sheet invalidates the derived instances that reference it, so the
+            // dependent sheets are materialized in the same operation.
+            materializeDerivedContents(workbook.replaceSheet(withoutFormulaBindings))
         }.documents.getValue(id)
     }
 
