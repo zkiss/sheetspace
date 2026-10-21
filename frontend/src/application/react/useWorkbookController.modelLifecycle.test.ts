@@ -113,7 +113,7 @@ describe('model lifecycle controller wiring', () => {
     expect(api.saveModelLifecycle).not.toHaveBeenCalled();
 
     await act(async () => ordinarySave.reject(new Error('offline')));
-    await expect(submission!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
+    await expect(submission!.completion).resolves.toEqual({ ok: false, reason: 'blocked-persistence-prerequisite' });
     await waitFor(() => expect(result.current.workbook.dataModels).toBeUndefined());
     expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
     expect(api.saveModelLifecycle).not.toHaveBeenCalled();

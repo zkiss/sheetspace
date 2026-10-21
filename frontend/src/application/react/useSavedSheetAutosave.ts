@@ -146,6 +146,7 @@ export function useSavedSheetAutosave({
     outboxSnapshot: snapshot,
     hasModelTransition: () => outbox.hasModelTransition(),
     hasFailedPrerequisiteForModelTransition: () => outbox.hasFailedPrerequisiteForModelTransition(),
+    modelTransitionIsBlockedByFailedPrerequisite: (operationId: string) => outbox.modelTransitionIsBlockedByFailedPrerequisite(operationId),
     discard: (operationId: string) => outbox.remove(operationId),
     waitFor: (operationId: string) => outbox.waitFor(operationId),
     waitForModelTransitions: () => outbox.waitForModelTransitions(),

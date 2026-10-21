@@ -114,6 +114,25 @@ describe('DataModelDialog', () => {
     expect(within(form).getByLabelText('Model name')).toHaveValue('Retry me');
   });
 
+  it('offers in-dialog prerequisite recovery after a queued model save is blocked', async () => {
+    const retry = vi.fn();
+    const pending = deferred<{ ok: false; reason: 'blocked-persistence-prerequisite' }>();
+    const onSave = vi.fn().mockReturnValue(pending.promise);
+    render(<DataModelDialog models={[]} onCancel={vi.fn()} onRetryFailedSaves={retry} onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    fireEvent.change(within(form).getByLabelText('Model name'), { target: { value: 'Queued retry' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(within(form).getByRole('status')).toHaveTextContent('Saving model…');
+
+    await pending.resolve({ ok: false, reason: 'blocked-persistence-prerequisite' });
+
+    await waitFor(() => expect(within(form).getByRole('alert')).toHaveTextContent('Earlier workbook changes need to be retried'));
+    fireEvent.click(within(form).getByRole('button', { name: 'Retry earlier changes' }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(within(form).getByLabelText('Model name')).toHaveValue('Queued retry');
+  });
+
   it('cancels drafts with Escape and exposes labeled controls', () => {
     const { onCancel } = setup([savedModel]);
     expect(screen.getByRole('button', { name: 'Create model' })).toHaveFocus();

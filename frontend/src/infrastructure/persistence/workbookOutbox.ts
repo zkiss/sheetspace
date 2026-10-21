@@ -39,6 +39,14 @@ export class WorkbookOutbox {
   hasFailedPrerequisiteForModelTransition() {
     return this.entries.some((entry) => entry.intent.kind !== 'model-lifecycle' && (entry.status === 'failed' || entry.status === 'blocked'));
   }
+  modelTransitionIsBlockedByFailedPrerequisite(operationId: WorkbookOperationId) {
+    const entry = this.find(operationId);
+    return entry?.intent.kind === 'model-lifecycle'
+      && entry.status === 'blocked'
+      && this.entries.some((earlier) => earlier.sequence < entry.sequence
+        && earlier.intent.kind !== 'model-lifecycle'
+        && (earlier.status === 'failed' || earlier.status === 'blocked'));
+  }
   waitForModelTransitions(): Promise<void> | undefined {
     if (!this.hasModelTransition()) return undefined;
     return new Promise((resolve) => {

@@ -346,9 +346,11 @@ export function useWorkbookController({
     savedAutosave.enqueue(operationId, { kind: 'model-lifecycle', before, after: result.value });
     const completion = savedAutosave.waitFor(operationId).then((entry) => {
       if (entry.status === 'succeeded') return result;
+      const blockedByPrerequisite = savedAutosave.modelTransitionIsBlockedByFailedPrerequisite(operationId);
       optimisticWorkbook.current = before;
       setWorkbook(before, { kind: 'structure' });
       savedAutosave.discard(operationId);
+      if (blockedByPrerequisite) return { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
       return { ok: false, reason: 'persistence-failed' } as const;
     });
     return { result, completion };
