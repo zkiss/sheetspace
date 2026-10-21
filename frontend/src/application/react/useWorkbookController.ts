@@ -53,8 +53,8 @@ import {
 export type WorkbookCommands = {
   bindSheetToModel: (sheetId: string, modelId: string) => ModelCommandResult;
   unbindSheetFromModel: (sheetId: string) => ModelCommandResult;
-  addDataModel: (model: DataModel) => ModelCommandResult;
-  replaceModelDeclaration: (model: DataModel) => ModelCommandResult;
+  addDataModel: (model: DataModel) => DataModelCommandSubmission;
+  replaceModelDeclaration: (model: DataModel) => DataModelCommandSubmission;
   writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => void;
   writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => void;
   appendColumn: (sheetId: string) => void;
@@ -75,7 +75,11 @@ export type WorkbookCommands = {
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
 };
 
-export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' };
+export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'persistence-failed' };
+export type DataModelCommandSubmission = Readonly<{
+  result: ModelCommandResult;
+  completion: Promise<ModelCommandResult>;
+}>;
 
 export type PasteCellsResult =
   | { ok: true; changed: boolean }
@@ -325,6 +329,40 @@ export function useWorkbookController({
     return result;
   }
 
+  function applyDataModelTransition(transform: (source: Workbook) => ModelMutationResult): DataModelCommandSubmission {
+    const before = optimisticWorkbook.current;
+    const result = transform(before);
+    if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
+    if (axisCreation.hasUnsettled()) {
+      const rejected = { ok: false, reason: 'pending-axis-creation' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
+    if (hasPendingCreations()) {
+      const rejected = { ok: false, reason: 'pending-sheet-creation' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
+    if (savedAutosave.hasModelTransition()) {
+      const rejected = { ok: false, reason: 'pending-model-transition' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
+    optimisticWorkbook.current = result.value;
+    setWorkbook(result.value, { kind: 'structure' });
+    if (!autosaveEnabled) {
+      resetHistory();
+      return { result, completion: Promise.resolve(result) };
+    }
+    const operationId = crypto.randomUUID();
+    savedAutosave.enqueue(operationId, { kind: 'model-lifecycle', before, after: result.value });
+    const completion = savedAutosave.waitFor(operationId).then((entry) => {
+      if (entry.status === 'succeeded') return result;
+      // Preserve the optimistic draft in memory for correction, but release the failed
+      // persistence boundary so the editor can submit that corrected draft again.
+      savedAutosave.discard(operationId);
+      return { ok: false, reason: 'persistence-failed' } as const;
+    });
+    return { result, completion };
+  }
+
   function deleteSheetCommand(sheetId: string) {
     if (!findSheetById(optimisticWorkbook.current, sheetId)) {
       return;
@@ -450,8 +488,8 @@ export function useWorkbookController({
     commands: {
       bindSheetToModel: (sheetId, modelId) => applyModelTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
       unbindSheetFromModel: (sheetId) => applyModelTransition((source) => unbindSheetFromModel(source, sheetId)),
-      addDataModel: (model) => applyModelTransition((source) => addDataModel(source, model)),
-      replaceModelDeclaration: (model) => applyModelTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
+      addDataModel: (model) => applyDataModelTransition((source) => addDataModel(source, model)),
+      replaceModelDeclaration: (model) => applyDataModelTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
       writeNumberFormats: (sheetId, writes) => { applyAction({ kind: 'write-number-formats', sheetId, writes }); },
       writeAxisSizes: (sheetId, writes) => { applyAction({ kind: 'write-axis-sizes', sheetId, writes }); },
       appendColumn: axisCreation.appendColumn,

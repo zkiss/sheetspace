@@ -37,13 +37,28 @@ describe('model lifecycle controller wiring', () => {
       { id: 'calculated', name: 'Calculated', kind: 'calculated', type: 'float', formula: '=1' },
     ] };
 
-    act(() => expect(result.current.commands.addDataModel(declaration)).toEqual({
+    act(() => expect(result.current.commands.addDataModel(declaration).result).toEqual({
       ok: true, value: expect.objectContaining({ dataModels: { 'new-model': declaration } }),
     }));
 
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
     expect((await api.loadWorkbook()).dataModels).toEqual({ 'new-model': declaration });
+  });
+
+  it('reports a failed data-model persistence transition without leaving its boundary locked', async () => {
+    const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [
+      { id: 'manual', name: 'Manual', kind: 'manual', type: 'string' },
+    ] };
+    let submission: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { submission = result.current.commands.addDataModel(declaration); });
+    expect(submission!.result.ok).toBe(true);
+    await expect(submission!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
+    await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(false));
+    expect(result.current.commands.replaceModelDeclaration(declaration).result.ok).toBe(true);
   });
 
   it('updates differently sized instances, external dependencies and history through one declaration boundary', async () => {

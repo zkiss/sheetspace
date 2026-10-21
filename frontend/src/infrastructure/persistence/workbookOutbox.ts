@@ -47,6 +47,18 @@ export class WorkbookOutbox {
       this.listeners.add(listener);
     });
   }
+  waitFor(operationId: WorkbookOperationId): Promise<OutboxEntry> {
+    return new Promise((resolve) => {
+      const listener = () => {
+        const entry = this.inspect(operationId);
+        if (!entry || !['succeeded', 'failed', 'blocked', 'superseded'].includes(entry.status)) return;
+        this.listeners.delete(listener);
+        resolve(entry);
+      };
+      this.listeners.add(listener);
+      listener();
+    });
+  }
   subscribe(listener: (snapshot: OutboxSnapshot) => void): () => void {
     this.listeners.add(listener); listener(this.snapshot()); return () => this.listeners.delete(listener);
   }

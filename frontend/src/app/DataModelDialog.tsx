@@ -17,17 +17,19 @@ function message(result: ModelCommandResult): string {
   if (result.reason === 'invalid-model') return 'Enter a model name, unique property names, and a formula for each calculated property.';
   if (result.reason === 'duplicate-model') return 'This model already exists.';
   if (result.reason.startsWith('pending-')) return 'Wait for the current workbook change to finish before saving.';
+  if (result.reason === 'persistence-failed') return 'The model could not be saved. Review the draft and try again.';
   return 'The model could not be saved.';
 }
 
 export function DataModelDialog({ models, onCancel, onSave }: {
   models: readonly DataModel[];
   onCancel: () => void;
-  onSave: (model: DataModel, isNew: boolean) => ModelCommandResult;
+  onSave: (model: DataModel, isNew: boolean) => ModelCommandResult | Promise<ModelCommandResult>;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [savedPropertyIds, setSavedPropertyIds] = useState<ReadonlySet<string>>(new Set());
   function openCreate() { setDraft(newDraft()); setIsNew(true); setSavedPropertyIds(new Set()); setError(''); }
   function openEdit(model: DataModel) { setDraft(copy(model)); setIsNew(false); setSavedPropertyIds(new Set(model.columns.map((column) => column.id))); setError(''); }
@@ -40,10 +42,12 @@ export function DataModelDialog({ models, onCancel, onSave }: {
       return { ...column, ...update } as ModelColumn;
     }) });
   }
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
     if (!draft) return;
-    const result = onSave({ ...draft, columns: draft.columns }, isNew);
+    setSaving(true);
+    const result = await onSave({ ...draft, columns: draft.columns }, isNew);
+    setSaving(false);
     if (!result.ok) { setError(message(result)); return; }
     setDraft(null); setError('');
   }
@@ -76,7 +80,8 @@ export function DataModelDialog({ models, onCancel, onSave }: {
         </fieldset>
         {!isNew && (draft.columns.some((column) => !savedPropertyIds.has(column.id)) || [...savedPropertyIds].some((id) => !draft.columns.some((column) => column.id === id))) ? <p className="data-model-warning">Removing a property can discard bound data. New replacement properties start empty, even when they reuse a name. Renaming and reordering retain existing property identity.</p> : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <div className="dialog-actions"><button onClick={() => setDraft(null)} type="button">Cancel</button><button type="submit">Save</button></div>
+        {saving ? <p role="status">Saving model…</p> : null}
+        <div className="dialog-actions"><button disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
       </form>}
     </section>
   </div>;
