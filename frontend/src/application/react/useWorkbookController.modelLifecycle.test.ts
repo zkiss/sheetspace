@@ -154,23 +154,45 @@ describe('model lifecycle controller wiring', () => {
     expect(result.current.workbook.documents.one!.frame.position).toEqual({ x: 3, y: 4 });
   });
 
-  it('retains failed structural snapshots for exact retry instead of rebasing stale structure on conflict', async () => {
-    const save = vi.fn().mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict')).mockImplementation(async (_before: Workbook, after: Workbook) => after);
+  it.each([
+    {
+      name: 'bind',
+      before: () => initialWorkbook(),
+      submit: (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.bindSheetToModel('one', 'model'),
+    },
+    {
+      name: 'unbind',
+      before: () => bind(initialWorkbook(), 'one'),
+      submit: (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.unbindSheetFromModel('one'),
+    },
+    {
+      name: 'create declaration',
+      before: () => workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]),
+      submit: (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.addDataModel(model),
+    },
+    {
+      name: 'replace declaration',
+      before: () => ({ ...workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]), dataModels: { model } }),
+      submit: (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.replaceModelDeclaration({ ...model, name: 'Rejected' }),
+    },
+  ])('restores the pre-transition workbook after a rejected $name before later lifecycle work', async ({ before: createBefore, submit }) => {
+    const save = vi.fn()
+      .mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict'))
+      .mockImplementation(async (_before: Workbook, after: Workbook) => after);
     const api = autosaveClient({ saveModelLifecycle: save });
-    const workbook = initialWorkbook();
+    const workbook = createBefore();
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
-    act(() => result.current.commands.bindSheetToModel('one', 'model'));
-    await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(true));
-    expect(api.loadSheet).not.toHaveBeenCalled();
-    expect(save).toHaveBeenCalledTimes(1);
-    act(() => {
-      result.current.commands.updateCellContent('one', 'A1', '12');
-      result.current.commands.retryFailedSaves();
-    });
-    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(save.mock.calls[1]).toEqual(save.mock.calls[0]);
-    expect(api.writeCells).toHaveBeenCalledTimes(1);
-    expect(result.current.canUndo).toBe(false);
+
+    act(() => { submit(result.current.commands); });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.workbook).toEqual(workbook));
+    expect(result.current.canRetryFailedSaves).toBe(false);
+
+    let later: ReturnType<typeof result.current.commands.addDataModel>;
+    const laterModel: DataModel = { id: 'later', name: 'Later', columns: [] };
+    act(() => { later = result.current.commands.addDataModel(laterModel); });
+    await expect(later!.completion).resolves.toMatchObject({ ok: true });
+    expect(save.mock.calls[1]?.[0]).toEqual(workbook);
   });
 
   it('appends declaration formulas to empty bound sheets, reloads and leaves changed-to-manual appends empty', async () => {

@@ -314,22 +314,7 @@ export function useWorkbookController({
     return applied;
   }
 
-  function applyModelTransition(transform: (source: Workbook) => ModelMutationResult): ModelCommandResult {
-    const before = optimisticWorkbook.current;
-    // Validate/no-op first: neither needs to reserve a structural boundary.
-    const result = transform(before);
-    if (!result.ok || result.value === before) return result;
-    if (axisCreation.hasUnsettled()) return { ok: false, reason: 'pending-axis-creation' };
-    if (hasPendingCreations()) return { ok: false, reason: 'pending-sheet-creation' };
-    if (savedAutosave.hasModelTransition()) return { ok: false, reason: 'pending-model-transition' };
-    optimisticWorkbook.current = result.value;
-    setWorkbook(result.value, { kind: 'structure' });
-    if (autosaveEnabled) savedAutosave.enqueue(crypto.randomUUID(), { kind: 'model-lifecycle', before, after: result.value });
-    else resetHistory();
-    return result;
-  }
-
-  function applyDataModelTransition(transform: (source: Workbook) => ModelMutationResult): DataModelCommandSubmission {
+  function applyModelLifecycleTransition(transform: (source: Workbook) => ModelMutationResult): DataModelCommandSubmission {
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
@@ -355,8 +340,6 @@ export function useWorkbookController({
     savedAutosave.enqueue(operationId, { kind: 'model-lifecycle', before, after: result.value });
     const completion = savedAutosave.waitFor(operationId).then((entry) => {
       if (entry.status === 'succeeded') return result;
-      // The editor retains its separate draft, while the rejected optimistic state must
-      // not become the source for a retry or a later model transition.
       optimisticWorkbook.current = before;
       setWorkbook(before, { kind: 'structure' });
       savedAutosave.discard(operationId);
@@ -488,10 +471,10 @@ export function useWorkbookController({
 
   return {
     commands: {
-      bindSheetToModel: (sheetId, modelId) => applyModelTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
-      unbindSheetFromModel: (sheetId) => applyModelTransition((source) => unbindSheetFromModel(source, sheetId)),
-      addDataModel: (model) => applyDataModelTransition((source) => addDataModel(source, model)),
-      replaceModelDeclaration: (model) => applyDataModelTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
+      bindSheetToModel: (sheetId, modelId) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())).result,
+      unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)).result,
+      addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
+      replaceModelDeclaration: (model) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
       writeNumberFormats: (sheetId, writes) => { applyAction({ kind: 'write-number-formats', sheetId, writes }); },
       writeAxisSizes: (sheetId, writes) => { applyAction({ kind: 'write-axis-sizes', sheetId, writes }); },
       appendColumn: axisCreation.appendColumn,
