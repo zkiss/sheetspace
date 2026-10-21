@@ -193,8 +193,6 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
           models={Object.values(workbook.dataModels ?? {})}
           onCancel={() => { setDataModelsOpen(false); document.getElementById('data-models-button')?.focus(); }}
           onSave={async (model, isNew) => {
-            // A failed create remains locally available so its retry uses replacement while
-            // the dialog retains the original create draft and never reports false success.
             const submission = isNew && !workbook.dataModels?.[model.id]
               ? commands.addDataModel(model)
               : commands.replaceModelDeclaration(model);

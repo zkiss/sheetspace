@@ -46,9 +46,13 @@ describe('model lifecycle controller wiring', () => {
     expect((await api.loadWorkbook()).dataModels).toEqual({ 'new-model': declaration });
   });
 
-  it('reports a failed data-model persistence transition without leaving its boundary locked', async () => {
+  it('rolls back rejected model declarations so retries and later declarations use the prior workbook', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
-    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    const api = autosaveClient({
+      saveModelLifecycle: vi.fn()
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockImplementation(async (_before, after) => after),
+    });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const declaration: DataModel = { id: 'new-model', name: 'New model', columns: [
       { id: 'manual', name: 'Manual', kind: 'manual', type: 'string' },
@@ -58,7 +62,33 @@ describe('model lifecycle controller wiring', () => {
     expect(submission!.result.ok).toBe(true);
     await expect(submission!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
     await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(false));
-    expect(result.current.commands.replaceModelDeclaration(declaration).result.ok).toBe(true);
+    await waitFor(() => expect(result.current.workbook.dataModels).toBeUndefined());
+    let retry: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { retry = result.current.commands.addDataModel(declaration); });
+    await expect(retry!.completion).resolves.toMatchObject({ ok: true });
+    expect(result.current.workbook.dataModels).toEqual({ 'new-model': declaration });
+  });
+
+  it('restores a rejected edit before a subsequent model operation', async () => {
+    const workbook = { ...workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]), dataModels: { model } };
+    const api = autosaveClient({
+      saveModelLifecycle: vi.fn()
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockImplementation(async (_before, after) => after),
+    });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const rejected = { ...model, name: 'Rejected name' };
+    let failed: ReturnType<typeof result.current.commands.replaceModelDeclaration>;
+    act(() => { failed = result.current.commands.replaceModelDeclaration(rejected); });
+    await expect(failed!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
+    await waitFor(() => expect(result.current.workbook.dataModels).toEqual({ model }));
+
+    const later = { ...model, name: 'Saved name' };
+    let replacement: ReturnType<typeof result.current.commands.replaceModelDeclaration>;
+    act(() => { replacement = result.current.commands.replaceModelDeclaration(later); });
+    await expect(replacement!.completion).resolves.toMatchObject({ ok: true });
+    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]?.[0].dataModels).toEqual({ model });
+    expect(result.current.workbook.dataModels).toEqual({ model: later });
   });
 
   it('updates differently sized instances, external dependencies and history through one declaration boundary', async () => {

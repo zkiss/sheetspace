@@ -355,8 +355,10 @@ export function useWorkbookController({
     savedAutosave.enqueue(operationId, { kind: 'model-lifecycle', before, after: result.value });
     const completion = savedAutosave.waitFor(operationId).then((entry) => {
       if (entry.status === 'succeeded') return result;
-      // Preserve the optimistic draft in memory for correction, but release the failed
-      // persistence boundary so the editor can submit that corrected draft again.
+      // The editor retains its separate draft, while the rejected optimistic state must
+      // not become the source for a retry or a later model transition.
+      optimisticWorkbook.current = before;
+      setWorkbook(before, { kind: 'structure' });
       savedAutosave.discard(operationId);
       return { ok: false, reason: 'persistence-failed' } as const;
     });

@@ -170,4 +170,36 @@ describe('DataModelDialog', () => {
     expect(within(form).getByLabelText('Property 1 name')).toHaveValue('First');
     expect(within(form).getByLabelText('Property 2 name')).toHaveValue('Second');
   });
+
+  it('removes a rejected create from the list when its retained draft is cancelled', async () => {
+    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })])} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    fireEvent.change(within(form).getByLabelText('Model name'), { target: { value: 'Rejected' } });
+    fireEvent.change(within(form).getByLabelText('Property 1 name'), { target: { value: 'Input' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(form).getByRole('alert')).toBeInTheDocument());
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    expect(screen.getByText('No data models yet. Create one to define reusable sheet properties.')).toBeInTheDocument();
+    expect(screen.queryByText('Rejected')).not.toBeInTheDocument();
+  });
+
+  it('restores a rejected edit when its retained draft is cancelled', async () => {
+    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValue(new Error('offline')) });
+    const workbook = { ...workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })]), dataModels: { invoice: savedModel } };
+    render(<App apiClient={apiClient} initialWorkbook={workbook} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('form', { name: 'Edit data model' });
+    fireEvent.change(within(form).getByLabelText('Model name'), { target: { value: 'Rejected edit' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(within(form).getByRole('alert')).toBeInTheDocument());
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    expect(screen.getByText('Invoice')).toBeInTheDocument();
+    expect(screen.queryByText('Rejected edit')).not.toBeInTheDocument();
+  });
 });
