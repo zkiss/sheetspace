@@ -149,6 +149,28 @@ describe('App grid composition', () => {
     expect(panel).toHaveValue('=1\n  ');
   });
 
+  it('returns to direct editing after rich-panel navigation', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2,
+    });
+    render(<App initialWorkbook={workbookWithSheets([inputs])} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputCell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+
+    await user.click(inputCell('A1'));
+    await user.click(screen.getByRole('button', { name: 'Edit formula' }));
+    expect(await screen.findByRole('textbox', { name: 'Cell formula' })).toHaveFocus();
+
+    await user.click(inputCell('B1'));
+    await user.keyboard('direct draft');
+
+    const editor = await screen.findByRole('textbox', { name: 'Inputs B1 editor' });
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('direct draft');
+    expect(screen.queryByRole('textbox', { name: 'Cell formula' })).not.toBeInTheDocument();
+  });
+
   it('suspends a direct draft when opening its bound model editor', async () => {
     const user = userEvent.setup();
     const inputs = {

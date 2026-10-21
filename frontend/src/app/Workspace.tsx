@@ -138,6 +138,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const selectedRaw = selectedSheet && selectedCellKey
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
+  useEffect(() => { if (!editingCell) setFormulaPanelOpen(false); }, [editingCell]);
   const formulaInspection = selectedSheet && selectedRaw
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
     : undefined;
@@ -496,8 +497,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       </WorkspaceSurface>
     </>
   );
-}
-export function FormulaPanel({ activeCell, editingCell, formulaResults, onCancel, onCommit, onOpenModel, onRawChange, onStart, onViewChange, open, selectedSheet, setOpen, sheets, workbook }: {
+} export function FormulaPanel({ activeCell, editingCell, formulaResults, onCancel, onCommit, onOpenModel, onRawChange, onStart, onViewChange, open, selectedSheet, setOpen, sheets, workbook }: {
   activeCell: CellTarget | null; editingCell: CellEditSession | null; formulaResults: FormulaEvaluationSnapshot; onCancel: () => void; onCommit: (session?: CellEditSession) => CellWriteResult | undefined; onOpenModel?: (modelId?: string) => void; onRawChange: (raw: string) => void; onStart: (target: CellTarget, initialValue?: string) => void; onViewChange?: (selection: { start: number; end: number }, scrollTop: number) => void; open: boolean; selectedSheet: SheetDocument | undefined; setOpen: (open: boolean) => void; sheets: readonly SheetDocument[]; workbook: Workbook;
 }) {
   const calculated = activeCell && selectedSheet?.modelId && Object.values(workbook.dataModels?.[selectedSheet.modelId]?.columns ?? []).some((column) => column.kind === 'calculated' && selectedSheet.modelColumnBindings?.[column.id] === activeCell.cell.columnId); const resolver = selectedSheet && workbookFormulaReferenceResolver(workbook, selectedSheet.id);
