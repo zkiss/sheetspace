@@ -24,7 +24,7 @@ it('tracks transform-only position and size without React commits or duplicate r
   let commits = 0;
   const component = (draft: string) => <Profiler id="editor" onRender={() => commits++}>
     <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" interaction={interaction}
-      editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft }} />
+      editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft, sessionId: 1 }} />
   </Profiler>;
   const view = render(component('Draft'));
   const editor = screen.getByRole('textbox') as HTMLTextAreaElement;
@@ -74,7 +74,7 @@ it('keeps the portal mounted while an anchor ref is temporarily detached or repl
   vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(new DOMRect(40, 60, 90, 26));
   const component = () => <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
     interaction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
-    editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: 'Draft' }} />;
+    editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: 'Draft', sessionId: 1 }} />;
   const view = render(component());
   const editor = screen.getByRole('textbox');
   anchor.current = null;

@@ -24,7 +24,7 @@ describe('sheet activation memory', () => {
     expect(commands.updateCellContent).not.toHaveBeenCalled();
   });
 
-  it('commits before switching and remembers each sheet target after clearing selection', () => {
+  it('suspends a draft before switching and restores it when returning to its sheet', () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs' });
     const workbook = workbookWithSheets([inputs, outputs]);
@@ -34,11 +34,13 @@ describe('sheet activation memory', () => {
     const c3 = cellTargetAt(outputs, 'C3')!;
     act(() => result.current.startEditingCell(b2, 'draft'));
     act(() => result.current.activateSheet('outputs'));
-    expect(commands.updateCellContent).toHaveBeenCalledWith('inputs', 'B2', 'draft');
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
     act(() => result.current.selectCell(c3));
     act(() => result.current.clearSelection());
     act(() => result.current.activateSheet('inputs'));
     expect(result.current.activeCell).toEqual(b2);
+    act(() => result.current.startEditingCell(b2));
+    expect(result.current.editingCell?.draft).toBe('draft');
     act(() => result.current.activateSheet('outputs', false));
     expect(result.current.activeCell).toEqual(c3);
     expect(result.current.keyboardFocusRequest).toBeNull();

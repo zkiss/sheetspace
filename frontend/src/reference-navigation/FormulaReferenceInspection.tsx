@@ -52,6 +52,7 @@ export function FormulaReferenceInspection({
               data-navigable={part.navigable ? 'true' : 'false'}
               data-reference-kind={part.target.kind}
               data-sheet-id={part.target.sheetId}
+              data-workspace-navigation
               key={`${part.sourceSpan.start}-${part.sourceSpan.end}-${index}`}
               onClick={(event) => handleReferenceClick(event, part)}
               title={part.broken

@@ -16,7 +16,7 @@ describe('formatting shortcut event ownership', () => {
     const view = render(<Workspace {...props} />);
     work.clear();
     view.rerender(<Workspace {...props}
-      editingCell={guard === 'editing' ? { target: selection.anchor, draft: 'draft' } : null}
+      editingCell={guard === 'editing' ? { target: selection.anchor, draft: 'draft', sessionId: 1 } : null}
       sheetDialogOpen={guard === 'modal'} />);
     if (guard === 'modal') expect(screen.getByRole('button', { name: 'Number format' })).toBeDisabled();
     fireEvent.keyDown(document.body, { key: 'b', ctrlKey: true });

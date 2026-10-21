@@ -47,7 +47,7 @@ export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind,
     <label>Model for {sheet.name}<select aria-label={`Model for ${sheet.name}`} disabled={pending} value={selectedId} onChange={(event) => { setSelectedModelId(event.target.value); setFeedback(''); }}>
       <option value="">No model</option>{models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
     {boundModelId ? <><span aria-label={`Bound to ${currentModel?.name ?? 'data model'}`} role="status">Bound: {currentModel?.name ?? 'data model'}</span>
-      <button onClick={() => onOpenDataModels(boundModelId)} type="button">Edit model</button>
+      <button data-workspace-navigation onClick={() => onOpenDataModels(boundModelId)} type="button">Edit model</button>
       {selectedId !== boundModelId ? <button disabled={pending} onClick={() => { if (window.confirm('Rebinding maps properties in declaration order, keeps manual inputs where possible, and replaces calculated columns.')) bindModel(selectedId); }} type="button">Rebind model</button> : null}
       <button disabled={pending} onClick={() => { if (window.confirm('Unbinding makes calculated results editable materialized values.')) report(onUnbind(sheet.id)); }} type="button">Unbind model</button>
     </> : <button disabled={!selectedId || pending} onClick={() => { if (selectedId && window.confirm('Binding maps properties in declaration order, keeps manual inputs where possible, and replaces calculated columns.')) bindModel(selectedId); }} type="button">Bind model</button>}

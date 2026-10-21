@@ -9,10 +9,12 @@ export const CELL_EDITOR_MAX_WIDTH = '28rem';
 export const CELL_EDITOR_MAX_HEIGHT = '7rem';
 
 export type SheetGridCellEditorInteraction = {
-  cancel: () => void;
+  cancel: (session?: CellEditSession) => void;
   commit: (session?: CellEditSession) => void;
+  suspend?: (session: CellEditSession) => void;
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
-  updateValue: (value: string) => void;
+  updateValue: (value: string, session?: CellEditSession) => void;
+  updateView?: (selection: { start: number; end: number }, scrollTop: number, session?: CellEditSession) => void;
 };
 
 export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction, sheetName }: {
@@ -24,10 +26,29 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
 }) {
   const [isAnchored, setIsAnchored] = useState(false);
   const anchorRect = useRef<DOMRect | null>(null);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
   const hasPlacedInitialCaret = useRef(false);
   const hasFinishedEditing = useRef(false);
+  const latest = useRef({ editingCell, interaction });
+  latest.current = { editingCell, interaction };
+  const lastEditor = useRef<HTMLTextAreaElement | null>(null);
+  const attachEditor = useCallback((editor: HTMLTextAreaElement | null) => {
+    if (editor) {
+      lastEditor.current = editor;
+      editorRef.current = editor;
+      return;
+    }
+    const previous = lastEditor.current;
+    lastEditor.current = null;
+    editorRef.current = null;
+    if (!previous || hasFinishedEditing.current) return;
+    // Conditional removal after pointer navigation need not emit native blur.
+    // Capture the actual node before it disappears through the same atomic path.
+    const { editingCell: session, interaction: latestInteraction } = latest.current;
+    latestInteraction.suspend?.({ ...session, draft: previous.value,
+      selection: { start: previous.selectionStart, end: previous.selectionEnd }, scrollTop: previous.scrollTop });
+  }, []);
   const anchorElement = anchor.current;
   const updatePosition = useCallback(() => {
     // Ref replacement during a parent render must not unmount the focused portal.
@@ -63,11 +84,13 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     const editor = editorRef.current;
     if (!editor || !anchorRect.current) return;
     if (!hasPlacedInitialCaret.current) {
-      editor.setSelectionRange(editor.value.length, editor.value.length);
+      const selection = editingCell.selection ?? { start: editor.value.length, end: editor.value.length };
+      editor.setSelectionRange(selection.start, selection.end);
+      editor.scrollTop = editingCell.scrollTop ?? 0;
       hasPlacedInitialCaret.current = true;
     }
     placeEditor(editor, anchorRect.current, highlightRef.current);
-  }, [isAnchored, editingCell.draft]);
+  }, [isAnchored, editingCell.draft, editingCell.scrollTop, editingCell.selection]);
 
   if (!isAnchored) return null;
   const sizing = cellEditorSizing(editingCell.draft, 0);
@@ -89,13 +112,24 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     data-multiline-editor={sizing.multiline ? 'true' : undefined}
     data-visible-lines={sizing.visibleLineCount}
     data-workspace-sheet-editor={editingCell.target.sheetId}
-    onBlur={(event) => {
-      if (hasFinishedEditing.current) return;
-      hasFinishedEditing.current = true;
-      interaction.commit({ ...editingCell, draft: event.currentTarget.value });
+      onBlur={(event) => {
+        if (hasFinishedEditing.current) return;
+        hasFinishedEditing.current = true;
+        const session = {
+          ...editingCell,
+          draft: event.currentTarget.value,
+          selection: { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd },
+          scrollTop: event.currentTarget.scrollTop,
+        };
+       if (isWorkspaceTransfer(event.relatedTarget)) interaction.suspend?.(session);
+       else interaction.commit(session);
     }}
-     onValueChange={interaction.updateValue}
-    onScroll={(event) => syncHighlightScroll(event.currentTarget, highlightRef.current)}
+      onValueChange={(value) => interaction.updateValue(value, editingCell)}
+     onScroll={(event) => {
+       syncHighlightScroll(event.currentTarget, highlightRef.current);
+        interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop, editingCell);
+     }}
+      onSelect={(event) => interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop, editingCell)}
     onClick={(event) => event.stopPropagation()}
     onDoubleClick={(event) => event.stopPropagation()}
     onKeyDown={(event) => {
@@ -124,14 +158,19 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
         event.preventDefault();
         event.stopPropagation();
         hasFinishedEditing.current = true;
-        interaction.cancel();
+          interaction.cancel(editingCell);
       }
     }}
-    ref={editorRef}
+    ref={attachEditor}
     style={{ maxHeight: CELL_EDITOR_MAX_HEIGHT, overflow: 'auto' }}
     value={editingCell.draft}
     />
   </>, document.body);
+}
+
+function isWorkspaceTransfer(destination: EventTarget | null) {
+  if (!(destination instanceof Element)) return false;
+  return Boolean(destination.closest('[data-workspace-navigation]'));
 }
 
 function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect, highlight: HTMLPreElement | null) {

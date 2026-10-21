@@ -3,3 +3,4 @@
   min-height: 100vh;
   grid-template-rows: auto minmax(0, 1fr);
 }
+.workspace-formula-panel { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; width: min(32rem, calc(100vw - 2rem)); }

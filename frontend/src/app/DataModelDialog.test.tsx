@@ -32,6 +32,7 @@ describe('DataModelDialog', () => {
     fireEvent.change(within(form).getByLabelText('Property 1 kind'), { target: { value: 'calculated' } });
     fireEvent.change(within(form).getByLabelText('Property 1 type'), { target: { value: 'float' } });
     fireEvent.change(within(form).getByLabelText('Property 1 formula'), { target: { value: '=1+2' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Apply' }));
     fireEvent.click(within(form).getByRole('button', { name: 'Add property' }));
     fireEvent.change(within(form).getByLabelText('Property 2 name'), { target: { value: 'Paid' } });
     fireEvent.change(within(form).getByLabelText('Property 2 type'), { target: { value: 'boolean' } });
@@ -63,6 +64,36 @@ describe('DataModelDialog', () => {
     fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[1][0].columns[1].id).not.toBe('tax');
+  });
+
+  it('keeps a calculated-property formula local until Apply and restores its accepted model draft on Cancel', () => {
+    setup([savedModel]);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('form', { name: 'Edit data model' });
+    const formula = within(form).getByLabelText('Property 2 formula');
+
+    fireEvent.change(formula, { target: { value: '=9' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel formula' }));
+    expect(formula).toHaveValue('=@Amount[1]*0.2');
+
+    fireEvent.change(formula, { target: { value: '=9' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Apply' }));
+    expect(formula).toHaveValue('=9');
+  });
+
+  it('shows evaluated values for qualified workbook references in model formula hover', () => {
+    const inputs = smallSheetDocument({ id: 'inputs', name: 'Inputs' });
+    const workbook = workbookWithSheets([inputs]);
+    const model: DataModel = { ...savedModel, columns: [
+      savedModel.columns[0]!,
+      { id: 'tax', name: 'Tax', kind: 'calculated', type: 'float', formula: '=@Inputs!A[1]' },
+    ] };
+    render(<DataModelDialog formulaResults={{ inputs: { A1: { kind: 'number', value: 42, display: '42' } } }} models={[model]} onCancel={vi.fn()} onSave={vi.fn()} workbook={workbook} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.mouseEnter(screen.getByText('@Inputs!A[1]'));
+    expect(screen.getByText('42')).toBeVisible();
+    expect(screen.queryByText('Reference error: #REF!')).not.toBeInTheDocument();
   });
 
   it('retains an asynchronous failed-save draft and reports the failure for retry', async () => {
@@ -307,7 +338,7 @@ describe('DataModelDialog', () => {
     expect(within(form).getByLabelText('Property 1 formula')).toHaveAttribute('data-raw-formula-input', 'true');
     const anchor = { current: document.createElement('div') };
     render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
-      editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'row', columnId: 'column' } }, draft: '=1' }}
+      editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'row', columnId: 'column' } }, draft: '=1', sessionId: 1 }}
       interaction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }} />);
     expect(screen.getByLabelText('Inputs A1 editor')).toHaveAttribute('data-raw-formula-input', 'true');
   });

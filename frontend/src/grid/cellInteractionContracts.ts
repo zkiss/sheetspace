@@ -12,6 +12,24 @@ export type CellTarget = {
   cell: StableCellIdentity;
 };
 
+// Formula drafts are identified by durable domain IDs, not the labels currently
+// projected by a grid or model dialog.  The property form is deliberately kept
+// alongside the cell form so both editor surfaces can share one in-memory
+// lifecycle without coupling either surface to the other.
+export type ModelPropertyTarget = {
+  modelId: string;
+  propertyId: string;
+};
+
+export type FormulaEditTarget = CellTarget | ModelPropertyTarget;
+
+export type FormulaDraftSession<Target extends FormulaEditTarget = FormulaEditTarget> = {
+  target: Target;
+  draft: string;
+  selection?: { start: number; end: number };
+  scrollTop?: number;
+};
+
 export type CellSelectionMode = 'cells' | 'rows' | 'columns';
 
 // The selected rectangle is deliberately expressed in stable identities, rather
@@ -27,10 +45,10 @@ export type ReferenceNavigationTarget =
   | { kind: 'cell'; target: CellTarget }
   | { kind: 'range'; sheetId: string; range: StableCellRange };
 
-export type CellEditSession = {
-  target: CellTarget;
-  draft: string;
-};
+// Each direct-overlay mount carries a fresh identity, even when it resumes the
+// same target and draft. This lets the editing lifecycle reject callbacks from
+// an overlay that unmounted before a newer session opened for that target.
+export type CellEditSession = FormulaDraftSession<CellTarget> & { sessionId: number };
 
 export type CellNavigationDirection = 'left' | 'right' | 'up' | 'down';
 

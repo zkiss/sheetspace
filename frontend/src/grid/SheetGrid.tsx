@@ -450,6 +450,7 @@ export function SheetGrid({
       aria-rowcount={rows.filter((row) => row.kind === 'saved').length + 1}
       className="sheet-grid"
       data-testid="sheet-grid"
+      data-workspace-navigation
       onFocus={enterGrid}
       onBlur={(event) => {
         const next = event.relatedTarget as Node | null;

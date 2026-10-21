@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { DataModel } from '@workbook/core/model';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -46,7 +47,6 @@ describe('App grid composition', () => {
       id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 260 }, columnCount: 2, rowCount: 2,
     });
     const apiClient = autosaveClient();
-    const writeCells = vi.mocked(apiClient.writeCells);
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={apiClient} />);
     const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const outputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
@@ -84,11 +84,124 @@ describe('App grid composition', () => {
 
     await user.keyboard('{F2}Cross-sheet draft');
     await user.click(outputCell('A1'));
-    await waitFor(() => expect(inputCell('A3')).toHaveTextContent('Cross-sheet draft'));
-    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(5));
-    expect(writeCells.mock.calls[4]?.[1]).toHaveLength(1);
-    expect(writeCells.mock.calls[4]?.[1]?.[0]).toMatchObject({ raw: 'Cross-sheet draft' });
+    expect(inputCell('A3')).toHaveTextContent(/^$/);
+    expect(apiClient.writeCells).toHaveBeenCalledTimes(4);
     expect(outputCell('A1')).toHaveAttribute('data-active-cell', 'true');
     expect(outputFrame).toHaveAttribute('data-active-sheet', 'true');
+
+    await user.click(inputCell('A3'));
+    await user.keyboard('{F2}');
+    expect(await screen.findByRole('textbox', { name: 'Inputs A3 editor' })).toHaveValue('Cross-sheet draft');
+  });
+
+  it('suspends a direct draft when a sheet overview takes focus', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2,
+    });
+    const outputs = sheetDocument({
+      id: 'sheet-outputs', name: 'Outputs', position: { x: 420, y: 260 }, columnCount: 2, rowCount: 2, visualScale: 0.2,
+    });
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} apiClient={apiClient} />);
+
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputsA1 = within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(inputsA1);
+    await user.keyboard('unfinished formula');
+    const editor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    editor.setSelectionRange(2, 10);
+    Object.defineProperty(editor, 'scrollTop', { configurable: true, value: 14 });
+
+    await user.click(screen.getByRole('button', { name: 'Select sheet Outputs overview' }));
+
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+    await user.click(inputsA1);
+    await user.keyboard('{F2}');
+    const resumedEditor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    expect(resumedEditor).toHaveValue('unfinished formula');
+    expect(resumedEditor.selectionStart).toBe(2);
+    expect(resumedEditor.selectionEnd).toBe(10);
+    expect(resumedEditor.scrollTop).toBe(14);
+  });
+
+  it('transfers a direct draft to the rich panel without leaving the grid editor active', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2,
+    });
+    render(<App initialWorkbook={workbookWithSheets([inputs])} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputCell = frame.querySelector<HTMLElement>('[data-cell-key="A1"]')!;
+
+    await user.click(inputCell);
+    await user.keyboard('=1');
+    expect(await screen.findByRole('textbox', { name: 'Inputs A1 editor' })).toHaveValue('=1');
+
+    await user.click(screen.getByRole('button', { name: 'Edit formula' }));
+
+    const panel = await screen.findByRole('textbox', { name: 'Cell formula' });
+    expect(panel).toHaveFocus();
+    expect(panel).toHaveValue('=1');
+    expect(screen.queryByRole('textbox', { name: 'Inputs A1 editor' })).not.toBeInTheDocument();
+
+    await user.keyboard('{Enter}{Tab}');
+    expect(panel).toHaveValue('=1\n  ');
+  });
+
+  it('returns to direct editing after rich-panel navigation', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({
+      id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2,
+    });
+    render(<App initialWorkbook={workbookWithSheets([inputs])} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputCell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+
+    await user.click(inputCell('A1'));
+    await user.click(screen.getByRole('button', { name: 'Edit formula' }));
+    expect(await screen.findByRole('textbox', { name: 'Cell formula' })).toHaveFocus();
+
+    await user.click(inputCell('B1'));
+    await user.keyboard('direct draft');
+
+    const editor = await screen.findByRole('textbox', { name: 'Inputs B1 editor' });
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('direct draft');
+    expect(screen.queryByRole('textbox', { name: 'Cell formula' })).not.toBeInTheDocument();
+  });
+
+  it('suspends a direct draft when opening its bound model editor', async () => {
+    const user = userEvent.setup();
+    const inputs = {
+      ...sheetDocument({ id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2 }),
+      modelId: 'invoice',
+    };
+    const invoice: DataModel = {
+      id: 'invoice', name: 'Invoice', columns: [{ id: 'amount', name: 'Amount', kind: 'manual', type: 'float' }],
+    };
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={{ ...workbookWithSheets([inputs]), dataModels: { invoice } }} apiClient={apiClient} />);
+
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputsA1 = within(inputsFrame).getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(inputsA1);
+    await user.keyboard('unfinished{Shift>}{Enter}{/Shift}formula');
+    const editor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    editor.setSelectionRange(2, 10);
+    Object.defineProperty(editor, 'scrollTop', { configurable: true, value: 14 });
+
+    await user.click(screen.getByRole('button', { name: 'Edit model' }));
+
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Data models' })).toBeInTheDocument();
+    await user.keyboard('{Escape}{Escape}');
+    await user.click(inputsA1);
+    await user.keyboard('{F2}');
+    const resumedEditor = await screen.findByRole('textbox', { name: 'Inputs A1 editor' }) as HTMLTextAreaElement;
+    expect(resumedEditor).toHaveValue('unfinished\nformula');
+    expect(resumedEditor.selectionStart).toBe(2);
+    expect(resumedEditor.selectionEnd).toBe(10);
+    expect(resumedEditor.scrollTop).toBe(14);
   });
 });

@@ -53,6 +53,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     clearSelection,
     commitActiveEdit,
     commitEditAndNavigate,
+    suspendActiveEdit,
     editingCell,
     extendSelection,
     focusSelection,
@@ -72,6 +73,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     selectReferenceTarget,
     startEditingCell,
     updateEditingCellValue,
+    updateEditingCellView,
   } = useCellEditing({
     commands,
     workbook,
@@ -171,8 +173,10 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onClearSelection={clearSelection}
         onCommitEdit={commitActiveEdit}
         onCommitEditAndNavigate={commitEditAndNavigate}
+        onSuspendEdit={suspendActiveEdit}
         onCreateSheet={openCreationDialog}
         onEditValueChange={updateEditingCellValue}
+        onUpdateEditView={updateEditingCellView}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
         onOpenDataModels={(modelId) => { setDataModelEditId(modelId); setDataModelsOpen(true); }}
@@ -196,6 +200,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
 
       {dataModelsOpen ? (
         <DataModelDialog
+          formulaResults={formulaResults}
           models={Object.values(workbook.dataModels ?? {})}
           initialModelId={dataModelEditId}
           onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }}
@@ -209,6 +214,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
             if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }
             return result;
           }}
+          workbook={workbook}
         />
       ) : null}
 

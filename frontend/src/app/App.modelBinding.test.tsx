@@ -75,6 +75,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 name'), { target: { value: 'Output' } });
     fireEvent.change(within(create).getByLabelText('Property 2 kind'), { target: { value: 'calculated' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])" } });
+    fireEvent.click(within(create).getByRole('button', { name: 'Apply' }));
     fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
 
@@ -111,6 +112,7 @@ describe('App model binding workflow', () => {
     const edit = screen.getByRole('form', { name: 'Edit data model' });
     fireEvent.change(within(edit).getByLabelText('Model name'), { target: { value: 'Receipt' } });
     fireEvent.change(within(edit).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])*2" } });
+    fireEvent.click(within(edit).getByRole('button', { name: 'Apply' }));
     fireEvent.click(within(edit).getByRole('button', { name: 'Move property 2 up' }));
     fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.getByLabelText('Bound to Receipt')).toBeInTheDocument());
@@ -218,6 +220,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 name'), { target: { value: 'Tax' } });
     fireEvent.change(within(create).getByLabelText('Property 2 kind'), { target: { value: 'calculated' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: '=SUM(@A[1])' } });
+    fireEvent.click(within(create).getByRole('button', { name: 'Apply' }));
     fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));

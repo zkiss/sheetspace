@@ -32,7 +32,7 @@ describe('useCellEditing edit persistence', () => {
       expect(result.current.editingCell?.draft).toBe('2');
     });
 
-    it.each(['rows', 'columns'] as const)('settles text, formula and unchanged drafts before selecting %s', (mode) => {
+    it.each(['rows', 'columns'] as const)('suspends text, formula and unchanged drafts before selecting %s', (mode) => {
       for (const [raw, draft] of [['', 'Region'], ['', '=SUM(@B[1]:B[2])'], ['', ''], ['Region', 'Region'], ['=SUM(@B[1]:B[2])', '=SUM(@B[1]:B[2])']]) {
         const input = sheetDocument({ id: 'header-drafts', name: 'Header drafts', cells: { A1: raw } });
         const { commands, result, sheet, unmount } = renderCellEditing(input);
@@ -41,13 +41,11 @@ describe('useCellEditing edit persistence', () => {
         act(() => result.current.startEditingCell(a1, draft));
         const session = result.current.editingCell!;
         act(() => result.current.selectAxis(mode, b1, false));
-        const writes = draft === raw ? 0 : 1;
-        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
-        if (writes) expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'A1', draft);
+        expect(commands.updateCellContent).not.toHaveBeenCalled();
         expect(result.current.editingCell).toBeNull();
         expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
         act(() => result.current.commitActiveEdit(session));
-        expect(commands.updateCellContent).toHaveBeenCalledTimes(writes);
+        expect(commands.updateCellContent).not.toHaveBeenCalled();
         expect(result.current.selectionRange).toEqual({ mode, anchor: b1, extent: b1 });
         unmount();
       }
@@ -72,6 +70,24 @@ describe('useCellEditing edit persistence', () => {
       expect(result.current.editingCell).toBeNull();
     });
 
+    it('keeps a rejected draft recoverable for an unchanged retry', () => {
+      const { commands, result, sheet } = renderCellEditing();
+      const target = cellTargetAt(sheet, 'A1')!;
+      commands.updateCellContent.mockReturnValueOnce({ ok: false, reason: 'pending-model-transition' }).mockReturnValueOnce({ ok: true, changed: true });
+
+      act(() => {
+        result.current.startEditingCell(target);
+        result.current.updateEditingCellValue('retry me');
+      });
+      act(() => result.current.commitActiveEdit());
+      expect(result.current.editingCell?.draft).toBe('retry me');
+
+      act(() => result.current.commitActiveEdit());
+      expect(commands.updateCellContent).toHaveBeenCalledTimes(2);
+      expect(commands.updateCellContent).toHaveBeenLastCalledWith(sheet.id, 'A1', 'retry me');
+      expect(result.current.editingCell).toBeNull();
+    });
+
     it('opens canonical formula content as user-facing raw text and skips an unchanged commit', () => {
       const inputs = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
       const outputWithoutFormula = sheetDocument({ id: 'sheet-output', name: 'Output' });
@@ -89,7 +105,7 @@ describe('useCellEditing edit persistence', () => {
 
       act(() => result.current.startEditingCell(target));
 
-      expect(result.current.editingCell).toEqual({ target, draft: '=@Inputs!A[1]' });
+      expect(result.current.editingCell).toMatchObject({ target, draft: '=@Inputs!A[1]' });
 
       act(() => result.current.commitActiveEdit());
 

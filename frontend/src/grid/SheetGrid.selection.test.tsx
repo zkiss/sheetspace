@@ -95,7 +95,8 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1' }: {
           focusSelection: interaction.focusSelection, navigate: interaction.navigateCell, startEditing: interaction.startEditingCell }}
         editingCell={interaction.editingCell}
         editorInteraction={{ cancel: interaction.cancelActiveEdit, commit: interaction.commitActiveEdit,
-          commitAndNavigate: interaction.commitEditAndNavigate, updateValue: interaction.updateEditingCellValue }}
+          commitAndNavigate: interaction.commitEditAndNavigate, updateValue: interaction.updateEditingCellValue,
+          updateView: interaction.updateEditingCellView }}
         formulaResults={{}}
         keyboardFocusRequest={interaction.keyboardFocusRequest && {
           id: interaction.keyboardFocusRequest.id, targetKey: cellKeyForTarget(sheet, interaction.keyboardFocusRequest.target),

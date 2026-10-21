@@ -10,8 +10,8 @@ function setup(draft = 'Draft') {
   document.body.append(element);
   const anchor = { current: element };
   const measure = vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(testRect({ left: 40, top: 60, width: 90, height: 26 }));
-  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), cancel: vi.fn(), updateValue: vi.fn() };
-  const editingCell = { target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft };
+  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), cancel: vi.fn(), suspend: vi.fn(), updateValue: vi.fn() };
+  const editingCell = { target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft, sessionId: 1 };
   const component = (value: string) => <SheetGridCellEditor anchor={anchor} editingCell={{ ...editingCell, draft: value }} cellKey="A1" sheetName="Inputs" interaction={interaction} />;
   const view = render(component(draft));
   element.remove();
@@ -127,6 +127,41 @@ describe('portal cell editor', () => {
     act(() => editor.blur());
     fireEvent.blur(editor);
     expect(interaction.commit).toHaveBeenCalledOnce();
-    expect(interaction.commit).toHaveBeenCalledWith({ ...editingCell, draft: 'Updated' });
+    expect(interaction.commit).toHaveBeenCalledWith({
+      ...editingCell, draft: 'Updated', selection: { start: 7, end: 7 }, scrollTop: 0,
+    });
+  });
+
+  it.each(['cell', 'tab', 'dialog'])('suspends rather than commits when focus transfers to a marked workspace %s', (role) => {
+    const { editor, interaction, editingCell } = setup();
+    const destination = document.createElement('button');
+    destination.setAttribute('role', role);
+    destination.setAttribute('data-workspace-navigation', '');
+    document.body.append(destination);
+
+    fireEvent.blur(editor, { relatedTarget: destination });
+
+    expect(interaction.suspend).toHaveBeenCalledWith({
+      ...editingCell, selection: { start: 5, end: 5 }, scrollTop: 0,
+    });
+    expect(interaction.commit).not.toHaveBeenCalled();
+    destination.remove();
+  });
+
+  it('suspends the live selection and scroll position for restoration after navigation', () => {
+    const { editor, interaction, editingCell } = setup('first\nsecond\nthird');
+    editor.setSelectionRange(2, 9);
+    editor.scrollTop = 18;
+    const destination = document.createElement('button');
+    destination.setAttribute('role', 'cell');
+    destination.setAttribute('data-workspace-navigation', '');
+    document.body.append(destination);
+
+    fireEvent.blur(editor, { relatedTarget: destination });
+
+    expect(interaction.suspend).toHaveBeenCalledWith({
+      ...editingCell, selection: { start: 2, end: 9 }, scrollTop: 18,
+    });
+    destination.remove();
   });
 });

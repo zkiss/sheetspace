@@ -19,8 +19,10 @@ import type {
 import { resolveCellNavigation } from './cellNavigation';
 import {
   cellInteractionReducer,
+  cellDraftKey,
   cellKeyForTarget,
   EMPTY_CELL_INTERACTION_STATE,
+  sameTarget,
 } from '@grid/cellInteraction';
 
 function adjacentTarget(
@@ -48,7 +50,12 @@ export function useCellEditing({
   workbook: Workbook;
 }) {
   const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
+  const stateRef = useRef(state);
+  const activeSessionRef = useRef<CellEditSession | null>(state.editing);
+  stateRef.current = state;
+  activeSessionRef.current = state.editing;
   const committedDrafts = useRef(new Set<string>());
+  const nextSessionId = useRef(1);
 
   function draftKey(session: CellEditSession) {
     return `${session.target.sheetId}:${session.target.cell.rowId}:${session.target.cell.columnId}:${session.draft}`;
@@ -62,8 +69,17 @@ export function useCellEditing({
   }, [workbook]);
 
   useEffect(() => {
+    const targetKeys = new Set(
+      sheetsInOrder(workbook).flatMap((sheet) => sheet.content.rows.flatMap((rowId) => sheet.content.columns
+        .filter((columnId) => !isCalculatedOwnedColumn(workbook, sheet.id, columnId))
+        .map((columnId) => cellDraftKey({ sheetId: sheet.id, cell: { rowId, columnId } })))),
+    );
+    dispatch({ type: 'prune-drafts', targetKeys });
+  }, [workbook]);
+
+  useEffect(() => {
     if (state.editing && isCalculatedOwnedColumn(workbook, state.editing.target.sheetId, state.editing.target.cell.columnId)) {
-      dispatch({ type: 'cancel' });
+      dispatch({ type: 'cancel', session: state.editing });
     }
   }, [state.editing, workbook]);
 
@@ -79,17 +95,25 @@ export function useCellEditing({
     if (currentEditValue !== session.draft) {
       const draftSignature = draftKey(session);
       if (!committedDrafts.current.has(draftSignature)) {
-        committedDrafts.current.add(draftSignature);
-        return commands.updateCellContent(session.target.sheetId, key, session.draft);
+        const outcome = commands.updateCellContent(session.target.sheetId, key, session.draft);
+        if (!outcome || outcome.ok) committedDrafts.current.add(draftSignature);
+        return outcome;
       }
     }
     return undefined;
   }
 
-  function commitActiveEdit(session = state.editing) {
+  function commitActiveEdit(session = stateRef.current.editing ?? activeSessionRef.current) {
+    if (!session || !sameSession(stateRef.current.editing, session)) return undefined;
     const outcome = commitSession(session);
-    dispatch({ type: 'commit' });
+    if (!outcome || outcome.ok) dispatch({ type: 'commit', session });
     return outcome;
+  }
+
+  function suspendActiveEdit(session: CellEditSession) {
+    // This deliberately also dispatches after navigation has ended activity:
+    // the reducer admits only the matching suspended generation.
+    dispatch({ type: 'suspend', session });
   }
 
   function startEditingCell(target: CellTarget, initialValue?: string) {
@@ -98,13 +122,25 @@ export function useCellEditing({
     const key = sheet && cellKeyForTarget(sheet, target);
     if (!sheet || !key) return;
     committedDrafts.current.clear();
+    // A rich-panel handoff is a new DOM callback lifetime, not a new draft.
+    // Seed it from the live session before the reducer transfers ownership.
+    const active = stateRef.current.editing;
+    const transfer = initialValue === undefined && active && sameTarget(active.target, target)
+      ? active
+      : undefined;
     const raw = cellRawContent(sheet, key);
+    const session = {
+      target,
+      draft: initialValue ?? transfer?.draft ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
+      selection: transfer?.selection,
+      scrollTop: transfer?.scrollTop,
+      sessionId: nextSessionId.current++,
+    };
+    activeSessionRef.current = session;
     dispatch({
       type: 'start-edit',
-      session: {
-        target,
-        draft: initialValue ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
-      },
+      replaceSuspendedDraft: initialValue !== undefined,
+      session,
     });
   }
 
@@ -156,9 +192,7 @@ export function useCellEditing({
       ? { sheetId, cell: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] } }
       : undefined);
     if (!target) return undefined;
-    commitSession(state.editing);
     if (state.selection?.sheetId === sheetId && cellKeyForTarget(sheet, state.selection)) {
-      dispatch({ type: 'commit' });
       if (requestFocus) dispatch({ type: 'focus-current-selection' });
     } else dispatch({ type: 'activate-sheet', target, requestFocus });
     return target;
@@ -214,7 +248,10 @@ export function useCellEditing({
     const normalizedRequest = typeof request === 'string'
       ? { key: request === 'tab' ? 'Tab' as const : 'Enter' as const }
       : request;
+    if (!sameSession(stateRef.current.editing, session)) return undefined;
     const outcome = commitSession(session);
+    if (outcome && !outcome.ok) return outcome;
+    dispatch({ type: 'commit', session });
     const sheet = findSheetById(workbook, session.target.sheetId);
     const selection = state.rangeSelection;
     const hasRectangle = Boolean(sheet && selection?.mode === 'cells'
@@ -254,12 +291,16 @@ export function useCellEditing({
   return {
     activeCell: state.selection,
     activateSheet,
-    cancelActiveEdit: () => dispatch({ type: 'cancel' }),
+    cancelActiveEdit: (session = stateRef.current.editing ?? activeSessionRef.current) => {
+      if (session) dispatch({ type: 'cancel', session });
+    },
     clearCellContent,
     clearSelection: () => dispatch({ type: 'clear-selection' }),
     commitActiveEdit,
+    suspendActiveEdit,
     commitEditAndNavigate,
     editingCell: state.editing,
+    drafts: state.drafts,
     acknowledgeKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'acknowledge-focus', requestId }),
     cancelKeyboardFocusRequest: (requestId: number) => dispatch({ type: 'cancel-focus', requestId }),
     keyboardFocusRequest: state.focusRequest,
@@ -279,14 +320,25 @@ export function useCellEditing({
       return requestId;
     },
     selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
-      if (!gesture || gesture.start) commitActiveEdit();
       dispatch({ type: 'select-axis', mode, target, extend, gesture });
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     startEditingCell,
-    updateEditingCellValue: (draft: string) => {
+    updateEditingCellValue: (draft: string, session = stateRef.current.editing ?? activeSessionRef.current) => {
+      if (!session) return;
       committedDrafts.current.clear();
-      dispatch({ type: 'update-draft', draft });
+      dispatch({ type: 'update-draft', session, draft });
+    },
+    updateEditingCellView: (selection: { start: number; end: number }, scrollTop: number, session = stateRef.current.editing ?? activeSessionRef.current) => {
+      if (!session) return;
+      dispatch({ type: 'update-editor-state', session, selection, scrollTop });
     },
   };
+}
+
+function sameSession(active: CellEditSession | null, candidate: CellEditSession) {
+  return Boolean(active && active.target.sheetId === candidate.target.sheetId
+    && active.target.cell.rowId === candidate.target.cell.rowId
+    && active.target.cell.columnId === candidate.target.cell.columnId
+    && active.sessionId === candidate.sessionId);
 }

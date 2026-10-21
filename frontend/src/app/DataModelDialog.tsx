@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { DataModel, ModelColumn, ModelColumnType } from '@workbook/core/model';
 import type { ModelCommandResult } from '@application/react/useWorkbookController';
-import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
+import { workbookFormulaReferenceResolver, type FormulaReferenceResolver } from '@workbook/formula/reference';
+import type { Workbook } from '@workbook/core/model';
+import type { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { formulaPanelReferenceValues } from './formulaPanelValues';
 import './DataModelDialog.css';
 
 type Draft = { id: string; name: string; columns: ModelColumn[] };
@@ -23,13 +27,16 @@ function message(result: ModelCommandResult): string {
   return 'The model could not be saved.';
 }
 
-export function DataModelDialog({ initialModelId, models, onCancel, onRetryFailedSaves, onSave }: {
+export function DataModelDialog({ formulaResults = {}, initialModelId, models, onCancel, onRetryFailedSaves, onSave, workbook }: {
+  formulaResults?: FormulaEvaluationSnapshot;
   initialModelId?: string;
   models: readonly DataModel[];
   onCancel: () => void;
   onRetryFailedSaves?: () => void;
   onSave: (model: DataModel, isNew: boolean) => ModelCommandResult | Promise<ModelCommandResult>;
+  workbook?: Workbook;
 }) {
+  const formulaWorkbook = workbook ?? { documents: {}, dataModels: {} } as Workbook;
   const dialogRef = useRef<HTMLElement>(null);
   const submissionPending = useRef(false);
   const closing = useRef(false);
@@ -38,9 +45,10 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [formulaDrafts, setFormulaDrafts] = useState<Readonly<Record<string, string>>>({});
   const [savedPropertyIds, setSavedPropertyIds] = useState<ReadonlySet<string>>(() => new Set(initialModel?.columns.map((column) => column.id) ?? []));
-  function openCreate() { setDraft(newDraft()); setIsNew(true); setSavedPropertyIds(new Set()); setError(''); }
-  function openEdit(model: DataModel) { setDraft(copy(model)); setIsNew(false); setSavedPropertyIds(new Set(model.columns.map((column) => column.id))); setError(''); }
+  function openCreate() { setDraft(newDraft()); setIsNew(true); setSavedPropertyIds(new Set()); setFormulaDrafts({}); setError(''); }
+  function openEdit(model: DataModel) { setDraft(copy(model)); setIsNew(false); setSavedPropertyIds(new Set(model.columns.map((column) => column.id))); setFormulaDrafts({}); setError(''); }
   function close() { closing.current = true; onCancel(); }
   function updateColumn(index: number, update: Partial<ModelColumn>) {
     setDraft((current) => current && { ...current, columns: current.columns.map((column, currentIndex) => {
@@ -111,7 +119,7 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
     focusable[nextIndex]!.focus();
   }
   return <div className="dialog-backdrop" role="presentation">
-    <section aria-label="Data models" aria-modal="true" className="data-model-dialog" onKeyDown={containFocus} ref={dialogRef} role="dialog">
+    <section aria-label="Data models" aria-modal="true" className="data-model-dialog" data-workspace-navigation onKeyDown={containFocus} ref={dialogRef} role="dialog">
       {!draft ? <>
         <div className="data-model-header"><h2>Data models</h2><button autoFocus onClick={openCreate} type="button">Create model</button></div>
         {models.length === 0 ? <p>No data models yet. Create one to define reusable sheet properties.</p> : <ul className="data-model-list">
@@ -126,7 +134,11 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
             <label>Property name<input aria-label={`Property ${index + 1} name`} disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} /></label>
             <label>Kind<select aria-label={`Property ${index + 1} kind`} disabled={saving} onChange={(event) => updateColumn(index, { kind: event.target.value as ModelColumn['kind'] })} value={column.kind}><option value="manual">Manual</option><option value="calculated">Calculated</option></select></label>
             <label>Type<select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => updateColumn(index, { type: event.target.value as ModelColumnType })} value={column.type}>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-            {column.kind === 'calculated' ? <label>Formula<RawFormulaInput aria-label={`Property ${index + 1} formula`} disabled={saving} onValueChange={(formula) => updateColumn(index, { formula })} value={column.formula} /></label> : null}
+            {column.kind === 'calculated' ? <FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} disabled={saving} modelOnly onApply={() => {
+              const formula = formulaDrafts[column.id];
+              if (formula !== undefined) updateColumn(index, { formula });
+              setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
+            }} onCancel={() => setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; })} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} referenceValues={(identity) => formulaPanelReferenceValues(identity, modelDraftReferenceResolver(formulaWorkbook, draft), formulaResults)} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
             <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Up</button><button aria-label={`Move property ${index + 1} down`} disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Down</button><button aria-label={`Remove property ${index + 1}`} disabled={saving} onClick={() => removeColumn(index)} type="button">Remove</button></div>
           </div>)}
           <button disabled={saving} onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>
@@ -138,4 +150,35 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
       </form>}
     </section>
   </div>;
+}
+
+/** Resolves unqualified model formulas against the live declaration, never an arbitrary sheet. */
+function modelDraftReferenceResolver(workbook: Workbook, draft: Draft): FormulaReferenceResolver {
+  const currentSheetId = `model-draft:${draft.id}`;
+  const property = (name: string) => draft.columns.find((column) => column.name === name);
+  const actual = (sheetId: string) => workbook.documents[sheetId] ? workbookFormulaReferenceResolver(workbook, sheetId) : undefined;
+  return {
+    currentSheetId,
+    sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((sheet) => sheet.id === qualifier || sheet.name === qualifier)?.id,
+    coordinateAt: (sheetId, address) => {
+      if (sheetId === currentSheetId) {
+        const column = draft.columns[address.columnIndex];
+        return column && address.rowIndex >= 0 ? { columnId: column.id, rowId: `template-row-${address.rowIndex}` } : undefined;
+      }
+      return actual(sheetId)?.coordinateAt(sheetId, address);
+    },
+    addressOf: (sheetId, coordinate) => {
+      if (sheetId === currentSheetId) {
+        const columnIndex = draft.columns.findIndex((column) => column.id === coordinate.columnId);
+        const match = /^template-row-(\d+)$/.exec(coordinate.rowId);
+        return columnIndex >= 0 && match ? { columnIndex, rowIndex: Number(match[1]) } : undefined;
+      }
+      return actual(sheetId)?.addressOf(sheetId, coordinate);
+    },
+    namedCoordinateAt: (sheetId, name, row) => {
+      if (sheetId !== currentSheetId) return actual(sheetId)?.namedCoordinateAt?.(sheetId, name, row);
+      const column = property(name);
+      return column && row > 0 ? { propertyId: column.id, coordinate: { columnId: column.id, rowId: `template-row-${row - 1}` } } : undefined;
+    },
+  };
 }

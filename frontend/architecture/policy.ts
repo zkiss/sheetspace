@@ -3,7 +3,7 @@ import type { ArchitecturePolicy, Owner } from './analyzer';
 const workbook = ['workbook/core', 'workbook/read', 'workbook/formula', 'workbook/mutations'];
 const read = workbook.slice(0, 2);
 const formula = workbook.slice(0, 3);
-const gridModels = 'cellInteraction|cellInteractionContracts|gridAxisMetrics|gridAxisProjection|gridGeometry|sheetGridModel';
+const gridModels = 'cellInteraction|cellInteractionContracts|formulaDrafts|gridAxisMetrics|gridAxisProjection|gridGeometry|sheetGridModel';
 const workspaceModels = 'workspaceContracts|workspaceGeometry|workspaceFrameVirtualization';
 
 // A package owns direct children only. New subtrees require an explicit policy decision.
@@ -54,6 +54,6 @@ export const frontendPolicy: ArchitecturePolicy = {
   forbiddenFiles: ['src/workbook.ts', 'src/workbook.tsx', 'src/appTypes.ts', 'src/index.ts', 'src/index.tsx'],
   styles: [
     { files: /^src\/app\/global\.css$/, kind: 'global', importers: ['src/app/main.tsx'] },
-    { files: /^src\/(?:app\/(?!global\.css$)|grid\/|workspace\/|reference-navigation\/)[^/]+\.css$/, kind: 'scoped' },
+    { files: /^src\/(?:app\/(?!global\.css$)|application\/react\/|grid\/|workspace\/|reference-navigation\/)[^/]+\.css$/, kind: 'scoped' },
   ],
 };

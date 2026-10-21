@@ -2,6 +2,7 @@ import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { type SheetDocument, type SheetTabularProjection } from '@workbook/core/model';
 import type { SelectionGesture, CellEditSession, CellSelection, CellSelectionMode, CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
+import { formulaDraftKey } from './formulaDrafts';
 
 export type CellInteractionState = {
   selection: CellTarget | null;
@@ -9,6 +10,7 @@ export type CellInteractionState = {
   selectionOwner: symbol | null;
   rangeSelection: CellSelection | null;
   editing: CellEditSession | null;
+  drafts: Readonly<Record<string, CellEditSession>>;
   focusRequest: CellFocusRequest | null;
   nextFocusRequestId: number;
   referenceSelection: ReferenceNavigationTarget | null;
@@ -26,6 +28,7 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
   selectionOwner: null,
   rangeSelection: null,
   editing: null,
+  drafts: {},
   focusRequest: null,
   nextFocusRequestId: 1,
   referenceSelection: null,
@@ -39,10 +42,14 @@ export type CellInteractionAction =
   | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
-  | { type: 'start-edit'; session: CellEditSession }
-  | { type: 'update-draft'; draft: string }
-  | { type: 'commit' }
-  | { type: 'cancel' }
+  | { type: 'start-edit'; session: CellEditSession; replaceSuspendedDraft?: boolean }
+  | { type: 'update-draft'; session: CellEditSession; draft: string }
+  | { type: 'update-editor-state'; session: CellEditSession; selection: { start: number; end: number }; scrollTop: number }
+  // A final DOM snapshot may arrive after navigation has suspended this same
+  // overlay.  The reducer owns that ordering decision, not a render-time ref.
+  | { type: 'suspend'; session: CellEditSession }
+  | { type: 'commit'; session: CellEditSession }
+  | { type: 'cancel'; session: CellEditSession }
   | { type: 'clear'; target: CellTarget }
   | { type: 'navigate'; target: CellTarget }
   | { type: 'traverse-range'; target: CellTarget }
@@ -52,7 +59,8 @@ export type CellInteractionAction =
   | { type: 'acknowledge-focus'; requestId: number }
   | { type: 'cancel-focus'; requestId: number }
   | { type: 'clear-selection' }
-  | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> };
+  | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> }
+  | { type: 'prune-drafts'; targetKeys: ReadonlySet<string> };
 
 function referenceStart(target: ReferenceNavigationTarget): CellTarget {
   return target.kind === 'cell'
@@ -78,6 +86,7 @@ export function cellInteractionReducer(
         focusRequest: null,
         referenceSelection: null,
         tabRunOriginColumnId: sameTarget(state.selection, action.target) ? state.tabRunOriginColumnId : null,
+        ...suspendEdit(state),
       };
     case 'activate-sheet': {
       const activated: CellInteractionState = {
@@ -86,7 +95,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         focusRequest: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,
@@ -130,7 +139,7 @@ export function cellInteractionReducer(
           anchor: canExtend ? state.rangeSelection!.anchor : action.target,
           extent: action.target,
         },
-        editing: null,
+        ...suspendEdit(state),
         focusRequest: null,
         referenceSelection: null,
         tabRunOriginColumnId: null,
@@ -150,31 +159,65 @@ export function cellInteractionReducer(
               extent: { sheetId: action.target.sheetId, cell: action.target.range.end },
             }
           : { mode: 'cells', anchor: target, extent: target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: action.target,
         tabRunOriginColumnId: null,
       }, target);
     }
     case 'start-edit':
-      return {
-        ...state,
-        selection: action.session.target,
-        selectionsBySheet: { ...state.selectionsBySheet, [action.session.target.sheetId]: action.session.target },
-        selectionOwner: null,
-        // Editing the active member of a rectangular selection must not lose
-        // that rectangle: Tab/Enter commits traverse its existing bounds.
-        rangeSelection: preservesRectangularRange(state, action.session.target)
-          ? state.rangeSelection
-          : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
-        editing: action.session,
-        referenceSelection: null,
-      };
-    case 'update-draft':
-      return state.editing ? { ...state, editing: { ...state.editing, draft: action.draft } } : state;
+      {
+        const suspendedDraft = state.drafts[cellDraftKey(action.session.target)];
+        // Resuming restores the target's draft and view state, but opening the
+        // overlay is still a new callback lifetime.
+        const editing = !action.replaceSuspendedDraft && suspendedDraft
+          ? { ...suspendedDraft, sessionId: action.session.sessionId }
+          : action.session;
+        const suspended = suspendEdit(state);
+        const drafts = suspended.drafts ?? state.drafts;
+        return {
+          ...state,
+          selection: action.session.target,
+          selectionsBySheet: { ...state.selectionsBySheet, [action.session.target.sheetId]: action.session.target },
+          selectionOwner: null,
+          // Editing the active member of a rectangular selection must not lose
+          // that rectangle: Tab/Enter commits traverse its existing bounds.
+          rangeSelection: preservesRectangularRange(state, action.session.target)
+            ? state.rangeSelection
+            : { mode: 'cells', anchor: action.session.target, extent: action.session.target },
+          ...suspended,
+          editing,
+          // Active and suspended copies always carry the fresh callback
+          // generation.  An older overlay can therefore never refine a resume.
+          drafts: { ...drafts, [cellDraftKey(action.session.target)]: editing },
+          referenceSelection: null,
+        };
+      }
+    case 'update-draft': {
+      if (!state.editing || !sameSession(state.editing, action.session)) return state;
+      const editing = { ...state.editing, draft: action.draft };
+      return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
+    }
+    case 'update-editor-state': {
+      if (!state.editing || !sameSession(state.editing, action.session)) return state;
+      const editing = { ...state.editing, selection: action.selection, scrollTop: action.scrollTop };
+      return { ...state, editing, drafts: { ...state.drafts, [cellDraftKey(editing.target)]: editing } };
+    }
+    case 'suspend': {
+      const snapshot = normalizeSnapshot(action.session);
+      if (sameSession(state.editing, snapshot)) {
+        return { ...state, editing: null, drafts: { ...state.drafts, [cellDraftKey(snapshot.target)]: snapshot } };
+      }
+      const saved = state.drafts[cellDraftKey(snapshot.target)];
+      return sameSession(saved ?? null, snapshot)
+        ? { ...state, drafts: { ...state.drafts, [cellDraftKey(snapshot.target)]: snapshot } }
+        : state;
+    }
     case 'commit':
-      return { ...state, editing: null };
+      return state.editing && sameSession(state.editing, action.session)
+        ? { ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) } : state;
     case 'cancel':
-      return state.editing ? withFocusRequest({ ...state, editing: null }, state.editing.target) : state;
+      return state.editing && sameSession(state.editing, action.session)
+        ? withFocusRequest({ ...state, editing: null, drafts: withoutDraft(state.drafts, state.editing.target) }, state.editing.target) : state;
     case 'clear':
       // Clearing contents is not a selection operation. Keep a range (including
       // a whole-row or whole-column selection) intact for subsequent navigation.
@@ -182,7 +225,7 @@ export function cellInteractionReducer(
         return withFocusRequest({
           ...state,
           selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
-          editing: null,
+          ...suspendEdit(state),
           referenceSelection: null,
         }, action.target);
       }
@@ -192,7 +235,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: null,
       }, action.target);
@@ -203,7 +246,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: null,
       }, action.target);
@@ -221,7 +264,7 @@ export function cellInteractionReducer(
         selection: action.target,
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: null,
       }, action.target);
@@ -232,7 +275,7 @@ export function cellInteractionReducer(
         selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
         selectionOwner: null,
         rangeSelection: { mode: 'cells', anchor: action.target, extent: action.target },
-        editing: null,
+        ...suspendEdit(state),
         referenceSelection: null,
         tabRunOriginColumnId: action.originColumnId,
       }, action.target);
@@ -259,7 +302,7 @@ export function cellInteractionReducer(
       // exact request may release its focus and virtualization pin.
       return state.focusRequest?.id === action.requestId ? { ...state, focusRequest: null } : state;
     case 'clear-selection':
-      return { ...state, selection: null, selectionOwner: null, rangeSelection: null, editing: null, focusRequest: null, referenceSelection: null, tabRunOriginColumnId: null };
+      return { ...state, selection: null, selectionOwner: null, rangeSelection: null, ...suspendEdit(state), focusRequest: null, referenceSelection: null, tabRunOriginColumnId: null };
     case 'prune-sheets': {
       const keep = (target: CellTarget | null) => target && action.sheetIds.has(target.sheetId) ? target : null;
       const referenceSelection = state.referenceSelection
@@ -274,11 +317,42 @@ export function cellInteractionReducer(
         rangeSelection: state.rangeSelection && action.sheetIds.has(state.rangeSelection.anchor.sheetId)
           ? state.rangeSelection : null,
         editing: state.editing && action.sheetIds.has(state.editing.target.sheetId) ? state.editing : null,
+        drafts: Object.fromEntries(Object.entries(state.drafts).filter(([, draft]) => action.sheetIds.has(draft.target.sheetId))),
         focusRequest: state.focusRequest && keep(state.focusRequest.target) ? state.focusRequest : null,
         referenceSelection,
       };
     }
+    case 'prune-drafts': {
+      const drafts = Object.fromEntries(Object.entries(state.drafts).filter(([key]) => action.targetKeys.has(key)));
+      const editing = state.editing && action.targetKeys.has(cellDraftKey(state.editing.target)) ? state.editing : null;
+      return { ...state, drafts, editing };
+    }
   }
+}
+
+export function cellDraftKey(target: CellTarget) {
+  return formulaDraftKey(target);
+}
+
+function withoutDraft(drafts: Readonly<Record<string, CellEditSession>>, target: CellTarget) {
+  return Object.fromEntries(Object.entries(drafts).filter(([key]) => key !== cellDraftKey(target)));
+}
+
+function suspendEdit(state: CellInteractionState) {
+  if (!state.editing) return { editing: null };
+  return { editing: null, drafts: { ...state.drafts, [cellDraftKey(state.editing.target)]: state.editing } };
+}
+
+function normalizeSnapshot(session: CellEditSession): CellEditSession {
+  return {
+    ...session,
+    selection: session.selection ?? { start: session.draft.length, end: session.draft.length },
+    scrollTop: session.scrollTop ?? 0,
+  };
+}
+
+function sameSession(left: CellEditSession | null, right: CellEditSession) {
+  return Boolean(left && sameTarget(left.target, right.target) && left.sessionId === right.sessionId);
 }
 
 function preservesRectangularRange(state: CellInteractionState, target: CellTarget) {
