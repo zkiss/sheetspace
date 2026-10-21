@@ -119,7 +119,7 @@ describe('SheetGridCell', () => {
     expect(props.cellInteraction.select).not.toHaveBeenCalled();
   });
 
-  it('keeps calculated cells selectable while preventing content editing and clear', () => {
+  it('keeps calculated cells selectable while preventing content editing', () => {
     const props = renderCell({ isCalculated: true });
     const cell = screen.getByRole('cell', { name: 'Inputs A1 calculated, read-only; edit it in Data models cell' });
     const target = cellTargetAt(props.sheet, 'A1');
@@ -128,9 +128,12 @@ describe('SheetGridCell', () => {
     expect(cell).toHaveClass('sheet-grid-cell-calculated');
     fireEvent.doubleClick(cell);
     fireEvent.keyDown(cell, { key: 'Enter' });
-    fireEvent.keyDown(cell, { key: 'Backspace' });
     expect(props.cellInteraction.startEditing).not.toHaveBeenCalled();
-    expect(props.cellInteraction.clear).not.toHaveBeenCalled();
+
+    // The clear reaches the ownership authority, which rejects it and lets the
+    // workspace report the protection instead of failing silently.
+    fireEvent.keyDown(cell, { key: 'Backspace' });
+    expect(props.cellInteraction.clear).toHaveBeenCalledWith(target);
 
     fireEvent.keyDown(cell, { key: 'ArrowRight' });
     expect(props.cellInteraction.navigate).toHaveBeenCalledWith(target, 'right');

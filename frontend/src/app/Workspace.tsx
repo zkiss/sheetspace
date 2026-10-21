@@ -40,8 +40,12 @@ import { useWorkspaceHistoryReveal } from './useWorkspaceHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
 import { SheetModelControls } from '@workspace/SheetModelControls';
-import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
 import { historyCellsForSheet } from './historyCellsForSheet';
+import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './modelColumnPresentation';
+import type { CellWriteResult } from '@application/core/userActions';
+
+const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.';
+
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -92,11 +96,11 @@ export function Workspace({
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
   onKeyboardFocusRequestCancelled: (requestId: number) => void;
   onCancelEdit: () => void;
-  onClearCell: (target: CellTarget) => void;
+  onClearCell: (target: CellTarget) => CellWriteResult | undefined;
   onClearSelection: () => void;
   onActivateSheet: (sheetId: string, requestFocus?: boolean) => CellTarget | undefined;
-  onCommitEdit: (session?: CellEditSession) => void;
-  onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => void;
+  onCommitEdit: (session?: CellEditSession) => CellWriteResult | undefined;
+  onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | undefined;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   onEditValueChange: (value: string) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
@@ -121,21 +125,28 @@ export function Workspace({
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
   workbook: Workbook;
 }) {
-  const clipboard = useRef(new ClipboardPayloadStore()); const [, setClipboardRevision] = useState(0);
+  const clipboard = useRef(new ClipboardPayloadStore());
+  const [, setClipboardRevision] = useState(0);
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
-  const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() }); const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
+  const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
+  const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
     if (gridHistoryReveals.current.identity !== identity) gridHistoryReveals.current = { identity, sheetIds: new Set() };
     gridHistoryReveals.current.sheetIds.add(sheetId);
   }, []);
-  const sheets = sheetsInOrder(workbook); const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
-  const dataModels = Object.values(workbook.dataModels ?? {}); const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
+  const sheets = sheetsInOrder(workbook);
+  const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
+  const dataModels = Object.values(workbook.dataModels ?? {});
+  const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
   const selectedRaw = selectedSheet && selectedCellKey
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
-  const formulaInspection = selectedSheet && selectedRaw ? inspectFormula(selectedRaw, workbook, selectedSheet) : undefined;
+  const formulaInspection = selectedSheet && selectedRaw
+    ? inspectFormula(selectedRaw, workbook, selectedSheet)
+    : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
-  const interactionsEnabled = !sheetDialogOpen; const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
+  const interactionsEnabled = !sheetDialogOpen;
+  const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -206,7 +217,8 @@ export function Workspace({
       ? { ...layout, position: frameScalePreview.position, visualScale: frameScalePreview.visualScale }
       : layout;
   });
-  const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame])); const mountedSheetIds = mountedWorkspaceFrameIds({
+  const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
+  const mountedSheetIds = mountedWorkspaceFrameIds({
     frames: projectedFrames,
     pins: {
       editingSheetId: editingCell?.target.sheetId,
@@ -243,23 +255,26 @@ export function Workspace({
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     return copied.ok ? copied.value : undefined;
   }
+
   function cutGridSelection() {
     const selection = selectionRange ?? (activeCell
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
       : undefined);
     if (!selection) return undefined;
-    if (selectionIncludesCalculatedCell(selection)) {
-      setCalculatedCellFeedback('This cell is calculated in the data model. Edit the calculation in Data models.');
+    if (selectionIncludesCalculatedColumn(workbook, selection)) {
+      setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       return undefined;
     }
     const cut = clipboard.current.cut(workbook, selection);
     if (cut.ok) setClipboardRevision((revision) => revision + 1);
     return cut.ok ? cut.value : undefined;
   }
+
   function cancelPendingCut() {
     clipboard.current.cancelCut();
     setClipboardRevision((revision) => revision + 1);
   }
+
   function pasteGridSelection(clipboardData: { text: string; marker?: string }) {
     if (!activeCell) return;
     const destination = findSheetById(workbook, activeCell.sheetId);
@@ -271,20 +286,20 @@ export function Workspace({
     if (parsed.ok && parsed.value.kind === 'cut') {
       const moved = commands.moveCells(destination.id, destinationKey, parsed.value.source);
       if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source' || moved.reason === 'calculated-cell-write') cancelPendingCut();
-      if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback('This cell is calculated in the data model. Edit the calculation in Data models.');
+      if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
     } else {
       const pasted = commands.pasteCells(destination.id, destinationKey, parsed);
-      if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback('This cell is calculated in the data model. Edit the calculation in Data models.');
+      if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
     }
   }
-  function selectionIncludesCalculatedCell(selection: CellSelection) {
-    const sheet = findSheetById(workbook, selection.anchor.sheetId);
-    const range = sheet && selectionAddressRange(sheet, selection);
-    if (!sheet || !range) return false;
-    const calculatedColumns = calculatedOwnedColumns(sheet, workbook.dataModels);
-    return sheet.content.columns.slice(range.start.columnIndex, range.end.columnIndex + 1)
-      .some((columnId) => calculatedColumns.has(columnId));
+
+  /** Reports a rejected content write instead of leaving the user without a reason. */
+  function reportWriteOutcome(outcome: CellWriteResult | undefined) {
+    if (outcome && !outcome.ok && outcome.reason === 'calculated-cell-write') {
+      setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+    }
   }
+
   return (
     <>
       <WorkspaceToolbar
@@ -305,6 +320,7 @@ export function Workspace({
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
       />
+
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
@@ -356,14 +372,7 @@ export function Workspace({
           if (!mountedSheetIds.has(sheet.id)) return null;
           const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
-          const model = sheet.modelId ? workbook.dataModels?.[sheet.modelId] : undefined;
-          const columnLabels = new Map(model?.columns.flatMap((property) => {
-            const columnId = sheet.modelColumnBindings?.[property.id];
-            return columnId ? [[columnId, property.name] as const] : [];
-          }) ?? []);
-          const calculatedColumnIds = new Set(model?.columns.flatMap((property) => property.kind === 'calculated'
-            ? [sheet.modelColumnBindings?.[property.id]].filter((columnId): columnId is string => Boolean(columnId))
-            : []) ?? []);
+          const { calculatedColumnIds, columnLabels } = modelColumnPresentation(sheet, workbook.dataModels);
           const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
@@ -448,7 +457,7 @@ export function Workspace({
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
-                      clear: onClearCell,
+                      clear: (target) => reportWriteOutcome(onClearCell(target)),
                       navigate: onNavigateCell,
                       navigateKeyboard: onNavigateKeyboardCell,
                       select: onSelectCell,
@@ -460,8 +469,8 @@ export function Workspace({
                     editingCell={sheetEditingCell}
                     editorInteraction={{
                       cancel: onCancelEdit,
-                      commit: onCommitEdit,
-                      commitAndNavigate: onCommitEditAndNavigate,
+                      commit: (session) => reportWriteOutcome(onCommitEdit(session)),
+                      commitAndNavigate: (session, request) => reportWriteOutcome(onCommitEditAndNavigate(session, request)),
                       updateValue: onEditValueChange,
                     }}
                     formulaResults={formulaResults}

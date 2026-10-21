@@ -105,7 +105,8 @@ export function SheetGridCell({
     }
 
     if (action.kind === 'clear-cell') {
-      if (isCalculated) return;
+      // The cell presents the read-only affordance; the ownership authority
+      // rejects a protected clear and the workspace reports that rejection.
       cellInteraction.clear(target);
       return;
     }

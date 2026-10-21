@@ -37,6 +37,60 @@
 
 .workspace-new-sheet:hover { background: #dfeaec; }
 
+.workspace-model-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+}
+
+.workspace-model-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+}
+
+.workspace-model-controls select {
+  height: 1.9rem;
+  border: 1px solid #cbd6db;
+  border-radius: 0.25rem;
+  padding: 0 0.4rem;
+  color: #344550;
+  background: #fff;
+  font: inherit;
+}
+
+.workspace-model-controls button {
+  min-height: 1.9rem;
+  border: 0;
+  border-radius: 0.3rem;
+  padding: 0 0.6rem;
+  color: #4a5c67;
+  background: #eef3f5;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.workspace-model-controls button:hover:not(:disabled) { background: #dfeaec; }
+
+.workspace-model-controls button:disabled,
+.workspace-model-controls select:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.workspace-model-controls [role='status'] {
+  color: #5b6b75;
+  font-size: 0.72rem;
+}
+
+.workspace-model-controls [role='alert'] {
+  color: #a13b3b;
+  font-size: 0.72rem;
+}
+
 .save-status-dot {
   display: block;
   width: 0.75rem;

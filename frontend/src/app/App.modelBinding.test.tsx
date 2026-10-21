@@ -101,4 +101,45 @@ describe('App model binding workflow', () => {
     expect(screen.getByRole('button', { name: 'Bind model' })).toBeEnabled();
     expect(cellAt('A1')).toHaveAttribute('aria-selected', 'true');
   });
+
+  it('renders calculated cells read-only from the live declaration and follows a property reorder', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { workbook } = inputsWorkbook();
+    const apiClient = persistedWorkbookClient(workbook);
+    render(<App initialWorkbook={workbook} apiClient={apiClient} />);
+
+    fireEvent.click(cellAt('A1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Data models' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
+    const create = screen.getByRole('form', { name: 'Create data model' });
+    fireEvent.change(within(create).getByLabelText('Model name'), { target: { value: 'Invoice' } });
+    fireEvent.change(within(create).getByLabelText('Property 1 name'), { target: { value: 'Amount' } });
+    fireEvent.click(within(create).getByRole('button', { name: 'Add property' }));
+    fireEvent.change(within(create).getByLabelText('Property 2 name'), { target: { value: 'Tax' } });
+    fireEvent.change(within(create).getByLabelText('Property 2 kind'), { target: { value: 'calculated' } });
+    fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: '=SUM(@A[1])' } });
+    fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
+
+    const created = within(modelSelect()).getByRole('option', { name: 'Invoice' }) as HTMLOptionElement;
+    fireEvent.change(modelSelect(), { target: { value: created.value } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
+    expect(cellAt('B1')).toHaveAttribute('aria-readonly', 'true');
+    expect(cellAt('B1')).toHaveAccessibleName('Inputs B1 calculated, read-only; edit it in Data models cell');
+    expect(cellAt('A1')).not.toHaveAttribute('aria-readonly');
+    fireEvent.doubleClick(cellAt('B1'));
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
+    const reorder = screen.getByRole('form', { name: 'Edit data model' });
+    fireEvent.click(within(reorder).getByRole('button', { name: 'Move property 2 up' }));
+    fireEvent.click(within(reorder).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Amount']));
+    expect(cellAt('A1')).toHaveAttribute('aria-readonly', 'true');
+    expect(cellAt('B1')).not.toHaveAttribute('aria-readonly');
+  });
 });

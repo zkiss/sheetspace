@@ -5,6 +5,7 @@ import { formulaRawForDisplay } from '@workbook/formula/reference';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import { isCalculatedOwnedColumn } from '@workbook/core/calculatedOwnership';
+import type { CellWriteResult } from '@application/core/userActions';
 import type {
   SelectionGesture,
   CellEditSession,
@@ -66,26 +67,29 @@ export function useCellEditing({
     }
   }, [state.editing, workbook]);
 
-  function commitSession(session: CellEditSession | null) {
-    if (!session) return;
+  function commitSession(session: CellEditSession | null): CellWriteResult | undefined {
+    if (!session) return undefined;
     const sheet = findSheetById(workbook, session.target.sheetId);
     const key = sheet && cellKeyForTarget(sheet, session.target);
-    if (!sheet || !key) return;
+    if (!sheet || !key) return undefined;
 
     const currentCell = cellRawContent(sheet, key);
     const currentRaw = currentCell ?? '';
     const currentEditValue = decodeCellTextLiteral(currentRaw) ?? (currentCell ? formulaRawForDisplay(currentCell, workbook, sheet.id) : currentRaw);
     if (currentEditValue !== session.draft) {
       const draftSignature = draftKey(session);
-      if (committedDrafts.current.has(draftSignature)) return;
-      committedDrafts.current.add(draftSignature);
-      commands.updateCellContent(session.target.sheetId, key, session.draft);
+      if (!committedDrafts.current.has(draftSignature)) {
+        committedDrafts.current.add(draftSignature);
+        return commands.updateCellContent(session.target.sheetId, key, session.draft);
+      }
     }
+    return undefined;
   }
 
   function commitActiveEdit(session = state.editing) {
-    commitSession(session);
+    const outcome = commitSession(session);
     dispatch({ type: 'commit' });
+    return outcome;
   }
 
   function startEditingCell(target: CellTarget, initialValue?: string) {
@@ -104,11 +108,12 @@ export function useCellEditing({
     });
   }
 
-  function clearCellContent(target: CellTarget) {
-    if (isCalculatedOwnedColumn(workbook, target.sheetId, target.cell.columnId)) return;
-    dispatch({ type: 'clear', target });
+  function clearCellContent(target: CellTarget): CellWriteResult | undefined {
+    if (isCalculatedOwnedColumn(workbook, target.sheetId, target.cell.columnId)) {
+      return { ok: false, reason: 'calculated-cell-write' };
+    }
     const sheet = findSheetById(workbook, target.sheetId);
-    if (!sheet) return;
+    if (!sheet) return undefined;
     const selection = state.rangeSelection?.anchor.sheetId === target.sheetId
       ? state.rangeSelection
       : null;
@@ -133,7 +138,14 @@ export function useCellEditing({
       ))) return [];
       return [{ sheetId: sheet.id, ...identity, raw: '' }];
     });
-    if (writes.length > 0) commands.writeCells(writes);
+    if (writes.length > 0) {
+      const outcome = commands.writeCells(writes);
+      // A rejected clear leaves the workbook and the selection untouched, and the
+      // caller reports the rejection instead of presenting a silent no-op.
+      if (outcome && !outcome.ok) return outcome;
+    }
+    dispatch({ type: 'clear', target });
+    return undefined;
   }
 
   function activateSheet(sheetId: string, requestFocus = true) {
@@ -198,11 +210,11 @@ export function useCellEditing({
   function commitEditAndNavigate(
     session: CellEditSession,
     request: Pick<CellNavigationRequest, 'key' | 'shift'> | 'tab' | 'enter',
-  ) {
+  ): CellWriteResult | undefined {
     const normalizedRequest = typeof request === 'string'
       ? { key: request === 'tab' ? 'Tab' as const : 'Enter' as const }
       : request;
-    commitSession(session);
+    const outcome = commitSession(session);
     const sheet = findSheetById(workbook, session.target.sheetId);
     const selection = state.rangeSelection;
     const hasRectangle = Boolean(sheet && selection?.mode === 'cells'
@@ -214,7 +226,7 @@ export function useCellEditing({
       })());
     if (!sheet || normalizedRequest.shift || hasRectangle) {
       navigateKeyboardCell(session.target, normalizedRequest);
-      return;
+      return outcome;
     }
 
     // A single-cell edit retains established fill-across behavior: Enter after
@@ -226,7 +238,7 @@ export function useCellEditing({
         target: next,
         originColumnId: state.tabRunOriginColumnId ?? session.target.cell.columnId,
       });
-      return;
+      return outcome;
     }
     const originColumnId = state.tabRunOriginColumnId ?? session.target.cell.columnId;
     const originColumnIndex = sheet.content.columns.indexOf(originColumnId);
@@ -236,6 +248,7 @@ export function useCellEditing({
     };
     const next = adjacentTarget(sheet, originTarget, { columnIndex: 0, rowIndex: 1 });
     if (next) dispatch({ type: 'commit-enter', target: next });
+    return outcome;
   }
 
   return {
