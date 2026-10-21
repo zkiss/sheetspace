@@ -262,6 +262,7 @@ export function Workspace({
       : undefined);
     if (!selection) return undefined;
     if (selectionIncludesCalculatedColumn(workbook, selection)) {
+      cancelPendingCut();
       setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       return undefined;
     }

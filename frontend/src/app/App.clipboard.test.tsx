@@ -40,6 +40,23 @@ describe('App grid clipboard integration', () => {
     expect(cell('B2')).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('cancels an earlier pending cut when a calculated selection rejects a new cut', () => {
+    render(<App initialWorkbook={calculatedWorkbook()} apiClient={autosaveClient()} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+
+    fireEvent.click(cell('A1'));
+    fireEvent.cut(cell('A1'), { clipboardData: clipboardData() });
+    expect(cell('A1')).toHaveAttribute('data-pending-cut', 'true');
+
+    fireEvent.click(cell('B1'));
+    fireEvent.cut(cell('B1'), { clipboardData: clipboardData() });
+
+    expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
+    expect(cell('B1')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('calculated in the data model');
+  });
+
   it('copies a grid formula as TSV with provenance and pastes it atomically from the active cell', async () => {
     const sheet = {
       ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }),
