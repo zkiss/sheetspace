@@ -1,0 +1,228 @@
+import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
+import type { FormulaScalarValue } from '@calculation/formulaValue';
+import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
+import { formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult } from '@workbook/formula/syntax';
+
+export type FormulaEditorSelection = { start: number; end: number };
+export type FormulaCompletion = {
+  kind: 'function' | 'sheet' | 'property';
+  label: string;
+  insertText: string;
+  replacement: FormulaSourceSpan;
+};
+export type FormulaFormattingResult =
+  | { available: true; raw: string; selection: FormulaEditorSelection }
+  | { available: false; raw: string; selection: FormulaEditorSelection };
+export type FormulaReferenceIdentity =
+  | { kind: 'cell'; sheetId: string; rowId: string; columnId: string }
+  | { kind: 'range'; sheetId: string; start: { rowId: string; columnId: string }; end: { rowId: string; columnId: string } };
+export type FormulaReferenceHover =
+  | { kind: 'broken'; identity?: FormulaReferenceIdentity }
+  | { kind: 'value'; identity: FormulaReferenceIdentity; value: FormulaScalarValue }
+  | { kind: 'range'; identity: FormulaReferenceIdentity; values: readonly FormulaScalarValue[]; truncated: boolean }
+  | { kind: 'model-context'; identity: FormulaReferenceIdentity };
+
+export type FormulaEditorAnalysis = Pick<FormulaSyntaxResult, 'tokens' | 'references' | 'diagnostics' | 'result'> & {
+  referenceIdentities: readonly (FormulaReferenceIdentity | undefined)[];
+};
+
+/** The parser and resolver remain the source of syntax, diagnostics, and reference truth. */
+export function analyzeFormulaEditor(raw: string, resolver: FormulaReferenceResolver): FormulaEditorAnalysis {
+  const analysis = analyzeFormulaSyntax(raw, resolver);
+  return {
+    result: analysis.result,
+    tokens: analysis.tokens,
+    references: analysis.references,
+    diagnostics: analysis.diagnostics,
+    referenceIdentities: analysis.references.map((reference) => stableReferenceIdentity(reference, resolver)),
+  };
+}
+
+export function formulaCompletions(
+  raw: string,
+  selection: FormulaEditorSelection,
+  options: { sheetNames: readonly string[]; propertyNames?: readonly string[] },
+): FormulaCompletion[] {
+  const cursor = clamp(selection.start, 0, raw.length);
+  const end = clamp(selection.end, cursor, raw.length);
+  if (cursorIsInStringLiteral(raw, cursor)) return [];
+  const before = raw.slice(0, cursor);
+  const reference = referenceCompletionContext(before);
+  if (reference) {
+    const replacement = completionReplacement(raw, cursor, end, reference.prefixStart);
+    const candidates = reference.afterQualifier
+      ? propertyCandidates(options.propertyNames ?? [], reference.query, replacement)
+      : [
+        ...sheetCandidates(options.sheetNames, reference.query, replacement),
+        ...propertyCandidates(options.propertyNames ?? [], reference.query, replacement),
+      ];
+    return candidates;
+  }
+  const replacement = completionReplacement(raw, cursor, end);
+  const query = raw.slice(replacement.start, cursor).toUpperCase();
+  return [...builtInFormulaFunctions.keys()]
+    .filter((name) => name.startsWith(query))
+    .map((name) => ({ kind: 'function' as const, label: name, insertText: name, replacement }));
+}
+
+/** Applies a selected completion without touching the surrounding draft. */
+export function applyFormulaCompletion(raw: string, completion: FormulaCompletion): string {
+  return raw.slice(0, completion.replacement.start) + completion.insertText + raw.slice(completion.replacement.end);
+}
+
+/** Formatting is deliberately opt-in and unavailable for incomplete syntax. */
+export function formatFormula(raw: string, selection: FormulaEditorSelection): FormulaFormattingResult {
+  const syntax = parseFormulaSyntax(raw);
+  if (syntax.result.kind !== 'formula') return { available: false, raw, selection };
+  const tokens = syntax.tokens.filter((token) => token.kind !== 'whitespace');
+  let output = '';
+  const stack: boolean[] = [];
+  let depth = 0;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    const text = raw.slice(token.sourceSpan.start, token.sourceSpan.end);
+    const previous = tokens[index - 1];
+    if (token.kind === 'operator') {
+      output = output.trimEnd() + ` ${text} `;
+    } else if (text === '(') {
+      const isFunction = previous?.kind === 'function';
+      stack.push(Boolean(isFunction));
+      depth += 1;
+      output = output.trimEnd() + '(' + (isFunction ? `\n${'  '.repeat(depth)}` : '');
+    } else if (text === ')') {
+      const wasFunction = stack.pop() ?? false;
+      depth = Math.max(0, depth - 1);
+      output = wasFunction ? `${output.trimEnd()}\n${'  '.repeat(depth)})` : `${output.trimEnd()})`;
+    } else if (text === ',') {
+      output = output.trimEnd() + `,\n${'  '.repeat(depth)}`;
+    } else {
+      output += text;
+    }
+  }
+  return { available: true, raw: output.trimEnd(), selection: remapSelection(raw, output.trimEnd(), selection) };
+}
+
+export function indentFormulaSelection(raw: string, selection: FormulaEditorSelection): { raw: string; selection: FormulaEditorSelection } {
+  return changeLineIndentation(raw, selection, (line) => `  ${line}`);
+}
+
+export function outdentFormulaSelection(raw: string, selection: FormulaEditorSelection): { raw: string; selection: FormulaEditorSelection } {
+  return changeLineIndentation(raw, selection, (line) => line.startsWith('  ') ? line.slice(2) : line.startsWith('\t') ? line.slice(1) : line);
+}
+
+/** A stable target identity is independent of raw spelling and source position. */
+export function stableReferenceIdentity(reference: FormulaReference, resolver: FormulaReferenceResolver): FormulaReferenceIdentity | undefined {
+  const sheetId = reference.kind === 'canonical'
+    ? reference.sheetId ?? resolver.currentSheetId
+    : reference.sheetId === undefined ? resolver.currentSheetId : resolver.sheetByQualifier(reference.sheetId);
+  if (!sheetId) return undefined;
+  if (reference.kind === 'canonical') {
+    if (!reference.range) return { kind: 'cell', sheetId, ...reference.coordinate };
+    return { kind: 'range', sheetId, start: reference.range.start, end: reference.range.end };
+  }
+  if (reference.kind === 'named') return undefined;
+  const coordinate = resolver.coordinateAt(sheetId, reference.kind === 'cell' ? reference.address : reference.range.start);
+  if (!coordinate) return undefined;
+  if (reference.kind === 'cell') return { kind: 'cell', sheetId, ...coordinate };
+  const end = resolver.coordinateAt(sheetId, reference.range.end);
+  return end ? { kind: 'range', sheetId, start: coordinate, end } : undefined;
+}
+
+export function formulaReferenceHover(
+  reference: FormulaReference,
+  resolver: FormulaReferenceResolver,
+  values: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined,
+  options: { modelOnly?: boolean; maximumRangeValues?: number } = {},
+): FormulaReferenceHover {
+  const identity = stableReferenceIdentity(reference, resolver);
+  if (!identity) return { kind: 'broken' };
+  if (options.modelOnly && reference.sheetId === undefined) return { kind: 'model-context', identity };
+  const value = values(identity);
+  if (value === undefined) return { kind: 'broken', identity };
+  if (identity.kind === 'cell') return isRangeValues(value) ? { kind: 'broken', identity } : { kind: 'value', identity, value };
+  const rangeValues = isRangeValues(value) ? value : [value];
+  const maximum = options.maximumRangeValues ?? 20;
+  return { kind: 'range', identity, values: rangeValues.slice(0, maximum), truncated: rangeValues.length > maximum };
+}
+
+function referenceCompletionContext(before: string): { prefixStart: number; query: string; afterQualifier: boolean } | undefined {
+  const at = before.lastIndexOf('@');
+  if (at < 0 || /[\s+*/(),=<>]/.test(before.slice(at + 1, at + 2))) return undefined;
+  const fragment = before.slice(at + 1);
+  if (/[+*/(),=<>\n\r]/.test(fragment)) return undefined;
+  const separator = fragment.lastIndexOf('!');
+  const query = separator >= 0 ? fragment.slice(separator + 1) : fragment;
+  return { prefixStart: at + 1 + (separator >= 0 ? separator + 1 : 0), query: unquotePartial(query), afterQualifier: separator >= 0 };
+}
+
+function sheetCandidates(names: readonly string[], query: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
+  return names.filter((name) => name.toUpperCase().startsWith(query.toUpperCase()))
+    .map((name) => ({ kind: 'sheet' as const, label: name, insertText: `${formatSheetReferenceToken(name)}!`, replacement }));
+}
+
+function propertyCandidates(names: readonly string[], query: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
+  return names.filter((name) => name.toUpperCase().startsWith(query.toUpperCase()))
+    .map((name) => ({ kind: 'property' as const, label: name, insertText: `'${name.replace(/'/g, "''")}'[1]`, replacement }));
+}
+
+function completionReplacement(raw: string, cursor: number, selectionEnd: number, minimum = 0): FormulaSourceSpan {
+  if (selectionEnd > cursor) return { start: cursor, end: selectionEnd };
+  let start = cursor;
+  let end = cursor;
+  while (start > minimum && /[A-Za-z0-9_.']/.test(raw[start - 1]!)) start -= 1;
+  while (end < raw.length && /[A-Za-z0-9_.']/.test(raw[end]!)) end += 1;
+  return { start, end };
+}
+
+function cursorIsInStringLiteral(raw: string, cursor: number): boolean {
+  let quoted = false;
+  for (let index = 0; index < cursor; index += 1) {
+    if (raw[index] !== '"') continue;
+    if (quoted && raw[index + 1] === '"') { index += 1; continue; }
+    quoted = !quoted;
+  }
+  return quoted;
+}
+
+function unquotePartial(value: string): string { return value.startsWith("'") ? value.slice(1).replace(/''/g, "'") : value; }
+function clamp(value: number, minimum: number, maximum: number): number { return Math.min(maximum, Math.max(minimum, value)); }
+function isRangeValues(value: FormulaScalarValue | readonly FormulaScalarValue[]): value is readonly FormulaScalarValue[] { return Array.isArray(value); }
+
+function changeLineIndentation(raw: string, selection: FormulaEditorSelection, change: (line: string) => string): { raw: string; selection: FormulaEditorSelection } {
+  const start = clamp(selection.start, 0, raw.length);
+  const end = clamp(selection.end, start, raw.length);
+  const lineStart = raw.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+  const lineEnd = end > start && raw[end - 1] === '\n' ? end - 1 : end;
+  const affectedEnd = raw.indexOf('\n', lineEnd);
+  const blockEnd = affectedEnd < 0 ? raw.length : affectedEnd;
+  const block = raw.slice(lineStart, blockEnd);
+  const lines = block.split('\n');
+  const changed = lines.map(change);
+  let relativeLineStart = lineStart;
+  const lineChanges = lines.map((line, index) => {
+    const entry = { start: relativeLineStart, change: changed[index]!.length - line.length };
+    relativeLineStart += line.length + 1;
+    return entry;
+  });
+  const remap = (position: number) => position + lineChanges
+    .filter((line) => line.start <= position)
+    .reduce((total, line) => total + line.change, 0);
+  const selectedStart = remap(start);
+  const selectedEnd = remap(end);
+  return { raw: raw.slice(0, lineStart) + changed.join('\n') + raw.slice(blockEnd), selection: { start: selectedStart, end: selectedEnd } };
+}
+
+function remapSelection(before: string, after: string, selection: FormulaEditorSelection): FormulaEditorSelection {
+  if (before === after) return selection;
+  const prefix = before.slice(0, selection.start).replace(/\s/g, '').length;
+  const selected = before.slice(selection.start, selection.end).replace(/\s/g, '').length;
+  let nonWhitespace = 0;
+  let start = after.length;
+  let end = after.length;
+  for (let index = 0; index < after.length; index += 1) {
+    if (!/\s/.test(after[index]!)) nonWhitespace += 1;
+    if (nonWhitespace >= prefix && start === after.length) start = index + 1;
+    if (nonWhitespace >= prefix + selected) { end = index + 1; break; }
+  }
+  return { start, end: Math.max(start, end) };
+}
