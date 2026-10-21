@@ -65,7 +65,7 @@ export type WorkbookCommands = {
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => void;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
-  renameSheet: (sheetId: string, name: string) => MutationResult<Workbook>;
+  renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
   retryFailedSaves: () => void;
   undo: () => void;
   redo: () => void;
@@ -286,6 +286,7 @@ export function useWorkbookController({
   }
 
   function applyAction(action: WorkbookOperationInput, recordContentHistory = true): WorkbookOperationResult {
+    if (savedAutosave.hasModelTransition()) return { ok: false, reason: 'pending-model-transition' };
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
     const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
@@ -349,6 +350,7 @@ export function useWorkbookController({
   }
 
   function deleteSheetCommand(sheetId: string) {
+    if (savedAutosave.hasModelTransition()) return;
     if (!findSheetById(optimisticWorkbook.current, sheetId)) {
       return;
     }
@@ -363,13 +365,14 @@ export function useWorkbookController({
     else enqueueDelete();
   }
 
-  function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> {
+  function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' } {
     const localSheetId = sheetId;
     const sourceWorkbook = optimisticWorkbook.current;
     const validation = validateSheetName(name, sheetsInOrder(sourceWorkbook), localSheetId);
     if (!findSheetById(sourceWorkbook, localSheetId)) return { ok: false, reason: 'unknown-sheet' };
     if (!validation.ok) return validation;
     const result = applyAction({ kind: 'rename-sheet', sheetId: localSheetId, name });
+    if (!result.ok && result.reason === 'pending-model-transition') return { ok: false, reason: 'pending-model-transition' };
     if (!result.ok) return { ok: false, reason: 'unknown-sheet' };
     return { ok: true, value: result.value.nextWorkbook };
   }

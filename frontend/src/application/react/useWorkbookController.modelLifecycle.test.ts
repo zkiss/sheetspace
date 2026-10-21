@@ -120,7 +120,7 @@ describe('model lifecycle controller wiring', () => {
     expect(reloaded.documents.two!.content.columns).toEqual(result.current.workbook.documents.two!.content.columns);
   });
 
-  it('orders queued content and presentation before materialization, and newer edits after it', async () => {
+  it('rejects ordinary writes while a lifecycle transition is pending so a rollback cannot lose them', async () => {
     const workbook = bind(initialWorkbook(), 'one');
     const oldSave = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
     const atomicSave = deferred<Workbook>();
@@ -135,8 +135,8 @@ describe('model lifecycle controller wiring', () => {
       result.current.commands.updateCellContent('one', 'A1', '9');
       result.current.commands.moveSheetFrame('one', { x: 1, y: 2 });
       result.current.commands.unbindSheetFromModel('one');
+      expect(result.current.commands.updateCellContent('one', 'A1', '10')).toEqual({ ok: false, reason: 'pending-model-transition' });
       result.current.commands.moveSheetFrame('one', { x: 3, y: 4 });
-      result.current.commands.updateCellContent('one', 'A1', '10');
       result.current.commands.undo();
     });
     expect(calls).toEqual(['old']);
@@ -146,12 +146,13 @@ describe('model lifecycle controller wiring', () => {
     const snapshot = vi.mocked(api.saveModelLifecycle).mock.calls[0][1];
     expect(snapshot.documents.one!.frame.position).toEqual({ x: 1, y: 2 });
     expect(cellRawContent(snapshot.documents.one!, 'A1')).toBe('9');
-    await act(async () => atomicSave.resolve(snapshot));
+    await act(async () => atomicSave.reject(new Error('offline')));
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
-    expect(calls).toEqual(['old', 'frame', 'atomic', 'frame', 'new']);
-    expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('10');
-    expect(cellRawContent(result.current.workbook.documents.one!, 'B1')).toBe('18');
-    expect(result.current.workbook.documents.one!.frame.position).toEqual({ x: 3, y: 4 });
+    expect(calls).toEqual(['old', 'frame', 'atomic']);
+    expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
+    expect(result.current.workbook.documents.one!.modelId).toBe('model');
+    expect(result.current.formulaResults.one.B1?.display).toBe('18');
+    expect(result.current.workbook.documents.one!.frame.position).toEqual({ x: 1, y: 2 });
   });
 
   it.each([
