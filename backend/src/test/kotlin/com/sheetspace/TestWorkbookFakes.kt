@@ -12,6 +12,8 @@ class InMemoryWorkbookStore(
 
     override fun loadWorkbookBundle(): WorkbookState = synchronized(this) { workbook }
 
+    override fun loadDataModels(): Map<String, DataModel> = synchronized(this) { workbook.dataModels }
+
     override fun saveWorkbook(workbook: WorkbookState) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
         synchronized(this) {
@@ -19,6 +21,7 @@ class InMemoryWorkbookStore(
         }
     }
 
+    /** Plain content double; calculated-cell admission is decided by the application, not by this fake. */
     override fun writeCells(
         expectedRevisions: List<ExpectedSheetRevision>,
         writes: List<SheetCellWrite>,

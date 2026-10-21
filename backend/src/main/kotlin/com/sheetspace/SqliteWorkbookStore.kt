@@ -39,6 +39,10 @@ class SqliteWorkbookStore internal constructor(
         SqliteWorkbookReader(conn, aggregateReadCheckpoint, sheetReadObserver).loadWorkbookBundle()
     }
 
+    override fun loadDataModels(): Map<String, DataModel> = database.transaction { conn ->
+        SqliteWorkbookReader(conn).loadDataModels()
+    }
+
     override fun saveWorkbook(workbook: WorkbookState) {
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
             "Unsupported workbook version: ${workbook.manifest.version}"

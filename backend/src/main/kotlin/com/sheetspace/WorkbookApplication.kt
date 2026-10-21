@@ -84,6 +84,7 @@ interface WorkbookApplication {
 
     fun deleteSheet(sheetId: String, expectedRevision: Long)
 
+    /** Ordinary content editing; a target owned by a calculated property is rejected before any write. */
     fun writeCells(command: CellPatchCommand): List<SheetDocument>
 
     fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult
@@ -237,6 +238,13 @@ class DefaultWorkbookApplication(
             }
         }
         command.expectedRevisions.forEach { expected -> loadSheet(expected.sheetId) }
+        val dataModels = store.loadDataModels()
+        command.cells.forEach { write ->
+            val sheet = sheetsById.getValue(write.sheetId)
+            if (ColumnId(write.columnId) in calculatedModelColumns(sheet, dataModels)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+            }
+        }
         return store.writeCells(command.expectedRevisions, command.cells)
     }
 

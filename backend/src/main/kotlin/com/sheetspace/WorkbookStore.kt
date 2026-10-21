@@ -35,6 +35,8 @@ interface WorkbookStore {
 
     fun loadWorkbookBundle(): WorkbookState
 
+    fun loadDataModels(): Map<String, DataModel>
+
     fun saveWorkbook(workbook: WorkbookState)
 
     fun writeCells(expectedRevisions: List<ExpectedSheetRevision>, writes: List<SheetCellWrite>): List<SheetDocument>

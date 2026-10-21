@@ -50,21 +50,14 @@ internal fun calculatedContentsAreDerived(
 internal fun derivedFormulaRaw(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int): String {
     val edits = buildList {
         template.references.forEach { reference ->
-            val sheet = reference.sheetId?.let { workbook.findSheet(SheetId(it)) }
-            val values = reference.endpoints.map { endpoint -> endpoint?.let { value ->
-                val validProperty = value.propertyId?.let { propertyId ->
-                    sheet?.modelColumnBindings?.get(propertyId) == ColumnId(value.columnId) &&
-                        workbook.dataModels[sheet.modelId]?.columns?.any { it.id == propertyId } == true
-                } ?: true
-                val row = sheet?.tabularContent?.rows?.getOrNull(value.rowIndex.toInt() + if (value.anchors.row) 0 else rowIndex)
-                if (validProperty && row != null && ColumnId(value.columnId) in sheet.tabularContent.columns) {
-                    "${if (value.anchors.column) "$" else ""}${value.columnId}[${if (value.anchors.row) "$" else ""}${row.value}]"
-                } else null
-            } }
-            if (sheet == null || values.any { it == null }) {
+            val target = reference.sheetId?.let { workbook.findSheet(SheetId(it)) }
+            val values = reference.endpoints.map { endpoint ->
+                endpoint?.let { value -> derivedEndpointText(target, value, workbook, rowIndex) }
+            }
+            if (target == null || values.any { it == null }) {
                 add(reference.sourceSpan to "@#REF!A[1]")
             } else {
-                reference.qualifierSpan?.let { add(it to sheet.id.value) }
+                reference.qualifierSpan?.let { add(it to target.id.value) }
                 reference.endpoints.forEachIndexed { index, endpoint ->
                     add(endpoint!!.sourceSpan to values[index]!!)
                 }
@@ -74,4 +67,46 @@ internal fun derivedFormulaRaw(template: BoundModelFormula, workbook: WorkbookSt
     return edits.sortedByDescending { it.first.start }.fold(template.raw) { raw, (span, value) ->
         raw.substring(0, span.start) + value + raw.substring(span.end)
     }
+}
+
+/** Canonical text of one instantiated reference target, or null when that target does not resolve. */
+private fun derivedEndpointText(
+    target: SheetDocument?,
+    endpoint: ModelFormulaEndpoint,
+    workbook: WorkbookState,
+    rowIndex: Int,
+): String? {
+    if (target == null) return null
+    val validProperty = endpoint.propertyId?.let { propertyId ->
+        target.modelColumnBindings[propertyId] == ColumnId(endpoint.columnId) &&
+            workbook.dataModels[target.modelId]?.columns?.any { it.id == propertyId } == true
+    } ?: true
+    val row = integralRowIndex(endpoint.rowIndex)?.let { index ->
+        target.tabularContent.rows.getOrNull(index + if (endpoint.anchors.row) 0 else rowIndex)
+    }
+    if (!validProperty || row == null || ColumnId(endpoint.columnId) !in target.tabularContent.columns) return null
+    return canonicalEndpoint(endpoint, row.value)
+}
+
+/**
+ * Canonical endpoint text of one instantiated reference target.
+ *
+ * The frontend stores property targets in their named canonical form and plain address targets in
+ * their column form, so derived contents are only comparable when both sides use the same text.
+ */
+private fun canonicalEndpoint(endpoint: ModelFormulaEndpoint, row: String): String {
+    val propertyId = endpoint.propertyId
+        ?: return "${if (endpoint.anchors.column) "$" else ""}${endpoint.columnId}[${if (endpoint.anchors.row) "$" else ""}$row]"
+    return "${if (endpoint.anchors.column) "$" else ""}~${encodeStableId(propertyId)}~${encodeStableId(endpoint.columnId)}" +
+        "[${if (endpoint.anchors.row) "$" else ""}${encodeStableId(row)}]"
+}
+
+/** Stable identifiers encode UTF-16 code units as four hexadecimal digits each. */
+private fun encodeStableId(value: String): String =
+    value.map { it.code.toString(16).padStart(4, '0') }.joinToString("")
+
+/** Only whole row indices address a row, so a fractional index leaves its reference unresolved. */
+private fun integralRowIndex(value: Double): Int? {
+    val index = value.toInt()
+    return if (index.toDouble() == value) index else null
 }

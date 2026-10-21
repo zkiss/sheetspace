@@ -207,7 +207,7 @@ class ModelLifecycleTest {
         )
         assertEquals(true, isDerivedCalculatedWrite(workbookWithLeadingCalculatedProperty, workbookWithLeadingCalculatedProperty.documents.getValue(sheet.id), derivedWrite))
         assertEquals(
-            expected,
+            "=@${namedCanonicalEndpoint(LIFECYCLE_INPUT, input.value, sheet.tabularContent.rows[1].value)}*2",
             derivedFormulaRaw(
                 template.copy(references = template.references.map { reference ->
                     reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = LIFECYCLE_INPUT) })
@@ -217,7 +217,7 @@ class ModelLifecycleTest {
             ),
         )
         assertEquals(
-            "=@${output.value}[${sheet.tabularContent.rows[1].value}]*2",
+            "=@${namedCanonicalEndpoint(LIFECYCLE_OUTPUT, output.value, sheet.tabularContent.rows[1].value)}*2",
             derivedFormulaRaw(
                 template.copy(references = template.references.map { reference ->
                     reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(columnId = output.value, propertyId = LIFECYCLE_OUTPUT) })

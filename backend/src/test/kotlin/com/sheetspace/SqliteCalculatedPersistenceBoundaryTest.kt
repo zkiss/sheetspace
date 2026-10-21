@@ -89,6 +89,34 @@ class SqliteCalculatedPersistenceBoundaryTest {
         assertEquals(emptyWorkbookState(), store.loadWorkbookBundle())
     }
 
+    @Test
+    fun `a manual write paired with a calculated target is rejected without applying the manual write`() = withSqliteStore { store ->
+        val workbook = derivedLifecycleWorkbook()
+        store.saveWorkbook(workbook)
+        val manualSheet = workbook.sheetsInOrder.first()
+        val calculatedSheet = workbook.sheetsInOrder.last()
+        val manualRow = manualSheet.tabularContent.rows.first()
+        val manualColumn = manualSheet.tabularContent.columns.first()
+        val calculatedRow = calculatedSheet.tabularContent.rows.first()
+        val calculatedColumn = calculatedSheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+
+        val rejected = assertFailsWith<WorkbookApplicationException> {
+            store.writeCells(
+                listOf(
+                    ExpectedSheetRevision(manualSheet.id.value, manualSheet.revision),
+                    ExpectedSheetRevision(calculatedSheet.id.value, calculatedSheet.revision),
+                ),
+                listOf(
+                    SheetCellWrite(manualSheet.id.value, manualRow.value, manualColumn.value, "manual"),
+                    SheetCellWrite(calculatedSheet.id.value, calculatedRow.value, calculatedColumn.value, "=override"),
+                ),
+            )
+        }
+
+        assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE, rejected.error)
+        assertEquals(workbook, store.loadWorkbookBundle())
+    }
+
     private fun derivedLifecycleWorkbook(): WorkbookState {
         val base = lifecycleBoundWorkbook(lifecycleWorkbook())
         return base.copy(documents = base.documents.mapValues { (_, sheet) ->
