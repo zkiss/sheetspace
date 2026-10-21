@@ -6,10 +6,11 @@ import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
 import './FormulaEditorPanel.css';
 
 /** The single rich formula surface used by workspace and model editing. */
-export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onRawChange, onViewChange }: {
+export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange }: {
   ariaLabel: string; autoFocus?: boolean; disabled?: boolean; initialView?: FormulaEditorSelection & { scrollTop?: number }; modelOnly?: boolean; raw: string;
   referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
   resolver: FormulaReferenceResolver; sheetNames: readonly string[]; propertyNames?: readonly string[]; onApply: () => void; onCancel: () => void; onRawChange: (raw: string) => void;
+  onFocusLeave?: (view: FormulaEditorSelection & { scrollTop: number }) => void;
   onViewChange?: (view: FormulaEditorSelection & { scrollTop: number }) => void;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
@@ -45,7 +46,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     if (event.key === 'Enter') event.stopPropagation();
   }
   const reportView = () => { if (input.current) onViewChange?.({ start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop }); };
-  return <section aria-label={`${ariaLabel} editor`} className="formula-editor-panel" data-workspace-navigation onPointerDown={(event) => event.stopPropagation()}>
+  return <section aria-label={`${ariaLabel} editor`} className="formula-editor-panel" data-workspace-navigation onBlur={(event) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    if (input.current) onFocusLeave?.({ start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop });
+  }} onPointerDown={(event) => event.stopPropagation()}>
     <div className="formula-editor-heading"><strong>Formula editor</strong><span>Ctrl/⌘+Enter applies · Tab indents</span></div>
     <RawFormulaInput aria-label={ariaLabel} className="formula-editor-input" disabled={disabled} onKeyDown={onKeyDown} onScroll={reportView} onSelect={() => { setCompletionIndex(0); setCompletionOpen(completions.length > 0); reportView(); }} onValueChange={(value) => { onRawChange(value); setCompletionIndex(0); setCompletionOpen(formulaCompletions(value, selection(), { sheetNames, propertyNames }).length > 0); }} ref={input} spellCheck={false} value={raw} />
     <div aria-label="Formula syntax" className="formula-editor-syntax">{analysis.tokens.map((token) => {
