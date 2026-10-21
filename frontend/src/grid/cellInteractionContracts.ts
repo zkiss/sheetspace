@@ -1,9 +1,10 @@
 import type { StableCellIdentity, StableCellRange } from '@workbook/core/model';
 import type { CellKey } from '@workbook/core/address';
+import type { CellWriteResult } from '@application/core/userActions';
 
 export type CellContentCommands = {
-  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => void;
-  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => void;
+  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
+  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
 };
 
 export type CellTarget = {

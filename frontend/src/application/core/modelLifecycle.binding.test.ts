@@ -144,12 +144,13 @@ describe('explicit unbinding and model switching', () => {
     expect(calculatedModelCells(switched).sheet.A1).toMatchObject({ value: 7 });
   });
 
-  it('materializes ordinary user replacements in calculated cells without losing their values', () => {
+  it('refuses an ordinary replacement in a calculated cell and materializes the derived value when unbinding', () => {
     const bound = bindModelSheets(modelWorkbook(model, [makeSheet()]), ['sheet']);
     const edited = commitCellRawContent(bound, 'sheet', 'B1', '42');
     const unbound = successfulModelMutation(unbindSheetFromModel(edited, 'sheet'));
 
-    expect(storedModelCells(unbound).B1).toBe('42');
+    expect(edited).toBe(bound);
+    expect(storedModelCells(unbound).B1).toBe('6');
   });
 });
 

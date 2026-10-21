@@ -7,9 +7,13 @@ import { formulaRawToCanonical, formulaRawToDisplay, workbookFormulaReferenceRes
 const model: DataModel = {
   id: 'budget', name: 'Budget', columns: [
     { id: 'revenue', name: 'Revenue', kind: 'manual', type: 'float' },
-    { id: 'cost', name: 'Cost', kind: 'calculated', type: 'float', formula: '=unfinished(' },
+    { id: 'cost', name: 'Cost', kind: 'manual', type: 'float' },
     { id: 'extra', name: 'Extra', kind: 'manual', type: 'string' },
   ],
+};
+const calculatedModel: DataModel = {
+  ...model,
+  columns: [model.columns[0]!, { id: 'cost', name: 'Cost', kind: 'calculated', type: 'float', formula: '=unfinished(' }],
 };
 const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', columnCount: 2, rowCount: 2, cells: { A1: '12' } });
 const otherSheet = sheetDocument({ id: 'other', name: 'Other', columnCount: 1, rowCount: 0 });
@@ -36,15 +40,42 @@ describe('property identity associations', () => {
       workbookFormulaReferenceResolver(bound, sheet.id))).toBe("=@'Revenue'[1]");
   });
 
-  it('keeps retained property targets across rename, reorder and repeated attachment', () => {
+  it('keeps retained property targets across rename and reorder', () => {
     const bound = successful(setSheetModelId(workbook, sheet.id, model.id));
     const canonical = formulaRawToCanonical("=@'Revenue'[1]", workbookFormulaReferenceResolver(bound, sheet.id));
     const edited = successful(replaceDataModel(bound, { ...model, columns: [model.columns[1]!, { ...model.columns[0]!, name: 'Net Revenue' }] }));
-    const reattached = successful(setSheetModelId(edited, sheet.id, model.id));
 
-    expect(reattached).toBe(edited);
     expect(edited.documents[sheet.id]!.modelColumnBindings).toEqual(bound.documents[sheet.id]!.modelColumnBindings);
     expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(edited, sheet.id))).toBe("=@'Net Revenue'[1]");
+  });
+
+  it('recomputes the default mapping when the same model is attached again', () => {
+    const bound = successful(setSheetModelId(workbook, sheet.id, model.id));
+    const edited = successful(replaceDataModel(bound, { ...model, columns: [model.columns[1]!, { ...model.columns[0]!, name: 'Net Revenue' }] }));
+
+    const reattached = successful(setSheetModelId(edited, sheet.id, model.id));
+
+    expect(reattached).not.toBe(edited);
+    expect(reattached.documents[sheet.id]!.modelColumnBindings).toEqual({
+      cost: sheet.content.columns[0], revenue: sheet.content.columns[1],
+    });
+  });
+
+  it('keeps a same-model request with an identical explicit mapping a no-op', () => {
+    const bound = successful(setSheetModelId(workbook, sheet.id, model.id));
+
+    const again = successful(setSheetModelId(bound, sheet.id, model.id, bound.documents[sheet.id]!.modelColumnBindings));
+
+    expect(again).toBe(bound);
+    expect(again.documents[sheet.id]!.modelFormulaBindings).toBeUndefined();
+  });
+
+  it('applies an explicit mapping instead of the default one', () => {
+    const bound = successful(setSheetModelId(workbook, sheet.id, model.id, { revenue: sheet.content.columns[1], cost: sheet.content.columns[0] }));
+
+    expect(bound.documents[sheet.id]!.modelColumnBindings).toEqual({
+      revenue: sheet.content.columns[1], cost: sheet.content.columns[0],
+    });
   });
 
   it('drops removed properties without reviving references when names are reused', () => {
@@ -79,6 +110,14 @@ describe('property identity associations', () => {
 
     expect(bound.documents[sheet.id]!.modelColumnBindings).toEqual({});
     expect(successful(replaceDataModel(metadataOnly, model)).documents[sheet.id]!.modelColumnBindings).toBeUndefined();
+  });
+
+  it('rejects a model that declares a calculated property and an invalid explicit mapping', () => {
+    const withCalculated = { ...workbook, dataModels: { [calculatedModel.id]: calculatedModel } };
+
+    expect(setSheetModelId(withCalculated, sheet.id, calculatedModel.id)).toEqual({ ok: false, reason: 'invalid-model' });
+    expect(setSheetModelId(workbook, sheet.id, model.id, { revenue: 'missing-column' })).toEqual({ ok: false, reason: 'invalid-model' });
+    expect(setSheetModelId(workbook, sheet.id, model.id, { unknown: sheet.content.columns[0]! })).toEqual({ ok: false, reason: 'invalid-model' });
   });
 
   it('rejects unknown models and sheets without changing the workbook', () => {

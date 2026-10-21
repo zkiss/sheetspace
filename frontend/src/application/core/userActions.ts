@@ -1,5 +1,6 @@
 import { applyAxisSizeWrites, validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import type { AxisSizeWrite } from '@workbook/core/model';
+import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
 import { applyFormatWrites, emptySheetFormatOverrides, validFormatWrites } from '@workbook/core/numberFormat';
 import type { AppearanceWrite, CellAppearance } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
@@ -42,12 +43,6 @@ export type BackendWorkbookReconciliation =
   | { kind: 'append-row'; sheetId: SheetId; rowId: RowId }
   | { kind: 'append-column'; sheetId: SheetId; columnId: ColumnId };
 
-export type ModelFormulaBindingWrite = {
-  sheetId: SheetId;
-  before: Workbook['documents'][string]['modelFormulaBindings'];
-  after: NonNullable<Workbook['documents'][string]['modelFormulaBindings']>;
-};
-
 export type WorkbookPersistenceIntent =
   | { kind: 'model-lifecycle'; before: Workbook; after: Workbook }
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }
@@ -58,7 +53,7 @@ export type WorkbookPersistenceIntent =
   | { kind: 'update-sheet-frame-layout'; sheetId: SheetId; position: WorkspacePosition; size: SheetFrameSize }
   | { kind: 'update-sheet-visual-scale'; sheetId: SheetId; visualScale: number }
   | { kind: 'update-sheet-z-order'; updates: readonly { sheetId: SheetId; zIndex: number }[] }
-  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[]; modelFormulaBindings?: readonly ModelFormulaBindingWrite[] };
+  | { kind: 'write-cells'; writes: readonly CellPersistenceWrite[] };
 
 export type AffectedWorkbookEntities = {
   sheetIds: readonly SheetId[];
@@ -84,8 +79,10 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet' | 'calculated-cell-write';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
+/** A rejected write leaves the workbook untouched and reports a stable reason. */
+export type CellWriteResult = { ok: true; changed: boolean } | { ok: false; reason: WorkbookOperationFailureReason };
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
 export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
 export type PastePreparationResult = { ok: true; writes: readonly CellWrite[] } | { ok: false; reason: PastePreparationFailureReason };
@@ -305,6 +302,11 @@ export function replayCellPersistenceWrites(
     if (identities.has(identity)) return { ok: false, reason: 'duplicate-cell' };
     identities.add(identity);
   }
+  // A replay must respect current ownership: a stale entry cannot restore or alter a
+  // calculation that the model owns now, even when its raw content still matches.
+  if (resolved.some(({ write, sheet }) => sheet && calculatedOwnedColumns(sheet, workbook.dataModels).has(write.columnId))) {
+    return { ok: false, reason: 'calculated-cell-write' };
+  }
   // Validate the whole transaction before changing anything.
   if (resolved.some(({ write, sheet, cell }) =>
     (sheet!.content.cells[cellIdentityKey(cell)] ?? null) !== write[`${expected}Raw`],
@@ -392,6 +394,11 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
     const identity = `${write.sheetId}\u0000${write.rowId}\u0000${write.columnId}`;
     if (identities.has(identity)) return { ok: false, reason: 'duplicate-cell' };
     identities.add(identity);
+  }
+  // Ownership admission: one calculated target rejects the whole transaction before any
+  // write, so a protected calculation never changes and manual data stays untouched.
+  if (resolved.some(({ write, sheet }) => sheet && calculatedOwnedColumns(sheet, workbook.dataModels).has(write.columnId))) {
+    return { ok: false, reason: 'calculated-cell-write' };
   }
 
   const cellsBySheet = new Map<SheetId, Record<string, string>>();

@@ -33,18 +33,53 @@ export function replaceDataModel(workbook: Workbook, model: DataModel): ModelMut
   };
 }
 
-export function setSheetModelId(workbook: Workbook, sheetId: SheetId, modelId?: string): ModelMutationResult {
+/**
+ * Attaches, rebinds or unbinds a model for one sheet.
+ *
+ * This mirrors the sheet-model contract: only manual models attach here, an explicit
+ * mapping is never dropped, and a same-model request without a mapping recomputes the
+ * default declaration-order mapping and applies it when it differs.
+ */
+export function setSheetModelId(
+  workbook: Workbook,
+  sheetId: SheetId,
+  modelId?: string,
+  modelColumnBindings?: Readonly<Record<string, string>>,
+): ModelMutationResult {
   const sheet = workbook.documents[sheetId];
   if (!sheet) return { ok: false, reason: 'unknown-sheet' };
   if (modelId !== undefined && !workbook.dataModels?.[modelId]) return { ok: false, reason: 'unknown-model' };
-  if (sheet.modelId === modelId) return { ok: true, value: workbook };
   const model = modelId === undefined ? undefined : workbook.dataModels![modelId]!;
-  const bindings = model === undefined
-    ? undefined
-    : Object.fromEntries(model.columns.slice(0, sheet.content.columns.length)
-      .map((property, index) => [property.id, sheet.content.columns[index]!]));
+  if (model?.columns.some((column) => column.kind === 'calculated')) return { ok: false, reason: 'invalid-model' };
+  const bindings = model === undefined ? undefined : modelColumnBindings ?? defaultModelColumnBindings(model, sheet);
+  if (model !== undefined && bindings && !validModelColumnBindings(model, sheet, bindings)) {
+    return { ok: false, reason: 'invalid-model' };
+  }
+  if (sheet.modelId === modelId && sameModelColumnBindings(sheet.modelColumnBindings, bindings)) {
+    return { ok: true, value: workbook };
+  }
   const updatedSheet = { ...sheet, modelId, modelColumnBindings: bindings, modelFormulaBindings: undefined };
   return { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: updatedSheet } } };
+}
+
+/** Declaration order binds the first properties to the first columns of the sheet. */
+function defaultModelColumnBindings(model: DataModel, sheet: SheetDocument): Record<string, string> {
+  return Object.fromEntries(model.columns.slice(0, sheet.content.columns.length)
+    .map((property, index) => [property.id, sheet.content.columns[index]!]));
+}
+
+function validModelColumnBindings(model: DataModel, sheet: SheetDocument, bindings: Readonly<Record<string, string>>): boolean {
+  const propertyIds = new Set(model.columns.map((column) => column.id));
+  const entries = Object.entries(bindings);
+  return entries.every(([propertyId, columnId]) => propertyIds.has(propertyId) && sheet.content.columns.includes(columnId))
+    && new Set(entries.map(([, columnId]) => columnId)).size === entries.length;
+}
+
+function sameModelColumnBindings(current: Readonly<Record<string, string>> | undefined, next: Readonly<Record<string, string>> | undefined): boolean {
+  const currentEntries = Object.entries(current ?? {});
+  const nextEntries = Object.entries(next ?? {});
+  if (currentEntries.length !== nextEntries.length) return false;
+  return currentEntries.every(([propertyId, columnId]) => next?.[propertyId] === columnId);
 }
 
 function retainPropertyBindings(sheet: SheetDocument, model: DataModel): SheetDocument {

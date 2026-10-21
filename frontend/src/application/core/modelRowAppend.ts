@@ -1,25 +1,34 @@
-import type { Workbook } from '@workbook/core/model';
-import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
-import { bindModelFormulas, instantiateModelFormulas } from '@workbook/formula/modelTemplate';
-import type { CellPersistenceWrite, ModelFormulaBindingWrite } from './userActions';
+import type { RowId, SheetId, Workbook } from '@workbook/core/model';
+import { cellIdentityKey } from '@workbook/core/cellIdentity';
+import { instantiateModelFormula } from '@workbook/formula/modelTemplate';
 
-/** Reinstantiate from declarations, never from an editable row, after backend axis reconciliation. */
-export function refreshAppendedModelRows(workbook: Workbook): { nextWorkbook: Workbook; writes: CellPersistenceWrite[]; modelFormulaBindings: ModelFormulaBindingWrite[] } {
-  let nextWorkbook = workbook;
-  const writes: CellPersistenceWrite[] = [];
-  const modelFormulaBindings: ModelFormulaBindingWrite[] = [];
-  for (const sheet of Object.values(workbook.documents)) {
-    if (!sheet.modelId) continue;
-    const bindings = { ...bindModelFormulas(workbook, sheet.id), ...sheet.modelFormulaBindings };
-    if (JSON.stringify(bindings) !== JSON.stringify(sheet.modelFormulaBindings)) {
-      modelFormulaBindings.push({ sheetId: sheet.id, before: sheet.modelFormulaBindings, after: bindings });
-    }
-    const refreshed = instantiateModelFormulas(workbook, sheet.id, bindings);
-    for (const [key, raw] of Object.entries(refreshed.content.cells)) {
-      const beforeRaw = sheet.content.cells[key] ?? null;
-      if (raw !== beforeRaw) writes.push({ sheetId: sheet.id, ...cellIdentityFromKey(key)!, beforeRaw, afterRaw: raw });
-    }
-    nextWorkbook = { ...nextWorkbook, documents: { ...nextWorkbook.documents, [sheet.id]: { ...refreshed, modelFormulaBindings: bindings } } };
+/**
+ * Mirrors the derived contents that the backend materializes for an appended row.
+ *
+ * The append route owns that calculation and persists it, so the frontend only reflects
+ * the derived instance locally. A protected write is never sent on the ordinary route,
+ * and a property without a persisted template keeps its cell untouched.
+ */
+export function materializeAppendedModelRow(workbook: Workbook, sheetId: SheetId, rowId: RowId): Workbook {
+  const sheet = workbook.documents[sheetId];
+  const model = sheet?.modelId === undefined ? undefined : workbook.dataModels?.[sheet.modelId];
+  const templates = sheet?.modelFormulaBindings;
+  if (!sheet || !model || !templates) return workbook;
+  const rowIndex = sheet.content.rows.indexOf(rowId);
+  if (rowIndex < 0) return workbook;
+  const cells = { ...sheet.content.cells };
+  let changed = false;
+  for (const property of model.columns) {
+    if (property.kind !== 'calculated') continue;
+    const columnId = sheet.modelColumnBindings?.[property.id];
+    const template = templates[property.id];
+    if (!columnId || !template || !sheet.content.columns.includes(columnId)) continue;
+    const key = cellIdentityKey({ rowId, columnId });
+    const raw = instantiateModelFormula(template, workbook, rowIndex);
+    if (cells[key] === raw) continue;
+    cells[key] = raw;
+    changed = true;
   }
-  return { nextWorkbook, writes, modelFormulaBindings };
+  if (!changed) return workbook;
+  return { ...workbook, documents: { ...workbook.documents, [sheetId]: { ...sheet, content: { ...sheet.content, cells } } } };
 }

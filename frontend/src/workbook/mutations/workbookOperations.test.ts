@@ -114,4 +114,20 @@ describe('workbookOperations', () => {
     expect(commitCellRawContent(workbook, 'missing', 'A1', 'Value')).toBe(workbook);
     expect(commitCellRawContent(workbook, original.id, 'Z999', 'Value')).toBe(workbook);
   });
+
+  it('refuses to commit content into a column owned by a calculated property', () => {
+    const original = sheetDocument({ id: 'sheet-1', name: 'Inputs', columnCount: 2, cells: { A1: '3' } });
+    const bound = {
+      ...original,
+      modelId: 'model',
+      modelColumnBindings: { input: original.content.columns[0]!, output: original.content.columns[1]! },
+    };
+    const workbook = { ...workbookWithSheets([bound]), dataModels: { model: { id: 'model', name: 'Model', columns: [
+      { id: 'input', name: 'Input', kind: 'manual' as const, type: 'float' as const },
+      { id: 'output', name: 'Output', kind: 'calculated' as const, type: 'float' as const, formula: '=1' },
+    ] } } };
+
+    expect(commitCellRawContent(workbook, original.id, 'B1', '42')).toBe(workbook);
+    expect(commitCellRawContent(workbook, original.id, 'A1', '42')).not.toBe(workbook);
+  });
 });

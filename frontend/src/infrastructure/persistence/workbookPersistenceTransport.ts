@@ -134,11 +134,9 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
         return revision === undefined ? undefined : { sheetId, revision };
       });
       if (expectedRevisions.some((revision) => revision === undefined)) return { kind: 'blocked', reason: 'Missing revision for a cell patch.' };
-      const modelFormulaBindings = intent.modelFormulaBindings?.map(({ sheetId, after }) => ({ sheetId, bindings: after }));
       const response = await this.method('writeCells')(
         expectedRevisions as { sheetId: SheetId; revision: number }[],
         intent.writes.map(({ sheetId, rowId, columnId, afterRaw }) => ({ sheetId, rowId, columnId, raw: afterRaw ?? '' })),
-        modelFormulaBindings,
       );
       return this.recordMany(response.sheets);
     }
@@ -161,7 +159,7 @@ function isMissingSheet(error: unknown) { return error instanceof WorkbookApiErr
 function isAmbiguousResponse(error: unknown) { return !(error instanceof WorkbookApiError); }
 type CellPatchIntent = Extract<WorkbookPersistenceIntent, { kind: 'write-cells' }>;
 function cellPatchSheetIds(intent: CellPatchIntent) {
-  return [...new Set([...intent.writes, ...intent.modelFormulaBindings ?? []].map(({ sheetId }) => sheetId))];
+  return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
 }
 function matchesCellStates(
   intent: CellPatchIntent,
@@ -169,10 +167,7 @@ function matchesCellStates(
   state: 'beforeRaw' | 'afterRaw',
 ) {
   const byId = new Map(sheets.map((sheet) => [sheet.id, sheet]));
-  return (intent.modelFormulaBindings ?? []).every((write) => {
-    const sheet = byId.get(write.sheetId);
-    return sheet !== undefined && JSON.stringify(sheet.modelFormulaBindings) === JSON.stringify(write[state === 'beforeRaw' ? 'before' : 'after']);
-  }) && intent.writes.every((write) => {
+  return intent.writes.every((write) => {
     const sheet = byId.get(write.sheetId);
     if (!sheet) return false;
     return (sheet.content.cells[cellIdentityKey(write)] ?? null) === write[state];

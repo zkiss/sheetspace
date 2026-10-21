@@ -5,7 +5,6 @@ import { replaceModelDeclaration } from './modelLifecycle';
 import { commitCellRawContent } from '@workbook/mutations/operations';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
-import { setSheetModelId } from '@workbook/mutations/dataModel';
 
 const model = declaration([manualProperty('input', 'Input'), manualProperty('extra', 'Extra'), calculatedProperty('result', '=@A[1]+@B[1]', 'Result')]);
 const makeSheet = (id = 'sheet', rowCount = 2) => sheetDocument({ id, name: id === 'sheet' ? 'Sheet' : 'Other', columnCount: 3, rowCount, cells: rowCount ? { A1: id === 'sheet' ? '3' : '20', B1: '7', ...(rowCount > 1 ? { A2: '4', B2: '8' } : {}) } : {} });
@@ -153,7 +152,13 @@ describe('property kind transitions and empty declarations', () => {
 
   it('can explicitly reconcile metadata-only bindings without treating metadata storage as a transformation', () => {
     const workbook = modelWorkbook(model, [makeSheet()]);
-    const metadata = successfulModelMutation(setSheetModelId(workbook, 'sheet', model.id));
+    const sheet = workbook.documents.sheet!;
+    workbook.documents.sheet = {
+      ...sheet,
+      modelId: model.id,
+      modelColumnBindings: Object.fromEntries(model.columns.map((property, index) => [property.id, sheet.content.columns[index]!])),
+    };
+    const metadata = workbook;
 
     const next = successfulModelMutation(replaceModelDeclaration(metadata, declaration([model.columns[2]!, model.columns[0]!, model.columns[1]!]), freshColumns()));
 
