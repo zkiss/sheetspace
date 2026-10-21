@@ -82,6 +82,31 @@ describe('DataModelDialog', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
+  it('freezes a submitting draft until failure permits an intentional retry or cancellation', async () => {
+    const pending = deferred<{ ok: false; reason: 'persistence-failed' }>();
+    const { onCancel, onSave } = setup([], vi.fn().mockReturnValue(pending.promise));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    await user.type(within(form).getByLabelText('Model name'), 'Frozen');
+    await user.type(within(form).getByLabelText('Property 1 name'), 'Input');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    expect(within(form).getByLabelText('Model name')).toBeDisabled();
+    expect(within(form).getByRole('button', { name: 'Add property' })).toBeDisabled();
+    expect(within(form).getByRole('button', { name: 'Remove property 1' })).toBeDisabled();
+    fireEvent.keyDown(within(form).getByLabelText('Model name'), { key: 'Escape' });
+    fireEvent.submit(form);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenCalledOnce();
+
+    await pending.resolve({ ok: false, reason: 'persistence-failed' });
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Save' })).toBeEnabled());
+    expect(within(form).getByLabelText('Model name')).toHaveValue('Frozen');
+    await user.click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Create model' })).toBeInTheDocument();
+  });
+
   it('shows immediate validation and command failures without discarding the draft', async () => {
     setup([], vi.fn()
       .mockReturnValueOnce({ ok: false, reason: 'invalid-model' })
@@ -174,6 +199,29 @@ describe('DataModelDialog', () => {
     expect(screen.getByRole('form', { name: 'Create data model' })).toBeInTheDocument();
     expect(screen.queryByRole('form', { name: 'Create sheet' })).not.toBeInTheDocument();
     expect(newSheet).not.toHaveFocus();
+  });
+
+  it('keeps focus in the dialog after removing focused properties, including the last one', async () => {
+    const workbook = { ...workbookWithSheets([smallSheetDocument({ id: 'sheet', name: 'Sheet' })]), dataModels: { invoice: savedModel } };
+    render(<App initialWorkbook={workbook} />);
+    const newSheet = screen.getByRole('button', { name: 'New sheet' });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Data models' }));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const dialog = screen.getByRole('dialog', { name: 'Data models' });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Remove property 1' }));
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
+    await user.keyboard('{Shift>}{Tab}{/Shift}{Tab}');
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Remove property 1' }));
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
+    await user.keyboard('{Tab}');
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(newSheet).not.toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(screen.queryByRole('form', { name: 'Create sheet' })).not.toBeInTheDocument();
   });
 
   it('uses the controlled raw formula input in both model and cell editors', () => {
