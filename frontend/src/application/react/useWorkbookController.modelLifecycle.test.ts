@@ -156,13 +156,19 @@ describe('model lifecycle controller wiring', () => {
   });
 
   it.each([
+    ['delete a sheet', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.deleteSheet('one')],
+    ['rename a sheet', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.renameSheet('one', 'Renamed')],
+    ['write a cell', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.updateCellContent('one', 'A1', '9')],
+    ['write cells', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.writeCells([{ sheetId: 'one', rowId: 'one:row:1', columnId: 'one:column:1', raw: '9' }])],
+    ['paste cells', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.pasteCells('one', 'A1', { ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 1, rows: [['9']] } } })],
+    ['move cells', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.moveCells('one', 'A1', { sheetId: 'one', dimensions: { rowCount: 1, columnCount: 1 }, cells: [[{ identity: { rowId: 'one:row:1', columnId: 'one:column:1' }, raw: '9' }]] })],
     ['move a frame', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.moveSheetFrame('one', { x: 3, y: 4 })],
     ['resize a frame', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.resizeSheetFrame('one', { x: 3, y: 4 }, { width: 200, height: 100 })],
     ['change visual scale', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.setSheetVisualScale('one', 1.2)],
     ['change z order', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.changeSheetZOrder('one', 'up')],
     ['write number formats', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.writeNumberFormats('one', [{ scope: 'row', targetId: 'one:row:1', properties: { numberFormat: { kind: 'number', precision: 2 } } }])],
     ['write axis sizes', (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.writeAxisSizes('one', [{ axis: 'row', axisId: 'one:row:1', size: 44 }])],
-  ])('reports rejected presentation writes while a lifecycle transition is pending: %s', async (_name, submit) => {
+  ])('returns and surfaces the pending rejection for every ordinary mutation command: %s', async (_name, submit) => {
     const save = deferred<Workbook>();
     const workbook = bind(initialWorkbook(), 'one');
     const api = autosaveClient({ saveModelLifecycle: () => save.promise });
@@ -173,7 +179,9 @@ describe('model lifecycle controller wiring', () => {
       expect(submit(result.current.commands)).toEqual({ ok: false, reason: 'pending-model-transition' });
     });
     expect(result.current.mutationFailure).toBe('pending-model-transition');
+    expect(result.current.workbook.documents.one).toBeDefined();
     expect(result.current.workbook.documents.one!.modelId).toBeUndefined();
+    expect(api.deleteSheet).not.toHaveBeenCalled();
 
     await act(async () => save.reject(new Error('offline')));
     await waitFor(() => expect(result.current.workbook).toEqual(workbook));

@@ -61,7 +61,7 @@ export type WorkbookCommands = {
   appendRow: (sheetId: string) => void;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
   createSheet: (name: string, position: WorkspacePosition, viewportScale?: number) => ValidationResult;
-  deleteSheet: (sheetId: string) => void;
+  deleteSheet: (sheetId: string) => WorkbookOperationResult;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
@@ -288,10 +288,8 @@ export function useWorkbookController({
   }
 
   function applyAction(action: WorkbookOperationInput, recordContentHistory = true): WorkbookOperationResult {
-    if (savedAutosave.hasModelTransition()) {
-      setMutationFailure('pending-model-transition');
-      return { ok: false, reason: 'pending-model-transition' };
-    }
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
     const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
@@ -305,6 +303,12 @@ export function useWorkbookController({
       }
     }
     return result;
+  }
+
+  function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
+    if (!savedAutosave.hasModelTransition()) return undefined;
+    setMutationFailure('pending-model-transition');
+    return { ok: false, reason: 'pending-model-transition' };
   }
 
   function applyReconciliation(reconciliation: Parameters<typeof applyBackendWorkbookReconciliation>[1]) {
@@ -355,23 +359,27 @@ export function useWorkbookController({
     return { result, completion };
   }
 
-  function deleteSheetCommand(sheetId: string) {
-    if (savedAutosave.hasModelTransition()) return;
-    if (!findSheetById(optimisticWorkbook.current, sheetId)) {
-      return;
-    }
+  function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
+
+    const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const;
+    const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
+    const applied = applyResult(result);
+    if (result.ok) setMutationFailure(undefined);
+    if (!applied?.changed || !applied.persistence) return result;
 
     savedAutosave.supersedeSheetOperations(sheetId);
-    const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const;
-    const applied = applyResult(applyWorkbookOperation(optimisticWorkbook.current, operation));
-    if (!applied?.changed || !applied.persistence) return;
     const enqueueDelete = () => savedAutosave.enqueue(operation.operationId, applied.persistence);
     const pendingAxisCreation = axisCreation.prepareSheetDeletion(sheetId);
     if (pendingAxisCreation) void pendingAxisCreation.then(enqueueDelete);
     else enqueueDelete();
+    return result;
   }
 
   function renameSheetCommand(sheetId: string, name: string): MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' } {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const localSheetId = sheetId;
     const sourceWorkbook = optimisticWorkbook.current;
     const validation = validateSheetName(name, sheetsInOrder(sourceWorkbook), localSheetId);
@@ -394,6 +402,8 @@ export function useWorkbookController({
   });
 
   function updateCellContent(sheetId: string, cellKey: CellKey, raw: string): CellWriteResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const localSheetId = sheetId;
     const currentSheet = findSheetById(optimisticWorkbook.current, localSheetId);
     if (!currentSheet) return { ok: false, reason: 'unknown-sheet' };
@@ -409,6 +419,8 @@ export function useWorkbookController({
   }
 
   function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult): PasteCellsResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
@@ -421,6 +433,8 @@ export function useWorkbookController({
   }
 
   function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
+    const pendingRejection = rejectPendingModelTransition();
+    if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
