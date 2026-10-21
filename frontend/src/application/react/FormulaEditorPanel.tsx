@@ -38,7 +38,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     if (completionOpen && event.key === 'ArrowDown') { event.preventDefault(); event.stopPropagation(); setCompletionIndex((index) => Math.min(index + 1, completions.length - 1)); return; }
     if (completionOpen && event.key === 'ArrowUp') { event.preventDefault(); event.stopPropagation(); setCompletionIndex((index) => Math.max(index - 1, 0)); return; }
     if (completionOpen && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); acceptCompletion(); return; }
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (completionOpen) setCompletionOpen(false); else onCancel(); return; }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (completionOpen && completions.length > 0) setCompletionOpen(false); else onCancel(); return; }
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onApply(); return; }
     if (event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); setEditor(event.shiftKey ? outdentFormulaSelection(raw, selection()) : indentFormulaSelection(raw, selection())); return; }
     if (event.key === 'Enter') event.stopPropagation();
@@ -46,7 +46,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const reportView = () => { if (input.current) onViewChange?.({ start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop }); };
   return <section aria-label={`${ariaLabel} editor`} className="formula-editor-panel" data-workspace-navigation onPointerDown={(event) => event.stopPropagation()}>
     <div className="formula-editor-heading"><strong>Formula editor</strong><span>Ctrl/⌘+Enter applies · Tab indents</span></div>
-    <RawFormulaInput aria-label={ariaLabel} className="formula-editor-input" disabled={disabled} onKeyDown={onKeyDown} onScroll={reportView} onSelect={() => { setCompletionIndex(0); setCompletionOpen(completions.length > 0); reportView(); }} onValueChange={(value) => { onRawChange(value); setCompletionIndex(0); setCompletionOpen(true); }} ref={input} spellCheck={false} value={raw} />
+    <RawFormulaInput aria-label={ariaLabel} className="formula-editor-input" disabled={disabled} onKeyDown={onKeyDown} onScroll={reportView} onSelect={() => { setCompletionIndex(0); setCompletionOpen(completions.length > 0); reportView(); }} onValueChange={(value) => { onRawChange(value); setCompletionIndex(0); setCompletionOpen(formulaCompletions(value, selection(), { sheetNames, propertyNames }).length > 0); }} ref={input} spellCheck={false} value={raw} />
     <div aria-label="Formula syntax" className="formula-editor-syntax">{analysis.tokens.map((token) => {
       const referenceIndex = analysis.references.findIndex((reference) => reference.sourceSpan.start === token.sourceSpan.start && reference.sourceSpan.end === token.sourceSpan.end);
       return <span className={`formula-syntax-token formula-syntax-token-${token.kind}`} key={`${token.sourceSpan.start}-${token.sourceSpan.end}`} onMouseEnter={() => referenceIndex >= 0 && setHoveredReference(referenceIndex)} onMouseLeave={() => setHoveredReference(undefined)}>{raw.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>;

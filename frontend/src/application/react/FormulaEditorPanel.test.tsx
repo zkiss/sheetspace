@@ -44,6 +44,17 @@ describe('FormulaEditorPanel', () => {
     expect(parent).not.toHaveBeenCalled();
   });
 
+  it('cancels on Escape after input with no visible completion', () => {
+    const cancel = vi.fn();
+    render(<Editor onCancel={cancel} />);
+    const input = screen.getByLabelText('Test formula');
+
+    fireEvent.change(input, { target: { value: '=1' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('focuses an explicitly opened editor and reports hovered reference values', () => {
     const valueResolver: FormulaReferenceResolver = { ...resolver, coordinateAt: () => ({ columnId: 'column', rowId: 'row' }) };
     render(<FormulaEditorPanel ariaLabel="Hover formula" autoFocus onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=@A[1]" referenceValues={() => ({ kind: 'number', value: 42 })} resolver={valueResolver} sheetNames={[]} />);
