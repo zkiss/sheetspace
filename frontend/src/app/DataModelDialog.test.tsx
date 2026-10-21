@@ -81,6 +81,21 @@ describe('DataModelDialog', () => {
     expect(formula).toHaveValue('=9');
   });
 
+  it('shows evaluated values for qualified workbook references in model formula hover', () => {
+    const inputs = smallSheetDocument({ id: 'inputs', name: 'Inputs' });
+    const workbook = workbookWithSheets([inputs]);
+    const model: DataModel = { ...savedModel, columns: [
+      savedModel.columns[0]!,
+      { id: 'tax', name: 'Tax', kind: 'calculated', type: 'float', formula: '=@Inputs!A[1]' },
+    ] };
+    render(<DataModelDialog formulaResults={{ inputs: { A1: { kind: 'number', value: 42, display: '42' } } }} models={[model]} onCancel={vi.fn()} onSave={vi.fn()} workbook={workbook} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.mouseEnter(screen.getByText('@Inputs!A[1]'));
+    expect(screen.getByText('42')).toBeVisible();
+    expect(screen.queryByText('Reference error: #REF!')).not.toBeInTheDocument();
+  });
+
   it('retains an asynchronous failed-save draft and reports the failure for retry', async () => {
     const pending = deferred<{ ok: false; reason: 'persistence-failed' }>();
     const { onSave } = setup([], vi.fn().mockReturnValue(pending.promise));

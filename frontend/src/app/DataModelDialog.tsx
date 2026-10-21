@@ -4,6 +4,8 @@ import type { ModelCommandResult } from '@application/react/useWorkbookControlle
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { workbookFormulaReferenceResolver, type FormulaReferenceResolver } from '@workbook/formula/reference';
 import type { Workbook } from '@workbook/core/model';
+import type { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { formulaPanelReferenceValues } from './formulaPanelValues';
 import './DataModelDialog.css';
 
 type Draft = { id: string; name: string; columns: ModelColumn[] };
@@ -25,7 +27,8 @@ function message(result: ModelCommandResult): string {
   return 'The model could not be saved.';
 }
 
-export function DataModelDialog({ initialModelId, models, onCancel, onRetryFailedSaves, onSave, workbook }: {
+export function DataModelDialog({ formulaResults = {}, initialModelId, models, onCancel, onRetryFailedSaves, onSave, workbook }: {
+  formulaResults?: FormulaEvaluationSnapshot;
   initialModelId?: string;
   models: readonly DataModel[];
   onCancel: () => void;
@@ -135,7 +138,7 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
               const formula = formulaDrafts[column.id];
               if (formula !== undefined) updateColumn(index, { formula });
               setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
-            }} onCancel={() => setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; })} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
+            }} onCancel={() => setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; })} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} referenceValues={(identity) => formulaPanelReferenceValues(identity, modelDraftReferenceResolver(formulaWorkbook, draft), formulaResults)} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
             <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Up</button><button aria-label={`Move property ${index + 1} down`} disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Down</button><button aria-label={`Remove property ${index + 1}`} disabled={saving} onClick={() => removeColumn(index)} type="button">Remove</button></div>
           </div>)}
           <button disabled={saving} onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>

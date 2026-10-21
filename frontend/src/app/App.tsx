@@ -200,6 +200,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
 
       {dataModelsOpen ? (
         <DataModelDialog
+          formulaResults={formulaResults}
           models={Object.values(workbook.dataModels ?? {})}
           initialModelId={dataModelEditId}
           onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }}
