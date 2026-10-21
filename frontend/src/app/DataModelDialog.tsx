@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import type { DataModel, ModelColumn, ModelColumnType } from '@workbook/core/model';
 import type { ModelCommandResult } from '@application/react/useWorkbookController';
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
-import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { workbookFormulaReferenceResolver, type FormulaReferenceResolver } from '@workbook/formula/reference';
 import type { Workbook } from '@workbook/core/model';
 import './DataModelDialog.css';
 
@@ -131,11 +131,11 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
             <label>Property name<input aria-label={`Property ${index + 1} name`} disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} /></label>
             <label>Kind<select aria-label={`Property ${index + 1} kind`} disabled={saving} onChange={(event) => updateColumn(index, { kind: event.target.value as ModelColumn['kind'] })} value={column.kind}><option value="manual">Manual</option><option value="calculated">Calculated</option></select></label>
             <label>Type<select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => updateColumn(index, { type: event.target.value as ModelColumnType })} value={column.type}>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-            {column.kind === 'calculated' ? <FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} disabled={saving} onApply={() => {
+            {column.kind === 'calculated' ? <FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} disabled={saving} modelOnly onApply={() => {
               const formula = formulaDrafts[column.id];
               if (formula !== undefined) updateColumn(index, { formula });
               setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
-            }} onCancel={() => setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; })} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} resolver={workbookFormulaReferenceResolver(formulaWorkbook, Object.keys(formulaWorkbook.documents)[0] ?? '')} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
+            }} onCancel={() => setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; })} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
             <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Up</button><button aria-label={`Move property ${index + 1} down`} disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Down</button><button aria-label={`Remove property ${index + 1}`} disabled={saving} onClick={() => removeColumn(index)} type="button">Remove</button></div>
           </div>)}
           <button disabled={saving} onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>
@@ -147,4 +147,35 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
       </form>}
     </section>
   </div>;
+}
+
+/** Resolves unqualified model formulas against the live declaration, never an arbitrary sheet. */
+function modelDraftReferenceResolver(workbook: Workbook, draft: Draft): FormulaReferenceResolver {
+  const currentSheetId = `model-draft:${draft.id}`;
+  const property = (name: string) => draft.columns.find((column) => column.name === name);
+  const actual = (sheetId: string) => workbook.documents[sheetId] ? workbookFormulaReferenceResolver(workbook, sheetId) : undefined;
+  return {
+    currentSheetId,
+    sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((sheet) => sheet.id === qualifier || sheet.name === qualifier)?.id,
+    coordinateAt: (sheetId, address) => {
+      if (sheetId === currentSheetId) {
+        const column = draft.columns[address.columnIndex];
+        return column && address.rowIndex >= 0 ? { columnId: column.id, rowId: `template-row-${address.rowIndex}` } : undefined;
+      }
+      return actual(sheetId)?.coordinateAt(sheetId, address);
+    },
+    addressOf: (sheetId, coordinate) => {
+      if (sheetId === currentSheetId) {
+        const columnIndex = draft.columns.findIndex((column) => column.id === coordinate.columnId);
+        const match = /^template-row-(\d+)$/.exec(coordinate.rowId);
+        return columnIndex >= 0 && match ? { columnIndex, rowIndex: Number(match[1]) } : undefined;
+      }
+      return actual(sheetId)?.addressOf(sheetId, coordinate);
+    },
+    namedCoordinateAt: (sheetId, name, row) => {
+      if (sheetId !== currentSheetId) return actual(sheetId)?.namedCoordinateAt?.(sheetId, name, row);
+      const column = property(name);
+      return column && row > 0 ? { propertyId: column.id, coordinate: { columnId: column.id, rowId: `template-row-${row - 1}` } } : undefined;
+    },
+  };
 }

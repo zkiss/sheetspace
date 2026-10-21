@@ -13,6 +13,7 @@ import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
+import { formulaPanelReferenceValues } from './formulaPanelValues';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
@@ -37,8 +38,7 @@ import { SheetModelControls } from '@workspace/SheetModelControls';
 import { historyCellsForSheet } from './historyCellsForSheet';
 import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './modelColumnPresentation';
 import type { CellWriteResult } from '@application/core/userActions';
-const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.';
-export function Workspace({
+const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
   activeCell,
   canRetryFailedSaves,
   commands,
@@ -314,7 +314,7 @@ export function Workspace({
         canRetryFailedSaves={canRetryFailedSaves}
       />
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
-      <FormulaPanel activeCell={activeCell} editingCell={editingCell} onCancel={onCancelEdit} onCommit={onCommitEdit} onRawChange={onEditValueChange} onStart={onStartEdit} open={formulaPanelOpen} raw={selectedRaw} selectedSheet={selectedSheet} setOpen={setFormulaPanelOpen} sheets={sheets} workbook={workbook} />
+        <FormulaPanel activeCell={activeCell} editingCell={editingCell} formulaResults={formulaResults} onCancel={onCancelEdit} onCommit={onCommitEdit} onOpenModel={onOpenDataModels} onRawChange={onEditValueChange} onStart={onStartEdit} onViewChange={onUpdateEditView} open={formulaPanelOpen} raw={selectedRaw} selectedSheet={selectedSheet} setOpen={setFormulaPanelOpen} sheets={sheets} workbook={workbook} />
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
@@ -494,8 +494,9 @@ export function Workspace({
     </>
   );
 }
-function FormulaPanel({ activeCell, editingCell, onCancel, onCommit, onRawChange, onStart, open, raw, selectedSheet, setOpen, sheets, workbook }: {
-  activeCell: CellTarget | null; editingCell: CellEditSession | null; onCancel: () => void; onCommit: (session?: CellEditSession) => CellWriteResult | undefined; onRawChange: (raw: string) => void; onStart: (target: CellTarget, initialValue?: string) => void; open: boolean; raw: string | undefined; selectedSheet: SheetDocument | undefined; setOpen: (open: boolean) => void; sheets: readonly SheetDocument[]; workbook: Workbook;
+function FormulaPanel({ activeCell, editingCell, formulaResults, onCancel, onCommit, onOpenModel, onRawChange, onStart, onViewChange, open, raw, selectedSheet, setOpen, sheets, workbook }: {
+  activeCell: CellTarget | null; editingCell: CellEditSession | null; formulaResults: FormulaEvaluationSnapshot; onCancel: () => void; onCommit: (session?: CellEditSession) => CellWriteResult | undefined; onOpenModel?: (modelId?: string) => void; onRawChange: (raw: string) => void; onStart: (target: CellTarget, initialValue?: string) => void; onViewChange?: (selection: { start: number; end: number }, scrollTop: number) => void; open: boolean; raw: string | undefined; selectedSheet: SheetDocument | undefined; setOpen: (open: boolean) => void; sheets: readonly SheetDocument[]; workbook: Workbook;
 }) {
-  return <aside className="workspace-formula-panel" data-workspace-native-content>{editingCell && selectedSheet && open ? <FormulaEditorPanel ariaLabel="Cell formula" onApply={() => { onCommit(editingCell); setOpen(false); }} onCancel={() => { onCancel(); setOpen(false); }} onRawChange={onRawChange} propertyNames={selectedSheet.modelId ? (workbook.dataModels?.[selectedSheet.modelId]?.columns.map((column) => column.name) ?? []) : []} raw={editingCell.draft} resolver={workbookFormulaReferenceResolver(workbook, selectedSheet.id)} sheetNames={sheets.map((sheet) => sheet.name)} /> : activeCell && selectedSheet && raw !== undefined ? <button data-workspace-navigation onClick={() => { onStart(activeCell); setOpen(true); }} type="button">Edit formula</button> : null}</aside>;
+  const calculated = activeCell && selectedSheet?.modelId && Object.values(workbook.dataModels?.[selectedSheet.modelId]?.columns ?? []).some((column) => column.kind === 'calculated' && selectedSheet.modelColumnBindings?.[column.id] === activeCell.cell.columnId); const resolver = selectedSheet && workbookFormulaReferenceResolver(workbook, selectedSheet.id);
+  return <aside className="workspace-formula-panel" data-workspace-native-content>{editingCell && selectedSheet && resolver && open ? <FormulaEditorPanel ariaLabel="Cell formula" autoFocus initialView={editingCell.selection && { ...editingCell.selection, scrollTop: editingCell.scrollTop }} onApply={() => { onCommit(editingCell); setOpen(false); }} onCancel={() => { onCancel(); setOpen(false); }} onRawChange={onRawChange} onViewChange={(view) => onViewChange?.({ start: view.start, end: view.end }, view.scrollTop)} propertyNames={selectedSheet.modelId ? (workbook.dataModels?.[selectedSheet.modelId]?.columns.map((column) => column.name) ?? []) : []} raw={editingCell.draft} referenceValues={(identity) => formulaPanelReferenceValues(identity, resolver, formulaResults)} resolver={resolver} sheetNames={sheets.map((sheet) => sheet.name)} /> : calculated ? <button data-workspace-navigation onClick={() => onOpenModel?.(selectedSheet?.modelId)} type="button">Edit in Data models</button> : activeCell && selectedSheet && raw !== undefined ? <button data-workspace-navigation onClick={() => { onStart(activeCell); setOpen(true); }} type="button">Edit formula</button> : null}</aside>;
 }

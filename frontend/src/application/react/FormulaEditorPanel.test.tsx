@@ -43,4 +43,13 @@ describe('FormulaEditorPanel', () => {
     expect(cancel).toHaveBeenCalledOnce();
     expect(parent).not.toHaveBeenCalled();
   });
+
+  it('focuses an explicitly opened editor and reports hovered reference values', () => {
+    const valueResolver: FormulaReferenceResolver = { ...resolver, coordinateAt: () => ({ columnId: 'column', rowId: 'row' }) };
+    render(<FormulaEditorPanel ariaLabel="Hover formula" autoFocus onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=@A[1]" referenceValues={() => ({ kind: 'number', value: 42 })} resolver={valueResolver} sheetNames={[]} />);
+
+    expect(screen.getByLabelText('Hover formula')).toHaveFocus();
+    fireEvent.mouseEnter(screen.getByText('@A[1]'));
+    expect(screen.getByText('42')).toBeVisible();
+  });
 });
