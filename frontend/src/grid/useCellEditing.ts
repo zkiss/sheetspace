@@ -60,6 +60,12 @@ export function useCellEditing({
     });
   }, [workbook]);
 
+  useEffect(() => {
+    if (state.editing && isCalculatedOwnedColumn(workbook, state.editing.target.sheetId, state.editing.target.cell.columnId)) {
+      dispatch({ type: 'cancel' });
+    }
+  }, [state.editing, workbook]);
+
   function commitSession(session: CellEditSession | null) {
     if (!session) return;
     const sheet = findSheetById(workbook, session.target.sheetId);

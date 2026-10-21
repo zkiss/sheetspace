@@ -5,6 +5,25 @@ import { cellTargetAt } from './cellInteraction';
 import { useCellEditing } from './useCellEditing';
 
 describe('sheet activation memory', () => {
+  it('cancels an open draft when a live model change makes its column calculated', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const target = cellTargetAt(sheet, 'B1')!;
+    const { result, rerender } = renderHook(({ workbook }) => useCellEditing({ commands, workbook }), {
+      initialProps: { workbook: workbookWithSheets([sheet]) },
+    });
+
+    act(() => result.current.startEditingCell(target, 'draft'));
+    const boundSheet = { ...sheet, modelId: 'model', modelColumnBindings: { property: target.cell.columnId } };
+    rerender({ workbook: {
+      ...workbookWithSheets([boundSheet]),
+      dataModels: { model: { id: 'model', name: 'Model', columns: [{ id: 'property', name: 'Result', kind: 'calculated', type: 'float', formula: '=1' }] } },
+    } });
+
+    expect(result.current.editingCell).toBeNull();
+    expect(commands.updateCellContent).not.toHaveBeenCalled();
+  });
+
   it('commits before switching and remembers each sheet target after clearing selection', () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs' });

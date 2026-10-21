@@ -281,7 +281,7 @@ export function Workspace({
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onOpenDataModels={onOpenDataModels}
-        modelControls={selectedSheet ? <SheetModelControls commands={commands} models={dataModels} sheet={selectedSheet} /> : undefined}
+        modelControls={selectedSheet ? <SheetModelControls models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={onOpenDataModels ?? (() => undefined)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
