@@ -107,6 +107,30 @@ describe('DataModelDialog', () => {
     expect(screen.getByRole('button', { name: 'Create model' })).toBeInTheDocument();
   });
 
+  it('keeps Tab and Shift+Tab in the pending dialog when mutation controls are disabled', async () => {
+    const pending = deferred<{ ok: false; reason: 'persistence-failed' }>();
+    const onSave = vi.fn().mockReturnValue(pending.promise);
+    const onBackgroundActivate = vi.fn();
+    const user = userEvent.setup();
+    render(<><button onClick={onBackgroundActivate} type="button">New sheet</button><DataModelDialog models={[]} onCancel={vi.fn()} onSave={onSave} /></>);
+    await user.click(screen.getByRole('button', { name: 'Create model' }));
+    const form = screen.getByRole('form', { name: 'Create data model' });
+    await user.type(within(form).getByLabelText('Model name'), 'Pending');
+    await user.type(within(form).getByLabelText('Property 1 name'), 'Input');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    const status = within(form).getByRole('status');
+    await waitFor(() => expect(status).toHaveFocus());
+    await user.tab();
+    expect(status).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(status).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onBackgroundActivate).not.toHaveBeenCalled();
+
+    await pending.resolve({ ok: false, reason: 'persistence-failed' });
+  });
+
   it('shows immediate validation and command failures without discarding the draft', async () => {
     setup([], vi.fn()
       .mockReturnValueOnce({ ok: false, reason: 'invalid-model' })

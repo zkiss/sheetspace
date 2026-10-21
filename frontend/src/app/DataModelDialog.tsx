@@ -6,6 +6,7 @@ import './DataModelDialog.css';
 
 type Draft = { id: string; name: string; columns: ModelColumn[] };
 const types: ModelColumnType[] = ['string', 'int', 'float', 'boolean'];
+const focusableSelector = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [data-dialog-focus-target], [tabindex]:not([tabindex="-1"])';
 
 function newColumn(): ModelColumn {
   return { id: crypto.randomUUID(), name: '', kind: 'manual', type: 'string' };
@@ -80,12 +81,15 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
     function retainDialogFocus(event: FocusEvent) {
       const dialog = dialogRef.current;
       if (!closing.current && dialog && event.target instanceof Node && !dialog.contains(event.target)) {
-        dialog.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)')?.focus();
+        dialog.querySelector<HTMLElement>(focusableSelector)?.focus();
       }
     }
     document.addEventListener('focusin', retainDialogFocus);
     return () => document.removeEventListener('focusin', retainDialogFocus);
   }, []);
+  useEffect(() => {
+    if (saving) dialogRef.current?.querySelector<HTMLElement>('[data-dialog-focus-target]')?.focus();
+  }, [saving]);
   function containFocus(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -96,7 +100,7 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
     }
     if (event.key !== 'Tab') return;
     const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      focusableSelector,
     ) ?? [])];
     if (focusable.length === 0) return;
     const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
@@ -129,7 +133,7 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
         </fieldset>
         {!isNew && (draft.columns.some((column) => !savedPropertyIds.has(column.id)) || [...savedPropertyIds].some((id) => !draft.columns.some((column) => column.id === id))) ? <p className="data-model-warning">Removing a property can discard bound data. New replacement properties start empty, even when they reuse a name. Renaming and reordering retain existing property identity.</p> : null}
         {error ? <div className="form-error" role="alert"><p>{error}</p>{error.includes('need to be retried') ? <button onClick={onRetryFailedSaves} type="button">Retry earlier changes</button> : null}</div> : null}
-        {saving ? <p role="status">Saving model…</p> : null}
+        {saving ? <p data-dialog-focus-target role="status" tabIndex={0}>Saving model…</p> : null}
         <div className="dialog-actions"><button disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
       </form>}
     </section>
