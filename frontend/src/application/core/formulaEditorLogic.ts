@@ -75,6 +75,8 @@ export function formatFormula(raw: string, selection: FormulaEditorSelection): F
   const syntax = parseFormulaSyntax(raw);
   if (syntax.result.kind !== 'formula') return { available: false, raw, selection };
   const tokens = syntax.tokens.filter((token) => token.kind !== 'whitespace');
+  const leadingRaw = raw.slice(0, tokens[0]!.sourceSpan.start);
+  const trailingRaw = raw.slice(tokens[tokens.length - 1]!.sourceSpan.end);
   let output = '';
   const stack: boolean[] = [];
   let depth = 0;
@@ -82,7 +84,9 @@ export function formatFormula(raw: string, selection: FormulaEditorSelection): F
     const token = tokens[index]!;
     const text = raw.slice(token.sourceSpan.start, token.sourceSpan.end);
     const previous = tokens[index - 1];
-    if (token.kind === 'operator') {
+    if (text === '=' && index === 0) {
+      output += text;
+    } else if (token.kind === 'operator') {
       output = output.trimEnd() + ` ${text} `;
     } else if (text === '(') {
       const isFunction = previous?.kind === 'function';
@@ -99,7 +103,8 @@ export function formatFormula(raw: string, selection: FormulaEditorSelection): F
       output += text;
     }
   }
-  return { available: true, raw: output.trimEnd(), selection: remapSelection(raw, output.trimEnd(), selection) };
+  const formatted = leadingRaw + output + trailingRaw;
+  return { available: true, raw: formatted, selection: remapSelection(raw, formatted, selection) };
 }
 
 export function indentFormulaSelection(raw: string, selection: FormulaEditorSelection): { raw: string; selection: FormulaEditorSelection } {
@@ -214,6 +219,15 @@ function changeLineIndentation(raw: string, selection: FormulaEditorSelection, c
 
 function remapSelection(before: string, after: string, selection: FormulaEditorSelection): FormulaEditorSelection {
   if (before === after) return selection;
+  let unchangedSuffix = 0;
+  while (unchangedSuffix < before.length && unchangedSuffix < after.length
+    && before[before.length - unchangedSuffix - 1] === after[after.length - unchangedSuffix - 1]) unchangedSuffix += 1;
+  if (selection.start >= before.length - unchangedSuffix) {
+    return {
+      start: after.length - (before.length - selection.start),
+      end: after.length - (before.length - selection.end),
+    };
+  }
   const prefix = before.slice(0, selection.start).replace(/\s/g, '').length;
   const selected = before.slice(selection.start, selection.end).replace(/\s/g, '').length;
   let nonWhitespace = 0;
@@ -224,5 +238,8 @@ function remapSelection(before: string, after: string, selection: FormulaEditorS
     if (nonWhitespace >= prefix && start === after.length) start = index + 1;
     if (nonWhitespace >= prefix + selected) { end = index + 1; break; }
   }
-  return { start, end: Math.max(start, end) };
+  const mappedEnd = selection.end >= before.length - unchangedSuffix
+    ? after.length - (before.length - selection.end)
+    : end;
+  return { start, end: Math.max(start, mappedEnd) };
 }

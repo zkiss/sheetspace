@@ -84,6 +84,13 @@ describe('formula editor logic', () => {
       .toEqual(parseFormulaSyntax(raw).tokens.filter((token) => token.kind !== 'whitespace').map((token) => raw.slice(token.sourceSpan.start, token.sourceSpan.end)));
   });
 
+  it('preserves trailing raw whitespace while formatting a gap between formula tokens', () => {
+    const raw = '= SUM(@A[1])   ';
+    const formatted = formatFormula(raw, { start: raw.length, end: raw.length });
+
+    expect(formatted).toEqual({ available: true, raw: '=SUM(\n  @A[1]\n)   ', selection: { start: raw.length + 3, end: raw.length + 3 } });
+  });
+
   it('leaves unfinished formulas untouched when formatting is unavailable', () => {
     const raw = '=SUM(@A[1],';
     expect(formatFormula(raw, { start: 2, end: 2 })).toEqual({ available: false, raw, selection: { start: 2, end: 2 } });
