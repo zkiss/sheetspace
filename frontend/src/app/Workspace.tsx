@@ -7,19 +7,13 @@ import { selectionAddressRange } from './workspaceSelection';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
-import type {
-  SelectionGesture,
-  CellTarget,
-  CellNavigationDirection,
-  CellEditSession,
-  CellSelection,
-  CellSelectionMode,
-  ReferenceNavigationTarget,
-} from '@grid/cellInteractionContracts';
+import type { SelectionGesture, CellTarget, CellNavigationDirection, CellEditSession, CellSelection, CellSelectionMode, ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
 import { inspectFormula } from '@reference-navigation/formulaInspection';
+import { FormulaEditorPanel } from '@workbook/formula/FormulaEditorPanel';
+import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { SheetOverview } from '@workspace/SheetOverview';
@@ -43,9 +37,7 @@ import { SheetModelControls } from '@workspace/SheetModelControls';
 import { historyCellsForSheet } from './historyCellsForSheet';
 import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './modelColumnPresentation';
 import type { CellWriteResult } from '@application/core/userActions';
-
 const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.';
-
 export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -132,6 +124,7 @@ export function Workspace({
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
+  const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
   const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
@@ -259,7 +252,6 @@ export function Workspace({
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     return copied.ok ? copied.value : undefined;
   }
-
   function cutGridSelection() {
     const selection = selectionRange ?? (activeCell
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
@@ -274,12 +266,10 @@ export function Workspace({
     if (cut.ok) setClipboardRevision((revision) => revision + 1);
     return cut.ok ? cut.value : undefined;
   }
-
   function cancelPendingCut() {
     clipboard.current.cancelCut();
     setClipboardRevision((revision) => revision + 1);
   }
-
   function pasteGridSelection(clipboardData: { text: string; marker?: string }) {
     if (!activeCell) return;
     const destination = findSheetById(workbook, activeCell.sheetId);
@@ -297,14 +287,12 @@ export function Workspace({
       if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
     }
   }
-
   /** Reports a rejected content write instead of leaving the user without a reason. */
   function reportWriteOutcome(outcome: CellWriteResult | undefined) {
     if (outcome && !outcome.ok && outcome.reason === 'calculated-cell-write') {
       setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
     }
   }
-
   return (
     <>
       <WorkspaceToolbar
@@ -325,8 +313,8 @@ export function Workspace({
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
       />
-
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
+      <FormulaPanel activeCell={activeCell} editingCell={editingCell} onCancel={onCancelEdit} onCommit={onCommitEdit} onRawChange={onEditValueChange} onStart={onStartEdit} open={formulaPanelOpen} raw={selectedRaw} selectedSheet={selectedSheet} setOpen={setFormulaPanelOpen} sheets={sheets} workbook={workbook} />
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
@@ -505,4 +493,9 @@ export function Workspace({
       </WorkspaceSurface>
     </>
   );
+}
+function FormulaPanel({ activeCell, editingCell, onCancel, onCommit, onRawChange, onStart, open, raw, selectedSheet, setOpen, sheets, workbook }: {
+  activeCell: CellTarget | null; editingCell: CellEditSession | null; onCancel: () => void; onCommit: (session?: CellEditSession) => CellWriteResult | undefined; onRawChange: (raw: string) => void; onStart: (target: CellTarget, initialValue?: string) => void; open: boolean; raw: string | undefined; selectedSheet: SheetDocument | undefined; setOpen: (open: boolean) => void; sheets: readonly SheetDocument[]; workbook: Workbook;
+}) {
+  return <aside className="workspace-formula-panel" data-workspace-native-content>{editingCell && selectedSheet && open ? <FormulaEditorPanel ariaLabel="Cell formula" onApply={() => { onCommit(editingCell); setOpen(false); }} onCancel={() => { onCancel(); setOpen(false); }} onRawChange={onRawChange} propertyNames={selectedSheet.modelId ? (workbook.dataModels?.[selectedSheet.modelId]?.columns.map((column) => column.name) ?? []) : []} raw={editingCell.draft} resolver={workbookFormulaReferenceResolver(workbook, selectedSheet.id)} sheetNames={sheets.map((sheet) => sheet.name)} /> : activeCell && selectedSheet && raw !== undefined ? <button data-workspace-navigation onClick={() => { onStart(activeCell); setOpen(true); }} type="button">Edit formula</button> : null}</aside>;
 }

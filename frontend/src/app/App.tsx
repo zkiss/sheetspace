@@ -213,6 +213,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
             if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }
             return result;
           }}
+          workbook={workbook}
         />
       ) : null}
 

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { DataModel, ModelColumn, ModelColumnType } from '@workbook/core/model';
 import type { ModelCommandResult } from '@application/react/useWorkbookController';
-import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
+import { FormulaEditorPanel } from '@workbook/formula/FormulaEditorPanel';
+import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import type { Workbook } from '@workbook/core/model';
 import './DataModelDialog.css';
 
 type Draft = { id: string; name: string; columns: ModelColumn[] };
@@ -23,13 +25,15 @@ function message(result: ModelCommandResult): string {
   return 'The model could not be saved.';
 }
 
-export function DataModelDialog({ initialModelId, models, onCancel, onRetryFailedSaves, onSave }: {
+export function DataModelDialog({ initialModelId, models, onCancel, onRetryFailedSaves, onSave, workbook }: {
   initialModelId?: string;
   models: readonly DataModel[];
   onCancel: () => void;
   onRetryFailedSaves?: () => void;
   onSave: (model: DataModel, isNew: boolean) => ModelCommandResult | Promise<ModelCommandResult>;
+  workbook?: Workbook;
 }) {
+  const formulaWorkbook = workbook ?? { documents: {}, dataModels: {} } as Workbook;
   const dialogRef = useRef<HTMLElement>(null);
   const submissionPending = useRef(false);
   const closing = useRef(false);
@@ -126,7 +130,7 @@ export function DataModelDialog({ initialModelId, models, onCancel, onRetryFaile
             <label>Property name<input aria-label={`Property ${index + 1} name`} disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} /></label>
             <label>Kind<select aria-label={`Property ${index + 1} kind`} disabled={saving} onChange={(event) => updateColumn(index, { kind: event.target.value as ModelColumn['kind'] })} value={column.kind}><option value="manual">Manual</option><option value="calculated">Calculated</option></select></label>
             <label>Type<select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => updateColumn(index, { type: event.target.value as ModelColumnType })} value={column.type}>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-            {column.kind === 'calculated' ? <label>Formula<RawFormulaInput aria-label={`Property ${index + 1} formula`} disabled={saving} onValueChange={(formula) => updateColumn(index, { formula })} value={column.formula} /></label> : null}
+            {column.kind === 'calculated' ? <FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} onApply={() => undefined} onCancel={() => updateColumn(index, { formula: '' })} onRawChange={(formula) => updateColumn(index, { formula })} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={column.formula} resolver={workbookFormulaReferenceResolver(formulaWorkbook, Object.keys(formulaWorkbook.documents)[0] ?? '')} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
             <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Up</button><button aria-label={`Move property ${index + 1} down`} disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Down</button><button aria-label={`Remove property ${index + 1}`} disabled={saving} onClick={() => removeColumn(index)} type="button">Remove</button></div>
           </div>)}
           <button disabled={saving} onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>
