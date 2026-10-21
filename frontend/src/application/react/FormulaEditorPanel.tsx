@@ -20,6 +20,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const openingRawLength = useRef(raw.length);
   const selection = () => ({ start: input.current?.selectionStart ?? raw.length, end: input.current?.selectionEnd ?? raw.length });
   const analysis = useMemo(() => analyzeFormulaEditor(raw, resolver), [raw, resolver]);
+  const formattingAvailable = formatFormula(raw, { start: 0, end: 0 }).available;
   useEffect(() => {
     if (!autoFocus || !input.current) return;
     input.current.focus();
@@ -54,7 +55,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     {hoveredReference !== undefined && analysis.references[hoveredReference] ? <ReferenceHover modelOnly={modelOnly} reference={analysis.references[hoveredReference]} resolver={resolver} values={referenceValues} /> : null}
     {completionOpen && completions.length > 0 ? <ul aria-label="Formula completions" className="formula-editor-completions" role="listbox">{completions.map((completion, index) => <li aria-selected={index === completionIndex} key={`${completion.kind}-${completion.label}`} onMouseDown={(event) => { event.preventDefault(); acceptCompletion(index); }} role="option">{completion.label}</li>)}</ul> : null}
     {analysis.diagnostics.length > 0 ? <ul className="formula-editor-diagnostics" role="status">{analysis.diagnostics.map((diagnostic, index) => <li key={`${diagnostic.sourceSpan.start}-${index}`}>{diagnostic.code} at {diagnostic.sourceSpan.start + 1}–{diagnostic.sourceSpan.end}</li>)}</ul> : null}
-    <div className="formula-editor-actions"><button disabled={disabled} onClick={() => { const result = formatFormula(raw, selection()); if (result.available) setEditor(result); }} type="button">Format</button><button aria-label="Cancel formula" disabled={disabled} onClick={onCancel} type="button">Cancel formula</button><button disabled={disabled} onClick={onApply} type="button">Apply</button></div>
+    <div className="formula-editor-actions"><button disabled={disabled || !formattingAvailable} onClick={() => { const result = formatFormula(raw, selection()); if (result.available) setEditor(result); }} type="button">Format</button><button aria-label="Cancel formula" disabled={disabled} onClick={onCancel} type="button">Cancel formula</button><button disabled={disabled} onClick={onApply} type="button">Apply</button></div>
   </section>;
 }
 

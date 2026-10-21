@@ -73,4 +73,10 @@ describe('FormulaEditorPanel', () => {
     expect(document.querySelector('.formula-syntax-token-operator')).toHaveTextContent('+');
     expect(document.querySelector('.formula-syntax-token-reference')).toHaveTextContent('@A[1]');
   });
+
+  it('disables formatting for an incomplete formula draft', () => {
+    render(<FormulaEditorPanel ariaLabel="Incomplete formula" onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=SUM(" resolver={resolver} sheetNames={[]} />);
+
+    expect(screen.getByRole('button', { name: 'Format' })).toBeDisabled();
+  });
 });
