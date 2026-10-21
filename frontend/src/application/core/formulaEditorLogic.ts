@@ -51,10 +51,10 @@ export function formulaCompletions(
   if (reference) {
     const replacement = completionReplacement(raw, cursor, end, reference.prefixStart);
     const candidates = reference.afterQualifier
-      ? propertyCandidates(options.propertyNames ?? [], reference.query, replacement)
+      ? propertyCandidates(options.propertyNames ?? [], reference.query, raw, replacement)
       : [
-        ...sheetCandidates(options.sheetNames, reference.query, replacement),
-        ...propertyCandidates(options.propertyNames ?? [], reference.query, replacement),
+        ...sheetCandidates(options.sheetNames, reference.query, raw, replacement),
+        ...propertyCandidates(options.propertyNames ?? [], reference.query, raw, replacement),
       ];
     return candidates;
   }
@@ -160,14 +160,16 @@ function referenceCompletionContext(before: string): { prefixStart: number; quer
   return { prefixStart: at + 1 + (separator >= 0 ? separator + 1 : 0), query: unquotePartial(query), afterQualifier: separator >= 0 };
 }
 
-function sheetCandidates(names: readonly string[], query: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
+function sheetCandidates(names: readonly string[], query: string, raw: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
+  const separator = raw[replacement.end] === '!' ? '' : '!';
   return names.filter((name) => name.toUpperCase().startsWith(query.toUpperCase()))
-    .map((name) => ({ kind: 'sheet' as const, label: name, insertText: `${formatSheetReferenceToken(name)}!`, replacement }));
+    .map((name) => ({ kind: 'sheet' as const, label: name, insertText: `${formatSheetReferenceToken(name)}${separator}`, replacement }));
 }
 
-function propertyCandidates(names: readonly string[], query: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
+function propertyCandidates(names: readonly string[], query: string, raw: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
+  const rowSuffix = /^\[\$?[1-9][0-9]*\]/.test(raw.slice(replacement.end)) ? '' : '[1]';
   return names.filter((name) => name.toUpperCase().startsWith(query.toUpperCase()))
-    .map((name) => ({ kind: 'property' as const, label: name, insertText: `'${name.replace(/'/g, "''")}'[1]`, replacement }));
+    .map((name) => ({ kind: 'property' as const, label: name, insertText: `'${name.replace(/'/g, "''")}'${rowSuffix}`, replacement }));
 }
 
 function completionReplacement(raw: string, cursor: number, selectionEnd: number, minimum = 0): FormulaSourceSpan {

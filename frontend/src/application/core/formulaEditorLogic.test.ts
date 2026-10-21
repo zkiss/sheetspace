@@ -63,6 +63,18 @@ describe('formula editor logic', () => {
     expect(properties).toContainEqual(expect.objectContaining({ kind: 'property', insertText: "'Revenue''s Net'[1]" }));
   });
 
+  it('completes a reference at a mid-token caret without duplicating its existing suffix', () => {
+    const propertyRaw = '=@Re[1]';
+    const property = formulaCompletions(propertyRaw, { start: 4, end: 4 }, { sheetNames: [], propertyNames: ['Revenue'] })
+      .find((suggestion) => suggestion.label === 'Revenue');
+    const sheetRaw = '=@Bu!A[1]';
+    const sheet = formulaCompletions(sheetRaw, { start: 4, end: 4 }, { sheetNames: ['Budget'] })
+      .find((suggestion) => suggestion.label === 'Budget');
+
+    expect(applyFormulaCompletion(propertyRaw, property!)).toBe("=@'Revenue'[1]");
+    expect(applyFormulaCompletion(sheetRaw, sheet!)).toBe('=@Budget!A[1]');
+  });
+
   it('does not complete inside string literals and honors an explicit replacement selection', () => {
     expect(formulaCompletions('="SUM"', { start: 4, end: 4 }, { sheetNames: [] })).toEqual([]);
     const completion = formulaCompletions('=SMM(@A[1])', { start: 1, end: 4 }, { sheetNames: [] })
