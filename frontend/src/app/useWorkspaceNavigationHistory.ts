@@ -93,6 +93,10 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       cancelPendingScroll();
       history.explicitNavigation(navigate);
     },
+    recordUserMovement: () => {
+      cancelPendingScroll();
+      history.recordUserMovement();
+    },
     traverse: (direction: 'back' | 'forward') => {
       cancelPendingScroll();
       return history.traverse(direction);

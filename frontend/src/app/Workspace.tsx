@@ -160,9 +160,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   useEffect(() => {
     if (lastViewport.current !== workspaceController.viewport) {
       lastViewport.current = workspaceController.viewport;
-      navigationHistory.recordMovement();
+      if (workspaceController.consumeViewportMovementIsUser()) navigationHistory.recordUserMovement();
+      else navigationHistory.recordMovement();
     }
-  }, [navigationHistory, workspaceController.viewport]);
+  }, [navigationHistory, workspaceController]);
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
       if (!interactionsEnabled) return;
@@ -465,7 +466,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               viewportScale={workspaceController.viewport.scale}
             >
               {(scrollContainerRef) => {
-                registerScrollContainer(sheet.id, scrollContainerRef.current);
                 const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
                 return (
                   <SheetGrid
@@ -481,6 +481,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     logicalSelection={selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
+                    onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onViewportScroll={() => recordGridScroll(sheet.id)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{

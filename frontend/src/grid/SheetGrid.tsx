@@ -106,6 +106,7 @@ export function SheetGrid({
   pendingCutCells,
   columnLabels,
   calculatedColumnIds,
+  onScrollContainerAvailable,
   onViewportScroll,
 }: {
   presentation?: SheetPresentation;
@@ -119,6 +120,8 @@ export function SheetGrid({
   pendingCutCells?: ReadonlySet<string>;
   columnLabels?: ReadonlyMap<string, string>;
   calculatedColumnIds?: ReadonlySet<string>;
+  /** Announces the committed scroll container to workspace integrations. */
+  onScrollContainerAvailable?: (element: HTMLElement | null) => void;
   /** Reports user grid scrolling to the session-local spatial history owner. */
   onViewportScroll?: () => void;
   activeCellKey: string | null;
@@ -212,6 +215,11 @@ export function SheetGrid({
   useEffect(() => {
     setScrollElement(scrollContainerRef.current);
   }, [scrollContainerRef]);
+  useEffect(() => {
+    const element = scrollContainerRef.current;
+    onScrollContainerAvailable?.(element);
+    return () => onScrollContainerAvailable?.(null);
+  }, [onScrollContainerAvailable, scrollContainerRef]);
   useEffect(() => {
     const element = scrollContainerRef.current;
     if (!element || !onViewportScroll) return;

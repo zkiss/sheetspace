@@ -31,6 +31,7 @@ export function useWorkspaceController({
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
   const navigationMayBeMoving = useRef(false);
+  const viewportMovementIsUser = useRef(false);
   useEffect(() => {
     if (!navigationMotion) return;
     const timeout = window.setTimeout(() => setNavigationMotion(false), 180);
@@ -102,6 +103,7 @@ export function useWorkspaceController({
       const displayed = displayedWorkspaceViewport(workspacePlaneRef.current);
       if (displayed) setViewport(displayed);
     }
+    viewportMovementIsUser.current = true;
     setNavigationInterrupted(true);
     setNavigationMotion(false);
   }
@@ -137,6 +139,7 @@ export function useWorkspaceController({
 
   function resetViewport() {
     navigationMayBeMoving.current = false;
+    viewportMovementIsUser.current = true;
     setNavigationInterrupted(true);
     setNavigationMotion(false);
     setViewport({ x: 0, y: 0, scale: 1 });
@@ -144,6 +147,7 @@ export function useWorkspaceController({
 
   function restoreViewport(nextViewport: WorkspaceViewport) {
     navigationMayBeMoving.current = true;
+    viewportMovementIsUser.current = false;
     setNavigationInterrupted(false);
     setNavigationMotion(!(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false));
     setViewport(nextViewport);
@@ -157,6 +161,7 @@ export function useWorkspaceController({
     if (!workspace) return;
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
     navigationMayBeMoving.current = true;
+    viewportMovementIsUser.current = false;
     setNavigationInterrupted(false);
     setViewport((currentViewport) =>
       viewportForTarget({
@@ -185,6 +190,11 @@ export function useWorkspaceController({
 
   return {
     closeSheetMenu,
+    consumeViewportMovementIsUser: () => {
+      const isUserMovement = viewportMovementIsUser.current;
+      viewportMovementIsUser.current = false;
+      return isUserMovement;
+    },
     createSheetAtViewportCenter,
     handleWorkspaceContextMenu,
     isPanningWorkspace,

@@ -168,5 +168,9 @@ describe('useNavigationHistory', () => {
     x = 3;
     act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); });
     expect(result.current.canGoBack).toBe(true);
+
+    x = 4;
+    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); result.current.traverse('back'); });
+    expect(result.current.canGoForward).toBe(true);
   });
 });

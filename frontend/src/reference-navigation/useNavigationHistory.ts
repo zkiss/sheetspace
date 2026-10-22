@@ -46,7 +46,10 @@ export function useNavigationHistory({ capture, restore }: {
   const recordUserMovement = useCallback(() => {
     // Grid scroll has already changed by the time its native event arrives;
     // cancel any incomplete restore before starting its settled destination.
-    restoration.current += 1;
+    // Invalidate the operation before releasing movement recording. A cancelled
+    // restore must not keep suppressing every later ordinary pan or zoom.
+    if (restoration.current !== 0) restoration.current += 1;
+    restoration.current = 0;
     scheduleMovement();
   }, [scheduleMovement]);
   const explicitNavigation = useCallback((navigate: () => void) => {
