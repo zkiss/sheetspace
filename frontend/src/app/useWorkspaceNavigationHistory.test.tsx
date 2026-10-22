@@ -21,6 +21,8 @@ function applyGridRestore(history: ReturnType<typeof useWorkspaceNavigationHisto
   history.acknowledgeGridRestore(sheetId, restore.generation);
 }
 
+const destinationTarget = { kind: 'cell', target: { sheetId: 'destination', cell: {} } } as never;
+
 describe('useWorkspaceNavigationHistory', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -188,7 +190,7 @@ describe('useWorkspaceNavigationHistory', () => {
     }), { initialProps: { x: 1 } });
 
     act(() => result.current.history.explicitNavigation((operation) => {
-      result.current.startExplicitNavigation(operation, 'destination', (settled) => restoreViewport({ x: 2, y: 0, scale: 1 }, settled));
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => restoreViewport({ x: 2, y: 0, scale: 1 }, settled));
     }));
     rerender({ x: 2 });
 
@@ -209,12 +211,30 @@ describe('useWorkspaceNavigationHistory', () => {
     }));
 
     act(() => result.current.history.explicitNavigation((operation) => {
-      result.current.startExplicitNavigation(operation, 'destination', () => () => {});
+      result.current.startExplicitNavigation(operation, destinationTarget, () => () => {});
     }));
     expect(result.current.navigationRestoreForSheet('destination')).toBe(1);
 
     act(() => result.current.recordUserGridMovement());
     expect(result.current.navigationRestoreForSheet('destination')).toBeUndefined();
+  });
+
+  it('keeps the explicit grid request after its presentation lifetime and removes it on input', () => {
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(),
+      restoreViewport: () => () => {},
+      selection: null,
+      viewport: { x: 1, y: 0, scale: 1 },
+    }));
+
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, () => () => {});
+    }));
+    expect(result.current.navigationRequestForSheet('destination')).toMatchObject({ generation: 1, target: destinationTarget });
+
+    act(() => result.current.recordUserGridMovement());
+    expect(result.current.navigationRequestForSheet('destination')).toBeUndefined();
   });
 
   it('cancels delayed grid restoration before an intervening user gesture can be overwritten', () => {

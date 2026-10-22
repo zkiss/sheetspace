@@ -49,7 +49,7 @@ export function useReferenceNavigation({
   ) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
-  startNavigation?: (operation: NavigationOperation, sheetId: string, startViewport: (settled: () => void) => () => void) => void;
+  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
@@ -122,7 +122,7 @@ export function useReferenceNavigation({
          onSettled: settled,
       },
       );
-      if (startNavigation) startNavigation(navigationOperation, targetSheet.id, startViewport);
+      if (startNavigation) startNavigation(navigationOperation, target, startViewport);
       else startViewport(navigationOperation.complete);
     };
     if (onExplicitNavigation) onExplicitNavigation(navigate);

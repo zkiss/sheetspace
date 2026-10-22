@@ -20,16 +20,16 @@ function setup() {
     editorInteraction: { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
     formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null, onUserViewportMovement,
   };
-  const grid = (target?: string, identity = 'undo-1', historyRestore?: { generation: number; left: number; top: number }, navigationRevealGeneration?: number | null, navigationTarget?: string) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+  const grid = (target?: string, identity = 'undo-1', historyRestore?: { generation: number; left: number; top: number }, navigationRequestGeneration?: number | null, navigationTarget?: string) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
     <SheetGrid {...props} axisProjection={projectGridAxes(sheet)} historyFeedbackIdentity={target ? identity : undefined}
       historyFeedbackCells={target ? new Map([[target, { before: 'old', beforeDisplay: 'old', after: 'new' }]]) : undefined}
       historyRestore={historyRestore} navigationHighlightCellKey={navigationTarget ?? null} navigationHighlightIdentity={navigationTarget ? Number(identity) : undefined}
-      navigationRevealGeneration={navigationRevealGeneration} onHistoryRestoreSettled={onHistoryRestoreSettled} />
+       navigationRequestGeneration={navigationRequestGeneration ?? undefined} navigationRequestCellKey={navigationTarget} onHistoryRestoreSettled={onHistoryRestoreSettled} onNavigationRevealSettled={onHistoryRestoreSettled} />
   </div>;
   const view = render(grid());
   const viewport = scrollContainerRef.current!;
   act(() => { virtualGridGeometry(viewport); });
-  return { viewport, sheet, onHistoryRestoreSettled, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)), restore: (historyRestore: { generation: number; left: number; top: number }) => view.rerender(grid(undefined, undefined, historyRestore)), renderNavigationTarget: (target: string, generation: number | null) => view.rerender(grid(undefined, '9', undefined, generation, target)) };
+  return { viewport, sheet, onHistoryRestoreSettled, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)), restore: (historyRestore: { generation: number; left: number; top: number }) => view.rerender(grid(undefined, undefined, historyRestore)), renderNavigationTarget: (target: string, generation?: number | null) => view.rerender(grid(undefined, '9', undefined, generation, target)) };
 }
 
 describe('history reveal scroll-axis independence', () => {
@@ -85,6 +85,19 @@ describe('history reveal scroll-axis independence', () => {
     expect(viewport.scrollLeft).toBe(500);
     expect(viewport.scrollTop).toBe(400);
     expect(onHistoryRestoreSettled).not.toHaveBeenCalled();
+  });
+
+  it('settles a delayed reference request after its presentation highlight expires', () => {
+    const { viewport, onHistoryRestoreSettled, renderNavigationTarget } = setup();
+    viewport.scrollLeft = 500;
+    viewport.scrollTop = 400;
+
+    // The durable request arrives after the 1200ms visual tint has gone away.
+    renderNavigationTarget('A1', 9);
+
+    expect(viewport.scrollLeft).toBe(0);
+    expect(viewport.scrollTop).toBe(0);
+    expect(onHistoryRestoreSettled).toHaveBeenCalledWith(9);
   });
 
   it.each([

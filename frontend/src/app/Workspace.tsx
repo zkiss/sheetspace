@@ -152,7 +152,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation } = useWorkspaceNavigationHistory({
+  const { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
@@ -417,6 +417,13 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             && navigationHighlight.sheetId === sheet.id
             ? addressRangeOf(sheet.content, navigationHighlight.range)
             : undefined;
+          const navigationRequest = navigationRequestForSheet(sheet.id);
+          const navigationRequestTarget = navigationRequest?.target.kind === 'cell'
+            ? navigationRequest.target.target
+            : null;
+          const navigationRequestRange = navigationRequest?.target.kind === 'range'
+            ? addressRangeOf(sheet.content, navigationRequest.target.range)
+            : undefined;
           const historyFeedbackCells = contentHistoryFeedback
             ? historyCellsForSheet(contentHistoryFeedback, sheet)
             : undefined;
@@ -487,8 +494,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onUserViewportMovement={recordUserGridMovement}
                     historyRestore={historyRestoreForSheet(sheet.id)}
-                    navigationRestoreGeneration={navigationRestoreForSheet(sheet.id)}
-                    navigationRevealGeneration={navigationRestoreForSheet(sheet.id) ?? null}
+                    navigationRestoreGeneration={navigationRequest ? undefined : navigationRestoreForSheet(sheet.id)}
+                    navigationRequestGeneration={navigationRequest?.generation}
+                    navigationRequestCellKey={cellKeyForTarget(sheet, navigationRequestTarget)}
+                    navigationRequestRange={navigationRequestRange}
                     onHistoryRestoreSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
@@ -514,7 +523,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                     navigationHighlightRange={navigationHighlightRange}
                     navigationHighlightIdentity={navigationHighlightIdentity}
-                    onNavigationRevealSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     historyFeedbackCells={historyFeedbackCells}
                     historyFeedbackIdentity={gridHistoryReveals.current.identity === contentHistoryFeedback?.identity
                       && gridHistoryReveals.current.sheetIds.has(sheet.id)

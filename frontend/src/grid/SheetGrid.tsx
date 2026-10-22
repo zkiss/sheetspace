@@ -98,7 +98,9 @@ export function SheetGrid({
   onUserViewportMovement,
    historyRestore,
    navigationRestoreGeneration,
-   navigationRevealGeneration,
+   navigationRequestGeneration,
+   navigationRequestCellKey,
+   navigationRequestRange,
    onHistoryRestoreSettled,
 }: {
   presentation?: SheetPresentation;
@@ -118,7 +120,7 @@ export function SheetGrid({
   onUserViewportMovement?: () => void;
    historyRestore?: { generation: number; left: number; top: number };
    navigationRestoreGeneration?: number;
-   navigationRevealGeneration?: number | null;
+    navigationRequestGeneration?: number; navigationRequestCellKey?: string | null; navigationRequestRange?: CellRange;
   onHistoryRestoreSettled?: (generation: number) => void;
   activeCellKey: string | null;
   /**
@@ -263,9 +265,10 @@ export function SheetGrid({
   const editingAddress = cellKeyForTarget(sheet, editingCell?.target ?? null)
     ? parseCellAddress(cellKeyForTarget(sheet, editingCell?.target ?? null), sheet)
     : undefined;
-  const navigationAddress = navigationHighlightCellKey
-    ? parseCellAddress(navigationHighlightCellKey, sheet)
-    : navigationHighlightRange?.start;
+  const navigationAddress = navigationRequestCellKey
+    ? parseCellAddress(navigationRequestCellKey, sheet)
+    : navigationRequestRange?.start
+      ?? (navigationHighlightCellKey ? parseCellAddress(navigationHighlightCellKey, sheet) : navigationHighlightRange?.start);
   const historyAddress = parseCellAddress(historyFeedbackCells?.keys().next().value ?? null, sheet);
   // Selection may leave the rendered window. Editors, navigation targets and the
   // active resize capture owner must stay mounted throughout their interaction.
@@ -275,6 +278,7 @@ export function SheetGrid({
     focusIntentAddress,
     navigationAddress,
     historyAddress,
+    navigationRequestRange?.end,
     navigationHighlightRange?.end,
   ]
     .filter(Boolean) as CellAddress[];
@@ -371,16 +375,12 @@ export function SheetGrid({
     if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
   }, [activeAddress, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
   useEffect(() => {
-    if (navigationHighlightIdentity !== undefined
-      && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
-    if (navigationRevealGeneration !== undefined && navigationRevealGeneration !== navigationHighlightIdentity) return;
-    if (!navigationHighlightRange && !navigationHighlightCellKey) {
-      return;
-    }
-    const parsedCell = navigationHighlightCellKey
-      ? parseA1Address(navigationHighlightCellKey, sheetBounds(sheet))
+    if (navigationRequestGeneration == null) return;
+    if (revealedNavigationIdentity.current === navigationRequestGeneration) return;
+    const parsedCell = navigationRequestCellKey
+      ? parseA1Address(navigationRequestCellKey, sheetBounds(sheet))
       : undefined;
-    const range = navigationHighlightRange
+    const range = navigationRequestRange
       ?? (parsedCell?.ok
         ? { start: parsedCell.value, end: parsedCell.value }
         : undefined);
@@ -400,11 +400,11 @@ export function SheetGrid({
       left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
     });
     if (!reveal.row || !reveal.column) return;
-    revealedNavigationIdentity.current = navigationHighlightIdentity;
+    revealedNavigationIdentity.current = navigationRequestGeneration;
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
-    if (navigationHighlightIdentity !== undefined) onNavigationRevealSettled?.(navigationHighlightIdentity);
-  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, navigationRevealGeneration, onNavigationRevealSettled, rowMetrics, rows, scrollContainerRef, sheet]);
+    onNavigationRevealSettled?.(navigationRequestGeneration);
+  }, [columnMetrics, columns, navigationRequestCellKey, navigationRequestGeneration, navigationRequestRange, onNavigationRevealSettled, rowMetrics, rows, scrollContainerRef, sheet]);
   useEffect(() => {
     if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;

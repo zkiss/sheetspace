@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CellSelection } from '@grid/cellInteractionContracts';
+import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import { useNavigationHistory } from '@reference-navigation/useNavigationHistory';
 import type { NavigationOperation } from '@reference-navigation/useNavigationHistory';
 import type { WorkspaceViewport } from '@workspace/workspaceContracts';
@@ -15,7 +16,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const pendingScroll = useRef(new Map<string, { generation: number; left: number; top: number }>());
   const restoreGeneration = useRef(0);
   const [, setActiveNavigationGeneration] = useState<number | null>(null);
-  const activeRestore = useRef<{ generation: number; complete: () => void; cancelViewport: () => void; viewportSettled: boolean; requiredGridSettled: boolean; requiredSheetId?: string }>();
+  const activeRestore = useRef<{ generation: number; complete: () => void; cancelViewport: () => void; viewportSettled: boolean; requiredGridSettled: boolean; requiredSheetId?: string; navigationTarget?: ReferenceNavigationTarget }>();
   const finishRestoreIfSettled = useCallback(() => {
     const restoring = activeRestore.current;
     if (!restoring || !restoring.viewportSettled || (restoring.requiredSheetId && !restoring.requiredGridSettled)) return;
@@ -56,12 +57,12 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       left: element.scrollLeft, top: element.scrollTop,
     }])),
   }), [selection, viewport]);
-  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}) => {
+  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}, navigationTarget?: ReferenceNavigationTarget) => {
     cancelRestore();
     restoreGeneration.current = Math.max(restoreGeneration.current + 1, operation.generation);
     const generation = operation.generation;
     const restoring = {
-      generation, complete: operation.complete, cancelViewport: () => {}, viewportSettled: false, requiredGridSettled: false, requiredSheetId,
+      generation, complete: operation.complete, cancelViewport: () => {}, viewportSettled: false, requiredGridSettled: false, requiredSheetId, navigationTarget,
     };
     activeRestore.current = restoring;
     setActiveNavigationGeneration(generation);
@@ -101,8 +102,15 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     const active = activeRestore.current;
     return active?.requiredSheetId === sheetId ? active.generation : undefined;
   }, []);
-  const startExplicitNavigation = useCallback((operation: NavigationOperation, sheetId: string, startViewport: (settled: () => void) => () => void) => {
-    beginNavigation(operation, sheetId, startViewport);
+  const navigationRequestForSheet = useCallback((sheetId: string) => {
+    const active = activeRestore.current;
+    return active?.requiredSheetId === sheetId && active.navigationTarget
+      ? { generation: active.generation, target: active.navigationTarget }
+      : undefined;
+  }, []);
+  const startExplicitNavigation = useCallback((operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void) => {
+    const sheetId = target.kind === 'cell' ? target.target.sheetId : target.sheetId;
+    beginNavigation(operation, sheetId, startViewport, {}, target);
   }, [beginNavigation]);
-  return { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation };
+  return { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation };
 }

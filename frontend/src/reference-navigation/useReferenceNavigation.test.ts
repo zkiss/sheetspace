@@ -146,7 +146,7 @@ describe('useReferenceNavigation', () => {
       navigateToTarget,
       onExplicitNavigation: (navigate) => navigate(Object.assign(() => { settled += 1; }, { generation: 1, complete: () => { settled += 1; } })),
       onSelectReferenceTarget: vi.fn(),
-      startNavigation: (operation, _sheetId, startViewport) => { startViewport(operation.complete); },
+      startNavigation: (operation, _target, startViewport) => { startViewport(operation.complete); },
       workbook: workbookWithSheets([sheet]),
     }));
 
