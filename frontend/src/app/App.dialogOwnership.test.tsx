@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { autosaveClient } from '@test-support/apiClients';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
+
+afterEach(() => vi.useRealTimers());
 
 function setup() {
   const apiClient = autosaveClient({ updateSheetVisualScale: vi.fn() });
@@ -63,6 +65,22 @@ function expectNoWrites(apiClient: ReturnType<typeof setup>['apiClient']) {
 }
 
 describe('sheet dialog takeover of armed background owners', () => {
+  it('does not traverse navigation history while a sheet context menu owns the workspace', () => {
+    vi.useFakeTimers();
+    const { frame, surface } = setup();
+    pointer(surface, 'pointerdown');
+    pointer(window, 'pointermove', { x: 20 });
+    pointer(window, 'pointerup', { x: 20 });
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(surface).toHaveAttribute('data-viewport-x', '20');
+
+    openSheetContextMenu(frame);
+    const shortcut = fireEvent.keyDown(document.body, { altKey: true, key: 'ArrowLeft' });
+
+    expect(shortcut).toBe(true);
+    expect(surface).toHaveAttribute('data-viewport-x', '20');
+  });
+
   describe.each(['Create', 'Rename'] as const)('%s', (kind) => {
     it.each(['name', 'submit', 'cancel'])('owns one Escape from %s after Space is armed without keyup', (target) => {
       const { apiClient, cell, frame, surface } = setup();

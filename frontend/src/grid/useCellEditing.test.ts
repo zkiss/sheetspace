@@ -38,6 +38,20 @@ describe('useCellEditing', () => {
     expect(result.current.editingCell).toMatchObject({ target: a1, draft: 'x' });
   });
 
+  it('restores complete stable ranges and clears selections whose identities disappeared', () => {
+    const { result, sheet } = renderCellEditing();
+    const a1 = cellTargetAt(sheet, 'A1')!;
+    const b2 = cellTargetAt(sheet, 'B2')!;
+    const savedRange = { mode: 'rows' as const, anchor: a1, extent: b2 };
+
+    act(() => { expect(result.current.restoreSelection(savedRange)).toBe(true); });
+    expect(result.current.selectionRange).toEqual(savedRange);
+
+    const missing = { ...savedRange, extent: { ...b2, cell: { ...b2.cell, rowId: 'deleted-row' } } };
+    act(() => { expect(result.current.restoreSelection(missing)).toBe(false); });
+    expect(result.current.selectionRange).toBeNull();
+  });
+
   it('transfers an active direct draft and its view to a fresh rich-panel session', () => {
     const { result, sheet } = renderCellEditing();
     const a1 = cellTargetAt(sheet, 'A1')!;

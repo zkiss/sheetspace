@@ -85,6 +85,16 @@ export function inspectFormula(
   };
 }
 
+export function navigableReferencesAtCaret(
+  inspection: FormulaInspection | undefined,
+  caret: number | undefined,
+): FormulaInspectionReference[] {
+  const references = inspection?.references.filter((reference) => reference.navigable) ?? [];
+  if (caret === undefined) return references;
+  const atCaret = references.filter((reference) => caret >= reference.displaySpan.start && caret <= reference.displaySpan.end);
+  return atCaret.length ? atCaret : references;
+}
+
 function parsedDisplaySpans(raw: string, references: readonly FormulaReference[]): FormulaSourceSpan[] {
   const parsed = parseFormulaSyntax(raw, { preserveUnknownFunctions: true });
   const displayReferences = (parsed.result.kind === 'formula'

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+/* eslint-disable max-lines -- Workspace remains the existing composition root; focused history ownership is extracted. */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey } from '@workbook/core/address';
-import { addressRangeOf, cellAddressOf } from '@workbook/core/cellIdentity';
+import { addressRangeOf, cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { selectionAddressRange } from './workspaceSelection';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
@@ -11,7 +12,7 @@ import type { SelectionGesture, CellTarget, CellNavigationDirection, CellEditSes
 import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
-import { inspectFormula } from '@reference-navigation/formulaInspection';
+import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
@@ -22,6 +23,7 @@ import { CreatingSheetFrame } from '@workspace/CreatingSheetFrame';
 import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/core/sheetCreationState';
 import { SheetGrid } from '@grid/SheetGrid';
 import { useReferenceNavigation } from '@reference-navigation/useReferenceNavigation';
+import { useWorkspaceNavigationHistory } from './useWorkspaceNavigationHistory';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
 import type { WorkbookCommands } from '@application/react/useWorkbookController';
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
@@ -38,6 +40,9 @@ import { SheetModelControls } from '@workspace/SheetModelControls';
 import { historyCellsForSheet } from './historyCellsForSheet';
 import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './modelColumnPresentation';
 import type { CellWriteResult } from '@application/core/userActions';
+import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
+import { NavigationPalette, type NavigationCommand } from './NavigationPalette';
+import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
 const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -70,6 +75,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onRestoreGridFocus,
   onSelectAxis,
   onSelectReferenceTarget,
+  onRestoreSelection,
   onStartEdit,
   referenceSelection,
   selectionRange,
@@ -101,7 +107,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onUpdateEditView?: (selection: { start: number; end: number }, scrollTop: number) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
-  onOpenDataModels?: (modelId?: string) => void;
+  onOpenDataModels?: (modelId?: string, propertyId?: string, onClose?: () => void) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
@@ -111,6 +117,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onRestoreGridFocus: () => number | null;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
+  onRestoreSelection: (selection: CellSelection | null) => boolean;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
   referenceSelection: ReferenceNavigationTarget | null;
   selectionRange: CellSelection | null;
@@ -124,7 +131,16 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
+  const [navigationFeedback, setNavigationFeedback] = useState('');
   const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [paletteChoices, setPaletteChoices] = useState<NavigationCommand[] | null>(null);
+  const [paletteView, setPaletteView] = useState(0);
+  const paletteInvoker = useRef<HTMLElement | null>(null);
+  const propertyDefinitionInvoker = useRef<HTMLElement | null>(null);
+  const openUsagesRef = useRef<() => void>(() => {});
+  const openReferenceChoicesRef = useRef<() => void>(() => {});
+  const openPropertyDefinitionRef = useRef<() => void>(() => {});
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
   const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
@@ -143,9 +159,31 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     ? inspectFormula(selectedRaw, workbook, selectedSheet)
     : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
-  const interactionsEnabled = !sheetDialogOpen;
+  const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
-  const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
+  const cancelNavigationBeforeUserMovement = useRef<() => void>(() => {});
+  const workspaceController = useWorkspaceController({
+    onBeforeUserMovement: () => cancelNavigationBeforeUserMovement.current(),
+    onClearSelection,
+    onCreateSheet,
+    interactionsEnabled,
+  });
+  const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
+  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
+    onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
+    selection: selectionRange, viewport: workspaceController.viewport,
+  });
+  cancelNavigationBeforeUserMovement.current = cancelNavigationRestore;
+  const lastViewport = useRef(workspaceController.viewport);
+  useEffect(() => {
+    if (lastViewport.current !== workspaceController.viewport) {
+      lastViewport.current = workspaceController.viewport;
+      // Viewport effects do not establish movement provenance. A restored or
+      // animated viewport may commit after its restore transaction completes;
+      // only the controller can identify a gesture that should enter history.
+      if (workspaceController.consumeViewportMovementIsUser()) navigationHistory.recordUserMovement();
+    }
+  }, [navigationHistory, workspaceController]);
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
       if (!interactionsEnabled) return;
@@ -158,6 +196,36 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         workspaceController.createSheetAtViewportCenter();
         return;
       }
+      if (event.altKey && !event.shiftKey && !primaryModifier && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        if (!navigationKeyboardEnabled) return;
+        if (navigationHistory.traverse(event.key === 'ArrowLeft' ? 'back' : 'forward')) event.preventDefault();
+        return;
+      }
+      if (primaryModifier && event.shiftKey && !event.altKey && key === 'p' && navigationKeyboardEnabled) {
+        event.preventDefault();
+        paletteInvoker.current = target;
+        setCommandPaletteOpen(true);
+        return;
+      }
+      if (event.altKey && event.shiftKey && !primaryModifier && key === 'u' && navigationKeyboardEnabled) {
+        event.preventDefault();
+        paletteInvoker.current = target;
+        openUsagesRef.current();
+        return;
+      }
+      if (event.altKey && event.shiftKey && !primaryModifier && key === 'd' && navigationKeyboardEnabled) {
+        event.preventDefault();
+        propertyDefinitionInvoker.current = target;
+        paletteInvoker.current = target;
+        openPropertyDefinitionRef.current();
+        return;
+      }
+      if (event.altKey && !event.shiftKey && !primaryModifier && event.key === 'Enter' && navigationKeyboardEnabled) {
+        event.preventDefault();
+        paletteInvoker.current = target;
+        openReferenceChoicesRef.current();
+        return;
+      }
       const action = formattingShortcut(event);
       if (!action) return;
       event.preventDefault();
@@ -168,18 +236,163 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, formattingProjection, interactionsEnabled, onRestoreGridFocus, workspaceController]);
+  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
   const {
     navigateReference,
+    navigateTarget,
     navigationHighlight,
     navigationHighlightIdentity,
     navigationMotion,
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
     onSelectReferenceTarget,
+    onExplicitNavigation: navigationHistory.explicitNavigation,
+    startNavigation: startExplicitNavigation,
     workbook,
   });
+  const closeCommandPalette = useCallback((restoreInvoker = true) => {
+    setCommandPaletteOpen(false);
+    setPaletteChoices(null);
+    if (restoreInvoker) queueMicrotask(() => {
+      if (paletteInvoker.current?.isConnected) paletteInvoker.current.focus();
+      else onRestoreGridFocus();
+    });
+  }, [onRestoreGridFocus]);
+  const navigateCellTarget = useCallback((target: CellTarget) => {
+    const sheet = findSheetById(workbook, target.sheetId);
+    if (!sheet || !navigateTarget({ kind: 'cell', target }, sheet)) setNavigationFeedback('The navigation target is no longer available.');
+  }, [navigateTarget, workbook]);
+  const navigateEmptySheet = useCallback((sheet: SheetDocument) => {
+    startExplicitSheetNavigation(onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), { onSettled: settled }));
+  }, [onClearSelection, startExplicitSheetNavigation, workspaceController]);
+  const openChoices = useCallback((choices: NavigationCommand[]) => {
+    setPaletteChoices(choices);
+    setPaletteView((view) => view + 1);
+    setCommandPaletteOpen(true);
+  }, []);
+  const propertyForActiveCell = useCallback(() => {
+    if (!activeCell || !selectedSheet?.modelId) return undefined;
+    const model = workbook.dataModels?.[selectedSheet.modelId];
+    return model?.columns.find((property) => selectedSheet.modelColumnBindings?.[property.id] === activeCell.cell.columnId);
+  }, [activeCell, selectedSheet, workbook.dataModels]);
+  const propertyForReference = useCallback((reference: NonNullable<typeof formulaInspection>['references'][number]) => {
+    const identity = reference.target.kind === 'cell' ? reference.target.identity : reference.target.range?.start;
+    const sheet = findSheetById(workbook, reference.target.sheetId);
+    if (!identity || !sheet?.modelId) return undefined;
+    const property = workbook.dataModels?.[sheet.modelId]?.columns
+      .find((column) => sheet.modelColumnBindings?.[column.id] === identity.columnId);
+    return property ? { modelId: sheet.modelId, propertyId: property.id, name: property.name } : undefined;
+  }, [workbook]);
+  const propertyReferenceChoices = useCallback(() => {
+    const raw = editingCell?.draft ?? selectedRaw;
+    const inspection = selectedSheet && raw ? inspectFormula(raw, workbook, selectedSheet) : undefined;
+    const caret = editingCell?.selection?.start;
+    const references = inspection?.references.filter((reference) => reference.navigable) ?? [];
+    const atCaret = caret === undefined ? references : references.filter((reference) => caret >= reference.displaySpan.start && caret <= reference.displaySpan.end);
+    const candidates = (atCaret.length ? atCaret : references).flatMap((reference) => {
+      const property = propertyForReference(reference);
+      return property ? [{ reference, property }] : [];
+    });
+    return [...new Map(candidates.map((candidate) => [`${candidate.property.modelId}:${candidate.property.propertyId}`, candidate])).values()];
+  }, [editingCell, propertyForReference, selectedRaw, selectedSheet, workbook]);
+  const openPropertyDefinitionFor = useCallback((modelId: string, propertyId: string) => {
+    const invoker = commandPaletteOpen ? paletteInvoker.current : propertyDefinitionInvoker.current;
+    closeCommandPalette(false);
+    onOpenDataModels?.(modelId, propertyId, () => {
+      if (invoker?.isConnected) invoker.focus();
+      else onRestoreGridFocus();
+    });
+  }, [closeCommandPalette, commandPaletteOpen, onOpenDataModels, onRestoreGridFocus]);
+  const openPropertyDefinition = useCallback(() => {
+    const property = propertyForActiveCell();
+    if (property && selectedSheet?.modelId) { openPropertyDefinitionFor(selectedSheet.modelId, property.id); return; }
+    const candidates = propertyReferenceChoices();
+    if (candidates.length === 1) { openPropertyDefinitionFor(candidates[0]!.property.modelId, candidates[0]!.property.propertyId); return; }
+    if (candidates.length > 1) {
+      openChoices(candidates.map(({ property: candidate }) => ({
+        id: `definition:${candidate.modelId}:${candidate.propertyId}`,
+        label: `Go to property definition: ${candidate.name}`,
+        group: 'Property references',
+        run: () => openPropertyDefinitionFor(candidate.modelId, candidate.propertyId),
+      })));
+      return;
+    }
+    setNavigationFeedback('Select a named property or property reference first.');
+  }, [openChoices, openPropertyDefinitionFor, propertyForActiveCell, propertyReferenceChoices, selectedSheet]);
+  const usageChoices = useCallback((label: string, usages: UsageQueryResult) => {
+    if (!usages.available) return [{ id: `${label}:unavailable`, label: 'Unavailable', group: label, unavailable: 'The selected target is unavailable.', run: () => {} }];
+    const entries = (title: string, targets: readonly CellTarget[]) => targets.map((target) => {
+      const sheet = findSheetById(workbook, target.sheetId);
+      const column = sheet ? modelColumnPresentation(sheet, workbook.dataModels).columnLabels.get(target.cell.columnId) : undefined;
+      const row = sheet ? sheet.content.rows.indexOf(target.cell.rowId) + 1 : 0;
+      return {
+      id: `${label}:${title}:${target.sheetId}:${target.cell.rowId}:${target.cell.columnId}`, group: `${label} — ${title}`, label: `${sheet?.name ?? 'Deleted sheet'}: ${column ?? 'Column'}${row > 0 ? `, row ${row}` : ''}`,
+       run: () => { navigateCellTarget(target); closeCommandPalette(false); },
+    }; });
+    const choices = [...entries('Direct usages', usages.directUsages), ...entries('Indirect dependents', usages.transitiveDependents)];
+    return choices.length ? choices : [{ id: `${label}:empty`, label: 'No results', group: label, unavailable: 'No direct usages or indirect dependents.', run: () => {} }];
+  }, [closeCommandPalette, navigateCellTarget, workbook]);
+  const openUsages = useCallback(() => {
+    if (!activeCell) { setNavigationFeedback('Select a cell or named property first.'); return; }
+    const property = propertyForActiveCell();
+    const query = usageQueries(workbook);
+    const cell = usageChoices('Cell usages', query.forCell(activeCell));
+    const propertyChoices = property && selectedSheet?.modelId
+      ? usageChoices(`Model property usages: ${property.name}`, query.forProperty({ modelId: selectedSheet.modelId, propertyId: property.id })) : [];
+    openChoices([...cell, ...propertyChoices]);
+  }, [activeCell, openChoices, propertyForActiveCell, selectedSheet, usageChoices, workbook]);
+  const navigableReferencesForFollow = useCallback(() => {
+    const raw = editingCell?.draft ?? selectedRaw;
+    const inspection = selectedSheet && raw ? inspectFormula(raw, workbook, selectedSheet) : undefined;
+    const caret = editingCell?.selection?.start;
+    return navigableReferencesAtCaret(inspection, caret);
+  }, [editingCell, selectedRaw, selectedSheet, workbook]);
+  const openReferenceChoices = useCallback(() => {
+    const choices = navigableReferencesForFollow();
+    if (choices.length === 0) { setNavigationFeedback('No resolvable reference is available.'); return; }
+    if (choices.length === 1) {
+      if (navigateReference(choices[0]!) && commandPaletteOpen) closeCommandPalette(false);
+      return;
+    }
+    openChoices(choices.map((reference, index) => ({ id: `reference:${index}`, label: `Follow reference: ${reference.text}`, run: () => { if (navigateReference(reference)) closeCommandPalette(false); } })));
+  }, [closeCommandPalette, commandPaletteOpen, navigateReference, navigableReferencesForFollow, openChoices]);
+  openUsagesRef.current = openUsages;
+  openReferenceChoicesRef.current = openReferenceChoices;
+  openPropertyDefinitionRef.current = openPropertyDefinition;
+  const paletteCommands = useMemo<NavigationCommand[]>(() => {
+    const result: NavigationCommand[] = sheets.map((sheet) => {
+      const first = cellIdentityAt(sheet.content, { columnIndex: 0, rowIndex: 0 });
+      return { id: `sheet:${sheet.id}`, label: `Go to sheet: ${sheet.name}`,
+        run: () => {
+          const remembered = onActivateSheet(sheet.id, false);
+          if (remembered) navigateCellTarget(remembered);
+          else if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
+          else navigateEmptySheet(sheet);
+           closeCommandPalette(false);
+        } };
+    });
+    result.unshift({ id: 'row', label: 'Go to row…', unavailable: selectedSheet?.content.rows.length ? undefined : 'No current sheet rows', run: () => {
+      const raw = window.prompt('Row number');
+      if (!raw || !/^\d+$/.test(raw)) return;
+      const row = Number(raw);
+      if (!selectedSheet || row < 1 || row > selectedSheet.content.rows.length) { setNavigationFeedback('Enter an existing positive row number.'); return; }
+      const columnId = activeCell && selectedSheet.content.columns.includes(activeCell.cell.columnId) ? activeCell.cell.columnId : selectedSheet.content.columns[0];
+      if (columnId) navigateCellTarget({ sheetId: selectedSheet.id, cell: { rowId: selectedSheet.content.rows[row - 1]!, columnId } });
+       closeCommandPalette(false);
+    } });
+    const properties = selectedSheet?.modelId ? workbook.dataModels?.[selectedSheet.modelId]?.columns.filter((property) => selectedSheet.modelColumnBindings?.[property.id]) ?? [] : [];
+    if (properties.length === 0) result.unshift({ id: 'property', label: 'Go to property…', unavailable: 'The current sheet has no named columns', run: () => {} });
+    for (const property of properties) result.unshift({ id: `property:${property.id}`, label: `Go to property: ${property.name}`, run: () => {
+      const columnId = selectedSheet!.modelColumnBindings![property.id]!;
+      const rowId = activeCell && selectedSheet!.content.rows.includes(activeCell.cell.rowId) ? activeCell.cell.rowId : selectedSheet!.content.rows[0];
+       if (rowId) { navigateCellTarget({ sheetId: selectedSheet!.id, cell: { rowId, columnId } }); closeCommandPalette(false); }
+    } });
+    result.unshift({ id: 'definition', label: 'Go to property definition', shortcut: 'Alt+Shift+D', unavailable: propertyForActiveCell() || propertyReferenceChoices().length ? undefined : 'Select a named property or property reference first', run: openPropertyDefinition });
+    result.unshift({ id: 'reference', label: 'Follow reference', shortcut: 'Alt+Enter', unavailable: navigableReferencesForFollow().length ? undefined : 'No resolvable reference', run: openReferenceChoices });
+    result.unshift({ id: 'usages', label: 'Find usages', shortcut: 'Alt+Shift+U', unavailable: activeCell ? undefined : 'Select a cell first', run: openUsages });
+    return result;
+  }, [activeCell, closeCommandPalette, navigateCellTarget, navigateEmptySheet, navigableReferencesForFollow, onActivateSheet, openPropertyDefinition, openReferenceChoices, openUsages, propertyForActiveCell, propertyReferenceChoices, selectedSheet, sheets, workbook]);
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
@@ -308,13 +521,20 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             selection={selectionRange}
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        canGoBack={navigationHistory.canGoBack}
+        canGoForward={navigationHistory.canGoForward}
+        onGoBack={() => navigationHistory.traverse('back')}
+        onGoForward={() => navigationHistory.traverse('forward')}
         onOpenDataModels={onOpenDataModels}
+        onOpenCommandPalette={() => { paletteInvoker.current = document.activeElement as HTMLElement; setCommandPaletteOpen(true); }}
         modelControls={selectedSheet ? <SheetModelControls key={selectedSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => onOpenDataModels?.(modelId)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
       />
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
+      {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
+       {commandPaletteOpen ? <NavigationPalette key={paletteView} commands={paletteChoices ?? paletteCommands} onClose={closeCommandPalette} /> : null}
         <FormulaPanel activeCell={activeCell} editingCell={editingCell} formulaResults={formulaResults} onCancel={onCancelEdit} onCommit={(session) => { const outcome = onCommitEdit(session); reportWriteOutcome(outcome); return outcome; }} onOpenModel={onOpenDataModels} onRawChange={onEditValueChange} onStart={onStartEdit} onSuspend={onSuspendEdit} onViewChange={onUpdateEditView} open={formulaPanelOpen} selectedSheet={selectedSheet} setOpen={setFormulaPanelOpen} sheets={sheets} workbook={workbook} />
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
@@ -348,7 +568,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         ) : undefined}
         hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
-        navigationMotion={navigationMotion && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
+        navigationMotion={(navigationMotion || workspaceController.navigationMotion) && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
@@ -384,6 +604,13 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           const navigationHighlightRange = navigationHighlight?.kind === 'range'
             && navigationHighlight.sheetId === sheet.id
             ? addressRangeOf(sheet.content, navigationHighlight.range)
+            : undefined;
+          const navigationRequest = navigationRequestForSheet(sheet.id);
+          const navigationRequestTarget = navigationRequest?.target.kind === 'cell'
+            ? navigationRequest.target.target
+            : null;
+          const navigationRequestRange = navigationRequest?.target.kind === 'range'
+            ? addressRangeOf(sheet.content, navigationRequest.target.range)
             : undefined;
           const historyFeedbackCells = contentHistoryFeedback
             ? historyCellsForSheet(contentHistoryFeedback, sheet)
@@ -452,6 +679,14 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     logicalSelection={selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
+                    onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
+                    onUserViewportMovement={recordUserGridMovement}
+                    historyRestore={historyRestoreForSheet(sheet.id)}
+                    navigationRestoreGeneration={navigationRequest ? undefined : navigationRestoreForSheet(sheet.id)}
+                    navigationRequestGeneration={navigationRequest?.generation}
+                    navigationRequestCellKey={cellKeyForTarget(sheet, navigationRequestTarget)}
+                    navigationRequestRange={navigationRequestRange}
+                    onNavigationSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
                       clear: (target) => reportWriteOutcome(onClearCell(target)),

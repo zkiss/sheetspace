@@ -93,7 +93,7 @@ describe('useReferenceNavigation', () => {
     expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
       left: 0,
       top: 0,
-    }), { forceOversized: true, minimumScale: 0.5 });
+    }), expect.objectContaining({ forceOversized: true, minimumScale: 0.5 }));
     expect(result.current.navigationHighlight).not.toBeNull();
     expect(result.current.navigationMotion).toBe(true);
 
@@ -131,11 +131,50 @@ describe('useReferenceNavigation', () => {
     expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
       left: 0,
       top: 0,
-    }), { forceOversized: false, minimumScale: 0.5 });
+    }), expect.objectContaining({ forceOversized: false, minimumScale: 0.5 }));
     expect(result.current.navigationMotion).toBe(false);
     expect(result.current.navigationHighlight).not.toBeNull();
     act(() => { vi.advanceTimersByTime(1_200); });
     expect(result.current.navigationHighlight).toBeNull();
+  });
+
+  it('hands explicit navigation to the shared navigation barrier', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const navigateToTarget = vi.fn();
+    let settled = 0;
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget,
+      onExplicitNavigation: (navigate) => navigate(Object.assign(() => { settled += 1; }, { generation: 1, complete: () => { settled += 1; } })),
+      onSelectReferenceTarget: vi.fn(),
+      startNavigation: (operation, _target, startViewport) => { startViewport(operation.complete); },
+      workbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => result.current.navigateReference(reference({
+      kind: 'cell', sheetId: sheet.id,
+      identity: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! },
+    })));
+
+    const controllerSettled = navigateToTarget.mock.calls[0]![1].onSettled as () => void;
+    act(controllerSettled);
+    expect(settled).toBe(1);
+  });
+
+  it('navigates command targets through the same explicit history boundary', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const navigateToTarget = vi.fn();
+    const select = vi.fn();
+    const explicit = vi.fn((navigate) => navigate(Object.assign(() => {}, { generation: 4, complete: () => {} })));
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget, onExplicitNavigation: explicit, onSelectReferenceTarget: select, workbook: workbookWithSheets([sheet]),
+    }));
+    const cell = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => {
+      expect(result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell } }, sheet)).toBe(true);
+      expect(result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell: { rowId: 'gone', columnId: cell.columnId } } }, sheet)).toBe(false);
+    });
+    expect(explicit).toHaveBeenCalledOnce();
+    expect(select).toHaveBeenCalledWith({ kind: 'cell', target: { sheetId: sheet.id, cell } });
   });
 
   it('restarts highlight lifetime and identity on repeated navigation, then replaces the target', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectFormula } from '@reference-navigation/formulaInspection';
+import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
 import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { Workbook } from '@workbook/core/model';
 import { commitCellRawContent } from '@workbook/mutations/operations';
@@ -39,6 +39,23 @@ describe('formula inspection', () => {
       },
     ]);
     expect(result?.references.every((reference) => reference.navigable)).toBe(true);
+  });
+
+  it('falls back to every navigable draft reference when the caret is outside a reference span', () => {
+    const inputs = sheet('sheet-inputs', 'Inputs');
+    const draft = '=@A[1] + @B[1]';
+    const inspection = inspectFormula(draft, workbook([inputs]), inputs);
+
+    expect(navigableReferencesAtCaret(inspection, draft.indexOf('+'))
+      .map((reference) => reference.text)).toEqual(['@A[1]', '@B[1]']);
+  });
+
+  it('returns every navigable reference when a draft has no caret position', () => {
+    const inputs = sheet('sheet-inputs', 'Inputs');
+    const inspection = inspectFormula('=@A[1] + @B[1]', workbook([inputs]), inputs);
+
+    expect(navigableReferencesAtCaret(inspection, undefined)
+      .map((reference) => reference.text)).toEqual(['@A[1]', '@B[1]']);
   });
 
   it('keeps navigation identity stable when row order changes', () => {

@@ -15,10 +15,12 @@ import {
 } from '@workspace/workspaceGeometry';
 
 export function useWorkspaceController({
+  onBeforeUserMovement,
   onClearSelection,
   onCreateSheet,
   interactionsEnabled = true,
 }: {
+  onBeforeUserMovement?: () => void;
   onClearSelection: () => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   interactionsEnabled?: boolean;
@@ -26,10 +28,31 @@ export function useWorkspaceController({
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
   const [navigationInterrupted, setNavigationInterrupted] = useState(false);
+  const [navigationMotion, setNavigationMotion] = useState(false);
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
   const navigationMayBeMoving = useRef(false);
+  const viewportMovementIsUser = useRef(false);
+  const pendingViewportRestore = useRef<{ id: number; onSettled: () => void; timeout?: number }>();
+  const nextViewportRestoreId = useRef(0);
+  useLayoutEffect(() => {
+    const pending = pendingViewportRestore.current;
+    if (!pending) return;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    if (reducedMotion) {
+      pendingViewportRestore.current = undefined;
+      pending.onSettled();
+      return;
+    }
+    setNavigationMotion(true);
+    pending.timeout = window.setTimeout(() => {
+      if (pendingViewportRestore.current?.id !== pending.id) return;
+      pendingViewportRestore.current = undefined;
+      setNavigationMotion(false);
+      pending.onSettled();
+    }, 180);
+  }, [viewport]);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
     start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
   }, interactionsEnabled);
@@ -90,13 +113,20 @@ export function useWorkspaceController({
   }
 
   function interruptNavigation() {
+    // History restoration may have pending grid work. Retire it before sampling
+    // or changing the viewport so a newly mounted grid cannot restore over this
+    // gesture.
+    onBeforeUserMovement?.();
+    cancelViewportRestore();
     // Read before React removes the transition, and only once even for batched inputs.
     if (navigationMayBeMoving.current) {
       navigationMayBeMoving.current = false;
       const displayed = displayedWorkspaceViewport(workspacePlaneRef.current);
       if (displayed) setViewport(displayed);
     }
+    viewportMovementIsUser.current = true;
     setNavigationInterrupted(true);
+    setNavigationMotion(false);
   }
 
   function panWorkspace(deltaX: number, deltaY: number) {
@@ -129,19 +159,52 @@ export function useWorkspaceController({
   }
 
   function resetViewport() {
+    onBeforeUserMovement?.();
+    cancelViewportRestore();
     navigationMayBeMoving.current = false;
+    viewportMovementIsUser.current = true;
     setNavigationInterrupted(true);
+    setNavigationMotion(false);
     setViewport({ x: 0, y: 0, scale: 1 });
+  }
+
+  function cancelViewportRestore() {
+    const pending = pendingViewportRestore.current;
+    if (pending?.timeout !== undefined) window.clearTimeout(pending.timeout);
+    pendingViewportRestore.current = undefined;
+  }
+
+  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}) {
+    cancelViewportRestore();
+    const id = ++nextViewportRestoreId.current;
+    pendingViewportRestore.current = { id, onSettled };
+    navigationMayBeMoving.current = true;
+    viewportMovementIsUser.current = false;
+    setNavigationInterrupted(false);
+    setViewport(nextViewport);
+    return () => {
+      if (pendingViewportRestore.current?.id === id) cancelViewportRestore();
+    };
   }
 
   function navigateToTarget(
     target: WorkspaceTargetRect,
-    options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean } = {},
-  ) {
+    options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean; onSettled?: () => void } = {},
+  ): () => void {
     const workspace = workspaceSurfaceRef.current;
-    if (!workspace) return;
+    if (!workspace) {
+      options.onSettled?.();
+      return () => {};
+    }
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
+    let id: number | undefined;
+    if (options.onSettled) {
+      cancelViewportRestore();
+      id = ++nextViewportRestoreId.current;
+      pendingViewportRestore.current = { id, onSettled: options.onSettled };
+    }
     navigationMayBeMoving.current = true;
+    viewportMovementIsUser.current = false;
     setNavigationInterrupted(false);
     setViewport((currentViewport) =>
       viewportForTarget({
@@ -152,6 +215,9 @@ export function useWorkspaceController({
         ...options,
       }).viewport,
     );
+    return () => {
+      if (id !== undefined && pendingViewportRestore.current?.id === id) cancelViewportRestore();
+    };
   }
 
   function createSheetAtViewportCenter() {
@@ -170,15 +236,22 @@ export function useWorkspaceController({
 
   return {
     closeSheetMenu,
+    consumeViewportMovementIsUser: () => {
+      const isUserMovement = viewportMovementIsUser.current;
+      viewportMovementIsUser.current = false;
+      return isUserMovement;
+    },
     createSheetAtViewportCenter,
     handleWorkspaceContextMenu,
     isPanningWorkspace,
     navigationInterrupted,
+    navigationMotion,
     navigateToTarget,
     openSheetMenu,
     panWorkspace,
     pendingSheetMenu,
     resetViewport,
+    restoreViewport,
     viewport,
     workspacePlaneRef,
     workspaceSurfaceRef,

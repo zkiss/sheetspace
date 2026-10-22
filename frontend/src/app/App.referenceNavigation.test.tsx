@@ -21,6 +21,106 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
+  it('captures and restores a delayed grid reference arrival only after Workspace motion settles', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const inputs = sheetDocument({
+      id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 }, rowCount: 30, columnCount: 10,
+    });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!J[30]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
+
+    const surface = workspaceSurface();
+    const departure = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!J[30], reference' }));
+
+    // The actual SheetGrid starts unavailable to the virtual window. Giving
+    // it geometry drives its own virtualizer and focus lifecycle for J30.
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputsBody = within(inputsFrame).getByTestId('sheet-frame-body');
+    act(() => { virtualGridGeometry(inputsBody, { height: 160, width: 240 }); });
+    Object.defineProperties(inputsBody, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollWidth: { configurable: true, value: 1_000 },
+    });
+    await act(async () => {});
+    expect(screen.getByRole('cell', { name: 'Inputs J30 empty cell' })).toHaveFocus();
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
+
+    act(() => { vi.advanceTimersByTime(179); });
+    act(() => { vi.advanceTimersByTime(1); });
+
+    const arrival = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+    const arrivalScroll = [inputsBody.scrollLeft, inputsBody.scrollTop];
+    expect(arrival).not.toEqual(departure);
+    expect(arrivalScroll[0]).toBeGreaterThan(0);
+    expect(arrivalScroll[1]).toBeGreaterThan(0);
+
+    // Highlight expiry is presentation-only: the settled request must already
+    // be retired and leave the captured destination intact.
+    act(() => { vi.advanceTimersByTime(1_200); });
+    expect([inputsBody.scrollLeft, inputsBody.scrollTop]).toEqual(arrivalScroll);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    act(() => { vi.advanceTimersByTime(180); });
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(departure);
+    expect(screen.getByRole('cell', { name: 'Outputs A1 cell' })).toHaveAttribute('data-active-cell', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forward' }));
+    act(() => { vi.advanceTimersByTime(180); });
+    fireEvent.scroll(inputsBody);
+    await act(async () => {});
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(arrival);
+    expect(screen.getByRole('cell', { name: 'Inputs J30 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+    expect([inputsBody.scrollLeft, inputsBody.scrollTop]).toEqual(arrivalScroll);
+  });
+
+  it('keeps an outer zoom after cancelling a smooth reference restoration', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
+    fireEvent.wheel(workspaceSurface(), { ctrlKey: true, deltaY: -120, clientX: 300, clientY: 200 });
+    expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThan(1);
+
+    // Drain the cancelled operation after the controller has synchronously
+    // invalidated it, including its delayed motion/reveal work.
+    act(() => { vi.advanceTimersByTime(2_000); });
+    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
+    expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThan(1);
+  });
+
+  it('records an empty-sheet palette jump so Back restores the prior context', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const source = sheetDocument({ id: 'source', name: 'Source', position: { x: 0, y: 0 } });
+    const empty = sheetDocument({ id: 'empty', name: 'Empty', position: { x: 4_000, y: 3_000 }, rowCount: 0, columnCount: 0 });
+    render(<App initialWorkbook={workbookWithSheets([source, empty])} />);
+    act(() => { setSurfaceSize(800, 600); });
+    const surface = workspaceSurface();
+    const departure = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Source A1 empty cell' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to sheet: Empty' }));
+    act(() => { vi.advanceTimersByTime(180); });
+
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).not.toEqual(departure);
+    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    act(() => { vi.advanceTimersByTime(180); });
+
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(departure);
+    expect(screen.getByRole('cell', { name: 'Source A1 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+  });
+
   it('wires smooth navigation feedback expiry without clearing the range selection', () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));

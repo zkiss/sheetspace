@@ -42,6 +42,7 @@ export type CellInteractionAction =
   | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
+  | { type: 'restore-selection'; selection: CellSelection | null }
   | { type: 'start-edit'; session: CellEditSession; replaceSuspendedDraft?: boolean }
   | { type: 'update-draft'; session: CellEditSession; draft: string }
   | { type: 'update-editor-state'; session: CellEditSession; selection: { start: number; end: number }; scrollTop: number }
@@ -163,6 +164,29 @@ export function cellInteractionReducer(
         referenceSelection: action.target,
         tabRunOriginColumnId: null,
       }, target);
+    }
+    case 'restore-selection': {
+      if (!action.selection) {
+        return {
+          ...state,
+          selection: null,
+          selectionOwner: null,
+          rangeSelection: null,
+          referenceSelection: null,
+          focusRequest: null,
+          tabRunOriginColumnId: null,
+        };
+      }
+      return {
+        ...state,
+        selection: action.selection.extent,
+        selectionsBySheet: { ...state.selectionsBySheet, [action.selection.extent.sheetId]: action.selection.extent },
+        selectionOwner: null,
+        rangeSelection: action.selection,
+        referenceSelection: null,
+        focusRequest: null,
+        tabRunOriginColumnId: null,
+      };
     }
     case 'start-edit':
       {

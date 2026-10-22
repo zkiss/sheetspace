@@ -15,6 +15,7 @@ import type {
   CellNavigationRequest,
   CellTarget,
   ReferenceNavigationTarget,
+  CellSelection,
 } from './cellInteractionContracts';
 import { resolveCellNavigation } from './cellNavigation';
 import {
@@ -323,6 +324,21 @@ export function useCellEditing({
       dispatch({ type: 'select-axis', mode, target, extend, gesture });
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
+    restoreSelection: (selection: CellSelection | null) => {
+      if (!selection) {
+        dispatch({ type: 'restore-selection', selection: null });
+        return true;
+      }
+      const sheet = findSheetById(workbook, selection.anchor.sheetId);
+      const valid = sheet && selection.anchor.sheetId === selection.extent.sheetId
+        && cellKeyForTarget(sheet, selection.anchor) && cellKeyForTarget(sheet, selection.extent);
+      if (!valid) {
+        dispatch({ type: 'restore-selection', selection: null });
+        return false;
+      }
+      dispatch({ type: 'restore-selection', selection });
+      return true;
+    },
     startEditingCell,
     updateEditingCellValue: (draft: string, session = stateRef.current.editing ?? activeSessionRef.current) => {
       if (!session) return;
