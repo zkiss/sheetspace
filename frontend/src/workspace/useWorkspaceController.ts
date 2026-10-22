@@ -1,4 +1,4 @@
-import { MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
 import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
@@ -32,11 +32,25 @@ export function useWorkspaceController({
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
   const navigationMayBeMoving = useRef(false);
   const viewportMovementIsUser = useRef(false);
-  useEffect(() => {
-    if (!navigationMotion) return;
-    const timeout = window.setTimeout(() => setNavigationMotion(false), 180);
-    return () => window.clearTimeout(timeout);
-  }, [navigationMotion]);
+  const pendingViewportRestore = useRef<{ id: number; onSettled: () => void; timeout?: number }>();
+  const nextViewportRestoreId = useRef(0);
+  useLayoutEffect(() => {
+    const pending = pendingViewportRestore.current;
+    if (!pending) return;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    if (reducedMotion) {
+      pendingViewportRestore.current = undefined;
+      pending.onSettled();
+      return;
+    }
+    setNavigationMotion(true);
+    pending.timeout = window.setTimeout(() => {
+      if (pendingViewportRestore.current?.id !== pending.id) return;
+      pendingViewportRestore.current = undefined;
+      setNavigationMotion(false);
+      pending.onSettled();
+    }, 180);
+  }, [viewport]);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
     start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
   }, interactionsEnabled);
@@ -97,6 +111,7 @@ export function useWorkspaceController({
   }
 
   function interruptNavigation() {
+    cancelViewportRestore();
     // Read before React removes the transition, and only once even for batched inputs.
     if (navigationMayBeMoving.current) {
       navigationMayBeMoving.current = false;
@@ -138,6 +153,7 @@ export function useWorkspaceController({
   }
 
   function resetViewport() {
+    cancelViewportRestore();
     navigationMayBeMoving.current = false;
     viewportMovementIsUser.current = true;
     setNavigationInterrupted(true);
@@ -145,12 +161,23 @@ export function useWorkspaceController({
     setViewport({ x: 0, y: 0, scale: 1 });
   }
 
-  function restoreViewport(nextViewport: WorkspaceViewport) {
+  function cancelViewportRestore() {
+    const pending = pendingViewportRestore.current;
+    if (pending?.timeout !== undefined) window.clearTimeout(pending.timeout);
+    pendingViewportRestore.current = undefined;
+  }
+
+  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}) {
+    cancelViewportRestore();
+    const id = ++nextViewportRestoreId.current;
+    pendingViewportRestore.current = { id, onSettled };
     navigationMayBeMoving.current = true;
     viewportMovementIsUser.current = false;
     setNavigationInterrupted(false);
-    setNavigationMotion(!(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false));
     setViewport(nextViewport);
+    return () => {
+      if (pendingViewportRestore.current?.id === id) cancelViewportRestore();
+    };
   }
 
   function navigateToTarget(

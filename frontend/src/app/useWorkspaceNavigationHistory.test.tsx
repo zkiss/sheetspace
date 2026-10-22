@@ -39,7 +39,7 @@ describe('useWorkspaceNavigationHistory', () => {
     const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
-      restoreViewport: vi.fn(),
+      restoreViewport: (_viewport, complete) => { complete(); return () => {}; },
       selection: null,
       viewport: { x, y: 0, scale: 1 },
     }), { initialProps: { x: 1 } });
@@ -61,7 +61,7 @@ describe('useWorkspaceNavigationHistory', () => {
   it('applies a restored offscreen grid scroll offset when its container mounts', () => {
     vi.useFakeTimers();
     const runAnimationFrames = controlAnimationFrames();
-    const restoreViewport = vi.fn();
+    const restoreViewport = vi.fn((_viewport, complete) => { complete(); return () => {}; });
     const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
@@ -93,7 +93,7 @@ describe('useWorkspaceNavigationHistory', () => {
     const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
-      restoreViewport: vi.fn(),
+      restoreViewport: (_viewport, complete) => { complete(); return () => {}; },
       selection,
       viewport: { x, y: 0, scale: 1 },
     }), { initialProps: { x: 1 } });
@@ -121,7 +121,7 @@ describe('useWorkspaceNavigationHistory', () => {
   it('records only an explicit user grid movement, never a programmatic scroll write', () => {
     vi.useFakeTimers();
     const runAnimationFrames = controlAnimationFrames();
-    const restoreViewport = vi.fn();
+    const restoreViewport = vi.fn((_viewport, complete) => { complete(); return () => {}; });
     const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
@@ -149,10 +149,64 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(grid.scrollLeft).toBe(240);
     expect(grid.scrollTop).toBe(360);
     act(() => result.current.history.traverse('back'));
-    expect(restoreViewport).toHaveBeenLastCalledWith({ x: 1, y: 0, scale: 1 });
+    expect(restoreViewport).toHaveBeenLastCalledWith({ x: 1, y: 0, scale: 1 }, expect.any(Function));
 
     grid.scrollTop = 500;
     act(() => { result.current.recordUserGridMovement(); vi.advanceTimersByTime(2_000); });
     expect(result.current.history.canGoForward).toBe(true);
+  });
+
+  it('waits for both viewport motion and the selected grid scroll before completing restoration', () => {
+    vi.useFakeTimers();
+    const runAnimationFrames = controlAnimationFrames();
+    let settleViewport: (() => void) | undefined;
+    const restoreViewport = vi.fn((_viewport, complete) => {
+      settleViewport = complete;
+      return () => { settleViewport = undefined; };
+    });
+    const selection = { anchor: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, extent: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, mode: 'cell' } as never;
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport, selection, viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    const grid = scrollContainer(240, 360);
+    act(() => result.current.registerScrollContainer('destination', grid));
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    grid.scrollLeft = 700;
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.history.traverse('back'); });
+
+    // Grid reveal runs independently of outer motion. Neither acknowledgement
+    // is a substitute for the other.
+    act(runAnimationFrames);
+    expect(grid.scrollLeft).toBe(240);
+    act(() => settleViewport?.());
+    expect(result.current.history.canGoForward).toBe(true);
+  });
+
+  it('cancels delayed grid restoration before an intervening user gesture can be overwritten', () => {
+    vi.useFakeTimers();
+    const runAnimationFrames = controlAnimationFrames();
+    let settleViewport: (() => void) | undefined;
+    const selection = { anchor: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, extent: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, mode: 'cell' } as never;
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(),
+      restoreViewport: (_viewport, complete) => { settleViewport = complete; return () => { settleViewport = undefined; }; },
+      selection,
+      viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    const grid = scrollContainer(240, 360);
+    act(() => result.current.registerScrollContainer('destination', grid));
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    grid.scrollLeft = 700;
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.history.traverse('back'); });
+
+    grid.scrollLeft = 500;
+    act(() => result.current.recordUserGridMovement());
+    act(runAnimationFrames);
+    act(() => settleViewport?.());
+
+    expect(grid.scrollLeft).toBe(500);
   });
 });
