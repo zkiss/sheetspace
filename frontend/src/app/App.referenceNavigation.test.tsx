@@ -21,6 +21,57 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
+  it('updates contextual link geometry through real grid scrolling and follows a cross-sheet link through navigation history', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', position: { x: 20, y: 20 }, cells: { A1: '=@inputs!B[2]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
+
+    const inputsBody = within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body');
+    const outputsFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
+    const outputsBody = within(outputsFrame).getByTestId('sheet-frame-body');
+    act(() => {
+      virtualGridGeometry(inputsBody, { height: 126, width: 238 });
+      virtualGridGeometry(outputsBody, { height: 126, width: 238 });
+    });
+
+    fireEvent.click(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
+    await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
+    const canvas = document.querySelector<SVGElement>('.contextual-reference-canvas')!;
+    const initialTargetX = canvas.querySelectorAll('line')[0]!.getAttribute('x2');
+    expect(canvas.querySelector('rect')).toHaveAttribute('stroke', screen.getByRole('button', { name: '@Inputs!B[2]' }).dataset.referenceColor!);
+
+    inputsBody.scrollTop = 40;
+    fireEvent.scroll(inputsBody);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /@Inputs!B\[2\], .* spatial endpoint/ })).toBeEnabled();
+    expect(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveAttribute('data-active-cell', 'true');
+
+    inputsBody.scrollTop = 0;
+    fireEvent.scroll(inputsBody);
+    const restoredLink = await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
+    expect(canvas.querySelectorAll('line')[0]!.getAttribute('x2')).toBe(initialTargetX);
+    fireEvent.click(restoredLink);
+    expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('cell', { name: 'Outputs A1 cell' })).toHaveAttribute('data-active-cell', 'true');
+  });
+
+  it('reports an unmounted virtualized reference as a fallback instead of mounting its source sheet', async () => {
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+
+    expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '@Inputs!B[2], unmounted spatial endpoint' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
+  });
+
   it('captures and restores a delayed grid reference arrival only after Workspace motion settles', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
