@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
@@ -58,11 +58,15 @@ describe('navigation palette composition', () => {
 
     await user.click(document.querySelector<HTMLElement>('[data-cell-key="A1"]')!);
     await user.click(screen.getByRole('button', { name: 'Command palette' }));
-    await user.click(screen.getByRole('button', { name: /Find usages/ }));
+    const search = screen.getByRole('combobox', { name: 'Command search' });
+    await user.type(search, 'Find usages');
+    await user.keyboard('{Enter}');
 
     expect(screen.getByText('Cell usages — Direct usages')).toBeInTheDocument();
     expect(screen.getByText('Model property usages: Amount — Direct usages')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Invoice: Total, row 1' })).toHaveLength(2);
+    expect(screen.getByRole('combobox', { name: 'Command search' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Command search' })).toHaveFocus();
   });
 
   it('closes the palette after directly following its single reference', async () => {
@@ -76,5 +80,21 @@ describe('navigation palette composition', () => {
     await user.click(screen.getByRole('button', { name: /Follow reference/ }));
 
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+  });
+
+  it('returns a shortcut-opened reference chooser to its invoking cell', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1, columnCount: 2 });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!A[1]+@inputs!B[1]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+    await user.click(source);
+    fireEvent.keyDown(source, { altKey: true, key: 'Enter' });
+
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Command search' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(source).toHaveFocus();
   });
 });

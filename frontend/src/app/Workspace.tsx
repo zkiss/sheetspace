@@ -135,6 +135,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteChoices, setPaletteChoices] = useState<NavigationCommand[] | null>(null);
+  const [paletteView, setPaletteView] = useState(0);
   const paletteInvoker = useRef<HTMLElement | null>(null);
   const propertyDefinitionInvoker = useRef<HTMLElement | null>(null);
   const openUsagesRef = useRef<() => void>(() => {});
@@ -215,11 +216,13 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       if (event.altKey && event.shiftKey && !primaryModifier && key === 'd' && navigationKeyboardEnabled) {
         event.preventDefault();
         propertyDefinitionInvoker.current = target;
+        paletteInvoker.current = target;
         openPropertyDefinitionRef.current();
         return;
       }
       if (event.altKey && !event.shiftKey && !primaryModifier && event.key === 'Enter' && navigationKeyboardEnabled) {
         event.preventDefault();
+        paletteInvoker.current = target;
         openReferenceChoicesRef.current();
         return;
       }
@@ -251,8 +254,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const closeCommandPalette = useCallback((restoreInvoker = true) => {
     setCommandPaletteOpen(false);
     setPaletteChoices(null);
-    if (restoreInvoker) queueMicrotask(() => { if (paletteInvoker.current?.isConnected) paletteInvoker.current.focus(); });
-  }, []);
+    if (restoreInvoker) queueMicrotask(() => {
+      if (paletteInvoker.current?.isConnected) paletteInvoker.current.focus();
+      else onRestoreGridFocus();
+    });
+  }, [onRestoreGridFocus]);
   const navigateCellTarget = useCallback((target: CellTarget) => {
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet || !navigateTarget({ kind: 'cell', target }, sheet)) setNavigationFeedback('The navigation target is no longer available.');
@@ -261,7 +267,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     startExplicitSheetNavigation(onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), { onSettled: settled }));
   }, [onClearSelection, startExplicitSheetNavigation, workspaceController]);
   const openChoices = useCallback((choices: NavigationCommand[]) => {
-    setPaletteChoices(choices); setCommandPaletteOpen(true);
+    setPaletteChoices(choices);
+    setPaletteView((view) => view + 1);
+    setCommandPaletteOpen(true);
   }, []);
   const propertyForActiveCell = useCallback(() => {
     if (!activeCell || !selectedSheet?.modelId) return undefined;
@@ -320,7 +328,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const row = sheet ? sheet.content.rows.indexOf(target.cell.rowId) + 1 : 0;
       return {
       id: `${label}:${title}:${target.sheetId}:${target.cell.rowId}:${target.cell.columnId}`, group: `${label} — ${title}`, label: `${sheet?.name ?? 'Deleted sheet'}: ${column ?? 'Column'}${row > 0 ? `, row ${row}` : ''}`,
-      run: () => { navigateCellTarget(target); closeCommandPalette(); },
+       run: () => { navigateCellTarget(target); closeCommandPalette(false); },
     }; });
     const choices = [...entries('Direct usages', usages.directUsages), ...entries('Indirect dependents', usages.transitiveDependents)];
     return choices.length ? choices : [{ id: `${label}:empty`, label: 'No results', group: label, unavailable: 'No direct usages or indirect dependents.', run: () => {} }];
@@ -343,10 +351,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const choices = candidates.length ? candidates : (references.length === 1 ? references : []);
     if (choices.length === 0) { setNavigationFeedback('No resolvable reference is available.'); return; }
     if (choices.length === 1) {
-      if (navigateReference(choices[0]!) && commandPaletteOpen) closeCommandPalette();
+      if (navigateReference(choices[0]!) && commandPaletteOpen) closeCommandPalette(false);
       return;
     }
-    openChoices(choices.map((reference, index) => ({ id: `reference:${index}`, label: `Follow reference: ${reference.text}`, run: () => { if (navigateReference(reference)) closeCommandPalette(); } })));
+    openChoices(choices.map((reference, index) => ({ id: `reference:${index}`, label: `Follow reference: ${reference.text}`, run: () => { if (navigateReference(reference)) closeCommandPalette(false); } })));
   }, [closeCommandPalette, commandPaletteOpen, editingCell, navigateReference, openChoices, selectedRaw, selectedSheet, workbook]);
   openUsagesRef.current = openUsages;
   openReferenceChoicesRef.current = openReferenceChoices;
@@ -360,7 +368,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           if (remembered) navigateCellTarget(remembered);
           else if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
           else navigateEmptySheet(sheet);
-          closeCommandPalette();
+           closeCommandPalette(false);
         } };
     });
     result.unshift({ id: 'row', label: 'Go to row…', unavailable: selectedSheet?.content.rows.length ? undefined : 'No current sheet rows', run: () => {
@@ -370,14 +378,14 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       if (!selectedSheet || row < 1 || row > selectedSheet.content.rows.length) { setNavigationFeedback('Enter an existing positive row number.'); return; }
       const columnId = activeCell && selectedSheet.content.columns.includes(activeCell.cell.columnId) ? activeCell.cell.columnId : selectedSheet.content.columns[0];
       if (columnId) navigateCellTarget({ sheetId: selectedSheet.id, cell: { rowId: selectedSheet.content.rows[row - 1]!, columnId } });
-      closeCommandPalette();
+       closeCommandPalette(false);
     } });
     const properties = selectedSheet?.modelId ? workbook.dataModels?.[selectedSheet.modelId]?.columns.filter((property) => selectedSheet.modelColumnBindings?.[property.id]) ?? [] : [];
     if (properties.length === 0) result.unshift({ id: 'property', label: 'Go to property…', unavailable: 'The current sheet has no named columns', run: () => {} });
     for (const property of properties) result.unshift({ id: `property:${property.id}`, label: `Go to property: ${property.name}`, run: () => {
       const columnId = selectedSheet!.modelColumnBindings![property.id]!;
       const rowId = activeCell && selectedSheet!.content.rows.includes(activeCell.cell.rowId) ? activeCell.cell.rowId : selectedSheet!.content.rows[0];
-      if (rowId) { navigateCellTarget({ sheetId: selectedSheet!.id, cell: { rowId, columnId } }); closeCommandPalette(); }
+       if (rowId) { navigateCellTarget({ sheetId: selectedSheet!.id, cell: { rowId, columnId } }); closeCommandPalette(false); }
     } });
     result.unshift({ id: 'definition', label: 'Go to property definition', shortcut: 'Alt+Shift+D', unavailable: propertyForActiveCell() || propertyReferenceChoices().length ? undefined : 'Select a named property or property reference first', run: openPropertyDefinition });
     result.unshift({ id: 'reference', label: 'Follow reference', shortcut: 'Alt+Enter', unavailable: formulaInspection?.references.some((reference) => reference.navigable) || editingCell ? undefined : 'No resolvable reference', run: openReferenceChoices });
@@ -525,7 +533,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       />
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
-      {commandPaletteOpen ? <NavigationPalette commands={paletteChoices ?? paletteCommands} onClose={closeCommandPalette} /> : null}
+       {commandPaletteOpen ? <NavigationPalette key={paletteView} commands={paletteChoices ?? paletteCommands} onClose={closeCommandPalette} /> : null}
         <FormulaPanel activeCell={activeCell} editingCell={editingCell} formulaResults={formulaResults} onCancel={onCancelEdit} onCommit={(session) => { const outcome = onCommitEdit(session); reportWriteOutcome(outcome); return outcome; }} onOpenModel={onOpenDataModels} onRawChange={onEditValueChange} onStart={onStartEdit} onSuspend={onSuspendEdit} onViewChange={onUpdateEditView} open={formulaPanelOpen} selectedSheet={selectedSheet} setOpen={setFormulaPanelOpen} sheets={sheets} workbook={workbook} />
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
