@@ -173,6 +173,32 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(result.current.history.canGoForward).toBe(true);
   });
 
+  it('records a reference-jump arrival after its reveal acknowledgement without a saved grid offset', () => {
+    let settleViewport: (() => void) | undefined;
+    const restoreViewport = vi.fn((_viewport, complete) => {
+      settleViewport = complete;
+      return () => { settleViewport = undefined; };
+    });
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(),
+      restoreViewport,
+      selection: null,
+      viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, 'destination', (settled) => restoreViewport({ x: 2, y: 0, scale: 1 }, settled));
+    }));
+    rerender({ x: 2 });
+
+    act(() => settleViewport?.());
+    expect(result.current.history.canGoBack).toBe(false);
+
+    act(() => result.current.acknowledgeGridRestore('destination', 1));
+    expect(result.current.history.canGoBack).toBe(true);
+  });
+
   it('cancels delayed grid restoration before an intervening user gesture can be overwritten', () => {
     vi.useFakeTimers();
     let settleViewport: (() => void) | undefined;

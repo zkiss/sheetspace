@@ -32,10 +32,9 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   }, [cancelPendingScroll]);
   const acknowledgeGridRestore = useCallback((sheetId: string, generation: number) => {
     const offset = pendingScroll.current.get(sheetId);
-    if (!offset || offset.generation !== generation) return;
-    pendingScroll.current.delete(sheetId);
     const restoring = activeRestore.current;
     if (restoring?.generation === generation && restoring.requiredSheetId === sheetId && !restoring.requiredGridSettled) {
+      if (offset?.generation === generation) pendingScroll.current.delete(sheetId);
       restoring.requiredGridSettled = true;
       finishRestoreIfSettled();
     }
