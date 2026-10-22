@@ -50,12 +50,19 @@ export function useNavigationHistory({ capture, restore }: {
     scheduleMovement();
   }, [scheduleMovement]);
   const explicitNavigation = useCallback((navigate: () => void) => {
-    restoration.current += 1;
+    const operation = restoration.current + 1;
+    restoration.current = operation;
     flushMovement();
     commit();
     navigate();
     // Selection and virtual grid scroll updates are applied by React after the jump.
-    window.setTimeout(commit, 0);
+    window.setTimeout(() => {
+      // A newer jump or traversal owns the current context. Its predecessor
+      // must not append an arrival or release the newer operation's guard.
+      if (restoration.current !== operation) return;
+      commit();
+      restoration.current = 0;
+    }, 0);
   }, [commit, flushMovement]);
   const traverse = useCallback((direction: 'back' | 'forward') => {
     flushMovement();
