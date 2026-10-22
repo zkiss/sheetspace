@@ -488,6 +488,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onUserViewportMovement={recordUserGridMovement}
                     historyRestore={historyRestoreForSheet(sheet.id)}
                     navigationRestoreGeneration={navigationRestoreForSheet(sheet.id)}
+                    navigationRevealGeneration={navigationRestoreForSheet(sheet.id) ?? null}
                     onHistoryRestoreSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{

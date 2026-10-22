@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CellSelection } from '@grid/cellInteractionContracts';
 import { useNavigationHistory } from '@reference-navigation/useNavigationHistory';
 import type { NavigationOperation } from '@reference-navigation/useNavigationHistory';
@@ -14,6 +14,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const scrollContainers = useRef(new Map<string, HTMLElement>());
   const pendingScroll = useRef(new Map<string, { generation: number; left: number; top: number }>());
   const restoreGeneration = useRef(0);
+  const [, setActiveNavigationGeneration] = useState<number | null>(null);
   const activeRestore = useRef<{ generation: number; complete: () => void; cancelViewport: () => void; viewportSettled: boolean; requiredGridSettled: boolean; requiredSheetId?: string }>();
   const finishRestoreIfSettled = useCallback(() => {
     const restoring = activeRestore.current;
@@ -28,6 +29,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     restoreGeneration.current += 1;
     activeRestore.current?.cancelViewport();
     activeRestore.current = undefined;
+    setActiveNavigationGeneration(null);
     cancelPendingScroll();
   }, [cancelPendingScroll]);
   const acknowledgeGridRestore = useCallback((sheetId: string, generation: number) => {
@@ -62,6 +64,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       generation, complete: operation.complete, cancelViewport: () => {}, viewportSettled: false, requiredGridSettled: false, requiredSheetId,
     };
     activeRestore.current = restoring;
+    setActiveNavigationGeneration(generation);
     restoring.cancelViewport = startViewport(() => {
       if (activeRestore.current?.generation !== generation) return;
       activeRestore.current.viewportSettled = true;

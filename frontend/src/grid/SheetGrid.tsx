@@ -98,7 +98,8 @@ export function SheetGrid({
   onUserViewportMovement,
    historyRestore,
    navigationRestoreGeneration,
-  onHistoryRestoreSettled,
+   navigationRevealGeneration,
+   onHistoryRestoreSettled,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
@@ -117,6 +118,7 @@ export function SheetGrid({
   onUserViewportMovement?: () => void;
    historyRestore?: { generation: number; left: number; top: number };
    navigationRestoreGeneration?: number;
+   navigationRevealGeneration?: number | null;
   onHistoryRestoreSettled?: (generation: number) => void;
   activeCellKey: string | null;
   /**
@@ -371,6 +373,7 @@ export function SheetGrid({
   useEffect(() => {
     if (navigationHighlightIdentity !== undefined
       && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
+    if (navigationRevealGeneration !== undefined && navigationRevealGeneration !== navigationHighlightIdentity) return;
     if (!navigationHighlightRange && !navigationHighlightCellKey) {
       return;
     }
@@ -401,7 +404,7 @@ export function SheetGrid({
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
     if (navigationHighlightIdentity !== undefined) onNavigationRevealSettled?.(navigationHighlightIdentity);
-  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, onNavigationRevealSettled, rowMetrics, rows, scrollContainerRef, sheet]);
+  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, navigationRevealGeneration, onNavigationRevealSettled, rowMetrics, rows, scrollContainerRef, sheet]);
   useEffect(() => {
     if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;

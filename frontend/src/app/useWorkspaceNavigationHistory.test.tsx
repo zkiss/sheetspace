@@ -199,6 +199,24 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(result.current.history.canGoBack).toBe(true);
   });
 
+  it('removes a cancelled reference reveal generation before a delayed grid can mount', () => {
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(),
+      restoreViewport: () => () => {},
+      selection: null,
+      viewport: { x: 1, y: 0, scale: 1 },
+    }));
+
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, 'destination', () => () => {});
+    }));
+    expect(result.current.navigationRestoreForSheet('destination')).toBe(1);
+
+    act(() => result.current.recordUserGridMovement());
+    expect(result.current.navigationRestoreForSheet('destination')).toBeUndefined();
+  });
+
   it('cancels delayed grid restoration before an intervening user gesture can be overwritten', () => {
     vi.useFakeTimers();
     let settleViewport: (() => void) | undefined;
