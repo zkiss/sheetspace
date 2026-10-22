@@ -17,7 +17,7 @@ import { contextualReferences, projectReferenceGeometry, type GridReferenceViewp
 import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
-import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { formulaRawForStorage, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { SheetOverview } from '@workspace/SheetOverview';
@@ -159,7 +159,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
   useEffect(() => { if (!editingCell) setFormulaPanelOpen(false); }, [editingCell]);
-  const inspectedRaw = editingCell && editingCell.target.sheetId === selectedSheet?.id ? editingCell.draft : selectedRaw;
+  const inspectedRaw = editingCell && editingCell.target.sheetId === selectedSheet?.id
+    ? formulaRawForStorage(editingCell.draft, workbook, selectedSheet.id)
+    : selectedRaw;
   const formulaInspection = selectedSheet && inspectedRaw
     ? inspectFormula(inspectedRaw, workbook, selectedSheet)
     : undefined;
