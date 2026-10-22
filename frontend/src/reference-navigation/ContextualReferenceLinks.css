@@ -3,6 +3,7 @@
 .contextual-reference-source-list { display: grid; gap: 0.15rem; max-width: 18rem; }
 .contextual-reference-source { text-align: left; }
 .contextual-reference-swatch { display: inline-block; width: 0.65rem; height: 0.65rem; margin-right: 0.35rem; border-radius: 50%; }
-.contextual-reference-canvas { position: fixed; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.contextual-reference-canvas { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .contextual-reference-canvas line { stroke-width: 2; stroke-opacity: 0.5; }
 .contextual-reference-canvas rect { fill: none; stroke-width: 2; stroke-opacity: 0.8; }
+.contextual-reference-canvas .contextual-reference-link-hit-target { pointer-events: auto; stroke-opacity: 0; cursor: pointer; }
