@@ -31,6 +31,6 @@ export function formattingWorkspaceProps(sheet: SheetDocument, selection: Format
     onNavigateCell: vi.fn(), onNavigateKeyboardCell: vi.fn(), onOpenRenameDialog: vi.fn(),
     onRetryFailedSaves: vi.fn(), onSelectCell: vi.fn(), onExtendSelection: vi.fn(), onFocusSelection: vi.fn(),
     onSettleSelectionGesture: vi.fn(), onRestoreGridFocus: vi.fn(() => null), onSelectAxis: vi.fn(),
-    onSelectReferenceTarget: vi.fn(), onStartEdit: vi.fn(),
+    onSelectReferenceTarget: vi.fn(), onRestoreSelection: vi.fn(() => true), onStartEdit: vi.fn(),
   };
 }

@@ -3,8 +3,9 @@ import type { CellSelection } from '@grid/cellInteractionContracts';
 import { useNavigationHistory } from '@reference-navigation/useNavigationHistory';
 import type { WorkspaceViewport } from '@workspace/workspaceContracts';
 
-export function useWorkspaceNavigationHistory({ onSelectCell, restoreViewport, selection, viewport }: {
-  onSelectCell: (target: NonNullable<CellSelection>['anchor']) => void;
+export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailableTarget, restoreViewport, selection, viewport }: {
+  onRestoreSelection: (selection: CellSelection | null) => boolean;
+  onUnavailableTarget: () => void;
   restoreViewport: (viewport: WorkspaceViewport) => void;
   selection: CellSelection | null;
   viewport: WorkspaceViewport;
@@ -19,11 +20,11 @@ export function useWorkspaceNavigationHistory({ onSelectCell, restoreViewport, s
   }), [selection, viewport]);
   const restore = useCallback((context: ReturnType<typeof capture>) => {
     restoreViewport(context.viewport);
-    if (context.selection) onSelectCell(context.selection.anchor);
+    if (!onRestoreSelection(context.selection) && context.selection) onUnavailableTarget();
     window.requestAnimationFrame(() => Object.entries(context.scroll).forEach(([sheetId, offset]) => {
       const element = scrollContainers.current.get(sheetId);
       if (element) { element.scrollLeft = Math.max(0, offset.left); element.scrollTop = Math.max(0, offset.top); }
     }));
-  }, [onSelectCell, restoreViewport]);
+  }, [onRestoreSelection, onUnavailableTarget, restoreViewport]);
   return { history: useNavigationHistory({ capture, restore }), scrollContainers };
 }

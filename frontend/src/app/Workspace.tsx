@@ -72,6 +72,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onRestoreGridFocus,
   onSelectAxis,
   onSelectReferenceTarget,
+  onRestoreSelection,
   onStartEdit,
   referenceSelection,
   selectionRange,
@@ -113,6 +114,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onRestoreGridFocus: () => number | null;
   onSelectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
+  onRestoreSelection: (selection: CellSelection | null) => boolean;
   onStartEdit: (target: CellTarget, initialValue?: string) => void;
   referenceSelection: ReferenceNavigationTarget | null;
   selectionRange: CellSelection | null;
@@ -126,6 +128,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const clipboard = useRef(new ClipboardPayloadStore());
   const [, setClipboardRevision] = useState(0);
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
+  const [navigationFeedback, setNavigationFeedback] = useState('');
   const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
@@ -149,7 +152,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   const { history: navigationHistory, scrollContainers: gridScrollContainers } = useWorkspaceNavigationHistory({
-    onSelectCell, restoreViewport: workspaceController.restoreViewport,
+    onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
   const lastViewport = useRef(workspaceController.viewport);
@@ -337,6 +340,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         canRetryFailedSaves={canRetryFailedSaves}
       />
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
+      {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
         <FormulaPanel activeCell={activeCell} editingCell={editingCell} formulaResults={formulaResults} onCancel={onCancelEdit} onCommit={(session) => { const outcome = onCommitEdit(session); reportWriteOutcome(outcome); return outcome; }} onOpenModel={onOpenDataModels} onRawChange={onEditValueChange} onStart={onStartEdit} onSuspend={onSuspendEdit} onViewChange={onUpdateEditView} open={formulaPanelOpen} selectedSheet={selectedSheet} setOpen={setFormulaPanelOpen} sheets={sheets} workbook={workbook} />
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (

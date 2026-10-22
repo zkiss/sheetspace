@@ -71,6 +71,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     selectCell,
     selectAxis,
     selectReferenceTarget,
+    restoreSelection,
     startEditingCell,
     updateEditingCellValue,
     updateEditingCellView,
@@ -189,6 +190,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onRestoreGridFocus={focusCurrentSelection}
         onSelectAxis={selectAxis}
         onSelectReferenceTarget={selectReferenceTarget}
+        onRestoreSelection={restoreSelection}
         onStartEdit={startEditingCell}
         referenceSelection={referenceSelection}
         selectionRange={selectionRange}

@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useNavigationHistory } from './useNavigationHistory';
 
@@ -23,14 +24,20 @@ describe('useNavigationHistory', () => {
     expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
   });
 
-  it('captures departure and arrival around an explicit jump', () => {
+  it('captures the React-committed arrival around an explicit jump', () => {
     vi.useFakeTimers();
-    let x = 1;
-    const { result } = renderHook(() => useNavigationHistory({
-      capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }), restore: vi.fn(),
-    }));
-    act(() => result.current.explicitNavigation(() => { x = 2; }));
+    const restore = vi.fn();
+    const { result } = renderHook(() => {
+      const [x, setX] = useState(1);
+      const history = useNavigationHistory({
+        capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }), restore,
+      });
+      return { history, jump: () => setX(2) };
+    });
+    act(() => result.current.history.explicitNavigation(result.current.jump));
     act(() => vi.runOnlyPendingTimers());
-    expect(result.current.canGoBack).toBe(true);
+    expect(result.current.history.canGoBack).toBe(true);
+    act(() => { result.current.history.traverse('back'); });
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
   });
 });

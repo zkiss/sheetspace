@@ -11,10 +11,14 @@ export function useNavigationHistory({ capture, restore }: {
   const [revision, setRevision] = useState(0);
   const timer = useRef<number>();
   const restoring = useRef(false);
+  const captureRef = useRef(capture);
+  captureRef.current = capture;
   const commit = useCallback(() => {
-    history.current = appendNavigationContext(history.current, capture());
+    // A jump schedules state changes in its caller. Read the capture function
+    // from the committed render rather than retaining the departure render.
+    history.current = appendNavigationContext(history.current, captureRef.current());
     setRevision((current) => current + 1);
-  }, [capture]);
+  }, []);
   const flushMovement = useCallback(() => {
     if (timer.current !== undefined) {
       window.clearTimeout(timer.current);

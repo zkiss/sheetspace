@@ -67,6 +67,18 @@ describe('cellInteractionReducer', () => {
     expect(restored.focusRequest).toMatchObject({ target: b1 });
   });
 
+  it('restores a complete saved range or clears a missing saved selection', () => {
+    const range = { mode: 'columns' as const, anchor: a1, extent: b1 };
+    const restored = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'restore-selection', selection: range });
+    expect(restored.selection).toEqual(b1);
+    expect(restored.rangeSelection).toEqual(range);
+    expect(restored.focusRequest).toBeNull();
+
+    const cleared = cellInteractionReducer(restored, { type: 'restore-selection', selection: null });
+    expect(cleared.selection).toBeNull();
+    expect(cleared.rangeSelection).toBeNull();
+  });
+
   it('stores delivered reference ranges separately from editable-cell selection', () => {
     const reference: ReferenceNavigationTarget = {
       kind: 'range',
