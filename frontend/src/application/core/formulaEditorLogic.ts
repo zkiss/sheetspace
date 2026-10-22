@@ -1,6 +1,7 @@
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
+import { rangeReferenceIdentity, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import { formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult, type FormulaSyntaxToken } from '@workbook/formula/syntax';
 
 export type FormulaEditorSelection = { start: number; end: number };
@@ -13,9 +14,6 @@ export type FormulaCompletion = {
 export type FormulaFormattingResult =
   | { available: true; raw: string; selection: FormulaEditorSelection }
   | { available: false; raw: string; selection: FormulaEditorSelection };
-export type FormulaReferenceIdentity =
-  | { kind: 'cell'; sheetId: string; rowId: string; columnId: string }
-  | { kind: 'range'; sheetId: string; start: { rowId: string; columnId: string }; end: { rowId: string; columnId: string } };
 export type FormulaReferenceHover =
   | { kind: 'broken'; identity?: FormulaReferenceIdentity }
   | { kind: 'value'; identity: FormulaReferenceIdentity; value: FormulaScalarValue }
@@ -124,34 +122,21 @@ export function stableReferenceIdentity(reference: FormulaReference, resolver: F
   if (!sheetId) return undefined;
   if (reference.kind === 'canonical') {
     if (!reference.range) return { kind: 'cell', sheetId, ...reference.coordinate };
-    return { kind: 'range', sheetId, start: reference.range.start, end: reference.range.end };
+    return rangeReferenceIdentity(sheetId, reference.range.start, reference.range.end);
   }
   if (reference.kind === 'named') {
     const coordinate = resolver.namedCoordinateAt?.(sheetId, reference.endpoint.propertyName, reference.endpoint.row)?.coordinate;
     if (!coordinate) return undefined;
     if (!reference.end) return { kind: 'cell', sheetId, ...coordinate };
     const end = resolver.namedCoordinateAt?.(sheetId, reference.end!.propertyName, reference.end!.row)?.coordinate;
-    return end ? { kind: 'range', sheetId, start: coordinate, end } : undefined;
+    return end ? rangeReferenceIdentity(sheetId, coordinate, end) : undefined;
   }
   const coordinate = resolver.coordinateAt(sheetId, reference.kind === 'cell' ? reference.address : reference.range.start);
   if (!coordinate) return undefined;
   if (reference.kind === 'cell') return { kind: 'cell', sheetId, ...coordinate };
   const end = resolver.coordinateAt(sheetId, reference.range.end);
-  return end ? { kind: 'range', sheetId, start: coordinate, end } : undefined;
+  return end ? rangeReferenceIdentity(sheetId, coordinate, end) : undefined;
 }
-
-/** A resolved target keeps the same editor colour when its displayed spelling changes. */
-export function referenceIdentityColor(identity: FormulaReferenceIdentity | undefined): string | undefined {
-  if (!identity) return undefined;
-  const key = identity.kind === 'cell'
-    ? `${identity.sheetId}:${identity.rowId}:${identity.columnId}`
-    : `${identity.sheetId}:${identity.start.rowId}:${identity.start.columnId}:${identity.end.rowId}:${identity.end.columnId}`;
-  let hash = 0;
-  for (const character of key) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return referenceColours[hash % referenceColours.length];
-}
-
-const referenceColours = ['#1d4ed8', '#a21caf', '#047857', '#b45309', '#be123c', '#0f766e', '#6d28d9', '#0369a1'] as const;
 
 export function formulaReferenceHover(
   reference: FormulaReference,

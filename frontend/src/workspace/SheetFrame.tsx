@@ -28,6 +28,7 @@ export function SheetFrame({
   onDetailedFocusDisplaced,
   onDetailedBodyAvailable,
   onDetailedNativeFocusReleased,
+  onRenderingModeChange,
   onOpenSheetMenu,
   onResizeCancel,
   onResizeMove,
@@ -56,6 +57,7 @@ export function SheetFrame({
   onDetailedBodyAvailable?: () => void;
   /** Reports native grid focus leaving the detailed body. */
   onDetailedNativeFocusReleased?: () => void;
+  onRenderingModeChange?: (sheetId: string, mode: 'detailed' | 'overview') => void;
   onOpenSheetMenu: (sheetId: string, event: MouseEvent<HTMLElement>) => void;
   onResizeCancel: (event: PointerEvent<HTMLElement>) => void;
   onResizeMove: (event: PointerEvent<HTMLElement>) => void;
@@ -92,8 +94,9 @@ export function SheetFrame({
       bodyRef.current?.focus();
     }
     if (renderingMode === 'detailed') onDetailedBodyAvailable?.();
+    onRenderingModeChange?.(frame.id, renderingMode);
     previousRenderingMode.current = renderingMode;
-  }, [onDetailedBodyAvailable, onDetailedFocusDisplaced, renderingMode]);
+  }, [frame.id, onDetailedBodyAvailable, onDetailedFocusDisplaced, onRenderingModeChange, renderingMode]);
 
   return (
     <article

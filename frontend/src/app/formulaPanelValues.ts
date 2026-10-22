@@ -1,4 +1,4 @@
-import type { FormulaReferenceIdentity } from '@application/core/formulaEditorLogic';
+import type { FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import type { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { cellKey } from '@workbook/core/address';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';

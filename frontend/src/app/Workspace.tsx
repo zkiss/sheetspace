@@ -12,10 +12,12 @@ import type { SelectionGesture, CellTarget, CellNavigationDirection, CellEditSes
 import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
+import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
+import { contextualReferences, projectReferenceGeometry, type GridReferenceViewport } from '@reference-navigation/contextualReferenceProjection';
 import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
-import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { formulaRawForStorage, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { SheetOverview } from '@workspace/SheetOverview';
@@ -133,6 +135,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [navigationFeedback, setNavigationFeedback] = useState('');
   const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
+  const [referenceLinksVisible, setReferenceLinksVisible] = useState(true);
+  const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteChoices, setPaletteChoices] = useState<NavigationCommand[] | null>(null);
   const [paletteView, setPaletteView] = useState(0);
@@ -155,8 +159,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
   useEffect(() => { if (!editingCell) setFormulaPanelOpen(false); }, [editingCell]);
-  const formulaInspection = selectedSheet && selectedRaw
-    ? inspectFormula(selectedRaw, workbook, selectedSheet)
+  const inspectedRaw = editingCell && editingCell.target.sheetId === selectedSheet?.id
+    ? formulaRawForStorage(editingCell.draft, workbook, selectedSheet.id)
+    : selectedRaw;
+  const formulaInspection = selectedSheet && inspectedRaw
+    ? inspectFormula(inspectedRaw, workbook, selectedSheet)
     : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
   const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen;
@@ -429,6 +436,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
+  const referenceSurfaceSize = useMemo(() => workspaceController.workspaceSurfaceSize ?? { width: 0, height: 0 }, [workspaceController.workspaceSurfaceSize]);
   const mountedSheetIds = mountedWorkspaceFrameIds({
     frames: projectedFrames,
     pins: {
@@ -440,6 +448,32 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     surfaceSize: workspaceController.workspaceSurfaceSize,
     viewport: workspaceController.viewport,
   });
+  const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
+    setReferenceGridViewports((current) => {
+      if (!viewport) {
+        if (!current[sheetId]) return current;
+        const next = { ...current }; delete next[sheetId]; return next;
+      }
+      const nextViewport: GridReferenceViewport = { ...viewport, size: { width: viewport.width, height: viewport.height }, mounted: true, renderingMode: 'detailed' };
+      const previous = current[sheetId];
+      return previous?.scrollLeft === nextViewport.scrollLeft && previous?.scrollTop === nextViewport.scrollTop && previous.size.width === nextViewport.size.width && previous.size.height === nextViewport.size.height && previous.renderingMode === 'detailed'
+        ? current : { ...current, [sheetId]: nextViewport };
+    });
+  }, []);
+  const reportReferenceRenderingMode = useCallback((sheetId: string, renderingMode: 'detailed' | 'overview') => {
+    if (renderingMode === 'detailed') return;
+    setReferenceGridViewports((current) => current[sheetId]?.renderingMode === renderingMode ? current : { ...current, [sheetId]: { scrollLeft: 0, scrollTop: 0, size: { width: 0, height: 0 }, mounted: true, renderingMode } });
+  }, []);
+  const contextualReferenceItems = useMemo(() => formulaInspection ? contextualReferences(formulaInspection.references).map((contextual) => ({
+    contextual,
+    geometry: projectReferenceGeometry({ reference: contextual.reference, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize }),
+  })) : [], [formulaInspection, projectedFrames, referenceGridViewports, workbook, workspaceController.viewport, referenceSurfaceSize]);
+  const contextualSourceGeometry = useMemo(() => {
+    if (!activeCell || !selectedSheet || !formulaInspection) return { kind: 'unavailable' as const, reason: 'broken' as const };
+    const identity = cellIdentityAt(selectedSheet.content, cellKeyForTarget(selectedSheet, activeCell) ?? '');
+    if (!identity) return { kind: 'unavailable' as const, reason: 'broken' as const };
+    return projectReferenceGeometry({ reference: { kind: 'reference', text: '', sourceSpan: { start: 0, end: 0 }, displaySpan: { start: 0, end: 0 }, target: { kind: 'cell', sheetId: selectedSheet.id, identity }, broken: false, navigable: true }, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize });
+  }, [activeCell, formulaInspection, projectedFrames, referenceGridViewports, referenceSurfaceSize, selectedSheet, workbook, workspaceController.viewport]);
   const handleGridPointerInteractionChange = useCallback((sheetId: string, active: boolean) => {
     setGridInteractionSheetIds((current) => {
       if (current.has(sheetId) === active) return current;
@@ -572,11 +606,14 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
-          <FormulaReferenceInspection
-            inspection={formulaInspection}
-            key={`${activeCell?.sheetId}:${selectedCellKey}:${selectedRaw}:${formulaInspection?.raw}`}
-            onNavigate={navigateReference}
-          />
+          <>
+            <FormulaReferenceInspection
+              inspection={formulaInspection}
+              key={`${activeCell?.sheetId}:${selectedCellKey}:${selectedRaw}:${formulaInspection?.raw}`}
+              onNavigate={navigateReference}
+            />
+            {formulaInspection ? <ContextualReferenceLinks onNavigate={navigateReference} onToggle={() => setReferenceLinksVisible((visible) => !visible)} references={contextualReferenceItems} source={contextualSourceGeometry} visible={referenceLinksVisible} /> : null}
+          </>
         )}
         viewport={workspaceController.viewport}
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
@@ -638,6 +675,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               onDetailedFocusDisplaced={() => handleDetailedFocusDisplaced(sheet.id)}
               onDetailedBodyAvailable={() => handleDetailedBodyAvailable(sheet.id)}
               onDetailedNativeFocusReleased={() => handleDetailedNativeFocusReleased(sheet.id)}
+              onRenderingModeChange={reportReferenceRenderingMode}
               overview={(
                 <SheetOverview
                   isActive={activeCell?.sheetId === sheet.id}
@@ -680,6 +718,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
+                    onReferenceViewport={reportReferenceViewport}
                     onUserViewportMovement={recordUserGridMovement}
                     historyRestore={historyRestoreForSheet(sheet.id)}
                     navigationRestoreGeneration={navigationRequest ? undefined : navigationRestoreForSheet(sheet.id)}
