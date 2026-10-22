@@ -96,7 +96,8 @@ export function SheetGrid({
   calculatedColumnIds,
   onScrollContainerAvailable,
   onUserViewportMovement,
-  historyRestore,
+   historyRestore,
+   navigationRestoreGeneration,
   onHistoryRestoreSettled,
 }: {
   presentation?: SheetPresentation;
@@ -114,7 +115,8 @@ export function SheetGrid({
   onScrollContainerAvailable?: (element: HTMLElement | null) => void;
   /** Reports positively identified user scroll input to the spatial history owner. */
   onUserViewportMovement?: () => void;
-  historyRestore?: { generation: number; left: number; top: number };
+   historyRestore?: { generation: number; left: number; top: number };
+   navigationRestoreGeneration?: number;
   onHistoryRestoreSettled?: (generation: number) => void;
   activeCellKey: string | null;
   /**
@@ -416,7 +418,7 @@ export function SheetGrid({
     scrollContainer.scrollTop = reveal.row.scroll;
     onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
   }, [columnMetrics, historyAddress, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
-  useGridHistoryRestore({ onSettled: onHistoryRestoreSettled, restore: historyRestore, scrollContainerRef });
+  useGridHistoryRestore({ navigationGeneration: navigationRestoreGeneration, onSettled: onHistoryRestoreSettled, restore: historyRestore, scrollContainerRef });
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
     if (focusIntent) return;

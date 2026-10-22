@@ -138,14 +138,15 @@ describe('useReferenceNavigation', () => {
     expect(result.current.navigationHighlight).toBeNull();
   });
 
-  it('settles explicit navigation only after both controller motion and grid reveal acknowledge it', () => {
+  it('hands explicit navigation to the shared navigation barrier', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const navigateToTarget = vi.fn();
     let settled = 0;
     const { result } = renderHook(() => useReferenceNavigation({
       navigateToTarget,
-      onExplicitNavigation: (navigate) => navigate(() => { settled += 1; }),
+      onExplicitNavigation: (navigate) => navigate(Object.assign(() => { settled += 1; }, { generation: 1, complete: () => { settled += 1; } })),
       onSelectReferenceTarget: vi.fn(),
+      startNavigation: (operation, _sheetId, startViewport) => { startViewport(operation.complete); },
       workbook: workbookWithSheets([sheet]),
     }));
 
@@ -156,8 +157,6 @@ describe('useReferenceNavigation', () => {
 
     const controllerSettled = navigateToTarget.mock.calls[0]![1].onSettled as () => void;
     act(controllerSettled);
-    expect(settled).toBe(0);
-    act(() => result.current.acknowledgeNavigationReveal(result.current.navigationHighlightIdentity!));
     expect(settled).toBe(1);
   });
 

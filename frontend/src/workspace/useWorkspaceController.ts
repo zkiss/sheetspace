@@ -183,16 +183,17 @@ export function useWorkspaceController({
   function navigateToTarget(
     target: WorkspaceTargetRect,
     options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean; onSettled?: () => void } = {},
-  ) {
+  ): () => void {
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) {
       options.onSettled?.();
-      return;
+      return () => {};
     }
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
+    let id: number | undefined;
     if (options.onSettled) {
       cancelViewportRestore();
-      const id = ++nextViewportRestoreId.current;
+      id = ++nextViewportRestoreId.current;
       pendingViewportRestore.current = { id, onSettled: options.onSettled };
     }
     navigationMayBeMoving.current = true;
@@ -207,6 +208,9 @@ export function useWorkspaceController({
         ...options,
       }).viewport,
     );
+    return () => {
+      if (id !== undefined && pendingViewportRestore.current?.id === id) cancelViewportRestore();
+    };
   }
 
   function createSheetAtViewportCenter() {

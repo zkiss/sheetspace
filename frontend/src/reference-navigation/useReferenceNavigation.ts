@@ -7,6 +7,7 @@ import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
 import { detailedViewportScaleForSheet, rangeFitsSheetViewport } from '@grid/gridGeometry';
 import { type WorkspaceTargetRect, workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import type { NavigationOperation } from './useNavigationHistory';
 
 const NAVIGATION_HIGHLIGHT_MS = 1200;
 const NAVIGATION_TRANSITION_MS = 180;
@@ -39,18 +40,19 @@ export function useReferenceNavigation({
   navigateToTarget,
   onSelectReferenceTarget,
   onExplicitNavigation,
+  startNavigation,
   workbook,
 }: {
   navigateToTarget: (
     target: WorkspaceTargetRect,
     options?: { forceOversized?: boolean; minimumScale?: number; onSettled?: () => void },
-  ) => void;
+  ) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
-  onExplicitNavigation?: (navigate: (settle: () => void) => void) => void;
+  onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
+  startNavigation?: (operation: NavigationOperation, sheetId: string, startViewport: (settled: () => void) => () => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
-  const pendingSettlements = useRef(new Map<number, { gridSettled: boolean; motionSettled: boolean; settle: () => void }>());
   const [highlight, setHighlight] =
     useState<{ target: ReferenceNavigationTarget; identity: number } | null>(null);
   const [navigationMotion, setNavigationMotion] = useState(false);
@@ -94,15 +96,20 @@ export function useReferenceNavigation({
     const target: ReferenceNavigationTarget = reference.target.kind === 'range'
       ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
-    const navigate = (settle: () => void = () => {}) => {
+    const navigate = (operation: NavigationOperation | (() => void)) => {
+      const complete = typeof operation === 'function' && 'complete' in operation ? operation.complete : operation;
+      const generation = typeof operation === 'function' && 'generation' in operation
+        ? operation.generation
+        : nextHighlightIdentity.current++;
+      const navigationOperation = typeof operation === 'function' && 'complete' in operation
+        ? operation
+        : Object.assign(complete, { generation, complete });
       onSelectReferenceTarget(target);
-      const identity = nextHighlightIdentity.current++;
-      pendingSettlements.current.clear();
-      pendingSettlements.current.set(identity, { gridSettled: false, motionSettled: false, settle });
+      const identity = generation;
       setHighlight({ target, identity });
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
       setNavigationMotion(!reduceMotion);
-      navigateToTarget(
+      const startViewport = (settled: () => void) => navigateToTarget(
       // Axis offsets are local to the frame's scrollport. Reveal the physical
       // frame in the outer workspace; SheetGrid then scrolls internally to the
       // durable range anchor while the focus request keeps the frame mounted.
@@ -112,32 +119,17 @@ export function useReferenceNavigation({
         // The viewport scale alone is not the rendered scale for a miniature
         // sheet. Require enough viewport scale to cross the detail boundary.
         minimumScale: detailedViewportScaleForSheet(targetSheet),
-        onSettled: () => {
-          const pending = pendingSettlements.current.get(identity);
-          if (!pending) return;
-          pending.motionSettled = true;
-          if (pending.gridSettled) {
-            pendingSettlements.current.delete(identity);
-            pending.settle();
-          }
-        },
+         onSettled: settled,
       },
       );
+      if (startNavigation) startNavigation(navigationOperation, targetSheet.id, startViewport);
+      else startViewport(navigationOperation.complete);
     };
     if (onExplicitNavigation) onExplicitNavigation(navigate);
-    else navigate();
+    else navigate(() => {});
   }
 
   return {
-    acknowledgeNavigationReveal: (identity: number) => {
-      const pending = pendingSettlements.current.get(identity);
-      if (!pending) return;
-      pending.gridSettled = true;
-      if (pending.motionSettled) {
-        pendingSettlements.current.delete(identity);
-        pending.settle();
-      }
-    },
     navigateReference,
     navigationHighlight: highlight?.target ?? null,
     navigationHighlightIdentity: highlight?.identity,
