@@ -333,7 +333,7 @@ export function SheetGrid({
       || key === navigationHighlightCellKey
       || key === navigationTargetKey
     ) {
-      if (key === focusIntent?.targetKey) {
+      if (key === focusIntent?.targetKey || key === navigationTargetKey) {
         focusTargetRef.current = { element: cellElement, key };
       }
     }
@@ -413,7 +413,8 @@ export function SheetGrid({
     const registeredTarget = focusTargetRef.current;
     const targetElement = registeredTarget.key === navigationFocusIntent.targetKey
       ? registeredTarget.element
-      : gridRef.current?.querySelector<HTMLElement>(`[data-cell-key="${navigationFocusIntent.targetKey}"]`) ?? null;
+      : [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-cell-key]') ?? [])]
+        .find((element) => element.dataset.cellKey === navigationFocusIntent.targetKey) ?? null;
     if (!scrollContainer || !targetElement) return;
     // This is deliberately after the virtualizer and regular focus effects.
     // It is the grid's final reveal/focus phase and therefore the only point
@@ -443,7 +444,39 @@ export function SheetGrid({
     scrollContainer.scrollTop = reveal.row.scroll;
     setNavigationFocusIntent(null);
     onNavigationSettled?.(navigationFocusIntent.generation);
-  }, [columnMetrics, columns, navigationFocusIntent, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef]);
+  }, [columnMetrics, columns, navigationFocusIntent, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, virtualColumns, virtualRows]);
+  useEffect(() => {
+    // Presentation-only highlights still reveal their range for consumers that
+    // do not participate in a workspace navigation operation. An operation
+    // request owns its reveal above, so a cancelled request can never be
+    // revived by its retained highlight.
+    if (navigationRequestGeneration !== undefined || onNavigationSettled) return;
+    if (navigationHighlightIdentity !== undefined
+      && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
+    if (!navigationHighlightRange && !navigationHighlightCellKey) return;
+    const parsedCell = navigationHighlightCellKey
+      ? parseA1Address(navigationHighlightCellKey, sheetBounds(sheet))
+      : undefined;
+    const range = navigationHighlightRange
+      ?? (parsedCell?.ok ? { start: parsedCell.value, end: parsedCell.value } : undefined);
+    const scrollContainer = scrollContainerRef.current;
+    if (!range || !scrollContainer) return;
+    const rowIndex = axisIndexForDurableIndex(rows, range.start.rowIndex);
+    const columnIndex = axisIndexForDurableIndex(columns, range.start.columnIndex);
+    const endRowIndex = axisIndexForDurableIndex(rows, range.end.rowIndex);
+    const endColumnIndex = axisIndexForDurableIndex(columns, range.end.columnIndex);
+    if (rowIndex === undefined || columnIndex === undefined || endRowIndex === undefined || endColumnIndex === undefined) return;
+    const reveal = gridRangeReveal({ rows: rowMetrics, columns: columnMetrics }, {
+      start: { row: rowIndex, column: columnIndex }, end: { row: endRowIndex, column: endColumnIndex },
+    }, {
+      width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
+      left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
+    });
+    if (!reveal.row || !reveal.column) return;
+    revealedNavigationIdentity.current = navigationHighlightIdentity;
+    scrollContainer.scrollLeft = reveal.column.scroll;
+    scrollContainer.scrollTop = reveal.row.scroll;
+  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, sheet]);
   useEffect(() => {
     if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;
