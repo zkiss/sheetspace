@@ -168,7 +168,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     interactionsEnabled,
   });
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation } = useWorkspaceNavigationHistory({
+  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
@@ -257,6 +257,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet || !navigateTarget({ kind: 'cell', target }, sheet)) setNavigationFeedback('The navigation target is no longer available.');
   }, [navigateTarget, workbook]);
+  const navigateEmptySheet = useCallback((sheet: SheetDocument) => {
+    startExplicitSheetNavigation(onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), { onSettled: settled }));
+  }, [onClearSelection, startExplicitSheetNavigation, workspaceController]);
   const openChoices = useCallback((choices: NavigationCommand[]) => {
     setPaletteChoices(choices); setCommandPaletteOpen(true);
   }, []);
@@ -305,9 +308,12 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const candidates = caret === undefined ? references : references.filter((reference) => caret >= reference.displaySpan.start && caret <= reference.displaySpan.end);
     const choices = candidates.length ? candidates : (references.length === 1 ? references : []);
     if (choices.length === 0) { setNavigationFeedback('No resolvable reference is available.'); return; }
-    if (choices.length === 1) { navigateReference(choices[0]!); return; }
-    openChoices(choices.map((reference, index) => ({ id: `reference:${index}`, label: `Follow reference: ${reference.text}`, run: () => { navigateReference(reference); closeCommandPalette(); } })));
-  }, [closeCommandPalette, editingCell, navigateReference, openChoices, selectedRaw, selectedSheet, workbook]);
+    if (choices.length === 1) {
+      if (navigateReference(choices[0]!) && commandPaletteOpen) closeCommandPalette();
+      return;
+    }
+    openChoices(choices.map((reference, index) => ({ id: `reference:${index}`, label: `Follow reference: ${reference.text}`, run: () => { if (navigateReference(reference)) closeCommandPalette(); } })));
+  }, [closeCommandPalette, commandPaletteOpen, editingCell, navigateReference, openChoices, selectedRaw, selectedSheet, workbook]);
   openUsagesRef.current = openUsages;
   openReferenceChoicesRef.current = openReferenceChoices;
   openPropertyDefinitionRef.current = openPropertyDefinition;
@@ -317,7 +323,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       return { id: `sheet:${sheet.id}`, label: `Go to sheet: ${sheet.name}`,
         run: () => {
           if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
-          else workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame));
+          else navigateEmptySheet(sheet);
           closeCommandPalette();
         } };
     });
@@ -341,7 +347,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     result.unshift({ id: 'reference', label: 'Follow reference', shortcut: 'Alt+Enter', unavailable: formulaInspection?.references.some((reference) => reference.navigable) || editingCell ? undefined : 'No resolvable reference', run: openReferenceChoices });
     result.unshift({ id: 'usages', label: 'Find usages', shortcut: 'Alt+Shift+U', unavailable: activeCell ? undefined : 'Select a cell first', run: openUsages });
     return result;
-  }, [activeCell, closeCommandPalette, editingCell, formulaInspection, navigateCellTarget, openPropertyDefinition, openReferenceChoices, openUsages, propertyForActiveCell, selectedSheet, sheets, workbook, workspaceController]);
+  }, [activeCell, closeCommandPalette, editingCell, formulaInspection, navigateCellTarget, navigateEmptySheet, openPropertyDefinition, openReferenceChoices, openUsages, propertyForActiveCell, selectedSheet, sheets, workbook]);
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,

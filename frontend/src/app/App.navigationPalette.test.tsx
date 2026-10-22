@@ -64,4 +64,17 @@ describe('navigation palette composition', () => {
     expect(screen.getByText('Model property usages: Amount — Direct usages')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Invoice: Total, row 1' })).toHaveLength(2);
   });
+
+  it('closes the palette after directly following its single reference', async () => {
+    const user = userEvent.setup();
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!A[1]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    await user.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    await user.click(screen.getByRole('button', { name: /Follow reference/ }));
+
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+  });
 });

@@ -118,5 +118,13 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     const sheetId = target.kind === 'cell' ? target.target.sheetId : target.sheetId;
     beginNavigation(operation, sheetId, startViewport, {}, target);
   }, [beginNavigation]);
-  return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation };
+  const startExplicitSheetNavigation = useCallback((clearSelection: () => void, startViewport: (settled: () => void) => () => void) => {
+    history.explicitNavigation((operation) => {
+      // Empty sheets are valid destinations but intentionally have no grid target.
+      // Clear the old selection before the arrival context is captured.
+      clearSelection();
+      beginNavigation(operation, undefined, startViewport);
+    });
+  }, [beginNavigation, history]);
+  return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation };
 }

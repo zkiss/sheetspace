@@ -97,6 +97,30 @@ describe('formula reference navigation', () => {
     expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThan(1);
   });
 
+  it('records an empty-sheet palette jump so Back restores the prior context', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const source = sheetDocument({ id: 'source', name: 'Source', position: { x: 0, y: 0 } });
+    const empty = sheetDocument({ id: 'empty', name: 'Empty', position: { x: 4_000, y: 3_000 }, rowCount: 0, columnCount: 0 });
+    render(<App initialWorkbook={workbookWithSheets([source, empty])} />);
+    act(() => { setSurfaceSize(800, 600); });
+    const surface = workspaceSurface();
+    const departure = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Source A1 empty cell' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to sheet: Empty' }));
+    act(() => { vi.advanceTimersByTime(180); });
+
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).not.toEqual(departure);
+    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    act(() => { vi.advanceTimersByTime(180); });
+
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(departure);
+    expect(screen.getByRole('cell', { name: 'Source A1 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+  });
+
   it('wires smooth navigation feedback expiry without clearing the range selection', () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));

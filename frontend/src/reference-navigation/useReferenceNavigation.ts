@@ -115,17 +115,17 @@ export function useReferenceNavigation({
   function navigateReference(reference: FormulaInspectionReference) {
     const targetSheet = findSheetById(workbook, reference.target.sheetId);
     if (!targetSheet || !reference.navigable) {
-      return;
+      return false;
     }
 
     const range = normalizedRange(reference, targetSheet);
-    if (!range) return;
+    if (!range) return false;
     // normalizedRange only returns addresses resolved from this same durable content.
     const stableRange = stableRangeAt(targetSheet.content, range)!;
     const target: ReferenceNavigationTarget = reference.target.kind === 'range'
       ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
-    navigateTarget(target, targetSheet, { forceOversized: reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet) });
+    return navigateTarget(target, targetSheet, { forceOversized: reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet) });
   }
 
   return {
