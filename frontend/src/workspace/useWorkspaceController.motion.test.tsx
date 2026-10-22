@@ -5,11 +5,12 @@ import { measuredElementGeometry } from '@test-support/domGeometry';
 import { WorkspaceSurface } from './WorkspaceSurface';
 import { useWorkspaceController } from './useWorkspaceController';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function setup(transform = 'matrix(1.25, 0, 0, 1.25, -500, -200)') {
   let controller: ReturnType<typeof useWorkspaceController>;
   let reveal: () => void;
+  let restore: () => void;
   let finishMotion: () => void;
   function Harness() {
     controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() });
@@ -18,11 +19,12 @@ function setup(transform = 'matrix(1.25, 0, 0, 1.25, -500, -200)') {
       setMoving(true);
       controller.navigateToTarget({ left: 2000, top: 1000, right: 2200, bottom: 1100 });
     };
+    restore = () => controller.restoreViewport({ x: -300, y: -100, scale: 1.1 });
     finishMotion = () => setMoving(false);
     return <WorkspaceSurface
       hasSheets
       isPanningWorkspace={controller.isPanningWorkspace}
-      navigationMotion={moving && !controller.navigationInterrupted && !controller.isPanningWorkspace}
+      navigationMotion={(moving || controller.navigationMotion) && !controller.navigationInterrupted && !controller.isPanningWorkspace}
       onContextMenu={controller.handleWorkspaceContextMenu}
       viewport={controller.viewport}
       workspacePlaneRef={controller.workspacePlaneRef}
@@ -43,7 +45,7 @@ function setup(transform = 'matrix(1.25, 0, 0, 1.25, -500, -200)') {
     if (element === plane) Object.defineProperty(style, 'transform', { get: sample, configurable: true });
     return style;
   });
-  return { surface, plane, sample, reveal: () => reveal(), finishMotion: () => finishMotion(), state: () => controller! };
+  return { surface, plane, sample, restore: () => restore(), reveal: () => reveal(), finishMotion: () => finishMotion(), state: () => controller! };
 }
 
 function pointer(target: Element, type: string, button: number, clientX = 100, clientY = 80) {
@@ -60,6 +62,22 @@ function gesture(type: string, scale: number) {
 }
 
 describe('interrupting displayed reference navigation motion', () => {
+  it('animates restored history viewports and lets a user pan interrupt them', () => {
+    const { plane, surface, restore } = setup();
+    act(() => restore());
+    expect(plane).toHaveAttribute('data-navigation-motion', 'smooth');
+    pointer(surface, 'pointerdown', 1);
+    expect(plane).toHaveAttribute('data-navigation-motion', 'instant');
+  });
+
+  it('restores history viewports instantly when reduced motion is preferred', () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    const { finishMotion, plane, restore } = setup();
+    act(() => finishMotion());
+    act(() => restore());
+    expect(plane).toHaveAttribute('data-navigation-motion', 'instant');
+  });
+
   it.each([0, 1])('freezes the visible position on pan button %s without movement, then drags from it', (button) => {
     const { surface, plane, state, sample } = setup();
     const cell = screen.getByRole('cell');

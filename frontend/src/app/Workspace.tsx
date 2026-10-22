@@ -151,7 +151,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const interactionsEnabled = !sheetDialogOpen;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
-  const { history: navigationHistory, scrollContainers: gridScrollContainers } = useWorkspaceNavigationHistory({
+  const { history: navigationHistory, registerScrollContainer } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
@@ -374,7 +374,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         ) : undefined}
         hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
-        navigationMotion={navigationMotion && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
+        navigationMotion={(navigationMotion || workspaceController.navigationMotion) && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
@@ -463,7 +463,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               viewportScale={workspaceController.viewport.scale}
             >
               {(scrollContainerRef) => {
-                if (scrollContainerRef.current) gridScrollContainers.current.set(sheet.id, scrollContainerRef.current);
+                registerScrollContainer(sheet.id, scrollContainerRef.current);
                 const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
                 return (
                   <SheetGrid

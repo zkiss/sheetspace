@@ -24,6 +24,21 @@ describe('useNavigationHistory', () => {
     expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
   });
 
+  it('seeds the initial context so one settled pan can return to it', () => {
+    vi.useFakeTimers();
+    const restore = vi.fn();
+    const { result, rerender } = renderHook(({ x }) => useNavigationHistory({
+      capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }), restore,
+    }), { initialProps: { x: 1 } });
+
+    rerender({ x: 2 });
+    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
+
+    expect(result.current.canGoBack).toBe(true);
+    act(() => { result.current.traverse('back'); });
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
+  });
+
   it('captures the React-committed arrival around an explicit jump', () => {
     vi.useFakeTimers();
     const restore = vi.fn();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { appendNavigationContext, EMPTY_NAVIGATION_HISTORY, traverseNavigationHistory, type NavigationContext } from './navigationHistory';
 
 const SETTLE_MS = 2_000;
@@ -16,6 +16,12 @@ export function useNavigationHistory({ capture, restore }: {
   const commit = useCallback(() => {
     // A jump schedules state changes in its caller. Read the capture function
     // from the committed render rather than retaining the departure render.
+    history.current = appendNavigationContext(history.current, captureRef.current());
+    setRevision((current) => current + 1);
+  }, []);
+  // The initial viewing context must remain reachable after the first pan.
+  useLayoutEffect(() => {
+    if (history.current.entries.length !== 0) return;
     history.current = appendNavigationContext(history.current, captureRef.current());
     setRevision((current) => current + 1);
   }, []);

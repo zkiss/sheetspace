@@ -1,4 +1,4 @@
-import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
+import { MouseEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
 import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
@@ -26,10 +26,16 @@ export function useWorkspaceController({
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
   const [navigationInterrupted, setNavigationInterrupted] = useState(false);
+  const [navigationMotion, setNavigationMotion] = useState(false);
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
   const navigationMayBeMoving = useRef(false);
+  useEffect(() => {
+    if (!navigationMotion) return;
+    const timeout = window.setTimeout(() => setNavigationMotion(false), 180);
+    return () => window.clearTimeout(timeout);
+  }, [navigationMotion]);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
     start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
   }, interactionsEnabled);
@@ -97,6 +103,7 @@ export function useWorkspaceController({
       if (displayed) setViewport(displayed);
     }
     setNavigationInterrupted(true);
+    setNavigationMotion(false);
   }
 
   function panWorkspace(deltaX: number, deltaY: number) {
@@ -131,12 +138,14 @@ export function useWorkspaceController({
   function resetViewport() {
     navigationMayBeMoving.current = false;
     setNavigationInterrupted(true);
+    setNavigationMotion(false);
     setViewport({ x: 0, y: 0, scale: 1 });
   }
 
   function restoreViewport(nextViewport: WorkspaceViewport) {
     navigationMayBeMoving.current = true;
     setNavigationInterrupted(false);
+    setNavigationMotion(!(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false));
     setViewport(nextViewport);
   }
 
@@ -180,6 +189,7 @@ export function useWorkspaceController({
     handleWorkspaceContextMenu,
     isPanningWorkspace,
     navigationInterrupted,
+    navigationMotion,
     navigateToTarget,
     openSheetMenu,
     panWorkspace,
