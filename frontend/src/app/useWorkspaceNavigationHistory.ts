@@ -11,8 +11,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   viewport: WorkspaceViewport;
 }) {
   const scrollContainers = useRef(new Map<string, HTMLElement>());
-  const pendingScroll = useRef(new Map<string, { left: number; top: number }>());
-  const pendingScrollFrames = useRef(new Map<string, number>());
+  const pendingScroll = useRef(new Map<string, { generation: number; left: number; top: number }>());
   const restoreGeneration = useRef(0);
   const activeRestore = useRef<{ generation: number; complete: () => void; cancelViewport: () => void; viewportSettled: boolean; requiredGridSettled: boolean; requiredSheetId?: string }>();
   const finishRestoreIfSettled = useCallback(() => {
@@ -22,8 +21,6 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     restoring.complete();
   }, []);
   const cancelPendingScroll = useCallback(() => {
-    pendingScrollFrames.current.forEach((frame) => window.cancelAnimationFrame(frame));
-    pendingScrollFrames.current.clear();
     pendingScroll.current.clear();
   }, []);
   const cancelRestore = useCallback(() => {
@@ -32,30 +29,16 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     activeRestore.current = undefined;
     cancelPendingScroll();
   }, [cancelPendingScroll]);
-  const applyPendingScroll = useCallback((sheetId: string) => {
+  const acknowledgeGridRestore = useCallback((sheetId: string, generation: number) => {
     const offset = pendingScroll.current.get(sheetId);
-    const element = scrollContainers.current.get(sheetId);
-    if (!offset || !element) return;
-    const left = Math.min(Math.max(0, offset.left), Math.max(0, element.scrollWidth - element.clientWidth));
-    const top = Math.min(Math.max(0, offset.top), Math.max(0, element.scrollHeight - element.clientHeight));
-    element.scrollLeft = left;
-    element.scrollTop = top;
+    if (!offset || offset.generation !== generation) return;
     pendingScroll.current.delete(sheetId);
     const restoring = activeRestore.current;
-    if (restoring?.requiredSheetId === sheetId && !restoring.requiredGridSettled) {
+    if (restoring?.generation === generation && restoring.requiredSheetId === sheetId && !restoring.requiredGridSettled) {
       restoring.requiredGridSettled = true;
       finishRestoreIfSettled();
     }
   }, [finishRestoreIfSettled]);
-  const applyPendingScrollAfterGridEffects = useCallback((sheetId: string) => {
-    const previousFrame = pendingScrollFrames.current.get(sheetId);
-    if (previousFrame !== undefined) window.cancelAnimationFrame(previousFrame);
-    const frame = window.requestAnimationFrame(() => {
-      pendingScrollFrames.current.delete(sheetId);
-      applyPendingScroll(sheetId);
-    });
-    pendingScrollFrames.current.set(sheetId, frame);
-  }, [applyPendingScroll]);
   useEffect(() => cancelRestore, [cancelRestore]);
   const registerScrollContainer = useCallback((sheetId: string, element: HTMLElement | null) => {
     if (!element) {
@@ -63,10 +46,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       return;
     }
     scrollContainers.current.set(sheetId, element);
-    // SheetGrid reveals an active selection from an effect after mounting. Apply
-    // history scroll after that effect so selection restoration cannot replace it.
-    if (pendingScroll.current.has(sheetId)) applyPendingScrollAfterGridEffects(sheetId);
-  }, [applyPendingScrollAfterGridEffects]);
+  }, []);
   const capture = useCallback(() => ({
     viewport,
     selection,
@@ -89,10 +69,9 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       finishRestoreIfSettled();
     });
     if (!onRestoreSelection(context.selection) && context.selection) onUnavailableTarget();
-    Object.entries(context.scroll).forEach(([sheetId, offset]) => pendingScroll.current.set(sheetId, offset));
-    Object.keys(context.scroll).forEach(applyPendingScrollAfterGridEffects);
+    Object.entries(context.scroll).forEach(([sheetId, offset]) => pendingScroll.current.set(sheetId, { ...offset, generation }));
     finishRestoreIfSettled();
-  }, [applyPendingScrollAfterGridEffects, cancelRestore, finishRestoreIfSettled, onRestoreSelection, onUnavailableTarget, restoreViewport]);
+  }, [cancelRestore, finishRestoreIfSettled, onRestoreSelection, onUnavailableTarget, restoreViewport]);
   const history = useNavigationHistory({ capture, restore });
   const recordUserGridMovement = useCallback(() => {
     cancelRestore();
@@ -113,5 +92,6 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       return history.traverse(direction);
     },
   };
-  return { history: navigationHistory, registerScrollContainer, recordUserGridMovement };
+  const historyRestoreForSheet = useCallback((sheetId: string) => pendingScroll.current.get(sheetId), []);
+  return { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, registerScrollContainer, recordUserGridMovement };
 }

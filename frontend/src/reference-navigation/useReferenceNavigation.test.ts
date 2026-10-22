@@ -93,7 +93,7 @@ describe('useReferenceNavigation', () => {
     expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
       left: 0,
       top: 0,
-    }), { forceOversized: true, minimumScale: 0.5 });
+    }), expect.objectContaining({ forceOversized: true, minimumScale: 0.5 }));
     expect(result.current.navigationHighlight).not.toBeNull();
     expect(result.current.navigationMotion).toBe(true);
 
@@ -131,11 +131,34 @@ describe('useReferenceNavigation', () => {
     expect(navigateToTarget).toHaveBeenCalledWith(expect.objectContaining({
       left: 0,
       top: 0,
-    }), { forceOversized: false, minimumScale: 0.5 });
+    }), expect.objectContaining({ forceOversized: false, minimumScale: 0.5 }));
     expect(result.current.navigationMotion).toBe(false);
     expect(result.current.navigationHighlight).not.toBeNull();
     act(() => { vi.advanceTimersByTime(1_200); });
     expect(result.current.navigationHighlight).toBeNull();
+  });
+
+  it('settles explicit navigation only after both controller motion and grid reveal acknowledge it', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const navigateToTarget = vi.fn();
+    let settled = 0;
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget,
+      onExplicitNavigation: (navigate) => navigate(() => { settled += 1; }),
+      onSelectReferenceTarget: vi.fn(),
+      workbook: workbookWithSheets([sheet]),
+    }));
+
+    act(() => result.current.navigateReference(reference({
+      kind: 'cell', sheetId: sheet.id,
+      identity: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! },
+    })));
+
+    const controllerSettled = navigateToTarget.mock.calls[0]![1].onSettled as () => void;
+    act(controllerSettled);
+    expect(settled).toBe(0);
+    act(() => result.current.acknowledgeNavigationReveal(result.current.navigationHighlightIdentity!));
+    expect(settled).toBe(1);
   });
 
   it('restarts highlight lifetime and identity on repeated navigation, then replaces the target', () => {

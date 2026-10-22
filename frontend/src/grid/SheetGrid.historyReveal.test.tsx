@@ -12,6 +12,7 @@ function setup() {
   const axisProjection = projectGridAxes(sheet);
   const scrollContainerRef = createRef<HTMLDivElement>();
   const onUserViewportMovement = vi.fn();
+  const onHistoryRestoreSettled = vi.fn();
   const props: ComponentProps<typeof SheetGrid> = {
     activeCellKey: null, axisProjection, sheet, scrollContainerRef,
     cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() },
@@ -19,14 +20,15 @@ function setup() {
     editorInteraction: { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
     formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null, onUserViewportMovement,
   };
-  const grid = (target?: string, identity = 'undo-1') => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+  const grid = (target?: string, identity = 'undo-1', historyRestore?: { generation: number; left: number; top: number }) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
     <SheetGrid {...props} axisProjection={projectGridAxes(sheet)} historyFeedbackIdentity={target ? identity : undefined}
-      historyFeedbackCells={target ? new Map([[target, { before: 'old', beforeDisplay: 'old', after: 'new' }]]) : undefined} />
+      historyFeedbackCells={target ? new Map([[target, { before: 'old', beforeDisplay: 'old', after: 'new' }]]) : undefined}
+      historyRestore={historyRestore} onHistoryRestoreSettled={onHistoryRestoreSettled} />
   </div>;
   const view = render(grid());
   const viewport = scrollContainerRef.current!;
   act(() => { virtualGridGeometry(viewport); });
-  return { viewport, sheet, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)) };
+  return { viewport, sheet, onHistoryRestoreSettled, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)), restore: (historyRestore: { generation: number; left: number; top: number }) => view.rerender(grid(undefined, undefined, historyRestore)) };
 }
 
 describe('history reveal scroll-axis independence', () => {
@@ -39,6 +41,20 @@ describe('history reveal scroll-axis independence', () => {
     expect(onUserViewportMovement).not.toHaveBeenCalled();
     fireEvent.wheel(viewport, { deltaY: 100 });
     expect(onUserViewportMovement).toHaveBeenCalledOnce();
+  });
+
+  it('acknowledges a generation only after applying its final saved scroll', () => {
+    const { viewport, onHistoryRestoreSettled, restore } = setup();
+    Object.defineProperties(viewport, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollWidth: { configurable: true, value: 1_000 },
+    });
+
+    restore({ generation: 7, left: 240, top: 360 });
+
+    expect(viewport.scrollLeft).toBe(240);
+    expect(viewport.scrollTop).toBe(360);
+    expect(onHistoryRestoreSettled).toHaveBeenCalledWith(7);
   });
 
   it('reveals once per action, not per feedback map or axis projection allocation', () => {

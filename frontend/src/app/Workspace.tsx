@@ -152,7 +152,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { history: navigationHistory, registerScrollContainer, recordUserGridMovement } = useWorkspaceNavigationHistory({
+  const { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, registerScrollContainer, recordUserGridMovement } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
@@ -199,6 +199,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     navigateReference,
     navigationHighlight,
     navigationHighlightIdentity,
+    acknowledgeNavigationReveal,
     navigationMotion,
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
@@ -485,6 +486,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onUserViewportMovement={recordUserGridMovement}
+                    historyRestore={historyRestoreForSheet(sheet.id)}
+                    onHistoryRestoreSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
                       clear: (target) => reportWriteOutcome(onClearCell(target)),
@@ -509,6 +512,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     navigationHighlightCellKey={cellKeyForTarget(sheet, highlightTarget)}
                     navigationHighlightRange={navigationHighlightRange}
                     navigationHighlightIdentity={navigationHighlightIdentity}
+                    onNavigationRevealSettled={acknowledgeNavigationReveal}
                     historyFeedbackCells={historyFeedbackCells}
                     historyFeedbackIdentity={gridHistoryReveals.current.identity === contentHistoryFeedback?.identity
                       && gridHistoryReveals.current.sheetIds.has(sheet.id)

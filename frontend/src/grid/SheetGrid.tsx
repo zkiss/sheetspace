@@ -25,22 +25,9 @@ import { cssRemFromPixels } from '@shared/styles/styleTokens';
 import { axisIndexForDurableIndex, hasDurableIndex, mergeVirtualIndexes, parseCellAddress, pinnedAxisIndices, virtualItemsOrTestFallback } from './sheetGridProjection';
 import { useGridPointerSelection } from './useGridPointerSelection';
 import { SheetGridRows } from './SheetGridRows';
+import { useGridHistoryRestore } from './useGridHistoryRestore';
+import { isNativeEditorTarget, logicalUnitsPerRenderedPixel } from './gridScrollInput';
 import '@grid/SheetGrid.css';
-function logicalUnitsPerRenderedPixel(scrollContainer: HTMLElement, rect: DOMRect) {
-  return {
-    x: rect.width ? scrollContainer.clientWidth / rect.width : 1,
-    y: rect.height ? scrollContainer.clientHeight / rect.height : 1,
-  };
-}
-function isNativeEditorTarget(target: EventTarget | null) {
-  const editor = target instanceof HTMLElement
-    ? target.closest<HTMLElement>('textarea, input, [contenteditable]')
-    : null;
-  return Boolean(editor && (
-    editor.matches('textarea, input')
-    || editor.getAttribute('contenteditable')?.toLowerCase() !== 'false'
-  ));
-}
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLElement,
   scrollContainer: HTMLElement,
@@ -86,6 +73,7 @@ export function SheetGrid({
   navigationHighlightCellKey,
   navigationHighlightRange,
   navigationHighlightIdentity,
+  onNavigationRevealSettled,
   historyFeedbackCells,
   historyFeedbackIdentity,
   onHistoryRevealConsumed,
@@ -108,6 +96,8 @@ export function SheetGrid({
   calculatedColumnIds,
   onScrollContainerAvailable,
   onUserViewportMovement,
+  historyRestore,
+  onHistoryRestoreSettled,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
@@ -124,6 +114,8 @@ export function SheetGrid({
   onScrollContainerAvailable?: (element: HTMLElement | null) => void;
   /** Reports positively identified user scroll input to the spatial history owner. */
   onUserViewportMovement?: () => void;
+  historyRestore?: { generation: number; left: number; top: number };
+  onHistoryRestoreSettled?: (generation: number) => void;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -142,6 +134,7 @@ export function SheetGrid({
   navigationHighlightRange?: CellRange;
   /** One reference-navigation action, independent of range/projection allocations. */
   navigationHighlightIdentity?: number;
+  onNavigationRevealSettled?: (identity: number) => void;
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
   /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
   historyFeedbackIdentity?: string;
@@ -163,9 +156,7 @@ export function SheetGrid({
   };
 }) {
   const focusTargetRef = useRef<{ element: HTMLElement | null; key: string | null }>({ element: null, key: null });
-  // The application owns request lifetime, so it may keep a request prop present
-  // while virtualization causes this effect to rerun. Remember acknowledgements
-  // locally to make each request's completion edge-triggered.
+  // Remember acknowledgements because virtualization can rerun a live request effect.
   const consumedKeyboardFocusRequestIds = useRef(new Set<number>());
   const revealedHistoryIdentity = useRef<string>();
   const revealedNavigationIdentity = useRef<number>();
@@ -185,9 +176,7 @@ export function SheetGrid({
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
-  // Application requests are already the authoritative focus state. Deriving their
-  // intent during render makes replacement atomic: an R2 render cannot run R1's
-  // completion effect while waiting for a state-sync effect to catch up.
+  // Derive application focus during render so a newer request atomically replaces an older one.
   const keyboardFocusIntent = useMemo<GridFocusIntent | null>(() => (
     keyboardFocusRequest?.targetKey
       ? { id: `keyboard-${keyboardFocusRequest.id}`, requestId: keyboardFocusRequest.id, targetKey: keyboardFocusRequest.targetKey }
@@ -204,9 +193,7 @@ export function SheetGrid({
       if (active) onPointerInteractionChange?.(sheet.id, false);
     };
   }, [dragging, onPointerInteractionChange, resize.preview, sheet.id]);
-  // An application request supersedes every older grid-entry request.  It is not
-  // merely higher priority while present: once acknowledged, the prior entry
-  // must not become eligible to scroll or focus again.
+  // An application request permanently supersedes every older grid-entry request.
   useEffect(() => {
     if (keyboardFocusIntent) {
       setGridEntryFocusIntent(null);
@@ -411,7 +398,8 @@ export function SheetGrid({
     revealedNavigationIdentity.current = navigationHighlightIdentity;
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
-  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, rowMetrics, rows, scrollContainerRef, sheet]);
+    if (navigationHighlightIdentity !== undefined) onNavigationRevealSettled?.(navigationHighlightIdentity);
+  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightRange, navigationHighlightIdentity, onNavigationRevealSettled, rowMetrics, rows, scrollContainerRef, sheet]);
   useEffect(() => {
     if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;
@@ -428,6 +416,7 @@ export function SheetGrid({
     scrollContainer.scrollTop = reveal.row.scroll;
     onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
   }, [columnMetrics, historyAddress, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
+  useGridHistoryRestore({ onSettled: onHistoryRestoreSettled, restore: historyRestore, scrollContainerRef });
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
     if (focusIntent) return;

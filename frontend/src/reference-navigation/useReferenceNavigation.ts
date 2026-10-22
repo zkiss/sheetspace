@@ -50,6 +50,7 @@ export function useReferenceNavigation({
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
+  const pendingSettlements = useRef(new Map<number, { gridSettled: boolean; motionSettled: boolean; settle: () => void }>());
   const [highlight, setHighlight] =
     useState<{ target: ReferenceNavigationTarget; identity: number } | null>(null);
   const [navigationMotion, setNavigationMotion] = useState(false);
@@ -95,7 +96,10 @@ export function useReferenceNavigation({
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
     const navigate = (settle: () => void = () => {}) => {
       onSelectReferenceTarget(target);
-      setHighlight({ target, identity: nextHighlightIdentity.current++ });
+      const identity = nextHighlightIdentity.current++;
+      pendingSettlements.current.clear();
+      pendingSettlements.current.set(identity, { gridSettled: false, motionSettled: false, settle });
+      setHighlight({ target, identity });
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
       setNavigationMotion(!reduceMotion);
       navigateToTarget(
@@ -108,7 +112,15 @@ export function useReferenceNavigation({
         // The viewport scale alone is not the rendered scale for a miniature
         // sheet. Require enough viewport scale to cross the detail boundary.
         minimumScale: detailedViewportScaleForSheet(targetSheet),
-        onSettled: settle,
+        onSettled: () => {
+          const pending = pendingSettlements.current.get(identity);
+          if (!pending) return;
+          pending.motionSettled = true;
+          if (pending.gridSettled) {
+            pendingSettlements.current.delete(identity);
+            pending.settle();
+          }
+        },
       },
       );
     };
@@ -117,6 +129,15 @@ export function useReferenceNavigation({
   }
 
   return {
+    acknowledgeNavigationReveal: (identity: number) => {
+      const pending = pendingSettlements.current.get(identity);
+      if (!pending) return;
+      pending.gridSettled = true;
+      if (pending.motionSettled) {
+        pendingSettlements.current.delete(identity);
+        pending.settle();
+      }
+    },
     navigateReference,
     navigationHighlight: highlight?.target ?? null,
     navigationHighlightIdentity: highlight?.identity,
