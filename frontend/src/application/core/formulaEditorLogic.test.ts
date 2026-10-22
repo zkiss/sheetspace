@@ -1,3 +1,4 @@
+import { referenceIdentityColor } from '@workbook/core/referenceIdentity';
 import { describe, expect, it } from 'vitest';
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 import { formulaRawToCanonical, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
@@ -11,7 +12,6 @@ import {
   formulaReferenceHover,
   indentFormulaSelection,
   outdentFormulaSelection,
-  referenceIdentityColor,
   stableReferenceIdentity,
 } from './formulaEditorLogic';
 

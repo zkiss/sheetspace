@@ -1,5 +1,6 @@
+import { referenceIdentityColor, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { applyFormulaCompletion, analyzeFormulaEditor, formatFormula, formulaCompletions, formulaReferenceHover, indentFormulaSelection, outdentFormulaSelection, referenceIdentityColor, type FormulaEditorSelection, type FormulaReferenceIdentity } from '@application/core/formulaEditorLogic';
+import { applyFormulaCompletion, analyzeFormulaEditor, formatFormula, formulaCompletions, formulaReferenceHover, indentFormulaSelection, outdentFormulaSelection, type FormulaEditorSelection } from '@application/core/formulaEditorLogic';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';
 import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
