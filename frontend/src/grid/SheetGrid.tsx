@@ -107,6 +107,7 @@ export function SheetGrid({
   navigationRequestCellKey,
   navigationRequestRange,
   onNavigationSettled,
+  onReferenceViewport,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
@@ -128,6 +129,8 @@ export function SheetGrid({
   navigationRequestGeneration?: number; navigationRequestCellKey?: string | null; navigationRequestRange?: CellRange;
   /** Acknowledges either final saved-scroll restoration or an explicit reveal. */
   onNavigationSettled?: (generation: number) => void;
+  /** Publishes real detailed-grid viewport changes for workspace reference geometry. */
+  onReferenceViewport?: (sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => void;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -219,6 +222,16 @@ export function SheetGrid({
     onScrollContainerAvailable?.(element);
     return () => onScrollContainerAvailable?.(null);
   }, [onScrollContainerAvailable, scrollContainerRef]);
+  useEffect(() => {
+    const element = scrollContainerRef.current;
+    if (!element || !onReferenceViewport) return;
+    const report = () => onReferenceViewport(sheet.id, { scrollLeft: element.scrollLeft, scrollTop: element.scrollTop, width: element.clientWidth, height: element.clientHeight });
+    report();
+    element.addEventListener('scroll', report, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(report);
+    observer?.observe(element);
+    return () => { element.removeEventListener('scroll', report); observer?.disconnect(); onReferenceViewport(sheet.id, null); };
+  }, [onReferenceViewport, scrollContainerRef, sheet.id]);
   useEffect(() => {
     const element = scrollContainerRef.current;
     if (!element || !onUserViewportMovement) return;
