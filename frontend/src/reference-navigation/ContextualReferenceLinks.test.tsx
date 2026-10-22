@@ -1,4 +1,4 @@
-import { createRef, type ReactNode } from 'react';
+import { createRef, useState, type ReactNode } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
@@ -39,5 +39,32 @@ describe('ContextualReferenceLinks', () => {
 
     expect(screen.getByRole('button', { name: '@Source!A[1], offscreen spatial endpoint' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Navigate to @Source!A[1]' })).not.toBeInTheDocument();
+  });
+
+  it('hides contextual controls and geometry until its accessible toggle explicitly shows them', () => {
+    function ToggleableLinks() {
+      const [visible, setVisible] = useState(false);
+      return <ContextualReferenceLinks onNavigate={vi.fn()} onToggle={() => setVisible((current) => !current)} references={[{ contextual: { reference, color: '#12ab34' }, geometry: target }]} source={source} visible={visible} />;
+    }
+
+    render(<ToggleableLinks />);
+
+    const toggle = screen.getByRole('button', { name: 'Show reference links' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('button', { name: '@Source!A[1]' })).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: 'Hide reference links' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '@Source!A[1]' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Navigate to @Source!A[1]' })).toBeVisible();
+  });
+
+  it('labels a broken reference but prevents navigation and misleading geometry', () => {
+    const brokenReference = { ...reference, text: '@#REF!A[1]', broken: true, navigable: false };
+    render(<ContextualReferenceLinks onNavigate={vi.fn()} onToggle={vi.fn()} references={[{ contextual: { reference: brokenReference, color: '#12ab34' }, geometry: { kind: 'unavailable', reason: 'broken' } }]} source={source} visible />);
+
+    expect(screen.getByRole('button', { name: '@#REF!A[1], broken spatial endpoint' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Navigate to @#REF!A[1]' })).not.toBeInTheDocument();
+    expect(document.querySelector('.contextual-reference-canvas line')).toBeNull();
+    expect(document.querySelector('.contextual-reference-canvas rect')).toBeNull();
   });
 });
