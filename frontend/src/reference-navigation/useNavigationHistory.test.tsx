@@ -13,12 +13,12 @@ describe('useNavigationHistory', () => {
     const { result } = renderHook(() => useNavigationHistory({
       capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }), restore,
     }));
-    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(1_999); });
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(1_999); });
     expect(result.current.canGoBack).toBe(false);
     act(() => { vi.advanceTimersByTime(1); });
     expect(result.current.canGoBack).toBe(false);
     x = 2;
-    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); });
     expect(result.current.canGoBack).toBe(true);
     act(() => { result.current.traverse('back'); });
     expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
@@ -32,7 +32,7 @@ describe('useNavigationHistory', () => {
     }), { initialProps: { x: 1 } });
 
     rerender({ x: 2 });
-    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); });
 
     expect(result.current.canGoBack).toBe(true);
     act(() => { result.current.traverse('back'); });
@@ -70,7 +70,7 @@ describe('useNavigationHistory', () => {
     act(() => result.current.history.explicitNavigation(() => result.current.moveTo(2)));
     act(() => vi.runOnlyPendingTimers());
     act(() => result.current.moveTo(3));
-    act(() => { result.current.history.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
 
     act(() => result.current.history.traverse('back'));
     expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 2, y: 0, scale: 1 } }), expect.any(Function));
@@ -138,7 +138,7 @@ describe('useNavigationHistory', () => {
     }), { initialProps: { x: 1, selection: a1 } });
 
     rerender({ x: 2, selection: b1 });
-    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); });
     rerender({ x: 2, selection: b2 });
 
     act(() => { result.current.traverse('back'); });
@@ -159,9 +159,9 @@ describe('useNavigationHistory', () => {
     }));
 
     x = 2;
-    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); result.current.traverse('back'); });
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.traverse('back'); });
     x = 1;
-    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); });
     expect(result.current.canGoBack).toBe(false);
 
     act(() => completeRestore?.());
@@ -170,7 +170,7 @@ describe('useNavigationHistory', () => {
     expect(result.current.canGoBack).toBe(true);
 
     x = 4;
-    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); result.current.traverse('back'); });
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.traverse('back'); });
     expect(result.current.canGoForward).toBe(true);
   });
 });

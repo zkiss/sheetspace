@@ -39,10 +39,6 @@ export function useNavigationHistory({ capture, restore }: {
       commit();
     }, SETTLE_MS);
   }, [commit]);
-  const recordMovement = useCallback(() => {
-    if (restoration.current !== 0) return;
-    scheduleMovement();
-  }, [scheduleMovement]);
   const recordUserMovement = useCallback(() => {
     // Grid scroll has already changed by the time its native event arrives;
     // cancel any incomplete restore before starting its settled destination.
@@ -93,7 +89,6 @@ export function useNavigationHistory({ capture, restore }: {
     canGoBack: history.current.cursor > 0,
     canGoForward: history.current.cursor >= 0 && history.current.cursor < history.current.entries.length - 1,
     explicitNavigation,
-    recordMovement,
     recordUserMovement,
     revision,
     traverse,

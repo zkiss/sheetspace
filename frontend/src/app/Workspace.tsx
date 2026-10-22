@@ -160,8 +160,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   useEffect(() => {
     if (lastViewport.current !== workspaceController.viewport) {
       lastViewport.current = workspaceController.viewport;
+      // Viewport effects do not establish movement provenance. A restored or
+      // animated viewport may commit after its restore transaction completes;
+      // only the controller can identify a gesture that should enter history.
       if (workspaceController.consumeViewportMovementIsUser()) navigationHistory.recordUserMovement();
-      else navigationHistory.recordMovement();
     }
   }, [navigationHistory, workspaceController]);
   useEffect(() => {

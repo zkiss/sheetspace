@@ -34,6 +34,30 @@ describe('useWorkspaceNavigationHistory', () => {
     };
   }
 
+  it('does not record an empty-scroll restoration until a later user movement', () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(),
+      restoreViewport: vi.fn(),
+      selection: null,
+      viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => result.current.history.traverse('back'));
+
+    // No grid is registered, so this restoration completes through the
+    // empty-scroll path. Time alone must not create a new destination.
+    act(() => vi.advanceTimersByTime(2_001));
+    expect(result.current.history.canGoForward).toBe(true);
+
+    rerender({ x: 3 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    expect(result.current.history.canGoForward).toBe(true);
+  });
+
   it('applies a restored offscreen grid scroll offset when its container mounts', () => {
     vi.useFakeTimers();
     const runAnimationFrames = controlAnimationFrames();
@@ -49,7 +73,7 @@ describe('useWorkspaceNavigationHistory', () => {
     act(() => result.current.registerScrollContainer('destination', destination));
 
     rerender({ x: 2 });
-    act(() => result.current.history.recordMovement());
+    act(() => result.current.history.recordUserMovement());
     act(() => vi.advanceTimersByTime(2_000));
     act(() => result.current.history.traverse('back'));
     act(() => result.current.registerScrollContainer('destination', null));
@@ -77,7 +101,7 @@ describe('useWorkspaceNavigationHistory', () => {
     act(() => result.current.registerScrollContainer('destination', destination));
 
     rerender({ x: 2 });
-    act(() => result.current.history.recordMovement());
+    act(() => result.current.history.recordUserMovement());
     act(() => vi.advanceTimersByTime(2_000));
     act(() => result.current.history.traverse('back'));
     act(() => result.current.registerScrollContainer('destination', null));
@@ -109,11 +133,11 @@ describe('useWorkspaceNavigationHistory', () => {
     act(() => result.current.registerScrollContainer('destination', grid));
 
     // Refresh the initial context now that its grid is mounted.
-    act(() => { result.current.history.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
     grid.scrollLeft = 700;
     grid.scrollTop = 800;
     rerender({ x: 2 });
-    act(() => { result.current.history.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
     act(() => result.current.history.traverse('back'));
     act(runAnimationFrames);
 
