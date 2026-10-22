@@ -93,29 +93,31 @@ class InMemoryWorkbookStore(
     ): WorkbookState = synchronized(this) {
         val current = workbook
         val updated = transform(current)
-        workbook = if (expectedRevision == null) {
-            updated
-        } else {
-            applyRevision(current, updated, expectedRevision)
-        }
+        workbook = applyRevisions(current, updated, expectedRevision)
         workbook
     }
 
-    private fun applyRevision(
+    private fun applyRevisions(
         current: WorkbookState,
         updated: WorkbookState,
-        expected: ExpectedSheetRevision,
+        expected: ExpectedSheetRevision?,
     ): WorkbookState {
-        val sheetId = SheetId(expected.sheetId)
-        val currentSheet = current.findSheet(sheetId)
-        if (currentSheet != null && currentSheet.revision != expected.revision) {
-            throw SheetRevisionConflict(expected.sheetId, expected.revision, currentSheet.revision)
+        if (expected != null) {
+            val currentSheet = current.findSheet(SheetId(expected.sheetId))
+            if (currentSheet != null && currentSheet.revision != expected.revision) {
+                throw SheetRevisionConflict(expected.sheetId, expected.revision, currentSheet.revision)
+            }
         }
-        val updatedSheet = updated.findSheet(sheetId)
-        if (currentSheet == null || updatedSheet == null || currentSheet == updatedSheet) {
-            return updated
-        }
-        return updated.replaceSheet(updatedSheet.copy(revision = currentSheet.revision + 1))
+        return updated.copy(
+            documents = updated.documents.mapValues { (sheetId, updatedSheet) ->
+                val currentSheet = current.documents[sheetId]
+                if (currentSheet != null && currentSheet != updatedSheet) {
+                    updatedSheet.copy(revision = currentSheet.revision + 1)
+                } else {
+                    updatedSheet
+                }
+            },
+        )
     }
 }
 

@@ -51,6 +51,19 @@ class ModelLifecycleTest {
     }
 
     @Test
+    fun `in-memory lifecycle persistence derives revisions and preserves semantic replay`() {
+        val before = lifecycleWorkbook()
+        val application = DefaultWorkbookApplication(InMemoryWorkbookStore(before))
+        val after = lifecycleBoundWorkbook(before)
+
+        val saved = application.saveModelLifecycle(before, after)
+        val replayed = application.saveModelLifecycle(saved, saved)
+
+        assertEquals(listOf(1L, 1L), saved.sheetsInOrder.map(SheetDocument::revision))
+        assertEquals(saved, replayed)
+    }
+
+    @Test
     fun `lifecycle boundary keeps workbook membership and declaration identities fixed`() {
         val before = lifecycleWorkbook()
         val sheet = before.sheetsInOrder.first()
