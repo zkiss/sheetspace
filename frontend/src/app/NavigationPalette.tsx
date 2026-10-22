@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 export type NavigationCommand = {
   id: string;
   label: string;
+  /** Groups make query results readable without moving resolution into the UI. */
+  group?: string;
   shortcut?: string;
   unavailable?: string;
   run: () => void;
@@ -37,6 +39,7 @@ export function NavigationPalette({ commands, onClose }: { commands: readonly Na
       <label>Command search<input aria-controls="navigation-command-results" onChange={(event) => setQuery(event.target.value)} ref={input} value={query} /></label>
       <ul aria-label="Command results" id="navigation-command-results" role="listbox">
         {matches.map((command, commandIndex) => <li aria-selected={commandIndex === index} key={command.id} role="option">
+          {command.group && (commandIndex === 0 || matches[commandIndex - 1]?.group !== command.group) ? <strong className="navigation-command-group">{command.group}</strong> : null}
           <button disabled={Boolean(command.unavailable)} onClick={command.run} type="button">
             {command.label}{command.shortcut ? <kbd>{command.shortcut}</kbd> : null}
             {command.unavailable ? <small>{command.unavailable}</small> : null}

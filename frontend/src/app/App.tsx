@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import './App.css';
 import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
@@ -40,6 +40,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [dataModelsOpen, setDataModelsOpen] = useState(false);
   const [dataModelEditId, setDataModelEditId] = useState<string | undefined>(undefined);
   const [dataModelPropertyId, setDataModelPropertyId] = useState<string | undefined>(undefined);
+  const dataModelCloseFocus = useRef<(() => void) | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
   const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
@@ -181,7 +182,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onUpdateEditView={updateEditingCellView}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
-        onOpenDataModels={(modelId, propertyId) => { setDataModelEditId(modelId); setDataModelPropertyId(propertyId); setDataModelsOpen(true); }}
+        onOpenDataModels={(modelId, propertyId, onClose) => { dataModelCloseFocus.current = onClose; setDataModelEditId(modelId); setDataModelPropertyId(propertyId); setDataModelsOpen(true); }}
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
@@ -207,7 +208,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
           models={Object.values(workbook.dataModels ?? {})}
           initialModelId={dataModelEditId}
           initialPropertyId={dataModelPropertyId}
-          onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); setDataModelPropertyId(undefined); document.getElementById('data-models-button')?.focus(); }}
+          onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); setDataModelPropertyId(undefined); const restore = dataModelCloseFocus.current; dataModelCloseFocus.current = undefined; (restore ?? (() => document.getElementById('data-models-button')?.focus()))(); }}
           onRetryFailedSaves={commands.retryFailedSaves}
           onSave={async (model, isNew) => {
             const submission = isNew && !workbook.dataModels?.[model.id]
@@ -215,7 +216,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
               : commands.replaceModelDeclaration(model);
             if (!submission.result.ok) return submission.result;
             const result = await submission.completion;
-            if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); setDataModelPropertyId(undefined); document.getElementById('data-models-button')?.focus(); }
+            if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); setDataModelPropertyId(undefined); const restore = dataModelCloseFocus.current; dataModelCloseFocus.current = undefined; (restore ?? (() => document.getElementById('data-models-button')?.focus()))(); }
             return result;
           }}
           workbook={workbook}

@@ -84,9 +84,13 @@ export function useReferenceNavigation({
   }, [navigationMotion]);
 
   function navigateTarget(target: ReferenceNavigationTarget, targetSheet: SheetDocument, options: { forceOversized?: boolean } = {}) {
-    const range = target.kind === 'range' ? addressRangeOf(targetSheet.content, target.range) : target.target.cell && cellAddressOf(targetSheet.content, target.target.cell);
-    if (!range) return false;
-    const normalized = target.kind === 'range' ? range : { start: range, end: range };
+    const normalized: CellRange | undefined = target.kind === 'range'
+      ? addressRangeOf(targetSheet.content, target.range)
+      : (() => {
+        const address = target.target.cell && cellAddressOf(targetSheet.content, target.target.cell);
+        return address ? { start: address, end: address } : undefined;
+      })();
+    if (!normalized) return false;
     const navigate = (operation: NavigationOperation | (() => void)) => {
       const complete = typeof operation === 'function' && 'complete' in operation ? operation.complete : operation;
       const generation = typeof operation === 'function' && 'generation' in operation
