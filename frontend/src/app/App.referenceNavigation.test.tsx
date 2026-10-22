@@ -21,20 +21,60 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
-  it('settles a reference jump through Workspace grid wiring before enabling Back', async () => {
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
-    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
-    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+  it('captures and restores a delayed grid reference arrival only after Workspace motion settles', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const inputs = sheetDocument({
+      id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 }, rowCount: 30, columnCount: 10,
+    });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!J[30]' } });
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
 
+    const surface = workspaceSurface();
+    const departure = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!J[30], reference' }));
 
-    // This requires SheetGrid's real acknowledgement to flow through
-    // Workspace's shared navigation barrier; a unit callback spy cannot enable it.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled());
+    // The actual SheetGrid starts unavailable to the virtual window. Giving
+    // it geometry drives its own virtualizer and focus lifecycle for J30.
+    const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const inputsBody = within(inputsFrame).getByTestId('sheet-frame-body');
+    act(() => { virtualGridGeometry(inputsBody, { height: 160, width: 240 }); });
+    Object.defineProperties(inputsBody, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollWidth: { configurable: true, value: 1_000 },
+    });
+    await act(async () => {});
+    expect(screen.getByRole('cell', { name: 'Inputs J30 empty cell' })).toHaveFocus();
+    expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
+
+    act(() => { vi.advanceTimersByTime(179); });
+    act(() => { vi.advanceTimersByTime(1); });
+
+    const arrival = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
+    const arrivalScroll = [inputsBody.scrollLeft, inputsBody.scrollTop];
+    expect(arrival).not.toEqual(departure);
+    expect(arrivalScroll[0]).toBeGreaterThan(0);
+    expect(arrivalScroll[1]).toBeGreaterThan(0);
+
+    // Highlight expiry is presentation-only: the settled request must already
+    // be retired and leave the captured destination intact.
+    act(() => { vi.advanceTimersByTime(1_200); });
+    expect([inputsBody.scrollLeft, inputsBody.scrollTop]).toEqual(arrivalScroll);
+
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Forward' })).toBeEnabled());
+    act(() => { vi.advanceTimersByTime(180); });
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(departure);
+    expect(screen.getByRole('cell', { name: 'Outputs A1 cell' })).toHaveAttribute('data-active-cell', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forward' }));
+    act(() => { vi.advanceTimersByTime(180); });
+    fireEvent.scroll(inputsBody);
+    await act(async () => {});
+    expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).toEqual(arrival);
+    expect(screen.getByRole('cell', { name: 'Inputs J30 empty cell' })).toHaveAttribute('data-active-cell', 'true');
+    expect([inputsBody.scrollLeft, inputsBody.scrollTop]).toEqual(arrivalScroll);
   });
 
   it('keeps an outer zoom after cancelling a smooth reference restoration', () => {
