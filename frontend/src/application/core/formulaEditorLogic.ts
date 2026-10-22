@@ -1,7 +1,7 @@
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
-import { type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
+import { rangeReferenceIdentity, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import { formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult, type FormulaSyntaxToken } from '@workbook/formula/syntax';
 
 export type FormulaEditorSelection = { start: number; end: number };
@@ -122,20 +122,20 @@ export function stableReferenceIdentity(reference: FormulaReference, resolver: F
   if (!sheetId) return undefined;
   if (reference.kind === 'canonical') {
     if (!reference.range) return { kind: 'cell', sheetId, ...reference.coordinate };
-    return { kind: 'range', sheetId, start: reference.range.start, end: reference.range.end };
+    return rangeReferenceIdentity(sheetId, reference.range.start, reference.range.end);
   }
   if (reference.kind === 'named') {
     const coordinate = resolver.namedCoordinateAt?.(sheetId, reference.endpoint.propertyName, reference.endpoint.row)?.coordinate;
     if (!coordinate) return undefined;
     if (!reference.end) return { kind: 'cell', sheetId, ...coordinate };
     const end = resolver.namedCoordinateAt?.(sheetId, reference.end!.propertyName, reference.end!.row)?.coordinate;
-    return end ? { kind: 'range', sheetId, start: coordinate, end } : undefined;
+    return end ? rangeReferenceIdentity(sheetId, coordinate, end) : undefined;
   }
   const coordinate = resolver.coordinateAt(sheetId, reference.kind === 'cell' ? reference.address : reference.range.start);
   if (!coordinate) return undefined;
   if (reference.kind === 'cell') return { kind: 'cell', sheetId, ...coordinate };
   const end = resolver.coordinateAt(sheetId, reference.range.end);
-  return end ? { kind: 'range', sheetId, start: coordinate, end } : undefined;
+  return end ? rangeReferenceIdentity(sheetId, coordinate, end) : undefined;
 }
 
 export function formulaReferenceHover(

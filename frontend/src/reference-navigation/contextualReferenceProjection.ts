@@ -1,4 +1,4 @@
-import { referenceIdentityColor, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
+import { rangeReferenceIdentity, referenceIdentityColor, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import { createSheetGridAxisMetrics } from '@grid/gridAxisMetrics';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import { GRID_COLUMN_HEADER_HEIGHT, GRID_ROW_HEADER_WIDTH } from '@grid/gridGeometry';
@@ -99,7 +99,7 @@ export function projectReferenceGeometry({
 
 function identityForTarget(target: FormulaReferenceTarget): FormulaReferenceIdentity | undefined {
   if (target.kind === 'cell') return target.identity && { kind: 'cell', sheetId: target.sheetId, ...target.identity };
-  return target.range && { kind: 'range', sheetId: target.sheetId, ...target.range };
+  return target.range && rangeReferenceIdentity(target.sheetId, target.range.start, target.range.end);
 }
 
 function targetLogicalRect(target: FormulaReferenceTarget, sheet: SheetDocument): WorkspaceTargetRect | undefined {

@@ -25,6 +25,14 @@ describe('contextual reference projection', () => {
     expect(repeated[0]!.color).toBe(repeated[1]!.color);
   });
 
+  it('shares identity and colour for ranges written with reversed endpoints', () => {
+    const { formula, workbook, inspection } = fixture();
+    const reversed = inspectFormula('=@source!A[1]:B[2]', workbook, formula)!;
+    const references = contextualReferences([inspection.references[1]!, reversed.references[0]!]);
+    expect(references[0]!.identity).toEqual(references[1]!.identity);
+    expect(references[0]!.color).toBe(references[1]!.color);
+  });
+
   it('projects normalized range extents through variable axes, scroll, scale, and workspace pan and zoom', () => {
     const { source, workbook, inspection, frames } = fixture();
     const changed = { ...source, presentation: { ...source.presentation, columnWidths: { [source.content.columns[0]!]: 60, [source.content.columns[1]!]: 140 }, rowHeights: { [source.content.rows[0]!]: 30, [source.content.rows[1]!]: 70 } } };
