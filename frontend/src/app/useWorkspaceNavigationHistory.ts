@@ -100,7 +100,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   }, [cancelRestore, history]);
   const navigationHistory = {
     ...history,
-    explicitNavigation: (navigate: () => void) => {
+    explicitNavigation: (navigate: (settle: () => void) => void) => {
       cancelRestore();
       history.explicitNavigation(navigate);
     },

@@ -43,10 +43,10 @@ export function useReferenceNavigation({
 }: {
   navigateToTarget: (
     target: WorkspaceTargetRect,
-    options?: { forceOversized?: boolean; minimumScale?: number },
+    options?: { forceOversized?: boolean; minimumScale?: number; onSettled?: () => void },
   ) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
-  onExplicitNavigation?: (navigate: () => void) => void;
+  onExplicitNavigation?: (navigate: (settle: () => void) => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
@@ -93,7 +93,7 @@ export function useReferenceNavigation({
     const target: ReferenceNavigationTarget = reference.target.kind === 'range'
       ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
-    const navigate = () => {
+    const navigate = (settle: () => void = () => {}) => {
       onSelectReferenceTarget(target);
       setHighlight({ target, identity: nextHighlightIdentity.current++ });
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -108,6 +108,7 @@ export function useReferenceNavigation({
         // The viewport scale alone is not the rendered scale for a miniature
         // sheet. Require enough viewport scale to cross the detail boundary.
         minimumScale: detailedViewportScaleForSheet(targetSheet),
+        onSettled: settle,
       },
       );
     };

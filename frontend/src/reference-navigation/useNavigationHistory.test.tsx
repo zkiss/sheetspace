@@ -49,8 +49,12 @@ describe('useNavigationHistory', () => {
       });
       return { history, jump: () => setX(2) };
     });
-    act(() => result.current.history.explicitNavigation(result.current.jump));
-    act(() => vi.runOnlyPendingTimers());
+    let settle: (() => void) | undefined;
+    act(() => result.current.history.explicitNavigation((complete) => {
+      result.current.jump();
+      settle = complete;
+    }));
+    act(() => settle?.());
     expect(result.current.history.canGoBack).toBe(true);
     act(() => { result.current.history.traverse('back'); });
     expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
@@ -67,8 +71,12 @@ describe('useNavigationHistory', () => {
       return { history, moveTo: setX };
     });
 
-    act(() => result.current.history.explicitNavigation(() => result.current.moveTo(2)));
-    act(() => vi.runOnlyPendingTimers());
+    let settle: (() => void) | undefined;
+    act(() => result.current.history.explicitNavigation((complete) => {
+      result.current.moveTo(2);
+      settle = complete;
+    }));
+    act(() => settle?.());
     act(() => result.current.moveTo(3));
     act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
 
@@ -87,9 +95,18 @@ describe('useNavigationHistory', () => {
       return { history, moveTo: setX };
     });
 
-    act(() => result.current.history.explicitNavigation(() => result.current.moveTo(2)));
-    act(() => result.current.history.explicitNavigation(() => result.current.moveTo(3)));
-    act(() => vi.runOnlyPendingTimers());
+    let firstSettle: (() => void) | undefined;
+    act(() => result.current.history.explicitNavigation((complete) => {
+      result.current.moveTo(2);
+      firstSettle = complete;
+    }));
+    let secondSettle: (() => void) | undefined;
+    act(() => result.current.history.explicitNavigation((complete) => {
+      result.current.moveTo(3);
+      secondSettle = complete;
+    }));
+    act(() => firstSettle?.());
+    act(() => secondSettle?.());
 
     act(() => result.current.history.traverse('back'));
     expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 2, y: 0, scale: 1 } }), expect.any(Function));
@@ -106,9 +123,18 @@ describe('useNavigationHistory', () => {
       return { history, moveTo: setX };
     });
 
-    act(() => result.current.history.explicitNavigation(() => result.current.moveTo(2)));
-    act(() => vi.runOnlyPendingTimers());
-    act(() => result.current.history.explicitNavigation(() => result.current.moveTo(3)));
+    let firstSettle: (() => void) | undefined;
+    act(() => result.current.history.explicitNavigation((complete) => {
+      result.current.moveTo(2);
+      firstSettle = complete;
+    }));
+    let secondSettle: (() => void) | undefined;
+    act(() => result.current.history.explicitNavigation((complete) => {
+      result.current.moveTo(3);
+      secondSettle = complete;
+    }));
+    act(() => firstSettle?.());
+    act(() => secondSettle?.());
     act(() => result.current.history.traverse('back'));
     act(() => vi.runOnlyPendingTimers());
 
@@ -172,5 +198,25 @@ describe('useNavigationHistory', () => {
     x = 4;
     act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.traverse('back'); });
     expect(result.current.canGoForward).toBe(true);
+  });
+
+  it('keeps an explicit arrival suppressed until its owner acknowledges settlement', () => {
+    vi.useFakeTimers();
+    let x = 1;
+    let settleJump: (() => void) | undefined;
+    const { result } = renderHook(() => useNavigationHistory({
+      capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }),
+      restore: vi.fn(),
+    }));
+
+    act(() => result.current.explicitNavigation((settle) => {
+      x = 2;
+      settleJump = settle;
+    }));
+    act(() => vi.advanceTimersByTime(2_001));
+    expect(result.current.canGoBack).toBe(false);
+
+    act(() => settleJump?.());
+    expect(result.current.canGoBack).toBe(true);
   });
 });

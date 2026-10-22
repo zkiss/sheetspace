@@ -182,11 +182,19 @@ export function useWorkspaceController({
 
   function navigateToTarget(
     target: WorkspaceTargetRect,
-    options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean } = {},
+    options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean; onSettled?: () => void } = {},
   ) {
     const workspace = workspaceSurfaceRef.current;
-    if (!workspace) return;
+    if (!workspace) {
+      options.onSettled?.();
+      return;
+    }
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
+    if (options.onSettled) {
+      cancelViewportRestore();
+      const id = ++nextViewportRestoreId.current;
+      pendingViewportRestore.current = { id, onSettled: options.onSettled };
+    }
     navigationMayBeMoving.current = true;
     viewportMovementIsUser.current = false;
     setNavigationInterrupted(false);
