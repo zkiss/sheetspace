@@ -1,5 +1,6 @@
 package com.sheetspace
 
+import java.sql.SQLException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -64,6 +65,27 @@ class SqliteWorkbookStoreAggregateUpdateTest {
         val updated = store.updateWorkbook(ExpectedSheetRevision(TEST_SHEET_2, 0)) { it }
 
         assertEquals(before, updated)
+        assertEquals(before, store.loadWorkbookBundle())
+    }
+
+    @Test
+    fun `aggregate persistence rolls back all records when a later sheet write fails`() = withSqliteStore { store ->
+        val first = testDocument(TEST_SHEET_1, "Inputs")
+        val second = testDocument(TEST_SHEET_2, "Outputs")
+        store.saveWorkbook(testWorkbookOf(first, second))
+        val before = store.loadWorkbookBundle()
+        val conflicting = before
+            .replaceSheet(first.rename("Renamed inputs"))
+            .replaceSheet(second.rename("Renamed inputs"))
+
+        assertFailsWith<SQLException> {
+            SqliteDatabase(store.jdbcUrl, null).use { database ->
+                database.transaction { connection ->
+                    SqliteWorkbookWriter(connection, SqliteWorkbookReader(connection)).persistChanges(before, conflicting)
+                }
+            }
+        }
+
         assertEquals(before, store.loadWorkbookBundle())
     }
 }
