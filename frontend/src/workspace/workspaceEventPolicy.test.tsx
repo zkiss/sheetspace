@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   eventTargetElement, isBackgroundTarget, isNativeControlTarget, isNativeEditorTarget,
   isNativeContentTarget, isOwnedPortalTarget, isSheetContextTarget, isSheetTarget,
@@ -66,5 +66,33 @@ describe('workspace DOM ownership policy', () => {
       expect(isOwnedPortalTarget(target(name), target('surface'))).toBe(false);
     }
     expect(isBackgroundTarget(target('portal'), target('surface'))).toBe(false);
+  });
+
+  it('uses one targeted frame lookup for a portal editor among many sheets', () => {
+    const target = setup();
+    const surface = target('surface');
+    for (let index = 0; index < 100; index++) {
+      const frame = document.createElement('article');
+      frame.dataset.workspaceSheetFrame = '';
+      frame.dataset.sheetId = `other-${index}`;
+      surface.append(frame);
+    }
+    const allFrames = vi.spyOn(surface, 'querySelectorAll');
+    const frame = vi.spyOn(surface, 'querySelector');
+
+    expect(isOwnedPortalTarget(target('portal'), surface)).toBe(true);
+
+    expect(allFrames).not.toHaveBeenCalled();
+    expect(frame).toHaveBeenCalledOnce();
+    expect(frame).toHaveBeenCalledWith('[data-workspace-sheet-frame][data-sheet-id="owned"]');
+  });
+
+  it('matches portal owners whose sheet IDs need CSS string escaping', () => {
+    const target = setup();
+    const sheetId = 'quote" slash\\ control\u0001';
+    target('frame').dataset.sheetId = sheetId;
+    target('portal').dataset.workspaceSheetEditor = sheetId;
+
+    expect(isOwnedPortalTarget(target('portal'), target('surface'))).toBe(true);
   });
 });
