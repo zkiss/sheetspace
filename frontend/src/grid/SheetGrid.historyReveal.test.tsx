@@ -12,7 +12,7 @@ function setup() {
   const axisProjection = projectGridAxes(sheet);
   const scrollContainerRef = createRef<HTMLDivElement>();
   const onUserViewportMovement = vi.fn();
-  const onHistoryRestoreSettled = vi.fn();
+  const onNavigationSettled = vi.fn();
   const props: ComponentProps<typeof SheetGrid> = {
     activeCellKey: null, axisProjection, sheet, scrollContainerRef,
     cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() },
@@ -24,12 +24,12 @@ function setup() {
     <SheetGrid {...props} axisProjection={projectGridAxes(sheet)} historyFeedbackIdentity={target ? identity : undefined}
       historyFeedbackCells={target ? new Map([[target, { before: 'old', beforeDisplay: 'old', after: 'new' }]]) : undefined}
       historyRestore={historyRestore} navigationHighlightCellKey={navigationTarget ?? null} navigationHighlightIdentity={navigationTarget ? Number(identity) : undefined}
-       navigationRequestGeneration={navigationRequestGeneration ?? undefined} navigationRequestCellKey={navigationTarget} onHistoryRestoreSettled={onHistoryRestoreSettled} onNavigationRevealSettled={onHistoryRestoreSettled} />
+       navigationRequestGeneration={navigationRequestGeneration ?? undefined} navigationRequestCellKey={navigationTarget} onNavigationSettled={onNavigationSettled} />
   </div>;
   const view = render(grid());
   const viewport = scrollContainerRef.current!;
   act(() => { virtualGridGeometry(viewport); });
-  return { viewport, sheet, onHistoryRestoreSettled, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)), restore: (historyRestore: { generation: number; left: number; top: number }) => view.rerender(grid(undefined, undefined, historyRestore)), renderNavigationTarget: (target: string, generation?: number | null) => view.rerender(grid(undefined, '9', undefined, generation, target)) };
+  return { viewport, sheet, onNavigationSettled, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)), restore: (historyRestore: { generation: number; left: number; top: number }) => view.rerender(grid(undefined, undefined, historyRestore)), renderNavigationTarget: (target: string, generation?: number | null) => view.rerender(grid(undefined, '9', undefined, generation, target)) };
 }
 
 describe('history reveal scroll-axis independence', () => {
@@ -45,7 +45,7 @@ describe('history reveal scroll-axis independence', () => {
   });
 
   it('acknowledges a generation only after applying its final saved scroll', () => {
-    const { viewport, onHistoryRestoreSettled, restore } = setup();
+    const { viewport, onNavigationSettled, restore } = setup();
     Object.defineProperties(viewport, {
       scrollHeight: { configurable: true, value: 1_000 },
       scrollWidth: { configurable: true, value: 1_000 },
@@ -55,7 +55,7 @@ describe('history reveal scroll-axis independence', () => {
 
     expect(viewport.scrollLeft).toBe(240);
     expect(viewport.scrollTop).toBe(360);
-    expect(onHistoryRestoreSettled).toHaveBeenCalledWith(7);
+    expect(onNavigationSettled).toHaveBeenCalledWith(7);
   });
 
   it('reveals once per action, not per feedback map or axis projection allocation', () => {
@@ -74,7 +74,7 @@ describe('history reveal scroll-axis independence', () => {
   });
 
   it('does not reveal a delayed reference target after its shared operation is cancelled', () => {
-    const { viewport, onHistoryRestoreSettled, renderNavigationTarget } = setup();
+    const { viewport, onNavigationSettled, renderNavigationTarget } = setup();
     viewport.scrollLeft = 500;
     viewport.scrollTop = 400;
 
@@ -84,11 +84,11 @@ describe('history reveal scroll-axis independence', () => {
 
     expect(viewport.scrollLeft).toBe(500);
     expect(viewport.scrollTop).toBe(400);
-    expect(onHistoryRestoreSettled).not.toHaveBeenCalled();
+    expect(onNavigationSettled).not.toHaveBeenCalled();
   });
 
   it('settles a delayed reference request after its presentation highlight expires', () => {
-    const { viewport, onHistoryRestoreSettled, renderNavigationTarget } = setup();
+    const { viewport, onNavigationSettled, renderNavigationTarget } = setup();
     viewport.scrollLeft = 500;
     viewport.scrollTop = 400;
 
@@ -97,7 +97,7 @@ describe('history reveal scroll-axis independence', () => {
 
     expect(viewport.scrollLeft).toBe(0);
     expect(viewport.scrollTop).toBe(0);
-    expect(onHistoryRestoreSettled).toHaveBeenCalledWith(9);
+    expect(onNavigationSettled).toHaveBeenCalledWith(9);
   });
 
   it.each([

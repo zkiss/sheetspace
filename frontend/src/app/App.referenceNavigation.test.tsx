@@ -21,6 +21,22 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
+  it('settles a reference jump through Workspace grid wiring before enabling Back', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
+
+    // This requires SheetGrid's real acknowledgement to flow through
+    // Workspace's shared navigation barrier; a unit callback spy cannot enable it.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Forward' })).toBeEnabled());
+  });
+
   it('wires smooth navigation feedback expiry without clearing the range selection', () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));

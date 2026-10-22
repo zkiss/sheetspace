@@ -73,7 +73,6 @@ export function SheetGrid({
   navigationHighlightCellKey,
   navigationHighlightRange,
   navigationHighlightIdentity,
-  onNavigationRevealSettled,
   historyFeedbackCells,
   historyFeedbackIdentity,
   onHistoryRevealConsumed,
@@ -101,7 +100,7 @@ export function SheetGrid({
    navigationRequestGeneration,
    navigationRequestCellKey,
    navigationRequestRange,
-   onHistoryRestoreSettled,
+   onNavigationSettled,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
@@ -121,7 +120,8 @@ export function SheetGrid({
    historyRestore?: { generation: number; left: number; top: number };
    navigationRestoreGeneration?: number;
     navigationRequestGeneration?: number; navigationRequestCellKey?: string | null; navigationRequestRange?: CellRange;
-  onHistoryRestoreSettled?: (generation: number) => void;
+  /** Acknowledges either final saved-scroll restoration or an explicit reveal. */
+  onNavigationSettled?: (generation: number) => void;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -140,7 +140,6 @@ export function SheetGrid({
   navigationHighlightRange?: CellRange;
   /** One reference-navigation action, independent of range/projection allocations. */
   navigationHighlightIdentity?: number;
-  onNavigationRevealSettled?: (identity: number) => void;
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
   /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
   historyFeedbackIdentity?: string;
@@ -403,8 +402,8 @@ export function SheetGrid({
     revealedNavigationIdentity.current = navigationRequestGeneration;
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
-    onNavigationRevealSettled?.(navigationRequestGeneration);
-  }, [columnMetrics, columns, navigationRequestCellKey, navigationRequestGeneration, navigationRequestRange, onNavigationRevealSettled, rowMetrics, rows, scrollContainerRef, sheet]);
+    onNavigationSettled?.(navigationRequestGeneration);
+  }, [columnMetrics, columns, navigationRequestCellKey, navigationRequestGeneration, navigationRequestRange, onNavigationSettled, rowMetrics, rows, scrollContainerRef, sheet]);
   useEffect(() => {
     if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;
@@ -421,7 +420,7 @@ export function SheetGrid({
     scrollContainer.scrollTop = reveal.row.scroll;
     onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
   }, [columnMetrics, historyAddress, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
-  useGridHistoryRestore({ navigationGeneration: navigationRestoreGeneration, onSettled: onHistoryRestoreSettled, restore: historyRestore, scrollContainerRef });
+  useGridHistoryRestore({ navigationGeneration: navigationRestoreGeneration, onSettled: onNavigationSettled, restore: historyRestore, scrollContainerRef });
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
     if (focusIntent) return;

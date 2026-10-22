@@ -498,7 +498,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     navigationRequestGeneration={navigationRequest?.generation}
                     navigationRequestCellKey={cellKeyForTarget(sheet, navigationRequestTarget)}
                     navigationRequestRange={navigationRequestRange}
-                    onHistoryRestoreSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
+                    onNavigationSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
                       clear: (target) => reportWriteOutcome(onClearCell(target)),
