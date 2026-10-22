@@ -33,6 +33,21 @@ describe('contextual reference projection', () => {
     expect(references[0]!.color).toBe(references[1]!.color);
   });
 
+  it('leaves unresolved and broken inspected references without a coordinated identity or colour', () => {
+    const { inspection } = fixture();
+    const unresolved = {
+      ...inspection.references[0]!,
+      target: { kind: 'cell' as const, sheetId: 'source' },
+      navigable: false,
+    };
+    const broken = { ...inspection.references[0]!, broken: true };
+
+    expect(contextualReferences([unresolved, broken])).toEqual([
+      { reference: unresolved, identity: undefined, color: undefined },
+      { reference: broken, identity: inspection.references[0]!.target.kind === 'cell' ? { kind: 'cell', sheetId: 'source', ...inspection.references[0]!.target.identity! } : undefined, color: undefined },
+    ]);
+  });
+
   it('projects normalized range extents through variable axes, scroll, scale, and workspace pan and zoom', () => {
     const { source, workbook, inspection, frames } = fixture();
     const changed = { ...source, presentation: { ...source.presentation, columnWidths: { [source.content.columns[0]!]: 60, [source.content.columns[1]!]: 140 }, rowHeights: { [source.content.rows[0]!]: 30, [source.content.rows[1]!]: 70 } } };
@@ -58,5 +73,18 @@ describe('contextual reference projection', () => {
     expect(projectReferenceGeometry({ ...base, reference: { ...inspection.references[0]!, broken: true, navigable: false }, gridViewports: { source: viewport } })).toEqual({ kind: 'unavailable', reason: 'broken' });
     const covered = [...frames, { id: 'cover', name: 'Cover', position: { x: 100, y: 50 }, size: { width: 600, height: 500 }, visualScale: 1, zIndex: 2 }];
     expect(projectReferenceGeometry({ ...base, frames: covered, gridViewports: { source: viewport } })).toEqual({ kind: 'unavailable', reason: 'occluded' });
+  });
+
+  it('rejects every unavailable projection prerequisite instead of fabricating a target anchor', () => {
+    const { workbook, inspection, frames } = fixture();
+    const base = { reference: inspection.references[0]!, workbook, frames, gridViewports: { source: viewport }, workspaceViewport: { x: 0, y: 0, scale: 1 }, surfaceSize: { width: 900, height: 700 } };
+
+    expect(projectReferenceGeometry({ ...base, reference: { ...base.reference, navigable: false } })).toEqual({ kind: 'unavailable', reason: 'broken' });
+    expect(projectReferenceGeometry({ ...base, workbook: { ...workbook, documents: {} } })).toEqual({ kind: 'unavailable', reason: 'unmounted' });
+    expect(projectReferenceGeometry({ ...base, frames: frames.filter((frame) => frame.id !== 'source') })).toEqual({ kind: 'unavailable', reason: 'unmounted' });
+    expect(projectReferenceGeometry({ ...base, gridViewports: {} })).toEqual({ kind: 'unavailable', reason: 'unmounted' });
+    expect(projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, size: { width: 48, height: 300 } } } })).toEqual({ kind: 'unavailable', reason: 'clipped' });
+    expect(projectReferenceGeometry({ ...base, surfaceSize: { width: 200, height: 700 } })).toEqual({ kind: 'unavailable', reason: 'clipped' });
+    expect(projectReferenceGeometry({ ...base, reference: { ...base.reference, target: { kind: 'cell', sheetId: 'source', identity: { rowId: 'missing', columnId: 'missing' } } } })).toEqual({ kind: 'unavailable', reason: 'broken' });
   });
 });
