@@ -151,6 +151,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const interactionsEnabled = !sheetDialogOpen;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
+  const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
   const { history: navigationHistory, registerScrollContainer } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
@@ -175,6 +176,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         return;
       }
       if (event.altKey && !event.shiftKey && !primaryModifier && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        if (!navigationKeyboardEnabled) return;
         if (navigationHistory.traverse(event.key === 'ArrowLeft' ? 'back' : 'forward')) event.preventDefault();
         return;
       }
@@ -188,7 +190,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, onRestoreGridFocus, workspaceController]);
+  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
   const {
     navigateReference,
