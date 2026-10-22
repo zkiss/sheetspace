@@ -93,4 +93,36 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(remounted.scrollLeft).toBe(240);
     expect(remounted.scrollTop).toBe(360);
   });
+
+  it('does not turn a native notification from a restored clamped scroll into history', () => {
+    vi.useFakeTimers();
+    const runAnimationFrames = controlAnimationFrames();
+    const restoreViewport = vi.fn();
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(),
+      restoreViewport,
+      selection: null,
+      viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    const grid = scrollContainer(240, 360);
+    act(() => result.current.registerScrollContainer('destination', grid));
+
+    // Refresh the initial context now that its grid is mounted.
+    act(() => { result.current.history.recordMovement(); vi.advanceTimersByTime(2_000); });
+    grid.scrollLeft = 700;
+    grid.scrollTop = 800;
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => result.current.history.traverse('back'));
+    act(runAnimationFrames);
+
+    // Browsers may dispatch this after the rAF that assigned scrollTop.
+    act(() => { result.current.recordGridScroll('destination'); vi.advanceTimersByTime(2_000); });
+    expect(result.current.history.canGoForward).toBe(true);
+    expect(grid.scrollLeft).toBe(240);
+    expect(grid.scrollTop).toBe(360);
+    act(() => result.current.history.traverse('back'));
+    expect(restoreViewport).toHaveBeenLastCalledWith({ x: 1, y: 0, scale: 1 });
+  });
 });

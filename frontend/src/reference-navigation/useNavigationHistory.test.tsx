@@ -21,7 +21,7 @@ describe('useNavigationHistory', () => {
     act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
     expect(result.current.canGoBack).toBe(true);
     act(() => { result.current.traverse('back'); });
-    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
   });
 
   it('seeds the initial context so one settled pan can return to it', () => {
@@ -36,7 +36,7 @@ describe('useNavigationHistory', () => {
 
     expect(result.current.canGoBack).toBe(true);
     act(() => { result.current.traverse('back'); });
-    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
   });
 
   it('captures the React-committed arrival around an explicit jump', () => {
@@ -53,7 +53,7 @@ describe('useNavigationHistory', () => {
     act(() => vi.runOnlyPendingTimers());
     expect(result.current.history.canGoBack).toBe(true);
     act(() => { result.current.history.traverse('back'); });
-    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
   });
 
   it('refreshes a selection-only departure before traversing history', () => {
@@ -76,10 +76,31 @@ describe('useNavigationHistory', () => {
     rerender({ x: 2, selection: b2 });
 
     act(() => { result.current.traverse('back'); });
-    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ selection: a1 }));
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ selection: a1 }), expect.any(Function));
     act(() => { result.current.traverse('forward'); });
     expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({
       viewport: { x: 2, y: 0, scale: 1 }, selection: b2,
+    }), expect.any(Function));
+  });
+
+  it('does not record programmatic movement until the restore operation acknowledges completion', () => {
+    vi.useFakeTimers();
+    let x = 1;
+    let completeRestore: (() => void) | undefined;
+    const { result } = renderHook(() => useNavigationHistory({
+      capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }),
+      restore: (_context, complete) => { completeRestore = complete; },
     }));
+
+    x = 2;
+    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); result.current.traverse('back'); });
+    x = 1;
+    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
+    expect(result.current.canGoBack).toBe(false);
+
+    act(() => completeRestore?.());
+    x = 3;
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    expect(result.current.canGoBack).toBe(true);
   });
 });

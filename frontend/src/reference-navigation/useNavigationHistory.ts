@@ -5,12 +5,12 @@ const SETTLE_MS = 2_000;
 
 export function useNavigationHistory({ capture, restore }: {
   capture: () => NavigationContext;
-  restore: (context: NavigationContext) => void;
+  restore: (context: NavigationContext, complete: () => void) => void;
 }) {
   const history = useRef(EMPTY_NAVIGATION_HISTORY);
   const [revision, setRevision] = useState(0);
   const timer = useRef<number>();
-  const restoring = useRef(false);
+  const restoration = useRef(0);
   const captureRef = useRef(capture);
   captureRef.current = capture;
   const commit = useCallback(() => {
@@ -32,15 +32,25 @@ export function useNavigationHistory({ capture, restore }: {
       commit();
     }
   }, [commit]);
-  const recordMovement = useCallback(() => {
-    if (restoring.current) return;
+  const scheduleMovement = useCallback(() => {
     if (timer.current !== undefined) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       timer.current = undefined;
       commit();
     }, SETTLE_MS);
   }, [commit]);
+  const recordMovement = useCallback(() => {
+    if (restoration.current !== 0) return;
+    scheduleMovement();
+  }, [scheduleMovement]);
+  const recordUserMovement = useCallback(() => {
+    // Grid scroll has already changed by the time its native event arrives;
+    // cancel any incomplete restore before starting its settled destination.
+    restoration.current += 1;
+    scheduleMovement();
+  }, [scheduleMovement]);
   const explicitNavigation = useCallback((navigate: () => void) => {
+    restoration.current += 1;
     flushMovement();
     commit();
     navigate();
@@ -58,9 +68,13 @@ export function useNavigationHistory({ capture, restore }: {
     const next = traverseNavigationHistory(history.current, direction);
     if (!next) return false;
     history.current = next.history;
-    restoring.current = true;
-    restore(next.context);
-    window.setTimeout(() => { restoring.current = false; }, 0);
+    const operation = restoration.current + 1;
+    restoration.current = operation;
+    restore(next.context, () => {
+      // An old rAF or React commit must never release suppression for a newer
+      // traversal. Completion is owned by the restore adapter, not a timer.
+      if (restoration.current === operation) restoration.current = 0;
+    });
     setRevision((current) => current + 1);
     return true;
   }, [flushMovement, restore]);
@@ -70,6 +84,7 @@ export function useNavigationHistory({ capture, restore }: {
     canGoForward: history.current.cursor >= 0 && history.current.cursor < history.current.entries.length - 1,
     explicitNavigation,
     recordMovement,
+    recordUserMovement,
     revision,
     traverse,
   };
