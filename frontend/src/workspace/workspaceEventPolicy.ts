@@ -3,6 +3,15 @@ const NATIVE_BOUNDARY = '[data-workspace-native-content], [role="menu"]';
 const CONTROL = 'button, a';
 const SHEET_FRAME = '[data-workspace-sheet-frame]';
 
+function cssAttributeString(value: string): string {
+  return Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0)!;
+    return codePoint <= 0x1f || codePoint === 0x7f || character === '"' || character === '\\'
+      ? `\\${codePoint.toString(16)} `
+      : character;
+  }).join('');
+}
+
 /** DOM ownership, not React ancestry: a body portal is not sheet/background content. */
 export function eventTargetElement(target: EventTarget | null): Element | null {
   return target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
@@ -40,6 +49,7 @@ export function isOwnedPortalTarget(target: EventTarget | null, surface: HTMLEle
   const element = eventTargetElement(target);
   if (!element || surface.contains(element)) return false;
   const editor = element.closest<HTMLElement>('[data-workspace-sheet-editor]');
-  return !!editor && Array.from(surface.querySelectorAll<HTMLElement>(SHEET_FRAME))
-    .some((frame) => frame.dataset.sheetId === editor.dataset.workspaceSheetEditor);
+  const sheetId = editor?.dataset.workspaceSheetEditor;
+  return sheetId !== undefined
+    && surface.querySelector<HTMLElement>(`${SHEET_FRAME}[data-sheet-id="${cssAttributeString(sheetId)}"]`) !== null;
 }
