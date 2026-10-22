@@ -134,6 +134,12 @@ export function useWorkspaceController({
     setViewport({ x: 0, y: 0, scale: 1 });
   }
 
+  function restoreViewport(nextViewport: WorkspaceViewport) {
+    navigationMayBeMoving.current = true;
+    setNavigationInterrupted(false);
+    setViewport(nextViewport);
+  }
+
   function navigateToTarget(
     target: WorkspaceTargetRect,
     options: { forceOversized?: boolean; minimumScale?: number; preserveVisibleAxes?: boolean } = {},
@@ -179,6 +185,7 @@ export function useWorkspaceController({
     panWorkspace,
     pendingSheetMenu,
     resetViewport,
+    restoreViewport,
     viewport,
     workspacePlaneRef,
     workspaceSurfaceRef,

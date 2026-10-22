@@ -106,6 +106,7 @@ export function SheetGrid({
   pendingCutCells,
   columnLabels,
   calculatedColumnIds,
+  onViewportScroll,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
@@ -118,6 +119,8 @@ export function SheetGrid({
   pendingCutCells?: ReadonlySet<string>;
   columnLabels?: ReadonlyMap<string, string>;
   calculatedColumnIds?: ReadonlySet<string>;
+  /** Reports user grid scrolling to the session-local spatial history owner. */
+  onViewportScroll?: () => void;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -209,6 +212,12 @@ export function SheetGrid({
   useEffect(() => {
     setScrollElement(scrollContainerRef.current);
   }, [scrollContainerRef]);
+  useEffect(() => {
+    const element = scrollContainerRef.current;
+    if (!element || !onViewportScroll) return;
+    element.addEventListener('scroll', onViewportScroll, { passive: true });
+    return () => element.removeEventListener('scroll', onViewportScroll);
+  }, [onViewportScroll, scrollContainerRef]);
   const rowVirtualizer = useVirtualizer({
     count: rowMetrics.count,
     estimateSize: rowItemSize,

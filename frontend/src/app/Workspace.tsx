@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Workspace remains the existing composition root; focused history ownership is extracted. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
@@ -22,6 +23,7 @@ import { CreatingSheetFrame } from '@workspace/CreatingSheetFrame';
 import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/core/sheetCreationState';
 import { SheetGrid } from '@grid/SheetGrid';
 import { useReferenceNavigation } from '@reference-navigation/useReferenceNavigation';
+import { useWorkspaceNavigationHistory } from './useWorkspaceNavigationHistory';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
 import type { WorkbookCommands } from '@application/react/useWorkbookController';
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
@@ -146,6 +148,17 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const interactionsEnabled = !sheetDialogOpen;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
+  const { history: navigationHistory, scrollContainers: gridScrollContainers } = useWorkspaceNavigationHistory({
+    onSelectCell, restoreViewport: workspaceController.restoreViewport,
+    selection: selectionRange, viewport: workspaceController.viewport,
+  });
+  const lastViewport = useRef(workspaceController.viewport);
+  useEffect(() => {
+    if (lastViewport.current !== workspaceController.viewport) {
+      lastViewport.current = workspaceController.viewport;
+      navigationHistory.recordMovement();
+    }
+  }, [navigationHistory, workspaceController.viewport]);
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
       if (!interactionsEnabled) return;
@@ -158,6 +171,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         workspaceController.createSheetAtViewportCenter();
         return;
       }
+      if (event.altKey && !event.shiftKey && !primaryModifier && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        if (navigationHistory.traverse(event.key === 'ArrowLeft' ? 'back' : 'forward')) event.preventDefault();
+        return;
+      }
       const action = formattingShortcut(event);
       if (!action) return;
       event.preventDefault();
@@ -168,7 +185,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, formattingProjection, interactionsEnabled, onRestoreGridFocus, workspaceController]);
+  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, onRestoreGridFocus, workspaceController]);
   useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
   const {
     navigateReference,
@@ -178,6 +195,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
     onSelectReferenceTarget,
+    onExplicitNavigation: navigationHistory.explicitNavigation,
     workbook,
   });
   const {
@@ -308,6 +326,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             selection={selectionRange}
           />}
         onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        canGoBack={navigationHistory.canGoBack}
+        canGoForward={navigationHistory.canGoForward}
+        onGoBack={() => navigationHistory.traverse('back')}
+        onGoForward={() => navigationHistory.traverse('forward')}
         onOpenDataModels={onOpenDataModels}
         modelControls={selectedSheet ? <SheetModelControls key={selectedSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => onOpenDataModels?.(modelId)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
@@ -437,6 +459,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               viewportScale={workspaceController.viewport.scale}
             >
               {(scrollContainerRef) => {
+                if (scrollContainerRef.current) gridScrollContainers.current.set(sheet.id, scrollContainerRef.current);
                 const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
                 return (
                   <SheetGrid
@@ -452,6 +475,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     logicalSelection={selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
+                    onViewportScroll={navigationHistory.recordMovement}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
                       clear: (target) => reportWriteOutcome(onClearCell(target)),

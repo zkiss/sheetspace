@@ -14,6 +14,10 @@ export function WorkspaceToolbar({
   modelControls,
   onCreateSheet,
   onOpenDataModels,
+  onGoBack,
+  onGoForward,
+  canGoBack = false,
+  canGoForward = false,
   onRetryFailedSaves,
   saveStatus,
 }: {
@@ -22,6 +26,10 @@ export function WorkspaceToolbar({
   modelControls?: ReactNode;
   onCreateSheet: () => void;
   onOpenDataModels?: () => void;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
   onRetryFailedSaves: () => void;
   saveStatus: SaveStatus;
 }) {
@@ -29,6 +37,8 @@ export function WorkspaceToolbar({
     <div className="workspace-chrome">
       <header className="workspace-toolbar" aria-label="Workspace controls">
         <button className="workspace-new-sheet" onClick={onCreateSheet} type="button">New sheet</button>
+        <button aria-label="Back" className="workspace-new-sheet" data-workspace-navigation disabled={!canGoBack} onClick={onGoBack} title="Back (Alt+Left)" type="button">Back</button>
+        <button aria-label="Forward" className="workspace-new-sheet" data-workspace-navigation disabled={!canGoForward} onClick={onGoForward} title="Forward (Alt+Right)" type="button">Forward</button>
         <button className="workspace-new-sheet" data-workspace-navigation id="data-models-button" onClick={() => onOpenDataModels?.()} type="button">Data models</button>
         {modelControls}
         <div className="workspace-format-slot">{formatControls}</div>

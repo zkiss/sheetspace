@@ -38,6 +38,7 @@ function normalizedRange(reference: FormulaInspectionReference, sheet: SheetDocu
 export function useReferenceNavigation({
   navigateToTarget,
   onSelectReferenceTarget,
+  onExplicitNavigation,
   workbook,
 }: {
   navigateToTarget: (
@@ -45,6 +46,7 @@ export function useReferenceNavigation({
     options?: { forceOversized?: boolean; minimumScale?: number },
   ) => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
+  onExplicitNavigation?: (navigate: () => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
@@ -91,12 +93,12 @@ export function useReferenceNavigation({
     const target: ReferenceNavigationTarget = reference.target.kind === 'range'
       ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
-    onSelectReferenceTarget(target);
-    setHighlight({ target, identity: nextHighlightIdentity.current++ });
-
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    setNavigationMotion(!reduceMotion);
-    navigateToTarget(
+    const navigate = () => {
+      onSelectReferenceTarget(target);
+      setHighlight({ target, identity: nextHighlightIdentity.current++ });
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      setNavigationMotion(!reduceMotion);
+      navigateToTarget(
       // Axis offsets are local to the frame's scrollport. Reveal the physical
       // frame in the outer workspace; SheetGrid then scrolls internally to the
       // durable range anchor while the focus request keeps the frame mounted.
@@ -107,7 +109,10 @@ export function useReferenceNavigation({
         // sheet. Require enough viewport scale to cross the detail boundary.
         minimumScale: detailedViewportScaleForSheet(targetSheet),
       },
-    );
+      );
+    };
+    if (onExplicitNavigation) onExplicitNavigation(navigate);
+    else navigate();
   }
 
   return {
