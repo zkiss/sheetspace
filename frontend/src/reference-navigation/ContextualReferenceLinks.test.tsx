@@ -22,6 +22,8 @@ describe('ContextualReferenceLinks', () => {
 
     const canvas = document.querySelector('.contextual-reference-canvas')!;
     expect(canvas.parentElement?.parentElement).toHaveAttribute('data-testid', 'workspace-surface');
+    expect(canvas.parentElement?.querySelector('.contextual-reference-controls')).toBeTruthy();
+    expect(canvas.parentElement).not.toHaveClass('contextual-reference-controls');
     expect(canvas.querySelector('line')).toHaveAttribute('x1', '30');
     const link = screen.getByRole('button', { name: 'Navigate to @Source!A[1]' });
     fireEvent.click(link);
