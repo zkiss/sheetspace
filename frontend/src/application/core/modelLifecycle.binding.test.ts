@@ -6,7 +6,7 @@ import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { classifyCellValue } from '@calculation/formulaValue';
 import type { DataModel } from '@workbook/core/model';
-import { commitCellRawContent } from '@workbook/mutations/operations';
+import { commitCellRawContent, renameSheet } from '@workbook/mutations/operations';
 
 const model = declaration([manualProperty('input'), calculatedProperty('result', '=@A[1]*2')]);
 const makeSheet = (columnCount = 2, rowCount = 2) => sheetDocument({ id: 'sheet', name: 'Sheet', columnCount, rowCount, cells: rowCount && columnCount ? { A1: '3', ...(columnCount > 1 ? { B1: 'overwritten' } : {}) } : {} });
@@ -128,6 +128,20 @@ describe('explicit unbinding and model switching', () => {
     expect(storedModelCells(unbound).B1).toBe('10');
     expect(calculatedModelCells(unbound).other.A1).toMatchObject({ value: 11 });
     expect(calculatedModelCells(commitCellRawContent(unbound, 'sheet', 'A1', '20')).other.A1).toMatchObject({ value: 11 });
+  });
+
+  it('keeps external references to bound calculated properties after the sheet is renamed', () => {
+    const consumer = sheetDocument({ id: 'consumer', name: 'Consumer', columnCount: 1, rowCount: 1 });
+    const bound = bindModelSheets(modelWorkbook(model, [makeSheet(), consumer]), ['sheet']);
+    const withReference = commitCellRawContent(bound, 'consumer', 'A1', '=@Sheet!B[1]');
+    const renamed = renameSheet(withReference, 'sheet', 'Renamed sheet');
+
+    expect(renamed).toMatchObject({ ok: true });
+    if (!renamed.ok) return;
+    expect(storedModelCells(withReference, 'consumer').A1).toContain('@sheet!');
+    expect(calculatedModelCells(withReference).consumer.A1).toMatchObject({ value: 6 });
+    expect(renamed.value.documents.sheet!.name).toBe('Renamed sheet');
+    expect(calculatedModelCells(renamed.value).consumer.A1).toMatchObject({ value: 6 });
   });
 
   it('materializes before a positional switch rather than preserving executable old calculations', () => {
