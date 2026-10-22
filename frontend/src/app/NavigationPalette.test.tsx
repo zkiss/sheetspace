@@ -37,4 +37,14 @@ describe('NavigationPalette', () => {
     await user.keyboard('{Shift>}{Tab}{/Shift}');
     expect(search).toHaveFocus();
   });
+
+  it('exposes the active command through combobox semantics', () => {
+    render(<NavigationPalette commands={[{ id: 'alpha', label: 'Go to Alpha', run: vi.fn() }]} onClose={vi.fn()} />);
+
+    const search = screen.getByRole('combobox', { name: 'Command search' });
+    expect(search).toHaveAttribute('aria-expanded', 'true');
+    expect(search).toHaveAttribute('aria-controls', 'navigation-command-results');
+    expect(search).toHaveAttribute('aria-activedescendant', 'navigation-command-alpha');
+    expect(screen.getByRole('option', { name: 'Go to Alpha' })).toHaveAttribute('id', 'navigation-command-alpha');
+  });
 });

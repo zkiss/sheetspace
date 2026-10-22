@@ -268,16 +268,50 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const model = workbook.dataModels?.[selectedSheet.modelId];
     return model?.columns.find((property) => selectedSheet.modelColumnBindings?.[property.id] === activeCell.cell.columnId);
   }, [activeCell, selectedSheet, workbook.dataModels]);
-  const openPropertyDefinition = useCallback(() => {
-    const property = propertyForActiveCell();
-    if (!property || !selectedSheet?.modelId) { setNavigationFeedback('Select a named property first.'); return; }
+  const propertyForReference = useCallback((reference: NonNullable<typeof formulaInspection>['references'][number]) => {
+    const identity = reference.target.kind === 'cell' ? reference.target.identity : reference.target.range?.start;
+    const sheet = findSheetById(workbook, reference.target.sheetId);
+    if (!identity || !sheet?.modelId) return undefined;
+    const property = workbook.dataModels?.[sheet.modelId]?.columns
+      .find((column) => sheet.modelColumnBindings?.[column.id] === identity.columnId);
+    return property ? { modelId: sheet.modelId, propertyId: property.id, name: property.name } : undefined;
+  }, [workbook]);
+  const propertyReferenceChoices = useCallback(() => {
+    const raw = editingCell?.draft ?? selectedRaw;
+    const inspection = selectedSheet && raw ? inspectFormula(raw, workbook, selectedSheet) : undefined;
+    const caret = editingCell?.selection?.start;
+    const references = inspection?.references.filter((reference) => reference.navigable) ?? [];
+    const atCaret = caret === undefined ? references : references.filter((reference) => caret >= reference.displaySpan.start && caret <= reference.displaySpan.end);
+    const candidates = (atCaret.length ? atCaret : references).flatMap((reference) => {
+      const property = propertyForReference(reference);
+      return property ? [{ reference, property }] : [];
+    });
+    return [...new Map(candidates.map((candidate) => [`${candidate.property.modelId}:${candidate.property.propertyId}`, candidate])).values()];
+  }, [editingCell, propertyForReference, selectedRaw, selectedSheet, workbook]);
+  const openPropertyDefinitionFor = useCallback((modelId: string, propertyId: string) => {
     const invoker = commandPaletteOpen ? paletteInvoker.current : propertyDefinitionInvoker.current;
     closeCommandPalette(false);
-    onOpenDataModels?.(selectedSheet.modelId, property.id, () => {
+    onOpenDataModels?.(modelId, propertyId, () => {
       if (invoker?.isConnected) invoker.focus();
       else onRestoreGridFocus();
     });
-  }, [closeCommandPalette, commandPaletteOpen, onOpenDataModels, onRestoreGridFocus, propertyForActiveCell, selectedSheet]);
+  }, [closeCommandPalette, commandPaletteOpen, onOpenDataModels, onRestoreGridFocus]);
+  const openPropertyDefinition = useCallback(() => {
+    const property = propertyForActiveCell();
+    if (property && selectedSheet?.modelId) { openPropertyDefinitionFor(selectedSheet.modelId, property.id); return; }
+    const candidates = propertyReferenceChoices();
+    if (candidates.length === 1) { openPropertyDefinitionFor(candidates[0]!.property.modelId, candidates[0]!.property.propertyId); return; }
+    if (candidates.length > 1) {
+      openChoices(candidates.map(({ property: candidate }) => ({
+        id: `definition:${candidate.modelId}:${candidate.propertyId}`,
+        label: `Go to property definition: ${candidate.name}`,
+        group: 'Property references',
+        run: () => openPropertyDefinitionFor(candidate.modelId, candidate.propertyId),
+      })));
+      return;
+    }
+    setNavigationFeedback('Select a named property or property reference first.');
+  }, [openChoices, openPropertyDefinitionFor, propertyForActiveCell, propertyReferenceChoices, selectedSheet]);
   const usageChoices = useCallback((label: string, usages: UsageQueryResult) => {
     if (!usages.available) return [{ id: `${label}:unavailable`, label: 'Unavailable', group: label, unavailable: 'The selected target is unavailable.', run: () => {} }];
     const entries = (title: string, targets: readonly CellTarget[]) => targets.map((target) => {
@@ -322,7 +356,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const first = cellIdentityAt(sheet.content, { columnIndex: 0, rowIndex: 0 });
       return { id: `sheet:${sheet.id}`, label: `Go to sheet: ${sheet.name}`,
         run: () => {
-          if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
+          const remembered = onActivateSheet(sheet.id, false);
+          if (remembered) navigateCellTarget(remembered);
+          else if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
           else navigateEmptySheet(sheet);
           closeCommandPalette();
         } };
@@ -343,11 +379,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const rowId = activeCell && selectedSheet!.content.rows.includes(activeCell.cell.rowId) ? activeCell.cell.rowId : selectedSheet!.content.rows[0];
       if (rowId) { navigateCellTarget({ sheetId: selectedSheet!.id, cell: { rowId, columnId } }); closeCommandPalette(); }
     } });
-    result.unshift({ id: 'definition', label: 'Go to property definition', shortcut: 'Alt+Shift+D', unavailable: propertyForActiveCell() ? undefined : 'Select a named property first', run: openPropertyDefinition });
+    result.unshift({ id: 'definition', label: 'Go to property definition', shortcut: 'Alt+Shift+D', unavailable: propertyForActiveCell() || propertyReferenceChoices().length ? undefined : 'Select a named property or property reference first', run: openPropertyDefinition });
     result.unshift({ id: 'reference', label: 'Follow reference', shortcut: 'Alt+Enter', unavailable: formulaInspection?.references.some((reference) => reference.navigable) || editingCell ? undefined : 'No resolvable reference', run: openReferenceChoices });
     result.unshift({ id: 'usages', label: 'Find usages', shortcut: 'Alt+Shift+U', unavailable: activeCell ? undefined : 'Select a cell first', run: openUsages });
     return result;
-  }, [activeCell, closeCommandPalette, editingCell, formulaInspection, navigateCellTarget, navigateEmptySheet, openPropertyDefinition, openReferenceChoices, openUsages, propertyForActiveCell, selectedSheet, sheets, workbook]);
+  }, [activeCell, closeCommandPalette, editingCell, formulaInspection, navigateCellTarget, navigateEmptySheet, onActivateSheet, openPropertyDefinition, openReferenceChoices, openUsages, propertyForActiveCell, propertyReferenceChoices, selectedSheet, sheets, workbook]);
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,

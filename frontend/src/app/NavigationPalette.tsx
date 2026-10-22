@@ -16,6 +16,7 @@ export function NavigationPalette({ commands, onClose }: { commands: readonly Na
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const matches = commands.filter((command) => command.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const activeId = matches[index] ? `navigation-command-${matches[index]!.id}` : undefined;
   useEffect(() => { input.current?.focus(); }, []);
   useEffect(() => { setIndex((current) => Math.min(current, Math.max(0, matches.length - 1))); }, [matches.length]);
   function keyDown(event: React.KeyboardEvent) {
@@ -36,9 +37,9 @@ export function NavigationPalette({ commands, onClose }: { commands: readonly Na
   }
   return <div className="dialog-backdrop" role="presentation">
     <section aria-label="Command palette" aria-modal="true" className="data-model-dialog" data-workspace-navigation onKeyDown={keyDown} role="dialog">
-      <label>Command search<input aria-controls="navigation-command-results" onChange={(event) => setQuery(event.target.value)} ref={input} value={query} /></label>
+      <label>Command search<input aria-activedescendant={activeId} aria-controls="navigation-command-results" aria-expanded="true" aria-haspopup="listbox" onChange={(event) => setQuery(event.target.value)} ref={input} role="combobox" value={query} /></label>
       <ul aria-label="Command results" id="navigation-command-results" role="listbox">
-        {matches.map((command, commandIndex) => <li aria-selected={commandIndex === index} key={command.id} role="option">
+        {matches.map((command, commandIndex) => <li aria-selected={commandIndex === index} id={`navigation-command-${command.id}`} key={command.id} role="option">
           {command.group && (commandIndex === 0 || matches[commandIndex - 1]?.group !== command.group) ? <strong className="navigation-command-group">{command.group}</strong> : null}
           <button disabled={Boolean(command.unavailable)} onClick={command.run} type="button">
             {command.label}{command.shortcut ? <kbd>{command.shortcut}</kbd> : null}
