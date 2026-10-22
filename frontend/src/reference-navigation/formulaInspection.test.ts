@@ -50,6 +50,14 @@ describe('formula inspection', () => {
       .map((reference) => reference.text)).toEqual(['@A[1]', '@B[1]']);
   });
 
+  it('returns every navigable reference when a draft has no caret position', () => {
+    const inputs = sheet('sheet-inputs', 'Inputs');
+    const inspection = inspectFormula('=@A[1] + @B[1]', workbook([inputs]), inputs);
+
+    expect(navigableReferencesAtCaret(inspection, undefined)
+      .map((reference) => reference.text)).toEqual(['@A[1]', '@B[1]']);
+  });
+
   it('keeps navigation identity stable when row order changes', () => {
     const inputs = sheet('sheet-inputs', 'Inputs');
     const target = inspectFormula('=@A[1]', workbook([inputs]), inputs)?.references[0].target;

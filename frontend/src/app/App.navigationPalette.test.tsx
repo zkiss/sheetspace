@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { App } from './App';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -96,5 +96,101 @@ describe('navigation palette composition', () => {
     expect(screen.getByRole('combobox', { name: 'Command search' })).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(source).toHaveFocus();
+  });
+
+  it('opens usages from its shortcut and rejects non-existent row numbers', async () => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'invoice', name: 'Invoice', rowCount: 1, columnCount: 2, cells: { B1: '=@A[1]' } });
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const source = screen.getByRole('cell', { name: /Invoice A1/ });
+    await user.click(source);
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u' });
+    expect(screen.getByText('Cell usages — Direct usages')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(source).toHaveFocus();
+
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('2');
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    await user.click(screen.getByRole('button', { name: 'Go to row…' }));
+    expect(screen.getByText('Enter an existing positive row number.')).toBeInTheDocument();
+    prompt.mockReturnValue('1');
+    await user.click(screen.getByRole('button', { name: 'Go to row…' }));
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+    prompt.mockReturnValue(null);
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    await user.click(screen.getByRole('button', { name: 'Go to row…' }));
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    prompt.mockRestore();
+  });
+
+  it('reports unavailable shortcut commands and shows an empty usage result', async () => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
+    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+
+    const source = screen.getByRole('cell', { name: /Source A1/ });
+    await user.click(source);
+    fireEvent.keyDown(source, { altKey: true, key: 'Enter' });
+    expect(screen.getByText('No resolvable reference is available.')).toBeInTheDocument();
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'd' });
+    expect(screen.getByText('Select a named property or property reference first.')).toBeInTheDocument();
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u' });
+    expect(screen.getByText('No results')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(source).toHaveFocus();
+  });
+
+  it('opens an empty sheet through the palette without fabricating a cell selection', async () => {
+    const user = userEvent.setup();
+    const populated = sheetDocument({ id: 'populated', name: 'Populated' });
+    const empty = sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 0 });
+    render(<App initialWorkbook={workbookWithSheets([populated, empty])} />);
+
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    await user.click(screen.getByRole('button', { name: 'Go to sheet: Empty' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('cell', { name: 'Empty A1 cell' })).not.toBeInTheDocument();
+  });
+
+  it('uses the first cell only until a sheet has a remembered selection', async () => {
+    const user = userEvent.setup();
+    const first = sheetDocument({ id: 'first', name: 'First' });
+    const second = sheetDocument({ id: 'second', name: 'Second' });
+    render(<App initialWorkbook={workbookWithSheets([first, second])} />);
+
+    await user.click(screen.getByRole('cell', { name: 'First A1 empty cell' }));
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    await user.click(screen.getByRole('button', { name: 'Go to sheet: Second' }));
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    await user.click(screen.getByRole('button', { name: 'Go to sheet: First' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+  });
+
+  it('opens the palette from its keyboard shortcut and rejects usage without a selection', async () => {
+    const user = userEvent.setup();
+    const empty = sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 0 });
+    render(<App initialWorkbook={workbookWithSheets([empty])} />);
+
+    fireEvent.keyDown(document.body, { ctrlKey: true, shiftKey: true, key: 'p' });
+    expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    fireEvent.keyDown(document.body, { altKey: true, shiftKey: true, key: 'u' });
+    expect(screen.getByText('Select a cell or named property first.')).toBeInTheDocument();
+  });
+
+  it('keeps property navigation unavailable when a sheet retains a deleted model binding', async () => {
+    const user = userEvent.setup();
+    const sheet = { ...sheetDocument({ id: 'orphaned', name: 'Orphaned' }), modelId: 'deleted-model' };
+    const workbook = workbookWithSheets([sheet]);
+    workbook.dataModels = {};
+    render(<App initialWorkbook={workbook} />);
+
+    await user.click(screen.getByRole('cell', { name: 'Orphaned A1 empty cell' }));
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    expect(screen.getByText('The current sheet has no named columns')).toBeInTheDocument();
   });
 });
