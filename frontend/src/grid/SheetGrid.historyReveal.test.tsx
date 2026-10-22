@@ -92,6 +92,10 @@ describe('history reveal scroll-axis independence', () => {
     viewport.scrollLeft = 500;
     viewport.scrollTop = 400;
 
+    onNavigationSettled.mockImplementation(() => {
+      expect(document.activeElement).toHaveAttribute('data-cell-key', 'A1');
+    });
+
     // The durable request arrives after the 1200ms visual tint has gone away.
     renderNavigationTarget('A1', 9);
 
