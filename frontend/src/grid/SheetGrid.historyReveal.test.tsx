@@ -11,12 +11,13 @@ function setup() {
   const sheet = tabularProjection(sheetDocument({ id: 'history', name: 'History', rowCount: 30, columnCount: 10 }));
   const axisProjection = projectGridAxes(sheet);
   const scrollContainerRef = createRef<HTMLDivElement>();
+  const onUserViewportMovement = vi.fn();
   const props: ComponentProps<typeof SheetGrid> = {
     activeCellKey: null, axisProjection, sheet, scrollContainerRef,
     cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() },
     editingCell: null,
     editorInteraction: { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
-    formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null,
+    formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null, onUserViewportMovement,
   };
   const grid = (target?: string, identity = 'undo-1') => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
     <SheetGrid {...props} axisProjection={projectGridAxes(sheet)} historyFeedbackIdentity={target ? identity : undefined}
@@ -25,10 +26,21 @@ function setup() {
   const view = render(grid());
   const viewport = scrollContainerRef.current!;
   act(() => { virtualGridGeometry(viewport); });
-  return { viewport, sheet, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)) };
+  return { viewport, sheet, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)) };
 }
 
 describe('history reveal scroll-axis independence', () => {
+  it('does not mistake programmatic reveal scroll events for user movement', () => {
+    const { viewport, onUserViewportMovement } = setup();
+
+    viewport.scrollTop = 400;
+    fireEvent.scroll(viewport);
+
+    expect(onUserViewportMovement).not.toHaveBeenCalled();
+    fireEvent.wheel(viewport, { deltaY: 100 });
+    expect(onUserViewportMovement).toHaveBeenCalledOnce();
+  });
+
   it('reveals once per action, not per feedback map or axis projection allocation', () => {
     const { viewport, reveal } = setup();
     reveal('A1');

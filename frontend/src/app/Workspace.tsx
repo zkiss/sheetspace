@@ -152,7 +152,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { history: navigationHistory, registerScrollContainer, recordGridScroll } = useWorkspaceNavigationHistory({
+  const { history: navigationHistory, registerScrollContainer, recordUserGridMovement } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
@@ -484,7 +484,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
-                    onViewportScroll={() => recordGridScroll(sheet.id)}
+                    onUserViewportMovement={recordUserGridMovement}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
                       clear: (target) => reportWriteOutcome(onClearCell(target)),

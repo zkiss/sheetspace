@@ -118,7 +118,7 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(remounted.scrollTop).toBe(360);
   });
 
-  it('does not turn a native notification from a restored clamped scroll into history', () => {
+  it('records only an explicit user grid movement, never a programmatic scroll write', () => {
     vi.useFakeTimers();
     const runAnimationFrames = controlAnimationFrames();
     const restoreViewport = vi.fn();
@@ -141,12 +141,18 @@ describe('useWorkspaceNavigationHistory', () => {
     act(() => result.current.history.traverse('back'));
     act(runAnimationFrames);
 
-    // Browsers may dispatch this after the rAF that assigned scrollTop.
-    act(() => { result.current.recordGridScroll('destination'); vi.advanceTimersByTime(2_000); });
+    // The restore writes offsets directly. A native scroll notification from that
+    // write has no user provenance and is intentionally not an API ingress.
+    grid.dispatchEvent(new Event('scroll'));
+    act(() => vi.advanceTimersByTime(2_000));
     expect(result.current.history.canGoForward).toBe(true);
     expect(grid.scrollLeft).toBe(240);
     expect(grid.scrollTop).toBe(360);
     act(() => result.current.history.traverse('back'));
     expect(restoreViewport).toHaveBeenLastCalledWith({ x: 1, y: 0, scale: 1 });
+
+    grid.scrollTop = 500;
+    act(() => { result.current.recordUserGridMovement(); vi.advanceTimersByTime(2_000); });
+    expect(result.current.history.canGoForward).toBe(true);
   });
 });

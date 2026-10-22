@@ -107,7 +107,7 @@ export function SheetGrid({
   columnLabels,
   calculatedColumnIds,
   onScrollContainerAvailable,
-  onViewportScroll,
+  onUserViewportMovement,
 }: {
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
@@ -122,8 +122,8 @@ export function SheetGrid({
   calculatedColumnIds?: ReadonlySet<string>;
   /** Announces the committed scroll container to workspace integrations. */
   onScrollContainerAvailable?: (element: HTMLElement | null) => void;
-  /** Reports user grid scrolling to the session-local spatial history owner. */
-  onViewportScroll?: () => void;
+  /** Reports positively identified user scroll input to the spatial history owner. */
+  onUserViewportMovement?: () => void;
   activeCellKey: string | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
@@ -222,10 +222,29 @@ export function SheetGrid({
   }, [onScrollContainerAvailable, scrollContainerRef]);
   useEffect(() => {
     const element = scrollContainerRef.current;
-    if (!element || !onViewportScroll) return;
-    element.addEventListener('scroll', onViewportScroll, { passive: true });
-    return () => element.removeEventListener('scroll', onViewportScroll);
-  }, [onViewportScroll, scrollContainerRef]);
+    if (!element || !onUserViewportMovement) return;
+    const reportWheel = () => onUserViewportMovement(); const reportTouchMove = () => onUserViewportMovement();
+    const reportScrollKey = (event: KeyboardEvent) => {
+      if (isNativeEditorTarget(event.target)) return;
+      if ([' ', 'PageDown', 'PageUp', 'Home', 'End'].includes(event.key)) onUserViewportMovement();
+    };
+    const reportScrollbarPointer = (event: PointerEvent) => {
+      const rect = element.getBoundingClientRect();
+      const inVerticalScrollbar = event.clientX >= rect.left + element.clientWidth; const inHorizontalScrollbar = event.clientY >= rect.top + element.clientHeight;
+      if (inVerticalScrollbar || inHorizontalScrollbar) onUserViewportMovement();
+    };
+    // A native scroll event carries no reliable provenance: script writes,
+    // virtualizer reveals, and user gestures all dispatch the same event. Only
+    // input that can originate a user scroll is allowed to arm history.
+    element.addEventListener('wheel', reportWheel, { passive: true });
+    element.addEventListener('touchmove', reportTouchMove, { passive: true });
+    element.addEventListener('keydown', reportScrollKey);
+    element.addEventListener('pointerdown', reportScrollbarPointer, { passive: true });
+    return () => {
+      element.removeEventListener('wheel', reportWheel); element.removeEventListener('touchmove', reportTouchMove);
+      element.removeEventListener('keydown', reportScrollKey); element.removeEventListener('pointerdown', reportScrollbarPointer);
+    };
+  }, [onUserViewportMovement, scrollContainerRef]);
   const rowVirtualizer = useVirtualizer({
     count: rowMetrics.count,
     estimateSize: rowItemSize,

@@ -13,12 +13,10 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const scrollContainers = useRef(new Map<string, HTMLElement>());
   const pendingScroll = useRef(new Map<string, { left: number; top: number }>());
   const pendingScrollFrames = useRef(new Map<string, number>());
-  const restoredScroll = useRef(new Map<string, { left: number; top: number }>());
   const cancelPendingScroll = useCallback(() => {
     pendingScrollFrames.current.forEach((frame) => window.cancelAnimationFrame(frame));
     pendingScrollFrames.current.clear();
     pendingScroll.current.clear();
-    restoredScroll.current.clear();
   }, []);
   const applyPendingScroll = useCallback((sheetId: string) => {
     const offset = pendingScroll.current.get(sheetId);
@@ -26,10 +24,6 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     if (!offset || !element) return;
     const left = Math.min(Math.max(0, offset.left), Math.max(0, element.scrollWidth - element.clientWidth));
     const top = Math.min(Math.max(0, offset.top), Math.max(0, element.scrollHeight - element.clientHeight));
-    // Native scroll notifications do not identify script-originated scrolling.
-    // Keep the actual clamped value so a queued notification cannot become a
-    // settled user destination after the restore operation completes.
-    restoredScroll.current.set(sheetId, { left, top });
     element.scrollLeft = left;
     element.scrollTop = top;
     pendingScroll.current.delete(sheetId);
@@ -74,17 +68,8 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     else window.requestAnimationFrame(complete);
   }, [applyPendingScrollAfterGridEffects, cancelPendingScroll, onRestoreSelection, onUnavailableTarget, restoreViewport]);
   const history = useNavigationHistory({ capture, restore });
-  // This callback deliberately closes over the stable hook rule only after it
-  // is created; useCallback's body reads the current render's history below.
-  const recordGridScroll = useCallback((sheetId: string) => {
-    const restored = restoredScroll.current.get(sheetId);
-    const element = scrollContainers.current.get(sheetId);
-    if (restored && element && element.scrollLeft === restored.left && element.scrollTop === restored.top) {
-      restoredScroll.current.delete(sheetId);
-      return;
-    }
+  const recordUserGridMovement = useCallback(() => {
     cancelPendingScroll();
-    restoredScroll.current.delete(sheetId);
     history.recordUserMovement();
   }, [cancelPendingScroll, history]);
   const navigationHistory = {
@@ -102,5 +87,5 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       return history.traverse(direction);
     },
   };
-  return { history: navigationHistory, registerScrollContainer, recordGridScroll };
+  return { history: navigationHistory, registerScrollContainer, recordUserGridMovement };
 }
