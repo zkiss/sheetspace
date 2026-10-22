@@ -14,10 +14,29 @@ function scrollContainer(left: number, top: number) {
 }
 
 describe('useWorkspaceNavigationHistory', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function controlAnimationFrames() {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (frame: number) => frames.delete(frame));
+    return () => {
+      const scheduled = [...frames.values()];
+      frames.clear();
+      scheduled.forEach((frame) => frame(0));
+    };
+  }
 
   it('applies a restored offscreen grid scroll offset when its container mounts', () => {
     vi.useFakeTimers();
+    const runAnimationFrames = controlAnimationFrames();
     const restoreViewport = vi.fn();
     const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
       onRestoreSelection: () => true,
@@ -37,6 +56,39 @@ describe('useWorkspaceNavigationHistory', () => {
     act(() => result.current.history.traverse('forward'));
     const remounted = scrollContainer(0, 0);
     act(() => result.current.registerScrollContainer('destination', remounted));
+    act(runAnimationFrames);
+
+    expect(remounted.scrollLeft).toBe(240);
+    expect(remounted.scrollTop).toBe(360);
+  });
+
+  it('reapplies saved offscreen scroll after selection restoration reveals its range', () => {
+    vi.useFakeTimers();
+    const runAnimationFrames = controlAnimationFrames();
+    const selection = { anchor: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, extent: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, mode: 'cell' } as never;
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(),
+      restoreViewport: vi.fn(),
+      selection,
+      viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    const destination = scrollContainer(240, 360);
+    act(() => result.current.registerScrollContainer('destination', destination));
+
+    rerender({ x: 2 });
+    act(() => result.current.history.recordMovement());
+    act(() => vi.advanceTimersByTime(2_000));
+    act(() => result.current.history.traverse('back'));
+    act(() => result.current.registerScrollContainer('destination', null));
+    act(() => result.current.history.traverse('forward'));
+    const remounted = scrollContainer(0, 0);
+    act(() => result.current.registerScrollContainer('destination', remounted));
+
+    // This models SheetGrid's active-selection effect, which runs before rAF.
+    remounted.scrollLeft = 700;
+    remounted.scrollTop = 800;
+    act(runAnimationFrames);
 
     expect(remounted.scrollLeft).toBe(240);
     expect(remounted.scrollTop).toBe(360);
