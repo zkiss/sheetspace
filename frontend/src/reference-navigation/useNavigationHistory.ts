@@ -89,6 +89,7 @@ export function useNavigationHistory({ capture, restore }: {
   }, [flushMovement, restore]);
   useEffect(() => () => { if (timer.current !== undefined) window.clearTimeout(timer.current); }, []);
   return {
+    cancelPendingNavigation: () => { activeOperation.current = undefined; },
     canGoBack: history.current.cursor > 0,
     canGoForward: history.current.cursor >= 0 && history.current.cursor < history.current.entries.length - 1,
     explicitNavigation,

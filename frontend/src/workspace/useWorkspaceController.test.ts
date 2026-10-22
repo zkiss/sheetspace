@@ -59,6 +59,21 @@ describe('useWorkspaceController', () => {
     expect(result.current.viewport).toEqual({ x: 0, y: 0, scale: 1 });
   });
 
+  it('retires pending navigation work before every outer user viewport change', () => {
+    const onBeforeUserMovement = vi.fn();
+    const { result } = renderHook(() => useWorkspaceController({
+      onBeforeUserMovement,
+      onCreateSheet: vi.fn(),
+      onClearSelection: vi.fn(),
+    }));
+
+    act(() => result.current.panWorkspace(80, -40));
+    act(() => result.current.zoomWorkspaceBy(1.2));
+    act(() => result.current.resetViewport());
+
+    expect(onBeforeUserMovement).toHaveBeenCalledTimes(3);
+  });
+
   it('saturates repeated finite pans before viewport coordinates overflow', () => {
     const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() }));
 

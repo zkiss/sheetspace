@@ -15,10 +15,12 @@ import {
 } from '@workspace/workspaceGeometry';
 
 export function useWorkspaceController({
+  onBeforeUserMovement,
   onClearSelection,
   onCreateSheet,
   interactionsEnabled = true,
 }: {
+  onBeforeUserMovement?: () => void;
   onClearSelection: () => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
   interactionsEnabled?: boolean;
@@ -111,6 +113,10 @@ export function useWorkspaceController({
   }
 
   function interruptNavigation() {
+    // History restoration may have pending grid work. Retire it before sampling
+    // or changing the viewport so a newly mounted grid cannot restore over this
+    // gesture.
+    onBeforeUserMovement?.();
     cancelViewportRestore();
     // Read before React removes the transition, and only once even for batched inputs.
     if (navigationMayBeMoving.current) {
@@ -153,6 +159,7 @@ export function useWorkspaceController({
   }
 
   function resetViewport() {
+    onBeforeUserMovement?.();
     cancelViewportRestore();
     navigationMayBeMoving.current = false;
     viewportMovementIsUser.current = true;

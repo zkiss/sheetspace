@@ -150,12 +150,19 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   // A sheet dialog takes ownership from all background transient sessions.
   const interactionsEnabled = !sheetDialogOpen;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
-  const workspaceController = useWorkspaceController({ onClearSelection, onCreateSheet, interactionsEnabled });
+  const cancelNavigationBeforeUserMovement = useRef<() => void>(() => {});
+  const workspaceController = useWorkspaceController({
+    onBeforeUserMovement: () => cancelNavigationBeforeUserMovement.current(),
+    onClearSelection,
+    onCreateSheet,
+    interactionsEnabled,
+  });
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation } = useWorkspaceNavigationHistory({
+  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
+  cancelNavigationBeforeUserMovement.current = cancelNavigationRestore;
   const lastViewport = useRef(workspaceController.viewport);
   useEffect(() => {
     if (lastViewport.current !== workspaceController.viewport) {

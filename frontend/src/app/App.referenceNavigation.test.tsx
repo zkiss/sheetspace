@@ -37,6 +37,26 @@ describe('formula reference navigation', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Forward' })).toBeEnabled());
   });
 
+  it('keeps an outer zoom after cancelling a smooth reference restoration', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => { setSurfaceSize(800, 600); });
+
+    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
+    fireEvent.wheel(workspaceSurface(), { ctrlKey: true, deltaY: -120, clientX: 300, clientY: 200 });
+    expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThan(1);
+
+    // Drain the cancelled operation after the controller has synchronously
+    // invalidated it, including its delayed motion/reveal work.
+    act(() => { vi.advanceTimersByTime(2_000); });
+    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
+    expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThan(1);
+  });
+
   it('wires smooth navigation feedback expiry without clearing the range selection', () => {
     vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));

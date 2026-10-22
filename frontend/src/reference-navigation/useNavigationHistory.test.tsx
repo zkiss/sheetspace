@@ -112,6 +112,31 @@ describe('useNavigationHistory', () => {
     expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 2, y: 0, scale: 1 } }), expect.any(Function));
   });
 
+  it('discards a late explicit arrival after a user gesture cancels it', () => {
+    vi.useFakeTimers();
+    const restore = vi.fn();
+    const { result } = renderHook(() => {
+      const [x, setX] = useState(1);
+      const history = useNavigationHistory({
+        capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }), restore,
+      });
+      return { history, moveTo: setX };
+    });
+
+    let settle: (() => void) | undefined;
+    act(() => result.current.history.explicitNavigation((complete) => {
+      result.current.moveTo(2);
+      settle = complete;
+    }));
+    act(() => result.current.history.cancelPendingNavigation());
+    act(() => settle?.());
+    act(() => result.current.moveTo(3));
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+
+    act(() => result.current.history.traverse('back'));
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
+  });
+
   it('discards an explicit arrival superseded by traversal', () => {
     vi.useFakeTimers();
     const restore = vi.fn((_context, complete: () => void) => complete());

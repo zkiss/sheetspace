@@ -81,6 +81,12 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       (settled) => restoreViewport(context.viewport, settled), context.scroll);
   }, [beginNavigation, onRestoreSelection, onUnavailableTarget, restoreViewport]);
   const history = useNavigationHistory({ capture, restore });
+  const cancelNavigationRestore = useCallback(() => {
+    // Outer input must invalidate both the adapter's DOM work and the history
+    // operation before the controller changes the viewport.
+    cancelRestore();
+    history.cancelPendingNavigation();
+  }, [cancelRestore, history]);
   const recordUserGridMovement = useCallback(() => {
     cancelRestore();
     history.recordUserMovement();
@@ -112,5 +118,5 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     const sheetId = target.kind === 'cell' ? target.target.sheetId : target.sheetId;
     beginNavigation(operation, sheetId, startViewport, {}, target);
   }, [beginNavigation]);
-  return { acknowledgeGridRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation };
+  return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation };
 }
