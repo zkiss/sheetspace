@@ -160,6 +160,23 @@ describe('useReferenceNavigation', () => {
     expect(settled).toBe(1);
   });
 
+  it('navigates command targets through the same explicit history boundary', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const navigateToTarget = vi.fn();
+    const select = vi.fn();
+    const explicit = vi.fn((navigate) => navigate(Object.assign(() => {}, { generation: 4, complete: () => {} })));
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget, onExplicitNavigation: explicit, onSelectReferenceTarget: select, workbook: workbookWithSheets([sheet]),
+    }));
+    const cell = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => {
+      expect(result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell } }, sheet)).toBe(true);
+      expect(result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell: { rowId: 'gone', columnId: cell.columnId } } }, sheet)).toBe(false);
+    });
+    expect(explicit).toHaveBeenCalledOnce();
+    expect(select).toHaveBeenCalledWith({ kind: 'cell', target: { sheetId: sheet.id, cell } });
+  });
+
   it('restarts highlight lifetime and identity on repeated navigation, then replaces the target', () => {
     vi.useFakeTimers();
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });

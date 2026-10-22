@@ -83,6 +83,31 @@ export function useReferenceNavigation({
     return () => window.clearTimeout(timeout);
   }, [navigationMotion]);
 
+  function navigateTarget(target: ReferenceNavigationTarget, targetSheet: SheetDocument, options: { forceOversized?: boolean } = {}) {
+    const range = target.kind === 'range' ? addressRangeOf(targetSheet.content, target.range) : target.target.cell && cellAddressOf(targetSheet.content, target.target.cell);
+    if (!range) return false;
+    const normalized = target.kind === 'range' ? range : { start: range, end: range };
+    const navigate = (operation: NavigationOperation | (() => void)) => {
+      const complete = typeof operation === 'function' && 'complete' in operation ? operation.complete : operation;
+      const generation = typeof operation === 'function' && 'generation' in operation
+        ? operation.generation : nextHighlightIdentity.current++;
+      const navigationOperation = typeof operation === 'function' && 'complete' in operation
+        ? operation : Object.assign(complete, { generation, complete });
+      onSelectReferenceTarget(target);
+      setHighlight({ target, identity: generation });
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      setNavigationMotion(!reduceMotion);
+      const startViewport = (settled: () => void) => navigateToTarget(workspaceRectForFrame(targetSheet.frame), {
+        forceOversized: options.forceOversized ?? (target.kind === 'range' && !rangeFitsSheetViewport(normalized, targetSheet)),
+        minimumScale: detailedViewportScaleForSheet(targetSheet), onSettled: settled,
+      });
+      if (startNavigation) startNavigation(navigationOperation, target, startViewport);
+      else startViewport(navigationOperation.complete);
+    };
+    if (onExplicitNavigation) onExplicitNavigation(navigate); else navigate(() => {});
+    return true;
+  }
+
   function navigateReference(reference: FormulaInspectionReference) {
     const targetSheet = findSheetById(workbook, reference.target.sheetId);
     if (!targetSheet || !reference.navigable) {
@@ -96,41 +121,12 @@ export function useReferenceNavigation({
     const target: ReferenceNavigationTarget = reference.target.kind === 'range'
       ? { kind: 'range', sheetId: targetSheet.id, range: stableRange }
       : { kind: 'cell', target: { sheetId: targetSheet.id, cell: stableRange.start } };
-    const navigate = (operation: NavigationOperation | (() => void)) => {
-      const complete = typeof operation === 'function' && 'complete' in operation ? operation.complete : operation;
-      const generation = typeof operation === 'function' && 'generation' in operation
-        ? operation.generation
-        : nextHighlightIdentity.current++;
-      const navigationOperation = typeof operation === 'function' && 'complete' in operation
-        ? operation
-        : Object.assign(complete, { generation, complete });
-      onSelectReferenceTarget(target);
-      const identity = generation;
-      setHighlight({ target, identity });
-      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-      setNavigationMotion(!reduceMotion);
-      const startViewport = (settled: () => void) => navigateToTarget(
-      // Axis offsets are local to the frame's scrollport. Reveal the physical
-      // frame in the outer workspace; SheetGrid then scrolls internally to the
-      // durable range anchor while the focus request keeps the frame mounted.
-      workspaceRectForFrame(targetSheet.frame),
-      {
-        forceOversized: reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet),
-        // The viewport scale alone is not the rendered scale for a miniature
-        // sheet. Require enough viewport scale to cross the detail boundary.
-        minimumScale: detailedViewportScaleForSheet(targetSheet),
-         onSettled: settled,
-      },
-      );
-      if (startNavigation) startNavigation(navigationOperation, target, startViewport);
-      else startViewport(navigationOperation.complete);
-    };
-    if (onExplicitNavigation) onExplicitNavigation(navigate);
-    else navigate(() => {});
+    navigateTarget(target, targetSheet, { forceOversized: reference.target.kind === 'range' && !rangeFitsSheetViewport(range, targetSheet) });
   }
 
   return {
     navigateReference,
+    navigateTarget,
     navigationHighlight: highlight?.target ?? null,
     navigationHighlightIdentity: highlight?.identity,
     navigationMotion,
