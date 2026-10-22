@@ -55,4 +55,31 @@ describe('useNavigationHistory', () => {
     act(() => { result.current.history.traverse('back'); });
     expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }));
   });
+
+  it('refreshes a selection-only departure before traversing history', () => {
+    vi.useFakeTimers();
+    const restore = vi.fn();
+    const selectionAt = (rowId: string) => ({
+      mode: 'cells' as const,
+      anchor: { sheetId: 'sheet', cell: { rowId, columnId: 'column' } },
+      extent: { sheetId: 'sheet', cell: { rowId, columnId: 'column' } },
+    });
+    const a1 = selectionAt('row-a');
+    const b1 = selectionAt('row-b');
+    const b2 = selectionAt('row-c');
+    const { result, rerender } = renderHook(({ x, selection }) => useNavigationHistory({
+      capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection, scroll: {} }), restore,
+    }), { initialProps: { x: 1, selection: a1 } });
+
+    rerender({ x: 2, selection: b1 });
+    act(() => { result.current.recordMovement(); vi.advanceTimersByTime(2_000); });
+    rerender({ x: 2, selection: b2 });
+
+    act(() => { result.current.traverse('back'); });
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ selection: a1 }));
+    act(() => { result.current.traverse('forward'); });
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({
+      viewport: { x: 2, y: 0, scale: 1 }, selection: b2,
+    }));
+  });
 });

@@ -49,6 +49,12 @@ export function useNavigationHistory({ capture, restore }: {
   }, [commit, flushMovement]);
   const traverse = useCallback((direction: 'back' | 'forward') => {
     flushMovement();
+    if (!traverseNavigationHistory(history.current, direction)) return false;
+    // Selection changes alone are not destinations, but the context being left
+    // must still be current when Forward returns to it.
+    const entries = [...history.current.entries];
+    entries[history.current.cursor] = captureRef.current();
+    history.current = { ...history.current, entries };
     const next = traverseNavigationHistory(history.current, direction);
     if (!next) return false;
     history.current = next.history;
