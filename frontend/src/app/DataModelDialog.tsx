@@ -27,9 +27,10 @@ function message(result: ModelCommandResult): string {
   return 'The model could not be saved.';
 }
 
-export function DataModelDialog({ formulaResults = {}, initialModelId, models, onCancel, onRetryFailedSaves, onSave, workbook }: {
+export function DataModelDialog({ formulaResults = {}, initialModelId, initialPropertyId, models, onCancel, onRetryFailedSaves, onSave, workbook }: {
   formulaResults?: FormulaEvaluationSnapshot;
   initialModelId?: string;
+  initialPropertyId?: string;
   models: readonly DataModel[];
   onCancel: () => void;
   onRetryFailedSaves?: () => void;
@@ -98,6 +99,10 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, models, o
   useEffect(() => {
     if (saving) dialogRef.current?.querySelector<HTMLElement>('[data-dialog-focus-target]')?.focus();
   }, [saving]);
+  useEffect(() => {
+    if (!initialPropertyId || !draft) return;
+    dialogRef.current?.querySelector<HTMLElement>(`[data-property-id="${initialPropertyId}"] input`)?.focus();
+  }, [draft, initialPropertyId]);
   function containFocus(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -130,7 +135,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, models, o
         <div className="data-model-header"><h2>{isNew ? 'Create data model' : 'Edit data model'}</h2></div>
         <label>Model name<input autoFocus disabled={saving} onChange={(event) => setDraft({ ...draft, name: event.target.value })} value={draft.name} /></label>
         <fieldset><legend>Properties</legend>
-          {draft.columns.map((column, index) => <div className="model-property" key={column.id}>
+          {draft.columns.map((column, index) => <div className="model-property" data-property-id={column.id} key={column.id}>
             <label>Property name<input aria-label={`Property ${index + 1} name`} disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} /></label>
             <label>Kind<select aria-label={`Property ${index + 1} kind`} disabled={saving} onChange={(event) => updateColumn(index, { kind: event.target.value as ModelColumn['kind'] })} value={column.kind}><option value="manual">Manual</option><option value="calculated">Calculated</option></select></label>
             <label>Type<select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => updateColumn(index, { type: event.target.value as ModelColumnType })} value={column.type}>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>

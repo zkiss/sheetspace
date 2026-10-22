@@ -24,6 +24,13 @@ export function NavigationPalette({ commands, onClose }: { commands: readonly Na
       const command = matches[index];
       if (command && !command.unavailable) { event.preventDefault(); command.run(); }
     }
+    if (event.key === 'Tab') {
+      const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+      const current = focusable.indexOf(document.activeElement as HTMLElement);
+      const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current >= focusable.length - 1 ? 0 : current + 1);
+      event.preventDefault();
+      focusable[next]?.focus();
+    }
   }
   return <div className="dialog-backdrop" role="presentation">
     <section aria-label="Command palette" aria-modal="true" className="data-model-dialog" data-workspace-navigation onKeyDown={keyDown} role="dialog">

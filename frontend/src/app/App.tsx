@@ -39,6 +39,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [dataModelsOpen, setDataModelsOpen] = useState(false);
   const [dataModelEditId, setDataModelEditId] = useState<string | undefined>(undefined);
+  const [dataModelPropertyId, setDataModelPropertyId] = useState<string | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
   const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
@@ -180,7 +181,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onUpdateEditView={updateEditingCellView}
         onNavigateCell={navigateCell}
         onNavigateKeyboardCell={navigateKeyboardCell}
-        onOpenDataModels={(modelId) => { setDataModelEditId(modelId); setDataModelsOpen(true); }}
+        onOpenDataModels={(modelId, propertyId) => { setDataModelEditId(modelId); setDataModelPropertyId(propertyId); setDataModelsOpen(true); }}
         onOpenRenameDialog={openRenameDialog}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
@@ -205,7 +206,8 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
           formulaResults={formulaResults}
           models={Object.values(workbook.dataModels ?? {})}
           initialModelId={dataModelEditId}
-          onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }}
+          initialPropertyId={dataModelPropertyId}
+          onCancel={() => { setDataModelsOpen(false); setDataModelEditId(undefined); setDataModelPropertyId(undefined); document.getElementById('data-models-button')?.focus(); }}
           onRetryFailedSaves={commands.retryFailedSaves}
           onSave={async (model, isNew) => {
             const submission = isNew && !workbook.dataModels?.[model.id]
@@ -213,7 +215,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
               : commands.replaceModelDeclaration(model);
             if (!submission.result.ok) return submission.result;
             const result = await submission.completion;
-            if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); document.getElementById('data-models-button')?.focus(); }
+            if (result.ok) { setDataModelsOpen(false); setDataModelEditId(undefined); setDataModelPropertyId(undefined); document.getElementById('data-models-button')?.focus(); }
             return result;
           }}
           workbook={workbook}
