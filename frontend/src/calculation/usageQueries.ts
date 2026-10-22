@@ -1,5 +1,5 @@
-import { buildFormulaDependencyGraph, type FormulaDependencyGraph } from '@calculation/formulaDependencies';
-import { sheetCellNodeId } from '@calculation/nodeIdentity';
+import { buildFormulaDependencyGraph, type FormulaDependencyGraph } from './formulaDependencies';
+import { sheetCellNodeId } from './nodeIdentity';
 import { calculationProjection, type CalculationProjection } from '@workbook/read/calculationProjection';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { StableCellIdentity, Workbook } from '@workbook/core/model';
