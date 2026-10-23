@@ -135,7 +135,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [navigationFeedback, setNavigationFeedback] = useState('');
   const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
-  const [referenceLinksVisible, setReferenceLinksVisible] = useState(true);
+  const [referenceLinksVisible, setReferenceLinksVisible] = useState(false);
+  const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteChoices, setPaletteChoices] = useState<NavigationCommand[] | null>(null);
@@ -468,6 +469,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     contextual,
     geometry: projectReferenceGeometry({ reference: contextual.reference, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize }),
   })) : [], [formulaInspection, projectedFrames, referenceGridViewports, workbook, workspaceController.viewport, referenceSurfaceSize]);
+  const formulaReferenceColors = useMemo(() => new Map(contextualReferenceItems.flatMap(({ contextual }) => (
+    contextual.color ? [[contextual.reference.sourceSpan.start, contextual.color] as const] : []
+  ))), [contextualReferenceItems]);
   const contextualSourceGeometry = useMemo(() => {
     if (!activeCell || !selectedSheet || !formulaInspection) return { kind: 'unavailable' as const, reason: 'broken' as const };
     const identity = cellIdentityAt(selectedSheet.content, cellKeyForTarget(selectedSheet, activeCell) ?? '');
@@ -544,6 +548,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   return (
     <>
       <WorkspaceToolbar
+        referencesVisible={referenceLinksVisible}
         formatControls={<NumberFormatControls
             disabled={!interactionsEnabled}
             onWrite={(writes) => {
@@ -561,6 +566,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         onGoForward={() => navigationHistory.traverse('forward')}
         onOpenDataModels={onOpenDataModels}
         onOpenCommandPalette={() => { paletteInvoker.current = document.activeElement as HTMLElement; setCommandPaletteOpen(true); }}
+        onToggleReferences={() => setReferenceLinksVisible((visible) => !visible)}
         modelControls={selectedSheet ? <SheetModelControls key={selectedSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => onOpenDataModels?.(modelId)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
@@ -611,8 +617,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               inspection={formulaInspection}
               key={`${activeCell?.sheetId}:${selectedCellKey}:${selectedRaw}:${formulaInspection?.raw}`}
               onNavigate={navigateReference}
+              onReferenceHover={setHoveredReferenceSpan}
+              referenceColors={formulaReferenceColors}
             />
-            {formulaInspection ? <ContextualReferenceLinks onNavigate={navigateReference} onToggle={() => setReferenceLinksVisible((visible) => !visible)} references={contextualReferenceItems} source={contextualSourceGeometry} visible={referenceLinksVisible} /> : null}
+            {formulaInspection ? <ContextualReferenceLinks hoveredSourceSpan={hoveredReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} visible={referenceLinksVisible} /> : null}
           </>
         )}
         viewport={workspaceController.viewport}

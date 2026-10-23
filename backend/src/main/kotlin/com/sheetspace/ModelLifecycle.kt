@@ -8,7 +8,7 @@ import kotlinx.serialization.json.jsonObject
 internal fun reconcileModelLifecycle(current: WorkbookState, before: WorkbookState, after: WorkbookState): WorkbookState {
     validateLifecycleWorkbook(before)
     validateLifecycleWorkbook(after)
-    requireLifecycle(before.manifest.sheetIds == after.manifest.sheetIds && before.dataModels.keys == after.dataModels.keys)
+    requireLifecycle(before.manifest.sheetIds == after.manifest.sheetIds)
     if (sameWorkbookContent(current, after)) return current
     if (!sameWorkbookContent(current, before)) {
         throw WorkbookApplicationException(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT)

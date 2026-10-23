@@ -185,9 +185,8 @@ function sheetCandidates(names: readonly string[], query: string, raw: string, r
 }
 
 function propertyCandidates(names: readonly string[], query: string, raw: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
-  const rowSuffix = /^\[\$?[1-9][0-9]*\]/.test(raw.slice(replacement.end)) ? '' : '[1]';
   return names.filter((name) => name.toUpperCase().startsWith(query.toUpperCase()))
-    .map((name) => ({ kind: 'property' as const, label: name, insertText: `'${name.replace(/'/g, "''")}'${rowSuffix}`, replacement }));
+    .map((name) => ({ kind: 'property' as const, label: name, insertText: `'${name.replace(/'/g, "''")}'`, replacement }));
 }
 
 function completionReplacement(raw: string, cursor: number, selectionEnd: number, minimum = 0): FormulaSourceSpan {

@@ -356,9 +356,16 @@ export class FormulaParser {
     const property = this.readQuotedProperty();
     if (property !== undefined) {
       const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
-      if (!row) return undefined;
+      if (!row) {
+        return { kind: 'named', value: { propertyName: property, row: 1 }, anchors: { column: propertyAnchor, row: false }, sourceSpan: this.span(start) };
+      }
       this.index += row[0].length;
       return { kind: 'named', value: { propertyName: property, row: Number(row[2]) }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
+    }
+    this.index = propertyStart;
+    const propertyName = this.readIdentifier();
+    if (propertyName && !/[A-Za-z0-9_:\-\[]/.test(this.peek())) {
+      return { kind: 'named', value: { propertyName, row: 1 }, anchors: { column: false, row: false }, sourceSpan: this.span(start) };
     }
     this.index = propertyStart;
     const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));

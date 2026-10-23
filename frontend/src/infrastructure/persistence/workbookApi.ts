@@ -1,7 +1,6 @@
-import type { AxisSizeWrite, DataModel, ModelColumnType, FormatWrite, SheetPresentation } from '@workbook/core/model';
 import { isValidCellAppearance, validFormatWrites } from '@workbook/core/numberFormat';
 import { validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
-import { isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type SheetDocument, type SheetFrameSize, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
+import { DEFAULT_SHEET_FRAME_SIZE, isValidSheetVisualScale, WORKBOOK_SCHEMA_VERSION, type AxisSizeWrite, type DataModel, type ModelColumnType, type FormatWrite, type SheetDocument, type SheetFrameSize, type SheetPresentation, type Workbook, type WorkbookManifest, type WorkspacePosition } from '@workbook/core/model';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
@@ -28,7 +27,7 @@ export type SheetDocumentResponse = {
   name: string;
   frame: {
     position: WorkspacePosition;
-    size: SheetFrameSize;
+    size?: Partial<SheetFrameSize>;
     visualScale: number;
     zIndex: number;
   };
@@ -415,7 +414,10 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
     revision: document.revision,
     frame: {
       position: { ...document.frame.position },
-      size: { ...document.frame.size },
+      size: {
+        width: document.frame.size?.width ?? DEFAULT_SHEET_FRAME_SIZE.width,
+        height: document.frame.size?.height ?? DEFAULT_SHEET_FRAME_SIZE.height,
+      },
       visualScale: document.frame.visualScale,
       zIndex: document.frame.zIndex,
     },

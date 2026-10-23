@@ -1,4 +1,4 @@
-import { rangeReferenceIdentity, referenceIdentityColor, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
+import { rangeReferenceIdentity, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import { createSheetGridAxisMetrics } from '@grid/gridAxisMetrics';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import { GRID_COLUMN_HEADER_HEIGHT, GRID_ROW_HEADER_WIDTH } from '@grid/gridGeometry';
@@ -31,10 +31,16 @@ export type ProjectedReferenceGeometry =
  * editor token colours, source highlights, and reference links.
  */
 export function contextualReferences(references: readonly FormulaInspectionReference[]): readonly ContextualReference[] {
-  return references.map((reference) => {
+  return references.map((reference, index) => {
     const identity = identityForTarget(reference.target);
-    return { reference, identity, color: reference.broken ? undefined : referenceIdentityColor(identity) };
+    return { reference, identity, color: reference.broken ? undefined : referenceColour(index) };
   });
+}
+
+function referenceColour(index: number): string {
+  const hue = (index * 137.508) % 360;
+  const lightness = 34 + Math.floor(index / 360) % 3 * 9;
+  return `hsl(${hue.toFixed(3)} 78% ${lightness}%)`;
 }
 
 /**

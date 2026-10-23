@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type CSSProperties } from 'react';
 import type {
   FormulaInspection,
   FormulaInspectionReference,
@@ -8,9 +8,13 @@ import '@reference-navigation/FormulaReferenceInspection.css';
 export function FormulaReferenceInspection({
   inspection,
   onNavigate,
+  onReferenceHover,
+  referenceColors,
 }: {
   inspection: FormulaInspection | undefined;
   onNavigate: (reference: FormulaInspectionReference) => void;
+  onReferenceHover?: (span: { start: number; end: number } | null) => void;
+  referenceColors?: ReadonlyMap<number, string>;
 }) {
   const [feedback, setFeedback] = useState('');
 
@@ -48,16 +52,16 @@ export function FormulaReferenceInspection({
               aria-label={`${part.text}, ${part.broken ? 'broken reference' : 'reference'}`}
               aria-disabled={part.broken ? 'true' : undefined}
               className={`formula-reference-token${part.broken ? ' formula-reference-token-broken' : ''}`}
+              style={{ '--formula-reference-color': referenceColors?.get(part.sourceSpan.start) } as CSSProperties}
               data-broken-reference={part.broken ? 'true' : undefined}
               data-navigable={part.navigable ? 'true' : 'false'}
               data-reference-kind={part.target.kind}
               data-sheet-id={part.target.sheetId}
               data-workspace-navigation
               key={`${part.sourceSpan.start}-${part.sourceSpan.end}-${index}`}
+              onMouseEnter={() => onReferenceHover?.(part.sourceSpan)}
+              onMouseLeave={() => onReferenceHover?.(null)}
               onClick={(event) => handleReferenceClick(event, part)}
-              title={part.broken
-                ? 'Broken reference. Target is unavailable.'
-                : 'Ctrl-click or Cmd-click to navigate.'}
               type="button"
             >
               {part.text}
