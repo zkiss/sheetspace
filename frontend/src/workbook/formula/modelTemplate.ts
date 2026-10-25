@@ -15,7 +15,7 @@ export function bindModelFormula(raw: string, workbook: Workbook, sheetId: strin
   const resolver = workbookFormulaReferenceResolver(workbook, sheetId);
   return {
     raw,
-    references: formulaReferenceTokens(raw).map((reference) => {
+    references: formulaReferenceTokens(raw, resolver).map((reference) => {
       const targetId = reference.qualifier.kind === 'unqualified' ? sheetId
         : reference.qualifier.kind === 'explicit' ? resolver.sheetByQualifier(reference.qualifier.sheetId) : undefined;
       return {

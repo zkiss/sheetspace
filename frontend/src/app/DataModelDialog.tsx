@@ -165,6 +165,7 @@ function modelDraftReferenceResolver(workbook: Workbook, draft: Draft): FormulaR
   return {
     currentSheetId,
     sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((sheet) => sheet.id === qualifier || sheet.name === qualifier)?.id,
+    hasNamedColumn: (sheetId, name) => sheetId === currentSheetId ? Boolean(property(name)) : actual(sheetId)?.hasNamedColumn?.(sheetId, name) ?? false,
     coordinateAt: (sheetId, address) => {
       if (sheetId === currentSheetId) {
         const column = draft.columns[address.columnIndex];

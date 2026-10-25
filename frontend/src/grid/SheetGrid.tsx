@@ -35,7 +35,6 @@ function ensureCellVisibleOutsideStickyHeaders(
   columnHeader: HTMLElement | null,
   rowHeader: HTMLElement | null,
 ) {
-  cell.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   const cellRect = cell.getBoundingClientRect();
   const scrollContainerRect = scrollContainer.getBoundingClientRect();
   const logicalPerRenderedPixel = logicalUnitsPerRenderedPixel(scrollContainer, scrollContainerRect);
@@ -43,13 +42,19 @@ function ensureCellVisibleOutsideStickyHeaders(
     + (columnHeader?.getBoundingClientRect().height ?? GRID_COLUMN_HEADER_HEIGHT / logicalPerRenderedPixel.y);
   const visibleLeft = scrollContainerRect.left
     + (rowHeader?.getBoundingClientRect().width ?? GRID_ROW_HEADER_WIDTH / logicalPerRenderedPixel.x);
+  const visibleBottom = scrollContainerRect.top + scrollContainer.clientHeight / logicalPerRenderedPixel.y;
+  const visibleRight = scrollContainerRect.left + scrollContainer.clientWidth / logicalPerRenderedPixel.x;
   if (cellRect.top < visibleTop) {
     scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop
       - (visibleTop - cellRect.top) * logicalPerRenderedPixel.y);
+  } else if (cellRect.bottom > visibleBottom) {
+    scrollContainer.scrollTop += (cellRect.bottom - visibleBottom) * logicalPerRenderedPixel.y;
   }
   if (cellRect.left < visibleLeft) {
     scrollContainer.scrollLeft = Math.max(0, scrollContainer.scrollLeft
       - (visibleLeft - cellRect.left) * logicalPerRenderedPixel.x);
+  } else if (cellRect.right > visibleRight) {
+    scrollContainer.scrollLeft += (cellRect.right - visibleRight) * logicalPerRenderedPixel.x;
   }
 }
 type GridFocusIntent = {
@@ -359,7 +364,7 @@ export function SheetGrid({
     const columnIndex = axisIndexForDurableIndex(columns, address.columnIndex);
     if (rowIndex !== undefined) rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-    if (!focusIntentIsInWindow) gridRef.current?.focus();
+    if (!focusIntentIsInWindow) gridRef.current?.focus({ preventScroll: true });
   }, [columns, editingCell, focusIntent, focusIntentIsInWindow, rowVirtualizer, columnVirtualizer, rows, sheet]);
   useEffect(() => {
     if (!focusIntent || editingCell || !focusIntentIsInWindow) return;
@@ -370,7 +375,7 @@ export function SheetGrid({
     const registeredTarget = focusTargetRef.current;
     if (registeredTarget.key !== focusIntent.targetKey || !registeredTarget.element) return;
     const completedIntent = focusIntent;
-    registeredTarget.element.focus();
+    registeredTarget.element.focus({ preventScroll: true });
     if (scrollContainerRef.current) {
       ensureCellVisibleOutsideStickyHeaders(
         registeredTarget.element,
@@ -432,7 +437,7 @@ export function SheetGrid({
     // This is deliberately after the virtualizer and regular focus effects.
     // It is the grid's final reveal/focus phase and therefore the only point
     // at which the workspace operation may capture its arrival.
-    targetElement.focus();
+    targetElement.focus({ preventScroll: true });
     ensureCellVisibleOutsideStickyHeaders(
       targetElement,
       scrollContainer,

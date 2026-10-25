@@ -24,6 +24,8 @@ export type GridReferenceViewport = {
 
 export type ProjectedReferenceGeometry =
   | { kind: 'visible'; rect: WorkspaceTargetRect }
+  | { kind: 'overview'; rect: WorkspaceTargetRect }
+  | { kind: 'offscreen'; target: { x: number; y: number } }
   | { kind: 'unavailable'; reason: 'broken' | 'unmounted' | 'overview' | 'offscreen' | 'clipped' | 'occluded' };
 
 /**
@@ -68,8 +70,20 @@ export function projectReferenceGeometry({
   const sheet = workbook.documents[reference.target.sheetId];
   const frame = frames.find((candidate) => candidate.id === reference.target.sheetId);
   const gridViewport = gridViewports[reference.target.sheetId];
-  if (!sheet || !frame || !gridViewport || gridViewport.mounted === false) return { kind: 'unavailable', reason: 'unmounted' };
-  if (gridViewport.renderingMode === 'overview') return { kind: 'unavailable', reason: 'overview' };
+  if (!sheet || !frame) return { kind: 'unavailable', reason: 'unmounted' };
+  const surface = workspaceSurfaceRect(workspaceViewport, surfaceSize);
+  const frameRect = workspaceRectForFrame(frame);
+  if (gridViewport?.renderingMode === 'overview') {
+    const visibleFrame = intersect(frameRect, surface);
+    return visibleFrame
+      ? { kind: 'overview', rect: toSurfaceRect(visibleFrame, workspaceViewport) }
+      : offscreenPointer(frameRect, workspaceViewport);
+  }
+  if (!gridViewport || gridViewport.mounted === false) {
+    return intersects(frameRect, surface)
+      ? { kind: 'unavailable', reason: 'unmounted' }
+      : offscreenPointer(frameRect, workspaceViewport);
+  }
 
   const logicalRect = targetLogicalRect(reference.target, sheet);
   if (!logicalRect) return { kind: 'unavailable', reason: 'broken' };
@@ -88,13 +102,12 @@ export function projectReferenceGeometry({
     bottom: frame.position.y + (body.top + GRID_COLUMN_HEADER_HEIGHT + logicalRect.bottom - safeOffset(gridViewport.scrollTop)) * frame.visualScale,
   };
   const clipped = intersect(target, viewport);
-  if (!clipped) return { kind: 'unavailable', reason: 'offscreen' };
+  if (!clipped) return intersects(target, surface) ? { kind: 'unavailable', reason: 'offscreen' } : offscreenPointer(target, workspaceViewport);
   // A partly hidden range is safe only when the visible portion remains a rectangle
   // entirely inside the body; cell targets fall back instead of suggesting a false anchor.
   if (reference.target.kind === 'cell' && !sameRect(target, clipped)) return { kind: 'unavailable', reason: 'clipped' };
-  const surface = workspaceSurfaceRect(workspaceViewport, surfaceSize);
   const visible = intersect(clipped, surface);
-  if (!visible) return { kind: 'unavailable', reason: 'offscreen' };
+  if (!visible) return offscreenPointer(clipped, workspaceViewport);
   if (!sameRect(clipped, visible)) return { kind: 'unavailable', reason: 'clipped' };
   if (frames.some((candidate) => candidate.id !== frame.id && candidate.zIndex > frame.zIndex
     && workspaceRectsIntersect(workspaceRectForFrame(candidate), visible))) {
@@ -137,11 +150,16 @@ function toSurfaceRect(rect: WorkspaceTargetRect, viewport: WorkspaceViewport): 
   const scale = safeScale(viewport.scale);
   return { left: rect.left * scale + safeOffset(viewport.x), top: rect.top * scale + safeOffset(viewport.y), right: rect.right * scale + safeOffset(viewport.x), bottom: rect.bottom * scale + safeOffset(viewport.y) };
 }
+function offscreenPointer(rect: WorkspaceTargetRect, viewport: WorkspaceViewport): ProjectedReferenceGeometry {
+  const projected = toSurfaceRect(rect, viewport);
+  return { kind: 'offscreen', target: { x: (projected.left + projected.right) / 2, y: (projected.top + projected.bottom) / 2 } };
+}
 function intersect(first: WorkspaceTargetRect, second: WorkspaceTargetRect): WorkspaceTargetRect | undefined {
   const left = Math.max(first.left, second.left); const top = Math.max(first.top, second.top);
   const right = Math.min(first.right, second.right); const bottom = Math.min(first.bottom, second.bottom);
   return left < right && top < bottom ? { left, top, right, bottom } : undefined;
 }
+function intersects(first: WorkspaceTargetRect, second: WorkspaceTargetRect) { return Boolean(intersect(first, second)); }
 function sameRect(first: WorkspaceTargetRect, second: WorkspaceTargetRect) { return first.left === second.left && first.top === second.top && first.right === second.right && first.bottom === second.bottom; }
 function safeOffset(value: number) { return Number.isFinite(value) ? value : 0; }
 function safeScale(value: number) { return Number.isFinite(value) && value > 0 ? value : 1; }

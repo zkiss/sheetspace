@@ -44,7 +44,7 @@ import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './mo
 import type { CellWriteResult } from '@application/core/userActions';
 import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
 import { NavigationPalette, type NavigationCommand } from './NavigationPalette';
-import { workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import { clampWorkspaceZoom, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -272,7 +272,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     if (!sheet || !navigateTarget({ kind: 'cell', target }, sheet)) setNavigationFeedback('The navigation target is no longer available.');
   }, [navigateTarget, workbook]);
   const navigateEmptySheet = useCallback((sheet: SheetDocument) => {
-    startExplicitSheetNavigation(onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), { onSettled: settled }));
+    startExplicitSheetNavigation(onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), {
+      naturalScale: clampWorkspaceZoom(1 / sheet.frame.visualScale),
+      onSettled: settled,
+    }));
   }, [onClearSelection, startExplicitSheetNavigation, workspaceController]);
   const openChoices = useCallback((choices: NavigationCommand[]) => {
     setPaletteChoices(choices);
@@ -368,18 +371,25 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   openUsagesRef.current = openUsages;
   openReferenceChoicesRef.current = openReferenceChoices;
   openPropertyDefinitionRef.current = openPropertyDefinition;
-  const paletteCommands = useMemo<NavigationCommand[]>(() => {
-    const result: NavigationCommand[] = sheets.map((sheet) => {
+  const openSheetChoices = useCallback(() => {
+    openChoices(sheets.map((sheet) => {
       const first = cellIdentityAt(sheet.content, { columnIndex: 0, rowIndex: 0 });
-      return { id: `sheet:${sheet.id}`, label: `Go to sheet: ${sheet.name}`,
+      return {
+        id: `sheet:${sheet.id}`,
+        group: 'Sheets',
+        label: sheet.name,
         run: () => {
           const remembered = onActivateSheet(sheet.id, false);
           if (remembered) navigateCellTarget(remembered);
           else if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
           else navigateEmptySheet(sheet);
-           closeCommandPalette(false);
-        } };
-    });
+          closeCommandPalette(false);
+        },
+      };
+    }));
+  }, [closeCommandPalette, navigateCellTarget, navigateEmptySheet, onActivateSheet, openChoices, sheets]);
+  const paletteCommands = useMemo<NavigationCommand[]>(() => {
+    const result: NavigationCommand[] = [];
     result.unshift({ id: 'row', label: 'Go to row…', unavailable: selectedSheet?.content.rows.length ? undefined : 'No current sheet rows', run: () => {
       const raw = window.prompt('Row number');
       if (!raw || !/^\d+$/.test(raw)) return;
@@ -397,10 +407,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
        if (rowId) { navigateCellTarget({ sheetId: selectedSheet!.id, cell: { rowId, columnId } }); closeCommandPalette(false); }
     } });
     result.unshift({ id: 'definition', label: 'Go to property definition', shortcut: 'Alt+Shift+D', unavailable: propertyForActiveCell() || propertyReferenceChoices().length ? undefined : 'Select a named property or property reference first', run: openPropertyDefinition });
+    result.unshift({ id: 'sheet', label: 'Go to sheet…', unavailable: sheets.length ? undefined : 'No sheets available', run: openSheetChoices });
     result.unshift({ id: 'reference', label: 'Follow reference', shortcut: 'Alt+Enter', unavailable: navigableReferencesForFollow().length ? undefined : 'No resolvable reference', run: openReferenceChoices });
     result.unshift({ id: 'usages', label: 'Find usages', shortcut: 'Alt+Shift+U', unavailable: activeCell ? undefined : 'Select a cell first', run: openUsages });
     return result;
-  }, [activeCell, closeCommandPalette, navigateCellTarget, navigateEmptySheet, navigableReferencesForFollow, onActivateSheet, openPropertyDefinition, openReferenceChoices, openUsages, propertyForActiveCell, propertyReferenceChoices, selectedSheet, sheets, workbook]);
+  }, [activeCell, navigableReferencesForFollow, openPropertyDefinition, openReferenceChoices, openSheetChoices, openUsages, propertyForActiveCell, propertyReferenceChoices, selectedSheet, sheets, workbook]);
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
@@ -445,9 +456,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       gridInteractionSheetIds,
       interactionSheetId: interactionPinnedSheetId,
       pendingFocusSheetId: pinsFocusedFrame(gridFocusLease) ? gridFocusLease?.sheetId : undefined,
+      referenceSheetId: referenceSelection?.kind === 'cell' ? referenceSelection.target.sheetId : referenceSelection?.sheetId,
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
-    viewport: workspaceController.viewport,
+    viewport: workspaceController.displayedViewport,
   });
   const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
     setReferenceGridViewports((current) => {
@@ -620,7 +632,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               onReferenceHover={setHoveredReferenceSpan}
               referenceColors={formulaReferenceColors}
             />
-            {formulaInspection ? <ContextualReferenceLinks hoveredSourceSpan={hoveredReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} visible={referenceLinksVisible} /> : null}
+            {formulaInspection ? <ContextualReferenceLinks hoveredSourceSpan={hoveredReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
           </>
         )}
         viewport={workspaceController.viewport}

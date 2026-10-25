@@ -2,3 +2,5 @@
 .contextual-reference-canvas line { stroke-width: 2; stroke-opacity: 0.5; }
 .contextual-reference-canvas rect { fill: none; stroke-width: 2; stroke-opacity: 0.8; }
 .contextual-reference-canvas .contextual-reference-link-hit-target { pointer-events: auto; stroke-opacity: 0; cursor: pointer; }
+.contextual-reference-offscreen-marker { stroke: #fff; stroke-width: 2; }
+.contextual-reference-overview-target { stroke-dasharray: 5 3; }

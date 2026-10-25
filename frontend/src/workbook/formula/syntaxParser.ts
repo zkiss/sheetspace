@@ -29,7 +29,10 @@ export class FormulaParser {
   private readonly syntaxTokens: FormulaSyntaxToken[] = [];
   private readonly diagnostics: FormulaDiagnostic[] = [];
 
-  constructor(private readonly input: string) {}
+  constructor(
+    private readonly input: string,
+    private readonly isNamedColumn?: (qualifier: string | undefined, name: string) => boolean,
+  ) {}
 
   parse(raw: string): FormulaSyntaxResult {
     this.recordToken('punctuation', -1, 0);
@@ -316,7 +319,7 @@ export class FormulaParser {
     if (!this.consume('@')) return this.error();
     const qualifier = this.readOptionalQualifier();
     if (qualifier === false) return this.error();
-    const first = this.readReferenceEndpoint();
+    const first = this.readReferenceEndpoint(qualifier.sheetId);
     if (!first) return this.error();
     const firstEnd = this.index;
     this.skipWhitespace();
@@ -327,7 +330,7 @@ export class FormulaParser {
     }
 
     this.skipWhitespace();
-    const second = this.readReferenceEndpoint();
+    const second = this.readReferenceEndpoint(qualifier.sheetId);
     if (!second || !this.referenceEndpointsMatch(first, second)) {
       return this.error();
     }
@@ -340,7 +343,7 @@ export class FormulaParser {
     return first.kind === second.kind;
   }
 
-  private readReferenceEndpoint(): FormulaReferenceLexeme['endpoints'][number] | undefined {
+  private readReferenceEndpoint(qualifier?: string): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
     const named = /^(\$?)~([0-9a-f]+)~([0-9a-f]+)\[(\$?)([0-9a-f]+)\]/i.exec(this.input.slice(this.index));
     if (named) {
@@ -363,9 +366,16 @@ export class FormulaParser {
       return { kind: 'named', value: { propertyName: property, row: Number(row[2]) }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
     }
     this.index = propertyStart;
+    const columnAnchor = this.consume('$');
     const propertyName = this.readIdentifier();
+    if (propertyName && this.peek() === '[' && this.isNamedColumn?.(qualifier, propertyName)) {
+      const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
+      if (!row) return undefined;
+      this.index += row[0].length;
+      return { kind: 'named', value: { propertyName, row: Number(row[2]) }, anchors: { column: columnAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
+    }
     if (propertyName && !/[A-Za-z0-9_:\-\[]/.test(this.peek())) {
-      return { kind: 'named', value: { propertyName, row: 1 }, anchors: { column: false, row: false }, sourceSpan: this.span(start) };
+      return { kind: 'named', value: { propertyName, row: 1 }, anchors: { column: columnAnchor, row: false }, sourceSpan: this.span(start) };
     }
     this.index = propertyStart;
     const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
