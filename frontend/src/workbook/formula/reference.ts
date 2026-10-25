@@ -1,7 +1,7 @@
 import { columnIndexToLabel, type CellAddress } from '../core/address';
 import type { ColumnId, RowId, SheetId, Workbook } from '../core/model';
 import { findSheetById, sheetsInOrder } from '../read/queries';
-import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaExpression, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
+import { formatPropertyReferenceToken, formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaExpression, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
 
 export type FormulaCoordinate = { columnId: ColumnId; rowId: RowId };
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
@@ -251,7 +251,7 @@ function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnch
 function formatNamedCanonical(propertyId: string, coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}~${encodeStableId(propertyId)}~${encodeStableId(coordinate.columnId)}[${anchors.row ? '$' : ''}${encodeStableId(coordinate.rowId)}]`; }
 function encodeStableId(value: string): string { return Array.from({ length: value.length }, (_, index) => value.charCodeAt(index).toString(16).padStart(4, '0')).join(''); }
 function formatA1(address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${columnIndexToLabel(address.columnIndex)}[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
-function formatNamed(name: string, address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}'${name.replace(/'/g, "''")}'[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
+function formatNamed(name: string, address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${formatPropertyReferenceToken(name)}[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
 /** Applies one copy delta while preserving anchors independently on each axis. */
 function translateCopyAddress(address: CellAddress, anchors: FormulaAxisAnchor, source: CellAddress, destination: CellAddress): CellAddress {
   return {

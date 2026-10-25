@@ -15,7 +15,6 @@ import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferen
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
 import { contextualReferences, projectReferenceGeometry, type GridReferenceViewport } from '@reference-navigation/contextualReferenceProjection';
 import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
-import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
 import { formulaRawForStorage, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
@@ -134,7 +133,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [, setClipboardRevision] = useState(0);
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [navigationFeedback, setNavigationFeedback] = useState('');
-  const [formulaPanelOpen, setFormulaPanelOpen] = useState(false);
   const [referenceLinksVisible, setReferenceLinksVisible] = useState(false);
   const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
@@ -159,7 +157,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const selectedRaw = selectedSheet && selectedCellKey
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
-  useEffect(() => { if (!editingCell) setFormulaPanelOpen(false); }, [editingCell]);
   const inspectedRaw = editingCell && editingCell.target.sheetId === selectedSheet?.id
     ? formulaRawForStorage(editingCell.draft, workbook, selectedSheet.id)
     : selectedRaw;
@@ -170,8 +167,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen;
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const cancelNavigationBeforeUserMovement = useRef<() => void>(() => {});
+  const panViewportNeedsRender = useRef<(viewport: import('@workspace/workspaceContracts').WorkspaceViewport) => boolean>(() => true);
   const workspaceController = useWorkspaceController({
     onBeforeUserMovement: () => cancelNavigationBeforeUserMovement.current(),
+    shouldRenderPanViewport: (viewport) => panViewportNeedsRender.current(viewport),
     onClearSelection,
     onCreateSheet,
     interactionsEnabled,
@@ -449,7 +448,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
   const referenceSurfaceSize = useMemo(() => workspaceController.workspaceSurfaceSize ?? { width: 0, height: 0 }, [workspaceController.workspaceSurfaceSize]);
-  const mountedSheetIds = mountedWorkspaceFrameIds({
+  const frameVisibilityOptions = {
     frames: projectedFrames,
     pins: {
       editingSheetId: editingCell?.target.sheetId,
@@ -459,8 +458,12 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       referenceSheetId: referenceSelection?.kind === 'cell' ? referenceSelection.target.sheetId : referenceSelection?.sheetId,
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
-    viewport: workspaceController.displayedViewport,
-  });
+  };
+  const mountedSheetIds = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.displayedViewport });
+  panViewportNeedsRender.current = (viewport) => {
+    const next = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport });
+    return next.size !== mountedSheetIds.size || [...next].some((id) => !mountedSheetIds.has(id));
+  };
   const reportReferenceViewport = useCallback((sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => {
     setReferenceGridViewports((current) => {
       if (!viewport) {
@@ -587,7 +590,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
        {commandPaletteOpen ? <NavigationPalette key={paletteView} commands={paletteChoices ?? paletteCommands} onClose={closeCommandPalette} /> : null}
-        <FormulaPanel activeCell={activeCell} editingCell={editingCell} formulaResults={formulaResults} onCancel={onCancelEdit} onCommit={(session) => { const outcome = onCommitEdit(session); reportWriteOutcome(outcome); return outcome; }} onOpenModel={onOpenDataModels} onRawChange={onEditValueChange} onStart={onStartEdit} onSuspend={onSuspendEdit} onViewChange={onUpdateEditView} open={formulaPanelOpen} selectedSheet={selectedSheet} setOpen={setFormulaPanelOpen} sheets={sheets} workbook={workbook} />
       <WorkspaceSurface
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
@@ -645,10 +647,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           const tabular = tabularProjection(sheet);
           const { calculatedColumnIds, columnLabels } = modelColumnPresentation(sheet, workbook.dataModels);
           const creatingSheetAxes = creatingAxes[sheet.id];
-          // The grid overlay and the rich panel are mutually exclusive editing
-          // surfaces. The panel owns the current session while it is open; its
-          // fresh session generation also rejects the overlay's unmount snapshot.
-          const sheetEditingCell = !formulaPanelOpen && editingCell?.target.sheetId === sheet.id ? editingCell : null;
+          const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
+          const formulaResolver = workbookFormulaReferenceResolver(workbook, sheet.id);
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
             ? selectionAddressRange(sheet, selectionRange)
             : referenceSelection?.kind === 'range'
@@ -758,7 +758,22 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       startEditing: onStartEdit,
                     }}
                     editingCell={sheetEditingCell}
-                    editorInteraction={{ cancel: onCancelEdit, commit: (session) => reportWriteOutcome(onCommitEdit(session)), commitAndNavigate: (session, request) => reportWriteOutcome(onCommitEditAndNavigate(session, request)), suspend: onSuspendEdit, updateValue: onEditValueChange, updateView: onUpdateEditView }}
+                    editorInteraction={{
+                      cancel: onCancelEdit,
+                      commit: (session, restoreFocus) => {
+                        const outcome = onCommitEdit(session);
+                        reportWriteOutcome(outcome);
+                        if (restoreFocus && (!outcome || outcome.ok)) onRestoreGridFocus();
+                      },
+                      commitAndNavigate: (session, request) => reportWriteOutcome(onCommitEditAndNavigate(session, request)),
+                      suspend: onSuspendEdit, updateValue: onEditValueChange, updateView: onUpdateEditView,
+                      formulaContext: {
+                        resolver: formulaResolver,
+                        sheetNames: sheets.map((entry) => entry.name),
+                        propertyNames: sheet.modelId ? workbook.dataModels?.[sheet.modelId]?.columns.map((property) => property.name) : [],
+                        referenceValues: (identity) => formulaPanelReferenceValues(identity, formulaResolver, formulaResults),
+                      },
+                    }}
                     formulaResults={formulaResults}
                     keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
                       ? {
@@ -791,9 +806,4 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       </WorkspaceSurface>
     </>
   );
-} export function FormulaPanel({ activeCell, editingCell, formulaResults, onCancel, onCommit, onOpenModel, onRawChange, onStart, onSuspend, onViewChange, open, selectedSheet, setOpen, sheets, workbook }: {
-  activeCell: CellTarget | null; editingCell: CellEditSession | null; formulaResults: FormulaEvaluationSnapshot; onCancel: () => void; onCommit: (session?: CellEditSession) => CellWriteResult | undefined; onOpenModel?: (modelId?: string) => void; onRawChange: (raw: string) => void; onStart: (target: CellTarget, initialValue?: string) => void; onSuspend?: (session: CellEditSession) => void; onViewChange?: (selection: { start: number; end: number }, scrollTop: number) => void; open: boolean; selectedSheet: SheetDocument | undefined; setOpen: (open: boolean) => void; sheets: readonly SheetDocument[]; workbook: Workbook;
-}) {
-  const calculated = activeCell && selectedSheet?.modelId && Object.values(workbook.dataModels?.[selectedSheet.modelId]?.columns ?? []).some((column) => column.kind === 'calculated' && selectedSheet.modelColumnBindings?.[column.id] === activeCell.cell.columnId); const resolver = selectedSheet && workbookFormulaReferenceResolver(workbook, selectedSheet.id);
-  return <aside className="workspace-formula-panel" data-workspace-native-content>{editingCell && selectedSheet && resolver && open ? <FormulaEditorPanel ariaLabel="Cell formula" autoFocus initialView={editingCell.selection && { ...editingCell.selection, scrollTop: editingCell.scrollTop }} onApply={() => { const outcome = onCommit(editingCell); if (!outcome || outcome.ok) setOpen(false); }} onCancel={() => { onCancel(); setOpen(false); }} onFocusLeave={(view) => { onSuspend?.({ ...editingCell, selection: { start: view.start, end: view.end }, scrollTop: view.scrollTop }); setOpen(false); }} onRawChange={onRawChange} onViewChange={(view) => onViewChange?.({ start: view.start, end: view.end }, view.scrollTop)} propertyNames={selectedSheet.modelId ? (workbook.dataModels?.[selectedSheet.modelId]?.columns.map((column) => column.name) ?? []) : []} raw={editingCell.draft} referenceValues={(identity) => formulaPanelReferenceValues(identity, resolver, formulaResults)} resolver={resolver} sheetNames={sheets.map((sheet) => sheet.name)} /> : calculated ? <button data-workspace-navigation onClick={() => onOpenModel?.(selectedSheet?.modelId)} type="button">Edit in Data models</button> : activeCell && selectedSheet ? <button data-workspace-navigation onClick={() => { onStart(activeCell); setOpen(true); }} type="button">Edit formula</button> : null}</aside>;
 }

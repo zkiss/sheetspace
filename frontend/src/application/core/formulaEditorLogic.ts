@@ -2,7 +2,7 @@ import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
 import { rangeReferenceIdentity, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
-import { formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult, type FormulaSyntaxToken } from '@workbook/formula/syntax';
+import { formatPropertyReferenceToken, formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult, type FormulaSyntaxToken } from '@workbook/formula/syntax';
 
 export type FormulaEditorSelection = { start: number; end: number };
 export type FormulaCompletion = {
@@ -39,8 +39,9 @@ export function analyzeFormulaEditor(raw: string, resolver: FormulaReferenceReso
 export function formulaCompletions(
   raw: string,
   selection: FormulaEditorSelection,
-  options: { sheetNames: readonly string[]; propertyNames?: readonly string[] },
+  options: { sheetNames: readonly string[]; propertyNames?: readonly string[]; automatic?: boolean },
 ): FormulaCompletion[] {
+  if (!raw.startsWith('=') || selection.start !== selection.end) return [];
   const cursor = clamp(selection.start, 0, raw.length);
   const end = clamp(selection.end, cursor, raw.length);
   const syntax = parseFormulaSyntax(raw);
@@ -50,15 +51,16 @@ export function formulaCompletions(
   if (reference) {
     const replacement = completionReplacement(raw, cursor, end, reference.prefixStart);
     const candidates = reference.afterQualifier
-      ? propertyCandidates(options.propertyNames ?? [], reference.query, raw, replacement)
+      ? propertyCandidates(options.propertyNames ?? [], reference.query, replacement)
       : [
         ...sheetCandidates(options.sheetNames, reference.query, raw, replacement),
-        ...propertyCandidates(options.propertyNames ?? [], reference.query, raw, replacement),
+        ...propertyCandidates(options.propertyNames ?? [], reference.query, replacement),
       ];
     return candidates;
   }
   const replacement = completionReplacement(raw, cursor, end);
   const query = raw.slice(replacement.start, cursor).toUpperCase();
+  if (options.automatic && (query.length < 2 || !/^[A-Z][A-Z0-9_]*$/.test(query))) return [];
   return [...builtInFormulaFunctions.keys()]
     .filter((name) => name.startsWith(query))
     .map((name) => ({ kind: 'function' as const, label: name, insertText: name, replacement }));
@@ -184,9 +186,9 @@ function sheetCandidates(names: readonly string[], query: string, raw: string, r
     .map((name) => ({ kind: 'sheet' as const, label: name, insertText: `${formatSheetReferenceToken(name)}${separator}`, replacement }));
 }
 
-function propertyCandidates(names: readonly string[], query: string, raw: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
+function propertyCandidates(names: readonly string[], query: string, replacement: FormulaSourceSpan): FormulaCompletion[] {
   return names.filter((name) => name.toUpperCase().startsWith(query.toUpperCase()))
-    .map((name) => ({ kind: 'property' as const, label: name, insertText: `'${name.replace(/'/g, "''")}'`, replacement }));
+    .map((name) => ({ kind: 'property' as const, label: name, insertText: formatPropertyReferenceToken(name), replacement }));
 }
 
 function completionReplacement(raw: string, cursor: number, selectionEnd: number, minimum = 0): FormulaSourceSpan {

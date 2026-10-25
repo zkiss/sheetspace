@@ -114,3 +114,9 @@ export function formatSheetReferenceToken(sheetName: string): string {
     ? sheetName
     : `'${sheetName.replace(/'/g, "''")}'`;
 }
+
+export function formatPropertyReferenceToken(name: string): string {
+  return /^[A-Za-z][A-Za-z0-9_]*$/.test(name)
+    ? name
+    : `'${name.replace(/'/g, "''")}'`;
+}

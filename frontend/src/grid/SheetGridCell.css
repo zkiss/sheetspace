@@ -135,50 +135,29 @@
   padding: 0;
 }
 
-.sheet-grid-cell-editor {
-  display: block;
+.sheet-grid-cell-formula-editor {
+  display: flex;
+  flex-direction: column;
   position: fixed;
   z-index: 100;
   box-sizing: border-box;
   border: 1px solid #2f747e;
-  padding: 0.2rem 0.35rem;
-  overflow: auto;
-  color: transparent;
-  caret-color: #17202a;
-  background: transparent;
+  border-radius: 0;
+  gap: 0;
+  padding: 0;
+  background: #fff;
   box-shadow: 0 0.4rem 1rem rgb(23 32 42 / 18%);
-  font: inherit;
-  font-size: inherit;
-  line-height: 1.2;
-  letter-spacing: normal;
-  outline: none;
-  resize: none;
-  tab-size: 8;
-  user-select: text;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, monospace;
 }
-
-.sheet-grid-cell-editor-highlight {
-  display: block;
-  position: fixed;
-  z-index: 99;
-  box-sizing: border-box;
-  margin: 0;
-  border: 1px solid #2f747e;
-  padding: 0.2rem 0.35rem;
-  pointer-events: none;
-  color: #17202a;
-  background: #ffffff;
-  box-shadow: 0 0.4rem 1rem rgb(23 32 42 / 18%);
-  font: inherit;
-  font-size: inherit;
-  line-height: 1.2;
-  letter-spacing: normal;
-  tab-size: 8;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
+.sheet-grid-cell-formula-editor-heavy { border: 3px solid #176f78; border-radius: 5px; }
+.sheet-grid-cell-formula-editor .formula-editor-input-wrap { flex: 1; }
+.sheet-grid-cell-formula-editor .sheet-grid-cell-editor { width: 100%; min-height: 0; max-width: none; outline: none; resize: none; }
+.sheet-grid-cell-formula-editor .formula-editor-highlight,
+.sheet-grid-cell-formula-editor .sheet-grid-cell-editor { border: 0; border-radius: 0; }
+.sheet-grid-cell-formula-editor .formula-editor-actions { flex: none; flex-wrap: wrap; padding: .4rem; border-top: 1px solid #d6dee3; }
+.sheet-grid-cell-formula-editor .formula-editor-actions button { min-height: 1.75rem; padding: .15rem .55rem; font-size: .75rem; }
+.sheet-grid-cell-formula-editor-heavy .formula-editor-input-wrap { flex-basis: 0; }
+.sheet-grid-cell-formula-editor-heavy .sheet-grid-cell-editor { height: 100%; }
 
 .formula-syntax-token-function { color: #6f42c1; }
 .formula-syntax-token-literal { color: #a34a00; }

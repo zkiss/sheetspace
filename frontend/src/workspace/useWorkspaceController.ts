@@ -20,11 +20,13 @@ export function useWorkspaceController({
   onBeforeUserMovement,
   onClearSelection,
   onCreateSheet,
+  shouldRenderPanViewport,
   interactionsEnabled = true,
 }: {
   onBeforeUserMovement?: () => void;
   onClearSelection: () => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
+  shouldRenderPanViewport?: (viewport: WorkspaceViewport) => boolean;
   interactionsEnabled?: boolean;
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
@@ -34,6 +36,11 @@ export function useWorkspaceController({
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
+  const panPreview = useRef<WorkspaceViewport | null>(null);
+  const panFrame = useRef<number>();
+  const panPublication = useRef({ time: 0, x: 0, y: 0 });
+  const viewportRef = useRef(viewport);
+  viewportRef.current = panPreview.current ?? viewport;
   const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport);
   const navigationMayBeMoving = useRef(false);
   const viewportMovementIsUser = useRef(false);
@@ -57,8 +64,13 @@ export function useWorkspaceController({
     }, WORKSPACE_NAVIGATION_TRANSITION_MS);
   }, [viewport]);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
-    start: interruptNavigation, pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
+    start: interruptNavigation, panStart: beginPanPreview, panEnd: finishPanPreview,
+    pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
   }, interactionsEnabled);
+
+  useLayoutEffect(() => {
+    if (panPreview.current) paintPanViewport(panPreview.current);
+  });
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -116,6 +128,7 @@ export function useWorkspaceController({
   }
 
   function interruptNavigation() {
+    finishPanPreview();
     // History restoration may have pending grid work. Retire it before sampling
     // or changing the viewport so a newly mounted grid cannot restore over this
     // gesture.
@@ -126,7 +139,7 @@ export function useWorkspaceController({
       const displayed = displayedWorkspaceViewport(workspacePlaneRef.current);
       cancelViewportRestore();
       cancelViewportAnimation();
-      if (displayed) setViewport(displayed);
+      if (displayed) { viewportRef.current = displayed; setViewport(displayed); }
     } else {
       cancelViewportRestore();
       cancelViewportAnimation();
@@ -137,12 +150,63 @@ export function useWorkspaceController({
   }
 
   function panWorkspace(deltaX: number, deltaY: number) {
+    if (panPreview.current) {
+      panPreview.current = {
+        ...panPreview.current,
+        x: addFiniteWorkspaceCoordinate(panPreview.current.x, deltaX),
+        y: addFiniteWorkspaceCoordinate(panPreview.current.y, deltaY),
+      };
+      if (panFrame.current === undefined) panFrame.current = requestAnimationFrame((time) => {
+        panFrame.current = undefined;
+        const next = panPreview.current;
+        if (!next) return;
+        paintPanViewport(next);
+        const published = panPublication.current;
+        if (time - published.time >= 100 || Math.max(Math.abs(next.x - published.x), Math.abs(next.y - published.y)) >= 160) {
+          panPublication.current = { time, x: next.x, y: next.y };
+          if (!shouldRenderPanViewport || shouldRenderPanViewport(next)) {
+            viewportMovementIsUser.current = true;
+            setViewport(next);
+          }
+        }
+      });
+      return;
+    }
     interruptNavigation();
     setViewport((currentViewport) => ({
       ...currentViewport,
       x: addFiniteWorkspaceCoordinate(currentViewport.x, deltaX),
       y: addFiniteWorkspaceCoordinate(currentViewport.y, deltaY),
     }));
+  }
+
+  function beginPanPreview() {
+    panPreview.current = viewportRef.current;
+    panPublication.current = { time: performance.now(), x: viewportRef.current.x, y: viewportRef.current.y };
+  }
+
+  function finishPanPreview() {
+    if (panFrame.current !== undefined) cancelAnimationFrame(panFrame.current);
+    panFrame.current = undefined;
+    const next = panPreview.current;
+    if (!next) return;
+    paintPanViewport(next);
+    panPreview.current = null;
+    viewportRef.current = next;
+    viewportMovementIsUser.current = true;
+    setViewport(next);
+  }
+
+  function paintPanViewport(next: WorkspaceViewport) {
+    const surface = workspaceSurfaceRef.current;
+    const plane = workspacePlaneRef.current;
+    if (!surface || !plane) return;
+    plane.style.transform = viewportTransform(next);
+    surface.dataset.viewportX = String(next.x);
+    surface.dataset.viewportY = String(next.y);
+    const grid = surface.querySelector<HTMLElement>('.workspace-grid');
+    const size = Number.parseFloat(surface.style.getPropertyValue('--workspace-grid-major-size'));
+    if (grid && size > 0) grid.style.transform = `translate(${next.x % size}px, ${next.y % size}px)`;
   }
 
   function zoomWorkspace(nextScale: number, origin?: WorkspacePosition) {
