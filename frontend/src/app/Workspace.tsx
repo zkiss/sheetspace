@@ -136,6 +136,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [referenceLinksVisible, setReferenceLinksVisible] = useState(false);
   const selectionTransition = useSelectionTransition(activeCell);
   const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
+  const [modifierReferenceSpan, setModifierReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteChoices, setPaletteChoices] = useState<NavigationCommand[] | null>(null);
@@ -659,7 +660,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
           <>
-            {formulaInspection ? <ContextualReferenceLinks hoveredSourceSpan={hoveredReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
+            {formulaInspection ? <ContextualReferenceLinks editorActive={Boolean(editingCell)} hoveredSourceSpan={hoveredReferenceSpan} pulseSourceSpan={modifierReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
           </>
         )}
         viewport={workspaceController.viewport}
@@ -801,6 +802,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                         inspectionReferences: sheetEditingCell ? formulaInspection?.references : undefined,
                         referenceColors: formulaReferenceColors,
                         onReferenceHover: setHoveredReferenceSpan,
+                        onReferenceModifierHover: setModifierReferenceSpan,
                         onReferenceNavigate: navigateReference,
                       },
                     }}

@@ -9,6 +9,8 @@ export function ContextualReferenceLinks({
   source,
   visible,
   hoveredSourceSpan,
+  pulseSourceSpan,
+  editorActive = false,
   surfaceSize,
   onNavigate,
 }: {
@@ -16,6 +18,8 @@ export function ContextualReferenceLinks({
   source: ProjectedReferenceGeometry;
   visible: boolean;
   hoveredSourceSpan?: { start: number; end: number } | null;
+  pulseSourceSpan?: { start: number; end: number } | null;
+  editorActive?: boolean;
   surfaceSize?: { width: number; height: number };
   onNavigate: (reference: FormulaInspectionReference) => void;
   onToggle?: () => void;
@@ -23,6 +27,7 @@ export function ContextualReferenceLinks({
   const canvas = useRef<SVGSVGElement>(null);
   useEffect(() => {
     function updateProximity(event: PointerEvent) {
+      if (editorActive) return;
       const svg = canvas.current;
       const matrix = svg?.getScreenCTM();
       if (!svg || !matrix) return;
@@ -36,17 +41,28 @@ export function ContextualReferenceLinks({
         const proximity = Math.max(0, 1 - distance / 32);
         line.style.strokeWidth = `${2 + 4 * proximity}px`;
         line.style.strokeOpacity = `${0.5 + 0.5 * proximity}`;
+        const pulse = line.nextElementSibling as SVGLineElement | null;
+        if (pulse?.classList.contains('contextual-reference-pulse')) {
+          pulse.style.strokeWidth = `${1 + 3 * proximity}px`;
+          pulse.style.setProperty('--pulse-strength', String(proximity));
+          pulse.classList.toggle('contextual-reference-pulse-active', proximity > 0);
+        }
       }
     }
     function clearProximity() {
       canvas.current?.querySelectorAll<SVGLineElement>('.contextual-reference-visible-line').forEach((line) => {
         line.style.removeProperty('stroke-width'); line.style.removeProperty('stroke-opacity');
+        const pulse = line.nextElementSibling as SVGLineElement | null;
+        if (pulse?.classList.contains('contextual-reference-pulse')) {
+          pulse.style.removeProperty('stroke-width'); pulse.style.removeProperty('--pulse-strength');
+          pulse.classList.remove('contextual-reference-pulse-active');
+        }
       });
     }
     window.addEventListener('pointermove', updateProximity);
     window.addEventListener('blur', clearProximity);
-    return () => { window.removeEventListener('pointermove', updateProximity); window.removeEventListener('blur', clearProximity); };
-  }, []);
+    return () => { window.removeEventListener('pointermove', updateProximity); window.removeEventListener('blur', clearProximity); clearProximity(); };
+  }, [editorActive]);
   function navigateVisibleLink(event: KeyboardEvent<SVGLineElement>, reference: FormulaInspectionReference) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
@@ -65,7 +81,8 @@ export function ContextualReferenceLinks({
           ? geometry.rect
           : pointerAtSurfaceEdge(sourceCenter, geometry.target, surfaceSize));
         return [
-          <line aria-hidden="true" className="contextual-reference-visible-line" key={`line-${index}`} stroke={contextual.color} x1={sourcePoint.x} x2={targetPoint.x} y1={sourcePoint.y} y2={targetPoint.y} />,
+          <line aria-hidden="true" className={`contextual-reference-visible-line${contextual.reference.sourceSpan.start === pulseSourceSpan?.start && contextual.reference.sourceSpan.end === pulseSourceSpan?.end ? ' contextual-reference-line-editor' : ''}`} key={`line-${index}`} stroke={contextual.color} x1={sourcePoint.x} x2={targetPoint.x} y1={sourcePoint.y} y2={targetPoint.y} />,
+          <line aria-hidden="true" className={`contextual-reference-pulse${contextual.reference.sourceSpan.start === pulseSourceSpan?.start && contextual.reference.sourceSpan.end === pulseSourceSpan?.end ? ' contextual-reference-pulse-editor' : ''}`} key={`pulse-${index}`} pathLength={100} stroke={contextual.color} x1={sourcePoint.x} x2={targetPoint.x} y1={sourcePoint.y} y2={targetPoint.y} />,
           <line aria-label={`Navigate to ${contextual.reference.text}`} className="contextual-reference-link-hit-target" key={`hit-target-${index}`} onClick={() => onNavigate(contextual.reference)} onKeyDown={(event) => navigateVisibleLink(event, contextual.reference)} role="button" stroke="transparent" strokeWidth="12" tabIndex={0} x1={sourcePoint.x} x2={targetPoint.x} y1={sourcePoint.y} y2={targetPoint.y} />,
           geometry.kind !== 'offscreen'
             ? <rect className={geometry.kind === 'overview' ? 'contextual-reference-overview-target' : undefined} key={`target-${index}`} height={geometry.rect.bottom - geometry.rect.top} stroke={contextual.color} width={geometry.rect.right - geometry.rect.left} x={geometry.rect.left} y={geometry.rect.top} />

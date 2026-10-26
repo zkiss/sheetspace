@@ -1,5 +1,11 @@
 .contextual-reference-canvas { position: absolute; z-index: 10; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .contextual-reference-canvas line { stroke-width: 2; stroke-opacity: 0.5; }
+.contextual-reference-canvas .contextual-reference-line-editor { stroke-width: 6px !important; stroke-opacity: 1 !important; }
+.contextual-reference-canvas .contextual-reference-pulse { pointer-events: none; stroke: white; stroke-width: 1; stroke-opacity: 0; stroke-dasharray: 8 92; filter: blur(2px) drop-shadow(0 0 3px white); }
+.contextual-reference-canvas .contextual-reference-pulse-active, .contextual-reference-canvas .contextual-reference-pulse-editor { animation: reference-pulse 3s linear infinite; }
+.contextual-reference-canvas .contextual-reference-pulse-editor { --pulse-strength: 1 !important; stroke-width: 4px !important; }
+@keyframes reference-pulse { 0% { stroke-dashoffset: 0; stroke-opacity: 0; } 3% { stroke-opacity: var(--pulse-strength, 0); } 27% { stroke-opacity: var(--pulse-strength, 0); } 33%, 100% { stroke-dashoffset: -100; stroke-opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .contextual-reference-canvas .contextual-reference-pulse { display: none; } }
 .contextual-reference-canvas rect { fill: none; stroke-width: 2; stroke-opacity: 0.8; }
 .contextual-reference-canvas .contextual-reference-link-hit-target { pointer-events: stroke; stroke-width: 14; stroke-opacity: 0; cursor: pointer; }
 .contextual-reference-offscreen-marker { stroke: #fff; stroke-width: 2; }

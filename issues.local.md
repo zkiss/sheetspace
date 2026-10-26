@@ -33,6 +33,8 @@
 25. **Clickable reference paths were hard to discover.** Paths thicken and become more prominent as the pointer approaches, and their clickable stroke uses the pointer cursor. Tests remain untouched.
 26. **Find usages included indirect dependents.** The command now shows only direct cell and model-property usages. Tests remain untouched.
 27. **Zoom repeatedly redrew the workspace.** Wheel and pinch zoom now paint a frame-coalesced viewport preview, periodically publish for visibility and detail updates, and commit when the gesture settles. The background grid follows the preview. Tests remain untouched.
+28. **Reference paths did not indicate navigation direction.** A diffuse light periodically shoots from source to target when the pointer approaches a path, adapting to its hover thickness; reduced-motion preferences suppress the animation. Tests remain untouched.
+29. **Ctrl/⌘-clickable formula references lacked feedback.** Holding Ctrl/⌘ over a navigable reference now shows a pointer cursor and fully emphasizes its path and directional light. Proximity-based emphasis is disabled while editing. Tests remain untouched.
 
 ## Deferred
 
