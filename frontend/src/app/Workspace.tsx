@@ -11,7 +11,6 @@ import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import type { SelectionGesture, CellTarget, CellNavigationDirection, CellEditSession, CellSelection, CellSelectionMode, ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
-import { FormulaReferenceInspection } from '@reference-navigation/FormulaReferenceInspection';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
 import { contextualReferences, projectReferenceGeometry, type GridReferenceViewport } from '@reference-navigation/contextualReferenceProjection';
 import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
@@ -660,13 +659,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
           <>
-            <FormulaReferenceInspection
-              inspection={formulaInspection}
-              key={`${activeCell?.sheetId}:${selectedCellKey}:${selectedRaw}:${formulaInspection?.raw}`}
-              onNavigate={navigateReference}
-              onReferenceHover={setHoveredReferenceSpan}
-              referenceColors={formulaReferenceColors}
-            />
             {formulaInspection ? <ContextualReferenceLinks hoveredSourceSpan={hoveredReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
           </>
         )}
@@ -806,6 +798,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                         sheetNames: sheets.map((entry) => entry.name),
                         propertyNames: sheet.modelId ? workbook.dataModels?.[sheet.modelId]?.columns.map((property) => property.name) : [],
                         referenceValues: (identity) => formulaPanelReferenceValues(identity, formulaResolver, formulaResults),
+                        inspectionReferences: sheetEditingCell ? formulaInspection?.references : undefined,
+                        referenceColors: formulaReferenceColors,
+                        onReferenceHover: setHoveredReferenceSpan,
+                        onReferenceNavigate: navigateReference,
                       },
                     }}
                     formulaResults={formulaResults}

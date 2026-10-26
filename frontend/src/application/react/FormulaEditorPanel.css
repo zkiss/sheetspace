@@ -15,3 +15,4 @@
 .formula-editor-panel .formula-editor-input { position: relative; display: block; margin: 0; color: transparent; caret-color: #17202a; background: transparent; }
 .formula-editor-highlight { position: absolute; inset: 0; overflow: hidden; margin: 0; color: #17202a; background: #fff; pointer-events: none; }
 .formula-editor-panel .formula-editor-input::selection { background: rgb(29 78 216 / 20%); color: transparent; }
+.formula-editor-inspected-reference { border-radius: .2rem; background: color-mix(in srgb, currentColor 14%, white); text-decoration: underline solid; text-underline-offset: 2px; }

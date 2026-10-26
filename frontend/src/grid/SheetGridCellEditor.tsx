@@ -14,7 +14,7 @@ export type SheetGridCellEditorInteraction = {
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
   updateValue: (value: string, session?: CellEditSession) => void;
   updateView?: (selection: { start: number; end: number }, scrollTop: number, session?: CellEditSession) => void;
-  formulaContext?: Pick<ComponentProps<typeof FormulaEditorPanel>, 'resolver' | 'sheetNames' | 'propertyNames' | 'referenceValues'>;
+  formulaContext?: Pick<ComponentProps<typeof FormulaEditorPanel>, 'resolver' | 'sheetNames' | 'propertyNames' | 'referenceValues' | 'inspectionReferences' | 'referenceColors' | 'onReferenceHover' | 'onReferenceNavigate'>;
 };
 
 export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction, sheetName }: {
@@ -106,6 +106,14 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     sheetNames={interaction.formulaContext?.sheetNames ?? []}
     propertyNames={interaction.formulaContext?.propertyNames}
     referenceValues={interaction.formulaContext?.referenceValues}
+    inspectionReferences={interaction.formulaContext?.inspectionReferences}
+    referenceColors={interaction.formulaContext?.referenceColors}
+    onReferenceHover={interaction.formulaContext?.onReferenceHover}
+    onReferenceNavigate={interaction.formulaContext?.onReferenceNavigate ? (reference) => {
+      hasFinishedEditing.current = true;
+      interaction.suspend?.(currentSession());
+      interaction.formulaContext?.onReferenceNavigate?.(reference);
+    } : undefined}
     onToggleMode={() => setMode((current) => current === 'light' ? 'heavy' : 'light')}
     onRawChange={(value) => interaction.updateValue(value, editingCell)}
     onViewChange={(view) => interaction.updateView?.({ start: view.start, end: view.end }, view.scrollTop, editingCell)}
