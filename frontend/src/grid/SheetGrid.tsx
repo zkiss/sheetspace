@@ -298,9 +298,9 @@ export function SheetGrid({
   const navigationTargetKey = navigationRequestCellKey
     ?? (navigationRequestRange ? cellKey(navigationRequestRange.start) : null);
   const historyAddress = parseCellAddress(historyFeedbackCells?.keys().next().value ?? null, sheet);
-  // Selection may leave the rendered window. Editors, navigation targets and the
-  // active resize capture owner must stay mounted throughout their interaction.
+  // Keep the selected cell mounted so native focus survives manual scrolling.
   const pinnedAddresses = [
+    activeAddress,
     editingAddress,
     keyboardFocusAddress,
     focusIntentAddress,
@@ -396,13 +396,19 @@ export function SheetGrid({
       onKeyboardFocusRequestConsumed(completedIntent.requestId);
     }
   }, [editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, onKeyboardFocusRequestConsumed, scrollContainerRef, virtualColumns, virtualRows]);
+  const revealedActiveCell = useRef<string | null>(null);
   useEffect(() => {
-    if (!activeAddress || !scrollContainerRef.current) return;
+    if (!activeAddress) { revealedActiveCell.current = null; return; }
+    if (!scrollContainerRef.current) return;
+    const identity = `${sheet.id}:${activeCellKey}`;
+    if (revealedActiveCell.current === identity) return;
     const rowIndex = axisIndexForDurableIndex(rows, activeAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, activeAddress.columnIndex);
-    if (rowIndex !== undefined) rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
-    if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-  }, [activeAddress, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
+    if (rowIndex === undefined || columnIndex === undefined) return;
+    revealedActiveCell.current = identity;
+    rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
+    columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
+  }, [activeAddress, activeCellKey, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
   useEffect(() => {
     if (navigationRequestGeneration == null) return;
     if (revealedNavigationIdentity.current === navigationRequestGeneration) return;

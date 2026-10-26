@@ -11,6 +11,7 @@
 .navigation-palette-item { list-style: none; }
 .navigation-command-group { display: block; padding: .65rem .7rem .3rem; color: #81929c; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .navigation-command { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 2.65rem; gap: 1rem; border: 1px solid transparent; border-radius: 7px; padding: .55rem .7rem; color: #263a45; background: transparent; text-align: left; }
+.navigation-command:hover:not(:disabled) { background: #edf6f6; }
 .navigation-palette-item[aria-selected='true'] .navigation-command, .navigation-command:focus-visible { border-color: #a4d4d7; outline: none; color: #114f58; background: #e5f3f3; }
 .navigation-command:disabled { cursor: not-allowed; color: #8999a2; background: transparent; }
 .navigation-command-text { display: grid; min-width: 0; gap: .15rem; }

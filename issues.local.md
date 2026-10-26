@@ -36,6 +36,10 @@
 28. **Reference paths did not indicate navigation direction.** A diffuse light periodically shoots from source to target when the pointer approaches a path, adapting to its hover thickness; reduced-motion preferences suppress the animation. Tests remain untouched.
 29. **Ctrl/⌘-clickable formula references lacked feedback.** Holding Ctrl/⌘ over a navigable reference now shows a pointer cursor and fully emphasizes its path and directional light. Proximity-based emphasis is disabled while editing. Tests remain untouched.
 30. **Sheet model binding controls crowded the workspace toolbar.** Binding, rebinding, unbinding, and opening the bound model now live in the right-click menu for the relevant sheet. Tests remain untouched.
+31. **Command palette hover had a dark, low-contrast background.** The global button hover style was overriding the palette's transparent row; command rows now use a light hover color consistent with the selected row. Tests remain untouched.
+32. **Go to property excluded unnamed columns.** Go to column now lists every column by property name or column letter and retains the current row. Its shortcut is Alt+Shift+C. Tests remain untouched.
+33. **Manual sheet scrolling kept pulling the selection back into view.** Selection reveal now runs when the selected cell changes, rather than on each virtualized grid redraw. The selected cell remains mounted while offscreen so it retains keyboard focus and its focused appearance when scrolled back. Tests remain untouched.
+34. **Model binding used native confirmation popups.** Bind, rebind, and unbind now show their consequences and confirmation controls inside the sheet menu. Tests remain untouched.
 
 ## Deferred
 
