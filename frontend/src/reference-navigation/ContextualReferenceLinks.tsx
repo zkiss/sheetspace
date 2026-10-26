@@ -1,4 +1,4 @@
-import { type KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import type { FormulaInspectionReference } from './formulaInspection';
 import type { ContextualReference, ProjectedReferenceGeometry } from './contextualReferenceProjection';
 import { referenceLineEndpoints } from './referenceLinkGeometry';
@@ -20,6 +20,33 @@ export function ContextualReferenceLinks({
   onNavigate: (reference: FormulaInspectionReference) => void;
   onToggle?: () => void;
 }) {
+  const canvas = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    function updateProximity(event: PointerEvent) {
+      const svg = canvas.current;
+      const matrix = svg?.getScreenCTM();
+      if (!svg || !matrix) return;
+      for (const line of svg.querySelectorAll<SVGLineElement>('.contextual-reference-visible-line')) {
+        const start = new DOMPoint(line.x1.baseVal.value, line.y1.baseVal.value).matrixTransform(matrix);
+        const end = new DOMPoint(line.x2.baseVal.value, line.y2.baseVal.value).matrixTransform(matrix);
+        const dx = end.x - start.x; const dy = end.y - start.y;
+        const lengthSquared = dx * dx + dy * dy;
+        const position = lengthSquared ? Math.max(0, Math.min(1, ((event.clientX - start.x) * dx + (event.clientY - start.y) * dy) / lengthSquared)) : 0;
+        const distance = Math.hypot(event.clientX - start.x - position * dx, event.clientY - start.y - position * dy);
+        const proximity = Math.max(0, 1 - distance / 32);
+        line.style.strokeWidth = `${2 + 4 * proximity}px`;
+        line.style.strokeOpacity = `${0.5 + 0.5 * proximity}`;
+      }
+    }
+    function clearProximity() {
+      canvas.current?.querySelectorAll<SVGLineElement>('.contextual-reference-visible-line').forEach((line) => {
+        line.style.removeProperty('stroke-width'); line.style.removeProperty('stroke-opacity');
+      });
+    }
+    window.addEventListener('pointermove', updateProximity);
+    window.addEventListener('blur', clearProximity);
+    return () => { window.removeEventListener('pointermove', updateProximity); window.removeEventListener('blur', clearProximity); };
+  }, []);
   function navigateVisibleLink(event: KeyboardEvent<SVGLineElement>, reference: FormulaInspectionReference) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
@@ -30,7 +57,7 @@ export function ContextualReferenceLinks({
     contextual.reference.sourceSpan.start === hoveredSourceSpan?.start
     && contextual.reference.sourceSpan.end === hoveredSourceSpan?.end
   ));
-  return (visible || hoveredSourceSpan) && (source.kind === 'visible' || source.kind === 'overview') ? <svg aria-label="Formula reference paths" className="contextual-reference-canvas" data-workspace-native-content>
+  return (visible || hoveredSourceSpan) && (source.kind === 'visible' || source.kind === 'overview') ? <svg aria-label="Formula reference paths" className="contextual-reference-canvas" data-workspace-native-content ref={canvas}>
       {activeReferences.flatMap(({ contextual, geometry }, index) => {
         if (geometry.kind === 'unavailable') return [];
         const sourceCenter = { x: (source.rect.left + source.rect.right) / 2, y: (source.rect.top + source.rect.bottom) / 2 };
@@ -38,7 +65,7 @@ export function ContextualReferenceLinks({
           ? geometry.rect
           : pointerAtSurfaceEdge(sourceCenter, geometry.target, surfaceSize));
         return [
-          <line aria-hidden="true" key={`line-${index}`} stroke={contextual.color} x1={sourcePoint.x} x2={targetPoint.x} y1={sourcePoint.y} y2={targetPoint.y} />,
+          <line aria-hidden="true" className="contextual-reference-visible-line" key={`line-${index}`} stroke={contextual.color} x1={sourcePoint.x} x2={targetPoint.x} y1={sourcePoint.y} y2={targetPoint.y} />,
           <line aria-label={`Navigate to ${contextual.reference.text}`} className="contextual-reference-link-hit-target" key={`hit-target-${index}`} onClick={() => onNavigate(contextual.reference)} onKeyDown={(event) => navigateVisibleLink(event, contextual.reference)} role="button" stroke="transparent" strokeWidth="12" tabIndex={0} x1={sourcePoint.x} x2={targetPoint.x} y1={sourcePoint.y} y2={targetPoint.y} />,
           geometry.kind !== 'offscreen'
             ? <rect className={geometry.kind === 'overview' ? 'contextual-reference-overview-target' : undefined} key={`target-${index}`} height={geometry.rect.bottom - geometry.rect.top} stroke={contextual.color} width={geometry.rect.right - geometry.rect.left} x={geometry.rect.left} y={geometry.rect.top} />

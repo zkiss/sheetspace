@@ -354,8 +354,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       id: `${label}:${title}:${target.sheetId}:${target.cell.rowId}:${target.cell.columnId}`, group: `${label} — ${title}`, label: `${sheet?.name ?? 'Deleted sheet'}: ${column ?? 'Column'}${row > 0 ? `, row ${row}` : ''}`,
        run: () => { navigateCellTarget(target); closeCommandPalette(false); },
     }; });
-    const choices = [...entries('Direct usages', usages.directUsages), ...entries('Indirect dependents', usages.transitiveDependents)];
-    return choices.length ? choices : [{ id: `${label}:empty`, label: 'No results', group: label, unavailable: 'No direct usages or indirect dependents.', run: () => {} }];
+    const choices = entries('Direct usages', usages.directUsages);
+    return choices.length ? choices : [{ id: `${label}:empty`, label: 'No results', group: label, unavailable: 'No direct usages.', run: () => {} }];
   }, [closeCommandPalette, navigateCellTarget, workbook]);
   const openUsages = useCallback(() => {
     if (!activeCell) { setNavigationFeedback('Select a cell or named property first.'); return; }

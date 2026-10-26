@@ -1,4 +1,4 @@
-.data-model-dialog { width: min(48rem, 100%); max-height: min(44rem, 100%); overflow: auto; border: 1px solid #d6dee3; border-radius: 8px; padding: 1rem; background: #fff; box-shadow: 0 20px 60px rgb(23 32 42 / 24%); }
+.data-model-dialog { position: relative; width: min(48rem, 100%); max-height: min(44rem, 100%); overflow: auto; border: 1px solid #d6dee3; border-radius: 8px; padding: 1rem; background: #fff; box-shadow: 0 20px 60px rgb(23 32 42 / 24%); }
 .data-model-dialog form, .data-model-dialog fieldset, .model-property { display: grid; gap: .65rem; }
 .data-model-dialog label { display: grid; gap: .25rem; color: #344454; font-size: .9rem; font-weight: 600; }
 .data-model-dialog input, .data-model-dialog select, .data-model-dialog textarea { width: 100%; box-sizing: border-box; border: 1px solid #aebcc5; border-radius: 6px; padding: .5rem; font: inherit; }
@@ -17,7 +17,9 @@
 .model-property-formula-button span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; font: .75rem ui-monospace, monospace; }
 .model-property-formula-button small { flex: none; color: #6b858a; }
 .model-formula-editor .sheet-grid-cell-formula-editor { position: relative; width: 100%; box-shadow: none; }
-.model-formula-editor .sheet-grid-cell-formula-editor-heavy { position: absolute; z-index: 10; top: 0; right: 0; width: min(35rem, 80vw); box-shadow: 0 6px 20px rgb(23 32 42 / 20%); }
+.model-property-row-expanded .model-property-formula-slot { position: static; }
+.model-formula-editor .sheet-grid-cell-formula-editor-heavy { position: absolute; z-index: 10; inset: 1rem; width: auto; box-shadow: 0 6px 20px rgb(23 32 42 / 20%); }
 .data-model-dialog .model-formula-editor .sheet-grid-cell-editor { height: 2rem; min-height: 2rem; resize: none; }
-.data-model-dialog .model-formula-editor .sheet-grid-cell-formula-editor-heavy .sheet-grid-cell-editor { min-height: 10rem; }
+.data-model-dialog .model-formula-editor .sheet-grid-cell-formula-editor-heavy .formula-editor-input-wrap { flex: 1; }
+.data-model-dialog .model-formula-editor .sheet-grid-cell-formula-editor-heavy .sheet-grid-cell-editor { height: 100%; min-height: 0; }
 @media (max-width: 600px) { .model-property-row { grid-template-columns: minmax(0, 1fr) 6rem auto; } .model-property-formula-slot { grid-column: 1 / 3; grid-row: 2; } .model-property-manual { display: none; } }

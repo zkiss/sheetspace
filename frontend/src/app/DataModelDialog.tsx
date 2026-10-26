@@ -141,7 +141,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
         <label>Model name<input autoFocus disabled={saving} onChange={(event) => setDraft({ ...draft, name: event.target.value })} value={draft.name} /></label>
         <fieldset><legend>Properties</legend>
           {draft.columns.map((column, index) => <div className="model-property" data-property-id={column.id} key={column.id}>
-            <div className="model-property-row">
+            <div className={`model-property-row${editingFormula === column.id && formulaMode === 'heavy' ? ' model-property-row-expanded' : ''}`}>
             <input aria-label={`Property ${index + 1} name`} placeholder="Property name" disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} />
             <select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => {
               const type = event.target.value;

@@ -28,6 +28,10 @@
 20. **Navigation zoom emphasized the wrong sheet.** Natural-scale navigation now zooms around the destination's top-left and moves it only as needed to fit the viewport, instead of scaling around the workspace origin. Browser inspection confirmed the target's top-left stays fixed when it fits; tests remain untouched.
 21. **The data-model editor was too tall.** Properties now occupy compact rows with one type selector containing manual types and Function. Function properties are edited in place using the shared light/heavy formula editor and display an inferred result type when not editing; unknown inference is shown explicitly. Browser inspection confirmed inline editing, type inference, F2 mode switching, and cancellation without saving; production TypeScript checks pass. Tests remain untouched.
 22. **Formula reference inspection was separate from editing.** Removed the formula float and brought its reference colors and hover paths into the cell formula editor, without the noisy reference-value tooltip. Ctrl/⌘-click follows a reference; F4 follows the reference under the caret. Navigation suspends the edit draft, and the Show references control remains available. Production TypeScript checks pass; tests remain untouched.
+23. **The model formula editor's heavy mode hid its contents.** Heavy editing now overlays the model form with a properly sized formula surface, like the sheet editor, without expanding the dialog. Tests remain untouched.
+24. **Subtraction immediately after a model property failed to parse.** The formula parser now recognizes the minus operator after an unquoted property without requiring a space, while retaining hyphenated canonical reference parsing. Tests remain untouched.
+25. **Clickable reference paths were hard to discover.** Paths thicken and become more prominent as the pointer approaches, and their clickable stroke uses the pointer cursor. Tests remain untouched.
+26. **Find usages included indirect dependents.** The command now shows only direct cell and model-property usages. Tests remain untouched.
 
 ## Deferred
 
