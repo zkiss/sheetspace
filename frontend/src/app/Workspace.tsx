@@ -607,7 +607,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         onOpenDataModels={onOpenDataModels}
         onOpenCommandPalette={() => { paletteInvoker.current = document.activeElement as HTMLElement; setCommandPaletteOpen(true); }}
         onToggleReferences={() => setReferenceLinksVisible((visible) => !visible)}
-        modelControls={selectedSheet ? <SheetModelControls key={selectedSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => onOpenDataModels?.(modelId)} onUnbind={commands.unbindSheetFromModel} sheet={selectedSheet} /> : undefined}
         onRetryFailedSaves={onRetryFailedSaves}
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
@@ -628,6 +627,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           <SheetContextMenu
             key={menuSheet.id}
             menu={workspaceController.pendingSheetMenu}
+            modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={commands.unbindSheetFromModel} sheet={menuSheet} />}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();
               commands.appendColumn(sheetId);

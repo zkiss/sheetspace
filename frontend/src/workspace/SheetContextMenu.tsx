@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   clampSheetVisualScale,
   MAX_SHEET_VISUAL_SCALE,
@@ -12,6 +12,7 @@ import '@workspace/SheetContextMenu.css';
 
 export function SheetContextMenu({
   menu,
+  modelControls,
   onAppendColumn,
   onAppendRow,
   onChangeZOrder,
@@ -21,6 +22,7 @@ export function SheetContextMenu({
   sheet,
 }: {
   menu: PendingSheetMenu;
+  modelControls?: ReactNode;
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
   onChangeZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
@@ -66,6 +68,7 @@ export function SheetContextMenu({
         </label>
         <button onClick={commitScale} type="button">Set scale</button>
       </div>
+      {modelControls}
       <button type="button" role="menuitem" onClick={() => onChangeZOrder(sheet.id, 'top')}>
         Bring to front
       </button>
