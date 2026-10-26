@@ -266,7 +266,7 @@ export function viewportForTarget({
   forceOversized?: boolean;
   /** A model-level navigation requirement, such as detailed sheet entry. */
   minimumScale?: number;
-  /** Navigate at this exact workspace scale, retaining the current pan when it still reveals the target. */
+  /** Navigate at this scale around the target's top-left, adjusting only to reveal it. */
   naturalScale?: number;
   /** History feedback must not reposition a visible axis merely to add navigation padding. */
   preserveVisibleAxes?: boolean;
@@ -310,7 +310,8 @@ export function viewportForTarget({
     const revealAxis = (start: number, end: number, offset: number, size: number) => {
       const leading = start * scale + offset;
       const trailing = end * scale + offset;
-      if (trailing - leading > size - NAVIGATION_PADDING * 2) return NAVIGATION_PADDING - leading;
+      if (trailing - leading > size - NAVIGATION_PADDING * 2) return offset + NAVIGATION_PADDING - leading;
+      if (leading >= 0 && trailing <= size) return offset;
       if (leading < NAVIGATION_PADDING) return offset + NAVIGATION_PADDING - leading;
       if (trailing > size - NAVIGATION_PADDING) return offset + size - NAVIGATION_PADDING - trailing;
       return offset;
@@ -318,8 +319,8 @@ export function viewportForTarget({
     return {
       oversized: forceOversized || targetWidth * scale > visibleWidth || targetHeight * scale > visibleHeight,
       viewport: {
-        x: revealAxis(target.left, target.right, currentViewport.x, surfaceWidth),
-        y: revealAxis(target.top, target.bottom, currentViewport.y, surfaceHeight),
+        x: revealAxis(target.left, target.right, currentViewport.x + target.left * (currentViewport.scale - scale), surfaceWidth),
+        y: revealAxis(target.top, target.bottom, currentViewport.y + target.top * (currentViewport.scale - scale), surfaceHeight),
         scale,
       },
     };
