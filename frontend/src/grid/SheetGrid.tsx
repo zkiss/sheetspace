@@ -73,6 +73,7 @@ export type SheetGridAxisMetrics = {
 };
 export function SheetGrid({
   activeCellKey,
+  selectionTransition,
   activeSheetId,
   axisMetrics,
   axisProjection,
@@ -137,6 +138,7 @@ export function SheetGrid({
   /** Publishes real detailed-grid viewport changes for workspace reference geometry. */
   onReferenceViewport?: (sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => void;
   activeCellKey: string | null;
+  selectionTransition?: { from: CellTarget; to: CellTarget; id: number } | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
    * remain visible after ownership moves to another sheet, so its pointer
@@ -618,7 +620,7 @@ export function SheetGrid({
           ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
           : undefined}
       />
-      <SheetGridRows {...{ activeCellKey, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
+      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
     </div>
   );
 }

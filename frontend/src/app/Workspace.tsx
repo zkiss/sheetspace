@@ -39,6 +39,7 @@ import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
 import { SheetModelControls } from '@workspace/SheetModelControls';
 import { historyCellsForSheet } from './historyCellsForSheet';
+import { useSelectionTransition } from './useSelectionTransition';
 import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './modelColumnPresentation';
 import type { CellWriteResult } from '@application/core/userActions';
 import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
@@ -134,6 +135,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [navigationFeedback, setNavigationFeedback] = useState('');
   const [referenceLinksVisible, setReferenceLinksVisible] = useState(false);
+  const selectionTransition = useSelectionTransition(activeCell);
   const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -178,7 +180,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     interactionsEnabled,
   });
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
+  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, pendingNavigationSheetId, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
@@ -478,6 +480,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       interactionSheetId: interactionPinnedSheetId,
       pendingFocusSheetId: pinsFocusedFrame(gridFocusLease) ? gridFocusLease?.sheetId : undefined,
       referenceSheetId: referenceSelection?.kind === 'cell' ? referenceSelection.target.sheetId : referenceSelection?.sheetId,
+      historySheetIds: [pendingNavigationSheetId, selectionTransition?.from.sheetId, ...(contentHistoryFeedback?.after.map((cell) => cell.sheetId) ?? [])].filter((id): id is string => Boolean(id)),
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
   };
@@ -757,6 +760,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                   <SheetGrid
                     interactionsEnabled={interactionsEnabled}
                     activeCellKey={cellKeyForTarget(sheet, activeCell)}
+                    selectionTransition={selectionTransition}
                     activeSheetId={activeCell?.sheetId ?? null}
                     selectionOwner={selectionOwner}
                     axisProjection={axisProjection}

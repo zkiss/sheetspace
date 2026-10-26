@@ -46,23 +46,6 @@ export function useWorkspaceController({
   const viewportMovementIsUser = useRef(false);
   const pendingViewportRestore = useRef<{ id: number; onSettled: () => void; timeout?: number }>();
   const nextViewportRestoreId = useRef(0);
-  useLayoutEffect(() => {
-    const pending = pendingViewportRestore.current;
-    if (!pending) return;
-    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    if (reducedMotion) {
-      pendingViewportRestore.current = undefined;
-      pending.onSettled();
-      return;
-    }
-    setNavigationMotion(true);
-    pending.timeout = window.setTimeout(() => {
-      if (pendingViewportRestore.current?.id !== pending.id) return;
-      pendingViewportRestore.current = undefined;
-      setNavigationMotion(false);
-      pending.onSettled();
-    }, WORKSPACE_NAVIGATION_TRANSITION_MS);
-  }, [viewport]);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
     start: interruptNavigation, panStart: beginPanPreview, panEnd: finishPanPreview,
     pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
@@ -251,17 +234,7 @@ export function useWorkspaceController({
   }
 
   function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}) {
-    cancelViewportRestore();
-    cancelViewportAnimation();
-    const id = ++nextViewportRestoreId.current;
-    pendingViewportRestore.current = { id, onSettled };
-    navigationMayBeMoving.current = true;
-    viewportMovementIsUser.current = false;
-    setNavigationInterrupted(false);
-    setViewport(nextViewport);
-    return () => {
-      if (pendingViewportRestore.current?.id === id) cancelViewportRestore();
-    };
+    return animateViewport(nextViewport, onSettled);
   }
 
   function navigateToTarget(
@@ -274,34 +247,57 @@ export function useWorkspaceController({
       return () => {};
     }
     const { height: surfaceHeight, width: surfaceWidth } = measureSurfaceSize(workspace);
-    let id: number | undefined;
-    if (options.onSettled) {
-      cancelViewportRestore();
-      id = ++nextViewportRestoreId.current;
-      pendingViewportRestore.current = { id, onSettled: options.onSettled };
-    }
-    navigationMayBeMoving.current = true;
-    viewportMovementIsUser.current = false;
-    setNavigationInterrupted(false);
+    const start = displayedWorkspaceViewport(workspacePlaneRef.current) ?? viewportRef.current;
     const nextViewport = viewportForTarget({
-      currentViewport: viewport,
+      currentViewport: start,
       surfaceHeight,
       surfaceWidth,
       target,
       ...options,
     }).viewport;
+    return animateViewport(nextViewport, options.onSettled);
+  }
+
+  function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void): () => void {
+    const start = displayedWorkspaceViewport(workspacePlaneRef.current) ?? viewportRef.current;
+    cancelViewportRestore();
     cancelViewportAnimation();
+    const id = ++nextViewportRestoreId.current;
+    const pending = { id, onSettled: onSettled ?? (() => {}), timeout: undefined as number | undefined };
+    pendingViewportRestore.current = pending;
+    navigationMayBeMoving.current = true;
+    viewportMovementIsUser.current = false;
+    setNavigationInterrupted(false);
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    if (!reducedMotion && workspacePlaneRef.current?.animate) {
-      workspacePlaneRef.current.animate([
-        { transform: viewportTransform(viewport) },
+    const changed = start.x !== nextViewport.x || start.y !== nextViewport.y || start.scale !== nextViewport.scale;
+    if (!reducedMotion && changed && workspacePlaneRef.current?.animate) {
+      const animation = workspacePlaneRef.current.animate([
+        { transform: viewportTransform(start) },
         { transform: viewportTransform(nextViewport) },
       ], { duration: WORKSPACE_NAVIGATION_TRANSITION_MS, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', fill: 'both' });
+      animation.onfinish = () => {
+        if (pendingViewportRestore.current?.id !== id) return;
+        pendingViewportRestore.current = undefined;
+        navigationMayBeMoving.current = false;
+        setNavigationMotion(false);
+        animation.cancel();
+        pending.onSettled();
+      };
+      setNavigationMotion(true);
+    } else {
+      pending.timeout = window.setTimeout(() => {
+        if (pendingViewportRestore.current?.id !== id) return;
+        pendingViewportRestore.current = undefined;
+        navigationMayBeMoving.current = false;
+        setNavigationMotion(false);
+        pending.onSettled();
+      }, 0);
+      setNavigationMotion(false);
     }
-    setNavigationMotion(true);
+    viewportRef.current = nextViewport;
     setViewport(nextViewport);
     return () => {
-      if (id !== undefined && pendingViewportRestore.current?.id === id) cancelViewportRestore();
+      if (pendingViewportRestore.current?.id === id) cancelViewportRestore();
     };
   }
 
