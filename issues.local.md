@@ -32,6 +32,7 @@
 24. **Subtraction immediately after a model property failed to parse.** The formula parser now recognizes the minus operator after an unquoted property without requiring a space, while retaining hyphenated canonical reference parsing. Tests remain untouched.
 25. **Clickable reference paths were hard to discover.** Paths thicken and become more prominent as the pointer approaches, and their clickable stroke uses the pointer cursor. Tests remain untouched.
 26. **Find usages included indirect dependents.** The command now shows only direct cell and model-property usages. Tests remain untouched.
+27. **Zoom repeatedly redrew the workspace.** Wheel and pinch zoom now paint a frame-coalesced viewport preview, periodically publish for visibility and detail updates, and commit when the gesture settles. The background grid follows the preview. Tests remain untouched.
 
 ## Deferred
 

@@ -39,8 +39,12 @@ export function useWorkspaceController({
   const panPreview = useRef<WorkspaceViewport | null>(null);
   const panFrame = useRef<number>();
   const panPublication = useRef({ time: 0, x: 0, y: 0 });
+  const zoomPreview = useRef<WorkspaceViewport | null>(null);
+  const zoomFrame = useRef<number>();
+  const zoomTimer = useRef<number>();
+  const zoomPublication = useRef(0);
   const viewportRef = useRef(viewport);
-  viewportRef.current = panPreview.current ?? viewport;
+  viewportRef.current = zoomPreview.current ?? panPreview.current ?? viewport;
   const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport);
   const navigationMayBeMoving = useRef(false);
   const viewportMovementIsUser = useRef(false);
@@ -52,8 +56,14 @@ export function useWorkspaceController({
   }, interactionsEnabled);
 
   useLayoutEffect(() => {
-    if (panPreview.current) paintPanViewport(panPreview.current);
+    if (zoomPreview.current) paintPanViewport(zoomPreview.current);
+    else if (panPreview.current) paintPanViewport(panPreview.current);
   });
+
+  useLayoutEffect(() => () => {
+    if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
+    if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+  }, []);
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -111,6 +121,7 @@ export function useWorkspaceController({
   }
 
   function interruptNavigation() {
+    finishZoomPreview();
     finishPanPreview();
     // History restoration may have pending grid work. Retire it before sampling
     // or changing the viewport so a newly mounted grid cannot restore over this
@@ -188,7 +199,16 @@ export function useWorkspaceController({
     surface.dataset.viewportX = String(next.x);
     surface.dataset.viewportY = String(next.y);
     const grid = surface.querySelector<HTMLElement>('.workspace-grid');
-    const size = Number.parseFloat(surface.style.getPropertyValue('--workspace-grid-major-size'));
+    const size = 40 * 2 ** Math.ceil(Math.log2(1 / next.scale)) * next.scale;
+    if (surface.dataset.viewportScale !== String(next.scale)) {
+      const phase = Math.max(0, Math.min(1, (size - 40) / 40));
+      surface.dataset.viewportScale = String(next.scale);
+      surface.style.setProperty('--workspace-grid-major-size', `${size}px`);
+      surface.style.setProperty('--workspace-grid-minor-size', `${size / 2}px`);
+      surface.style.setProperty('--workspace-grid-fine-size', `${size / 4}px`);
+      surface.style.setProperty('--workspace-grid-minor-opacity', String(0.35 + 0.65 * phase));
+      surface.style.setProperty('--workspace-grid-fine-opacity', String(0.35 * phase));
+    }
     if (grid && size > 0) grid.style.transform = `translate(${next.x % size}px, ${next.y % size}px)`;
   }
 
@@ -198,12 +218,40 @@ export function useWorkspaceController({
   }
 
   function zoomWorkspaceBy(factor: number, origin?: WorkspacePosition) {
-    interruptNavigation();
-    setViewport((currentViewport) => zoomViewportAt(
-      currentViewport,
-      zoomScaleBy(currentViewport.scale, factor),
-      zoomOrigin(origin),
-    ));
+    if (!zoomPreview.current) {
+      interruptNavigation();
+      zoomPreview.current = viewportRef.current;
+      zoomPublication.current = performance.now();
+    }
+    const current = zoomPreview.current;
+    zoomPreview.current = zoomViewportAt(current, zoomScaleBy(current.scale, factor), zoomOrigin(origin));
+    viewportRef.current = zoomPreview.current;
+    if (zoomFrame.current === undefined) zoomFrame.current = requestAnimationFrame((time) => {
+      zoomFrame.current = undefined;
+      const next = zoomPreview.current;
+      if (!next) return;
+      paintPanViewport(next);
+      if (time - zoomPublication.current >= 150) {
+        zoomPublication.current = time;
+        viewportMovementIsUser.current = true;
+        setViewport(next);
+      }
+    });
+    if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+    zoomTimer.current = window.setTimeout(finishZoomPreview, 150);
+  }
+
+  function finishZoomPreview() {
+    if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
+    if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+    zoomFrame.current = undefined; zoomTimer.current = undefined;
+    const next = zoomPreview.current;
+    if (!next) return;
+    paintPanViewport(next);
+    zoomPreview.current = null;
+    viewportRef.current = next;
+    viewportMovementIsUser.current = true;
+    setViewport(next);
   }
 
   function zoomOrigin(origin?: WorkspacePosition): WorkspacePosition | undefined {
@@ -213,6 +261,7 @@ export function useWorkspaceController({
   }
 
   function resetViewport() {
+    finishZoomPreview();
     onBeforeUserMovement?.();
     cancelViewportRestore();
     cancelViewportAnimation();
@@ -259,6 +308,7 @@ export function useWorkspaceController({
   }
 
   function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void): () => void {
+    finishZoomPreview();
     const start = displayedWorkspaceViewport(workspacePlaneRef.current) ?? viewportRef.current;
     cancelViewportRestore();
     cancelViewportAnimation();
@@ -306,7 +356,8 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();
-    onCreateSheet(sheetFramePosition(workspacePointAtViewportCenter(workspace, viewport)), viewport.scale, 'Create sheet at viewport center');
+    const current = viewportRef.current;
+    onCreateSheet(sheetFramePosition(workspacePointAtViewportCenter(workspace, current)), current.scale, 'Create sheet at viewport center');
   }
 
   function handleWorkspaceContextMenu(event: MouseEvent<HTMLElement>) {
