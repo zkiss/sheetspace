@@ -41,6 +41,7 @@
 33. **Manual sheet scrolling kept pulling the selection back into view.** Selection reveal now runs when the selected cell changes, rather than on each virtualized grid redraw. The selected cell remains mounted while offscreen so it retains keyboard focus and its focused appearance when scrolled back. Tests remain untouched.
 34. **Model binding used native confirmation popups.** Bind, rebind, and unbind now show their consequences and confirmation controls inside the sheet menu. Tests remain untouched.
 35. **Model-bound columns accepted values of the wrong type.** Literal writes and pastes are rejected atomically when incompatible; formulas remain allowed and produce #VALUE! on type mismatch, so dependents cannot consume the incompatible value. Blank cells remain valid. Tests remain untouched.
+36. **Rapid navigation restarted the camera's easing and felt jerky.** Retargeting now preserves the displayed position, velocity, and acceleration while reusing the running animation and its frame clock, smoothly steering toward the new target and settling at rest. Reduced-motion and user-gesture interruption remain supported. Tests remain untouched.
 
 ## Deferred
 

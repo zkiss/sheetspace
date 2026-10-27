@@ -3,6 +3,7 @@ import { useWorkspaceGestures } from './useWorkspaceGestures';
 import { isBackgroundTarget } from './workspaceEventPolicy';
 import { displayedWorkspaceViewport } from './workspaceViewportMotion';
 import { useDisplayedWorkspaceViewport } from './useDisplayedWorkspaceViewport';
+import { navigationViewportMotion } from './navigationViewportMotion';
 import type { PendingSheetMenu, WorkspaceViewport } from './workspaceContracts';
 import { SheetFrameSize, WorkspacePosition } from '@workbook/core/model';
 import {
@@ -11,7 +12,6 @@ import {
   viewportForTarget,
   workspacePointAtViewportCenter,
   type WorkspaceTargetRect,
-  WORKSPACE_NAVIGATION_TRANSITION_MS,
   zoomScaleBy,
   zoomViewportAt,
 } from '@workspace/workspaceGeometry';
@@ -47,6 +47,7 @@ export function useWorkspaceController({
   viewportRef.current = zoomPreview.current ?? panPreview.current ?? viewport;
   const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport);
   const navigationMayBeMoving = useRef(false);
+  const activeViewportMotion = useRef<{ animation: Animation; motion: ReturnType<typeof navigationViewportMotion> }>();
   const viewportMovementIsUser = useRef(false);
   const pendingViewportRestore = useRef<{ id: number; onSettled: () => void; timeout?: number }>();
   const nextViewportRestoreId = useRef(0);
@@ -63,6 +64,7 @@ export function useWorkspaceController({
   useLayoutEffect(() => () => {
     if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+    activeViewportMotion.current?.animation.cancel();
   }, []);
 
   useLayoutEffect(() => {
@@ -279,6 +281,7 @@ export function useWorkspaceController({
   }
 
   function cancelViewportAnimation() {
+    activeViewportMotion.current = undefined;
     workspacePlaneRef.current?.getAnimations().forEach((animation) => animation.cancel());
   }
 
@@ -309,9 +312,11 @@ export function useWorkspaceController({
 
   function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void): () => void {
     finishZoomPreview();
-    const start = displayedWorkspaceViewport(workspacePlaneRef.current) ?? viewportRef.current;
+    const active = activeViewportMotion.current;
+    const time = active?.animation.currentTime;
+    const incoming = active?.motion.sample(typeof time === 'number' ? time : 0);
+    const start = displayedWorkspaceViewport(workspacePlaneRef.current) ?? incoming?.viewport ?? viewportRef.current;
     cancelViewportRestore();
-    cancelViewportAnimation();
     const id = ++nextViewportRestoreId.current;
     const pending = { id, onSettled: onSettled ?? (() => {}), timeout: undefined as number | undefined };
     pendingViewportRestore.current = pending;
@@ -319,22 +324,36 @@ export function useWorkspaceController({
     viewportMovementIsUser.current = false;
     setNavigationInterrupted(false);
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    const changed = start.x !== nextViewport.x || start.y !== nextViewport.y || start.scale !== nextViewport.scale;
+    const changed = start.x !== nextViewport.x || start.y !== nextViewport.y || start.scale !== nextViewport.scale
+      || (incoming && Object.values(incoming.velocity).some((speed) => Math.abs(speed) > 1e-6));
     if (!reducedMotion && changed && workspacePlaneRef.current?.animate) {
-      const animation = workspacePlaneRef.current.animate([
-        { transform: viewportTransform(start) },
-        { transform: viewportTransform(nextViewport) },
-      ], { duration: WORKSPACE_NAVIGATION_TRANSITION_MS, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', fill: 'both' });
+      const motion = navigationViewportMotion(start, nextViewport, incoming?.velocity, incoming?.acceleration);
+      const timing = { duration: motion.duration, easing: 'linear', fill: 'both' as const };
+      let animation: Animation;
+      if (active?.animation.effect instanceof KeyframeEffect) {
+        animation = active.animation;
+        active.animation.effect.setKeyframes(motion.keyframes);
+        active.animation.effect.updateTiming(timing);
+      } else {
+        cancelViewportAnimation();
+        animation = workspacePlaneRef.current.animate(motion.keyframes, timing);
+      }
+      // Share the sampled frame's clock instead of waiting for a new animation's ready frame.
+      if (document.timeline.currentTime !== null) animation.startTime = document.timeline.currentTime;
+      activeViewportMotion.current = { animation, motion };
       animation.onfinish = () => {
-        if (pendingViewportRestore.current?.id !== id) return;
-        pendingViewportRestore.current = undefined;
+        if (activeViewportMotion.current?.animation !== animation) return;
+        activeViewportMotion.current = undefined;
         navigationMayBeMoving.current = false;
         setNavigationMotion(false);
         animation.cancel();
+        if (pendingViewportRestore.current?.id !== id) return;
+        pendingViewportRestore.current = undefined;
         pending.onSettled();
       };
       setNavigationMotion(true);
     } else {
+      cancelViewportAnimation();
       pending.timeout = window.setTimeout(() => {
         if (pendingViewportRestore.current?.id !== id) return;
         pendingViewportRestore.current = undefined;
