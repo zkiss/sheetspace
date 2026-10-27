@@ -55,6 +55,21 @@ describe('FormulaEditorPanel', () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it.each(['plain', 'ctrl', 'meta'])('heavy Escape with completion open handles %s modifier', (modifier) => {
+    const cancel = vi.fn();
+    render(<Editor onCancel={cancel} />);
+    const input = screen.getByLabelText('Test formula');
+    fireEvent.change(input, { target: { value: '=SU' } });
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Escape', ctrlKey: modifier === 'ctrl', metaKey: modifier === 'meta' });
+    if (modifier === 'plain') {
+      expect(cancel).not.toHaveBeenCalled();
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    } else {
+      expect(cancel).toHaveBeenCalledOnce();
+    }
+  });
+
   it('focuses an explicitly opened editor without showing a reference value tooltip', () => {
     const valueResolver: FormulaReferenceResolver = { ...resolver, coordinateAt: () => ({ columnId: 'column', rowId: 'row' }) };
     render(<FormulaEditorPanel ariaLabel="Hover formula" autoFocus onApply={vi.fn()} onCancel={vi.fn()} onRawChange={vi.fn()} raw="=@A[1]" referenceValues={() => ({ kind: 'number', value: 42 })} resolver={valueResolver} sheetNames={[]} />);

@@ -78,6 +78,20 @@ describe('portal cell editor', () => {
       expect(interaction.commitAndNavigate).toHaveBeenCalledOnce();
     }
   });
+
+  it.each(['automatic', 'explicit'])('light Escape cancels with %s completion open', (trigger) => {
+    const { editor, interaction, updateDraft } = setup('=S');
+    if (trigger === 'automatic') {
+      fireEvent.change(editor, { target: { value: '=SU' } });
+      updateDraft('=SU');
+    } else {
+      fireEvent.keyDown(editor, { key: ' ', code: 'Space', ctrlKey: true });
+    }
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(interaction.cancel).toHaveBeenCalledOnce();
+    expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
+  });
   it('grows and shrinks to content within the maximum, keeping long drafts scrollable', () => {
     const { editor, updateDraft } = setup();
     Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 300 });

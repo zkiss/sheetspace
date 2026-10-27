@@ -148,8 +148,8 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation();
       setHoveredReference(undefined);
-      if (completionRequest) setCompletionRequest(null);
-      else if (cellMode === 'light') onCancel();
+      if (cellMode === 'light') onCancel();
+      else if (completionRequest) setCompletionRequest(null);
       return;
     }
     if (event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); setEditor(event.shiftKey ? outdentFormulaSelection(raw, selection()) : indentFormulaSelection(raw, selection())); return; }
