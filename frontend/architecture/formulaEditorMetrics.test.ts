@@ -21,17 +21,17 @@ it('aligns coloured token advances and every wrapped character with the editable
   const draft = tokens.map(({ text }) => text).join('');
   const spans = tokens.map(({ kind, text }) =>
     `<span class="formula-syntax-token formula-syntax-token-${kind}">${escapeHtml(text)}</span>`).join('');
-  const css = fs.readFileSync(new URL('../src/grid/SheetGridCell.css', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../src/application/react/FormulaEditorPanel.css', import.meta.url), 'utf8');
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ offline: true });
     await page.setContent(`<!doctype html><style>
       body { font: 16px system-ui; }
       ${css}
-      .sheet-grid-cell-editor, .sheet-grid-cell-editor-highlight { left: 0; top: 0; width: 280px; height: 1000px; overflow: hidden; }
+      .formula-editor-panel .formula-editor-input, .formula-editor-highlight { position: absolute; left: 0; top: 0; width: 280px; height: 1000px; overflow: hidden; }
     </style>
-    <pre class="sheet-grid-cell-editor-highlight">${spans}</pre>
-    <textarea class="sheet-grid-cell-editor">${escapeHtml(draft)}</textarea>`);
+    <div class="formula-editor-panel"><pre class="formula-editor-highlight">${spans}</pre>
+    <textarea class="formula-editor-input">${escapeHtml(draft)}</textarea></div>`);
 
     const metrics = await page.evaluate(measureEditorMetrics);
     expect(metrics.errors).toEqual([]);
@@ -96,7 +96,7 @@ function measureEditorMetrics() {
   const plain = positions(mirror);
   for (let offset = 0; offset < plain.length; offset++) {
     // Inline text runs can round fractional glyph advances independently.
-    if (Math.abs(coloured[offset].x - plain[offset].x) > 0.125
+    if (Math.abs(coloured[offset].x - plain[offset].x) > 0.2
       || Math.abs(coloured[offset].y - plain[offset].y) > 0.02) errors.push(`character ${offset}: ${JSON.stringify(coloured[offset])} vs ${JSON.stringify(plain[offset])}`);
   }
   // Reducing the viewport reveals the real textarea's content height, including

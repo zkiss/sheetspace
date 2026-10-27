@@ -15,5 +15,6 @@
 .formula-editor-highlight { box-sizing: border-box; border: 1px solid #aebcc5; border-radius: 2px; padding: .2rem .35rem; font: 13px/1.45 ui-monospace, SFMono-Regular, monospace; letter-spacing: normal; tab-size: 8; white-space: pre-wrap; overflow-wrap: break-word; }
 .formula-editor-panel .formula-editor-input { position: relative; display: block; margin: 0; color: transparent; caret-color: #17202a; background: transparent; }
 .formula-editor-highlight { position: absolute; inset: 0; overflow: hidden; margin: 0; color: #17202a; background: #fff; pointer-events: none; }
+.formula-editor-highlight .formula-syntax-token { font-weight: inherit; }
 .formula-editor-panel .formula-editor-input::selection { background: var(--accent-ring); color: transparent; }
 .formula-editor-inspected-reference { border-radius: .2rem; background: color-mix(in srgb, currentColor 14%, white); text-decoration: underline solid; text-underline-offset: 2px; }
