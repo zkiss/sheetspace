@@ -10,17 +10,18 @@ function failureMessage(result: { ok: false; reason: string }) {
   return 'The data model change was not applied.';
 }
 
-export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind, sheet }: {
+export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind, sheet, initialAction }: {
   models: readonly DataModel[];
   onBind: (sheetId: string, modelId: string) => ModelCommandSubmission;
   onOpenDataModels: (modelId: string) => void;
   onUnbind: (sheetId: string) => ModelCommandSubmission;
   sheet: SheetDocument;
+  initialAction?: 'unbind';
 }) {
   const [selectedModelId, setSelectedModelId] = useState('');
   const [feedback, setFeedback] = useState('');
   const [pending, setPending] = useState(false);
-  const [confirmation, setConfirmation] = useState<'bind' | 'rebind' | 'unbind' | null>(null);
+  const [confirmation, setConfirmation] = useState<'bind' | 'rebind' | 'unbind' | null>(initialAction ?? null);
   const boundModelId = sheet.modelId;
   const currentModel = models.find((model) => model.id === boundModelId);
   const selectedId = selectedModelId || boundModelId || '';

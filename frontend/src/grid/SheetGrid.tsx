@@ -28,6 +28,7 @@ import { useGridPointerSelection } from './useGridPointerSelection';
 import { SheetGridRows } from './SheetGridRows';
 import { useGridHistoryRestore } from './useGridHistoryRestore';
 import { isNativeEditorTarget, logicalUnitsPerRenderedPixel } from './gridScrollInput';
+import { clipboardHtml, clipboardMarkerFromHtml } from './clipboardHtml';
 import '@grid/SheetGrid.css';
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLElement,
@@ -548,6 +549,7 @@ export function SheetGrid({
     if (!copied) return;
     event.clipboardData.setData('text/plain', copied.text);
     event.clipboardData.setData('application/x-sheetspace-clipboard', copied.marker);
+    event.clipboardData.setData('text/html', clipboardHtml(copied));
     event.preventDefault();
   }
 
@@ -557,6 +559,7 @@ export function SheetGrid({
     if (!cut) return;
     event.clipboardData.setData('text/plain', cut.text);
     event.clipboardData.setData('application/x-sheetspace-clipboard', cut.marker);
+    event.clipboardData.setData('text/html', clipboardHtml(cut));
     event.preventDefault();
   }
 
@@ -566,7 +569,7 @@ export function SheetGrid({
     if (!text && !event.clipboardData.types.includes('text/plain')) return;
     clipboardInteraction?.paste({
       text,
-      marker: event.clipboardData.getData('application/x-sheetspace-clipboard') || undefined,
+      marker: event.clipboardData.getData('application/x-sheetspace-clipboard') || clipboardMarkerFromHtml(event.clipboardData.getData('text/html')),
     });
     event.preventDefault();
   }

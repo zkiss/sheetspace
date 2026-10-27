@@ -43,10 +43,13 @@ import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './mo
 import type { CellWriteResult } from '@application/core/userActions';
 import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
 import { NavigationPalette, type NavigationCommand } from './NavigationPalette';
+import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 import { clampWorkspaceZoom, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
   activeCell,
   canRetryFailedSaves,
+  canUndo = false,
+  canRedo = false,
   commands,
   contentHistoryFeedback,
   editingCell,
@@ -89,6 +92,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
 }: {
   activeCell: CellTarget | null;
   canRetryFailedSaves: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
   commands: WorkbookCommands;
   contentHistoryFeedback: import('@application/react/useWorkbookController').ContentHistoryFeedback | undefined;
   editingCell: CellEditSession | null;
@@ -588,6 +593,26 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       setCalculatedCellFeedback('The value does not match the data model column type.');
     }
   }
+  const actionPalette = useWorkspaceActionCommands({
+    commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
+    formatting: formattingProjection, referencesVisible: referenceLinksVisible, canUndo, canRedo, canRetryFailedSaves,
+    navigation: navigationHistory, closePalette: closeCommandPalette,
+    openPanel: () => { setPaletteChoices(null); setRowPickerOpen(false); setPaletteView((view) => view + 1); setCommandPaletteOpen(true); },
+    onOpenDataModels, onRename: handleOpenRenameDialog,
+    onDelete: (sheet) => { if (editingCell?.target.sheetId === sheet.id) onCancelEdit(); return commands.deleteSheet(sheet.id); },
+    onEdit: onStartEdit, onClear: (target) => reportWriteOutcome(onClearCell(target)),
+    onSelectAxis: (axis, target) => onSelectAxis(axis, target, false),
+    onSelectAll: (sheet) => {
+      const first = cellIdentityAt(sheet.content, { rowIndex: 0, columnIndex: 0 });
+      const last = cellIdentityAt(sheet.content, { rowIndex: sheet.content.rows.length - 1, columnIndex: sheet.content.columns.length - 1 });
+      if (first && last) { onSelectCell({ sheetId: sheet.id, cell: first }); onExtendSelection({ sheetId: sheet.id, cell: last }); }
+    },
+    onToggleReferences: () => setReferenceLinksVisible((visible) => !visible), onFeedback: setNavigationFeedback,
+    onCopy: copyGridSelection, onCut: cutGridSelection, onPaste: pasteGridSelection, onCancelCut: cancelPendingCut,
+    hasPendingCut: clipboard.current.pendingCutSource !== undefined,
+  });
+  const allPaletteCommands = [...paletteCommands.map((command) => ({ ...command, group: 'Navigation' })), ...actionPalette.commands]
+    .sort((left, right) => left.group === right.group ? 0 : left.group === 'Navigation' ? -1 : right.group === 'Navigation' ? 1 : (left.group ?? '').localeCompare(right.group ?? ''));
   return (
     <>
       <WorkspaceToolbar
@@ -616,7 +641,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       />
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
-       {commandPaletteOpen ? <NavigationPalette key={paletteView} commands={paletteChoices ?? paletteCommands} onClose={closeCommandPalette} rowPicker={rowPickerOpen && selectedSheet ? {
+       {commandPaletteOpen ? <NavigationPalette key={paletteView} panel={actionPalette.panel} commands={(paletteChoices ?? allPaletteCommands).map((command) => actionPalette.busy ? { ...command, unavailable: 'Waiting for clipboard access' } : command)} onClose={() => { actionPalette.resetPanel(); closeCommandPalette(); }} rowPicker={rowPickerOpen && selectedSheet ? {
          sheetName: selectedSheet.name,
          rowCount: selectedSheet.content.rows.length,
          onNavigate: (row) => {

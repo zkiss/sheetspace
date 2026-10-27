@@ -24,3 +24,14 @@
 .navigation-row-error { flex-basis: 100%; color: #a33a3a; }
 .navigation-palette-footer { display: flex; flex-wrap: wrap; gap: 1rem; border-top: 1px solid #eaf0f2; padding: .55rem 1rem; color: #91a0a8; font-size: .7rem; }
 .navigation-palette-footer kbd { margin-right: .2rem; }
+.navigation-palette-search > strong { flex: 1; color: var(--accent-text); }
+.navigation-palette-panel { min-height: 0; overflow: auto; padding: 1rem; }
+.navigation-palette-panel .workspace-model-controls { display: grid; align-items: stretch; }
+.navigation-palette-panel .workspace-model-controls label { display: grid; align-items: stretch; }
+.navigation-palette-panel .workspace-model-controls select { width: 100%; }
+.navigation-palette-panel .sheet-model-confirmation { max-width: none; }
+.command-number-form { display: grid; gap: .75rem; }
+.command-number-form label { display: grid; gap: .3rem; color: #344454; font-size: .9rem; }
+.command-number-form input { width: 100%; border: 1px solid #aebcc5; border-radius: 5px; padding: .45rem; }
+.command-number-form > button { justify-self: end; }
+.navigation-palette-panel .colour-picker-popover { position: relative; top: auto; left: auto; margin-top: .4rem; }

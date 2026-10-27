@@ -51,6 +51,7 @@ export function useNavigationHistory({ capture, restore }: {
     scheduleMovement();
   }, [scheduleMovement]);
   const explicitNavigation = useCallback((navigate: (operation: NavigationOperation) => void) => {
+    history.current = { ...history.current, entries: history.current.entries.slice(0, history.current.cursor + 1) };
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
     flushMovement();

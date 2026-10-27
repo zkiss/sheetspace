@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './NavigationPalette.css';
 
 export type NavigationCommand = {
@@ -12,23 +12,28 @@ export type NavigationCommand = {
 };
 
 /** A small, keyboard-owned command surface. Command resolution remains in Workspace. */
-export function NavigationPalette({ commands, onClose, rowPicker }: {
+export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
   commands: readonly NavigationCommand[];
   onClose: () => void;
   rowPicker?: { sheetName: string; rowCount: number; onNavigate: (row: number) => void };
+  panel?: { title: string; content: ReactNode };
 }) {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
   const [rowError, setRowError] = useState('');
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelTitle = panel?.title;
   const matches = commands.filter((command) => command.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const matchAvailability = matches.map((command) => command.unavailable ? '0' : '1').join('');
   const activeId = matches[index] ? `navigation-command-${matches[index]!.id}` : undefined;
   useEffect(() => { input.current?.focus(); }, []);
+  useEffect(() => { if (panelTitle) panelRef.current?.querySelector<HTMLElement>('input, select, button:not(:disabled)')?.focus(); }, [panelTitle]);
   useEffect(() => {
-    setIndex((current) => matches[current] && !matches[current]!.unavailable
-      ? current : Math.max(0, matches.findIndex((command) => !command.unavailable)));
-  }, [matches.length, query]);
+    setIndex((current) => matchAvailability[current] === '1'
+      ? current : Math.max(0, matchAvailability.indexOf('1')));
+  }, [matchAvailability, query]);
   useEffect(() => {
     const container = list.current;
     const active = container?.children[index];
@@ -48,6 +53,7 @@ export function NavigationPalette({ commands, onClose, rowPicker }: {
   }
   function keyDown(event: React.KeyboardEvent) {
     if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (panel && event.key !== 'Tab') return;
     if (rowPicker) {
       if (event.key === 'Enter' && event.target === input.current) {
         event.preventDefault();
@@ -78,12 +84,12 @@ export function NavigationPalette({ commands, onClose, rowPicker }: {
   return <div className="dialog-backdrop navigation-palette-backdrop" role="presentation" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section aria-label="Command palette" aria-modal="true" className="navigation-palette" data-workspace-navigation onKeyDown={keyDown} role="dialog">
       <div className="navigation-palette-search">
-        <span aria-hidden="true" className="navigation-palette-search-icon">⌕</span>
+        {panel ? <strong>{panel.title}</strong> : <><span aria-hidden="true" className="navigation-palette-search-icon">⌕</span>
         <label className="navigation-palette-search-label" htmlFor="navigation-command-search">{rowPicker ? 'Row number' : 'Command search'}</label>
-        <input aria-activedescendant={rowPicker ? undefined : activeId} aria-controls={rowPicker ? undefined : 'navigation-command-results'} aria-expanded={rowPicker ? undefined : 'true'} aria-haspopup={rowPicker ? undefined : 'listbox'} aria-invalid={rowError ? 'true' : undefined} aria-describedby={rowPicker ? 'navigation-row-hint' : undefined} id="navigation-command-search" inputMode={rowPicker ? 'numeric' : undefined} onChange={(event) => { setQuery(event.target.value); setIndex(0); setRowError(''); }} placeholder={rowPicker ? 'Enter a row number…' : 'Type a command or search…'} ref={input} role={rowPicker ? undefined : 'combobox'} value={query} />
+        <input aria-activedescendant={rowPicker ? undefined : activeId} aria-controls={rowPicker ? undefined : 'navigation-command-results'} aria-expanded={rowPicker ? undefined : 'true'} aria-haspopup={rowPicker ? undefined : 'listbox'} aria-invalid={rowError ? 'true' : undefined} aria-describedby={rowPicker ? 'navigation-row-hint' : undefined} id="navigation-command-search" inputMode={rowPicker ? 'numeric' : undefined} onChange={(event) => { setQuery(event.target.value); setIndex(0); setRowError(''); }} placeholder={rowPicker ? 'Enter a row number…' : 'Type a command or search…'} ref={input} role={rowPicker ? undefined : 'combobox'} value={query} /></>}
         <button aria-label="Close command palette" className="navigation-palette-close" onClick={onClose} title="Close (Esc)" type="button">Esc</button>
       </div>
-      {rowPicker ? <div className="navigation-row-picker" id="navigation-row-hint">
+      {panel ? <div className="navigation-palette-panel" ref={panelRef}>{panel.content}</div> : rowPicker ? <div className="navigation-row-picker" id="navigation-row-hint">
         <span>Go to a row in <strong>{rowPicker.sheetName}</strong></span>
         <span>Rows 1–{rowPicker.rowCount}</span>
         {rowError ? <span className="navigation-row-error" role="alert">{rowError}</span> : null}
@@ -97,8 +103,8 @@ export function NavigationPalette({ commands, onClose, rowPicker }: {
           </button>
         </li>)}
       </ul>}
-      {!rowPicker && matches.length === 0 ? <p className="navigation-palette-empty" role="status">No commands found.</p> : null}
-      <div className="navigation-palette-footer">{!rowPicker ? <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span> : null}<span><kbd>↵</kbd> {rowPicker ? 'go to row' : 'select'}</span><span><kbd>Esc</kbd> close</span></div>
+      {!panel && !rowPicker && matches.length === 0 ? <p className="navigation-palette-empty" role="status">No commands found.</p> : null}
+      <div className="navigation-palette-footer">{!panel && !rowPicker ? <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span> : null}{!panel ? <span><kbd>↵</kbd> {rowPicker ? 'go to row' : 'select'}</span> : null}<span><kbd>Esc</kbd> close</span></div>
     </section>
   </div>;
 }
