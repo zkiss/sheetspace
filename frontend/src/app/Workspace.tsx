@@ -186,6 +186,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   });
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
   const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, pendingNavigationSheetId, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
+    onHistoryTraversal: () => clearNavigationHighlight(),
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
@@ -264,6 +265,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
   const {
+    clearNavigationHighlight,
     navigateReference,
     navigateTarget,
     navigationHighlight,

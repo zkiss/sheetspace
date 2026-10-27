@@ -130,6 +130,7 @@ export function useReferenceNavigation({
   }
 
   return {
+    clearNavigationHighlight: () => { setHighlight(null); setNavigationMotion(false); },
     navigateReference,
     navigateTarget,
     navigationHighlight: highlight?.target ?? null,
