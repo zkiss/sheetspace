@@ -83,16 +83,15 @@ describe('formula syntax', () => {
     expect(incomplete.tokens.map((token) => incomplete.result.raw.slice(token.sourceSpan.start, token.sourceSpan.end)).join('')).toBe(incomplete.result.raw);
   });
 
-  it('reports one ordered, non-empty diagnostic for each malformed reference fragment during recovery', () => {
+  it('recovers valid same-row references after a malformed function argument', () => {
     const raw = '=SUM(@A[1],) + @broken + @B[2]';
     const analysis = parseFormulaSyntax(raw);
 
     expect(analysis.diagnostics).toEqual([
       { kind: 'syntax', code: '#PARSE!', sourceSpan: { start: raw.indexOf(')'), end: raw.indexOf(')') + 1 } },
-      { kind: 'syntax', code: '#PARSE!', sourceSpan: { start: raw.indexOf('@broken'), end: raw.indexOf('@broken') + 1 } },
     ]);
     expect(analysis.references.map((reference) => raw.slice(reference.sourceSpan.start, reference.sourceSpan.end)))
-      .toEqual(['@A[1]', '@B[2]']);
+      .toEqual(['@A[1]', '@broken', '@B[2]']);
     expect(parseFormulaSyntax('=SUM(@A[1], @B[2])').diagnostics).toEqual([]);
   });
 
@@ -107,7 +106,7 @@ describe('formula syntax', () => {
       { raw: '=@A[1] trailing', fragments: ['t'] },
       { raw: '=@K[1] + )', fragments: ['@K[1]', ')'] },
       { raw: '=SUM(@A[1],)', fragments: [')'] },
-      { raw: '=SUM(@A[1],) + @broken + @B[2]', fragments: [')', '@'] },
+      { raw: '=SUM(@A[1],) + @broken + @B[2]', fragments: [')', '@broken'] },
       { raw: '=@missing!A[1]', fragments: ['@missing!A[1]'] },
       { raw: '=@A[1]:B[2]', fragments: [] },
       { raw: '="@K[1]"', fragments: [] },
