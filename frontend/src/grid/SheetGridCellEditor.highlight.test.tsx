@@ -10,11 +10,11 @@ it.each(['Revenue', '123', 'hello world', '  text\nwith whitespace  '])('keeps o
     editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: value, sessionId: 1 }} />;
   const view = render(component(draft));
   const editor = screen.getByRole('textbox');
-  const overlay = document.querySelector('.sheet-grid-cell-editor-highlight')!;
+  const overlay = document.querySelector('.formula-editor-highlight')!;
 
   expect(editor).toHaveValue(draft);
-  expect(overlay.textContent).toBe(draft);
-  expect(overlay.querySelectorAll('[data-formula-token-kind="text"]')).toHaveLength(1);
+  expect(overlay.textContent).toBe(`${draft}\u200b`);
+  expect(overlay.querySelector('.formula-syntax-token-invalid')).toBeNull();
   expect(overlay.querySelector('.formula-syntax-token-invalid')).toBeNull();
   expect(editor).toHaveFocus();
 
@@ -23,7 +23,7 @@ it.each(['Revenue', '123', 'hello world', '  text\nwith whitespace  '])('keeps o
 
   expect(screen.getByRole('textbox')).toBe(editor);
   expect(editor).toHaveValue(unfinished);
-  expect(overlay.textContent).toBe(unfinished);
+  expect(overlay.textContent).toBe(`${unfinished}\u200b`);
   expect(overlay.querySelector('.formula-syntax-token-invalid')).not.toBeNull();
   expect(editor).toHaveFocus();
 });

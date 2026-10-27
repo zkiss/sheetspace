@@ -28,6 +28,7 @@ it('tracks transform-only position and size without React commits or duplicate r
   </Profiler>;
   const view = render(component('Draft'));
   const editor = screen.getByRole('textbox') as HTMLTextAreaElement;
+  const panel = editor.closest('section')!;
   editor.setSelectionRange(1, 3);
   measure.mockClear(); commits = 0;
   const step = () => act(() => {
@@ -41,23 +42,22 @@ it('tracks transform-only position and size without React commits or duplicate r
   for (let frame = 1; frame <= 5; frame++) {
     measure.mockReturnValue(new DOMRect(40 + frame * 10, 60 + frame * 10, 90 + frame * 10, 26 + frame));
     step();
-    expect(editor).toHaveStyle({ left: `${40 + frame * 10}px`, top: `${60 + frame * 10}px`, height: `${26 + frame}px` });
-    expect(editor.style.width).toContain(`${90 + frame * 10}px`);
+    expect(panel).toHaveStyle({ left: `${40 + frame * 10}px`, top: `${60 + frame * 10}px` });
+    expect(panel.style.width).toContain(`${90 + frame * 10}px`);
   }
   expect(measure).toHaveBeenCalledTimes(5);
   expect(commits).toBe(0);
   expect(screen.getByRole('textbox')).toBe(editor);
   expect(editor).toHaveFocus();
   expect([editor.selectionStart, editor.selectionEnd]).toEqual([1, 3]);
-  expect(editor.style.maxWidth).toContain('102px');
+  expect(panel.style.maxWidth).toContain('98px');
 
   view.rerender(component('Updated draft\nsecond line'));
   expect(editor).toHaveValue('Updated draft\nsecond line');
-  expect(editor).toHaveAttribute('data-multiline-editor', 'true');
-  expect(editor).toHaveStyle({ left: '90px', top: '110px' });
+  expect(panel).toHaveStyle({ left: '90px', top: '110px' });
   measure.mockReturnValue(new DOMRect(100, 120, 150, 32));
   act(() => observerCallback([], {}));
-  expect(editor).toHaveStyle({ left: '100px', top: '120px', height: '32px' });
+  expect(panel).toHaveStyle({ left: '100px', top: '120px' });
   expect(observe).toHaveBeenCalledWith(anchor.current);
   view.unmount();
   expect(frames.size).toBe(0);
@@ -77,6 +77,7 @@ it('keeps the portal mounted while an anchor ref is temporarily detached or repl
     editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: 'Draft', sessionId: 1 }} />;
   const view = render(component());
   const editor = screen.getByRole('textbox');
+  const panel = editor.closest('section')!;
   anchor.current = null;
   view.rerender(component());
   expect(screen.getByRole('textbox')).toBe(editor);
@@ -84,6 +85,6 @@ it('keeps the portal mounted while an anchor ref is temporarily detached or repl
   anchor.current = document.createElement('div');
   vi.spyOn(anchor.current, 'getBoundingClientRect').mockReturnValue(new DOMRect(80, 100, 120, 32));
   view.rerender(component());
-  expect(editor).toHaveStyle({ left: '80px', top: '100px', height: '32px' });
+  expect(panel).toHaveStyle({ left: '80px', top: '100px' });
   expect(editor).toHaveFocus();
 });

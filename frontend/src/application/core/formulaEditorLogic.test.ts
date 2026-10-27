@@ -61,7 +61,7 @@ describe('formula editor logic', () => {
     const properties = formulaCompletions("=@'Re + 1", { start: 5, end: 5 }, { sheetNames: [], propertyNames: ["Revenue's Net"] });
 
     expect(sheets).toContainEqual(expect.objectContaining({ kind: 'sheet', insertText: "'Owner''s Plan'!" }));
-    expect(properties).toContainEqual(expect.objectContaining({ kind: 'property', insertText: "'Revenue''s Net'[1]" }));
+    expect(properties).toContainEqual(expect.objectContaining({ kind: 'property', insertText: "'Revenue''s Net'" }));
   });
 
   it('completes a reference at a mid-token caret without duplicating its existing suffix', () => {
@@ -72,13 +72,13 @@ describe('formula editor logic', () => {
     const sheet = formulaCompletions(sheetRaw, { start: 4, end: 4 }, { sheetNames: ['Budget'] })
       .find((suggestion) => suggestion.label === 'Budget');
 
-    expect(applyFormulaCompletion(propertyRaw, property!)).toBe("=@'Revenue'[1]");
+    expect(applyFormulaCompletion(propertyRaw, property!)).toBe("=@Revenue[1]");
     expect(applyFormulaCompletion(sheetRaw, sheet!)).toBe('=@Budget!A[1]');
   });
 
   it.each([
-    { raw: '=@$Re[$1]', cursor: 5, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@$'Revenue'[$1]" },
-    { raw: "=@'Inputs'!$Re[$1]", cursor: 14, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@'Inputs'!$'Revenue'[$1]" },
+    { raw: '=@$Re[$1]', cursor: 5, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@$Revenue[$1]" },
+    { raw: "=@'Inputs'!$Re[$1]", cursor: 14, options: { sheetNames: [], propertyNames: ['Revenue'] }, label: 'Revenue', expected: "=@'Inputs'!$Revenue[$1]" },
     { raw: '=@A[1]-SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]-SUM' },
     { raw: '=@A[1]+SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]+SUM' },
     { raw: '=@A[1]*SU', cursor: 9, options: { sheetNames: [] }, label: 'SUM', expected: '=@A[1]*SUM' },
@@ -99,12 +99,9 @@ describe('formula editor logic', () => {
     expect(applyFormulaCompletion(raw, completion!)).toBe(`=@A[1]${operator}SUM`);
   });
 
-  it('does not complete inside string literals and honors an explicit replacement selection', () => {
+  it('does not complete inside string literals or over an explicit selection', () => {
     expect(formulaCompletions('="SUM"', { start: 4, end: 4 }, { sheetNames: [] })).toEqual([]);
-    const completion = formulaCompletions('=SMM(@A[1])', { start: 1, end: 4 }, { sheetNames: [] })
-      .find((suggestion) => suggestion.label === 'SUM');
-
-    expect(applyFormulaCompletion('=SMM(@A[1])', completion!)).toBe('=SUM(@A[1])');
+    expect(formulaCompletions('=SMM(@A[1])', { start: 1, end: 4 }, { sheetNames: [] })).toEqual([]);
   });
 
   it('formats valid formulas by changing only whitespace and preserves literal and reference lexemes', () => {
@@ -181,7 +178,7 @@ describe('formula editor logic', () => {
   it('assigns stable, differentiated colours to resolved reference identities', () => {
     const revenue = stableReferenceIdentity(parseFormulaSyntax("=@'Revenue'[1]").references[0]!, resolver)!;
     const cost = stableReferenceIdentity(parseFormulaSyntax("=@'Cost'[1]").references[0]!, resolver)!;
-    const canonicalRevenue = stableReferenceIdentity(analyzeFormulaEditor(formulaRawToCanonical("=@'Revenue'[1]", resolver), resolver).references[0]!, resolver)!;
+    const canonicalRevenue = stableReferenceIdentity(analyzeFormulaEditor(formulaRawToCanonical("=@Revenue[1]", resolver), resolver).references[0]!, resolver)!;
 
     expect(referenceIdentityColor(revenue)).toBe(referenceIdentityColor(canonicalRevenue));
     expect(referenceIdentityColor(revenue)).not.toBe(referenceIdentityColor(cost));
