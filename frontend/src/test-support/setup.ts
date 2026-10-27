@@ -6,5 +6,6 @@ if (typeof window !== 'undefined') {
   await import('@testing-library/jest-dom/vitest');
   const { cleanup } = await import('@testing-library/react/pure');
   await import('./domGeometry');
+  await import('./domAnimations');
   afterEach(cleanup);
 }
