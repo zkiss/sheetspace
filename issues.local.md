@@ -40,6 +40,7 @@
 32. **Go to property excluded unnamed columns.** Go to column now lists every column by property name or column letter and retains the current row. Its shortcut is Alt+Shift+C. Tests remain untouched.
 33. **Manual sheet scrolling kept pulling the selection back into view.** Selection reveal now runs when the selected cell changes, rather than on each virtualized grid redraw. The selected cell remains mounted while offscreen so it retains keyboard focus and its focused appearance when scrolled back. Tests remain untouched.
 34. **Model binding used native confirmation popups.** Bind, rebind, and unbind now show their consequences and confirmation controls inside the sheet menu. Tests remain untouched.
+35. **Model-bound columns accepted values of the wrong type.** Literal writes and pastes are rejected atomically when incompatible; formulas remain allowed and produce #VALUE! on type mismatch, so dependents cannot consume the incompatible value. Blank cells remain valid. Tests remain untouched.
 
 ## Deferred
 

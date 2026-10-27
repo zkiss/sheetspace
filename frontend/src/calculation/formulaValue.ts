@@ -1,6 +1,6 @@
 import type { CellKey } from '@workbook/core/address';
 import { APPLICATION_DEFAULT_NUMBER_FORMAT } from '@workbook/core/numberFormat';
-import type { NumberFormat } from '@workbook/core/model';
+import type { ModelColumnType, NumberFormat } from '@workbook/core/model';
 import type { FormulaErrorCode } from '@workbook/formula/syntax';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 
@@ -62,6 +62,13 @@ export function classifyCellValue(raw: string): FormulaScalarValue {
     return { kind: 'boolean', value: false };
   }
   return { kind: 'text', value: raw };
+}
+
+export function matchesModelColumnType(value: FormulaScalarValue, type: ModelColumnType): boolean {
+  if (value.kind === 'blank' || value.kind === 'error') return true;
+  if (type === 'string') return value.kind === 'text';
+  if (type === 'boolean') return value.kind === 'boolean';
+  return value.kind === 'number' && (type === 'float' || Number.isInteger(value.value));
 }
 
 /** Freezes underlying values, independently of display formatting. */

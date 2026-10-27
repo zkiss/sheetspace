@@ -26,6 +26,7 @@ import {
   displayFormulaValue,
   formulaErrorValue,
   formulaScalarValue,
+  matchesModelColumnType,
   type FormulaEvaluationSnapshot,
   type FormulaScalarValue,
   type FormulaValue,
@@ -70,6 +71,9 @@ export class FormulaEvaluator {
       for (const key of Object.keys(sheet.cells).sort()) {
         if (sheet.cells[key].startsWith('=')) {
           this.evaluateFormulaCell(sheet, key);
+        } else {
+          const value = this.evaluateLiteralCell(sheet, key);
+          if (value.kind === 'error') this.results.set(sheetCellNodeId(sheet.id, key), value);
         }
       }
     }
@@ -136,8 +140,9 @@ export class FormulaEvaluator {
       return cycleResult;
     }
 
-    this.results.set(nodeId, result);
-    return result;
+    const checked = this.checkColumnType(sheet, key, result);
+    this.results.set(nodeId, checked);
+    return checked;
   }
 
   private evaluateExpression(expression: FormulaExpression, currentSheet: CalculationSheet): FormulaValue {
@@ -322,11 +327,17 @@ export class FormulaEvaluator {
     }
     return cell.startsWith('=')
       ? this.evaluateFormulaCell(sheet, key)
-      : classifyCellValue(cell);
+      : this.evaluateLiteralCell(sheet, key);
   }
 
   private evaluateLiteralCell(sheet: CalculationSheet, key: CellKey): FormulaScalarValue {
-    return classifyCellValue(sheet.cells[key] ?? '');
+    return this.checkColumnType(sheet, key, classifyCellValue(sheet.cells[key] ?? ''));
+  }
+
+  private checkColumnType(sheet: CalculationSheet, key: CellKey, value: FormulaScalarValue): FormulaScalarValue {
+    const identity = cellIdentityFromKey(key);
+    const type = identity && sheet.columnTypes?.[identity.columnId];
+    return type && !matchesModelColumnType(value, type) ? formulaErrorValue('#VALUE!') : value;
   }
 }
 

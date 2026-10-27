@@ -573,15 +573,19 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const moved = commands.moveCells(destination.id, destinationKey, parsed.value.source);
       if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source' || moved.reason === 'calculated-cell-write') cancelPendingCut();
       if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+      if (!moved.ok && moved.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
     } else {
       const pasted = commands.pasteCells(destination.id, destinationKey, parsed);
       if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+      if (!pasted.ok && pasted.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
     }
   }
   /** Reports a rejected content write instead of leaving the user without a reason. */
   function reportWriteOutcome(outcome: CellWriteResult | undefined) {
     if (outcome && !outcome.ok && outcome.reason === 'calculated-cell-write') {
       setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
+    } else if (outcome && !outcome.ok && outcome.reason === 'invalid-cell-type') {
+      setCalculatedCellFeedback('The value does not match the data model column type.');
     }
   }
   return (

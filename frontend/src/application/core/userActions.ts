@@ -1,6 +1,8 @@
 import { applyAxisSizeWrites, validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
 import type { AxisSizeWrite } from '@workbook/core/model';
 import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
+import { boundColumnType } from '@workbook/core/modelColumnTypes';
+import { classifyCellValue, matchesModelColumnType } from '@calculation/formulaValue';
 import { applyFormatWrites, emptySheetFormatOverrides, validFormatWrites } from '@workbook/core/numberFormat';
 import type { AppearanceWrite, CellAppearance } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
@@ -80,7 +82,7 @@ export type AppliedWorkbookOperation = {
   affected: AffectedWorkbookEntities;
   inverse: WorkbookOperationInverse | undefined;
 };
-export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet' | 'calculated-cell-write' | 'pending-model-transition';
+export type WorkbookOperationFailureReason = 'duplicate-cell' | 'duplicate-column-id' | 'duplicate-row-id' | 'duplicate-sheet-name' | 'empty-sheet-name' | 'invalid-cell' | 'invalid-cell-type' | 'invalid-axis-size' | 'invalid-number-format' | 'invalid-visual-scale' | 'unknown-sheet' | 'calculated-cell-write' | 'pending-model-transition';
 export type WorkbookOperationResult = { ok: true; value: AppliedWorkbookOperation } | { ok: false; reason: WorkbookOperationFailureReason };
 /** A rejected write leaves the workbook untouched and reports a stable reason. */
 export type CellWriteResult = { ok: true; changed: boolean } | { ok: false; reason: WorkbookOperationFailureReason };
@@ -308,6 +310,11 @@ export function replayCellPersistenceWrites(
   if (resolved.some(({ write, sheet }) => sheet && calculatedOwnedColumns(sheet, workbook.dataModels).has(write.columnId))) {
     return { ok: false, reason: 'calculated-cell-write' };
   }
+  if (resolved.some(({ write, sheet }) => {
+    const type = sheet && boundColumnType(sheet, workbook.dataModels, write.columnId);
+    const raw = (expected === 'before' ? write.afterRaw : write.beforeRaw) ?? '';
+    return type && !raw.startsWith('=') && !matchesModelColumnType(classifyCellValue(raw), type);
+  })) return { ok: false, reason: 'invalid-cell-type' };
   // Validate the whole transaction before changing anything.
   if (resolved.some(({ write, sheet, cell }) =>
     (sheet!.content.cells[cellIdentityKey(cell)] ?? null) !== write[`${expected}Raw`],
@@ -405,6 +412,10 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
   if (resolved.some(({ write, sheet }) => sheet && calculatedOwnedColumns(sheet, workbook.dataModels).has(write.columnId))) {
     return { ok: false, reason: 'calculated-cell-write' };
   }
+  if (resolved.some(({ write, sheet }) => {
+    const type = sheet && boundColumnType(sheet, workbook.dataModels, write.columnId);
+    return type && !write.raw.startsWith('=') && !matchesModelColumnType(classifyCellValue(write.raw), type);
+  })) return { ok: false, reason: 'invalid-cell-type' };
 
   const cellsBySheet = new Map<SheetId, Record<string, string>>();
   const inverseWrites: CellWrite[] = [], persistenceWrites: CellPersistenceWrite[] = [];
