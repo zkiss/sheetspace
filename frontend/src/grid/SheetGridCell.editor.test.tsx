@@ -20,6 +20,64 @@ function setup(draft = 'Draft') {
 }
 
 describe('portal cell editor', () => {
+  it('tracks anchor scroll and resize without replacing the focused input or moving its caret', () => {
+    const { editor, measure, updateDraft } = setup();
+    const panel = editor.closest<HTMLElement>('.formula-editor-panel')!;
+    expect(panel).toHaveStyle({ left: '40px', top: '60px' });
+    editor.setSelectionRange(2, 2);
+    updateDraft('Draft');
+    measure.mockReturnValue(testRect({ left: 70, top: 100, width: 180, height: 52 }));
+    fireEvent.scroll(window);
+    expect(panel).toHaveStyle({ left: '70px', top: '100px' });
+    expect(panel.style.width).toContain('180px');
+    expect(editor).toHaveStyle({ height: '52px' });
+    measure.mockReturnValue(testRect({ left: 80, top: 110, width: 200, height: 60 }));
+    fireEvent.resize(window);
+    expect(panel).toHaveStyle({ left: '80px', top: '110px' });
+    expect(panel.style.width).toContain('200px');
+    expect(editor).toHaveStyle({ height: '60px' });
+    expect(screen.getByRole('textbox')).toBe(editor);
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(2);
+  });
+
+  it('keeps syntax overlay text and scroll aligned with the shared input', () => {
+    const draft = `=SUM(@A[1], ${'value '.repeat(40)})\nsecond`;
+    const { editor, updateDraft } = setup(draft);
+    const highlight = document.querySelector<HTMLElement>('.formula-editor-highlight')!;
+    expect(highlight.textContent).toBe(`${draft}\u200b`);
+    editor.scrollTop = 48;
+    editor.scrollLeft = 32;
+    fireEvent.scroll(editor);
+    expect(highlight.scrollTop).toBe(48);
+    expect(highlight.scrollLeft).toBe(32);
+    for (const next of ['', 'x', 'first\nsecond\n', '\tindented']) {
+      updateDraft(next);
+      expect(highlight.textContent).toBe(`${next}\u200b`);
+      expect(highlight.scrollTop).toBe(editor.scrollTop);
+      expect(highlight.scrollLeft).toBe(editor.scrollLeft);
+    }
+  });
+
+  it.each([true, false])('light Enter accepts only an arrow-selected completion (selected: %s)', (selected) => {
+    const { editor, interaction, updateDraft } = setup('=S');
+    fireEvent.change(editor, { target: { value: '=SU' } });
+    updateDraft('=SU');
+    interaction.updateValue.mockClear();
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    if (selected) fireEvent.keyDown(editor, { key: 'ArrowDown' });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    if (selected) {
+      expect(interaction.updateValue).toHaveBeenCalledOnce();
+      expect(interaction.updateValue.mock.calls[0][0]).not.toBe('=SU');
+      expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
+      updateDraft(interaction.updateValue.mock.calls[0][0]);
+      expect(editor).toHaveFocus();
+    } else {
+      expect(interaction.updateValue).not.toHaveBeenCalled();
+      expect(interaction.commitAndNavigate).toHaveBeenCalledOnce();
+    }
+  });
   it('grows and shrinks to content within the maximum, keeping long drafts scrollable', () => {
     const { editor, updateDraft } = setup();
     Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 300 });

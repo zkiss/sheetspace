@@ -133,6 +133,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       setCompletionRequest({ selection: selection(), automatic: false });
       setCompletionIndex(0); setCompletionChosen(false); return;
     }
+    if (completionOpen && completionChosen && event.key === 'Enter' && !event.shiftKey && !event.altKey) { event.preventDefault(); event.stopPropagation(); acceptCompletion(); return; }
     if (cellMode === 'light' && onCommitAndNavigate && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
       event.preventDefault(); event.stopPropagation();
       onCommitAndNavigate({ key: event.key, shift: event.shiftKey }); return;
@@ -144,7 +145,6 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
         : event.key === 'ArrowDown' ? 0 : completions.length - 1);
       setCompletionChosen(true); return;
     }
-    if (completionOpen && completionChosen && event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); acceptCompletion(); return; }
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation();
       setHoveredReference(undefined);
