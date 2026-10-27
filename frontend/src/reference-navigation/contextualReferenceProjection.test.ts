@@ -17,23 +17,23 @@ function fixture() {
 }
 
 describe('contextual reference projection', () => {
-  it('shares stable identity and colour for repeated targets while retaining every token', () => {
+  it('shares stable identity but assigns distinct colours to repeated tokens', () => {
     const { inspection } = fixture();
     const repeated = contextualReferences([inspection.references[0]!, inspection.references[0]!]);
     expect(repeated).toHaveLength(2);
     expect(repeated[0]!.identity).toEqual(repeated[1]!.identity);
-    expect(repeated[0]!.color).toBe(repeated[1]!.color);
+    expect(repeated[0]!.color).not.toBe(repeated[1]!.color);
   });
 
-  it('shares identity and colour for ranges written with reversed endpoints', () => {
+  it('shares identity but distinguishes ranges written with reversed endpoints', () => {
     const { formula, workbook, inspection } = fixture();
     const reversed = inspectFormula('=@source!A[1]:B[2]', workbook, formula)!;
     const references = contextualReferences([inspection.references[1]!, reversed.references[0]!]);
     expect(references[0]!.identity).toEqual(references[1]!.identity);
-    expect(references[0]!.color).toBe(references[1]!.color);
+    expect(references[0]!.color).not.toBe(references[1]!.color);
   });
 
-  it('leaves unresolved and broken inspected references without a coordinated identity or colour', () => {
+  it('colours unresolved tokens but not broken references', () => {
     const { inspection } = fixture();
     const unresolved = {
       ...inspection.references[0]!,
@@ -43,7 +43,7 @@ describe('contextual reference projection', () => {
     const broken = { ...inspection.references[0]!, broken: true };
 
     expect(contextualReferences([unresolved, broken])).toEqual([
-      { reference: unresolved, identity: undefined, color: undefined },
+      { reference: unresolved, identity: undefined, color: 'hsl(0.000 78% 34%)' },
       { reference: broken, identity: inspection.references[0]!.target.kind === 'cell' ? { kind: 'cell', sheetId: 'source', ...inspection.references[0]!.target.identity! } : undefined, color: undefined },
     ]);
   });
@@ -65,10 +65,10 @@ describe('contextual reference projection', () => {
   it('falls back rather than anchoring a clipped cell, unmounted overview, broken, or occluded target', () => {
     const { workbook, inspection, frames } = fixture();
     const base = { reference: inspection.references[0]!, workbook, frames, workspaceViewport: { x: 0, y: 0, scale: 1 }, surfaceSize: { width: 900, height: 700 } };
-    expect(projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, scrollLeft: 1000 } } })).toEqual({ kind: 'unavailable', reason: 'offscreen' });
+    expect(projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, scrollLeft: 1000 } } })).toEqual({ kind: 'offscreen', target: { x: -1742, y: 195.2 } });
     expect(projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, scrollLeft: 50 } } })).toEqual({ kind: 'unavailable', reason: 'clipped' });
     expect(projectReferenceGeometry({ ...base, reference: inspection.references[1]!, gridViewports: { source: { ...viewport, scrollLeft: 50 } } })).toMatchObject({ kind: 'visible', rect: { left: 182 } });
-    expect(projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, renderingMode: 'overview' } } })).toEqual({ kind: 'unavailable', reason: 'overview' });
+    expect(projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, renderingMode: 'overview' } } })).toEqual({ kind: 'overview', rect: { left: 100, top: 50, right: 900, bottom: 700 } });
     expect(projectReferenceGeometry({ ...base, gridViewports: { source: { ...viewport, mounted: false } } })).toEqual({ kind: 'unavailable', reason: 'unmounted' });
     expect(projectReferenceGeometry({ ...base, reference: { ...inspection.references[0]!, broken: true, navigable: false }, gridViewports: { source: viewport } })).toEqual({ kind: 'unavailable', reason: 'broken' });
     const covered = [...frames, { id: 'cover', name: 'Cover', position: { x: 100, y: 50 }, size: { width: 600, height: 500 }, visualScale: 1, zIndex: 2 }];
