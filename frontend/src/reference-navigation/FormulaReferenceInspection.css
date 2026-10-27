@@ -43,7 +43,7 @@
 }
 
 .formula-reference-token:focus-visible {
-  outline: 2px solid #2f747e;
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 

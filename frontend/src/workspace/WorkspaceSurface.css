@@ -63,8 +63,8 @@
 }
 
 .empty-workspace button {
-  border-color: #1c6b78;
-  background: #1c6b78;
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

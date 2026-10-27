@@ -10,8 +10,9 @@ import './FormulaEditorPanel.css';
 import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
 
 /** The single rich formula surface used by workspace and model editing. */
-export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate }: {
+export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate }: {
   ariaLabel: string; autoFocus?: boolean; disabled?: boolean; initialView?: FormulaEditorSelection & { scrollTop?: number }; modelOnly?: boolean; raw: string;
+  readOnly?: boolean;
   referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
   resolver: FormulaReferenceResolver; sheetNames: readonly string[]; propertyNames?: readonly string[]; onApply: () => void; onCancel: () => void; onRawChange: (raw: string) => void;
   onFocusLeave?: (view: FormulaEditorSelection & { scrollTop: number }, destination: EventTarget | null) => void;
@@ -54,7 +55,24 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     input.current.setSelectionRange(view.start, view.end);
     input.current.scrollTop = view.scrollTop ?? 0;
   }, [autoFocus]);
-  const completions = completionRequest
+  useLayoutEffect(() => {
+    const element = input.current;
+    if (!readOnly || !element) return;
+    // Native readonly textareas suppress caret navigation in some browsers.
+    // Keep native selection behavior and reject mutations at the input boundary.
+    const preventEdit = (event: Event) => event.preventDefault();
+    const restoreValue = () => {
+      if (element.value === raw) return;
+      const start = Math.min(element.selectionStart, raw.length);
+      const end = Math.min(element.selectionEnd, raw.length);
+      element.value = raw;
+      element.setSelectionRange(start, end);
+    };
+    element.addEventListener('beforeinput', preventEdit);
+    element.addEventListener('input', restoreValue);
+    return () => { element.removeEventListener('beforeinput', preventEdit); element.removeEventListener('input', restoreValue); };
+  }, [readOnly, raw]);
+  const completions = !readOnly && completionRequest
     ? formulaCompletions(raw, completionRequest.selection, { sheetNames, propertyNames, automatic: completionRequest.automatic }) : [];
   const completionOpen = completions.length > 0;
   const setEditor = (next: { raw: string; selection: FormulaEditorSelection }) => { setCompletionRequest(null); onRawChange(next.raw); requestAnimationFrame(() => input.current?.setSelectionRange(next.selection.start, next.selection.end)); };
@@ -73,6 +91,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     requestAnimationFrame(() => input.current?.setSelectionRange(completion.replacement.start + completion.insertText.length, completion.replacement.start + completion.insertText.length));
   };
   function updateRaw(value: string) {
+    if (readOnly) return;
     const currentSelection = selection();
     const typedNameCharacter = /[A-Za-z0-9_@!'.]/.test(value[currentSelection.start - 1] ?? '');
     const editingPrefix = value.length === raw.length + 1 || (completionRequest && value.length < raw.length);
@@ -95,6 +114,17 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     if (event.key === 'F2' && onToggleMode) {
       event.preventDefault(); event.stopPropagation();
       setCompletionRequest(null); setHoveredReference(undefined); reportView(); onToggleMode(); return;
+    }
+    if (readOnly) {
+      event.stopPropagation();
+      if (event.key === 'Escape' || ((event.ctrlKey || event.metaKey) && event.key === 'Enter')) {
+        event.preventDefault(); event.stopPropagation(); onCancel();
+      } else if (cellMode === 'light' && onCommitAndNavigate && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
+        event.preventDefault(); event.stopPropagation(); onCommitAndNavigate({ key: event.key, shift: event.shiftKey });
+      } else if (event.key === 'Enter' || ((event.ctrlKey || event.metaKey) && event.code === 'Space')) {
+        event.preventDefault(); event.stopPropagation();
+      }
+      return;
     }
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onApply(); return; }
     if ((event.ctrlKey || event.metaKey) && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel(); return; }
@@ -150,10 +180,13 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   }
   const hoveredInspection = hoveredReference ? inspectionAt(hoveredReference.index) : undefined;
   const modifierReference = referenceModifier && hoveredInspection?.navigable ? hoveredInspection : undefined;
+  const modifierReferenceStart = modifierReference?.sourceSpan.start;
+  const modifierReferenceEnd = modifierReference?.sourceSpan.end;
   useEffect(() => {
-    onReferenceModifierHover?.(modifierReference?.sourceSpan ?? null);
+    onReferenceModifierHover?.(modifierReferenceStart !== undefined && modifierReferenceEnd !== undefined
+      ? { start: modifierReferenceStart, end: modifierReferenceEnd } : null);
     return () => onReferenceModifierHover?.(null);
-  }, [onReferenceModifierHover, modifierReference?.sourceSpan.start, modifierReference?.sourceSpan.end]);
+  }, [onReferenceModifierHover, modifierReferenceStart, modifierReferenceEnd]);
   return <section aria-label={`${ariaLabel} editor`} className={`formula-editor-panel${cellMode ? ` sheet-grid-cell-formula-editor sheet-grid-cell-formula-editor-${cellMode}` : ''}`}
     data-editor-mode={cellMode ?? 'heavy'} data-workspace-sheet-editor={sheetId} data-workspace-navigation ref={panelRef} onBlur={(event) => {
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
@@ -174,7 +207,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     <RawFormulaInput aria-label={ariaLabel} aria-autocomplete="list" aria-controls={completionOpen ? completionsId : undefined}
       aria-activedescendant={completionOpen && completionChosen ? `${completionsId}-${completionIndex}` : undefined}
       className={`formula-editor-input${cellMode ? ' sheet-grid-cell-editor' : ''}`} data-workspace-sheet-editor={sheetId}
-      disabled={disabled} onKeyDown={onKeyDown} onKeyUp={(event) => setReferenceModifier(event.ctrlKey || event.metaKey)} onScroll={reportView} onMouseMove={hoverReference} onMouseLeave={() => { setHoveredReference(undefined); onReferenceHover?.(null); }} style={{ cursor: modifierReference ? 'pointer' : undefined }}
+      disabled={disabled} aria-readonly={readOnly} onFocus={reportView} onKeyDown={onKeyDown} onKeyUp={(event) => setReferenceModifier(event.ctrlKey || event.metaKey)} onScroll={reportView} onMouseMove={hoverReference} onMouseLeave={() => { setHoveredReference(undefined); onReferenceHover?.(null); }} style={{ cursor: modifierReference ? 'pointer' : undefined }}
+      onPaste={(event) => { if (readOnly) { event.preventDefault(); event.stopPropagation(); } }}
+      onCut={(event) => { if (readOnly) { event.preventDefault(); event.stopPropagation(); } }}
+      onDrop={(event) => { if (readOnly) { event.preventDefault(); event.stopPropagation(); } }}
       onMouseDown={(event) => {
         if ((!event.ctrlKey && !event.metaKey) || !onReferenceNavigate) return;
         const token = tokenAt(event);
@@ -196,9 +232,9 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     </FormulaEditorPopover> : null}
     {!cellMode && analysis.diagnostics.length > 0 ? <ul className="formula-editor-diagnostics" role="status">{analysis.diagnostics.map((diagnostic, index) => <li key={`${diagnostic.sourceSpan.start}-${index}`}>{diagnostic.code} at {diagnostic.sourceSpan.start + 1}–{diagnostic.sourceSpan.end}</li>)}</ul> : null}
     {cellMode !== 'light' ? <div className="formula-editor-actions" onMouseDown={(event) => event.preventDefault()}>
-      <button disabled={disabled || !formattingAvailable} onClick={() => { const result = formatFormula(raw, selection()); if (result.available) setEditor(result); }} type="button">Format</button>
-      <button aria-label="Cancel formula" disabled={disabled} onClick={onCancel} title="Cancel (Ctrl/⌘+Esc)" type="button">Cancel</button>
-      <button disabled={disabled} onClick={onApply} title="Apply (Ctrl/⌘+Enter)" type="button">Apply</button>
+      {!readOnly ? <button disabled={disabled || !formattingAvailable} onClick={() => { const result = formatFormula(raw, selection()); if (result.available) setEditor(result); }} type="button">Format</button> : null}
+      <button aria-label={readOnly ? 'Close formula' : 'Cancel formula'} disabled={disabled} onClick={onCancel} title={readOnly ? 'Close (Esc)' : 'Cancel (Ctrl/⌘+Esc)'} type="button">{readOnly ? 'Close' : 'Cancel'}</button>
+      {!readOnly ? <button disabled={disabled} onClick={onApply} title="Apply (Ctrl/⌘+Enter)" type="button">Apply</button> : null}
     </div> : null}
   </section>;
 }

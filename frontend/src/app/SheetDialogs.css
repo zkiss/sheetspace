@@ -42,8 +42,8 @@
 }
 
 .sheet-dialog input:focus {
-  border-color: #3b6f78;
-  outline: 3px solid rgb(59 111 120 / 18%);
+  border-color: var(--accent);
+  outline: 3px solid var(--accent-ring);
 }
 
 .form-error {
@@ -58,6 +58,8 @@
 }
 
 .dialog-actions button:first-child {
-  color: #26323f;
+  color: var(--accent-text);
   background: #ffffff;
 }
+
+.dialog-actions button:first-child:hover:not(:disabled) { background: var(--accent-soft-hover); }

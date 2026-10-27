@@ -102,6 +102,7 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
     panelRef={panelRef}
     sheetId={editingCell.target.sheetId}
     raw={editingCell.draft}
+    readOnly={editingCell.readOnly}
     resolver={interaction.formulaContext?.resolver ?? { currentSheetId: editingCell.target.sheetId, sheetByQualifier: () => undefined, coordinateAt: () => undefined, addressOf: () => undefined }}
     sheetNames={interaction.formulaContext?.sheetNames ?? []}
     propertyNames={interaction.formulaContext?.propertyNames}

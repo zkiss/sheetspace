@@ -114,7 +114,7 @@ export function SheetGridCell({
       return;
     }
 
-    if (!isCalculated) cellInteraction.startEditing(target, action.initialValue);
+    if (!isCalculated || action.initialValue === undefined) cellInteraction.startEditing(target, action.initialValue);
   }
 
   return (
@@ -150,7 +150,7 @@ export function SheetGridCell({
       }}
       onDoubleClick={() => {
         const target = cellTargetAt(sheet, cellKey);
-        if (target && !isCalculated) cellInteraction.startEditing(target);
+        if (target) cellInteraction.startEditing(target);
       }}
       onFocus={() => {
         const target = cellTargetAt(sheet, cellKey);

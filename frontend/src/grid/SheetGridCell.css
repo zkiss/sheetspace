@@ -9,48 +9,48 @@
 
 .sheet-grid-cell:focus {
   z-index: 1;
-  box-shadow: inset 0 0 0 2px #2f747e;
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .sheet-grid-cell-active {
   z-index: 1;
-  box-shadow: inset 0 0 0 2px #2f747e;
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-.sheet-grid-cell-active:focus { box-shadow: inset 0 0 0 2px #176f78; }
+.sheet-grid-cell-active:focus { box-shadow: inset 0 0 0 2px var(--accent); }
 
 .sheet-grid-cell-selection-fade-in { animation: selection-fade-in 400ms ease-out; }
-.sheet-grid-selection-fade-out { position: absolute; inset: 0; z-index: 3; pointer-events: none; outline: 2px solid #176f78; outline-offset: -2px; background: rgb(61 170 114 / 15%); animation: selection-fade-out 400ms ease-out forwards; }
+.sheet-grid-selection-fade-out { position: absolute; inset: 0; z-index: 3; pointer-events: none; outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-selection); animation: selection-fade-out 400ms ease-out forwards; }
 @keyframes selection-fade-in { from { outline-color: transparent; box-shadow: inset 0 0 0 2px transparent, inset 0 0 0 999px transparent; } }
 @keyframes selection-fade-out { to { opacity: 0; } }
 
 .sheet-grid-cell-range-selected {
   z-index: 1;
-  border-color: #b9dcd0;
-  box-shadow: inset 0 0 0 999px rgb(61 170 114 / 15%);
+  border-color: var(--accent-border);
+  box-shadow: inset 0 0 0 999px var(--accent-selection);
 }
 
 .sheet-grid-cell-range-selected.sheet-grid-selection-top {
-  border-top: 2px solid #23855d;
+  border-top: 2px solid var(--accent);
 }
 
 .sheet-grid-cell-range-selected.sheet-grid-selection-bottom {
-  border-bottom: 2px solid #23855d;
+  border-bottom: 2px solid var(--accent);
 }
 
 .sheet-grid-cell-range-selected.sheet-grid-selection-left {
-  border-left: 2px solid #23855d;
+  border-left: 2px solid var(--accent);
 }
 
 .sheet-grid-cell-range-selected.sheet-grid-selection-right {
-  border-right: 2px solid #23855d;
+  border-right: 2px solid var(--accent);
 }
 
 .sheet-grid-cell-active {
   z-index: 2;
-  outline: 2px solid #176f78;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
-  box-shadow: inset 0 0 0 2px #176f78, inset 0 0 0 999px rgb(61 170 114 / 15%);
+  box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 0 999px var(--accent-selection);
 }
 
 .sheet-grid-cell-navigation-target {
@@ -134,7 +134,7 @@
   position: fixed;
   z-index: 100;
   box-sizing: border-box;
-  border: 1px solid #2f747e;
+  border: 1px solid var(--accent);
   border-radius: 0;
   gap: 0;
   padding: 0;
@@ -142,7 +142,7 @@
   box-shadow: 0 0.4rem 1rem rgb(23 32 42 / 18%);
   font: 13px/1.45 ui-monospace, SFMono-Regular, monospace;
 }
-.sheet-grid-cell-formula-editor-heavy { border: 3px solid #176f78; border-radius: 5px; }
+.sheet-grid-cell-formula-editor-heavy { border: 3px solid var(--accent); border-radius: 5px; }
 .sheet-grid-cell-formula-editor .formula-editor-input-wrap { flex: 1; }
 .sheet-grid-cell-formula-editor .sheet-grid-cell-editor { width: 100%; min-height: 0; max-width: none; outline: none; resize: none; }
 .sheet-grid-cell-formula-editor .formula-editor-highlight,
@@ -157,4 +157,4 @@
 .formula-syntax-token-operator { color: #0b7285; }
 .formula-syntax-token-reference { color: #1c7c54; }
 .formula-syntax-token-invalid { text-decoration: wavy underline #c92a2a; }
-.sheet-grid-cell[data-pending-cut='true'] { opacity: 0.45; outline: 2px dashed #4f7cff; outline-offset: -3px; }
+.sheet-grid-cell[data-pending-cut='true'] { opacity: 0.45; outline: 2px dashed var(--accent); outline-offset: -3px; }
