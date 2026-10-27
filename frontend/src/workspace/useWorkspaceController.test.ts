@@ -1,6 +1,6 @@
 import { createElement, useLayoutEffect } from 'react';
 import { act, render, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { measuredElementGeometry } from '@test-support/domGeometry';
 
@@ -12,6 +12,7 @@ function workspaceElement(width: number, height: number) {
 }
 
 describe('useWorkspaceController', () => {
+  afterEach(() => vi.useRealTimers());
   it('tracks the outer surface measurement and ResizeObserver changes', () => {
     let currentController: ReturnType<typeof useWorkspaceController> | undefined;
 
@@ -38,6 +39,7 @@ describe('useWorkspaceController', () => {
   });
 
   it('pans, compounds multiplicative zoom around an origin, clamps zoom, and resets viewport state', () => {
+    vi.useFakeTimers();
     const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() }));
 
     act(() => result.current.panWorkspace(80, -40));
@@ -50,6 +52,7 @@ describe('useWorkspaceController', () => {
       result.current.zoomWorkspaceBy(1.2);
       result.current.zoomWorkspaceBy(1.2);
     });
+    act(() => vi.advanceTimersByTime(150));
     expect(result.current.viewport.scale).toBeCloseTo(2.16);
 
     act(() => result.current.zoomWorkspace(10));
@@ -92,9 +95,11 @@ describe('useWorkspaceController', () => {
   });
 
   it('uses the surface center as the toolbar zoom origin', () => {
+    vi.useFakeTimers();
     const { result } = renderHook(() => useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() }));
     act(() => { result.current.workspaceSurfaceRef.current = workspaceElement(1000, 800); });
     act(() => result.current.zoomWorkspaceBy(1.2));
+    act(() => vi.advanceTimersByTime(150));
 
     expect(result.current.viewport).toEqual({ x: -100, y: -80, scale: 1.2 });
   });
@@ -123,6 +128,6 @@ describe('useWorkspaceController', () => {
       result.current.createSheetAtViewportCenter();
     });
 
-    expect(onCreateSheet).toHaveBeenCalledWith({ x: 501, y: 401 }, 1, 'Create sheet at viewport center');
+    expect(onCreateSheet).toHaveBeenCalledWith({ x: 501, y: 401 }, 1.2, 'Create sheet at viewport center');
   });
 });

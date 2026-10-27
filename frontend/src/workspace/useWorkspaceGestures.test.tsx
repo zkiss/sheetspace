@@ -1,8 +1,10 @@
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceController } from './useWorkspaceController';
 import { measuredElementGeometry } from '@test-support/domGeometry';
+
+afterEach(() => vi.useRealTimers());
 
 function setup() {
   const childAction = vi.fn();
@@ -77,11 +79,13 @@ describe('workspace wheel and gesture routing', () => {
   });
 
   it.each(['ctrlKey', 'metaKey'] as const)('anchors rapid %s zoom across sheet propagation boundaries', (modifier) => {
+    vi.useFakeTimers();
     const { state } = setup();
     act(() => {
       wheel(screen.getByRole('cell'), { [modifier]: true, deltaY: -100, clientX: 120, clientY: 80 });
       wheel(screen.getByRole('textbox'), { [modifier]: true, deltaY: -100, clientX: 120, clientY: 80 });
     });
+    act(() => vi.advanceTimersByTime(150));
     const { x, y, scale } = state().viewport;
     expect(scale).toBeGreaterThan(1.2);
     expect((120 - x) / scale).toBeCloseTo(120);
@@ -89,8 +93,10 @@ describe('workspace wheel and gesture routing', () => {
   });
 
   it('preserves the small Ctrl-wheel synthetic-pinch sensitivity and pointer anchor', () => {
+    vi.useFakeTimers();
     const { surface, state } = setup();
     expect(wheel(surface, { ctrlKey: true, deltaY: -2, clientX: 120, clientY: 80 }).defaultPrevented).toBe(true);
+    act(() => vi.advanceTimersByTime(150));
     const { x, y, scale } = state().viewport;
     expect(scale).toBeCloseTo(Math.exp(16 / 500));
     expect((120 - x) / scale).toBeCloseTo(120);
@@ -98,6 +104,7 @@ describe('workspace wheel and gesture routing', () => {
   });
 
   it('composes cumulative native gesture scales without applying the full scale twice', () => {
+    vi.useFakeTimers();
     const { state } = setup();
     for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 1.5], ['gesturechange', 2], ['gestureend', 2]] as const) {
       const event = new Event(type, { bubbles: true, cancelable: true });
@@ -105,6 +112,7 @@ describe('workspace wheel and gesture routing', () => {
       fireEvent(screen.getByRole('cell'), event);
       expect(event.defaultPrevented).toBe(true);
     }
+    act(() => vi.advanceTimersByTime(150));
     expect(state().viewport).toEqual({ x: -100, y: -100, scale: 2 });
   });
 
@@ -247,6 +255,7 @@ describe('workspace pointer ownership and lifecycle', () => {
     expect(state().viewport.x).toBe(0);
     pointer(surface, 'pointerdown', { button: 1, buttons: 4 });
     pointer(surface, 'pointermove', { buttons: 4, clientX: 25 });
+    pointer(surface, 'pointerup', { button: 1 });
     expect(state().viewport.x).toBe(25);
   });
 
