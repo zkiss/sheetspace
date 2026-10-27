@@ -1,5 +1,5 @@
 import { referenceIdentityColor, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type Ref, type RefObject, type MouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type Ref, type RefObject, type MouseEvent } from 'react';
 import { applyFormulaCompletion, analyzeFormulaEditor, formatFormula, formulaCompletions, formulaReferenceHover, indentFormulaSelection, outdentFormulaSelection, type FormulaEditorSelection } from '@application/core/formulaEditorLogic';
 import type { FormulaScalarValue } from '@calculation/formulaValue';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';
@@ -47,7 +47,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const selection = () => ({ start: input.current?.selectionStart ?? raw.length, end: input.current?.selectionEnd ?? raw.length });
   const analysis = useMemo(() => analyzeFormulaEditor(raw, resolver), [raw, resolver]);
   const formattingAvailable = formatFormula(raw, { start: 0, end: 0 }).available;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!autoFocus || !input.current) return;
     input.current.focus({ preventScroll: true });
     const view = openingView.current ?? { start: openingRawLength.current, end: openingRawLength.current, scrollTop: 0 };

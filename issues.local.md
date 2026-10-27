@@ -42,6 +42,7 @@
 34. **Model binding used native confirmation popups.** Bind, rebind, and unbind now show their consequences and confirmation controls inside the sheet menu. Tests remain untouched.
 35. **Model-bound columns accepted values of the wrong type.** Literal writes and pastes are rejected atomically when incompatible; formulas remain allowed and produce #VALUE! on type mismatch, so dependents cannot consume the incompatible value. Blank cells remain valid. Tests remain untouched.
 36. **Rapid navigation restarted the camera's easing and felt jerky.** Retargeting now preserves the displayed position, velocity, and acceleration while reusing the running animation and its frame clock, smoothly steering toward the new target and settling at rest. Reduced-motion and user-gesture interruption remain supported. Tests remain untouched.
+37. **Typing to edit dropped uppercase first characters.** Printable Shift-modified characters now start editing with that character instead of being ignored. The editor takes focus in its layout phase, before paint, to shorten the keyboard handoff. Tests remain untouched.
 
 ## Deferred
 
