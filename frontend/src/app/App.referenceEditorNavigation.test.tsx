@@ -1,0 +1,58 @@
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { measuredElementGeometry, virtualGridGeometry } from '@test-support/domGeometry';
+import { workspaceSurface } from '@test-support/appScreen';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { App } from './App';
+
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it('interrupts an F4 reference jump with Back and restores the source draft', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+  const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4000, y: 3000 } });
+  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+  render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+  act(() => { measuredElementGeometry(workspaceSurface(), { width: 800, height: 600 }); });
+  const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.click(source);
+  fireEvent.keyDown(source, { key: 'F2' });
+  const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+  fireEvent.change(editor, { target: { value: '=@inputs!B[2]+1' } });
+  editor.setSelectionRange(5, 5);
+  fireEvent.keyDown(editor, { key: 'F4' });
+  expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  act(() => { vi.advanceTimersByTime(2000); });
+  expect(screen.getByRole('cell', { name: 'Outputs A1 cell' })).toHaveAttribute('data-active-cell', 'true');
+  fireEvent.keyDown(screen.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+  expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveValue('=@inputs!B[2]+1');
+});
+
+it('follows a modifier-clicked editor reference and restores its suspended draft', () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+  const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
+  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+  render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+  act(() => { measuredElementGeometry(workspaceSurface(), { width: 800, height: 600 }); });
+  const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.click(source);
+  fireEvent.keyDown(source, { key: 'F2' });
+  const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+  fireEvent.change(editor, { target: { value: '=@inputs!B[2]+1' } });
+  act(() => {
+    for (const name of ['Inputs', 'Outputs']) {
+      virtualGridGeometry(within(screen.getByRole('article', { name: `Sheet ${name}` })).getByTestId('sheet-frame-body'), { width: 238, height: 126 });
+    }
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
+  expect(screen.getByRole('button', { name: 'Navigate to @Inputs!B[2]' })).toBeInTheDocument();
+  const token = document.querySelector<HTMLElement>('[data-reference-index="0"]')!;
+  vi.spyOn(token, 'getClientRects').mockReturnValue([{ left: 10, right: 100, top: 10, bottom: 30 } as DOMRect] as unknown as DOMRectList);
+  fireEvent.mouseMove(editor, { clientX: 20, clientY: 20, ctrlKey: true });
+  fireEvent.mouseDown(editor, { clientX: 20, clientY: 20, ctrlKey: true });
+  expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  fireEvent.keyDown(screen.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+  expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveValue('=@inputs!B[2]+1');
+});
