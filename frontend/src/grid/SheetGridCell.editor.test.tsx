@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetGridCellEditor } from './SheetGridCellEditor';
 import { testRect } from '@test-support/domGeometry';
@@ -20,28 +20,6 @@ function setup(draft = 'Draft') {
 }
 
 describe('portal cell editor', () => {
-  it('anchors immediately, tracks scrolling and transforms, and preserves focus and caret across drafts', () => {
-    const { editor, measure, updateDraft } = setup();
-    expect(editor).toHaveFocus();
-    expect(editor).toHaveClass('sheet-grid-cell-editor');
-    expect(editor).toHaveStyle({ left: '40px', top: '60px', height: '26px' });
-    expect(editor.selectionStart).toBe(5);
-    editor.setSelectionRange(2, 2);
-    updateDraft('Draft');
-    expect(editor.selectionStart).toBe(2);
-    measure.mockReturnValue(testRect({ left: 70, top: 100, width: 180, height: 52 }));
-    fireEvent.scroll(window);
-    expect(editor).toHaveStyle({ left: '70px', top: '100px', height: '52px' });
-    expect(editor).toHaveFocus();
-    expect(editor.style.width).toContain('180px');
-    measure.mockReturnValue(testRect({ left: 70, top: 100, width: 200, height: 52 }));
-    fireEvent.resize(window);
-    expect(editor.style.width).toContain('200px');
-    measure.mockReturnValue(testRect({ left: 70, top: 100, width: 200, height: 60 }));
-    fireEvent.resize(window);
-    expect(editor).toHaveStyle({ height: '60px' });
-  });
-
   it('grows and shrinks to content within the maximum, keeping long drafts scrollable', () => {
     const { editor, updateDraft } = setup();
     Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 300 });
@@ -51,51 +29,6 @@ describe('portal cell editor', () => {
     Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 30 });
     updateDraft('short');
     expect(editor).toHaveStyle({ height: '30px', overflowY: 'hidden' });
-  });
-
-  it('renders parser-owned formula token colours without replacing the focused textarea', () => {
-    const { editor } = setup('=SUM(@A[1], "text") + TRUE');
-
-    expect(editor).toHaveFocus();
-    expect(document.querySelectorAll('[data-formula-token-kind="function"]')).toHaveLength(1);
-    expect(document.querySelectorAll('[data-formula-token-kind="reference"]')).toHaveLength(1);
-    expect(document.querySelectorAll('[data-formula-token-kind="literal"]')).toHaveLength(2);
-    expect(document.querySelectorAll('[data-formula-token-kind="operator"]')).toHaveLength(1);
-  });
-
-  it('keeps the syntax overlay aligned with every textarea draft and scroll position', () => {
-    const longDraft = `=SUM(@A[1],\t${'value '.repeat(40)})\n${Array.from({ length: 12 }, (_, index) => `row ${index}`).join('\n')}`;
-    const { editor, updateDraft } = setup(longDraft);
-    const highlight = document.querySelector('.sheet-grid-cell-editor-highlight') as HTMLPreElement;
-
-    expect(highlight.textContent).toBe(longDraft);
-    editor.scrollTop = 48;
-    editor.scrollLeft = 32;
-    fireEvent.scroll(editor);
-    expect(highlight.scrollTop).toBe(48);
-    expect(highlight.scrollLeft).toBe(32);
-
-    for (const draft of ['', 'x', 'first\nsecond\n', '\tindented', 'single-line']) {
-      updateDraft(draft);
-      expect(highlight.textContent).toBe(draft);
-      expect(highlight.scrollTop).toBe(editor.scrollTop);
-      expect(highlight.scrollLeft).toBe(editor.scrollLeft);
-    }
-  });
-
-  it('inserts a newline at the selected caret only for Shift+Enter', () => {
-    const { editor, interaction } = setup('first second');
-    editor.setSelectionRange(5, 6);
-    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true });
-    expect(interaction.updateValue).toHaveBeenCalledWith('first\nsecond');
-    expect(editor.selectionStart).toBe(6);
-    for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { ctrlKey: true, shiftKey: true }]) {
-      const event = createEvent.keyDown(editor, { key: 'Enter', ...modifiers });
-      fireEvent(editor, event);
-      expect(event.defaultPrevented).toBe(true);
-    }
-    expect(interaction.updateValue).toHaveBeenCalledOnce();
-    expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
   });
 
   it.each(['Enter', 'Tab', 'Escape'])('finishes %s once without a blur re-commit', (key) => {

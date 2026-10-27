@@ -22,17 +22,16 @@ function setup(models: readonly DataModel[] = [], onSave = vi.fn().mockReturnVal
 }
 
 describe('DataModelDialog', () => {
-  it('shows its empty state and creates ordered manual and calculated properties with explicit types', async () => {
+  it('shows its empty state and creates ordered manual and calculated properties with inferred types', async () => {
     const { onSave } = setup();
     expect(screen.getByText('No data models yet. Create one to define reusable sheet properties.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
     const form = screen.getByRole('form', { name: 'Create data model' });
     fireEvent.change(within(form).getByLabelText('Model name'), { target: { value: 'Order' } });
     fireEvent.change(within(form).getByLabelText('Property 1 name'), { target: { value: 'Total' } });
-    fireEvent.change(within(form).getByLabelText('Property 1 kind'), { target: { value: 'calculated' } });
-    fireEvent.change(within(form).getByLabelText('Property 1 type'), { target: { value: 'float' } });
+    fireEvent.change(within(form).getByLabelText('Property 1 type'), { target: { value: 'function' } });
     fireEvent.change(within(form).getByLabelText('Property 1 formula'), { target: { value: '=1+2' } });
-    fireEvent.click(within(form).getByRole('button', { name: 'Apply' }));
+    fireEvent.keyDown(within(form).getByLabelText('Property 1 formula'), { key: 'Enter', ctrlKey: true });
     fireEvent.click(within(form).getByRole('button', { name: 'Add property' }));
     fireEvent.change(within(form).getByLabelText('Property 2 name'), { target: { value: 'Paid' } });
     fireEvent.change(within(form).getByLabelText('Property 2 type'), { target: { value: 'boolean' } });
@@ -40,9 +39,24 @@ describe('DataModelDialog', () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0][0]).toMatchObject({ name: 'Order', columns: [
-      { name: 'Total', kind: 'calculated', type: 'float', formula: '=1+2' },
+      { name: 'Total', kind: 'calculated', type: 'int', formula: '=1+2' },
       { name: 'Paid', kind: 'manual', type: 'boolean' },
     ] });
+  });
+
+  it('toggles the inline formula editor without replacing its input or hiding the dialog', () => {
+    setup([savedModel]);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('form', { name: 'Edit data model' });
+    fireEvent.click(within(form).getByRole('button', { name: /@Amount/ }));
+    const input = within(form).getByLabelText('Property 2 formula') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: '=123' } });
+    input.setSelectionRange(2, 2);
+    fireEvent.keyDown(input, { key: 'F2' });
+    expect(within(form).getByLabelText('Property 2 formula')).toBe(input);
+    expect(input).toHaveValue('=123');
+    expect(input.selectionStart).toBe(2);
+    expect(screen.getByRole('dialog', { name: 'Data models' })).toBeVisible();
   });
 
   it('keeps IDs on rename and reorder but allocates a fresh ID after removal and addition', async () => {
@@ -70,18 +84,21 @@ describe('DataModelDialog', () => {
     setup([savedModel]);
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const form = screen.getByRole('form', { name: 'Edit data model' });
-    const formula = within(form).getByLabelText('Property 2 formula');
+    fireEvent.click(within(form).getByRole('button', { name: /@Amount/ }));
+    let formula = within(form).getByLabelText('Property 2 formula');
 
     fireEvent.change(formula, { target: { value: '=9' } });
-    fireEvent.click(within(form).getByRole('button', { name: 'Cancel formula' }));
-    expect(formula).toHaveValue('=@Amount[1]*0.2');
+    fireEvent.keyDown(formula, { key: 'Escape', ctrlKey: true });
+    expect(within(form).getByRole('button', { name: /@Amount/ })).toBeInTheDocument();
 
+    fireEvent.click(within(form).getByRole('button', { name: /@Amount/ }));
+    formula = within(form).getByLabelText('Property 2 formula');
     fireEvent.change(formula, { target: { value: '=9' } });
-    fireEvent.click(within(form).getByRole('button', { name: 'Apply' }));
-    expect(formula).toHaveValue('=9');
+    fireEvent.keyDown(formula, { key: 'Enter', ctrlKey: true });
+    expect(within(form).getByRole('button', { name: /=9/ })).toBeInTheDocument();
   });
 
-  it('shows evaluated values for qualified workbook references in model formula hover', () => {
+  it('highlights qualified workbook references without a hover tooltip in model editing', () => {
     const inputs = smallSheetDocument({ id: 'inputs', name: 'Inputs' });
     const workbook = workbookWithSheets([inputs]);
     const model: DataModel = { ...savedModel, columns: [
@@ -91,8 +108,9 @@ describe('DataModelDialog', () => {
     render(<DataModelDialog formulaResults={{ inputs: { A1: { kind: 'number', value: 42, display: '42' } } }} models={[model]} onCancel={vi.fn()} onSave={vi.fn()} workbook={workbook} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: /@Inputs!A/ }));
     fireEvent.mouseEnter(screen.getByText('@Inputs!A[1]'));
-    expect(screen.getByText('42')).toBeVisible();
+    expect(screen.queryByText('42')).not.toBeInTheDocument();
     expect(screen.queryByText('Reference error: #REF!')).not.toBeInTheDocument();
   });
 
@@ -258,7 +276,7 @@ describe('DataModelDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const form = screen.getByRole('form', { name: 'Edit data model' });
     expect(within(form).getByLabelText('Model name')).toHaveFocus();
-    expect(within(form).getByLabelText('Property 1 kind')).toBeInTheDocument();
+    expect(within(form).getByLabelText('Property 1 type')).toBeInTheDocument();
     fireEvent.keyDown(within(form).getByLabelText('Model name'), { key: 'Escape' });
     expect(screen.getByRole('dialog', { name: 'Data models' })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Data models' }), { key: 'Escape' });
@@ -334,7 +352,7 @@ describe('DataModelDialog', () => {
     setup();
     fireEvent.click(screen.getByRole('button', { name: 'Create model' }));
     const form = screen.getByRole('form', { name: 'Create data model' });
-    fireEvent.change(within(form).getByLabelText('Property 1 kind'), { target: { value: 'calculated' } });
+    fireEvent.change(within(form).getByLabelText('Property 1 type'), { target: { value: 'function' } });
     expect(within(form).getByLabelText('Property 1 formula')).toHaveAttribute('data-raw-formula-input', 'true');
     const anchor = { current: document.createElement('div') };
     render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
