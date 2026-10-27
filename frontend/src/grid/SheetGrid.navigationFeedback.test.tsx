@@ -30,28 +30,29 @@ function setup(rowCount = 30, columnCount = 10) {
 }
 
 describe('reference-navigation range feedback', () => {
-  it('tints a rectangle with selection-owned perimeter only and restarts without replacing focused cells', () => {
+  it('marks a rectangle with selection-owned perimeter without replacing focused cells', () => {
     const { cell, show, container } = setup();
     const range = { start: { rowIndex: 1, columnIndex: 1 }, end: { rowIndex: 3, columnIndex: 3 } };
     const feedback = { navigationHighlightRange: range, selectedRange: range, activeCellKey: 'B2', navigationHighlightIdentity: 1 };
     show(feedback);
     const anchor = cell('B2');
     anchor.focus();
-    expect(container.querySelectorAll('.sheet-grid-navigation-feedback')).toHaveLength(9);
+    expect(container.querySelectorAll('[data-navigation-highlight="true"]')).toHaveLength(9);
     expect(cell('C3')).toHaveClass('sheet-grid-cell-range-selected', 'sheet-grid-cell-navigation-target');
     expect(cell('C3').className).not.toMatch(/sheet-grid-selection-(top|bottom|left|right)/);
     expect(anchor).toHaveClass('sheet-grid-selection-top', 'sheet-grid-selection-left', 'sheet-grid-cell-active');
     expect(cell('D4')).toHaveClass('sheet-grid-selection-bottom', 'sheet-grid-selection-right');
     expect(cell('A1')).not.toHaveAttribute('data-navigation-highlight');
-    const oldTint = cell('C3').querySelector('span');
+    const target = cell('C3');
     show({ ...feedback, navigationHighlightRange: { ...range } });
-    expect(cell('C3').querySelector('span')).toBe(oldTint);
+    expect(cell('C3')).toBe(target);
     show({ ...feedback, navigationHighlightIdentity: 2 });
-    expect(cell('C3').querySelector('span')).not.toBe(oldTint);
+    expect(cell('C3')).toBe(target);
+    expect(target).toHaveAttribute('data-navigation-highlight', 'true');
     expect(cell('B2')).toBe(anchor);
     expect(anchor).toHaveFocus();
     show({ activeCellKey: 'B2', selectedRange: range });
-    expect(container.querySelector('.sheet-grid-navigation-feedback')).toBeNull();
+    expect(container.querySelector('[data-navigation-highlight="true"]')).toBeNull();
     expect(cell('C3')).toHaveClass('sheet-grid-cell-range-selected');
   });
 
@@ -59,10 +60,10 @@ describe('reference-navigation range feedback', () => {
     const { cell, show } = setup();
     const historyFeedbackCells = new Map([['A1', { before: 'old', beforeDisplay: 'old', after: 'new' }]]);
     show({ navigationHighlightCellKey: 'C3', navigationHighlightIdentity: 1, historyFeedbackCells });
-    expect(cell('C3').querySelector('.sheet-grid-navigation-feedback')).toHaveAttribute('aria-hidden', 'true');
+    expect(cell('C3')).toHaveAttribute('data-navigation-highlight', 'true');
     expect(cell('A1')).toHaveClass('sheet-grid-cell-history-replacement');
     show({ navigationHighlightCellKey: 'D4', navigationHighlightIdentity: 2, historyFeedbackCells });
-    expect(cell('C3').querySelector('.sheet-grid-navigation-feedback')).toBeNull();
+    expect(cell('C3')).not.toHaveAttribute('data-navigation-highlight');
     expect(cell('D4')).toHaveAttribute('data-navigation-highlight', 'true');
     expect(cell('A1')).toHaveAttribute('data-history-feedback', 'true');
   });
