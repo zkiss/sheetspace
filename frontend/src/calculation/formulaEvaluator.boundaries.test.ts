@@ -151,4 +151,23 @@ describe('formula evaluator boundary outcomes', () => {
     expect(values).toEqual({ malformed: {} });
     expect(observed).toEqual(['malformed', 'missing-row\0column-1', 'row-1\0missing-column']);
   });
+
+  it('turns incompatible formula results into value errors before dependent formulas consume them', () => {
+    const sheet = {
+      ...sheetDocument({ id: 'typed', name: 'Typed', columnCount: 3, cells: { A1: 'text', B1: '=@A[1]', C1: '=@B[1]' } }),
+      modelId: 'model',
+      modelColumnBindings: { amount: 'typed:column:2' },
+    };
+    const workbook = {
+      ...workbookWithSheets([sheet]),
+      dataModels: { model: { id: 'model', name: 'Model', columns: [
+        { id: 'amount', name: 'Amount', kind: 'manual' as const, type: 'float' as const },
+      ] } },
+    };
+
+    expect(evaluateFormulaCells(calculationProjection(workbook)).typed).toMatchObject({
+      B1: { kind: 'error', error: '#VALUE!' },
+      C1: { kind: 'error', error: '#VALUE!' },
+    });
+  });
 });

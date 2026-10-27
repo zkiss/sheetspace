@@ -5,6 +5,7 @@ import {
   formulaCollectionValues,
   formulaErrorValue,
   formulaScalarValue,
+  matchesModelColumnType,
 } from '@calculation/formulaValue';
 
 describe('formula value helpers', () => {
@@ -32,5 +33,15 @@ describe('formula value helpers', () => {
       value: -0,
       display: '0',
     });
+  });
+
+  it('accepts blanks and errors while enforcing manual model column value kinds', () => {
+    expect(matchesModelColumnType({ kind: 'blank' }, 'int')).toBe(true);
+    expect(matchesModelColumnType({ kind: 'error', error: '#VALUE!' }, 'int')).toBe(true);
+    expect(matchesModelColumnType({ kind: 'number', value: 2 }, 'int')).toBe(true);
+    expect(matchesModelColumnType({ kind: 'number', value: 2.5 }, 'int')).toBe(false);
+    expect(matchesModelColumnType({ kind: 'number', value: 2.5 }, 'float')).toBe(true);
+    expect(matchesModelColumnType({ kind: 'text', value: 'two' }, 'string')).toBe(true);
+    expect(matchesModelColumnType({ kind: 'boolean', value: true }, 'boolean')).toBe(true);
   });
 });

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import workbookReadContract from '../../../../test-fixtures/workbook-read-contract.json';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, sheetsInOrder } from '@workbook/read/queries';
-import { type SheetDocument } from '@workbook/core/model';
+import { DEFAULT_SHEET_FRAME_SIZE, type SheetDocument } from '@workbook/core/model';
 import { formulaRawToCanonical, formulaRawToDisplay, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import {
   decodeSheetDocument,
@@ -25,7 +25,10 @@ function expectedDocument(response: SheetDocumentResponse): SheetDocument {
     presentation: { rowHeights: { ...response.presentation.rowHeights }, columnWidths: { ...response.presentation.columnWidths } },
     frame: {
       position: { ...response.frame.position },
-      size: { ...response.frame.size },
+      size: {
+        width: response.frame.size?.width ?? DEFAULT_SHEET_FRAME_SIZE.width,
+        height: response.frame.size?.height ?? DEFAULT_SHEET_FRAME_SIZE.height,
+      },
       visualScale: response.frame.visualScale,
       zIndex: response.frame.zIndex,
     },
@@ -143,7 +146,16 @@ describe('workbook API read decoding', () => {
     expect(canonical).not.toContain('#REF!');
     expect(canonical).not.toBe("=@'Description'[1]");
     expect(formulaRawToDisplay(cellRawContent(reloaded.documents[response.id]!, 'A1')!, workbookFormulaReferenceResolver(reloaded, response.id)))
-      .toBe("=@'Description'[1]");
+      .toBe('=@Description[1]');
+  });
+
+  it('fills omitted frame dimensions with the rendered default dimensions', () => {
+    const document = decodeSheetDocument({
+      ...inputsResponse,
+      frame: { ...inputsResponse.frame, size: undefined },
+    });
+
+    expect(document.frame.size).toEqual({ width: 240, height: 160 });
   });
 
   it('loads one stable sheet document by encoded id', async () => {

@@ -229,6 +229,32 @@ describe('workbook operations', () => {
     }
   });
 
+  it('rejects incompatible literals atomically on model-bound columns while allowing blanks and formulas', () => {
+    const sheet = {
+      ...sheetDocument({ id: 'typed', name: 'Typed', rowCount: 2, columnCount: 2, cells: { A1: '1', A2: '2' } }),
+      modelId: 'model',
+      modelColumnBindings: { quantity: 'typed:column:1' },
+    };
+    const typedWorkbook = {
+      ...workbookWithSheets([sheet]),
+      dataModels: { model: { id: 'model', name: 'Model', columns: [
+        { id: 'quantity', name: 'Quantity', kind: 'manual' as const, type: 'int' as const },
+      ] } },
+    };
+    const a1 = cellIdentityAt(sheet.content, 'A1')!;
+    const a2 = cellIdentityAt(sheet.content, 'A2')!;
+
+    expect(applyWorkbookOperation(typedWorkbook, {
+      kind: 'write-cells', operationId: 'invalid-batch', writes: [write(sheet.id, a1, '3'), write(sheet.id, a2, 'three')],
+    })).toEqual({ ok: false, reason: 'invalid-cell-type' });
+    expect(applyWorkbookOperation(typedWorkbook, {
+      kind: 'write-cells', operationId: 'blank', writes: [write(sheet.id, a1, '')],
+    })).toMatchObject({ ok: true, value: { changed: true } });
+    expect(applyWorkbookOperation(typedWorkbook, {
+      kind: 'write-cells', operationId: 'formula', writes: [write(sheet.id, a1, '=1.5')],
+    })).toMatchObject({ ok: true, value: { changed: true } });
+  });
+
   it('applies changed cells across sheets in one transaction and its inverse restores exact raw content', () => {
     const source = workbookWithSheets([
       sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: ' old value ' } }),
