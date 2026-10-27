@@ -375,7 +375,7 @@ export class FormulaParser {
       return { kind: 'named', value: { propertyName, row: Number(row[2]) }, anchors: { column: columnAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
     }
     const hyphenatedCanonical = this.peek() === '-' && /^-[A-Za-z0-9_:-]+\[\$?[A-Za-z0-9_:-]+\]/.test(this.input.slice(this.index));
-    if (propertyName && (!/[A-Za-z0-9_:\-\[]/.test(this.peek()) || (this.peek() === '-' && !hyphenatedCanonical))) {
+    if (propertyName && (!/[A-Za-z0-9_:\-[]/.test(this.peek()) || (this.peek() === '-' && !hyphenatedCanonical))) {
       return { kind: 'named', value: { propertyName, row: 1 }, anchors: { column: columnAnchor, row: false }, sourceSpan: this.span(start) };
     }
     this.index = propertyStart;

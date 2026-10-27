@@ -11,7 +11,7 @@ export function useSelectionTransition(activeCell: CellTarget | null) {
     if (!from || !activeCell || from.sheetId === activeCell.sheetId) return;
     const id = ++nextId.current;
     setTransition({ from, to: activeCell, id });
-  }, [activeCell?.sheetId]);
+  }, [activeCell]);
   useEffect(() => {
     if (!transition) return;
     const timeout = window.setTimeout(() => setTransition(null), 400);
