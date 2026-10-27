@@ -93,9 +93,9 @@ describe('resolver-backed named draft analysis', () => {
 
     const inspection = inspectFormula(raw, workbook, sheet)!;
 
-    expect(inspection.raw).toBe("=@'Revenue'[1] + @'Cost'[2] + @'Revenue'[2]");
+    expect(inspection.raw).toBe("=@'Revenue'[1] + @Cost[2] + @'Revenue'[2]");
     expect(inspection.parts.map((part) => part.text).join('')).toBe(inspection.raw);
-    expect(inspection.references.map((reference) => reference.text)).toEqual(["@'Revenue'[1]", "@'Cost'[2]", "@'Revenue'[2]"]);
+    expect(inspection.references.map((reference) => reference.text)).toEqual(["@'Revenue'[1]", '@Cost[2]', "@'Revenue'[2]"]);
     expect(inspection.references.every((reference) => reference.navigable && !reference.broken)).toBe(true);
   });
 
