@@ -134,6 +134,20 @@ describe('history cell reveal in the composed workspace', () => {
     }
   });
 
+  it('does not retarget a consumed undo or redo reveal after an intentional pan', () => {
+    const { surface, cell } = setup();
+    for (const redo of [false, true]) {
+      panWorkspace(-250 - Number(surface.dataset.viewportX), -150 - Number(surface.dataset.viewportY));
+      history(redo);
+      expect(cell).toHaveTextContent(redo ? 'new' : 'old');
+      const revealedX = Number(surface.dataset.viewportX);
+      const revealedY = Number(surface.dataset.viewportY);
+      panWorkspace(-20, -15);
+      expect(Number(surface.dataset.viewportX)).toBeCloseTo(revealedX - 20);
+      expect(Number(surface.dataset.viewportY)).toBeCloseTo(revealedY - 15);
+    }
+  });
+
   it('does not move the workspace when the history cell is visible in a clipped frame', () => {
     const { surface, cell } = setup();
     const deltaX = 70;
