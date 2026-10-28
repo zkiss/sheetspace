@@ -56,3 +56,29 @@ it('follows a modifier-clicked editor reference and restores its suspended draft
   fireEvent.keyDown(screen.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
   expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveValue('=@inputs!B[2]+1');
 });
+
+it('clears the jump highlight when Back interrupts a modifier-click navigation', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+  const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4000, y: 3000 } });
+  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+  render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+  act(() => { measuredElementGeometry(workspaceSurface(), { width: 800, height: 600 }); });
+  const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.click(source);
+  fireEvent.keyDown(source, { key: 'F2' });
+  const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+  fireEvent.change(editor, { target: { value: '=@inputs!B[2]+1' } });
+  const token = document.querySelector<HTMLElement>('[data-reference-index="0"]')!;
+  vi.spyOn(token, 'getClientRects').mockReturnValue([{ left: 10, right: 100, top: 10, bottom: 30 } as DOMRect] as unknown as DOMRectList);
+  fireEvent.mouseMove(editor, { clientX: 20, clientY: 20, ctrlKey: true });
+  fireEvent.mouseDown(editor, { clientX: 20, clientY: 20, ctrlKey: true });
+  expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveAttribute('data-navigation-highlight', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  act(() => { vi.advanceTimersByTime(2000); });
+  expect(document.querySelector('[data-navigation-highlight="true"]')).toBeNull();
+  const restored = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  expect(restored).toHaveAttribute('data-active-cell', 'true');
+  fireEvent.keyDown(restored, { key: 'F2' });
+  expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveValue('=@inputs!B[2]+1');
+});
