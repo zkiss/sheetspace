@@ -114,4 +114,24 @@ describe('App workspace and sheet frame composition', () => {
     );
     await waitFor(() => expect(screen.getByRole('status', { name: 'All changes saved' })).toBeInTheDocument());
   });
+
+  it('keeps the detailed grid mounted while a wheel zoom preview is rendered', async () => {
+    render(<App initialWorkbook={workbookWithSheets([
+      positionedSheet('sheet-visible', 'Visible', { x: 40, y: 40 }),
+    ])} />);
+    measureWorkspace();
+    const frame = await screen.findByRole('article', { name: 'Sheet Visible' });
+    const grid = screen.getByTestId('sheet-grid');
+    const surface = workspaceSurface();
+
+    for (let index = 0; index < 12; index++) {
+      fireEvent.wheel(surface, { ctrlKey: true, deltaY: -2, clientX: 120, clientY: 80 });
+    }
+
+    expect(screen.getByTestId('sheet-grid')).toBe(grid);
+    await waitFor(() => expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1));
+    expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
+    expect(screen.getByTestId('sheet-grid')).toBe(grid);
+    expect(screen.getAllByTestId('sheet-frame')).toHaveLength(1);
+  });
 });
