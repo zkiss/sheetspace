@@ -111,15 +111,15 @@ describe('context-menu ownership in the composed workspace', () => {
     expect(frame).toHaveAttribute('data-visual-scale', '0.75');
   });
 
-  it('keeps inspector text, wrapper, status and reference tokens native without changing selection', () => {
+  it('keeps the shared formula editor context menu native without changing selection', () => {
     const { surface } = setup();
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-    fireEvent.click(cell);
-    const inspector = screen.getByRole('region', { name: 'Selected formula' });
-    for (const target of [inspector, inspector.querySelector('code')!, within(inspector).getByText('Formula'),
-      within(inspector).getByRole('status'), within(inspector).getByRole('button', { name: '@B[1], reference' })]) {
+    fireEvent.doubleClick(cell);
+    const editor = screen.getByRole('textbox');
+    const panel = editor.closest('section')!;
+    for (const target of [panel, editor, panel.querySelector('[data-reference-index]')!]) {
       expect(contextMenu(target).defaultPrevented).toBe(false);
-      expect(screen.getByRole('region', { name: 'Selected formula' })).toBe(inspector);
+      expect(screen.getByRole('textbox')).toBe(editor);
       expect(cell).toHaveAttribute('data-active-cell', 'true');
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
       expectStationary(surface);
