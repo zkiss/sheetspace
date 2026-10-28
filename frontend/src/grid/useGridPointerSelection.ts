@@ -38,6 +38,10 @@ type DragSession = {
 
 type PointerScale = { x: number; y: number };
 
+function exceedsClickSlop(drag: DragSession, x: number, y: number) {
+  return Math.hypot(x - drag.startX, y - drag.startY) > 4;
+}
+
 function pointerScale(container: HTMLElement, rect: DOMRect): PointerScale {
   return {
     x: rect.width ? container.clientWidth / rect.width : 1,
@@ -137,6 +141,7 @@ export function useGridPointerSelection({
       rowIndex: row.durableIndex,
     }));
     if (!target) return;
+    if (drag.target && !sameTarget(target, drag.target)) drag.moved = true;
     drag.target = target;
     interactionRef.current.extend(target, { owner: drag.owner });
   }, [sheet]);
@@ -270,7 +275,7 @@ export function useGridPointerSelection({
     }
     drag.clientX = event.clientX;
     drag.clientY = event.clientY;
-    if (event.clientX !== drag.startX || event.clientY !== drag.startY) drag.moved = true;
+    if (exceedsClickSlop(drag, event.clientX, event.clientY)) drag.moved = true;
     extendDrag(event.clientX, event.clientY);
   };
 
@@ -300,7 +305,7 @@ export function useGridPointerSelection({
     cancelDrag: (event: PointerEvent<HTMLDivElement>) => finishDrag(event.pointerId),
     completeDrag: (event: PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current;
-      if (drag && (event.clientX !== drag.startX || event.clientY !== drag.startY)) drag.moved = true;
+      if (drag && exceedsClickSlop(drag, event.clientX, event.clientY)) drag.moved = true;
       finishDrag(event.pointerId, ownsDrag());
     },
     dragging,

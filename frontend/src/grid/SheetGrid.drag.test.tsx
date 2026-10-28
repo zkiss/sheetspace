@@ -43,6 +43,14 @@ describe('SheetGrid pointer selection', () => {
     expect(cellInteraction.startEditing).toHaveBeenCalledOnce();
     expect(cellInteraction.startEditing).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'A1') }));
     cellInteraction.startEditing.mockClear();
+    for (let index = 0; index < 2; index++) {
+      firePointer(cell, 'pointerdown', { button: 0, clientX: 50, clientY: 40 });
+      firePointer(grid, 'pointermove', { clientX: 51, clientY: 40 });
+      firePointer(grid, 'pointerup', { clientX: 51, clientY: 40 });
+    }
+    fireEvent.doubleClick(grid, { clientX: 51, clientY: 40 });
+    expect(cellInteraction.startEditing).toHaveBeenCalledOnce();
+    cellInteraction.startEditing.mockClear();
     click();
     firePointer(cell, 'pointerdown', { button: 0, clientX: 50, clientY: 40 });
     firePointer(grid, 'pointermove', { clientX: 130, clientY: 40 });
