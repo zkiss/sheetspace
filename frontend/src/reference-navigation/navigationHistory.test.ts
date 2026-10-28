@@ -4,16 +4,16 @@ import { appendNavigationContext, EMPTY_NAVIGATION_HISTORY, traverseNavigationHi
 const place = (x: number): NavigationContext => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} });
 
 describe('navigation history', () => {
-  it('coalesces adjacent places and inserts a branch before retained Forward places', () => {
+  it('coalesces adjacent places and prunes Forward when recording a new branch', () => {
     let history = EMPTY_NAVIGATION_HISTORY;
     history = appendNavigationContext(history, place(1));
     history = appendNavigationContext(history, place(2));
     history = appendNavigationContext(history, place(3));
     history = traverseNavigationHistory(history, 'back')!.history;
     history = appendNavigationContext(history, place(4));
-    expect(history.entries.map((entry) => entry.viewport.x)).toEqual([1, 2, 4, 3]);
+    expect(history.entries.map((entry) => entry.viewport.x)).toEqual([1, 2, 4]);
     expect(history.cursor).toBe(2);
-    expect(traverseNavigationHistory(history, 'forward')!.context.viewport.x).toBe(3);
+    expect(traverseNavigationHistory(history, 'forward')).toBeUndefined();
     expect(appendNavigationContext(history, place(4))).toBe(history);
   });
 

@@ -9,6 +9,7 @@ import type { SheetDocument } from '@workbook/core/model';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import userEvent from '@testing-library/user-event';
 import { panWorkspace, zoomWorkspace, setSheetScale } from '@test-support/workspaceActions';
+import { navigateFirstReference } from '@test-support/referenceNavigation';
 
 describe('viewport-aware sheet creation', () => {
   it.each(['toolbar', 'empty action', 'Shift+N'])('creates only once at the visible center via %s after pan/zoom', async (intent) => {
@@ -133,7 +134,7 @@ describe('viewport-aware sheet creation', () => {
     fireEvent(header, new MouseEvent('pointermove', { bubbles: true, clientX: 160, clientY: 180 }));
     fireEvent(header, new MouseEvent('pointerup', { bubbles: true, clientX: 160, clientY: 180 }));
     fireEvent.click(cellAt(outputs, 'A1'));
-    fireEvent.click(screen.getByRole('button', { name: '@Inputs!B[1], reference' }), { ctrlKey: true });
+    navigateFirstReference(cellAt(outputs, 'A1'), 'Outputs A1 editor');
     expect(inputs).toHaveAttribute('data-active-sheet', 'true');
     expect(inputs).toHaveAttribute('data-navigation-reveal', 'true');
     // Navigation raises the effective scale to the shared detailed-entry

@@ -1,5 +1,6 @@
+import { Profiler } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { resizeHandle, workspaceSurface } from '@test-support/appScreen';
@@ -113,5 +114,28 @@ describe('App workspace and sheet frame composition', () => {
       'sheet-inputs', { x: 120, y: 80 }, { width: 320, height: 160 }, { revision: 6 },
     );
     await waitFor(() => expect(screen.getByRole('status', { name: 'All changes saved' })).toBeInTheDocument());
+  });
+
+  it('keeps the detailed grid mounted while a wheel zoom preview is rendered', async () => {
+    const commits = vi.fn();
+    render(<Profiler id="workspace" onRender={commits}><App initialWorkbook={workbookWithSheets([
+      positionedSheet('sheet-visible', 'Visible', { x: 40, y: 40 }),
+    ])} /></Profiler>);
+    measureWorkspace();
+    const frame = await screen.findByRole('article', { name: 'Sheet Visible' });
+    const grid = screen.getByTestId('sheet-grid');
+    const surface = workspaceSurface();
+
+    commits.mockClear();
+    for (let index = 0; index < 12; index++) {
+      fireEvent.wheel(surface, { ctrlKey: true, deltaY: -2, clientX: 120, clientY: 80 });
+    }
+    expect(commits.mock.calls.length).toBeLessThanOrEqual(2);
+
+    expect(screen.getByTestId('sheet-grid')).toBe(grid);
+    await waitFor(() => expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1));
+    expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
+    expect(screen.getByTestId('sheet-grid')).toBe(grid);
+    expect(screen.getAllByTestId('sheet-frame')).toHaveLength(1);
   });
 });

@@ -21,6 +21,26 @@ const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: 
 const persistenceWrite = (sheetId: string, cell: { rowId: string; columnId: string }, beforeRaw: string | null, afterRaw: string | null) => ({ sheetId, ...cell, beforeRaw, afterRaw });
 
 describe('workbook operations', () => {
+  it('rejects invalid replay targets atomically before changing workbook cells', () => {
+    const cell = cellIdentityAt(alpha.content, 'A1')!;
+    const valid = persistenceWrite('alpha', cell, null, 'new');
+    expect(replayCellPersistenceWrites(workbook, [persistenceWrite('missing', cell, null, 'new')], 'before'))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(replayCellPersistenceWrites(workbook, [persistenceWrite('alpha', { ...cell, rowId: 'missing' }, null, 'new')], 'before'))
+      .toEqual({ ok: false, reason: 'invalid-cell' });
+    expect(replayCellPersistenceWrites(workbook, [valid, valid], 'before'))
+      .toEqual({ ok: false, reason: 'duplicate-cell' });
+    expect(cellRawContent(workbook.documents.alpha, 'A1')).toBeUndefined();
+  });
+
+  it('rejects frame and rename operations for missing sheets and leaves identical names unchanged', () => {
+    expect(applyWorkbookOperation(workbook, { kind: 'rename-sheet', operationId: 'rename', sheetId: 'missing', name: 'New' }))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(applyWorkbookOperation(workbook, { kind: 'move-sheet-frame', operationId: 'move', sheetId: 'missing', position: { x: 1, y: 2 } }))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(applyWorkbookOperation(workbook, { kind: 'rename-sheet', operationId: 'rename', sheetId: 'alpha', name: ' Alpha ' }))
+      .toMatchObject({ ok: true, value: { changed: false } });
+  });
   it.each([
     {
       label: 'cell content',
@@ -227,6 +247,32 @@ describe('workbook operations', () => {
       expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'A1')).toBeUndefined();
       expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=@beta!beta:column:1[beta:row:1]');
     }
+  });
+
+  it('rejects incompatible literals atomically on model-bound columns while allowing blanks and formulas', () => {
+    const sheet = {
+      ...sheetDocument({ id: 'typed', name: 'Typed', rowCount: 2, columnCount: 2, cells: { A1: '1', A2: '2' } }),
+      modelId: 'model',
+      modelColumnBindings: { quantity: 'typed:column:1' },
+    };
+    const typedWorkbook = {
+      ...workbookWithSheets([sheet]),
+      dataModels: { model: { id: 'model', name: 'Model', columns: [
+        { id: 'quantity', name: 'Quantity', kind: 'manual' as const, type: 'int' as const },
+      ] } },
+    };
+    const a1 = cellIdentityAt(sheet.content, 'A1')!;
+    const a2 = cellIdentityAt(sheet.content, 'A2')!;
+
+    expect(applyWorkbookOperation(typedWorkbook, {
+      kind: 'write-cells', operationId: 'invalid-batch', writes: [write(sheet.id, a1, '3'), write(sheet.id, a2, 'three')],
+    })).toEqual({ ok: false, reason: 'invalid-cell-type' });
+    expect(applyWorkbookOperation(typedWorkbook, {
+      kind: 'write-cells', operationId: 'blank', writes: [write(sheet.id, a1, '')],
+    })).toMatchObject({ ok: true, value: { changed: true } });
+    expect(applyWorkbookOperation(typedWorkbook, {
+      kind: 'write-cells', operationId: 'formula', writes: [write(sheet.id, a1, '=1.5')],
+    })).toMatchObject({ ok: true, value: { changed: true } });
   });
 
   it('applies changed cells across sheets in one transaction and its inverse restores exact raw content', () => {

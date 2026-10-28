@@ -19,13 +19,14 @@ const packages: Owner[] = [
   production('calculation', 'calculation', formula),
   production('application/core', 'application/core', ['calculation', ...workbook]),
   production('infrastructure/persistence', 'infrastructure/persistence', ['application/core', ...read]),
-  production('application/react', 'application/react', ['infrastructure/persistence', 'application/core', 'calculation', ...workbook], ['react']),
+  production('application/react', 'application/react', ['infrastructure/persistence', 'application/core', 'calculation', ...workbook, 'shared/ui'], ['react']),
   production('workspace/model', 'workspace', ['application/core', ...read, 'shared/styles'], [], `(?:${workspaceModels})\\.ts`),
   production('workspace/ui', 'workspace', ['workspace/model', 'application/core', ...read, 'shared/styles'], ['react'], `(?!(?:${workspaceModels})\\.ts$)[^/]+`),
   production('grid/model', 'grid', ['application/core', 'calculation', ...formula, 'workspace/model', 'shared/styles'], [], `(?:${gridModels})\\.ts`),
   production('grid/ui', 'grid', ['grid/model', 'application/core', 'calculation', ...formula, 'workspace/model', 'shared/styles'], ['react', 'react-dom', '@tanstack/react-virtual'], `(?!(?:${gridModels})\\.ts$)[^/]+`),
   production('reference-navigation', 'reference-navigation', ['grid/model', 'workspace/model', ...formula, 'shared/styles'], ['react']),
   production('shared/styles', 'shared/styles', []),
+  production('shared/ui', 'shared/ui', [], ['react', 'react-dom']),
 ];
 const productionNames = [...packages.map(({ name }) => name), 'app', 'app/bootstrap'];
 packages.push(

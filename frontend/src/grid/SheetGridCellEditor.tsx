@@ -1,20 +1,48 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject, type ComponentType, type Ref } from 'react';
 import { createPortal } from 'react-dom';
-import { parseFormulaSyntax } from '@workbook/formula/syntax';
-import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
+import type { FormulaReferenceResolver } from '@workbook/formula/reference';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
+import type { FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
+import type { FormulaScalarValue } from '@calculation/formulaValue';
 import type { CellEditSession, CellNavigationRequest } from './cellInteractionContracts';
 import './SheetGridCell.css';
 
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
 export const CELL_EDITOR_MAX_HEIGHT = '7rem';
 
+type FormulaContext = {
+  resolver: FormulaReferenceResolver;
+  sheetNames: readonly string[];
+  propertyNames?: readonly string[];
+  referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
+  inspectionReferences?: readonly FormulaInspectionReference[];
+  referenceColors?: ReadonlyMap<number, string>;
+  onReferenceHover?: (span: { start: number; end: number } | null) => void;
+  onReferenceModifierHover?: (span: { start: number; end: number } | null) => void;
+  onReferenceNavigate?: (reference: FormulaInspectionReference) => void;
+};
+
+export type CellFormulaEditorProps = FormulaContext & {
+  ariaLabel: string; autoFocus: boolean; cellMode: 'light' | 'heavy';
+  initialView: { start: number; end: number; scrollTop?: number };
+  inputRef: Ref<HTMLTextAreaElement>; panelRef: RefObject<HTMLElement>;
+  sheetId: string; raw: string; readOnly?: boolean;
+  onToggleMode: () => void; onRawChange: (value: string) => void;
+  onViewChange: (view: { start: number; end: number; scrollTop: number }) => void;
+  onApply: () => void; onCancel: () => void;
+  onCommitAndNavigate: (request: { key: 'Enter' | 'Tab'; shift?: boolean }) => void;
+  onFocusLeave: (view: { start: number; end: number; scrollTop: number }, destination: EventTarget | null) => void;
+};
+
 export type SheetGridCellEditorInteraction = {
+  FormulaEditor: ComponentType<CellFormulaEditorProps>;
   cancel: (session?: CellEditSession) => void;
-  commit: (session?: CellEditSession) => void;
+  commit: (session?: CellEditSession, restoreFocus?: boolean) => void;
   suspend?: (session: CellEditSession) => void;
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
   updateValue: (value: string, session?: CellEditSession) => void;
   updateView?: (selection: { start: number; end: number }, scrollTop: number, session?: CellEditSession) => void;
+  formulaContext?: FormulaContext;
 };
 
 export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction, sheetName }: {
@@ -25,10 +53,10 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   sheetName: string;
 }) {
   const [isAnchored, setIsAnchored] = useState(false);
+  const [mode, setMode] = useState<'light' | 'heavy'>('light');
   const anchorRect = useRef<DOMRect | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
-  const highlightRef = useRef<HTMLPreElement>(null);
-  const hasPlacedInitialCaret = useRef(false);
+  const panelRef = useRef<HTMLElement>(null);
   const hasFinishedEditing = useRef(false);
   const latest = useRef({ editingCell, interaction });
   latest.current = { editingCell, interaction };
@@ -53,14 +81,15 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   const updatePosition = useCallback(() => {
     // Ref replacement during a parent render must not unmount the focused portal.
     if (!anchor.current) return;
-    const next = anchor.current.getBoundingClientRect();
+    const sheetBody = anchor.current.closest('[data-workspace-sheet-frame]')?.querySelector('.sheet-frame-body');
+    const next = (mode === 'heavy' ? sheetBody ?? anchor.current : anchor.current).getBoundingClientRect();
     if (sameRect(anchorRect.current, next)) return;
     anchorRect.current = next;
     // Geometry belongs to the DOM, not the controlled draft. Moving an anchor
     // must not render React (or trigger another layout-effect geometry read).
-    if (editorRef.current) placeEditor(editorRef.current, next, highlightRef.current);
+    if (editorRef.current && panelRef.current) placeEditor(panelRef.current, editorRef.current, next, mode);
     else setIsAnchored(true);
-  }, [anchor]);
+  }, [anchor, mode]);
   useLayoutEffect(() => { updatePosition(); }, [anchorElement, updatePosition]);
   useEffect(() => {
     // The containing cell's ref is attached after this child's layout effect.
@@ -82,90 +111,53 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   }, [anchor, updatePosition]);
   useLayoutEffect(() => {
     const editor = editorRef.current;
-    if (!editor || !anchorRect.current) return;
-    if (!hasPlacedInitialCaret.current) {
-      const selection = editingCell.selection ?? { start: editor.value.length, end: editor.value.length };
-      editor.setSelectionRange(selection.start, selection.end);
-      editor.scrollTop = editingCell.scrollTop ?? 0;
-      hasPlacedInitialCaret.current = true;
-    }
-    placeEditor(editor, anchorRect.current, highlightRef.current);
-  }, [isAnchored, editingCell.draft, editingCell.scrollTop, editingCell.selection]);
+    if (!editor || !panelRef.current || !anchorRect.current) return;
+    placeEditor(panelRef.current, editor, anchorRect.current, mode);
+  }, [isAnchored, editingCell.draft, mode]);
+
+  function currentSession(): CellEditSession {
+    const editor = editorRef.current;
+    return editor ? { ...editingCell, draft: editor.value, selection: { start: editor.selectionStart, end: editor.selectionEnd }, scrollTop: editor.scrollTop } : editingCell;
+  }
 
   if (!isAnchored) return null;
-  const sizing = cellEditorSizing(editingCell.draft, 0);
-  const analysis = parseFormulaSyntax(editingCell.draft, { preserveUnknownFunctions: true });
-  return createPortal(<>
-    <pre aria-hidden="true" className="sheet-grid-cell-editor-highlight" ref={highlightRef}>
-      {analysis.tokens.map((token) => <span
-        className={`formula-syntax-token formula-syntax-token-${token.kind}`}
-        data-formula-token-kind={token.kind}
-        key={`${token.sourceSpan.start}-${token.sourceSpan.end}`}
-      >{editingCell.draft.slice(token.sourceSpan.start, token.sourceSpan.end)}</span>)}
-    </pre>
-    <RawFormulaInput
-    aria-label={`${sheetName} ${cellKey} editor`}
+  const FormulaEditor = interaction.FormulaEditor;
+  return createPortal(<FormulaEditor
+    ariaLabel={`${sheetName} ${cellKey} editor`}
     autoFocus
-    className="sheet-grid-cell-editor"
-    data-max-height={CELL_EDITOR_MAX_HEIGHT}
-    data-max-width={CELL_EDITOR_MAX_WIDTH}
-    data-multiline-editor={sizing.multiline ? 'true' : undefined}
-    data-visible-lines={sizing.visibleLineCount}
-    data-workspace-sheet-editor={editingCell.target.sheetId}
-      onBlur={(event) => {
-        if (hasFinishedEditing.current) return;
-        hasFinishedEditing.current = true;
-        const session = {
-          ...editingCell,
-          draft: event.currentTarget.value,
-          selection: { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd },
-          scrollTop: event.currentTarget.scrollTop,
-        };
-       if (isWorkspaceTransfer(event.relatedTarget)) interaction.suspend?.(session);
-       else interaction.commit(session);
+    cellMode={mode}
+    initialView={{ ...(editingCell.selection ?? { start: editingCell.draft.length, end: editingCell.draft.length }), scrollTop: editingCell.scrollTop }}
+    inputRef={attachEditor}
+    panelRef={panelRef}
+    sheetId={editingCell.target.sheetId}
+    raw={editingCell.draft}
+    readOnly={editingCell.readOnly}
+    resolver={interaction.formulaContext?.resolver ?? { currentSheetId: editingCell.target.sheetId, sheetByQualifier: () => undefined, coordinateAt: () => undefined, addressOf: () => undefined }}
+    sheetNames={interaction.formulaContext?.sheetNames ?? []}
+    propertyNames={interaction.formulaContext?.propertyNames}
+    referenceValues={interaction.formulaContext?.referenceValues}
+    inspectionReferences={interaction.formulaContext?.inspectionReferences}
+    referenceColors={interaction.formulaContext?.referenceColors}
+    onReferenceHover={interaction.formulaContext?.onReferenceHover}
+    onReferenceModifierHover={interaction.formulaContext?.onReferenceModifierHover}
+    onReferenceNavigate={interaction.formulaContext?.onReferenceNavigate ? (reference) => {
+      hasFinishedEditing.current = true;
+      interaction.suspend?.(currentSession());
+      interaction.formulaContext?.onReferenceNavigate?.(reference);
+    } : undefined}
+    onToggleMode={() => setMode((current) => current === 'light' ? 'heavy' : 'light')}
+    onRawChange={(value) => interaction.updateValue(value, editingCell)}
+    onViewChange={(view) => interaction.updateView?.({ start: view.start, end: view.end }, view.scrollTop, editingCell)}
+    onApply={() => { hasFinishedEditing.current = true; interaction.commit(currentSession(), true); }}
+    onCancel={() => { hasFinishedEditing.current = true; interaction.cancel(currentSession()); }}
+    onCommitAndNavigate={(request) => { hasFinishedEditing.current = true; interaction.commitAndNavigate(currentSession(), request); }}
+    onFocusLeave={(_, destination) => {
+      if (hasFinishedEditing.current) return;
+      hasFinishedEditing.current = true;
+      if (isWorkspaceTransfer(destination)) interaction.suspend?.(currentSession());
+      else interaction.commit(currentSession());
     }}
-      onValueChange={(value) => interaction.updateValue(value, editingCell)}
-     onScroll={(event) => {
-       syncHighlightScroll(event.currentTarget, highlightRef.current);
-        interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop, editingCell);
-     }}
-      onSelect={(event) => interaction.updateView?.({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }, event.currentTarget.scrollTop, editingCell)}
-    onClick={(event) => event.stopPropagation()}
-    onDoubleClick={(event) => event.stopPropagation()}
-    onKeyDown={(event) => {
-      const modified = event.ctrlKey || event.metaKey || event.altKey;
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        event.stopPropagation();
-        // Only Shift+Enter is a multiline command; other modified Enter paths are reserved.
-        if (event.shiftKey && !modified) {
-          const editor = event.currentTarget;
-          editor.setRangeText('\n', editor.selectionStart, editor.selectionEnd, 'end');
-          interaction.updateValue(editor.value);
-        } else if (!event.shiftKey && !modified) {
-          hasFinishedEditing.current = true;
-          interaction.commitAndNavigate({ ...editingCell, draft: event.currentTarget.value }, { key: 'Enter', shift: false });
-        }
-        return;
-      }
-      if (event.key === 'Tab' && !modified) {
-        event.preventDefault();
-        event.stopPropagation();
-        hasFinishedEditing.current = true;
-        interaction.commitAndNavigate({ ...editingCell, draft: event.currentTarget.value }, { key: 'Tab', shift: event.shiftKey });
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        hasFinishedEditing.current = true;
-          interaction.cancel(editingCell);
-      }
-    }}
-    ref={attachEditor}
-    style={{ maxHeight: CELL_EDITOR_MAX_HEIGHT, overflow: 'auto' }}
-    value={editingCell.draft}
-    />
-  </>, document.body);
+  />, document.body);
 }
 
 function isWorkspaceTransfer(destination: EventTarget | null) {
@@ -173,27 +165,18 @@ function isWorkspaceTransfer(destination: EventTarget | null) {
   return Boolean(destination.closest('[data-workspace-navigation]'));
 }
 
-function placeEditor(editor: HTMLTextAreaElement, rect: DOMRect, highlight: HTMLPreElement | null) {
-  editor.style.left = `${rect.left}px`;
-  editor.style.top = `${rect.top}px`;
-  editor.style.maxWidth = `min(${CELL_EDITOR_MAX_WIDTH}, calc(100vw - ${rect.left + 12}px))`;
-  editor.style.width = cellEditorSizing(editor.value, rect.width).width;
-  sizeEditorToContent(editor, rect.height);
-  if (highlight) {
-    highlight.style.left = editor.style.left;
-    highlight.style.top = editor.style.top;
-    highlight.style.width = editor.style.width;
-    highlight.style.height = editor.style.height;
-    highlight.style.maxWidth = editor.style.maxWidth;
-    highlight.style.overflow = editor.style.overflow;
-    syncHighlightScroll(editor, highlight);
-  }
-}
-
-function syncHighlightScroll(editor: HTMLTextAreaElement, highlight: HTMLPreElement | null) {
-  if (!highlight) return;
-  highlight.scrollTop = editor.scrollTop;
-  highlight.scrollLeft = editor.scrollLeft;
+function placeEditor(panel: HTMLElement, editor: HTMLTextAreaElement, rect: DOMRect, mode: 'light' | 'heavy') {
+  const heavy = mode === 'heavy';
+  const left = heavy ? Math.max(8, Math.min(rect.left, window.innerWidth - 368)) : rect.left;
+  const top = heavy ? Math.max(8, Math.min(rect.top, window.innerHeight - 208)) : rect.top;
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+  panel.style.maxWidth = `calc(100vw - ${left + 8}px)`;
+  panel.style.width = heavy ? `${Math.max(360, rect.width)}px` : cellEditorSizing(editor.value, rect.width).width;
+  panel.style.height = heavy ? `${Math.min(Math.max(200, rect.height), window.innerHeight - top - 8)}px` : 'auto';
+  editor.style.maxHeight = heavy ? 'none' : CELL_EDITOR_MAX_HEIGHT;
+  if (heavy) { editor.style.height = '100%'; editor.style.overflow = 'auto'; }
+  else sizeEditorToContent(editor, rect.height);
 }
 
 function sameRect(left: DOMRect | null, right: DOMRect) {

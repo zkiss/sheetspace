@@ -32,17 +32,18 @@
 .formula-reference-token {
   display: inline;
   border: 0;
+  border-bottom: 1px solid var(--formula-reference-color, #11606b);
   border-radius: 0.2rem;
   padding: 0.05rem 0.12rem;
-  color: #11606b;
-  background: #dff1f2;
+  color: var(--formula-reference-color, #11606b);
+  background: color-mix(in srgb, var(--formula-reference-color, #dff1f2) 14%, white);
   cursor: pointer;
   font: inherit;
   font-weight: 700;
 }
 
 .formula-reference-token:focus-visible {
-  outline: 2px solid #2f747e;
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 

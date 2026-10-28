@@ -28,6 +28,7 @@ export type FormulaDraftSession<Target extends FormulaEditTarget = FormulaEditTa
   draft: string;
   selection?: { start: number; end: number };
   scrollTop?: number;
+  readOnly?: boolean;
 };
 
 export type CellSelectionMode = 'cells' | 'rows' | 'columns';

@@ -17,9 +17,7 @@ export function sameNavigationContext(left: NavigationContext, right: Navigation
 
 export function appendNavigationContext(history: NavigationHistory, context: NavigationContext): NavigationHistory {
   if (history.entries[history.cursor] && sameNavigationContext(history.entries[history.cursor]!, context)) return history;
-  const entries = [...history.entries];
-  // A branch is inserted after the current place. Its old Forward places remain useful.
-  entries.splice(history.cursor + 1, 0, context);
+  const entries = [...history.entries.slice(0, history.cursor + 1), context];
   return { entries, cursor: history.cursor + 1 };
 }
 

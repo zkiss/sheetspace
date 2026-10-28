@@ -33,7 +33,7 @@ describe('NavigationPalette', () => {
     const search = screen.getByLabelText('Command search');
     expect(search).toHaveFocus();
     await user.keyboard('{Tab}');
-    expect(screen.getByRole('button', { name: 'Go to Alpha' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Close command palette' })).toHaveFocus();
     await user.keyboard('{Shift>}{Tab}{/Shift}');
     expect(search).toHaveFocus();
   });

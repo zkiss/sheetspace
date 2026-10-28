@@ -19,6 +19,8 @@ export function useWorkspaceGestures(
   surfaceRef: RefObject<HTMLElement>,
   actions: {
     start: () => void;
+    panStart?: () => void;
+    panEnd?: () => void;
     pan: (x: number, y: number) => void;
     zoom: (factor: number, origin: WorkspacePosition) => void;
     closeMenu: () => void;
@@ -43,6 +45,7 @@ export function useWorkspaceGestures(
     function endPan() {
       const previous = pan;
       pan = null;
+      if (previous) current.current.panEnd?.();
       setPanning(false);
       if (previous && surface!.hasPointerCapture?.(previous.pointerId)) {
         surface!.releasePointerCapture(previous.pointerId);
@@ -81,6 +84,7 @@ export function useWorkspaceGestures(
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       current.current.clearSelection();
       current.current.start();
+      current.current.panStart?.();
       current.current.closeMenu();
       pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
         button: event.button, space: event.button === 0 && space };

@@ -50,7 +50,7 @@ describe('useWorkspaceNavigationHistory', () => {
 
     rerender({ x: 3 });
     act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
-    expect(result.current.history.canGoForward).toBe(true);
+    expect(result.current.history.canGoForward).toBe(false);
   });
 
   it('applies a restored offscreen grid scroll offset when its container mounts', () => {
@@ -146,7 +146,7 @@ describe('useWorkspaceNavigationHistory', () => {
 
     grid.scrollTop = 500;
     act(() => { result.current.recordUserGridMovement(); vi.advanceTimersByTime(2_000); });
-    expect(result.current.history.canGoForward).toBe(true);
+    expect(result.current.history.canGoForward).toBe(false);
   });
 
   it('waits for both viewport motion and the selected grid scroll before completing restoration', () => {
@@ -175,7 +175,7 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(result.current.history.canGoForward).toBe(true);
   });
 
-  it('records a reference-jump arrival after its reveal acknowledgement without a saved grid offset', () => {
+  it('records a reference jump immediately while retaining its reveal request until acknowledgement', () => {
     let settleViewport: (() => void) | undefined;
     const restoreViewport = vi.fn((_viewport, complete) => {
       settleViewport = complete;
@@ -195,10 +195,12 @@ describe('useWorkspaceNavigationHistory', () => {
     rerender({ x: 2 });
 
     act(() => settleViewport?.());
-    expect(result.current.history.canGoBack).toBe(false);
+    expect(result.current.history.canGoBack).toBe(true);
+    expect(result.current.navigationRestoreForSheet('destination')).toBe(1);
 
     act(() => result.current.acknowledgeGridRestore('destination', 1));
     expect(result.current.history.canGoBack).toBe(true);
+    expect(result.current.navigationRestoreForSheet('destination')).toBeUndefined();
   });
 
   it('removes a cancelled reference reveal generation before a delayed grid can mount', () => {

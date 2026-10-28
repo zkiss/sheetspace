@@ -264,6 +264,22 @@ describe('workspaceGeometry', () => {
     });
   });
 
+  it('preserves the displayed top-left at natural scale and only pans axes that need revealing', () => {
+    const currentViewport = { x: 30, y: -50, scale: 0.5 };
+    expect(viewportForTarget({ currentViewport, surfaceWidth: 800, surfaceHeight: 600,
+      naturalScale: 1, target: { left: 200, top: 200, right: 300, bottom: 300 } })).toEqual({
+      oversized: false, viewport: { x: -70, y: -150, scale: 1 },
+    });
+    expect(viewportForTarget({ currentViewport, surfaceWidth: 800, surfaceHeight: 600,
+      naturalScale: 1, target: { left: 200, top: 1600, right: 300, bottom: 1700 } })).toEqual({
+      oversized: false, viewport: { x: -70, y: -1148, scale: 1 },
+    });
+    expect(viewportForTarget({ currentViewport, surfaceWidth: 800, surfaceHeight: 600,
+      naturalScale: 1, target: { left: 200, top: 200, right: 1200, bottom: 900 } })).toEqual({
+      oversized: true, viewport: { x: -152, y: -152, scale: 1 },
+    });
+  });
+
   it.each([
     { target: { left: 10, right: 790, top: -100, bottom: -70 }, expected: { x: 0, y: 148, scale: 1 } },
     { target: { left: -100, right: -24, top: 5, bottom: 599 }, expected: { x: 148, y: 0, scale: 1 } },

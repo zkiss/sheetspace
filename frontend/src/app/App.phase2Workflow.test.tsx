@@ -6,6 +6,7 @@ import { persistedWorkbookClient } from '@test-support/apiClients';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
 import { testRect } from '@test-support/domGeometry';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import { navigateFirstReference } from '@test-support/referenceNavigation';
 
 describe('Phase 2 acceptance workflow', () => {
   it(
@@ -48,7 +49,7 @@ describe('Phase 2 acceptance workflow', () => {
       });
 
       fireEvent.click(cellAt(outputFrame, 'A1'));
-      modifierClick(screen.getByRole('button', { name: '@Inputs!B[1]:B[3], reference' }));
+      navigateFirstReference(cellAt(outputFrame, 'A1'), 'Outputs A1 editor');
       const inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
       expect(cellAt(inputFrame, 'B1')).toHaveFocus();
       expect(cellAt(inputFrame, 'B3')).toHaveAttribute('data-reference-selected', 'true');
@@ -63,7 +64,7 @@ describe('Phase 2 acceptance workflow', () => {
       fireEvent.keyDown(editor, { key: 'Escape' });
 
       fireEvent.click(cellAt(currentOutputFrame, 'A1'));
-      modifierClick(screen.getByRole('button', { name: '@Inputs!B[1]:B[3], reference' }));
+      navigateFirstReference(cellAt(currentOutputFrame, 'A1'), 'Outputs A1 editor');
       const currentInputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
       fireEvent.click(within(openSheetContextMenu(currentInputFrame)).getByRole('menuitem', { name: 'Rename' }));
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Sales Data' } });
@@ -113,10 +114,6 @@ function setSurfaceSize(width: number, height: number) {
     clientWidth: { configurable: true, value: width },
   });
   surface.getBoundingClientRect = () => testRect({ height, left: 0, top: 0, width });
-}
-
-function modifierClick(reference: HTMLElement) {
-  fireEvent.click(reference, { ctrlKey: true });
 }
 
 function openEditor(cell: HTMLElement) {

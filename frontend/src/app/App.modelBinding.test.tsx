@@ -48,6 +48,7 @@ function columnLabelsFor(sheetFrame: HTMLElement) {
 }
 
 function modelSelect() {
+  openSheetContextMenu(frame());
   return screen.getByLabelText('Model for Inputs') as HTMLSelectElement;
 }
 
@@ -71,21 +72,24 @@ describe('App model binding workflow', () => {
     const create = screen.getByRole('form', { name: 'Create data model' });
     fireEvent.change(within(create).getByLabelText('Model name'), { target: { value: 'Invoice' } });
     fireEvent.change(within(create).getByLabelText('Property 1 name'), { target: { value: 'Input' } });
+    fireEvent.change(within(create).getByLabelText('Property 1 type'), { target: { value: 'float' } });
     fireEvent.click(within(create).getByRole('button', { name: 'Add property' }));
     fireEvent.change(within(create).getByLabelText('Property 2 name'), { target: { value: 'Output' } });
-    fireEvent.change(within(create).getByLabelText('Property 2 kind'), { target: { value: 'calculated' } });
+    fireEvent.change(within(create).getByLabelText('Property 2 type'), { target: { value: 'function' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])" } });
-    fireEvent.click(within(create).getByRole('button', { name: 'Apply' }));
+    fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
     fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
 
     const bind = async (sheetName: string) => {
       const sheet = screen.getByRole('article', { name: `Sheet ${sheetName}` });
       fireEvent.click(cellInFrame(sheet, 'A1'));
+      openSheetContextMenu(sheet);
       const select = screen.getByLabelText(`Model for ${sheetName}`) as HTMLSelectElement;
       const model = within(select).getByRole('option', { name: 'Invoice' }) as HTMLOptionElement;
       fireEvent.change(select, { target: { value: model.value } });
       fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
       await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
       return sheet;
     };
@@ -97,6 +101,7 @@ describe('App model binding workflow', () => {
     expect(cellInFrame(secondFrame, 'A1')).toHaveStyle({ width: '123px' });
 
     fireEvent.click(cellInFrame(firstFrame, 'A1'));
+    openSheetContextMenu(firstFrame);
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
     const destructiveDraft = screen.getByRole('form', { name: 'Edit data model' });
     fireEvent.click(within(destructiveDraft).getByRole('button', { name: 'Remove property 2' }));
@@ -111,11 +116,12 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Data models' })).getByRole('button', { name: 'Edit' }));
     const edit = screen.getByRole('form', { name: 'Edit data model' });
     fireEvent.change(within(edit).getByLabelText('Model name'), { target: { value: 'Receipt' } });
+    fireEvent.click(within(edit).getByRole('button', { name: /SUM/ }));
     fireEvent.change(within(edit).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])*2" } });
-    fireEvent.click(within(edit).getByRole('button', { name: 'Apply' }));
+    fireEvent.keyDown(within(edit).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
     fireEvent.click(within(edit).getByRole('button', { name: 'Move property 2 up' }));
     fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.getByLabelText('Bound to Receipt')).toBeInTheDocument());
+    await waitFor(() => expect(columnLabelsFor(firstFrame)).toEqual(['Output', 'Input']));
     expect(columnLabelsFor(firstFrame)).toEqual(['Output', 'Input']);
     expect(cellInFrame(firstFrame, 'A1')).toHaveTextContent('6');
     expect(cellInFrame(secondFrame, 'A1')).toHaveTextContent('14');
@@ -136,7 +142,9 @@ describe('App model binding workflow', () => {
     expect(cellInFrame(reloadedSecond, 'B1')).toHaveStyle({ width: '123px' });
 
     fireEvent.click(cellInFrame(reloadedFirst, 'A1'));
+    openSheetContextMenu(reloadedFirst);
     fireEvent.click(screen.getByRole('button', { name: 'Unbind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm unbind' }));
     await waitFor(() => expect(screen.queryByLabelText('Bound to Receipt')).not.toBeInTheDocument());
     fireEvent.doubleClick(cellInFrame(reloadedFirst, 'A1'));
     const editor = screen.getByRole('textbox');
@@ -166,10 +174,12 @@ describe('App model binding workflow', () => {
     const created = within(modelSelect()).getByRole('option', { name: 'Invoice' }) as HTMLOptionElement;
     fireEvent.change(modelSelect(), { target: { value: created.value } });
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
 
     await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
     await waitFor(() => expect(columnLabels()).toEqual(['Amount', 'Tax']));
 
+    openSheetContextMenu(frame());
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
     const edit = screen.getByRole('form', { name: 'Edit data model' });
     expect(within(edit).getByLabelText('Model name')).toHaveValue('Invoice');
@@ -177,9 +187,10 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(edit).getByLabelText('Property 1 name'), { target: { value: 'Total' } });
     fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(screen.getByLabelText('Bound to Receipt')).toBeInTheDocument());
+    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax']));
     await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax']));
 
+    openSheetContextMenu(frame());
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
     const reorder = screen.getByRole('form', { name: 'Edit data model' });
     fireEvent.click(within(reorder).getByRole('button', { name: 'Move property 2 up' }));
@@ -197,6 +208,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(cellAt('A1'));
     fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('The data model change was not saved.'));
     expect(screen.queryByLabelText('Bound to Invoice')).not.toBeInTheDocument();
@@ -218,9 +230,9 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 1 name'), { target: { value: 'Amount' } });
     fireEvent.click(within(create).getByRole('button', { name: 'Add property' }));
     fireEvent.change(within(create).getByLabelText('Property 2 name'), { target: { value: 'Tax' } });
-    fireEvent.change(within(create).getByLabelText('Property 2 kind'), { target: { value: 'calculated' } });
+    fireEvent.change(within(create).getByLabelText('Property 2 type'), { target: { value: 'function' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: '=SUM(@A[1])' } });
-    fireEvent.click(within(create).getByRole('button', { name: 'Apply' }));
+    fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
     fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
@@ -228,14 +240,16 @@ describe('App model binding workflow', () => {
     const created = within(modelSelect()).getByRole('option', { name: 'Invoice' }) as HTMLOptionElement;
     fireEvent.change(modelSelect(), { target: { value: created.value } });
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
 
     await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
     expect(cellAt('B1')).toHaveAttribute('aria-readonly', 'true');
     expect(cellAt('B1')).toHaveAccessibleName('Inputs B1 calculated, read-only; edit it in Data models cell');
     expect(cellAt('A1')).not.toHaveAttribute('aria-readonly');
     fireEvent.doubleClick(cellAt('B1'));
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(cellAt('B1')).toHaveAttribute('aria-readonly', 'true');
 
+    openSheetContextMenu(frame());
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
     const reorder = screen.getByRole('form', { name: 'Edit data model' });
     fireEvent.click(within(reorder).getByRole('button', { name: 'Move property 2 up' }));

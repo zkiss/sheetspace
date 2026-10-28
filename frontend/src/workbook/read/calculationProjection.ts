@@ -1,5 +1,5 @@
 import { cellIdentityKey } from '../core/cellIdentity';
-import { type Workbook } from '../core/model';
+import { type ModelColumnType, type Workbook } from '../core/model';
 import type { CellKey } from '../core/address';
 import { sheetsInOrder } from './queries';
 
@@ -11,6 +11,7 @@ export type CalculationSheet = {
   readonly cells: Readonly<Record<string, string>>;
   readonly modelColumnBindings?: Readonly<Record<string, string>>;
   readonly modelPropertyIds?: ReadonlySet<string>;
+  readonly columnTypes?: Readonly<Record<string, ModelColumnType>>;
 };
 
 export type CalculationProjection = {
@@ -41,6 +42,10 @@ export function calculationProjection(
       cells: sheet.content.cells,
       modelColumnBindings: sheet.modelColumnBindings,
       modelPropertyIds: sheet.modelId ? new Set(source.dataModels?.[sheet.modelId]?.columns.map((column) => column.id)) : undefined,
+      columnTypes: Object.fromEntries((sheet.modelId ? source.dataModels?.[sheet.modelId]?.columns ?? [] : []).flatMap((column) => {
+        const columnId = sheet.modelColumnBindings?.[column.id];
+        return columnId ? [[columnId, column.type]] : [];
+      })),
     })),
   };
 }

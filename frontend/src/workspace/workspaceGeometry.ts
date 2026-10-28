@@ -24,6 +24,7 @@ export const MAX_WORKSPACE_ZOOM = 8;
 /** Each zoom control changes the current scale by 20%, rather than adding an absolute amount. */
 export const WORKSPACE_ZOOM_FACTOR = 1.2;
 export const WORKSPACE_WHEEL_PIXEL_SENSITIVITY = 0.002;
+export const WORKSPACE_NAVIGATION_TRANSITION_MS = 650;
 export const WHEEL_DELTA_LINE_HEIGHT = 16;
 const WHEEL_DELTA_LINE_MODE = 1;
 const WHEEL_DELTA_PAGE_MODE = 2;
@@ -255,6 +256,7 @@ export function viewportForTarget({
   target,
   forceOversized = false,
   minimumScale = MIN_WORKSPACE_ZOOM,
+  naturalScale,
   preserveVisibleAxes = false,
 }: {
   currentViewport: WorkspaceViewport;
@@ -264,6 +266,8 @@ export function viewportForTarget({
   forceOversized?: boolean;
   /** A model-level navigation requirement, such as detailed sheet entry. */
   minimumScale?: number;
+  /** Navigate at this scale around the target's top-left, adjusting only to reveal it. */
+  naturalScale?: number;
   /** History feedback must not reposition a visible axis merely to add navigation padding. */
   preserveVisibleAxes?: boolean;
 }): { oversized: boolean; viewport: WorkspaceViewport } {
@@ -292,6 +296,31 @@ export function viewportForTarget({
       viewport: {
         x: revealAxis(target.left, target.right, currentViewport.x, surfaceWidth),
         y: revealAxis(target.top, target.bottom, currentViewport.y, surfaceHeight),
+        scale,
+      },
+    };
+  }
+
+  if (naturalScale !== undefined) {
+    const scale = clampWorkspaceZoom(naturalScale);
+    const targetWidth = Math.max(1, target.right - target.left);
+    const targetHeight = Math.max(1, target.bottom - target.top);
+    const visibleWidth = Math.max(1, surfaceWidth - NAVIGATION_PADDING * 2);
+    const visibleHeight = Math.max(1, surfaceHeight - NAVIGATION_PADDING * 2);
+    const revealAxis = (start: number, end: number, offset: number, size: number) => {
+      const leading = start * scale + offset;
+      const trailing = end * scale + offset;
+      if (trailing - leading > size - NAVIGATION_PADDING * 2) return offset + NAVIGATION_PADDING - leading;
+      if (leading >= 0 && trailing <= size) return offset;
+      if (leading < NAVIGATION_PADDING) return offset + NAVIGATION_PADDING - leading;
+      if (trailing > size - NAVIGATION_PADDING) return offset + size - NAVIGATION_PADDING - trailing;
+      return offset;
+    };
+    return {
+      oversized: forceOversized || targetWidth * scale > visibleWidth || targetHeight * scale > visibleHeight,
+      viewport: {
+        x: revealAxis(target.left, target.right, currentViewport.x + target.left * (currentViewport.scale - scale), surfaceWidth),
+        y: revealAxis(target.top, target.bottom, currentViewport.y + target.top * (currentViewport.scale - scale), surfaceHeight),
         scale,
       },
     };

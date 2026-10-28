@@ -14,7 +14,7 @@
 }
 
 .sheet-overview:focus-visible {
-  outline: 3px solid #2f747e;
+  outline: 3px solid var(--accent);
   outline-offset: -3px;
 }
 
@@ -77,5 +77,5 @@
   position: absolute;
   z-index: 1;
   border-radius: 1px;
-  background: #8eb8ae;
+  background: var(--accent-border);
 }

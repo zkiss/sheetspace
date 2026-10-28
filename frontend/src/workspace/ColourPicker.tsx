@@ -19,6 +19,7 @@ export function ColourPicker({
   status,
   descriptionId,
   localOverrideState,
+  defaultOpen = false,
 }: {
   ariaLabel: string;
   purpose: 'text' | 'fill';
@@ -32,9 +33,10 @@ export function ColourPicker({
   status: ColourMode;
   descriptionId: string;
   localOverrideState: LocalOverrideState;
+  defaultOpen?: boolean;
 }) {
   const [draft, setDraft] = useState(colour);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [draftMode, setDraftMode] = useState<typeof status>(status);
   const [hasDraft, setHasDraft] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);

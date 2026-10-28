@@ -190,6 +190,37 @@ describe('selection gesture owners', () => {
 });
 
 describe('cell interaction lifecycle boundaries', () => {
+  it('falls back to a new selection when a stale range traversal crosses sheets', () => {
+    const other = { ...a1, sheetId: 'other-sheet' };
+    const range = cellInteractionReducer(
+      cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 }),
+      { type: 'extend-selection', target: b1 },
+    );
+    const traversed = cellInteractionReducer(range, { type: 'traverse-range', target: other });
+    expect(traversed.rangeSelection).toEqual({ mode: 'cells', anchor: other, extent: other });
+    expect(traversed.focusRequest?.target).toEqual(other);
+  });
+
+  it('retains an editing draft only while its target remains allowed', () => {
+    const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, {
+      type: 'start-edit', session: { target: a1, draft: 'draft', sessionId: 1 },
+    });
+    const retained = cellInteractionReducer(editing, {
+      type: 'prune-drafts', targetKeys: new Set([formulaDraftKey(a1)]),
+    });
+    expect(retained.editing).toEqual(editing.editing);
+    expect(retained.drafts).toEqual(editing.drafts);
+  });
+
+  it('normalizes a final editor snapshot without selection or scroll state', () => {
+    const session = { target: a1, draft: 'draft', sessionId: 1 };
+    const editing = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'start-edit', session });
+    const suspended = cellInteractionReducer(editing, { type: 'suspend', session });
+    expect(suspended.editing).toBeNull();
+    expect(suspended.drafts[formulaDraftKey(a1)]).toEqual({
+      ...session, selection: { start: 5, end: 5 }, scrollTop: 0,
+    });
+  });
   it('keeps an existing range while clearing its active cell and creates one for another cell', () => {
     const ranged = cellInteractionReducer(
       cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 }),

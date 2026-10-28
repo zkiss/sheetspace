@@ -26,12 +26,14 @@ export function NumberFormatControls({
   onWrite,
   projection,
   selection,
+  idPrefix = '',
 }: {
   disabled?: boolean;
   onWrite: (writes: readonly FormatWrite[]) => void;
   /** Workspace owns and supplies the current shared formatting projection. */
   projection: FormattingSelectionProjection;
   selection: FormattingSelection | null;
+  idPrefix?: string;
 }) {
   const current = projection;
   const state = current.summary ? formatControlState(current.summary) : { format: null, hasLocalOverrides: false };
@@ -72,22 +74,22 @@ export function NumberFormatControls({
         <button aria-label="Inherit number format" disabled={disabled || !state.hasLocalOverrides} onClick={() => write(null)} title="Inherit number format" type="button"><FormatIcon kind="reset" /></button>
       </div>
       <div className="format-control-group" role="group" aria-label="Bold formatting">
-        <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby="bold-state" aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => act({ type: 'bold' })}>B</button>
-        <output id="bold-state">{appearanceStateLabel('Bold', appearance.fontWeight)}</output>
+        <button type="button" aria-label={appearanceStateLabel('Bold', appearance.fontWeight)} aria-describedby={`${idPrefix}bold-state`} aria-pressed={appearance.fontWeight.value === 'bold'} data-local-override-state={appearance.fontWeight.localOverrideState} data-mixed={appearance.fontWeight.value === null || appearance.fontWeight.localOverrideState === 'mixed' || undefined} disabled={disabled} onClick={() => act({ type: 'bold' })}>B</button>
+        <output id={`${idPrefix}bold-state`}>{appearanceStateLabel('Bold', appearance.fontWeight)}</output>
         <button aria-label="Inherit bold setting" disabled={disabled || !appearance.fontWeight.hasLocalOverrides} onClick={() => writeAppearance('fontWeight', null)} title="Inherit bold setting" type="button"><FormatIcon kind="reset" /></button>
       </div>
-      <div className="format-control-group" role="group" aria-describedby="horizontal-alignment-state" aria-label="Horizontal alignment" data-local-override-state={appearance.horizontalAlignment.localOverrideState} data-mixed={appearance.horizontalAlignment.value === null || appearance.horizontalAlignment.localOverrideState === 'mixed' || undefined}>
+      <div className="format-control-group" role="group" aria-describedby={`${idPrefix}horizontal-alignment-state`} aria-label="Horizontal alignment" data-local-override-state={appearance.horizontalAlignment.localOverrideState} data-mixed={appearance.horizontalAlignment.value === null || appearance.horizontalAlignment.localOverrideState === 'mixed' || undefined}>
         <button aria-label="Align left" aria-pressed={appearance.horizontalAlignment.value === 'left'} disabled={disabled} onClick={() => act({ type: 'alignment', value: 'left' })} title="Align left" type="button"><FormatIcon kind="align-left" /></button>
         <button aria-label="Align center" aria-pressed={appearance.horizontalAlignment.value === 'center'} disabled={disabled} onClick={() => act({ type: 'alignment', value: 'center' })} title="Align center" type="button"><FormatIcon kind="align-center" /></button>
         <button aria-label="Align right" aria-pressed={appearance.horizontalAlignment.value === 'right'} disabled={disabled} onClick={() => act({ type: 'alignment', value: 'right' })} title="Align right" type="button"><FormatIcon kind="align-right" /></button>
         <button aria-label="Automatic alignment" aria-pressed={appearance.horizontalAlignment.value === 'general'} disabled={disabled} onClick={() => act({ type: 'alignment', value: 'general' })} title="Automatic alignment" type="button">A</button>
-        <output id="horizontal-alignment-state">{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
+        <output id={`${idPrefix}horizontal-alignment-state`}>{appearanceStateLabel('Horizontal alignment', appearance.horizontalAlignment)}</output>
         <button aria-label="Inherit horizontal alignment" disabled={disabled || !appearance.horizontalAlignment.hasLocalOverrides} onClick={() => writeAppearance('horizontalAlignment', null)} title="Inherit horizontal alignment" type="button"><FormatIcon kind="reset" /></button>
       </div>
       <div className="format-control-group" role="group" aria-label="Colours">
         {(['textColor', 'fillColor'] as const).map((property) => {
           const label = property === 'textColor' ? 'Text colour' : 'Fill colour';
-          const descriptionId = property === 'textColor' ? 'text-colour-state' : 'fill-colour-state';
+          const descriptionId = `${idPrefix}${property === 'textColor' ? 'text-colour-state' : 'fill-colour-state'}`;
           const colourState = appearance[property];
           const readout = colourControlReadout(colourState, selection?.mode ?? 'cells', property === 'textColor' ? '#1f2933' : '#ffffff');
           return <Fragment key={property}>

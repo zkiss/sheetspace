@@ -29,6 +29,15 @@ function expand(workbook: Workbook): Workbook {
 }
 
 describe('model formula row templates', () => {
+  it('binds same-row unquoted and escaped quoted property references', () => {
+    const workbook = instances();
+    const unquoted = bindModelFormula('=@Result', workbook, 'one');
+    const quoted = bindModelFormula("=@'Owner''s input'", workbook, 'one');
+
+    expect(formulaRawForDisplay(instantiateModelFormula(unquoted, workbook, 1), workbook, 'one')).toBe('=@Result[2]');
+    expect(formulaRawForDisplay(instantiateModelFormula(quoted, workbook, 1), workbook, 'one')).toBe("=@'Owner''s input'[2]");
+  });
+
   it.each(['@A', "@'Owner''s input'"])('keeps oversized %s row targets serializable and broken rather than rejecting their declarations', (reference) => {
     const workbook = instances();
     const finite = bindModelFormula(`=${reference}[3000000000]`, workbook, 'one');
@@ -120,7 +129,7 @@ describe('model formula row templates', () => {
     const reordered = { ...workbook, dataModels: { model: { ...model, columns: [model.columns[1], { ...model.columns[0], name: 'Renamed' }, model.columns[2]] } },
       documents: { ...workbook.documents, one: { ...sheet, content: { ...sheet.content, columns: [sheet.content.columns[1], sheet.content.columns[0], sheet.content.columns[2]] } } } };
 
-    expect(formulaRawForDisplay(instantiateModelFormula(named, reordered, 1), reordered, 'one')).toBe("=@'Renamed'[2]");
+    expect(formulaRawForDisplay(instantiateModelFormula(named, reordered, 1), reordered, 'one')).toBe('=@Renamed[2]');
     expect(formulaRawForDisplay(instantiateModelFormula(positional, reordered, 1), reordered, 'one')).toBe('=@B[2]');
 
     const removed = { ...reordered, documents: { ...reordered.documents, one: { ...reordered.documents.one,

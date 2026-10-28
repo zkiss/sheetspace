@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef, useState, type ComponentProps } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +14,7 @@ afterEach(cleanup);
     const sheet = tabularProjection(sparseLargeSheetDocument());
     const scrollContainerRef = createRef<HTMLDivElement>();
     const cellInteraction = { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() };
-    const editorInteraction = { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+    const editorInteraction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
     const view = render(
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <SheetGrid
@@ -94,7 +95,7 @@ describe('SheetGrid virtualization', () => {
           axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -129,17 +130,17 @@ describe('SheetGrid virtualization', () => {
     expect(screen.getByTestId('sheet-grid')).toHaveStyle({ height: '707px', width: '650px' });
   });
 
-  it('allows an ordinary active cell to unmount and remount while preserving logical selection and grid entry', async () => {
+  it('keeps an offscreen selected cell mounted without undoing manual scrolling', async () => {
     const { body, geometry } = renderMeasuredSparseGrid({ activeCellKey: 'A1' });
     await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toBeInTheDocument());
 
     body.scrollTop = 20_000;
     body.scrollLeft = 2_000;
     fireEvent.scroll(body);
-    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).not.toBeInTheDocument());
-    const grid = screen.getByTestId('sheet-grid');
-    expect(grid).toHaveAttribute('tabindex', '0');
-    expect(screen.getAllByTestId('sheet-grid-cell').filter((cell) => cell.tabIndex === 0)).toHaveLength(0);
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toHaveAttribute('data-active-cell', 'true'));
+    expect(body.scrollTop).toBe(20_000);
+    expect(body.scrollLeft).toBe(2_000);
+    expect(screen.getAllByTestId('sheet-grid-cell').filter((cell) => cell.tabIndex === 0)).toHaveLength(1);
 
     body.scrollTop = 0;
     body.scrollLeft = 0;
@@ -156,11 +157,11 @@ describe('SheetGrid virtualization', () => {
     body.scrollTop = 20_000;
     body.scrollLeft = 2_000;
     fireEvent.scroll(body);
-    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toHaveAttribute('data-active-cell', 'true'));
 
     const grid = screen.getByTestId('sheet-grid');
     grid.focus();
-    // Pending focus pins A1 back into the projection, but it must not take focus
+    // The active cell remains pinned, but it must not take focus
     // until the native virtual window receives the browser scroll update.
     await screen.findByRole('cell', { name: 'Sparse large sheet A1 empty cell' });
     expect(document.activeElement).toBe(grid);
@@ -180,7 +181,7 @@ describe('SheetGrid virtualization', () => {
     body.scrollTop = 20_000;
     body.scrollLeft = 2_000;
     fireEvent.scroll(body);
-    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toHaveAttribute('data-active-cell', 'true'));
     grid.focus();
     await screen.findByRole('cell', { name: 'Sparse large sheet A1 empty cell' });
     expect(document.activeElement).toBe(grid);
@@ -208,7 +209,7 @@ describe('SheetGrid virtualization', () => {
               axisProjection={axisProjection}
               cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
               editingCell={null}
-              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
               formulaResults={{}}
               keyboardFocusRequest={request}
               onKeyboardFocusRequestConsumed={onConsumed}
@@ -267,7 +268,7 @@ describe('SheetGrid virtualization', () => {
               axisProjection={axisProjection}
               cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
               editingCell={null}
-              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
               formulaResults={{}}
               keyboardFocusRequest={request}
               onKeyboardFocusRequestConsumed={(requestId) => onConsumed(requestId)}
@@ -319,7 +320,7 @@ describe('SheetGrid virtualization', () => {
               axisProjection={axisProjection}
               cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
               editingCell={null}
-              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
               formulaResults={{}}
               keyboardFocusRequest={request}
               onKeyboardFocusRequestConsumed={onConsumed}

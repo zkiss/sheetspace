@@ -79,13 +79,14 @@ export function useCellEditing({
   }, [workbook]);
 
   useEffect(() => {
-    if (state.editing && isCalculatedOwnedColumn(workbook, state.editing.target.sheetId, state.editing.target.cell.columnId)) {
+    if (state.editing && !state.editing.readOnly && isCalculatedOwnedColumn(workbook, state.editing.target.sheetId, state.editing.target.cell.columnId)) {
       dispatch({ type: 'cancel', session: state.editing });
     }
   }, [state.editing, workbook]);
 
   function commitSession(session: CellEditSession | null): CellWriteResult | undefined {
     if (!session) return undefined;
+    if (session.readOnly) return undefined;
     const sheet = findSheetById(workbook, session.target.sheetId);
     const key = sheet && cellKeyForTarget(sheet, session.target);
     if (!sheet || !key) return undefined;
@@ -118,7 +119,8 @@ export function useCellEditing({
   }
 
   function startEditingCell(target: CellTarget, initialValue?: string) {
-    if (isCalculatedOwnedColumn(workbook, target.sheetId, target.cell.columnId)) return;
+    const readOnly = isCalculatedOwnedColumn(workbook, target.sheetId, target.cell.columnId);
+    if (readOnly && initialValue !== undefined) return;
     const sheet = findSheetById(workbook, target.sheetId);
     const key = sheet && cellKeyForTarget(sheet, target);
     if (!sheet || !key) return;
@@ -132,6 +134,7 @@ export function useCellEditing({
     const raw = cellRawContent(sheet, key);
     const session = {
       target,
+      readOnly,
       draft: initialValue ?? transfer?.draft ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
       selection: transfer?.selection,
       scrollTop: transfer?.scrollTop,
@@ -140,7 +143,7 @@ export function useCellEditing({
     activeSessionRef.current = session;
     dispatch({
       type: 'start-edit',
-      replaceSuspendedDraft: initialValue !== undefined,
+      replaceSuspendedDraft: initialValue !== undefined || readOnly,
       session,
     });
   }
@@ -341,7 +344,7 @@ export function useCellEditing({
     },
     startEditingCell,
     updateEditingCellValue: (draft: string, session = stateRef.current.editing ?? activeSessionRef.current) => {
-      if (!session) return;
+      if (!session || session.readOnly) return;
       committedDrafts.current.clear();
       dispatch({ type: 'update-draft', session, draft });
     },

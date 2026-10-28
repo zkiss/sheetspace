@@ -26,13 +26,17 @@ describe('mandatory reference syntax', () => {
   it.each([
     'A1', 'Inputs!A1', '@[column-id,row-id]', 'Inputs!@column-id[row-id]',
     '@A[0]', '@A[$0]', '@A[-1]', '@A[01]', '@A[foo]', '@A[1+2]', '@A[1.5]',
-    '@A[]', '@A1', '@A[1', '@A[1]junk', '@A[1]:@C[10]',
+    '@A[]', '@A[1', '@A[1]junk', '@A[1]:@C[10]',
     '@Inputs!A[1]:Other!C[10]', '@A[1]:column-id[row-id]',
     '@column-id[row-id]:C[10]', '@@A[1]',
   ])('rejects invalid or replaced syntax %s as a complete formula', (reference) => {
     const raw = `=${reference}`;
 
     expect(parseFormula(raw)).toEqual({ kind: 'error', raw, error: '#PARSE!' });
+  });
+
+  it('parses an unindexed identifier as a same-row property, even when it resembles a cell address', () => {
+    expect(parseFormula('=@A1')).toMatchObject({ kind: 'formula', expression: { kind: 'named' } });
   });
 
   it.each(['=A1', '=Inputs!A1', '=@[column-id,row-id]'])('does not transform legacy references in %s', (raw) => {

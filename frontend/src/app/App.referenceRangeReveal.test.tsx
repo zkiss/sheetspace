@@ -37,8 +37,12 @@ describe('reference range reveal in the composed workspace', () => {
     expect(edges(cell(end)).right).toBeGreaterThan(body.clientWidth);
     expect(edges(cell(end)).bottom).toBeGreaterThan(body.clientHeight);
 
-    fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    fireEvent.click(screen.getByRole('button', { name: `@Inputs!${reference}, reference` }), { ctrlKey: true });
+    const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+    fireEvent.click(source);
+    fireEvent.keyDown(source, { key: 'F2' });
+    const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+    editor.setSelectionRange(8, 8);
+    fireEvent.keyDown(editor, { key: 'F4' });
 
     expect(cell(anchor)).toHaveFocus();
     expect(cell(end)).toHaveAttribute('data-reference-selected', 'true');

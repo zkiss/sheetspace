@@ -75,7 +75,7 @@ export function gridCellKeyboardAction({
     return { kind: 'clear-cell' };
   }
 
-  if (key.length === 1 && !ctrlKey && !metaKey && !shiftKey) {
+  if (key.length === 1 && !ctrlKey && !metaKey) {
     return { kind: 'start-edit', initialValue: key };
   }
 

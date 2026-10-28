@@ -124,6 +124,25 @@ describe('conditional aggregate formula functions', () => {
     expect(results.C3).toMatchObject({ kind: 'error', error: '#DIV/0!' });
   });
 
+  it('propagates invalid criteria and errors in SUMIF criteria ranges', () => {
+    const sheet = sheetDocument({
+      id: 'sheet-1', name: 'Inputs',
+      cells: {
+        A1: '1', A2: '=1/0', B1: '10', B2: '20',
+        C1: '=SUMIF(@A[1]:A[2], ">0", @B[1]:B[2])',
+        C2: '=SUMIF(@A[1], ">", @B[1])',
+        C3: '=SUMIF(@A[1], @Missing!A[1], @B[1])',
+        C4: '=COUNTIF(@A[1], @Missing!A[1])',
+      },
+    });
+    const results = evaluateFormulaCells(calculationProjection(workbookWithSheets([sheet])))['sheet-1'];
+
+    expect(results.C1).toMatchObject({ kind: 'error', error: '#DIV/0!' });
+    expect(results.C2).toMatchObject({ kind: 'error', error: '#VALUE!' });
+    expect(results.C3).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(results.C4).toMatchObject({ kind: 'error', error: '#REF!' });
+  });
+
   it('evaluates cross-sheet criteria and sum ranges', () => {
     const inputs = sheetDocument({
       id: 'sheet-inputs', name: 'Inputs',

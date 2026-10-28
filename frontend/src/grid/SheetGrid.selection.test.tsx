@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { useEffect, useMemo, useRef } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -94,7 +95,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1' }: {
         cellInteraction={{ clear: interaction.clearCellContent, select: interaction.selectCell, extend: interaction.extendSelection,
           focusSelection: interaction.focusSelection, navigate: interaction.navigateCell, startEditing: interaction.startEditingCell }}
         editingCell={interaction.editingCell}
-        editorInteraction={{ cancel: interaction.cancelActiveEdit, commit: interaction.commitActiveEdit,
+        editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: interaction.cancelActiveEdit, commit: interaction.commitActiveEdit,
           commitAndNavigate: interaction.commitEditAndNavigate, updateValue: interaction.updateEditingCellValue,
           updateView: interaction.updateEditingCellView }}
         formulaResults={{}}

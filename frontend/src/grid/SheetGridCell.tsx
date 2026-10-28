@@ -24,10 +24,11 @@ export function SheetGridCell({
   displayText,
   editingCell,
   isActive,
+  selectionFadeOut,
+  selectionFadeIn,
   isEditing,
   isFocusTarget = false,
   isNavigationTarget = false,
-  navigationHighlightIdentity,
   historyFeedback,
   historyEdges,
   isRangeSelected = false,
@@ -47,6 +48,8 @@ export function SheetGridCell({
   displayText: string;
   editingCell: CellEditSession | null;
   isActive: boolean;
+  selectionFadeOut?: number;
+  selectionFadeIn?: number;
   isEditing: boolean;
   isFocusTarget?: boolean;
   isNavigationTarget?: boolean;
@@ -111,7 +114,7 @@ export function SheetGridCell({
       return;
     }
 
-    if (!isCalculated) cellInteraction.startEditing(target, action.initialValue);
+    if (!isCalculated || action.initialValue === undefined) cellInteraction.startEditing(target, action.initialValue);
   }
 
   return (
@@ -120,7 +123,7 @@ export function SheetGridCell({
       aria-readonly={isCalculated ? 'true' : undefined}
       aria-colindex={columnIndex}
       aria-selected={isActive || isRangeSelected ? 'true' : undefined}
-      className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${
+      className={`sheet-grid-cell${isActive ? ' sheet-grid-cell-active' : ''}${selectionFadeIn !== undefined && isActive ? ' sheet-grid-cell-selection-fade-in' : ''}${
         isRangeSelected ? ' sheet-grid-cell-range-selected' : ''
       }${selectionEdges ? ` ${selectionEdges}` : ''}${historyEdges ? ` ${historyEdges}` : ''}${isNavigationTarget ? ' sheet-grid-cell-navigation-target' : ''}${
         isEditing ? ' sheet-grid-cell-editing' : ''
@@ -147,7 +150,7 @@ export function SheetGridCell({
       }}
       onDoubleClick={() => {
         const target = cellTargetAt(sheet, cellKey);
-        if (target && !isCalculated) cellInteraction.startEditing(target);
+        if (target) cellInteraction.startEditing(target);
       }}
       onFocus={() => {
         const target = cellTargetAt(sheet, cellKey);
@@ -165,9 +168,7 @@ export function SheetGridCell({
       style={style}
       tabIndex={tabIndex}
     >
-      {isNavigationTarget && (
-        <span aria-hidden="true" className="sheet-grid-navigation-feedback" key={navigationHighlightIdentity} />
-      )}
+      {selectionFadeOut !== undefined && !isActive ? <span aria-hidden="true" className="sheet-grid-selection-fade-out" key={selectionFadeOut} /> : null}
       {isEditing && editingCell ? (
         <SheetGridCellEditor
           key={editingCell.sessionId}

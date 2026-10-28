@@ -64,15 +64,14 @@ class ModelLifecycleTest {
     }
 
     @Test
-    fun `lifecycle boundary keeps workbook membership and declaration identities fixed`() {
+    fun `lifecycle boundary keeps sheet membership fixed while allowing model membership changes`() {
         val before = lifecycleWorkbook()
         val sheet = before.sheetsInOrder.first()
         val changedMembership = before.removeSheet(sheet.id)
         val changedModels = before.copy(dataModels = emptyMap())
 
-        listOf(changedMembership, changedModels).forEach { after ->
-            assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(before, before, after) }.error)
-        }
+        assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(before, before, changedMembership) }.error)
+        assertEquals(changedModels, reconcileModelLifecycle(before, before, changedModels))
     }
 
     @Test

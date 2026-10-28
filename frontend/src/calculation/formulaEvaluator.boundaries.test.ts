@@ -151,4 +151,36 @@ describe('formula evaluator boundary outcomes', () => {
     expect(values).toEqual({ malformed: {} });
     expect(observed).toEqual(['malformed', 'missing-row\0column-1', 'row-1\0missing-column']);
   });
+
+  it('turns incompatible formula results into value errors before dependent formulas consume them', () => {
+    const sheet = {
+      ...sheetDocument({ id: 'typed', name: 'Typed', columnCount: 3, cells: { A1: 'text', B1: '=@A[1]', C1: '=@B[1]' } }),
+      modelId: 'model',
+      modelColumnBindings: { amount: 'typed:column:2' },
+    };
+    const workbook = {
+      ...workbookWithSheets([sheet]),
+      dataModels: { model: { id: 'model', name: 'Model', columns: [
+        { id: 'amount', name: 'Amount', kind: 'manual' as const, type: 'float' as const },
+      ] } },
+    };
+
+    expect(evaluateFormulaCells(calculationProjection(workbook)).typed).toMatchObject({
+      B1: { kind: 'error', error: '#VALUE!' },
+      C1: { kind: 'error', error: '#VALUE!' },
+    });
+  });
+
+  it('propagates comparison, numeric overflow and invalid function-reference errors', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: {
+      A1: '=1=1', A2: '=1<2', A3: '=1e308*1e308', A4: '=(1/0)+1',
+      A5: '=COUNTIF(1, ">0")', A6: '=COUNTIF(@missing!A[1], ">0")',
+    } });
+
+    expect(evaluateFormulaCells(calculationProjection(workbookWithSheets([sheet]))).inputs).toMatchObject({
+      A1: { kind: 'boolean', value: true }, A2: { kind: 'boolean', value: true },
+      A3: { kind: 'error', error: '#VALUE!' }, A4: { kind: 'error', error: '#DIV/0!' },
+      A5: { kind: 'error', error: '#VALUE!' }, A6: { kind: 'error', error: '#REF!' },
+    });
+  });
 });

@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -36,7 +37,7 @@ describe('SheetGrid creating axis slots', () => {
           axisProjection={axisProjection}
           cellInteraction={cellInteraction}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -76,7 +77,7 @@ describe('SheetGrid creating axis slots', () => {
           axisProjection={axisProjection}
           cellInteraction={cellInteraction}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -117,7 +118,7 @@ describe('SheetGrid creating axis slots', () => {
         axisProjection={axisProjection}
         cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
         editingCell={null}
-        editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+        editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
         formulaResults={{}}
         keyboardFocusRequest={null}
         onKeyboardFocusRequestConsumed={vi.fn()}
@@ -161,7 +162,7 @@ describe('SheetGrid creating axis slots', () => {
         axisProjection={axisProjection}
         cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
         editingCell={null}
-        editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+        editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
         formulaResults={{}}
         keyboardFocusRequest={null}
         onKeyboardFocusRequestConsumed={vi.fn()}
@@ -202,7 +203,7 @@ describe('SheetGrid creating axis slots', () => {
         axisProjection={axisProjection}
         cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
         editingCell={null}
-        editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+        editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
         formulaResults={{}}
         keyboardFocusRequest={null}
         onKeyboardFocusRequestConsumed={vi.fn()}
@@ -237,7 +238,7 @@ describe('SheetGrid creating axis slots', () => {
       clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(),
     };
     const editorInteraction = {
-      cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn(),
+      FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn(),
     };
 
     render(

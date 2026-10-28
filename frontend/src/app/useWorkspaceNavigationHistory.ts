@@ -5,9 +5,10 @@ import { useNavigationHistory } from '@reference-navigation/useNavigationHistory
 import type { NavigationOperation } from '@reference-navigation/useNavigationHistory';
 import type { WorkspaceViewport } from '@workspace/workspaceContracts';
 
-export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailableTarget, restoreViewport, selection, viewport }: {
+export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailableTarget, onHistoryTraversal, restoreViewport, selection, viewport }: {
   onRestoreSelection: (selection: CellSelection | null) => boolean;
   onUnavailableTarget: () => void;
+  onHistoryTraversal?: () => void;
   restoreViewport: (viewport: WorkspaceViewport, onSettled: () => void) => () => void;
   selection: CellSelection | null;
   viewport: WorkspaceViewport;
@@ -17,12 +18,20 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const restoreGeneration = useRef(0);
   const [, setActiveNavigationGeneration] = useState<number | null>(null);
   const activeRestore = useRef<{ generation: number; complete: () => void; cancelViewport: () => void; viewportSettled: boolean; requiredGridSettled: boolean; requiredSheetId?: string; navigationTarget?: ReferenceNavigationTarget }>();
+  const activateNavigationSelection = useCallback((sheetId: string | undefined) => {
+    if (!sheetId) return;
+    // A dialog or editor opened after the jump owns focus until the user leaves it.
+    if (document.activeElement?.closest('[role="dialog"], [data-workspace-sheet-editor]')) return;
+    const selectedCell = scrollContainers.current.get(sheetId)?.querySelector<HTMLElement>('[data-active-cell="true"]');
+    selectedCell?.focus({ preventScroll: true });
+  }, []);
   const finishRestoreIfSettled = useCallback(() => {
     const restoring = activeRestore.current;
     if (!restoring || !restoring.viewportSettled || (restoring.requiredSheetId && !restoring.requiredGridSettled)) return;
     activeRestore.current = undefined;
+    activateNavigationSelection(restoring.requiredSheetId);
     restoring.complete();
-  }, []);
+  }, [activateNavigationSelection]);
   const cancelPendingScroll = useCallback(() => {
     pendingScroll.current.clear();
   }, []);
@@ -39,9 +48,10 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     if (restoring?.generation === generation && restoring.requiredSheetId === sheetId && !restoring.requiredGridSettled) {
       if (offset?.generation === generation) pendingScroll.current.delete(sheetId);
       restoring.requiredGridSettled = true;
+      activateNavigationSelection(sheetId);
       finishRestoreIfSettled();
     }
-  }, [finishRestoreIfSettled]);
+  }, [activateNavigationSelection, finishRestoreIfSettled]);
   useEffect(() => cancelRestore, [cancelRestore]);
   const registerScrollContainer = useCallback((sheetId: string, element: HTMLElement | null) => {
     if (!element) {
@@ -100,7 +110,9 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     },
     traverse: (direction: 'back' | 'forward') => {
       cancelRestore();
-      return history.traverse(direction);
+      const traversed = history.traverse(direction);
+      if (traversed) onHistoryTraversal?.();
+      return traversed;
     },
   };
   const historyRestoreForSheet = useCallback((sheetId: string) => pendingScroll.current.get(sheetId), []);
@@ -126,5 +138,5 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       beginNavigation(operation, undefined, startViewport);
     });
   }, [beginNavigation, history]);
-  return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation };
+  return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation, pendingNavigationSheetId: activeRestore.current?.requiredSheetId };
 }

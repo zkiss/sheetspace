@@ -1,7 +1,7 @@
 import { columnIndexToLabel, type CellAddress } from '../core/address';
 import type { ColumnId, RowId, SheetId, Workbook } from '../core/model';
 import { findSheetById, sheetsInOrder } from '../read/queries';
-import { formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaExpression, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
+import { formatPropertyReferenceToken, formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaExpression, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
 
 export type FormulaCoordinate = { columnId: ColumnId; rowId: RowId };
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
@@ -9,7 +9,7 @@ export type FormulaSourceSpan = { start: number; end: number };
 export type FormulaQualifier = { kind: 'unqualified' } | { kind: 'explicit'; sheetId: SheetId; sourceSpan: FormulaSourceSpan } | { kind: 'broken'; sourceSpan: FormulaSourceSpan };
 export type FormulaReferenceEndpoint = { anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan } & ({ kind: 'canonical'; coordinate: FormulaCoordinate; propertyId?: string } | { kind: 'a1'; address: CellAddress } | { kind: 'named'; propertyName: string; row: number });
 export type FormulaReferenceToken = { kind: 'cell' | 'range'; qualifier: FormulaQualifier; endpoints: readonly [FormulaReferenceEndpoint, FormulaReferenceEndpoint?]; sourceSpan: FormulaSourceSpan };
-export type FormulaReferenceResolver = { currentSheetId: SheetId; sheetByQualifier(qualifier: string): SheetId | undefined; displaySheetQualifier?(sheetId: SheetId): string | undefined; coordinateAt(sheetId: SheetId, address: CellAddress): FormulaCoordinate | undefined; addressOf(sheetId: SheetId, coordinate: FormulaCoordinate): CellAddress | undefined; namedCoordinateAt?(sheetId: SheetId, name: string, row: number): { propertyId: string; coordinate: FormulaCoordinate } | undefined; namedAddressOf?(sheetId: SheetId, propertyId: string, coordinate: FormulaCoordinate): { name: string; address: CellAddress } | undefined; namedAddressAt?(sheetId: SheetId, coordinate: FormulaCoordinate): { propertyId: string; name: string; address: CellAddress } | undefined };
+export type FormulaReferenceResolver = { currentSheetId: SheetId; sheetByQualifier(qualifier: string): SheetId | undefined; displaySheetQualifier?(sheetId: SheetId): string | undefined; coordinateAt(sheetId: SheetId, address: CellAddress): FormulaCoordinate | undefined; addressOf(sheetId: SheetId, coordinate: FormulaCoordinate): CellAddress | undefined; hasNamedColumn?(sheetId: SheetId, name: string): boolean; namedCoordinateAt?(sheetId: SheetId, name: string, row: number): { propertyId: string; coordinate: FormulaCoordinate } | undefined; namedAddressOf?(sheetId: SheetId, propertyId: string, coordinate: FormulaCoordinate): { name: string; address: CellAddress } | undefined; namedAddressAt?(sheetId: SheetId, coordinate: FormulaCoordinate): { propertyId: string; name: string; address: CellAddress } | undefined };
 export type FormulaTransformResult = { ok: true; raw: string } | { ok: false; reason: 'unresolved-coordinate' };
 export type FormulaCopyContext = { sourceSheetId?: SheetId; destinationSheetId?: SheetId };
 export type FormulaDisplayProjection = { raw: string; referenceSpans: readonly FormulaSourceSpan[] };
@@ -19,7 +19,14 @@ type Match = { sourceSpan: FormulaSourceSpan; qualifier: FormulaQualifier; endpo
 type Edit = FormulaSourceSpan & { value: string };
 
 /** Reference recognition is delegated to formulaSyntax, including malformed-formula recovery. */
-export function formulaReferenceTokens(raw: string): FormulaReferenceToken[] { return lexemeMatches(raw).map(toToken); }
+export function formulaReferenceTokens(raw: string, resolver?: FormulaReferenceResolver): FormulaReferenceToken[] { return lexemeMatches(raw, resolver).map(toToken); }
+
+function namedColumnPredicate(resolver?: FormulaReferenceResolver) {
+  return (qualifier: string | undefined, name: string) => {
+    const sheetId = qualifier === undefined ? resolver?.currentSheetId : resolver?.sheetByQualifier(qualifier);
+    return Boolean(sheetId && resolver?.hasNamedColumn?.(sheetId, name));
+  };
+}
 
 /**
  * Adds resolver-backed reference diagnostics to the parser's lossless analysis.
@@ -27,7 +34,7 @@ export function formulaReferenceTokens(raw: string): FormulaReferenceToken[] { r
  * the existing resolver for stable named targets and target validity.
  */
 export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver): FormulaSyntaxResult {
-  const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true });
+  const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn: namedColumnPredicate(resolver) });
   const diagnostics = analysis.referenceLexemes.map(matchFromLexeme)
     .filter((match) => !referenceMatchResolves(match, resolver))
     .map((match) => ({ kind: 'reference' as const, code: '#REF!' as const, sourceSpan: match.sourceSpan }));
@@ -84,7 +91,7 @@ function resolveExpressionReferences(expression: FormulaExpression, references: 
 
 export function formulaRawToCanonical(raw: string, resolver: FormulaReferenceResolver): string {
   const edits: Edit[] = [];
-  for (const match of rawMatches(raw)) {
+  for (const match of rawMatches(raw, resolver)) {
     const sheetId = rawTargetSheet(match.qualifier, resolver);
     const resolved = sheetId && match.endpoints.map((endpoint) => endpoint.kind === 'named'
       ? resolver.namedCoordinateAt?.(sheetId, endpoint.propertyName!, endpoint.row!)
@@ -194,14 +201,19 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
     displaySheetQualifier: (sheetId) => { const name = sheet(sheetId)?.name; return name && (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`); },
     coordinateAt: (sheetId, address) => { const content = sheet(sheetId)?.content; const rowId = content?.rows[address.rowIndex]; const columnId = content?.columns[address.columnIndex]; return rowId && columnId ? { rowId, columnId } : undefined; },
     addressOf: (sheetId, coordinate) => { const content = sheet(sheetId)?.content; if (!content) return undefined; const rowIndex = content.rows.indexOf(coordinate.rowId); const columnIndex = content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { rowIndex, columnIndex }; },
+    hasNamedColumn: (sheetId, name) => {
+      const document = sheet(sheetId);
+      const model = document?.modelId ? workbook.dataModels?.[document.modelId] : undefined;
+      return Boolean(model?.columns.some((property) => property.name === name && document?.modelColumnBindings?.[property.id]));
+    },
     namedCoordinateAt: (sheetId, name, row) => { const document = sheet(sheetId); const model = document?.modelId ? workbook.dataModels?.[document.modelId] : undefined; const property = model?.columns.find((column) => column.name === name); const columnId = property && document?.modelColumnBindings?.[property.id]; const rowId = document?.content.rows[row - 1]; return property && columnId && rowId && document.content.columns.includes(columnId) ? { propertyId: property.id, coordinate: { columnId, rowId } } : undefined; },
     namedAddressOf,
     namedAddressAt: (sheetId, coordinate) => { const document = sheet(sheetId); const model = document?.modelId ? workbook.dataModels?.[document.modelId] : undefined; const property = model?.columns.find((column) => document?.modelColumnBindings?.[column.id] === coordinate.columnId); const named = property && namedAddressOf(sheetId, property.id, coordinate); return named && property ? { propertyId: property.id, ...named } : undefined; },
   };
 }
 
-function rawMatches(raw: string): Match[] { return lexemeMatches(raw).filter((match) => !match.canonical); }
-function lexemeMatches(raw: string): Match[] { return formulaReferenceLexemes(raw).map(matchFromLexeme); }
+function rawMatches(raw: string, resolver?: FormulaReferenceResolver): Match[] { return lexemeMatches(raw, resolver).filter((match) => !match.canonical); }
+function lexemeMatches(raw: string, resolver?: FormulaReferenceResolver): Match[] { return formulaReferenceLexemes(raw, namedColumnPredicate(resolver)).map(matchFromLexeme); }
 function referenceMatchResolves(match: Match, resolver: FormulaReferenceResolver): boolean {
   const sheetId = match.canonical
     ? targetSheet(match.qualifier, resolver.currentSheetId)
@@ -239,7 +251,7 @@ function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnch
 function formatNamedCanonical(propertyId: string, coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}~${encodeStableId(propertyId)}~${encodeStableId(coordinate.columnId)}[${anchors.row ? '$' : ''}${encodeStableId(coordinate.rowId)}]`; }
 function encodeStableId(value: string): string { return Array.from({ length: value.length }, (_, index) => value.charCodeAt(index).toString(16).padStart(4, '0')).join(''); }
 function formatA1(address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${columnIndexToLabel(address.columnIndex)}[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
-function formatNamed(name: string, address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}'${name.replace(/'/g, "''")}'[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
+function formatNamed(name: string, address: CellAddress, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${formatPropertyReferenceToken(name)}[${anchors.row ? '$' : ''}${address.rowIndex + 1}]`; }
 /** Applies one copy delta while preserving anchors independently on each axis. */
 function translateCopyAddress(address: CellAddress, anchors: FormulaAxisAnchor, source: CellAddress, destination: CellAddress): CellAddress {
   return {

@@ -1,0 +1,37 @@
+.navigation-palette-backdrop { align-items: start; padding-top: min(16vh, 9rem); background: rgb(15 28 36 / 42%); }
+.navigation-palette { display: flex; flex-direction: column; width: min(40rem, 100%); max-height: min(36rem, 75vh); overflow: hidden; border: 1px solid #ccd9df; border-radius: 12px; background: #fff; box-shadow: 0 24px 70px rgb(15 28 36 / 28%); }
+.navigation-palette-search { display: flex; align-items: center; gap: .7rem; padding: .85rem 1rem; border-bottom: 1px solid #e4ebee; }
+.navigation-palette-search-icon { color: #55717e; font-size: 1.7rem; line-height: 1; }
+.navigation-palette-search-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.navigation-palette-search input { flex: 1; min-width: 0; border: 0; outline: 0; color: #1b2a34; background: transparent; font-size: 1rem; }
+.navigation-palette-search input::placeholder { color: #91a1aa; }
+.navigation-palette-close, .navigation-palette-footer kbd { min-height: 0; border: 1px solid #dce5e9; border-radius: 4px; padding: .15rem .35rem; color: #80909a; background: #f8fafb; font: 0.7rem/1.2 ui-monospace, SFMono-Regular, monospace; }
+.navigation-palette-close:hover { color: var(--accent-text); background: var(--accent-soft-hover); }
+.navigation-palette-results { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: .4rem; list-style: none; }
+.navigation-palette-item { list-style: none; }
+.navigation-command-group { display: block; padding: .65rem .7rem .3rem; color: #81929c; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.navigation-command { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 2.65rem; gap: 1rem; border: 1px solid transparent; border-radius: 7px; padding: .55rem .7rem; color: #263a45; background: transparent; text-align: left; }
+.navigation-command:hover:not(:disabled) { background: var(--accent-soft); }
+.navigation-palette-item[aria-selected='true'] .navigation-command, .navigation-command:focus-visible { border-color: var(--accent-border); outline: none; color: var(--accent-text); background: var(--accent-soft-hover); }
+.navigation-command:disabled { cursor: not-allowed; color: #8999a2; background: transparent; }
+.navigation-command-text { display: grid; min-width: 0; gap: .15rem; }
+.navigation-command-label { font-size: .9rem; font-weight: 600; }
+.navigation-command-reason { color: #9aa8af; font-size: .73rem; font-weight: 400; }
+.navigation-command-shortcut { flex: none; color: #8a9aa3; font: .73rem/1.2 ui-monospace, SFMono-Regular, monospace; white-space: nowrap; }
+.navigation-palette-empty { margin: 0; padding: 2rem; color: #84949d; text-align: center; font-size: .9rem; }
+.navigation-row-picker { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem 1rem; padding: .9rem 1.2rem; color: #71838e; font-size: .82rem; }
+.navigation-row-picker strong { color: #344d59; }
+.navigation-row-error { flex-basis: 100%; color: #a33a3a; }
+.navigation-palette-footer { display: flex; flex-wrap: wrap; gap: 1rem; border-top: 1px solid #eaf0f2; padding: .55rem 1rem; color: #91a0a8; font-size: .7rem; }
+.navigation-palette-footer kbd { margin-right: .2rem; }
+.navigation-palette-search > strong { flex: 1; color: var(--accent-text); }
+.navigation-palette-panel { min-height: 0; overflow: auto; padding: 1rem; }
+.navigation-palette-panel .workspace-model-controls { display: grid; align-items: stretch; }
+.navigation-palette-panel .workspace-model-controls label { display: grid; align-items: stretch; }
+.navigation-palette-panel .workspace-model-controls select { width: 100%; }
+.navigation-palette-panel .sheet-model-confirmation { max-width: none; }
+.command-number-form { display: grid; gap: .75rem; }
+.command-number-form label { display: grid; gap: .3rem; color: #344454; font-size: .9rem; }
+.command-number-form input { width: 100%; border: 1px solid #aebcc5; border-radius: 5px; padding: .45rem; }
+.command-number-form > button { justify-self: end; }
+.navigation-palette-panel .colour-picker-popover { position: relative; top: auto; left: auto; margin-top: .4rem; }

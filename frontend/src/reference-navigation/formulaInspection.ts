@@ -1,7 +1,8 @@
+import type { FormulaInspectionReference, FormulaReferenceTarget } from '@workbook/formula/formulaInspectionContracts';
 import { cellIdentityAt, stableRangeAt } from '@workbook/core/cellIdentity';
 import { findSheetById } from '@workbook/read/queries';
 import { analyzeFormulaSyntax, formulaRawForDisplay, formulaRawToDisplayProjection, formulaReferenceTokens, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
-import { type SheetDocument, type StableCellIdentity, type StableCellRange, type Workbook } from '@workbook/core/model';
+import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import {
   collectFormulaReferences,
   parseFormulaSyntax,
@@ -9,28 +10,6 @@ import {
   type FormulaDiagnostic,
   type FormulaSourceSpan,
 } from '@workbook/formula/syntax';
-
-export type FormulaReferenceTarget =
-  | {
-      kind: 'cell';
-      sheetId: string;
-      identity?: StableCellIdentity;
-    }
-  | {
-      kind: 'range';
-      sheetId: string;
-      range?: StableCellRange;
-    };
-
-export type FormulaInspectionReference = {
-  kind: 'reference';
-  text: string;
-  sourceSpan: FormulaSourceSpan;
-  displaySpan: FormulaSourceSpan;
-  target: FormulaReferenceTarget;
-  broken: boolean;
-  navigable: boolean;
-};
 
 export type FormulaInspectionPart =
   | { kind: 'text'; text: string }

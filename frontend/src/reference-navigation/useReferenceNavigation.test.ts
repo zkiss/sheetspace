@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useReferenceNavigation } from './useReferenceNavigation';
-import type { FormulaInspectionReference } from './formulaInspection';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 const span = { start: 1, end: 3 };

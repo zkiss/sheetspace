@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
@@ -8,9 +8,10 @@ function setup() {
     smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@B[1]+1', B1: '2' } }),
   ])} />);
   const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-  fireEvent.click(cell);
-  const inspector = screen.getByRole('region', { name: 'Selected formula' });
-  return { cell, inspector, code: inspector.querySelector('code')!, surface: screen.getByTestId('workspace-surface') };
+  fireEvent.doubleClick(cell);
+  const editor = screen.getByRole('textbox');
+  const panel = editor.closest('section')!;
+  return { cell, editor, panel, token: panel.querySelector('[data-reference-index]')!, surface: screen.getByTestId('workspace-surface') };
 }
 
 function pointer(target: Element, type: string, options: MouseEventInit = {}) {
@@ -20,53 +21,63 @@ function pointer(target: Element, type: string, options: MouseEventInit = {}) {
   return event;
 }
 
-describe('formula inspector workspace gesture ownership', () => {
-  it('preserves selection and native primary pointers throughout the inspector, including plain formula text', () => {
-    const { cell, inspector, code, surface } = setup();
-    for (const target of [inspector, within(inspector).getByText('Formula'), code, within(inspector).getByRole('status')]) {
+describe('shared formula editor workspace gesture ownership', () => {
+  it('keeps native primary pointers and selection in the portaled editor', () => {
+    const { cell, editor, panel, token, surface } = setup();
+    for (const target of [panel, editor, token]) {
       expect(pointer(target, 'pointerdown').defaultPrevented).toBe(false);
-      pointer(surface, 'pointermove', { clientX: 40, clientY: 20 });
       pointer(target, 'pointerup');
-      fireEvent.click(target, { detail: 1 });
       expect(cell).toHaveAttribute('data-active-cell', 'true');
-      expect(screen.getByRole('region', { name: 'Selected formula' })).toBe(inspector);
+      expect(screen.getByRole('textbox')).toBe(editor);
       expect(surface).toHaveAttribute('data-viewport-x', '0');
       expect(surface).toHaveAttribute('data-viewport-y', '0');
     }
   });
 
-  it('leaves ordinary formula overflow wheel input native without panning or clearing selection', () => {
-    const { cell, code, surface } = setup();
+  it('leaves ordinary editor wheel input native without panning or clearing selection', () => {
+    const { cell, editor, surface } = setup();
     const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 80, deltaY: 100 });
-    fireEvent(code, event);
+    fireEvent(editor, event);
     expect(event.defaultPrevented).toBe(false);
     expect(cell).toHaveAttribute('data-active-cell', 'true');
     expect(surface).toHaveAttribute('data-viewport-x', '0');
     expect(surface).toHaveAttribute('data-viewport-y', '0');
   });
 
-  it('routes Ctrl wheel over real formula text without clearing the inspector', () => {
-    const { cell, code, surface, inspector } = setup();
+  it('routes Ctrl wheel over the portaled editor to workspace zoom and retains the draft', () => {
+    const { cell, editor, surface } = setup();
     const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 });
-    fireEvent(code, event);
+    fireEvent(editor, event);
     expect(event.defaultPrevented).toBe(true);
     expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1);
     expect(cell).toHaveAttribute('data-active-cell', 'true');
-    expect(screen.getByRole('region', { name: 'Selected formula' })).toBe(inspector);
+    expect(screen.getByRole('textbox')).toBe(editor);
+    expect(editor).toHaveValue('=@B[1]+1');
   });
 
-  it('routes Space pan over the real inspector and clears selection intentionally', () => {
-    const { cell, code, surface } = setup();
+  it('keeps Space typing in the editor from starting workspace pan', () => {
+    const { cell, editor, surface } = setup();
+    fireEvent.keyDown(editor, { key: ' ', code: 'Space' });
+    expect(pointer(editor, 'pointerdown').defaultPrevented).toBe(false);
+    pointer(surface, 'pointermove', { clientX: 40, clientY: 20 });
+    pointer(editor, 'pointerup');
+    fireEvent.keyUp(editor, { key: ' ', code: 'Space' });
+    expect(surface).toHaveAttribute('data-viewport-x', '0');
+    expect(surface).toHaveAttribute('data-viewport-y', '0');
+    expect(cell).toHaveAttribute('data-active-cell', 'true');
+    expect(screen.getByRole('textbox')).toBe(editor);
+  });
+
+  it('routes an armed Space pan from the editor into the workspace', () => {
+    const { cell, editor, surface } = setup();
     fireEvent.keyDown(document.body, { key: ' ', code: 'Space' });
-    const button = 0;
-    const buttons = 1;
-    expect(pointer(code, 'pointerdown', { button, buttons }).defaultPrevented).toBe(true);
-    pointer(surface, 'pointermove', { button, buttons, clientX: 40, clientY: 20 });
-    pointer(surface, 'pointerup', { button, buttons: 0 });
-    fireEvent.keyUp(document.body, { code: 'Space' });
+    expect(pointer(editor, 'pointerdown').defaultPrevented).toBe(true);
+    pointer(surface, 'pointermove', { clientX: 40, clientY: 20 });
+    pointer(surface, 'pointerup', { clientX: 40, clientY: 20, buttons: 0 });
+    fireEvent.keyUp(document.body, { key: ' ', code: 'Space' });
     expect(surface).toHaveAttribute('data-viewport-x', '40');
     expect(surface).toHaveAttribute('data-viewport-y', '20');
     expect(cell).not.toHaveAttribute('data-active-cell');
-    expect(screen.queryByRole('region', { name: 'Selected formula' })).not.toBeInTheDocument();
   });
+
 });

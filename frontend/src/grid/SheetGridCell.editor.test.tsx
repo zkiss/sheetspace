@@ -1,4 +1,5 @@
-import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetGridCellEditor } from './SheetGridCellEditor';
 import { testRect } from '@test-support/domGeometry';
@@ -10,7 +11,7 @@ function setup(draft = 'Draft') {
   document.body.append(element);
   const anchor = { current: element };
   const measure = vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(testRect({ left: 40, top: 60, width: 90, height: 26 }));
-  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), cancel: vi.fn(), suspend: vi.fn(), updateValue: vi.fn() };
+  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), suspend: vi.fn(), updateValue: vi.fn() };
   const editingCell = { target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft, sessionId: 1 };
   const component = (value: string) => <SheetGridCellEditor anchor={anchor} editingCell={{ ...editingCell, draft: value }} cellKey="A1" sheetName="Inputs" interaction={interaction} />;
   const view = render(component(draft));
@@ -20,28 +21,78 @@ function setup(draft = 'Draft') {
 }
 
 describe('portal cell editor', () => {
-  it('anchors immediately, tracks scrolling and transforms, and preserves focus and caret across drafts', () => {
+  it('tracks anchor scroll and resize without replacing the focused input or moving its caret', () => {
     const { editor, measure, updateDraft } = setup();
-    expect(editor).toHaveFocus();
-    expect(editor).toHaveClass('sheet-grid-cell-editor');
-    expect(editor).toHaveStyle({ left: '40px', top: '60px', height: '26px' });
-    expect(editor.selectionStart).toBe(5);
+    const panel = editor.closest<HTMLElement>('.formula-editor-panel')!;
+    expect(panel).toHaveStyle({ left: '40px', top: '60px' });
     editor.setSelectionRange(2, 2);
     updateDraft('Draft');
-    expect(editor.selectionStart).toBe(2);
     measure.mockReturnValue(testRect({ left: 70, top: 100, width: 180, height: 52 }));
     fireEvent.scroll(window);
-    expect(editor).toHaveStyle({ left: '70px', top: '100px', height: '52px' });
-    expect(editor).toHaveFocus();
-    expect(editor.style.width).toContain('180px');
-    measure.mockReturnValue(testRect({ left: 70, top: 100, width: 200, height: 52 }));
+    expect(panel).toHaveStyle({ left: '70px', top: '100px' });
+    expect(panel.style.width).toContain('180px');
+    expect(editor).toHaveStyle({ height: '52px' });
+    measure.mockReturnValue(testRect({ left: 80, top: 110, width: 200, height: 60 }));
     fireEvent.resize(window);
-    expect(editor.style.width).toContain('200px');
-    measure.mockReturnValue(testRect({ left: 70, top: 100, width: 200, height: 60 }));
-    fireEvent.resize(window);
+    expect(panel).toHaveStyle({ left: '80px', top: '110px' });
+    expect(panel.style.width).toContain('200px');
     expect(editor).toHaveStyle({ height: '60px' });
+    expect(screen.getByRole('textbox')).toBe(editor);
+    expect(editor).toHaveFocus();
+    expect(editor.selectionStart).toBe(2);
   });
 
+  it('keeps syntax overlay text and scroll aligned with the shared input', () => {
+    const draft = `=SUM(@A[1], ${'value '.repeat(40)})\nsecond`;
+    const { editor, updateDraft } = setup(draft);
+    const highlight = document.querySelector<HTMLElement>('.formula-editor-highlight')!;
+    expect(highlight.textContent).toBe(`${draft}\u200b`);
+    editor.scrollTop = 48;
+    editor.scrollLeft = 32;
+    fireEvent.scroll(editor);
+    expect(highlight.scrollTop).toBe(48);
+    expect(highlight.scrollLeft).toBe(32);
+    for (const next of ['', 'x', 'first\nsecond\n', '\tindented']) {
+      updateDraft(next);
+      expect(highlight.textContent).toBe(`${next}\u200b`);
+      expect(highlight.scrollTop).toBe(editor.scrollTop);
+      expect(highlight.scrollLeft).toBe(editor.scrollLeft);
+    }
+  });
+
+  it.each([true, false])('light Enter accepts only an arrow-selected completion (selected: %s)', (selected) => {
+    const { editor, interaction, updateDraft } = setup('=S');
+    fireEvent.change(editor, { target: { value: '=SU' } });
+    updateDraft('=SU');
+    interaction.updateValue.mockClear();
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    if (selected) fireEvent.keyDown(editor, { key: 'ArrowDown' });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    if (selected) {
+      expect(interaction.updateValue).toHaveBeenCalledOnce();
+      expect(interaction.updateValue.mock.calls[0][0]).not.toBe('=SU');
+      expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
+      updateDraft(interaction.updateValue.mock.calls[0][0]);
+      expect(editor).toHaveFocus();
+    } else {
+      expect(interaction.updateValue).not.toHaveBeenCalled();
+      expect(interaction.commitAndNavigate).toHaveBeenCalledOnce();
+    }
+  });
+
+  it.each(['automatic', 'explicit'])('light Escape cancels with %s completion open', (trigger) => {
+    const { editor, interaction, updateDraft } = setup('=S');
+    if (trigger === 'automatic') {
+      fireEvent.change(editor, { target: { value: '=SU' } });
+      updateDraft('=SU');
+    } else {
+      fireEvent.keyDown(editor, { key: ' ', code: 'Space', ctrlKey: true });
+    }
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(interaction.cancel).toHaveBeenCalledOnce();
+    expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
+  });
   it('grows and shrinks to content within the maximum, keeping long drafts scrollable', () => {
     const { editor, updateDraft } = setup();
     Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 300 });
@@ -51,51 +102,6 @@ describe('portal cell editor', () => {
     Object.defineProperty(editor, 'scrollHeight', { configurable: true, value: 30 });
     updateDraft('short');
     expect(editor).toHaveStyle({ height: '30px', overflowY: 'hidden' });
-  });
-
-  it('renders parser-owned formula token colours without replacing the focused textarea', () => {
-    const { editor } = setup('=SUM(@A[1], "text") + TRUE');
-
-    expect(editor).toHaveFocus();
-    expect(document.querySelectorAll('[data-formula-token-kind="function"]')).toHaveLength(1);
-    expect(document.querySelectorAll('[data-formula-token-kind="reference"]')).toHaveLength(1);
-    expect(document.querySelectorAll('[data-formula-token-kind="literal"]')).toHaveLength(2);
-    expect(document.querySelectorAll('[data-formula-token-kind="operator"]')).toHaveLength(1);
-  });
-
-  it('keeps the syntax overlay aligned with every textarea draft and scroll position', () => {
-    const longDraft = `=SUM(@A[1],\t${'value '.repeat(40)})\n${Array.from({ length: 12 }, (_, index) => `row ${index}`).join('\n')}`;
-    const { editor, updateDraft } = setup(longDraft);
-    const highlight = document.querySelector('.sheet-grid-cell-editor-highlight') as HTMLPreElement;
-
-    expect(highlight.textContent).toBe(longDraft);
-    editor.scrollTop = 48;
-    editor.scrollLeft = 32;
-    fireEvent.scroll(editor);
-    expect(highlight.scrollTop).toBe(48);
-    expect(highlight.scrollLeft).toBe(32);
-
-    for (const draft of ['', 'x', 'first\nsecond\n', '\tindented', 'single-line']) {
-      updateDraft(draft);
-      expect(highlight.textContent).toBe(draft);
-      expect(highlight.scrollTop).toBe(editor.scrollTop);
-      expect(highlight.scrollLeft).toBe(editor.scrollLeft);
-    }
-  });
-
-  it('inserts a newline at the selected caret only for Shift+Enter', () => {
-    const { editor, interaction } = setup('first second');
-    editor.setSelectionRange(5, 6);
-    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true });
-    expect(interaction.updateValue).toHaveBeenCalledWith('first\nsecond');
-    expect(editor.selectionStart).toBe(6);
-    for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { ctrlKey: true, shiftKey: true }]) {
-      const event = createEvent.keyDown(editor, { key: 'Enter', ...modifiers });
-      fireEvent(editor, event);
-      expect(event.defaultPrevented).toBe(true);
-    }
-    expect(interaction.updateValue).toHaveBeenCalledOnce();
-    expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
   });
 
   it.each(['Enter', 'Tab', 'Escape'])('finishes %s once without a blur re-commit', (key) => {
@@ -108,7 +114,7 @@ describe('portal cell editor', () => {
     expect(editor).toHaveFocus();
     expect(editor).toHaveValue('Draft');
     expect([editor.selectionStart, editor.selectionEnd]).toEqual([2, 4]);
-    for (const action of Object.values(interaction)) expect(action).not.toHaveBeenCalled();
+    for (const action of [interaction.commit, interaction.commitAndNavigate, interaction.cancel, interaction.suspend, interaction.updateValue]) expect(action).not.toHaveBeenCalled();
     fireEvent.keyDown(editor, { key });
     fireEvent.blur(editor);
     expect(interaction.commit).not.toHaveBeenCalled();
@@ -164,4 +170,14 @@ describe('portal cell editor', () => {
     });
     destination.remove();
   });
+});
+
+it('renders the formula surface supplied by the workspace at the cell anchor', () => {
+  const anchor = { current: document.createElement('div') };
+  const surface = vi.fn(() => <div>Injected formula surface</div>);
+  const interaction = { FormulaEditor: surface, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+  render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" interaction={interaction}
+    editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: '=1', sessionId: 1 }} />);
+  expect(screen.getByText('Injected formula surface')).toBeInTheDocument();
+  expect(surface).toHaveBeenCalledWith(expect.objectContaining({ raw: '=1', sheetId: 'inputs', ariaLabel: 'Inputs A1 editor' }), expect.anything());
 });

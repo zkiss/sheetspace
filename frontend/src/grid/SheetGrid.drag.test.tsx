@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -31,7 +32,7 @@ describe('SheetGrid pointer selection', () => {
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <button type="button">Outside control</button>
         <SheetGrid activeCellKey={null} axisProjection={axisProjection} cellInteraction={cellInteraction}
-          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
           navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
       </div>,
@@ -57,7 +58,7 @@ describe('SheetGrid pointer selection', () => {
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <SheetGrid activeCellKey="ZZ999" axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
-          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}} keyboardFocusRequest={{ id: 9, targetKey: 'ZZ999' }} onKeyboardFocusRequestConsumed={consumed}
           navigationHighlightCellKey="ZZ999" scrollContainerRef={scrollContainerRef} sheet={sheet} />
       </div>,
@@ -83,7 +84,7 @@ describe('SheetGrid pointer selection', () => {
           axisProjection={axisProjection}
           cellInteraction={cellInteraction}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -123,7 +124,7 @@ describe('SheetGrid pointer selection', () => {
           axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), extend: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -158,7 +159,7 @@ describe('SheetGrid pointer selection', () => {
           axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -205,7 +206,7 @@ describe('SheetGrid pointer selection', () => {
     render(
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <SheetGrid activeCellKey={null} axisProjection={axisProjection} cellInteraction={cellInteraction}
-          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
           navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
       </div>,
@@ -234,7 +235,7 @@ describe('SheetGrid pointer selection', () => {
     const view = render(
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <SheetGrid activeCellKey={null} activeSheetId={sheet.id} axisProjection={axisProjection} cellInteraction={cellInteraction}
-          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
           navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
       </div>,
@@ -246,7 +247,7 @@ describe('SheetGrid pointer selection', () => {
     view.rerender(
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <SheetGrid activeCellKey={null} activeSheetId="other-sheet" axisProjection={axisProjection} cellInteraction={cellInteraction}
-          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
           navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
       </div>,
@@ -277,7 +278,7 @@ describe('SheetGrid pointer selection', () => {
           axisProjection={axisProjection}
           cellInteraction={cellInteraction}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -316,7 +317,7 @@ describe('SheetGrid pointer selection', () => {
           axisProjection={axisProjection}
           cellInteraction={cellInteraction}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}

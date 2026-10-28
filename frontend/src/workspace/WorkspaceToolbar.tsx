@@ -10,8 +10,8 @@ function saveStatusText(status: SaveStatus) {
 
 export function WorkspaceToolbar({
   canRetryFailedSaves,
+  referencesVisible = false,
   formatControls,
-  modelControls,
   onCreateSheet,
   onOpenDataModels,
   onOpenCommandPalette,
@@ -20,11 +20,12 @@ export function WorkspaceToolbar({
   canGoBack = false,
   canGoForward = false,
   onRetryFailedSaves,
+  onToggleReferences = () => {},
   saveStatus,
 }: {
   canRetryFailedSaves: boolean;
+  referencesVisible?: boolean;
   formatControls: ReactNode;
-  modelControls?: ReactNode;
   onCreateSheet: () => void;
   onOpenDataModels?: () => void;
   onOpenCommandPalette?: () => void;
@@ -33,6 +34,7 @@ export function WorkspaceToolbar({
   canGoBack?: boolean;
   canGoForward?: boolean;
   onRetryFailedSaves: () => void;
+  onToggleReferences?: () => void;
   saveStatus: SaveStatus;
 }) {
   return (
@@ -43,7 +45,7 @@ export function WorkspaceToolbar({
         <button aria-label="Forward" className="workspace-new-sheet" data-workspace-navigation disabled={!canGoForward} onClick={onGoForward} title="Forward (Alt+Right)" type="button">Forward</button>
         <button className="workspace-new-sheet" data-workspace-navigation id="data-models-button" onClick={() => onOpenDataModels?.()} type="button">Data models</button>
         <button aria-label="Command palette" className="workspace-new-sheet" data-workspace-navigation onClick={onOpenCommandPalette} title="Command palette (Ctrl+Shift+P)" type="button">Commands</button>
-        {modelControls}
+        <button aria-pressed={referencesVisible} className="workspace-new-sheet" data-workspace-navigation onClick={onToggleReferences} type="button">{referencesVisible ? 'Hide references' : 'Show references'}</button>
         <div className="workspace-format-slot">{formatControls}</div>
         <span className="save-status-indicator" data-status-text={saveStatus === 'failed' && canRetryFailedSaves ? 'Save failed. Click to retry.' : saveStatusText(saveStatus)}>
           {saveStatus === 'failed' && canRetryFailedSaves ? (

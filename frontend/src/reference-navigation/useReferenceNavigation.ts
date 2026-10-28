@@ -4,13 +4,12 @@ import { findSheetById } from '@workbook/read/queries';
 import { type CellRange } from '@workbook/core/address';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
-import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { detailedViewportScaleForSheet, rangeFitsSheetViewport } from '@grid/gridGeometry';
-import { type WorkspaceTargetRect, workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import { clampWorkspaceZoom, type WorkspaceTargetRect, workspaceRectForFrame, WORKSPACE_NAVIGATION_TRANSITION_MS } from '@workspace/workspaceGeometry';
 import type { NavigationOperation } from './useNavigationHistory';
 
 const NAVIGATION_HIGHLIGHT_MS = 1200;
-const NAVIGATION_TRANSITION_MS = 180;
 
 function normalizedRange(reference: FormulaInspectionReference, sheet: SheetDocument): CellRange | undefined {
   if (reference.target.kind === 'range') {
@@ -45,7 +44,7 @@ export function useReferenceNavigation({
 }: {
   navigateToTarget: (
     target: WorkspaceTargetRect,
-    options?: { forceOversized?: boolean; minimumScale?: number; onSettled?: () => void },
+    options?: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void },
   ) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
@@ -78,7 +77,7 @@ export function useReferenceNavigation({
 
     const timeout = window.setTimeout(
       () => setNavigationMotion(false),
-      NAVIGATION_TRANSITION_MS,
+      WORKSPACE_NAVIGATION_TRANSITION_MS,
     );
     return () => window.clearTimeout(timeout);
   }, [navigationMotion]);
@@ -103,7 +102,9 @@ export function useReferenceNavigation({
       setNavigationMotion(!reduceMotion);
       const startViewport = (settled: () => void) => navigateToTarget(workspaceRectForFrame(targetSheet.frame), {
         forceOversized: options.forceOversized ?? (target.kind === 'range' && !rangeFitsSheetViewport(normalized, targetSheet)),
-        minimumScale: detailedViewportScaleForSheet(targetSheet), onSettled: settled,
+        minimumScale: detailedViewportScaleForSheet(targetSheet),
+        naturalScale: clampWorkspaceZoom(1 / targetSheet.frame.visualScale),
+        onSettled: settled,
       });
       if (startNavigation) startNavigation(navigationOperation, target, startViewport);
       else startViewport(navigationOperation.complete);
@@ -129,6 +130,7 @@ export function useReferenceNavigation({
   }
 
   return {
+    clearNavigationHighlight: () => { setHighlight(null); setNavigationMotion(false); },
     navigateReference,
     navigateTarget,
     navigationHighlight: highlight?.target ?? null,

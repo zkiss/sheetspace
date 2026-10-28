@@ -6,6 +6,7 @@ import { workbookFormulaReferenceResolver, type FormulaReferenceResolver } from 
 import type { Workbook } from '@workbook/core/model';
 import type { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
+import { inferModelFormulaType } from './modelFormulaType';
 import './DataModelDialog.css';
 
 type Draft = { id: string; name: string; columns: ModelColumn[] };
@@ -47,6 +48,8 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [formulaDrafts, setFormulaDrafts] = useState<Readonly<Record<string, string>>>({});
+  const [editingFormula, setEditingFormula] = useState<string | null>(null);
+  const [formulaMode, setFormulaMode] = useState<'light' | 'heavy'>('light');
   const [savedPropertyIds, setSavedPropertyIds] = useState<ReadonlySet<string>>(() => new Set(initialModel?.columns.map((column) => column.id) ?? []));
   function openCreate() { setDraft(newDraft()); setIsNew(true); setSavedPropertyIds(new Set()); setFormulaDrafts({}); setError(''); }
   function openEdit(model: DataModel) { setDraft(copy(model)); setIsNew(false); setSavedPropertyIds(new Set(model.columns.map((column) => column.id))); setFormulaDrafts({}); setError(''); }
@@ -71,7 +74,9 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!draft || submissionPending.current) return;
-    const submittedDraft = { ...draft, columns: draft.columns.map((column) => ({ ...column })) };
+    const columns = draft.columns.map((column) => column.kind === 'calculated' && formulaDrafts[column.id] !== undefined ? { ...column, formula: formulaDrafts[column.id]! } : column);
+    const submittedDraft = { ...draft, columns: columns.map((column) => column.kind === 'calculated'
+      ? { ...column, type: inferModelFormulaType(column.formula, columns, new Set([column.id])) ?? column.type } : { ...column }) };
     const submittedIsNew = isNew;
     submissionPending.current = true;
     setSaving(true);
@@ -84,7 +89,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
     submissionPending.current = false;
     setSaving(false);
     if (!result.ok) { setError(message(result)); return; }
-    setDraft(null); setError('');
+    setDraft(null); setEditingFormula(null); setFormulaDrafts({}); setError('');
   }
   useEffect(() => {
     function retainDialogFocus(event: FocusEvent) {
@@ -136,15 +141,31 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
         <label>Model name<input autoFocus disabled={saving} onChange={(event) => setDraft({ ...draft, name: event.target.value })} value={draft.name} /></label>
         <fieldset><legend>Properties</legend>
           {draft.columns.map((column, index) => <div className="model-property" data-property-id={column.id} key={column.id}>
-            <label>Property name<input aria-label={`Property ${index + 1} name`} disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} /></label>
-            <label>Kind<select aria-label={`Property ${index + 1} kind`} disabled={saving} onChange={(event) => updateColumn(index, { kind: event.target.value as ModelColumn['kind'] })} value={column.kind}><option value="manual">Manual</option><option value="calculated">Calculated</option></select></label>
-            <label>Type<select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => updateColumn(index, { type: event.target.value as ModelColumnType })} value={column.type}>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
-            {column.kind === 'calculated' ? <FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} disabled={saving} modelOnly onApply={() => {
+            <div className={`model-property-row${editingFormula === column.id && formulaMode === 'heavy' ? ' model-property-row-expanded' : ''}`}>
+            <input aria-label={`Property ${index + 1} name`} placeholder="Property name" disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} />
+            <select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => {
+              const type = event.target.value;
+              updateColumn(index, type === 'function' ? { kind: 'calculated' } : { kind: 'manual', type: type as ModelColumnType });
+              setEditingFormula(type === 'function' ? column.id : null); setFormulaMode('light');
+            }} value={column.kind === 'calculated' ? 'function' : column.type}>{types.map((type) => <option key={type} value={type}>{type}</option>)}<option value="function">Function</option></select>
+            {column.kind === 'calculated' ? <div className="model-property-formula-slot">{editingFormula !== column.id ? <button className="model-property-formula-button" disabled={saving} onClick={() => { setEditingFormula(column.id); setFormulaMode('light'); }} type="button" title={column.formula || 'Edit formula'}><span>{column.formula || 'Edit formula…'}</span><small>{inferModelFormulaType(formulaDrafts[column.id] ?? column.formula, draft.columns, new Set([column.id])) ?? 'unknown'}</small></button> : <div className="model-formula-editor"><FormulaEditorPanel ariaLabel={`Property ${index + 1} formula`} autoFocus cellMode={formulaMode} onToggleMode={() => setFormulaMode((mode) => mode === 'light' ? 'heavy' : 'light')} onCommitAndNavigate={() => {
               const formula = formulaDrafts[column.id];
               if (formula !== undefined) updateColumn(index, { formula });
               setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
-            }} onCancel={() => setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; })} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} referenceValues={(identity) => formulaPanelReferenceValues(identity, modelDraftReferenceResolver(formulaWorkbook, draft), formulaResults)} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /> : null}
-            <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Up</button><button aria-label={`Move property ${index + 1} down`} disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">Down</button><button aria-label={`Remove property ${index + 1}`} disabled={saving} onClick={() => removeColumn(index)} type="button">Remove</button></div>
+              setEditingFormula(null);
+            }} disabled={saving} modelOnly onApply={() => {
+              const formula = formulaDrafts[column.id];
+              if (formula !== undefined) updateColumn(index, { formula });
+              setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
+              setEditingFormula(null);
+            }} onCancel={() => { setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; }); setEditingFormula(null); }} onFocusLeave={() => {
+              const formula = formulaDrafts[column.id];
+              if (formula !== undefined) updateColumn(index, { formula });
+              setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
+              setEditingFormula(null);
+            }} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} referenceValues={(identity) => formulaPanelReferenceValues(identity, modelDraftReferenceResolver(formulaWorkbook, draft), formulaResults)} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /></div>}</div> : <span className="model-property-manual" />}
+            <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} title="Move up" disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">↑</button><button aria-label={`Move property ${index + 1} down`} title="Move down" disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">↓</button><button aria-label={`Remove property ${index + 1}`} title="Remove" disabled={saving} onClick={() => removeColumn(index)} type="button">×</button></div>
+            </div>
           </div>)}
           <button disabled={saving} onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>
         </fieldset>
@@ -165,6 +186,7 @@ function modelDraftReferenceResolver(workbook: Workbook, draft: Draft): FormulaR
   return {
     currentSheetId,
     sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((sheet) => sheet.id === qualifier || sheet.name === qualifier)?.id,
+    hasNamedColumn: (sheetId, name) => sheetId === currentSheetId ? Boolean(property(name)) : actual(sheetId)?.hasNamedColumn?.(sheetId, name) ?? false,
     coordinateAt: (sheetId, address) => {
       if (sheetId === currentSheetId) {
         const column = draft.columns[address.columnIndex];

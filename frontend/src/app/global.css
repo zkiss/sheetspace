@@ -1,3 +1,15 @@
+:root {
+  --accent: #a8460b;
+  --accent-hover: #873706;
+  --accent-text: #78350f;
+  --accent-soft: #fff3e8;
+  --accent-soft-hover: #ffe4cc;
+  --accent-border: #dfad85;
+  --accent-ring: rgb(168 70 11 / 22%);
+  --accent-selection: rgb(168 70 11 / 13%);
+  accent-color: var(--accent);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -24,14 +36,17 @@ textarea {
 
 button {
   min-height: 2.25rem;
-  border: 1px solid #26323f;
+  border: 1px solid var(--accent);
   border-radius: 6px;
   padding: 0 0.85rem;
   color: #ffffff;
-  background: #26323f;
+  background: var(--accent);
   cursor: pointer;
 }
 
-button:hover {
-  background: #344454;
+button:where(:not(:disabled)):hover {
+  background: var(--accent-hover);
 }
+
+:where(button, input, textarea, select, [tabindex]:not(.sheet-grid-cell)):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent-ring); }

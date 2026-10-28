@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { autosaveClient } from '@test-support/apiClients';
 import { panWorkspace, zoomWorkspace } from '@test-support/workspaceActions';
+
+afterEach(() => vi.useRealTimers());
 
 function setup(visualScale = 1) {
   render(<App initialWorkbook={workbookWithSheets([
@@ -27,6 +29,7 @@ function expectStationary(surface: HTMLElement) {
 
 describe('context-menu ownership in the composed workspace', () => {
   it('never creates on the canvas or plane after pan/zoom, and closes a sheet menu without clearing selection', () => {
+    vi.useFakeTimers();
     const apiClient = autosaveClient();
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([
       smallSheetDocument({ id: 'inputs', name: 'Inputs' }),
@@ -36,6 +39,7 @@ describe('context-menu ownership in the composed workspace', () => {
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     panWorkspace(-50, -100);
     zoomWorkspace('out');
+    act(() => vi.advanceTimersByTime(2000));
     const viewport = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
     const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
     fireEvent.click(cell);
@@ -107,15 +111,15 @@ describe('context-menu ownership in the composed workspace', () => {
     expect(frame).toHaveAttribute('data-visual-scale', '0.75');
   });
 
-  it('keeps inspector text, wrapper, status and reference tokens native without changing selection', () => {
+  it('keeps the shared formula editor context menu native without changing selection', () => {
     const { surface } = setup();
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-    fireEvent.click(cell);
-    const inspector = screen.getByRole('region', { name: 'Selected formula' });
-    for (const target of [inspector, inspector.querySelector('code')!, within(inspector).getByText('Formula'),
-      within(inspector).getByRole('status'), within(inspector).getByRole('button', { name: '@B[1], reference' })]) {
+    fireEvent.doubleClick(cell);
+    const editor = screen.getByRole('textbox');
+    const panel = editor.closest('section')!;
+    for (const target of [panel, editor, panel.querySelector('[data-reference-index]')!]) {
       expect(contextMenu(target).defaultPrevented).toBe(false);
-      expect(screen.getByRole('region', { name: 'Selected formula' })).toBe(inspector);
+      expect(screen.getByRole('textbox')).toBe(editor);
       expect(cell).toHaveAttribute('data-active-cell', 'true');
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
       expectStationary(surface);

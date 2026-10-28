@@ -27,8 +27,8 @@ export type {
   UnaryFormula,
 } from './syntaxTypes';
 
-export function formulaReferenceLexemes(raw: string): FormulaReferenceLexeme[] {
-  return parseFormulaSyntax(raw, { preserveUnknownFunctions: true }).referenceLexemes;
+export function formulaReferenceLexemes(raw: string, isNamedColumn?: (qualifier: string | undefined, name: string) => boolean): FormulaReferenceLexeme[] {
+  return parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn }).referenceLexemes;
 }
 
 /** Syntactically valid calls retain one general function AST. */
@@ -46,13 +46,12 @@ export function parseFormulaForInspection(raw: string): FormulaParseResult {
  */
 export function parseFormulaSyntax(
   raw: string,
-  _options: { preserveUnknownFunctions?: boolean } = {},
+  options: { preserveUnknownFunctions?: boolean; isNamedColumn?: (qualifier: string | undefined, name: string) => boolean } = {},
 ): FormulaSyntaxResult {
-  void _options;
   if (!raw.startsWith('=')) {
     return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [], tokens: raw ? [{ kind: 'text', sourceSpan: { start: 0, end: raw.length } }] : [], diagnostics: [] };
   }
-  return new FormulaParser(raw.slice(1)).parse(raw);
+  return new FormulaParser(raw.slice(1), options.isNamedColumn).parse(raw);
 }
 
 export function collectFormulaReferences(expression: FormulaExpression): FormulaReference[] {
@@ -114,4 +113,10 @@ export function formatSheetReferenceToken(sheetName: string): string {
   return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(sheetName)
     ? sheetName
     : `'${sheetName.replace(/'/g, "''")}'`;
+}
+
+export function formatPropertyReferenceToken(name: string): string {
+  return /^[A-Za-z][A-Za-z0-9_]*$/.test(name)
+    ? name
+    : `'${name.replace(/'/g, "''")}'`;
 }

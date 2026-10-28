@@ -225,7 +225,7 @@ describe('useNavigationHistory', () => {
     expect(result.current.canGoForward).toBe(true);
   });
 
-  it('keeps an explicit arrival suppressed until its owner acknowledges settlement', () => {
+  it('makes an in-flight explicit jump available to Back before settlement', () => {
     vi.useFakeTimers();
     let x = 1;
     let settleJump: (() => void) | undefined;
@@ -239,9 +239,23 @@ describe('useNavigationHistory', () => {
       settleJump = settle;
     }));
     act(() => vi.advanceTimersByTime(2_001));
-    expect(result.current.canGoBack).toBe(false);
+    expect(result.current.canGoBack).toBe(true);
 
     act(() => settleJump?.());
     expect(result.current.canGoBack).toBe(true);
+  });
+
+  it('returns to the true departure when Back interrupts an explicit jump', () => {
+    let x = 1;
+    let settleJump: (() => void) | undefined;
+    const restore = vi.fn();
+    const { result } = renderHook(() => useNavigationHistory({
+      capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }), restore,
+    }));
+    act(() => result.current.explicitNavigation((settle) => { x = 2; settleJump = settle; }));
+    act(() => { expect(result.current.traverse('back')).toBe(true); });
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
+    act(() => settleJump?.());
+    expect(result.current.canGoForward).toBe(true);
   });
 });

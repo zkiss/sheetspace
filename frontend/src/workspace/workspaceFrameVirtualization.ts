@@ -11,6 +11,8 @@ export type WorkspaceFramePins = {
   interactionSheetId?: string | null;
   gridInteractionSheetIds?: ReadonlySet<string>;
   pendingFocusSheetId?: string | null;
+  referenceSheetId?: string | null;
+  historySheetIds?: readonly string[];
 };
 
 export function workspaceFramePinIds(pins: WorkspaceFramePins): ReadonlySet<string> {
@@ -18,6 +20,8 @@ export function workspaceFramePinIds(pins: WorkspaceFramePins): ReadonlySet<stri
     pins.interactionSheetId,
     pins.editingSheetId,
     pins.pendingFocusSheetId,
+    pins.referenceSheetId,
+    ...(pins.historySheetIds ?? []),
     ...(pins.gridInteractionSheetIds ?? []),
   ].filter((sheetId): sheetId is string => Boolean(sheetId)));
 }

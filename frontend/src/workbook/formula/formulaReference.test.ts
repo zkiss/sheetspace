@@ -218,7 +218,7 @@ describe('canonical formula references', () => {
     const canonical = formulaRawToCanonical("=@'Revenue'[1]:$'Owner''s Cost'[$2]", namedResolver);
 
     expect(canonical).toMatch(/^=@~[0-9a-f]+~[0-9a-f]+\[[0-9a-f]+\]:\$~[0-9a-f]+~[0-9a-f]+\[\$[0-9a-f]+\]$/i);
-    expect(formulaRawToDisplay(canonical, namedResolver)).toBe("=@'Revenue'[1]:$'Owner''s Cost'[$2]");
+    expect(formulaRawToDisplay(canonical, namedResolver)).toBe("=@Revenue[1]:$'Owner''s Cost'[$2]");
 
     const ordinaryCanonical = formulaRawToCanonical('=@C[1]', namedResolver);
     const storedNamedCanonical = formulaRawToCanonical("=@'Revenue'[1]", namedResolver);
@@ -255,7 +255,7 @@ describe('canonical formula references', () => {
       ] } },
     };
     expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(renamed, source.id)))
-      .toBe("=@'Net Revenue'[1]:$'Costs'[$2]");
+      .toBe("=@'Net Revenue'[1]:$Costs[$2]");
 
     const replaced = {
       ...renamed,
@@ -324,6 +324,28 @@ describe('canonical formula references', () => {
     expect(canonical).not.toContain(specialColumnId);
     expect(canonical).not.toContain(specialRowId);
     expect(formulaReferenceTokens(canonical)).toMatchObject([{ endpoints: [{ kind: 'canonical', propertyId: specialPropertyId, coordinate: { columnId: specialColumnId, rowId: specialRowId } }] }]);
-    expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(reloaded, special.id))).toBe("=@'Special'[1]");
+    expect(formulaRawToDisplay(canonical, workbookFormulaReferenceResolver(reloaded, special.id))).toBe('=@Special[1]');
+  });
+
+  it('prioritizes bound property names, including in subtraction, without changing ordinary A1 references', () => {
+    const bound = {
+      ...source,
+      modelId: 'budget',
+      modelColumnBindings: { property: source.content.columns[0]! },
+    };
+    const workbookWithModel = {
+      ...workbookWithSheets([bound, destination]),
+      dataModels: { budget: { id: 'budget', name: 'Budget', columns: [
+        { id: 'property', name: 'A', kind: 'manual' as const, type: 'float' as const },
+      ] } },
+    };
+    const boundResolver = workbookFormulaReferenceResolver(workbookWithModel, source.id);
+
+    const property = formulaRawToCanonical('=@A[1]-1', boundResolver);
+    const ordinary = formulaRawToCanonical('=@Destination!A[1]', boundResolver);
+
+    expect(property).toMatch(/^=@~[0-9a-f]+~[0-9a-f]+\[[0-9a-f]+\]-1$/i);
+    expect(formulaRawToDisplay(property, boundResolver)).toBe('=@A[1]-1');
+    expect(ordinary).toBe('=@destination!destination:column:1[destination:row:1]');
   });
 });

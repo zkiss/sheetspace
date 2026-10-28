@@ -48,7 +48,7 @@ describe('toolbar presentation rules', () => {
     const swatch = rule('.colour-picker-trigger-swatch,\n.colour-picker-swatch::after');
     expect(swatch.getPropertyValue('background')).toBe('var(--colour-swatch)');
     expect(rule('.colour-picker-trigger-swatch').getPropertyValue('place-items')).toBe('center');
-    expect(rule('.number-format-controls button:hover:not(:disabled)').getPropertyValue('background')).toBe('#dbe6ea');
+    expect(rule('.number-format-controls button:hover:not(:disabled)').getPropertyValue('background')).toBe('var(--accent-soft-hover)');
     expect(rule('.number-format-controls button[aria-pressed="true"]').getPropertyValue('color')).toBe('#fff');
     // No state rule targets the inner glyph/swatch pairing.
     expect(rules().filter((entry) => entry.type === CSSRule.STYLE_RULE && /hover|aria-pressed/.test((entry as CSSStyleRule).selectorText) && /trigger-swatch/.test((entry as CSSStyleRule).selectorText))).toHaveLength(0);

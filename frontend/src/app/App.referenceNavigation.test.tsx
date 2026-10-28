@@ -7,8 +7,15 @@ import { resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceAc
 import { measuredElementGeometry, virtualGridGeometry } from '@test-support/domGeometry';
 import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
-function modifierClick(reference: HTMLElement, modifier: 'ctrl' | 'meta' = 'ctrl') {
-  fireEvent.click(reference, modifier === 'ctrl' ? { ctrlKey: true } : { metaKey: true });
+function modifierClickReference(modifier: 'ctrl' | 'meta' = 'ctrl') {
+  const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.keyDown(source, { key: 'F2' });
+  const editor = screen.getByRole('textbox', { name: 'Outputs A1 editor' });
+  const token = document.querySelector<HTMLElement>('[data-reference-index="0"]')!;
+  vi.spyOn(token, 'getClientRects').mockReturnValue([{ left: 10, right: 100, top: 10, bottom: 30 } as DOMRect] as unknown as DOMRectList);
+  const options = { clientX: 20, clientY: 20, ...(modifier === 'ctrl' ? { ctrlKey: true } : { metaKey: true }) };
+  fireEvent.mouseMove(editor, options);
+  fireEvent.mouseDown(editor, options);
 }
 
 function setSurfaceSize(width: number, height: number) {
@@ -21,6 +28,35 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
+  it('shows a hovered editor reference and emphasizes it under either modifier', async () => {
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', position: { x: 20, y: 20 }, cells: { A1: '=@inputs!B[2]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => {
+      setSurfaceSize(800, 600);
+      virtualGridGeometry(within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body'), { height: 126, width: 238 });
+      virtualGridGeometry(within(screen.getByRole('article', { name: 'Sheet Outputs' })).getByTestId('sheet-frame-body'), { height: 126, width: 238 });
+    });
+    const cell = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+    fireEvent.click(cell);
+    fireEvent.keyDown(cell, { key: 'F2' });
+    const editor = screen.getByRole('textbox', { name: 'Outputs A1 editor' });
+    const token = document.querySelector<HTMLElement>('[data-reference-index="0"]')!;
+    vi.spyOn(token, 'getClientRects').mockReturnValue([{ left: 10, right: 100, top: 10, bottom: 30 } as DOMRect] as unknown as DOMRectList);
+
+    expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
+    fireEvent.mouseMove(editor, { clientX: 20, clientY: 20 });
+    await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
+    const line = document.querySelector('.contextual-reference-visible-line')!;
+    expect(line).not.toHaveClass('contextual-reference-line-editor');
+    fireEvent.mouseMove(editor, { clientX: 20, clientY: 20, ctrlKey: true });
+    await waitFor(() => expect(line).toHaveClass('contextual-reference-line-editor'));
+    fireEvent.mouseMove(editor, { clientX: 20, clientY: 20, metaKey: true });
+    expect(line).toHaveClass('contextual-reference-line-editor');
+    fireEvent.mouseLeave(editor);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument());
+  });
+
   it('replaces contextual links for the current selection and clears them for a non-formula cell', async () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
     const outputs = sheetDocument({
@@ -36,14 +72,17 @@ describe('formula reference navigation', () => {
     });
     const outputCells = within(screen.getByRole('article', { name: 'Sheet Outputs' }));
     fireEvent.click(outputCells.getByRole('cell', { name: 'Outputs A1 cell' }));
-    expect(await screen.findByRole('button', { name: '@Inputs!B[2]' })).toBeVisible();
+    fireEvent.keyDown(outputCells.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+    fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
+    expect(await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' })).toBeInTheDocument();
 
     fireEvent.click(outputCells.getByRole('cell', { name: 'Outputs B1 cell' }));
-    expect(await screen.findByRole('button', { name: '@Inputs!A[1]' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: '@Inputs!B[2]' })).not.toBeInTheDocument();
+    fireEvent.keyDown(outputCells.getByRole('cell', { name: 'Outputs B1 cell' }), { key: 'F2' });
+    expect(await screen.findByRole('button', { name: 'Navigate to @Inputs!A[1]' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
 
     fireEvent.click(outputCells.getByRole('cell', { name: 'Outputs C1 cell' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: '@Inputs!A[1]' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!A[1]' })).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'Hide reference links' })).not.toBeInTheDocument();
   });
 
@@ -64,7 +103,7 @@ describe('formula reference navigation', () => {
     await user.keyboard('{F2}');
     const editor = await screen.findByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
     fireEvent.change(editor, { target: { value: '=@inputs!A[1]' } });
-    expect(await screen.findByRole('button', { name: '@Inputs!A[1]' })).toBeVisible();
+    await waitFor(() => expect(document.querySelector('[data-reference-index="0"]')).toHaveTextContent('@inputs!A[1]'));
     editor.setSelectionRange(3, 8);
 
     inputsBody.scrollTop = 40;
@@ -92,15 +131,16 @@ describe('formula reference navigation', () => {
     });
 
     fireEvent.click(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
+    fireEvent.keyDown(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+    fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
     await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
     const canvas = document.querySelector<SVGElement>('.contextual-reference-canvas')!;
     const initialTargetX = canvas.querySelectorAll('line')[0]!.getAttribute('x2');
-    expect(canvas.querySelector('rect')).toHaveAttribute('stroke', screen.getByRole('button', { name: '@Inputs!B[2]' }).dataset.referenceColor!);
+    expect(canvas.querySelector('rect')).toHaveAttribute('stroke', canvas.querySelector('line')!.getAttribute('stroke'));
 
     inputsBody.scrollTop = 40;
     fireEvent.scroll(inputsBody);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /@Inputs!B\[2\], .* spatial endpoint/ })).toBeEnabled();
     expect(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveAttribute('data-active-cell', 'true');
 
     inputsBody.scrollTop = 0;
@@ -121,10 +161,17 @@ describe('formula reference navigation', () => {
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    act(() => { virtualGridGeometry(within(screen.getByRole('article', { name: 'Sheet Outputs' })).getByTestId('sheet-frame-body'), { height: 126, width: 238 }); });
+    fireEvent.keyDown(screen.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+    fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
 
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: '@Inputs!B[2], unmounted spatial endpoint' })).toBeEnabled();
-    expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
+    const link = await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
+    const marker = document.querySelector('.contextual-reference-offscreen-marker');
+    expect(marker).toBeInTheDocument();
+    expect(marker).toHaveAttribute('fill', document.querySelector('.contextual-reference-visible-line')?.getAttribute('stroke'));
+    expect(link).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveFocus();
   });
 
   it('captures and restores a delayed grid reference arrival only after Workspace motion settles', async () => {
@@ -140,7 +187,8 @@ describe('formula reference navigation', () => {
     const surface = workspaceSurface();
     const departure = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!J[30], reference' }));
+    modifierClickReference();
+
 
     // The actual SheetGrid starts unavailable to the virtual window. Giving
     // it geometry drives its own virtualizer and focus lifecycle for J30.
@@ -192,7 +240,7 @@ describe('formula reference navigation', () => {
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
+    modifierClickReference();
     fireEvent.wheel(workspaceSurface(), { ctrlKey: true, deltaY: -120, clientX: 300, clientY: 200 });
     expect(Number(workspaceSurface().dataset.viewportScale)).toBeGreaterThan(1);
 
@@ -215,7 +263,8 @@ describe('formula reference navigation', () => {
 
     fireEvent.click(screen.getByRole('cell', { name: 'Source A1 empty cell' }));
     fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Go to sheet: Empty' }));
+    fireEvent.click(screen.getByRole('button', { name: /Go to sheet…/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Empty' }));
     act(() => { vi.advanceTimersByTime(180); });
 
     expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).not.toEqual(departure);
@@ -235,13 +284,12 @@ describe('formula reference navigation', () => {
     const view = render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     const navigate = () => {
       fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-      modifierClick(screen.getByRole('button', { name: '@Inputs!B[2]:D[4], reference' }));
+      modifierClickReference();
     };
     navigate();
     const anchor = screen.getByRole('cell', { name: 'Inputs B2 empty cell' });
     const center = screen.getByRole('cell', { name: 'Inputs C3 empty cell' });
-    const tint = center.querySelector('.sheet-grid-navigation-feedback');
-    expect(tint).not.toBeNull();
+    expect(center).toHaveAttribute('data-navigation-highlight', 'true');
     expect(anchor).toHaveFocus();
     expect(center.className).not.toMatch(/sheet-grid-selection-(top|bottom|left|right)/);
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
@@ -252,9 +300,9 @@ describe('formula reference navigation', () => {
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
     expect(anchor).toHaveFocus();
     expect(center).toHaveAttribute('data-reference-selected', 'true');
-    expect(center.querySelector('.sheet-grid-navigation-feedback')).toBe(tint);
+    expect(center).toHaveAttribute('data-navigation-highlight', 'true');
     act(() => { vi.advanceTimersByTime(1_200); });
-    expect(view.container.querySelector('.sheet-grid-navigation-feedback')).toBeNull();
+    expect(view.container.querySelector('[data-navigation-highlight="true"]')).toBeNull();
     expect(center).toHaveAttribute('data-reference-selected', 'true');
     expect(anchor).toHaveFocus();
   });
@@ -265,7 +313,7 @@ describe('formula reference navigation', () => {
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
+    modifierClickReference();
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
     expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
   });
@@ -283,7 +331,7 @@ describe('formula reference navigation', () => {
     virtualGridGeometry(body, { height: 160, width: 240 });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999]:CV[10000], reference' }));
+    modifierClickReference();
     expect(within(inputsFrame).getByRole('cell', { name: 'Inputs CU9999 empty cell' }))
       .toHaveAttribute('data-navigation-highlight', 'true');
 
@@ -296,7 +344,7 @@ describe('formula reference navigation', () => {
     expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
   });
 
-  it('cancels deferred off-window focus when a toolbar control takes ownership', async () => {
+  it.each(['toolbar', 'dialog', 'editor'])('cancels deferred off-window focus when a %s takes ownership', async (owner) => {
     const sparseInputs = sparseLargeSheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
     const inputs = {
       ...sparseInputs,
@@ -310,24 +358,35 @@ describe('formula reference navigation', () => {
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999], reference' }));
+    modifierClickReference();
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(inputsFrame).getByTestId('sheet-frame-body');
     virtualGridGeometry(body, { height: 160, width: 240 });
     await waitFor(() => expect(within(inputsFrame).getByRole('table', { name: 'Inputs grid' })).toHaveFocus());
 
-    const reset = screen.getByRole('button', { name: 'New sheet' });
-    reset.focus();
+    let newOwner: HTMLElement;
+    if (owner === 'dialog') {
+      fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
+      newOwner = within(screen.getByRole('form', { name: 'Create sheet' })).getByRole('textbox');
+      expect(newOwner).toHaveFocus();
+    } else if (owner === 'editor') {
+      fireEvent.doubleClick(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+      newOwner = screen.getByRole('textbox', { name: 'Outputs A1 editor' });
+    } else {
+      newOwner = screen.getByRole('button', { name: 'New sheet' });
+      newOwner.focus();
+    }
     await act(async () => {});
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
     fireEvent.scroll(body);
 
     const target = await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
-    expect(reset).toHaveFocus();
+    expect(newOwner).toHaveFocus();
     expect(target).not.toHaveFocus();
 
+    if (owner === 'dialog') fireEvent.keyDown(newOwner, { key: 'Escape' });
     resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });
@@ -345,7 +404,7 @@ describe('formula reference navigation', () => {
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999], reference' }));
+    modifierClickReference();
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(inputsFrame).getByTestId('sheet-frame-body');
@@ -392,7 +451,7 @@ describe('formula reference navigation', () => {
     await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: "@'Sales 2026'!A[1], reference" }), 'meta');
+    modifierClickReference('meta');
 
     expect(screen.getByRole('cell', { name: 'Sales 2026 A1 cell' })).toHaveFocus();
     const revealedFrame = screen.getByRole('article', { name: 'Sheet Sales 2026' });
@@ -417,7 +476,7 @@ describe('formula reference navigation', () => {
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!B[2], reference' }));
+    modifierClickReference();
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     expect(inputsFrame).toHaveAttribute('data-rendering-mode', 'detailed');
@@ -452,7 +511,7 @@ describe('formula reference navigation', () => {
     expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    modifierClick(screen.getByRole('button', { name: '@Inputs!CU[9999]:CV[10000], reference' }));
+    modifierClickReference();
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
@@ -482,10 +541,11 @@ describe('formula reference navigation', () => {
 
     const formula = screen.getByRole('cell', { name: 'Outputs A1 cell' });
     fireEvent.click(formula);
-    modifierClick(screen.getByRole('button', { name: '@#REF!A[1], broken reference' }));
+    modifierClickReference();
 
     expect(formula).toHaveAttribute('data-active-cell', 'true');
-    expect(screen.getByText(/cannot navigate: .* broken target/i)).toBeInTheDocument();
+    expect(screen.getByText('Cannot navigate: @#REF!A[1] has a broken target.')).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveFocus();
     expect(screen.getByRole('article', { name: 'Sheet sheet-deleted' })).not.toHaveAttribute('data-active-sheet');
   });
 });

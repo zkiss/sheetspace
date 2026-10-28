@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef, type ComponentProps } from 'react';
 import { act, fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -17,7 +18,7 @@ function setup() {
     activeCellKey: null, axisProjection, sheet, scrollContainerRef,
     cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() },
     editingCell: null,
-    editorInteraction: { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
+    editorInteraction: { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
     formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null, onUserViewportMovement,
   };
   const grid = (target?: string, identity = 'undo-1', historyRestore?: { generation: number; left: number; top: number }, navigationRequestGeneration?: number | null, navigationTarget?: string) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>

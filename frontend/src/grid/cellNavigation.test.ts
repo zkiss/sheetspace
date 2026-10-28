@@ -83,4 +83,36 @@ describe('resolveCellNavigation', () => {
     const noRows = { ...sheet, content: { ...sheet.content, rows: [] } };
     expect(resolveCellNavigation(noRows, { sheetId: sheet.id, cell: { rowId: 'gone', columnId: 'gone' } }, null, { key: 'Home' })).toBeUndefined();
   });
+
+  it('ignores selections from another sheet or with stale endpoints', () => {
+    const b2 = cellTargetAt(sheet, 'B2')!;
+    const foreign = { ...b2, sheetId: 'other' };
+    const stale = { ...b2, cell: { ...b2.cell, rowId: 'deleted' } };
+    expect(resolveCellNavigation(sheet, foreign, null, { key: 'Home' })).toBeUndefined();
+    expect(targetKey(sheet, 'B2', { key: 'Tab' }, { mode: 'cells', anchor: foreign, extent: b2 })).toBe('C2');
+    expect(targetKey(sheet, 'B2', { key: 'Enter' }, { mode: 'cells', anchor: b2, extent: stale })).toBe('B3');
+    expect(targetKey(sheet, 'B2', { key: 'Tab', shift: true }, { mode: 'cells', anchor: b2, extent: b2 })).toBe('A2');
+  });
+
+  it('wraps backward within a rectangular selection along each traversal axis', () => {
+    const selection: CellSelection = { mode: 'cells', anchor: cellTargetAt(sheet, 'B2')!, extent: cellTargetAt(sheet, 'C3')! };
+    expect(targetKey(sheet, 'B3', { key: 'Tab', shift: true }, selection)).toBe('C2');
+    expect(targetKey(sheet, 'C2', { key: 'Enter', shift: true }, selection)).toBe('B3');
+    expect(targetKey(sheet, 'C3', { key: 'Tab' }, selection)).toBe('B2');
+    expect(targetKey(sheet, 'B2', { key: 'Enter', shift: true }, selection)).toBe('C3');
+  });
+
+  it('falls back from stale anchors and ignores foreign selection extents', () => {
+    const b2 = cellTargetAt(sheet, 'B2')!;
+    const stale = { ...b2, cell: { ...b2.cell, rowId: 'deleted' } };
+    const foreign = { ...b2, sheetId: 'other' };
+    expect(targetKey(sheet, 'B2', { key: 'Enter' }, { mode: 'cells', anchor: stale, extent: b2 })).toBe('B3');
+    expect(targetKey(sheet, 'B2', { key: 'Tab' }, { mode: 'cells', anchor: b2, extent: foreign })).toBe('C2');
+  });
+
+  it('ignores empty and invalid cells when finding the used extent', () => {
+    const empty = sheetDocument({ id: 'empty', name: 'Empty', rowCount: 3, columnCount: 3 });
+    const withStaleCells = { ...empty, content: { ...empty.content, cells: { invalid: '1', 'missing\0column': '2', 'empty\0cell': '' } } };
+    expect(targetKey(withStaleCells, 'B2', { key: 'End', command: true })).toBe('A1');
+  });
 });

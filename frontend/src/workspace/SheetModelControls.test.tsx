@@ -25,49 +25,50 @@ function renderControls(overrides: Partial<Parameters<typeof SheetModelControls>
 
 describe('SheetModelControls', () => {
   it('confirms binding and surfaces a rejected command without changing selection', () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const onBind = vi.fn(() => submission({ ok: false, reason: 'pending-model-transition' }));
     const { sheet } = renderControls({ onBind });
 
     fireEvent.change(screen.getByLabelText('Model for Inputs'), { target: { value: 'first' } });
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('declaration order'));
+    expect(screen.getByRole('group', { name: 'Confirm model change' })).toHaveTextContent('declaration order');
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
     expect(onBind).toHaveBeenCalledWith(sheet.id, 'first');
     expect(screen.getByRole('alert')).toHaveTextContent('Wait for the current data model change to finish.');
   });
 
   it('reports a command that was not applied instead of presenting a success', () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const onBind = vi.fn(() => submission({ ok: false, reason: 'unknown-model' }));
     renderControls({ onBind });
 
     fireEvent.change(screen.getByLabelText('Model for Inputs'), { target: { value: 'first' } });
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
 
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
     expect(screen.getByRole('alert')).toHaveTextContent('The data model change was not applied.');
   });
 
   it('opens the bound model for editing and confirms rebind and unbind actions', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const sheet = { ...sheetDocument({ id: 'inputs', name: 'Inputs' }), modelId: 'first' };
     const { onBind, onOpenDataModels, onUnbind } = renderControls({ sheet });
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
     fireEvent.change(screen.getByLabelText('Model for Inputs'), { target: { value: 'second' } });
     fireEvent.click(screen.getByRole('button', { name: 'Rebind model' }));
+    expect(screen.getByRole('group', { name: 'Confirm model change' })).toHaveTextContent('Rebinding');
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm rebind' }));
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: 'Unbind model' }));
 
+    expect(screen.getByRole('group', { name: 'Confirm model change' })).toHaveTextContent('Unbinding');
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm unbind' }));
     expect(onOpenDataModels).toHaveBeenCalledWith('first');
     expect(onBind).toHaveBeenCalledWith('inputs', 'second');
     expect(onUnbind).toHaveBeenCalledWith('inputs');
-    expect(confirm).toHaveBeenNthCalledWith(1, expect.stringContaining('Rebinding'));
-    expect(confirm).toHaveBeenNthCalledWith(2, expect.stringContaining('Unbinding'));
+
   });
 
   it('reports a rejected persistence outcome and keeps the binding retryable', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     const completion = deferred<CommandResult>();
     const onBind = vi.fn(() => submission({ ok: true }, completion.promise));
     const { sheet } = renderControls({ onBind });
@@ -75,6 +76,7 @@ describe('SheetModelControls', () => {
     fireEvent.change(screen.getByLabelText('Model for Inputs'), { target: { value: 'first' } });
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
 
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
     expect(screen.getByText('Saving data model change…')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Bind model' })).toBeDisabled();
     await act(async () => { completion.resolve({ ok: false, reason: 'persistence-failed' }); });
@@ -84,6 +86,7 @@ describe('SheetModelControls', () => {
     expect(screen.getByLabelText('Model for Inputs')).toHaveValue('first');
 
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
     expect(onBind).toHaveBeenCalledTimes(2);
     expect(onBind).toHaveBeenLastCalledWith(sheet.id, 'first');
   });

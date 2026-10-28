@@ -18,6 +18,7 @@ import type { useAxisResize } from './useAxisResize';
 type HistoryFeedback = { before: string | null; beforeDisplay: string | null; after: string | null };
 type SheetGridRowsProps = {
   activeCellKey: string | null;
+  selectionTransition?: { from: CellTarget; to: CellTarget; id: number } | null;
   calculatedColumnIds?: ReadonlySet<string>;
   cellInteraction: SheetGridCellInteraction;
   columns: GridAxisProjection['columns'];
@@ -172,6 +173,8 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
     historyEdges={historyFeedback ? historySelectionEdges(address, props.historyFeedbackCells) : undefined}
     historyFeedback={historyFeedback}
     isActive={props.activeCellKey === key}
+    selectionFadeOut={cellKeyForTarget(props.sheet, props.selectionTransition?.from ?? null) === key ? props.selectionTransition?.id : undefined}
+    selectionFadeIn={cellKeyForTarget(props.sheet, props.selectionTransition?.to ?? null) === key ? props.selectionTransition?.id : undefined}
     isEditing={cellKeyForTarget(props.sheet, props.editingCell?.target ?? null) === key}
     isFocusTarget={props.focusIntent?.targetKey === key}
     isNavigationTarget={props.navigationHighlightRange

@@ -43,16 +43,16 @@ describe('quoted draft recovery boundaries', () => {
   });
 
   it.each([
-    "=) + @$'closed @A[1]' + @B[2]",
-    "=) + @'R'[1]:$'closed @A[1]' + @B[2]",
-    "=@$'closed @A[1]' + @B[2]",
-    "=@'R'[1]:$'closed @A[1]' + @B[2]",
-    "=) + @$'Owner''s @A[1]' + @B[2]",
-    "=) + @'' + @B[2]",
-  ])('recovers real references after a closed quoted fragment in %s', (raw) => {
+    ["=) + @$'closed @A[1]' + @B[2]", "@$'closed @A[1]'"],
+    ["=) + @'R'[1]:$'closed @A[1]' + @B[2]", "@'R'[1]:$'closed @A[1]'"],
+    ["=@$'closed @A[1]' + @B[2]", "@$'closed @A[1]'"],
+    ["=@'R'[1]:$'closed @A[1]' + @B[2]", "@'R'[1]:$'closed @A[1]'"],
+    ["=) + @$'Owner''s @A[1]' + @B[2]", "@$'Owner''s @A[1]'"],
+    ["=) + @'' + @B[2]", undefined],
+  ])('recovers references without splitting a closed quoted name in %s', (raw, quotedReference) => {
     const syntax = parseFormulaSyntax(raw);
     expect(syntax.references.map(({ sourceSpan }) => raw.slice(sourceSpan.start, sourceSpan.end)))
-      .toEqual(['@B[2]']);
+      .toEqual(quotedReference ? [quotedReference, '@B[2]'] : ['@B[2]']);
   });
 
   it('keeps original parse error locations independent of the recovery cursor', () => {

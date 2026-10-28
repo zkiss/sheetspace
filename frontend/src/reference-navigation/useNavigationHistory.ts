@@ -14,6 +14,7 @@ export function useNavigationHistory({ capture, restore }: {
   const timer = useRef<number>();
   const nextOperation = useRef(0);
   const activeOperation = useRef<number>();
+  const pendingExplicitNavigation = useRef<number>();
   const captureRef = useRef(capture);
   captureRef.current = capture;
   const commit = useCallback(() => {
@@ -48,11 +49,14 @@ export function useNavigationHistory({ capture, restore }: {
     // Invalidate the operation before releasing movement recording. A cancelled
     // restore must not keep suppressing every later ordinary pan or zoom.
     activeOperation.current = undefined;
+    pendingExplicitNavigation.current = undefined;
     scheduleMovement();
   }, [scheduleMovement]);
   const explicitNavigation = useCallback((navigate: (operation: NavigationOperation) => void) => {
+    history.current = { ...history.current, entries: history.current.entries.slice(0, history.current.cursor + 1) };
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
+    pendingExplicitNavigation.current = generation;
     flushMovement();
     commit();
     const complete = () => {
@@ -61,12 +65,20 @@ export function useNavigationHistory({ capture, restore }: {
       if (activeOperation.current !== generation) return;
       commit();
       activeOperation.current = undefined;
+      pendingExplicitNavigation.current = undefined;
     };
     const operation = Object.assign(complete, { generation, complete });
     navigate(operation);
   }, [commit, flushMovement]);
   const traverse = useCallback((direction: 'back' | 'forward') => {
     flushMovement();
+    // The camera may still be moving, but Back must leave the new destination,
+    // not skip the departure because its arrival callback has not run yet.
+    if (pendingExplicitNavigation.current !== undefined && pendingExplicitNavigation.current === activeOperation.current) {
+      commit();
+      activeOperation.current = undefined;
+      pendingExplicitNavigation.current = undefined;
+    }
     if (!traverseNavigationHistory(history.current, direction)) return false;
     // Selection changes alone are not destinations, but the context being left
     // must still be current when Forward returns to it.
@@ -86,11 +98,11 @@ export function useNavigationHistory({ capture, restore }: {
     restore(next.context, Object.assign(complete, { generation, complete }));
     setRevision((current) => current + 1);
     return true;
-  }, [flushMovement, restore]);
+  }, [commit, flushMovement, restore]);
   useEffect(() => () => { if (timer.current !== undefined) window.clearTimeout(timer.current); }, []);
   return {
-    cancelPendingNavigation: () => { activeOperation.current = undefined; },
-    canGoBack: history.current.cursor > 0,
+    cancelPendingNavigation: () => { activeOperation.current = undefined; pendingExplicitNavigation.current = undefined; },
+    canGoBack: history.current.cursor > 0 || pendingExplicitNavigation.current !== undefined,
     canGoForward: history.current.cursor >= 0 && history.current.cursor < history.current.entries.length - 1,
     explicitNavigation,
     recordUserMovement,

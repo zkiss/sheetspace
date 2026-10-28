@@ -28,6 +28,7 @@ import { useGridPointerSelection } from './useGridPointerSelection';
 import { SheetGridRows } from './SheetGridRows';
 import { useGridHistoryRestore } from './useGridHistoryRestore';
 import { isNativeEditorTarget, logicalUnitsPerRenderedPixel } from './gridScrollInput';
+import { clipboardHtml, clipboardMarkerFromHtml } from './clipboardHtml';
 import '@grid/SheetGrid.css';
 function ensureCellVisibleOutsideStickyHeaders(
   cell: HTMLElement,
@@ -35,7 +36,6 @@ function ensureCellVisibleOutsideStickyHeaders(
   columnHeader: HTMLElement | null,
   rowHeader: HTMLElement | null,
 ) {
-  cell.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   const cellRect = cell.getBoundingClientRect();
   const scrollContainerRect = scrollContainer.getBoundingClientRect();
   const logicalPerRenderedPixel = logicalUnitsPerRenderedPixel(scrollContainer, scrollContainerRect);
@@ -43,13 +43,19 @@ function ensureCellVisibleOutsideStickyHeaders(
     + (columnHeader?.getBoundingClientRect().height ?? GRID_COLUMN_HEADER_HEIGHT / logicalPerRenderedPixel.y);
   const visibleLeft = scrollContainerRect.left
     + (rowHeader?.getBoundingClientRect().width ?? GRID_ROW_HEADER_WIDTH / logicalPerRenderedPixel.x);
+  const visibleBottom = scrollContainerRect.top + scrollContainer.clientHeight / logicalPerRenderedPixel.y;
+  const visibleRight = scrollContainerRect.left + scrollContainer.clientWidth / logicalPerRenderedPixel.x;
   if (cellRect.top < visibleTop) {
     scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop
       - (visibleTop - cellRect.top) * logicalPerRenderedPixel.y);
+  } else if (cellRect.bottom > visibleBottom) {
+    scrollContainer.scrollTop += (cellRect.bottom - visibleBottom) * logicalPerRenderedPixel.y;
   }
   if (cellRect.left < visibleLeft) {
     scrollContainer.scrollLeft = Math.max(0, scrollContainer.scrollLeft
       - (visibleLeft - cellRect.left) * logicalPerRenderedPixel.x);
+  } else if (cellRect.right > visibleRight) {
+    scrollContainer.scrollLeft += (cellRect.right - visibleRight) * logicalPerRenderedPixel.x;
   }
 }
 type GridFocusIntent = {
@@ -68,6 +74,7 @@ export type SheetGridAxisMetrics = {
 };
 export function SheetGrid({
   activeCellKey,
+  selectionTransition,
   activeSheetId,
   axisMetrics,
   axisProjection,
@@ -132,6 +139,7 @@ export function SheetGrid({
   /** Publishes real detailed-grid viewport changes for workspace reference geometry. */
   onReferenceViewport?: (sheetId: string, viewport: { scrollLeft: number; scrollTop: number; width: number; height: number } | null) => void;
   activeCellKey: string | null;
+  selectionTransition?: { from: CellTarget; to: CellTarget; id: number } | null;
   /**
    * The sheet that currently owns logical selection/focus.  A mounted grid may
    * remain visible after ownership moves to another sheet, so its pointer
@@ -291,9 +299,9 @@ export function SheetGrid({
   const navigationTargetKey = navigationRequestCellKey
     ?? (navigationRequestRange ? cellKey(navigationRequestRange.start) : null);
   const historyAddress = parseCellAddress(historyFeedbackCells?.keys().next().value ?? null, sheet);
-  // Selection may leave the rendered window. Editors, navigation targets and the
-  // active resize capture owner must stay mounted throughout their interaction.
+  // Keep the selected cell mounted so native focus survives manual scrolling.
   const pinnedAddresses = [
+    activeAddress,
     editingAddress,
     keyboardFocusAddress,
     focusIntentAddress,
@@ -353,16 +361,18 @@ export function SheetGrid({
   }
   useEffect(() => {
     if (!focusIntent || editingCell) return;
+    if (document.activeElement?.closest('form, [role="dialog"]')) return;
     const address = parseCellAddress(focusIntent.targetKey, sheet);
     if (!address) return;
     const rowIndex = axisIndexForDurableIndex(rows, address.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, address.columnIndex);
     if (rowIndex !== undefined) rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-    if (!focusIntentIsInWindow) gridRef.current?.focus();
+    if (!focusIntentIsInWindow) gridRef.current?.focus({ preventScroll: true });
   }, [columns, editingCell, focusIntent, focusIntentIsInWindow, rowVirtualizer, columnVirtualizer, rows, sheet]);
   useEffect(() => {
     if (!focusIntent || editingCell || !focusIntentIsInWindow) return;
+    if (document.activeElement?.closest('form, [role="dialog"]')) return;
     // A newer application request supersedes this effect before it can move DOM
     // focus or acknowledge the old request. Grid-entry intents are local and do
     // not have an application request ID to compare.
@@ -370,7 +380,7 @@ export function SheetGrid({
     const registeredTarget = focusTargetRef.current;
     if (registeredTarget.key !== focusIntent.targetKey || !registeredTarget.element) return;
     const completedIntent = focusIntent;
-    registeredTarget.element.focus();
+    registeredTarget.element.focus({ preventScroll: true });
     if (scrollContainerRef.current) {
       ensureCellVisibleOutsideStickyHeaders(
         registeredTarget.element,
@@ -389,13 +399,19 @@ export function SheetGrid({
       onKeyboardFocusRequestConsumed(completedIntent.requestId);
     }
   }, [editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, onKeyboardFocusRequestConsumed, scrollContainerRef, virtualColumns, virtualRows]);
+  const revealedActiveCell = useRef<string | null>(null);
   useEffect(() => {
-    if (!activeAddress || !scrollContainerRef.current) return;
+    if (!activeAddress) { revealedActiveCell.current = null; return; }
+    if (!scrollContainerRef.current) return;
+    const identity = `${sheet.id}:${activeCellKey}`;
+    if (revealedActiveCell.current === identity) return;
     const rowIndex = axisIndexForDurableIndex(rows, activeAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, activeAddress.columnIndex);
-    if (rowIndex !== undefined) rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
-    if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-  }, [activeAddress, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef]);
+    if (rowIndex === undefined || columnIndex === undefined) return;
+    revealedActiveCell.current = identity;
+    rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
+    columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
+  }, [activeAddress, activeCellKey, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
   useEffect(() => {
     if (navigationRequestGeneration == null) return;
     if (revealedNavigationIdentity.current === navigationRequestGeneration) return;
@@ -432,7 +448,7 @@ export function SheetGrid({
     // This is deliberately after the virtualizer and regular focus effects.
     // It is the grid's final reveal/focus phase and therefore the only point
     // at which the workspace operation may capture its arrival.
-    targetElement.focus();
+    targetElement.focus({ preventScroll: true });
     ensureCellVisibleOutsideStickyHeaders(
       targetElement,
       scrollContainer,
@@ -535,6 +551,7 @@ export function SheetGrid({
     if (!copied) return;
     event.clipboardData.setData('text/plain', copied.text);
     event.clipboardData.setData('application/x-sheetspace-clipboard', copied.marker);
+    event.clipboardData.setData('text/html', clipboardHtml(copied));
     event.preventDefault();
   }
 
@@ -544,6 +561,7 @@ export function SheetGrid({
     if (!cut) return;
     event.clipboardData.setData('text/plain', cut.text);
     event.clipboardData.setData('application/x-sheetspace-clipboard', cut.marker);
+    event.clipboardData.setData('text/html', clipboardHtml(cut));
     event.preventDefault();
   }
 
@@ -553,7 +571,7 @@ export function SheetGrid({
     if (!text && !event.clipboardData.types.includes('text/plain')) return;
     clipboardInteraction?.paste({
       text,
-      marker: event.clipboardData.getData('application/x-sheetspace-clipboard') || undefined,
+      marker: event.clipboardData.getData('application/x-sheetspace-clipboard') || clipboardMarkerFromHtml(event.clipboardData.getData('text/html')),
     });
     event.preventDefault();
   }
@@ -613,7 +631,7 @@ export function SheetGrid({
           ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
           : undefined}
       />
-      <SheetGridRows {...{ activeCellKey, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
+      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
     </div>
   );
 }

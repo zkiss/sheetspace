@@ -15,8 +15,8 @@
 }
 
 .sheet-grid-cell-calculated {
-  background-image: repeating-linear-gradient(-45deg, transparent, transparent 0.25rem, rgba(47, 116, 126, 0.10) 0.25rem, rgba(47, 116, 126, 0.10) 0.5rem);
-  color: #365a60;
+  background-image: repeating-linear-gradient(-45deg, transparent, transparent 0.25rem, var(--accent-selection) 0.25rem, var(--accent-selection) 0.5rem);
+  color: var(--accent-text);
 }
 
 .sheet-grid-corner,
@@ -97,9 +97,9 @@
 }
 
 .sheet-grid-axis-selected {
-  background: #d5ece8;
-  color: #1f5960;
-  box-shadow: inset 0 0 0 2px #2f747e;
+  background: var(--accent-soft-hover);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .sheet-grid-resize-handle {
@@ -109,4 +109,4 @@
 }
 .sheet-grid-resize-handle-column { right: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; }
 .sheet-grid-resize-handle-row { bottom: -3px; left: 0; right: 0; height: 7px; cursor: row-resize; }
-.sheet-grid-resize-handle:hover { background: #2f747e; }
+.sheet-grid-resize-handle:hover { background: var(--accent); }

@@ -59,6 +59,7 @@ export function WorkspaceSurface({
       ref={workspaceSurfaceRef}
       style={gridStyle}
     >
+      <div aria-hidden="true" className="workspace-grid" style={{ transform: `translate(${viewport.x % majorGridSize}px, ${viewport.y % majorGridSize}px)` }} />
       <div
         className={`workspace-plane${navigationMotion ? ' workspace-plane-navigating' : ''}`}
         data-navigation-motion={navigationMotion ? 'smooth' : 'instant'}

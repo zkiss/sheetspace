@@ -5,7 +5,7 @@ import { measuredElementGeometry } from '@test-support/domGeometry';
 import { WorkspaceSurface } from './WorkspaceSurface';
 import { useWorkspaceController } from './useWorkspaceController';
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 function setup(transform = 'matrix(1.25, 0, 0, 1.25, -500, -200)') {
   let controller: ReturnType<typeof useWorkspaceController>;
@@ -87,8 +87,8 @@ describe('interrupting displayed reference navigation motion', () => {
     expect(plane).toHaveAttribute('data-navigation-motion', 'instant');
     expect(plane.style.transform).toBe('translate(-500px, -200px) scale(1.25)');
     pointer(surface, 'pointermove', button, 130, 60);
-    expect(state().viewport).toEqual({ x: -470, y: -220, scale: 1.25 });
     pointer(surface, 'pointerup', button, 130, 60);
+    expect(state().viewport).toEqual({ x: -470, y: -220, scale: 1.25 });
     expect(state().isPanningWorkspace).toBe(false);
     expect(sample).toHaveBeenCalledOnce();
   });
@@ -104,10 +104,12 @@ describe('interrupting displayed reference navigation motion', () => {
     expect(plane).toHaveAttribute('data-navigation-motion', 'smooth');
     expect(sample).not.toHaveBeenCalled();
     act(() => reveal());
+    const retargetedDestination = state().viewport;
+    const samplesAfterRetarget = sample.mock.calls.length;
     fireEvent.wheel(surface, { deltaX: 5, deltaY: 10 });
-    expect(state().viewport).toEqual(destination);
+    expect(state().viewport).toEqual(retargetedDestination);
     expect(plane).toHaveAttribute('data-navigation-motion', 'smooth');
-    expect(sample).not.toHaveBeenCalled();
+    expect(sample).toHaveBeenCalledTimes(samplesAfterRetarget);
   });
 
   it('composes explicit pan moves from the visible position and resamples on a new reveal', () => {
@@ -121,28 +123,31 @@ describe('interrupting displayed reference navigation motion', () => {
     expect(state().viewport).toEqual({ x: -540, y: -215, scale: 1.25 });
     expect(sample).toHaveBeenCalledOnce();
     act(() => reveal());
+    const samplesAfterRetarget = sample.mock.calls.length;
     pointer(surface, 'pointerdown', 1);
     pointer(surface, 'pointermove', 1, 95, 70);
     pointer(surface, 'pointerup', 1);
     expect(state().viewport).toEqual({ x: -505, y: -210, scale: 1.25 });
-    expect(sample).toHaveBeenCalledTimes(2);
+    expect(sample).toHaveBeenCalledTimes(samplesAfterRetarget + 1);
   });
 
   it.each(['ctrlKey', 'metaKey', 'pinch', 'toolbar'] as const)('anchors %s zoom to the visible workspace point across rapid inputs', (input) => {
+    vi.useFakeTimers();
     const { plane, state, sample } = setup();
+    if (input === 'toolbar') act(() => state().zoomWorkspace(1.875, { x: 100, y: 80 }));
     act(() => {
       if (input === 'pinch') {
         gesture('gesturestart', 1);
         gesture('gesturechange', 1.5);
         gesture('gesturechange', 2);
       } else if (input === 'toolbar') {
-        state().zoomWorkspace(1.875, { x: 100, y: 80 });
         state().zoomWorkspaceBy(4 / 3, { x: 100, y: 80 });
       } else {
         fireEvent.wheel(screen.getByRole('cell'), { [input]: true, deltaY: -100, clientX: 100, clientY: 80 });
         fireEvent.wheel(screen.getByRole('cell'), { [input]: true, deltaY: -100, clientX: 100, clientY: 80 });
       }
     });
+    act(() => vi.advanceTimersByTime(150));
     const { x, y, scale } = state().viewport;
     expect(scale).toBeGreaterThan(1.25);
     expect((100 - x) / scale).toBeCloseTo((100 + 500) / 1.25);
@@ -163,6 +168,7 @@ describe('interrupting displayed reference navigation motion', () => {
     const { surface, state } = setup('matrix3d(1.25, 0, 0, 0, 0, 1.25, 0, 0, 0, 0, 1, 0, -500, -200, 0, 1)');
     pointer(surface, 'pointerdown', 1);
     pointer(surface, 'pointermove', 1, 90, 60);
+    pointer(surface, 'pointerup', 1, 90, 60);
     expect(state().viewport).toEqual({ x: -510, y: -220, scale: 1.25 });
   });
 
@@ -172,6 +178,7 @@ describe('interrupting displayed reference navigation motion', () => {
     act(() => finishMotion());
     pointer(surface, 'pointerdown', 1);
     pointer(surface, 'pointermove', 1, 90, 60);
+    pointer(surface, 'pointerup', 1, 90, 60);
     expect(state().viewport).toEqual({ ...destination, x: destination.x - 10, y: destination.y - 20 });
     expect(sample).not.toHaveBeenCalled();
   });
@@ -182,6 +189,7 @@ describe('interrupting displayed reference navigation motion', () => {
       const destination = state().viewport;
       pointer(surface, 'pointerdown', 1);
       pointer(surface, 'pointermove', 1, 90, 60);
+      pointer(surface, 'pointerup', 1, 90, 60);
       expect(state().viewport).toEqual({ ...destination, x: destination.x - 10, y: destination.y - 20 });
     },
   );

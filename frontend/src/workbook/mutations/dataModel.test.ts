@@ -37,7 +37,7 @@ describe('property identity associations', () => {
     expect(bound.documents[otherSheet.id]).toBe(otherSheet);
     expect(sheet.modelColumnBindings).toBeUndefined();
     expect(formulaRawToDisplay(formulaRawToCanonical("=@'Revenue'[1]", workbookFormulaReferenceResolver(bound, sheet.id)),
-      workbookFormulaReferenceResolver(bound, sheet.id))).toBe("=@'Revenue'[1]");
+      workbookFormulaReferenceResolver(bound, sheet.id))).toBe('=@Revenue[1]');
   });
 
   it('keeps retained property targets across rename and reorder', () => {

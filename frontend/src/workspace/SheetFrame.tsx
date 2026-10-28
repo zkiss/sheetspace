@@ -91,7 +91,7 @@ export function SheetFrame({
       // than allowing the browser to strand it on document.body. The workspace
       // owns the eventual destination because overview selection may change it.
       onDetailedFocusDisplaced?.();
-      bodyRef.current?.focus();
+      bodyRef.current?.focus({ preventScroll: true });
     }
     if (renderingMode === 'detailed') onDetailedBodyAvailable?.();
     onRenderingModeChange?.(frame.id, renderingMode);
