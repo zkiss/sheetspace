@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 /* eslint-disable max-lines -- Workspace remains the existing composition root; focused history ownership is extracted. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
@@ -816,6 +817,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     }}
                     editingCell={sheetEditingCell}
                     editorInteraction={{
+                      FormulaEditor: FormulaEditorPanel,
                       cancel: onCancelEdit,
                       commit: (session, restoreFocus) => {
                         const outcome = onCommitEdit(session);

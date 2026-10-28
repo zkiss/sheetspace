@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { useRef } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
@@ -16,7 +17,7 @@ it('retains and retries a shared cell draft rejected during a model transition',
     const editing = useCellEditing({ commands, workbook });
     return <><button ref={anchor} onClick={() => editing.startEditingCell(cellTargetAt(sheet, 'A1')!)}>Edit</button>
       {editing.editingCell && <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" editingCell={editing.editingCell} interaction={{
-        cancel: editing.cancelActiveEdit, commit: editing.commitActiveEdit,
+        FormulaEditor: FormulaEditorPanel, cancel: editing.cancelActiveEdit, commit: editing.commitActiveEdit,
         commitAndNavigate: editing.commitEditAndNavigate, updateValue: editing.updateEditingCellValue,
       }} />}</>;
   }

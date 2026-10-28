@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetGridCellEditor } from './SheetGridCellEditor';
@@ -10,7 +11,7 @@ function setup(draft = 'Draft') {
   document.body.append(element);
   const anchor = { current: element };
   const measure = vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(testRect({ left: 40, top: 60, width: 90, height: 26 }));
-  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), cancel: vi.fn(), suspend: vi.fn(), updateValue: vi.fn() };
+  const interaction = { commit: vi.fn(), commitAndNavigate: vi.fn(), FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), suspend: vi.fn(), updateValue: vi.fn() };
   const editingCell = { target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft, sessionId: 1 };
   const component = (value: string) => <SheetGridCellEditor anchor={anchor} editingCell={{ ...editingCell, draft: value }} cellKey="A1" sheetName="Inputs" interaction={interaction} />;
   const view = render(component(draft));
@@ -113,7 +114,7 @@ describe('portal cell editor', () => {
     expect(editor).toHaveFocus();
     expect(editor).toHaveValue('Draft');
     expect([editor.selectionStart, editor.selectionEnd]).toEqual([2, 4]);
-    for (const action of Object.values(interaction)) expect(action).not.toHaveBeenCalled();
+    for (const action of [interaction.commit, interaction.commitAndNavigate, interaction.cancel, interaction.suspend, interaction.updateValue]) expect(action).not.toHaveBeenCalled();
     fireEvent.keyDown(editor, { key });
     fireEvent.blur(editor);
     expect(interaction.commit).not.toHaveBeenCalled();
@@ -169,4 +170,14 @@ describe('portal cell editor', () => {
     });
     destination.remove();
   });
+});
+
+it('renders the formula surface supplied by the workspace at the cell anchor', () => {
+  const anchor = { current: document.createElement('div') };
+  const surface = vi.fn(() => <div>Injected formula surface</div>);
+  const interaction = { FormulaEditor: surface, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+  render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" interaction={interaction}
+    editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: '=1', sessionId: 1 }} />);
+  expect(screen.getByText('Injected formula surface')).toBeInTheDocument();
+  expect(surface).toHaveBeenCalledWith(expect.objectContaining({ raw: '=1', sheetId: 'inputs', ariaLabel: 'Inputs A1 editor' }), expect.anything());
 });

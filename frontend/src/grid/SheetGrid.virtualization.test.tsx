@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef, useState, type ComponentProps } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +14,7 @@ afterEach(cleanup);
     const sheet = tabularProjection(sparseLargeSheetDocument());
     const scrollContainerRef = createRef<HTMLDivElement>();
     const cellInteraction = { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() };
-    const editorInteraction = { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+    const editorInteraction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
     const view = render(
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <SheetGrid
@@ -94,7 +95,7 @@ describe('SheetGrid virtualization', () => {
           axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -208,7 +209,7 @@ describe('SheetGrid virtualization', () => {
               axisProjection={axisProjection}
               cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
               editingCell={null}
-              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
               formulaResults={{}}
               keyboardFocusRequest={request}
               onKeyboardFocusRequestConsumed={onConsumed}
@@ -267,7 +268,7 @@ describe('SheetGrid virtualization', () => {
               axisProjection={axisProjection}
               cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
               editingCell={null}
-              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
               formulaResults={{}}
               keyboardFocusRequest={request}
               onKeyboardFocusRequestConsumed={(requestId) => onConsumed(requestId)}
@@ -319,7 +320,7 @@ describe('SheetGrid virtualization', () => {
               axisProjection={axisProjection}
               cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
               editingCell={null}
-              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
               formulaResults={{}}
               keyboardFocusRequest={request}
               onKeyboardFocusRequestConsumed={onConsumed}

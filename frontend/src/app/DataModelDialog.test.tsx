@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -357,7 +358,7 @@ describe('DataModelDialog', () => {
     const anchor = { current: document.createElement('div') };
     render(<SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
       editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'row', columnId: 'column' } }, draft: '=1', sessionId: 1 }}
-      interaction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }} />);
+      interaction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }} />);
     expect(screen.getByLabelText('Inputs A1 editor')).toHaveAttribute('data-raw-formula-input', 'true');
   });
 

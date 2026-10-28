@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef, type ComponentProps } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -77,7 +78,7 @@ describe('SheetGrid appearance rendering', () => {
       <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
         <SheetGrid activeCellKey="A1" axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
-          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
           navigationHighlightCellKey={null} presentation={styledDocument.presentation} scrollContainerRef={scrollContainerRef} sheet={styled} />
       </div>,
@@ -109,7 +110,7 @@ describe('SheetGrid clipboard routing', () => {
         <SheetGrid activeCellKey="A1" axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
           clipboardInteraction={clipboardInteraction}
-          editingCell={null} editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
           navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} />
       </div>,

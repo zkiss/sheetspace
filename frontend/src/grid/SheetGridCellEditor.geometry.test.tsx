@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { Profiler } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -20,7 +21,7 @@ it('tracks transform-only position and size without React commits or duplicate r
   });
   const anchor = { current: document.createElement('div') };
   const measure = vi.spyOn(anchor.current, 'getBoundingClientRect').mockReturnValue(new DOMRect(40, 60, 90, 26));
-  const interaction = { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+  const interaction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
   let commits = 0;
   const component = (draft: string) => <Profiler id="editor" onRender={() => commits++}>
     <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs" interaction={interaction}
@@ -73,7 +74,7 @@ it('keeps the portal mounted while an anchor ref is temporarily detached or repl
   const anchor: { current: HTMLElement | null } = { current: element };
   vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(new DOMRect(40, 60, 90, 26));
   const component = () => <SheetGridCellEditor anchor={anchor} cellKey="A1" sheetName="Inputs"
-    interaction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+    interaction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
     editingCell={{ target: { sheetId: 'inputs', cell: { rowId: 'r1', columnId: 'c1' } }, draft: 'Draft', sessionId: 1 }} />;
   const view = render(component());
   const editor = screen.getByRole('textbox');

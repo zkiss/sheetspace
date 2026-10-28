@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +28,7 @@ describe('SheetGrid virtualization', () => {
               axisProjection={axisProjection}
               cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
               editingCell={null}
-              editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+              editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
               formulaResults={{}}
               keyboardFocusRequest={request}
               onKeyboardFocusRequestConsumed={(requestId) => {
@@ -87,7 +88,7 @@ describe('SheetGrid virtualization', () => {
           axisProjection={axisProjection}
           cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
           editingCell={null}
-          editorInteraction={{ cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
           formulaResults={{}}
           keyboardFocusRequest={null}
           onKeyboardFocusRequestConsumed={vi.fn()}
@@ -135,7 +136,7 @@ describe('SheetGrid virtualization', () => {
     const sheet = tabularProjection(sparseLargeSheetDocument());
     const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
     const scrollContainerRef = createRef<HTMLDivElement>();
-    const editorInteraction = { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
+    const editorInteraction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
 
     render(
       <div ref={scrollContainerRef} style={{ height: 200, overflow: 'auto', width: 300 }}>

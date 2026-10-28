@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SheetGridCell } from '@grid/SheetGridCell';
@@ -30,7 +31,7 @@ function renderCell(overrides: Partial<Parameters<typeof SheetGridCell>[0]> = {}
       startEditing: vi.fn(),
     },
     editorInteraction: {
-      cancel: vi.fn(),
+      FormulaEditor: FormulaEditorPanel, cancel: vi.fn(),
       commit: vi.fn(),
       commitAndNavigate: vi.fn(),
       updateValue: vi.fn(),

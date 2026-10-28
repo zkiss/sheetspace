@@ -1,3 +1,4 @@
+import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { createRef, type ComponentProps } from 'react';
 import { act, fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -17,7 +18,7 @@ function setup(rowCount = 30, columnCount = 10) {
     activeCellKey: null, editingCell: null, formulaResults: {}, keyboardFocusRequest: null,
     onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null,
     cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() },
-    editorInteraction: { cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
+    editorInteraction: { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
   };
   const grid = (overrides: Partial<typeof props> = {}) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
     <SheetGrid {...props} axisProjection={projectGridAxes(sheet)} {...overrides} />

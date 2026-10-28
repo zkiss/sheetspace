@@ -1,20 +1,48 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject, type ComponentProps } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject, type ComponentType, type Ref } from 'react';
 import { createPortal } from 'react-dom';
-import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
+import type { FormulaReferenceResolver } from '@workbook/formula/reference';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
+import type { FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
+import type { FormulaScalarValue } from '@calculation/formulaValue';
 import type { CellEditSession, CellNavigationRequest } from './cellInteractionContracts';
 import './SheetGridCell.css';
 
 export const CELL_EDITOR_MAX_WIDTH = '28rem';
 export const CELL_EDITOR_MAX_HEIGHT = '7rem';
 
+type FormulaContext = {
+  resolver: FormulaReferenceResolver;
+  sheetNames: readonly string[];
+  propertyNames?: readonly string[];
+  referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
+  inspectionReferences?: readonly FormulaInspectionReference[];
+  referenceColors?: ReadonlyMap<number, string>;
+  onReferenceHover?: (span: { start: number; end: number } | null) => void;
+  onReferenceModifierHover?: (span: { start: number; end: number } | null) => void;
+  onReferenceNavigate?: (reference: FormulaInspectionReference) => void;
+};
+
+export type CellFormulaEditorProps = FormulaContext & {
+  ariaLabel: string; autoFocus: boolean; cellMode: 'light' | 'heavy';
+  initialView: { start: number; end: number; scrollTop?: number };
+  inputRef: Ref<HTMLTextAreaElement>; panelRef: RefObject<HTMLElement>;
+  sheetId: string; raw: string; readOnly?: boolean;
+  onToggleMode: () => void; onRawChange: (value: string) => void;
+  onViewChange: (view: { start: number; end: number; scrollTop: number }) => void;
+  onApply: () => void; onCancel: () => void;
+  onCommitAndNavigate: (request: { key: 'Enter' | 'Tab'; shift?: boolean }) => void;
+  onFocusLeave: (view: { start: number; end: number; scrollTop: number }, destination: EventTarget | null) => void;
+};
+
 export type SheetGridCellEditorInteraction = {
+  FormulaEditor: ComponentType<CellFormulaEditorProps>;
   cancel: (session?: CellEditSession) => void;
   commit: (session?: CellEditSession, restoreFocus?: boolean) => void;
   suspend?: (session: CellEditSession) => void;
   commitAndNavigate: (session: CellEditSession, request: Pick<CellNavigationRequest, 'key' | 'shift'>) => void;
   updateValue: (value: string, session?: CellEditSession) => void;
   updateView?: (selection: { start: number; end: number }, scrollTop: number, session?: CellEditSession) => void;
-  formulaContext?: Pick<ComponentProps<typeof FormulaEditorPanel>, 'resolver' | 'sheetNames' | 'propertyNames' | 'referenceValues' | 'inspectionReferences' | 'referenceColors' | 'onReferenceHover' | 'onReferenceModifierHover' | 'onReferenceNavigate'>;
+  formulaContext?: FormulaContext;
 };
 
 export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction, sheetName }: {
@@ -93,7 +121,8 @@ export function SheetGridCellEditor({ anchor, cellKey, editingCell, interaction,
   }
 
   if (!isAnchored) return null;
-  return createPortal(<FormulaEditorPanel
+  const FormulaEditor = interaction.FormulaEditor;
+  return createPortal(<FormulaEditor
     ariaLabel={`${sheetName} ${cellKey} editor`}
     autoFocus
     cellMode={mode}
