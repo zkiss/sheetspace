@@ -4,7 +4,7 @@ import { findSheetById } from '@workbook/read/queries';
 import { type CellRange } from '@workbook/core/address';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
-import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { detailedViewportScaleForSheet, rangeFitsSheetViewport } from '@grid/gridGeometry';
 import { clampWorkspaceZoom, type WorkspaceTargetRect, workspaceRectForFrame, WORKSPACE_NAVIGATION_TRANSITION_MS } from '@workspace/workspaceGeometry';
 import type { NavigationOperation } from './useNavigationHistory';

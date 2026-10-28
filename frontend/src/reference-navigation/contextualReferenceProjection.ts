@@ -2,7 +2,7 @@ import { rangeReferenceIdentity, type FormulaReferenceIdentity } from '@workbook
 import { createSheetGridAxisMetrics } from '@grid/gridAxisMetrics';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import { GRID_COLUMN_HEADER_HEIGHT, GRID_ROW_HEADER_WIDTH } from '@grid/gridGeometry';
-import { type FormulaInspectionReference, type FormulaReferenceTarget } from './formulaInspection';
+import { type FormulaInspectionReference, type FormulaReferenceTarget } from '@workbook/formula/formulaInspectionContracts';
 import type { SheetDocument, SheetFrameProjection, SheetFrameSize, Workbook } from '@workbook/core/model';
 import type { WorkspaceViewport } from '@workspace/workspaceContracts';
 import { sheetFrameBodyGeometry, workspaceRectForFrame, workspaceRectsIntersect, type WorkspaceTargetRect } from '@workspace/workspaceGeometry';

@@ -2,7 +2,7 @@ import { createRef, type ReactNode } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
-import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
 
 const reference: FormulaInspectionReference = {

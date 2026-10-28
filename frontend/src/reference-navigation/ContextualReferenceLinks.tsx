@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
-import type { FormulaInspectionReference } from './formulaInspection';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import type { ContextualReference, ProjectedReferenceGeometry } from './contextualReferenceProjection';
 import { referenceLineEndpoints } from './referenceLinkGeometry';
 import '@reference-navigation/ContextualReferenceLinks.css';

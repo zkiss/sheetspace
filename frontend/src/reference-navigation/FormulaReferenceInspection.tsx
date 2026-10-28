@@ -1,8 +1,6 @@
 import { useState, type MouseEvent, type CSSProperties } from 'react';
-import type {
-  FormulaInspection,
-  FormulaInspectionReference,
-} from '@reference-navigation/formulaInspection';
+import type { FormulaInspection } from '@reference-navigation/formulaInspection';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import '@reference-navigation/FormulaReferenceInspection.css';
 
 export function FormulaReferenceInspection({

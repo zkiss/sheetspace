@@ -7,7 +7,7 @@ import { RawFormulaInput } from '@workbook/formula/RawFormulaInput';
 import { formulaEditorCaret } from './formulaEditorCaret';
 import { FormulaEditorPopover } from './FormulaEditorPopover';
 import './FormulaEditorPanel.css';
-import type { FormulaInspectionReference } from '@reference-navigation/formulaInspection';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 
 /** The single rich formula surface used by workspace and model editing. */
 export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate }: {
