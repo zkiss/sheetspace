@@ -44,4 +44,26 @@ describe('formula move target mapping', () => {
     const raw = '=@#REF!A[1]+@source:column:missing[source:row:1]+(';
     expect(moveCanonicalFormula(raw, resolver, other.id, [mapping('A1', 'B1')])).toEqual({ ok: true, raw });
   });
+
+  it('retains named references when mapped to named columns and falls back for unnamed columns', () => {
+    const bound = { ...source, modelId: 'budget', modelColumnBindings: { revenue: source.content.columns[0]!, cost: source.content.columns[1]! } };
+    const modelWorkbook = { ...workbookWithSheets([bound, other]), dataModels: { budget: { id: 'budget', name: 'Budget', columns: [
+      { id: 'revenue', name: 'Revenue', kind: 'manual' as const, type: 'float' as const },
+      { id: 'cost', name: 'Cost', kind: 'manual' as const, type: 'float' as const },
+    ] } } };
+    const namedResolver = workbookFormulaReferenceResolver(modelWorkbook, source.id);
+    const move = (raw: string, mappings: ReturnType<typeof mapping>[]) => {
+      const result = moveCanonicalFormula(formulaRawToCanonical(raw, namedResolver), namedResolver, source.id, mappings);
+      return result.ok ? formulaRawToDisplay(result.raw, namedResolver) : result;
+    };
+    expect(move('=@Revenue[1]', [mapping('A1', 'B1')])).toBe('=@Cost[1]');
+    expect(move('=@Revenue[1]', [mapping('A1', 'C1')])).toBe('=@C[1]');
+    expect(move('=SUM(@Revenue[1]:Cost[1])', [mapping('A1', 'B1'), mapping('B1', 'C1')])).toBe('=SUM(@B[1]:C[1])');
+  });
+
+  it('leaves a reference intact when its resolved coordinate is unavailable', () => {
+    const raw = formulaRawToCanonical('=@A[1]', resolver);
+    const incompleteResolver = { ...resolver, coordinateAt: () => undefined };
+    expect(moveCanonicalFormula(raw, incompleteResolver, source.id, [mapping('A1', 'B1')])).toEqual({ ok: true, raw });
+  });
 });
