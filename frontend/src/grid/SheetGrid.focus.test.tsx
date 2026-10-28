@@ -51,7 +51,7 @@ describe('SheetGrid virtualization', () => {
     body.scrollTop = 20_000;
     body.scrollLeft = 2_000;
     fireEvent.scroll(body);
-    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toHaveAttribute('data-active-cell', 'true'));
     grid.focus();
     await screen.findByRole('cell', { name: 'Sparse large sheet A1 empty cell' });
     expect(grid).toHaveFocus();

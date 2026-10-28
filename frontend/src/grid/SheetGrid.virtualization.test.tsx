@@ -156,11 +156,11 @@ describe('SheetGrid virtualization', () => {
     body.scrollTop = 20_000;
     body.scrollLeft = 2_000;
     fireEvent.scroll(body);
-    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toHaveAttribute('data-active-cell', 'true'));
 
     const grid = screen.getByTestId('sheet-grid');
     grid.focus();
-    // Pending focus pins A1 back into the projection, but it must not take focus
+    // The active cell remains pinned, but it must not take focus
     // until the native virtual window receives the browser scroll update.
     await screen.findByRole('cell', { name: 'Sparse large sheet A1 empty cell' });
     expect(document.activeElement).toBe(grid);
@@ -180,7 +180,7 @@ describe('SheetGrid virtualization', () => {
     body.scrollTop = 20_000;
     body.scrollLeft = 2_000;
     fireEvent.scroll(body);
-    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toHaveAttribute('data-active-cell', 'true'));
     grid.focus();
     await screen.findByRole('cell', { name: 'Sparse large sheet A1 empty cell' });
     expect(document.activeElement).toBe(grid);
