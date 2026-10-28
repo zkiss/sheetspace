@@ -29,6 +29,8 @@ describe('workspaceFrameVirtualization', () => {
       { interactionSheetId: 'offscreen' },
       { gridInteractionSheetIds: new Set(['offscreen']) },
       { pendingFocusSheetId: 'offscreen' },
+      { referenceSheetId: 'offscreen' },
+      { historySheetIds: ['offscreen'] },
     ]) {
       expect([...mountedWorkspaceFrameIds({ ...base, pins: pin })])
         .toEqual(['visible', 'offscreen']);
