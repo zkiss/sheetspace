@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import {
   prepareMoveCellWrites,
+  applyWorkbookOperation,
   type CellWrite,
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import type { ClipboardSourceSnapshot } from '@application/core/clipboardPayload';
 import { formulaRawToCanonical, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { bindModelSheets, calculatedModelCells, calculatedProperty, declaration, modelWorkbook } from '@test-support/modelLifecycleFixtures';
 
 type Sheet = ReturnType<typeof sheetDocument>;
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
@@ -86,6 +88,52 @@ describe('range move preparation', () => {
     if (!result.ok) return;
     expect(result.writes).toContainEqual(write(source.id, cellIdentityAt(source.content, 'C3')!, formulaRawToCanonical('=@A[4]+@B[4]', workbookFormulaReferenceResolver(workbook, source.id))));
     expect(result.writes).toContainEqual(write(third.id, cellIdentityAt(third.content, 'A1')!, formulaRawToCanonical('=@Source!A[4]', workbookFormulaReferenceResolver(workbook, third.id))));
+  });
+
+  it('applies a move and evaluates both the dependent and moved formula against their intended targets', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 4, columnCount: 4, cells: { A1: '10', B1: '20', D1: '7' } });
+    const workbook = workbookWithSheets([sheet]);
+    const resolver = workbookFormulaReferenceResolver(workbook, sheet.id);
+    for (const [address, formula] of [['C3', '=@A[1]+@B[1]'], ['C1', '=@A[1]+@D[1]']]) {
+      const cell = cellIdentityAt(sheet.content, address)!;
+      sheet.content.cells[`${cell.rowId}\u0000${cell.columnId}`] = formulaRawToCanonical(formula!, resolver);
+    }
+    const prepared = prepareMoveCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'A4')!, snapshot(sheet, 'A1', 1, 3));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.reason);
+    const applied = applyWorkbookOperation(workbook, { kind: 'write-cells', operationId: 'move', writes: prepared.writes });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) throw new Error(applied.reason);
+    expect(calculatedModelCells(applied.value.nextWorkbook).sheet.C3).toMatchObject({ value: 30 });
+    expect(calculatedModelCells(applied.value.nextWorkbook).sheet.C4).toMatchObject({ value: 17 });
+  });
+
+  it('maps overlapping and self-referential formulas once from their original identities', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 4 });
+    const workbook = workbookWithSheets([sheet]);
+    const resolver = workbookFormulaReferenceResolver(workbook, sheet.id);
+    for (const [address, formula] of [['A1', '=@A[1]+@B[1]'], ['B1', '=@A[1]']]) {
+      const cell = cellIdentityAt(sheet.content, address)!;
+      sheet.content.cells[`${cell.rowId}\u0000${cell.columnId}`] = formulaRawToCanonical(formula!, resolver);
+    }
+    const prepared = prepareMoveCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'B1')!, snapshot(sheet, 'A1', 1, 2));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.reason);
+    expect(prepared.writes).toContainEqual(write(sheet.id, cellIdentityAt(sheet.content, 'B1')!, formulaRawToCanonical('=@B[1]+@C[1]', resolver)));
+    expect(prepared.writes).toContainEqual(write(sheet.id, cellIdentityAt(sheet.content, 'C1')!, formulaRawToCanonical('=@B[1]', resolver)));
+  });
+
+  it('rejects the entire prepared move when a calculated dependent is protected', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: '10' } });
+    const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 2, columnCount: 1 });
+    const workbook = bindModelSheets(modelWorkbook(declaration([calculatedProperty('result', '=@Source!A[1]*2')]), [source, dependent]), ['dependent']);
+    const before = structuredClone(workbook);
+    const prepared = prepareMoveCellWrites(workbook, source.id, cellIdentityAt(source.content, 'A2')!, snapshot(source, 'A1'));
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) throw new Error(prepared.reason);
+    expect(prepared.writes.some((item) => item.sheetId === dependent.id)).toBe(true);
+    expect(applyWorkbookOperation(workbook, { kind: 'write-cells', operationId: 'move', writes: prepared.writes })).toEqual({ ok: false, reason: 'calculated-cell-write' });
+    expect(workbook).toEqual(before);
   });
 
   it('rejects a nonrectangular surviving dependent without mutating the workbook', () => {
