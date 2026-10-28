@@ -4,6 +4,10 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.http.HttpStatusCode
+import io.ktor.client.statement.bodyAsText
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -32,6 +36,13 @@ class PresentationMutationRoutesTest {
         }
         assertEquals(SheetRevisionResponse(initial.id, 2), removed.decodeBody())
         assertEquals(expected.copy(rows = emptyMap()), client.get("/api/workbook/bundle").decodeBody<WorkbookBundleResponse>().documents.single().presentation.formatOverrides)
+        val sheetJson = Json.parseToJsonElement(client.get("/api/sheets/${initial.id}").bodyAsText()).jsonObject
+        val bundleJson = Json.parseToJsonElement(client.get("/api/workbook/bundle").bodyAsText()).jsonObject
+        val bundleSheet = bundleJson.getValue("documents").jsonArray.single().jsonObject
+        for (sheet in listOf(sheetJson, bundleSheet)) {
+            val formats = sheet.getValue("presentation").jsonObject.getValue("formatOverrides").jsonObject
+            assertEquals(setOf("columns", "cells"), formats.keys)
+        }
     }
 
     @Test
