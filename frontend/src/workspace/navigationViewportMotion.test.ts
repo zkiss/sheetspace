@@ -28,4 +28,22 @@ describe('navigation viewport motion', () => {
     expect(sample.acceleration.scale).toBe(0);
     expect(motion.keyframes).toHaveLength(81);
   });
+
+  it('reports derivatives consistent with the sampled trajectory throughout a retarget', () => {
+    const motion = navigationViewportMotion(
+      { x: 20, y: -40, scale: 1 }, { x: 240, y: 80, scale: 1.5 },
+      { x: 0.2, y: -0.1, scale: 0.0002 }, { x: 0.0001, y: 0.0002, scale: 0.000001 },
+    );
+    const delta = 0.01;
+    for (const fraction of [0.1, 0.35, 0.7, 0.9]) {
+      const time = motion.duration * fraction;
+      const before = motion.sample(time - delta);
+      const current = motion.sample(time);
+      const after = motion.sample(time + delta);
+      for (const axis of ['x', 'y', 'scale'] as const) {
+        expect((after.viewport[axis] - before.viewport[axis]) / (2 * delta)).toBeCloseTo(current.velocity[axis], 6);
+        expect((after.velocity[axis] - before.velocity[axis]) / (2 * delta)).toBeCloseTo(current.acceleration[axis], 6);
+      }
+    }
+  });
 });
