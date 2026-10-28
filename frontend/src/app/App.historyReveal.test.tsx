@@ -148,6 +148,21 @@ describe('history cell reveal in the composed workspace', () => {
     }
   });
 
+  it('keeps the refined history destination stable after delayed measurements', () => {
+    vi.useFakeTimers();
+    const { surface, body } = setup('C3', 1.5, true);
+    for (const redo of [false, true]) {
+      body.scrollLeft = 200;
+      body.scrollTop = 90;
+      fireEvent.scroll(body);
+      panWorkspace(-300 - Number(surface.dataset.viewportX), -200 - Number(surface.dataset.viewportY));
+      history(redo);
+      const destination = [surface.dataset.viewportX, surface.dataset.viewportY, body.scrollLeft, body.scrollTop];
+      act(() => vi.advanceTimersByTime(1000));
+      expect([surface.dataset.viewportX, surface.dataset.viewportY, body.scrollLeft, body.scrollTop]).toEqual(destination);
+    }
+  });
+
   it('does not move the workspace when the history cell is visible in a clipped frame', () => {
     const { surface, cell } = setup();
     const deltaX = 70;
