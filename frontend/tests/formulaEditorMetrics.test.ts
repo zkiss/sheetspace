@@ -1,0 +1,107 @@
+// @vitest-environment node
+import fs from 'node:fs';
+import { chromium } from 'playwright';
+import { expect, it } from 'vitest';
+
+it('aligns coloured token advances and every wrapped character with the editable textarea in Chromium', async () => {
+  const tokens = [
+    { kind: 'punctuation', text: '=' }, { kind: 'function', text: 'SUM' },
+    { kind: 'punctuation', text: '(' }, { kind: 'reference', text: "@'Revenue'[12]" },
+    { kind: 'punctuation', text: ', ' }, { kind: 'reference', text: "@$'Cost'[$12]" },
+    { kind: 'punctuation', text: ') ' }, { kind: 'operator', text: '+' },
+    { kind: 'literal', text: ' 123.45 ' }, { kind: 'operator', text: '-' },
+    { kind: 'literal', text: ' TRUE ' }, { kind: 'operator', text: '+' },
+    { kind: 'literal', text: ' "literal"' }, { kind: 'whitespace', text: '\n' },
+    ...Array.from({ length: 8 }, () => [
+      { kind: 'reference', text: '@A[1]' }, { kind: 'operator', text: '+' },
+      { kind: 'reference', text: '@B[2]' }, { kind: 'operator', text: '*' },
+      { kind: 'literal', text: '12345' }, { kind: 'operator', text: '+' },
+    ]).flat(),
+  ];
+  const draft = tokens.map(({ text }) => text).join('');
+  const spans = tokens.map(({ kind, text }) =>
+    `<span class="formula-syntax-token formula-syntax-token-${kind}">${escapeHtml(text)}</span>`).join('');
+  const css = fs.readFileSync(new URL('../src/application/react/FormulaEditorPanel.css', import.meta.url), 'utf8');
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ offline: true });
+    await page.setContent(`<!doctype html><style>
+      body { font: 16px system-ui; }
+      ${css}
+      .formula-editor-panel .formula-editor-input, .formula-editor-highlight { position: absolute; left: 0; top: 0; width: 280px; height: 1000px; overflow: hidden; }
+    </style>
+    <div class="formula-editor-panel"><pre class="formula-editor-highlight">${spans}</pre>
+    <textarea class="formula-editor-input">${escapeHtml(draft)}</textarea></div>`);
+
+    const metrics = await page.evaluate(measureEditorMetrics);
+    expect(metrics.errors).toEqual([]);
+    expect(metrics.lines).toBeGreaterThan(5);
+    expect(metrics.characters).toBe(draft.length);
+  } finally {
+    await browser.close();
+  }
+}, 30_000);
+
+function escapeHtml(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Runs in a real browser: the plain-text mirror uses the textarea's computed
+// typography, while Range rectangles expose the overlay's actual token layout.
+function measureEditorMetrics() {
+  const editor = document.querySelector('textarea')!;
+  const overlay = document.querySelector('pre')!;
+  const style = getComputedStyle(editor);
+  const errors: string[] = [];
+  const mirror = document.createElement('div');
+  const properties = [
+    'box-sizing', 'border-width', 'border-style', 'padding', 'width', 'height',
+    'font-family', 'font-size', 'font-weight', 'font-style', 'font-stretch',
+    'font-variant', 'font-kerning', 'font-feature-settings', 'font-variation-settings',
+    'line-height', 'letter-spacing', 'word-spacing', 'tab-size', 'text-indent',
+    'text-transform', 'white-space', 'overflow-wrap', 'word-break', 'text-align',
+  ];
+  for (const property of properties) mirror.style.setProperty(property, style.getPropertyValue(property));
+  mirror.style.lineHeight = String(Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize));
+  mirror.style.cssText += ';position:fixed;left:0;top:0;overflow:hidden;';
+  mirror.textContent = editor.value;
+  document.body.append(mirror);
+  const canvas = document.createElement('canvas').getContext('2d')!;
+  for (const token of overlay.querySelectorAll('span')) {
+    const tokenStyle = getComputedStyle(token);
+    for (const property of properties.slice(6)) {
+      if (style.getPropertyValue(property) !== tokenStyle.getPropertyValue(property)) errors.push(`token ${property}`);
+    }
+    canvas.font = style.font;
+    const plainWidth = canvas.measureText(token.textContent!).width;
+    canvas.font = tokenStyle.font;
+    if (Math.abs(canvas.measureText(token.textContent!).width - plainWidth) > 0.01) errors.push('token advance');
+  }
+  function positions(element: HTMLElement) {
+    const positions: { x: number; y: number }[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      for (let offset = 0; offset < node.textContent!.length; offset++) {
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + 1);
+        const rect = range.getBoundingClientRect();
+        positions.push({ x: rect.x, y: rect.y });
+      }
+    }
+    return positions;
+  }
+  const coloured = positions(overlay);
+  const plain = positions(mirror);
+  for (let offset = 0; offset < plain.length; offset++) {
+    // Inline text runs can round fractional glyph advances independently.
+    if (Math.abs(coloured[offset].x - plain[offset].x) > 0.2
+      || Math.abs(coloured[offset].y - plain[offset].y) > 0.02) errors.push(`character ${offset}: ${JSON.stringify(coloured[offset])} vs ${JSON.stringify(plain[offset])}`);
+  }
+  // Reducing the viewport reveals the real textarea's content height, including
+  // its wrapping, rather than comparing only the outer container geometry.
+  for (const element of [editor, overlay, mirror]) element.style.height = '24px';
+  if (editor.scrollHeight !== mirror.scrollHeight || editor.scrollHeight !== overlay.scrollHeight) errors.push('wrapped content height');
+  return { errors, lines: new Set(plain.map(({ y }) => y)).size, characters: plain.length };
+}
