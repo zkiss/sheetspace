@@ -338,6 +338,37 @@ describe('workspace pointer ownership and lifecycle', () => {
     expect(state().viewport).toEqual(viewport);
   });
 
+  it('coalesces native pinch changes and commits the last anchored preview', () => {
+    vi.useFakeTimers();
+    const { surface, state } = setup();
+    const frame = vi.spyOn(window, 'requestAnimationFrame');
+    const gesture = (type: string, scale: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.assign(event, { scale, clientX: 100, clientY: 100 });
+      fireEvent(surface, event);
+    };
+
+    act(() => {
+      gesture('gesturestart', 1);
+      gesture('gesturechange', 1.1);
+      gesture('gesturechange', 1.3);
+      gesture('gesturechange', 1.5);
+    });
+    expect(frame).toHaveBeenCalledTimes(1);
+    expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
+    act(() => vi.advanceTimersByTime(16));
+    expect(Number(surface.dataset.viewportScale)).toBeCloseTo(1.5);
+    expect(Number(surface.dataset.viewportX)).toBeCloseTo(-50);
+    expect(Number(surface.dataset.viewportY)).toBeCloseTo(-50);
+    expect(screen.getByTestId('grid').style.transform).toContain(`${surface.dataset.viewportX}px`);
+    act(() => gesture('gestureend', 1.5));
+    act(() => vi.advanceTimersByTime(150));
+    expect(state().viewport.scale).toBeCloseTo(1.5);
+    expect(state().viewport.x).toBeCloseTo(-50);
+    expect(state().viewport.y).toBeCloseTo(-50);
+    frame.mockRestore();
+  });
+
   it('cleans up capture and listeners across repeated mount cycles', () => {
     for (let index = 0; index < 3; index++) {
       const { surface, unmount, capture } = setup();
