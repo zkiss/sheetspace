@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { BodyPortal } from '@shared/ui/BodyPortal';
 
 export function FormulaEditorPopover({ anchor, children, className }: {
   anchor: () => { left: number; top: number; bottom: number } | undefined;
@@ -30,8 +30,8 @@ export function FormulaEditorPopover({ anchor, children, className }: {
       window.removeEventListener('resize', place);
     };
   }, [anchor]);
-  return createPortal(<div className={`formula-editor-popover ${className}`} data-workspace-navigation
+  return <BodyPortal><div className={`formula-editor-popover ${className}`} data-workspace-navigation
     ref={element} style={{ left: position.left, top: position.top, visibility: position.ready ? 'visible' : 'hidden' }}>
     {children}
-  </div>, document.body);
+  </div></BodyPortal>;
 }
