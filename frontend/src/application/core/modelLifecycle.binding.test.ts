@@ -98,10 +98,10 @@ describe('explicit unbinding and model switching', () => {
     ['=@Missing!A[1]', { kind: 'text', value: '#REF!' }],
     ['=@B[1]', { kind: 'text', value: '#CYCLE!' }],
     ['=@A[1]', { kind: 'blank' }],
-  ])('freezes %s as a non-executable underlying value', (formula, expected) => {
+  ] as const)('freezes %s as a non-executable underlying value', (formula, expected) => {
     const blankInput = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1 });
     const type = expected.kind === 'boolean' ? 'boolean' : expected.kind === 'text' && !expected.value.startsWith('#') ? 'string' : 'float';
-    const bound = bindModelSheets(modelWorkbook(declaration([manualProperty('input'), { ...calculatedProperty('result', formula as string), type }]), [blankInput]), ['sheet']);
+    const bound = bindModelSheets(modelWorkbook(declaration([manualProperty('input'), { ...calculatedProperty('result', formula), type }]), [blankInput]), ['sheet']);
 
     const unbound = successfulModelMutation(unbindSheetFromModel(bound, 'sheet'));
     const raw = storedModelCells(unbound).B1 ?? '';
