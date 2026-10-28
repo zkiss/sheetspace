@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -102,7 +103,7 @@ describe('App MVP workflow', () => {
 function openSmokeCellEditor(cell: HTMLElement) {
   // Focused interaction suites cover browser-like event sequences. This broad smoke test emits
   // one semantic event per action so parallel coverage load measures product work, not event expansion.
-  fireEvent.doubleClick(cell);
+  activateCellEditor(cell);
   return screen.getByRole('textbox');
 }
 

@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -8,7 +9,7 @@ function setup() {
     smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@B[1]+1', B1: '2' } }),
   ])} />);
   const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-  fireEvent.doubleClick(cell);
+  activateCellEditor(cell);
   const editor = screen.getByRole('textbox');
   const panel = editor.closest('section')!;
   return { cell, editor, panel, token: panel.querySelector('[data-reference-index]')!, surface: screen.getByTestId('workspace-surface') };

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent, type RefObject } from 'react';
 import { cellKey } from '@workbook/core/address';
 import type { SheetTabularProjection } from '@workbook/core/model';
 import type { GridAxisProjection } from '@grid/gridAxisProjection';
 import type { GridAxisMetrics } from './gridAxisMetrics';
 import type { CellSelectionMode, CellTarget, SelectionGesture } from './cellInteractionContracts';
 import type { SheetGridCellInteraction } from './SheetGridCell';
-import { cellTargetAt } from '@grid/cellInteraction';
+import { cellTargetAt, sameTarget } from '@grid/cellInteraction';
 import { dragTargetForSource, savedAxisIndexAtOffset } from './sheetGridProjection';
 import { GRID_COLUMN_HEADER_HEIGHT, GRID_ROW_HEADER_WIDTH } from '@grid/gridGeometry';
 
@@ -20,6 +20,7 @@ type GridPointerSelectionOptions = {
   scrollContainerRef: RefObject<HTMLElement>;
   selectionOwner?: symbol | null;
   sheet: SheetTabularProjection;
+  interactionsEnabled: boolean;
 };
 
 type DragSession = {
@@ -30,9 +31,16 @@ type DragSession = {
   owner: symbol;
   pointerId: number;
   target: CellTarget | null;
+  startX: number;
+  startY: number;
+  moved: boolean;
 };
 
 type PointerScale = { x: number; y: number };
+
+function exceedsClickSlop(drag: DragSession, x: number, y: number) {
+  return Math.hypot(x - drag.startX, y - drag.startY) > 4;
+}
 
 function pointerScale(container: HTMLElement, rect: DOMRect): PointerScale {
   return {
@@ -67,8 +75,10 @@ export function useGridPointerSelection({
   scrollContainerRef,
   selectionOwner,
   sheet,
+  interactionsEnabled,
 }: GridPointerSelectionOptions) {
   const dragRef = useRef<DragSession | null>(null);
+  const clicks = useRef<(CellTarget | null)[]>([]);
   const animationFrame = useRef(0);
   const [dragging, setDragging] = useState(false);
   const interactionRef = useRef(cellInteraction);
@@ -92,6 +102,8 @@ export function useGridPointerSelection({
     if (!drag || (pointerId !== undefined && drag.pointerId !== pointerId)) return;
 
     dragRef.current = null;
+    clicks.current = focusExtent && drag.mode === 'cells' && !drag.moved
+      ? [...clicks.current.slice(-1), drag.target] : [];
     if (animationFrame.current) cancelAnimationFrame(animationFrame.current);
     animationFrame.current = 0;
     if (drag.captureElement.hasPointerCapture?.(drag.pointerId)) {
@@ -129,6 +141,7 @@ export function useGridPointerSelection({
       rowIndex: row.durableIndex,
     }));
     if (!target) return;
+    if (drag.target && !sameTarget(target, drag.target)) drag.moved = true;
     drag.target = target;
     interactionRef.current.extend(target, { owner: drag.owner });
   }, [sheet]);
@@ -219,9 +232,9 @@ export function useGridPointerSelection({
   }, [finishDrag, ownsDrag, selectionOwner]);
 
   const beginDrag = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || isNativeEditor(event.target) || !isDragSource(event.target) || dragRef.current) return;
+    if (!interactionsEnabled || event.button !== 0 || isNativeEditor(event.target) || !isDragSource(event.target) || dragRef.current) { clicks.current = []; return; }
     const source = (event.target as HTMLElement).closest<HTMLElement>('[data-cell-key], [data-axis-selection-mode]');
-    if (!source) return;
+    if (!source) { clicks.current = []; return; }
 
     const axisMode = source.dataset.axisSelectionMode as Exclude<CellSelectionMode, 'cells'> | undefined;
     const mode = axisMode ?? 'cells';
@@ -245,6 +258,9 @@ export function useGridPointerSelection({
       owner,
       pointerId: event.pointerId,
       target,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
     };
     setDragging(true);
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -259,16 +275,43 @@ export function useGridPointerSelection({
     }
     drag.clientX = event.clientX;
     drag.clientY = event.clientY;
+    if (exceedsClickSlop(drag, event.clientX, event.clientY)) drag.moved = true;
     extendDrag(event.clientX, event.clientY);
+  };
+
+  const openDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const container = scrollContainerRef.current;
+    const recent = clicks.current;
+    clicks.current = [];
+    if (!interactionsEnabled || !container || isNativeEditor(event.target) || !isDragSource(event.target)
+      || recent.length !== 2 || !recent[0] || !recent[1]) return;
+    const rect = container.getBoundingClientRect();
+    const scale = pointerScale(container, rect);
+    const x = (event.clientX - rect.left) * scale.x;
+    const y = (event.clientY - rect.top) * scale.y;
+    if (x < GRID_ROW_HEADER_WIDTH || y < GRID_COLUMN_HEADER_HEIGHT || x >= container.clientWidth || y >= container.clientHeight) return;
+    const columnIndex = savedAxisIndexAtOffset(columns, columnMetrics, container.scrollLeft + x - GRID_ROW_HEADER_WIDTH);
+    const rowIndex = savedAxisIndexAtOffset(rows, rowMetrics, container.scrollTop + y - GRID_COLUMN_HEADER_HEIGHT);
+    const column = columnIndex === undefined ? undefined : columns[columnIndex];
+    const row = rowIndex === undefined ? undefined : rows[rowIndex];
+    if (row?.kind !== 'saved' || column?.kind !== 'saved') return;
+    const target = cellTargetAt(sheet, cellKey({ columnIndex: column.durableIndex, rowIndex: row.durableIndex }));
+    if (!target || !sameTarget(target, recent[0]) || !sameTarget(target, recent[1])) return;
+    cellInteraction.startEditing(target);
   };
 
   return {
     beginDrag,
     cancelDrag: (event: PointerEvent<HTMLDivElement>) => finishDrag(event.pointerId),
-    completeDrag: (event: PointerEvent<HTMLDivElement>) => finishDrag(event.pointerId, ownsDrag()),
+    completeDrag: (event: PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current;
+      if (drag && exceedsClickSlop(drag, event.clientX, event.clientY)) drag.moved = true;
+      finishDrag(event.pointerId, ownsDrag());
+    },
     dragging,
     finishDrag,
     moveDrag,
+    openDoubleClick,
   };
 }
 

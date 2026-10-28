@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -117,7 +118,7 @@ function setSurfaceSize(width: number, height: number) {
 }
 
 function openEditor(cell: HTMLElement) {
-  fireEvent.doubleClick(cell);
+  activateCellEditor(cell);
   return screen.getByRole('textbox');
 }
 

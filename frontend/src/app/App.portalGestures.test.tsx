@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -14,7 +15,7 @@ describe('native pinch over portal cell editors', () => {
   it('consumes the complete lifecycle, zooms cumulatively, and preserves the editor draft, focus and caret', async () => {
     render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole<HTMLTextAreaElement>('textbox');
     const surface = screen.getByTestId('workspace-surface');
     expect(surface).not.toContainElement(editor);
@@ -76,7 +77,7 @@ describe('native pinch over portal cell editors', () => {
       <textarea aria-label="Unrelated portal" />
       <textarea aria-label="Other workspace editor" data-workspace-sheet-editor="other-sheet" />
     </>);
-    fireEvent.doubleClick(screen.getByRole('cell', { name: 'Inputs A1 empty cell' }));
+    activateCellEditor(screen.getByRole('cell', { name: 'Inputs A1 empty cell' }));
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
     const surface = screen.getByTestId('workspace-surface');
     expect(gesture(editor, 'gesturestart', 1).defaultPrevented).toBe(true);
@@ -104,7 +105,7 @@ describe('native pinch over portal cell editors', () => {
     </>);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     fireEvent.click(cell);
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
     const foreign = screen.getByRole('textbox', { name: 'Foreign editor' });
     const surface = screen.getByTestId('workspace-surface');

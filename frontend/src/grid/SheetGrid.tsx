@@ -207,8 +207,8 @@ export function SheetGrid({
   ), [keyboardFocusRequest?.id, keyboardFocusRequest?.targetKey]);
   const focusIntent = keyboardFocusIntent ?? gridEntryFocusIntent;
   const pointer = useGridPointerSelection({ activeSheetId, cellInteraction, columnMetrics, columns,
-    onSelectAxis, rowMetrics, rows, scrollContainerRef, selectionOwner, sheet });
-  const { dragging, beginDrag, moveDrag, completeDrag, cancelDrag, finishDrag } = pointer;
+    onSelectAxis, rowMetrics, rows, scrollContainerRef, selectionOwner, sheet, interactionsEnabled });
+  const { dragging, beginDrag, moveDrag, completeDrag, cancelDrag, finishDrag, openDoubleClick } = pointer;
   useEffect(() => {
     const active = dragging || resize.preview !== null;
     onPointerInteractionChange?.(sheet.id, active);
@@ -601,6 +601,7 @@ export function SheetGrid({
       onCopy={copySelection}
       onCut={cutSelection}
       onPaste={pasteSelection}
+      onDoubleClick={openDoubleClick}
       onPointerDownCapture={beginDrag}
       onPointerMove={moveDrag}
       onPointerUp={completeDrag}

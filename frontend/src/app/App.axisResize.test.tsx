@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -19,7 +20,7 @@ describe('axis resize application integration', () => {
     const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
     render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
     expect(editor).toHaveFocus();
     fireEvent.change(editor, { target: { value: '99' } });
@@ -57,7 +58,7 @@ describe('axis resize application integration', () => {
     expect(first).toHaveStyle({ width: '120px', height: `${rowHeight}px`, lineHeight: `${rowHeight}px` });
     expect(first).toHaveTextContent('7');
     expect(screen.getByRole('cell', { name: 'Inputs B2 cell' })).toHaveTextContent('14');
-    fireEvent.doubleClick(first);
+    activateCellEditor(first);
     expect(screen.getByRole('textbox')).toHaveValue('7');
     expect(first).toHaveStyle({ width: '120px', height: `${rowHeight}px` });
     expect(first).not.toContainElement(screen.getByRole('textbox'));

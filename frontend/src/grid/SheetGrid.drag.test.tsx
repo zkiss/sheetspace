@@ -7,7 +7,7 @@ import { SheetGrid } from '@grid/SheetGrid';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { tabularProjection } from '@workbook/read/queries';
-import { virtualGridGeometry } from '@test-support/domGeometry';
+import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
 
 afterEach(cleanup);
 function firePointer(
@@ -22,6 +22,68 @@ function firePointer(
 
 
 describe('SheetGrid pointer selection', () => {
+  it('opens the coordinate target once for grid-retargeted double clicks and rejects a drag out and back', () => {
+    const sheet = tabularProjection(sheetDocument({ id: 'double-click', name: 'Double click' }));
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = { clear: vi.fn(), extend: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() };
+    render(<div ref={scrollContainerRef}><SheetGrid activeCellKey={null} axisProjection={projectGridAxes(sheet, { columns: [], rows: [] })}
+      cellInteraction={cellInteraction} editingCell={null}
+      editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+      formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+      navigationHighlightCellKey={null} scrollContainerRef={scrollContainerRef} sheet={sheet} /></div>);
+    virtualGridGeometry(scrollContainerRef.current!);
+    const grid = screen.getByTestId('sheet-grid');
+    const cell = screen.getByRole('cell', { name: 'Double click A1 empty cell' });
+    const click = () => {
+      firePointer(cell, 'pointerdown', { button: 0, clientX: 50, clientY: 40 });
+      firePointer(grid, 'pointerup', { clientX: 50, clientY: 40 });
+    };
+    click(); click();
+    fireEvent.doubleClick(grid, { clientX: 50, clientY: 40 });
+    expect(cellInteraction.startEditing).toHaveBeenCalledOnce();
+    expect(cellInteraction.startEditing).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'A1') }));
+    cellInteraction.startEditing.mockClear();
+    for (let index = 0; index < 2; index++) {
+      firePointer(cell, 'pointerdown', { button: 0, clientX: 50, clientY: 40 });
+      firePointer(grid, 'pointermove', { clientX: 51, clientY: 40 });
+      firePointer(grid, 'pointerup', { clientX: 51, clientY: 40 });
+    }
+    fireEvent.doubleClick(grid, { clientX: 51, clientY: 40 });
+    expect(cellInteraction.startEditing).toHaveBeenCalledOnce();
+    cellInteraction.startEditing.mockClear();
+    click();
+    firePointer(cell, 'pointerdown', { button: 0, clientX: 50, clientY: 40 });
+    firePointer(grid, 'pointermove', { clientX: 130, clientY: 40 });
+    firePointer(grid, 'pointermove', { clientX: 50, clientY: 40 });
+    firePointer(grid, 'pointerup', { clientX: 50, clientY: 40 });
+    fireEvent.doubleClick(grid, { clientX: 50, clientY: 40 });
+    expect(cellInteraction.startEditing).not.toHaveBeenCalled();
+
+    const container = scrollContainerRef.current!;
+    container.scrollLeft = 76;
+    container.scrollTop = 26.4;
+    container.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 120, height: 80 });
+    const b2 = screen.getByRole('cell', { name: 'Double click B2 empty cell' });
+    for (let index = 0; index < 2; index++) {
+      firePointer(b2, 'pointerdown', { button: 0, clientX: 25, clientY: 20 });
+      firePointer(grid, 'pointerup', { clientX: 25, clientY: 20 });
+    }
+    fireEvent.doubleClick(grid, { clientX: 25, clientY: 20 });
+    expect(cellInteraction.startEditing).toHaveBeenCalledWith(expect.objectContaining({ cell: cellIdentityAt(sheet, 'B2') }));
+    cellInteraction.startEditing.mockClear();
+    for (let index = 0; index < 2; index++) {
+      firePointer(b2, 'pointerdown', { button: 0, clientX: 25, clientY: 20 });
+      firePointer(grid, 'pointerup', { clientX: 25, clientY: 20 });
+    }
+    fireEvent.doubleClick(grid, { clientX: 5, clientY: 5 });
+    expect(cellInteraction.startEditing).not.toHaveBeenCalled();
+    for (let index = 0; index < 2; index++) {
+      firePointer(b2, 'pointerdown', { button: 0, clientX: 25, clientY: 20 });
+      firePointer(grid, 'pointerup', { clientX: 25, clientY: 20 });
+    }
+    fireEvent.doubleClick(grid, { clientX: 65, clientY: 20 });
+    expect(cellInteraction.startEditing).not.toHaveBeenCalled();
+  });
   it('does not start a selection from controls, non-primary pointers, or cells without a durable target', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'sheet-pointer-guards', name: 'Pointer guards' }));
     const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });

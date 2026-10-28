@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { measuredElementGeometry, testRect, virtualGridGeometry } from '@test-support/domGeometry';
@@ -49,7 +50,7 @@ function setup(target = 'A1', visualScale = 1, variableSizes = false) {
     }
   });
   const cell = within(frame).getByRole('cell', { name: `Inputs ${target} cell` });
-  fireEvent.doubleClick(cell);
+  activateCellEditor(cell);
   const editor = screen.getByRole('textbox');
   fireEvent.change(editor, { target: { value: 'new' } });
   fireEvent.keyDown(editor, { key: 'Enter' });

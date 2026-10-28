@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
@@ -20,7 +21,7 @@ describe('content history application integration', () => {
     fireEvent.keyDown(a1, { key: 'z', ctrlKey: true });
     expect(a1).toHaveTextContent('2');
 
-    fireEvent.doubleClick(a1);
+    activateCellEditor(a1);
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
     fireEvent.change(editor, { target: { value: '=3+4' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
@@ -36,7 +37,7 @@ describe('content history application integration', () => {
     expect(a2).toHaveAttribute('data-active-cell', 'true');
     fireEvent.keyDown(a2, { key: 'z', ctrlKey: true, shiftKey: true });
     expect(a1).toHaveTextContent('7');
-    fireEvent.doubleClick(a2);
+    activateCellEditor(a2);
     const draft = screen.getByRole('textbox', { name: 'Inputs A2 editor' });
     fireEvent.change(draft, { target: { value: 'draft' } });
     fireEvent.keyDown(draft, { key: 'z', ctrlKey: true });
@@ -71,7 +72,7 @@ describe('content history application integration', () => {
 });
 
 function replaceCell(cell: HTMLElement, value: string) {
-  fireEvent.doubleClick(cell);
+  activateCellEditor(cell);
   const editor = screen.getByRole('textbox');
   fireEvent.change(editor, { target: { value } });
   fireEvent.keyDown(editor, { key: 'Enter' });

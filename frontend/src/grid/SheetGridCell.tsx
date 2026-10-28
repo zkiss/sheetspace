@@ -148,10 +148,6 @@ export function SheetGridCell({
         if (event.shiftKey && cellInteraction.extend) cellInteraction.extend(target);
         else cellInteraction.select(target);
       }}
-      onDoubleClick={() => {
-        const target = cellTargetAt(sheet, cellKey);
-        if (target) cellInteraction.startEditing(target);
-      }}
       onFocus={() => {
         const target = cellTargetAt(sheet, cellKey);
         // Application focus requests return focus to an existing stable
