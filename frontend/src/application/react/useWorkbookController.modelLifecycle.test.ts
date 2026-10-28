@@ -304,7 +304,7 @@ describe('model lifecycle controller wiring', () => {
 
   it('preserves history for no-ops and rejected commands and freezes literal text and errors on unbind', () => {
     const workbook = initialWorkbook();
-    workbook.dataModels = { model: { ...model, columns: [model.columns[0]!, { ...model.columns[1]!, kind: 'calculated', formula: '="=literal"' }] } };
+    workbook.dataModels = { model: { ...model, columns: [model.columns[0]!, { ...model.columns[1]!, kind: 'calculated', type: 'string', formula: '="=literal"' }] } };
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
     act(() => result.current.commands.updateCellContent('one', 'A1', '8'));
     expect(result.current.canUndo).toBe(true);

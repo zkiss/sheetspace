@@ -119,7 +119,7 @@ describe('property kind transitions and empty declarations', () => {
   });
 
   it('freezes several calculated-to-manual transitions from the complete old workbook while overwriting manual-to-calculated', () => {
-    const old = declaration([manualProperty('input'), calculatedProperty('double', '=@A[1]*2'), calculatedProperty('total', '=@B[1]+@A[1]'), calculatedProperty('text', '="=1+2"')]);
+    const old = declaration([manualProperty('input'), calculatedProperty('double', '=@A[1]*2'), calculatedProperty('total', '=@B[1]+@A[1]'), { ...calculatedProperty('text', '="=1+2"'), type: 'string' }]);
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 4, rowCount: 2, cells: { A1: '3', A2: '4' } });
     const bound = bindModelSheets(modelWorkbook(old, [sheet]), ['sheet']);
     const changed = declaration([manualProperty('total'), calculatedProperty('input', '=100'), manualProperty('double'), manualProperty('text')]);
