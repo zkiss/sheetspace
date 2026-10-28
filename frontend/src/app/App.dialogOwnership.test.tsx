@@ -147,6 +147,7 @@ describe('sheet dialog takeover of armed background owners', () => {
 
 describe('sheet dialog takeover of workspace gestures', () => {
   it.each(['pan', 'pinch'])('retires %s, suspends background starts and ignores old continuations after dismissal', (owner) => {
+    vi.useFakeTimers();
     const { apiClient, frame, surface } = setup();
     const release = capture(surface);
     if (owner === 'pan') {
@@ -157,8 +158,9 @@ describe('sheet dialog takeover of workspace gestures', () => {
       gesture(surface, 'gesturestart', 1);
       gesture(surface, 'gesturechange', 1.1);
     }
-    const before = viewport(surface);
     const dialog = openDialog('Create', frame);
+    // Dialog takeover commits the coalesced preview before retiring its owner.
+    const before = viewport(surface);
     if (owner === 'pan') expect(release).toHaveBeenCalledWith(17);
     expect(surface).not.toHaveClass('workspace-surface-panning');
     const continueOld = () => {
@@ -191,6 +193,7 @@ describe('sheet dialog takeover of workspace gestures', () => {
     gesture(surface, 'gesturestart', 1);
     gesture(surface, 'gesturechange', 1.1);
     gesture(surface, 'gestureend', 1.1);
+    act(() => vi.advanceTimersByTime(150));
     expect(Number(surface.dataset.viewportScale)).toBeCloseTo(scale * 1.1);
   });
 });

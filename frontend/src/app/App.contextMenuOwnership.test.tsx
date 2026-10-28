@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { autosaveClient } from '@test-support/apiClients';
 import { panWorkspace, zoomWorkspace } from '@test-support/workspaceActions';
+
+afterEach(() => vi.useRealTimers());
 
 function setup(visualScale = 1) {
   render(<App initialWorkbook={workbookWithSheets([
@@ -27,6 +29,7 @@ function expectStationary(surface: HTMLElement) {
 
 describe('context-menu ownership in the composed workspace', () => {
   it('never creates on the canvas or plane after pan/zoom, and closes a sheet menu without clearing selection', () => {
+    vi.useFakeTimers();
     const apiClient = autosaveClient();
     render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([
       smallSheetDocument({ id: 'inputs', name: 'Inputs' }),
@@ -36,6 +39,7 @@ describe('context-menu ownership in the composed workspace', () => {
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     panWorkspace(-50, -100);
     zoomWorkspace('out');
+    act(() => vi.advanceTimersByTime(2000));
     const viewport = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
     const cell = within(frame).getByRole('cell', { name: 'Inputs A1 empty cell' });
     fireEvent.click(cell);
