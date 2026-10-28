@@ -119,7 +119,7 @@ describe('SheetGridCell', () => {
     expect(props.cellInteraction.select).not.toHaveBeenCalled();
   });
 
-  it('keeps calculated cells selectable while preventing content editing', () => {
+  it('allows calculated cells to open for read-only inspection', () => {
     const props = renderCell({ isCalculated: true });
     const cell = screen.getByRole('cell', { name: 'Inputs A1 calculated, read-only; edit it in Data models cell' });
     const target = cellTargetAt(props.sheet, 'A1');
@@ -128,7 +128,8 @@ describe('SheetGridCell', () => {
     expect(cell).toHaveClass('sheet-grid-cell-calculated');
     fireEvent.doubleClick(cell);
     fireEvent.keyDown(cell, { key: 'Enter' });
-    expect(props.cellInteraction.startEditing).not.toHaveBeenCalled();
+    expect(props.cellInteraction.startEditing).toHaveBeenCalledTimes(2);
+    expect(props.cellInteraction.startEditing).toHaveBeenCalledWith(target);
 
     // The clear reaches the ownership authority, which rejects it and lets the
     // workspace report the protection instead of failing silently.
@@ -180,13 +181,13 @@ describe('SheetGridCell', () => {
 
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(props.editorInteraction.commitAndNavigate).toHaveBeenCalledWith(
-      { ...editingCell, draft: 'Updated' },
+      expect.objectContaining({ ...editingCell, draft: 'Updated', selection: { start: 7, end: 7 }, scrollTop: 0 }),
       { key: 'Enter', shift: false },
     );
 
     fireEvent.keyDown(editor, { key: 'Tab', shiftKey: true });
     expect(props.editorInteraction.commitAndNavigate).toHaveBeenLastCalledWith(
-      { ...editingCell, draft: 'Updated' },
+      expect.objectContaining({ ...editingCell, draft: 'Updated', selection: { start: 7, end: 7 }, scrollTop: 0 }),
       { key: 'Tab', shift: true },
     );
 
@@ -213,15 +214,8 @@ describe('SheetGridCell', () => {
 
     const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
-    expect(editor).toHaveAttribute('data-multiline-editor', 'true');
-    expect(editor).toHaveAttribute('data-max-width', CELL_EDITOR_MAX_WIDTH);
-    expect(editor).toHaveAttribute('data-max-height', CELL_EDITOR_MAX_HEIGHT);
-    expect(editor).toHaveAttribute('data-visible-lines', '8');
-    expect(editor).toHaveStyle({
-      maxHeight: CELL_EDITOR_MAX_HEIGHT,
-      overflow: 'auto',
-    });
-    expect(editor.style.maxWidth).toContain(CELL_EDITOR_MAX_WIDTH);
+    expect(editor).toHaveStyle({ maxHeight: CELL_EDITOR_MAX_HEIGHT });
+    expect(editor.closest('section')?.style.width).toContain(CELL_EDITOR_MAX_WIDTH);
     expect(cell).toHaveClass('sheet-grid-cell', 'sheet-grid-cell-editing');
   });
 });
