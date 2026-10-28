@@ -101,4 +101,18 @@ describe('resolveCellNavigation', () => {
     expect(targetKey(sheet, 'C3', { key: 'Tab' }, selection)).toBe('B2');
     expect(targetKey(sheet, 'B2', { key: 'Enter', shift: true }, selection)).toBe('C3');
   });
+
+  it('falls back from stale anchors and ignores foreign selection extents', () => {
+    const b2 = cellTargetAt(sheet, 'B2')!;
+    const stale = { ...b2, cell: { ...b2.cell, rowId: 'deleted' } };
+    const foreign = { ...b2, sheetId: 'other' };
+    expect(targetKey(sheet, 'B2', { key: 'Enter' }, { mode: 'cells', anchor: stale, extent: b2 })).toBe('B3');
+    expect(targetKey(sheet, 'B2', { key: 'Tab' }, { mode: 'cells', anchor: b2, extent: foreign })).toBe('C2');
+  });
+
+  it('ignores empty and invalid cells when finding the used extent', () => {
+    const empty = sheetDocument({ id: 'empty', name: 'Empty', rowCount: 3, columnCount: 3 });
+    const withStaleCells = { ...empty, content: { ...empty.content, cells: { invalid: '1', 'missing\0column': '2', 'empty\0cell': '' } } };
+    expect(targetKey(withStaleCells, 'B2', { key: 'End', command: true })).toBe('A1');
+  });
 });

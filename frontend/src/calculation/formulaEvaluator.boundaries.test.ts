@@ -170,4 +170,17 @@ describe('formula evaluator boundary outcomes', () => {
       C1: { kind: 'error', error: '#VALUE!' },
     });
   });
+
+  it('propagates comparison, numeric overflow and invalid function-reference errors', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: {
+      A1: '=1=1', A2: '=1<2', A3: '=1e308*1e308', A4: '=(1/0)+1',
+      A5: '=COUNTIF(1, ">0")', A6: '=COUNTIF(@missing!A[1], ">0")',
+    } });
+
+    expect(evaluateFormulaCells(calculationProjection(workbookWithSheets([sheet]))).inputs).toMatchObject({
+      A1: { kind: 'boolean', value: true }, A2: { kind: 'boolean', value: true },
+      A3: { kind: 'error', error: '#VALUE!' }, A4: { kind: 'error', error: '#DIV/0!' },
+      A5: { kind: 'error', error: '#VALUE!' }, A6: { kind: 'error', error: '#REF!' },
+    });
+  });
 });
