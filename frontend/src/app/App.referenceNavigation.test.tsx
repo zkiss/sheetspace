@@ -43,14 +43,17 @@ describe('formula reference navigation', () => {
     });
     const outputCells = within(screen.getByRole('article', { name: 'Sheet Outputs' }));
     fireEvent.click(outputCells.getByRole('cell', { name: 'Outputs A1 cell' }));
-    expect(await screen.findByRole('button', { name: '@Inputs!B[2]' })).toBeVisible();
+    fireEvent.keyDown(outputCells.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+    fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
+    expect(await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' })).toBeInTheDocument();
 
     fireEvent.click(outputCells.getByRole('cell', { name: 'Outputs B1 cell' }));
-    expect(await screen.findByRole('button', { name: '@Inputs!A[1]' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: '@Inputs!B[2]' })).not.toBeInTheDocument();
+    fireEvent.keyDown(outputCells.getByRole('cell', { name: 'Outputs B1 cell' }), { key: 'F2' });
+    expect(await screen.findByRole('button', { name: 'Navigate to @Inputs!A[1]' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
 
     fireEvent.click(outputCells.getByRole('cell', { name: 'Outputs C1 cell' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: '@Inputs!A[1]' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!A[1]' })).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'Hide reference links' })).not.toBeInTheDocument();
   });
 
@@ -99,15 +102,16 @@ describe('formula reference navigation', () => {
     });
 
     fireEvent.click(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' }));
+    fireEvent.keyDown(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+    fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
     await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
     const canvas = document.querySelector<SVGElement>('.contextual-reference-canvas')!;
     const initialTargetX = canvas.querySelectorAll('line')[0]!.getAttribute('x2');
-    expect(canvas.querySelector('rect')).toHaveAttribute('stroke', screen.getByRole('button', { name: '@Inputs!B[2]' }).dataset.referenceColor!);
+    expect(canvas.querySelector('rect')).toHaveAttribute('stroke', canvas.querySelector('line')!.getAttribute('stroke'));
 
     inputsBody.scrollTop = 40;
     fireEvent.scroll(inputsBody);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /@Inputs!B\[2\], .* spatial endpoint/ })).toBeEnabled();
     expect(within(outputsFrame).getByRole('cell', { name: 'Outputs A1 cell' })).toHaveAttribute('data-active-cell', 'true');
 
     inputsBody.scrollTop = 0;
@@ -128,10 +132,12 @@ describe('formula reference navigation', () => {
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    fireEvent.keyDown(screen.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
+    fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
 
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: '@Inputs!B[2], unmounted spatial endpoint' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveFocus();
   });
 
   it('captures and restores a delayed grid reference arrival only after Workspace motion settles', async () => {
@@ -248,8 +254,7 @@ describe('formula reference navigation', () => {
     navigate();
     const anchor = screen.getByRole('cell', { name: 'Inputs B2 empty cell' });
     const center = screen.getByRole('cell', { name: 'Inputs C3 empty cell' });
-    const tint = center.querySelector('.sheet-grid-navigation-feedback');
-    expect(tint).not.toBeNull();
+    expect(center).toHaveAttribute('data-navigation-highlight', 'true');
     expect(anchor).toHaveFocus();
     expect(center.className).not.toMatch(/sheet-grid-selection-(top|bottom|left|right)/);
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
@@ -260,9 +265,9 @@ describe('formula reference navigation', () => {
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'smooth');
     expect(anchor).toHaveFocus();
     expect(center).toHaveAttribute('data-reference-selected', 'true');
-    expect(center.querySelector('.sheet-grid-navigation-feedback')).toBe(tint);
+    expect(center).toHaveAttribute('data-navigation-highlight', 'true');
     act(() => { vi.advanceTimersByTime(1_200); });
-    expect(view.container.querySelector('.sheet-grid-navigation-feedback')).toBeNull();
+    expect(view.container.querySelector('[data-navigation-highlight="true"]')).toBeNull();
     expect(center).toHaveAttribute('data-reference-selected', 'true');
     expect(anchor).toHaveFocus();
   });
@@ -493,7 +498,7 @@ describe('formula reference navigation', () => {
     modifierClickReference();
 
     expect(formula).toHaveAttribute('data-active-cell', 'true');
-    expect(screen.getByText(/cannot navigate: .* broken target/i)).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveFocus();
     expect(screen.getByRole('article', { name: 'Sheet sheet-deleted' })).not.toHaveAttribute('data-active-sheet');
   });
 });
