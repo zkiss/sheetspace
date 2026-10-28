@@ -31,7 +31,7 @@ export type SheetDocumentResponse = {
     visualScale: number;
     zIndex: number;
   };
-  presentation: SheetPresentation;
+  presentation: Omit<SheetPresentation, 'formatOverrides'> & { formatOverrides?: Partial<NonNullable<SheetPresentation['formatOverrides']>> };
   content: {
     kind: 'tabular';
     rows: string[];
@@ -394,9 +394,18 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
     invalidReadContract('invalid sheet visual scale');
   }
 
-  const formats = presentation.formatOverrides;
-  if (formats !== undefined && (!formats || ['rows', 'columns', 'cells'].some((scope) => !formats[scope as keyof typeof formats] || typeof formats[scope as keyof typeof formats] !== 'object' || Array.isArray(formats[scope as keyof typeof formats]))
-      || Object.values(formats.rows).some((format) => !isValidCellAppearance(format))
+  const sparseFormats = presentation.formatOverrides;
+  if (sparseFormats !== undefined && (!sparseFormats || typeof sparseFormats !== 'object' || Array.isArray(sparseFormats)
+      || ['rows', 'columns', 'cells'].some((scope) => {
+        const value = sparseFormats[scope as keyof typeof sparseFormats];
+        return value !== undefined && (!value || typeof value !== 'object' || Array.isArray(value));
+      }))) invalidReadContract('invalid appearance overrides');
+  const formats = sparseFormats === undefined ? undefined : {
+    rows: sparseFormats.rows === undefined ? {} : sparseFormats.rows,
+    columns: sparseFormats.columns === undefined ? {} : sparseFormats.columns,
+    cells: sparseFormats.cells === undefined ? {} : sparseFormats.cells,
+  };
+  if (formats !== undefined && (Object.values(formats.rows).some((format) => !isValidCellAppearance(format))
       || Object.values(formats.columns).some((format) => !isValidCellAppearance(format))
       || Object.values(formats.cells).some((format) => !isValidCellAppearance(format)))) invalidReadContract('invalid appearance overrides');
   if (formats !== undefined) {
