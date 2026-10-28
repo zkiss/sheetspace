@@ -88,7 +88,9 @@ it('cancels the active animation and its settlement when a pan interrupts naviga
   Object.defineProperty(down, 'pointerId', { value: 7 });
   fireEvent(surface, down);
   expect(animation.cancel).toHaveBeenCalled();
+  const interruptedViewport = controller!.viewport;
   act(() => finish());
   expect(settled).not.toHaveBeenCalled();
+  expect(controller!.viewport).toEqual(interruptedViewport);
   expect(controller!.navigationInterrupted).toBe(true);
 });
