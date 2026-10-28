@@ -309,7 +309,7 @@ describe('formula reference navigation', () => {
     expect(within(inputsFrame).getAllByTestId('sheet-grid-cell').length).toBeLessThan(1_000);
   });
 
-  it('cancels deferred off-window focus when a toolbar control takes ownership', async () => {
+  it.each(['toolbar', 'dialog', 'editor'])('cancels deferred off-window focus when a %s takes ownership', async (owner) => {
     const sparseInputs = sparseLargeSheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
     const inputs = {
       ...sparseInputs,
@@ -330,17 +330,28 @@ describe('formula reference navigation', () => {
     virtualGridGeometry(body, { height: 160, width: 240 });
     await waitFor(() => expect(within(inputsFrame).getByRole('table', { name: 'Inputs grid' })).toHaveFocus());
 
-    const reset = screen.getByRole('button', { name: 'New sheet' });
-    reset.focus();
+    let newOwner: HTMLElement;
+    if (owner === 'dialog') {
+      fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
+      newOwner = within(screen.getByRole('form', { name: 'Create sheet' })).getByRole('textbox');
+      expect(newOwner).toHaveFocus();
+    } else if (owner === 'editor') {
+      fireEvent.doubleClick(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+      newOwner = screen.getByRole('textbox', { name: 'Outputs A1 editor' });
+    } else {
+      newOwner = screen.getByRole('button', { name: 'New sheet' });
+      newOwner.focus();
+    }
     await act(async () => {});
     body.scrollTop = 9_998 * 26.4;
     body.scrollLeft = 98 * 76;
     fireEvent.scroll(body);
 
     const target = await within(inputsFrame).findByRole('cell', { name: 'Inputs CU9999 empty cell' });
-    expect(reset).toHaveFocus();
+    expect(newOwner).toHaveFocus();
     expect(target).not.toHaveFocus();
 
+    if (owner === 'dialog') fireEvent.keyDown(newOwner, { key: 'Escape' });
     resetWorkspaceViewport();
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument());
   });

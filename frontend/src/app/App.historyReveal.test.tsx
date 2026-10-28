@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { measuredElementGeometry, testRect, virtualGridGeometry } from '@test-support/domGeometry';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { panWorkspace } from '@test-support/workspaceActions';
 import { App } from './App';
+
+afterEach(() => vi.useRealTimers());
 
 function setup(target = 'A1', visualScale = 1, variableSizes = false) {
   const sheet = sheetDocument({
@@ -167,6 +169,7 @@ describe('history cell reveal in the composed workspace', () => {
   });
 
   it('does not replay consumed history after overview or culled-frame remounts', () => {
+    vi.useFakeTimers();
     const { surface, body, frame } = setup('J20');
     history();
     clearSelection(surface);
@@ -175,8 +178,10 @@ describe('history cell reveal in the composed workspace', () => {
     body.scrollTop = 0;
     fireEvent.scroll(body);
     fireEvent.wheel(surface, { ctrlKey: true, deltaY: 600 });
+    act(() => vi.advanceTimersByTime(2000));
     expect(frame).toHaveAttribute('data-rendering-mode', 'overview');
     fireEvent.wheel(surface, { ctrlKey: true, deltaY: -600 });
+    act(() => vi.advanceTimersByTime(2000));
     expect(frame).toHaveAttribute('data-rendering-mode', 'detailed');
     expect(body.scrollTop).toBe(0);
     expect(body.scrollLeft).toBe(0);

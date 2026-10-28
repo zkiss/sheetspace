@@ -361,6 +361,7 @@ export function SheetGrid({
   }
   useEffect(() => {
     if (!focusIntent || editingCell) return;
+    if (document.activeElement?.closest('form, [role="dialog"]')) return;
     const address = parseCellAddress(focusIntent.targetKey, sheet);
     if (!address) return;
     const rowIndex = axisIndexForDurableIndex(rows, address.rowIndex);
@@ -371,6 +372,7 @@ export function SheetGrid({
   }, [columns, editingCell, focusIntent, focusIntentIsInWindow, rowVirtualizer, columnVirtualizer, rows, sheet]);
   useEffect(() => {
     if (!focusIntent || editingCell || !focusIntentIsInWindow) return;
+    if (document.activeElement?.closest('form, [role="dialog"]')) return;
     // A newer application request supersedes this effect before it can move DOM
     // focus or acknowledge the old request. Grid-entry intents are local and do
     // not have an application request ID to compare.
