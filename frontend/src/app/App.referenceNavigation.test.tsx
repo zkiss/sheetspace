@@ -28,6 +28,35 @@ afterEach(() => {
 });
 
 describe('formula reference navigation', () => {
+  it('shows a hovered editor reference and emphasizes it under either modifier', async () => {
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', position: { x: 20, y: 20 }, cells: { A1: '=@inputs!B[2]' } });
+    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    act(() => {
+      setSurfaceSize(800, 600);
+      virtualGridGeometry(within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body'), { height: 126, width: 238 });
+      virtualGridGeometry(within(screen.getByRole('article', { name: 'Sheet Outputs' })).getByTestId('sheet-frame-body'), { height: 126, width: 238 });
+    });
+    const cell = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+    fireEvent.click(cell);
+    fireEvent.keyDown(cell, { key: 'F2' });
+    const editor = screen.getByRole('textbox', { name: 'Outputs A1 editor' });
+    const token = document.querySelector<HTMLElement>('[data-reference-index="0"]')!;
+    vi.spyOn(token, 'getClientRects').mockReturnValue([{ left: 10, right: 100, top: 10, bottom: 30 } as DOMRect] as unknown as DOMRectList);
+
+    expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
+    fireEvent.mouseMove(editor, { clientX: 20, clientY: 20 });
+    await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
+    const line = document.querySelector('.contextual-reference-visible-line')!;
+    expect(line).not.toHaveClass('contextual-reference-line-editor');
+    fireEvent.mouseMove(editor, { clientX: 20, clientY: 20, ctrlKey: true });
+    await waitFor(() => expect(line).toHaveClass('contextual-reference-line-editor'));
+    fireEvent.mouseMove(editor, { clientX: 20, clientY: 20, metaKey: true });
+    expect(line).toHaveClass('contextual-reference-line-editor');
+    fireEvent.mouseLeave(editor);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument());
+  });
+
   it('replaces contextual links for the current selection and clears them for a non-formula cell', async () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
     const outputs = sheetDocument({
