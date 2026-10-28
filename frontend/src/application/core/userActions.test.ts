@@ -21,6 +21,26 @@ const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: 
 const persistenceWrite = (sheetId: string, cell: { rowId: string; columnId: string }, beforeRaw: string | null, afterRaw: string | null) => ({ sheetId, ...cell, beforeRaw, afterRaw });
 
 describe('workbook operations', () => {
+  it('rejects invalid replay targets atomically before changing workbook cells', () => {
+    const cell = cellIdentityAt(alpha.content, 'A1')!;
+    const valid = persistenceWrite('alpha', cell, null, 'new');
+    expect(replayCellPersistenceWrites(workbook, [persistenceWrite('missing', cell, null, 'new')], 'before'))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(replayCellPersistenceWrites(workbook, [persistenceWrite('alpha', { ...cell, rowId: 'missing' }, null, 'new')], 'before'))
+      .toEqual({ ok: false, reason: 'invalid-cell' });
+    expect(replayCellPersistenceWrites(workbook, [valid, valid], 'before'))
+      .toEqual({ ok: false, reason: 'duplicate-cell' });
+    expect(cellRawContent(workbook.documents.alpha, 'A1')).toBeUndefined();
+  });
+
+  it('rejects frame and rename operations for missing sheets and leaves identical names unchanged', () => {
+    expect(applyWorkbookOperation(workbook, { kind: 'rename-sheet', operationId: 'rename', sheetId: 'missing', name: 'New' }))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(applyWorkbookOperation(workbook, { kind: 'move-sheet-frame', operationId: 'move', sheetId: 'missing', position: { x: 1, y: 2 } }))
+      .toEqual({ ok: false, reason: 'unknown-sheet' });
+    expect(applyWorkbookOperation(workbook, { kind: 'rename-sheet', operationId: 'rename', sheetId: 'alpha', name: ' Alpha ' }))
+      .toMatchObject({ ok: true, value: { changed: false } });
+  });
   it.each([
     {
       label: 'cell content',

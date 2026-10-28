@@ -35,6 +35,36 @@ const workbook = {
 const resolver = workbookFormulaReferenceResolver(workbook, budget.id);
 
 describe('formula editor logic', () => {
+  it('handles completion within qualified references and escaped strings', () => {
+    expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [] })).toEqual([]);
+    expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [], propertyNames: ['Revenue'] }))
+      .toContainEqual(expect.objectContaining({ label: 'Revenue', kind: 'property' }));
+    const raw = '="a""b"+SU';
+    expect(formulaCompletions(raw, { start: raw.length, end: raw.length }, { sheetNames: [] }))
+      .toContainEqual(expect.objectContaining({ label: 'SUM' }));
+  });
+
+  it('formats grouped expressions without treating parentheses as function calls', () => {
+    expect(formatFormula('=(1+2)*3', { start: 0, end: 0 }).raw).toBe('=(1 + 2) * 3');
+  });
+
+  it('outdents tabs and leaves unindented lines intact when the selection ends at a newline', () => {
+    const raw = '\tfirst\nsecond\nthird';
+    expect(outdentFormulaSelection(raw, { start: 0, end: 14 }).raw).toBe('first\nsecond\nthird');
+  });
+
+  it('reports unresolved range endpoints and incompatible hover results', () => {
+    const cell = parseFormulaSyntax('=@A[1]').references[0]!;
+    const range = parseFormulaSyntax('=@A[1]:B[1]').references[0]!;
+    const missingEnd = parseFormulaSyntax('=@A[1]:Z[999]').references[0]!;
+    const missingNamedEnd = parseFormulaSyntax('=@Revenue[1]:Missing[1]').references[0]!;
+    expect(stableReferenceIdentity(missingEnd, resolver)).toBeUndefined();
+    expect(stableReferenceIdentity(missingNamedEnd, resolver)).toBeUndefined();
+    expect(formulaReferenceHover(cell, resolver, () => undefined)).toMatchObject({ kind: 'broken', identity: { kind: 'cell' } });
+    expect(formulaReferenceHover(cell, resolver, () => [])).toMatchObject({ kind: 'broken', identity: { kind: 'cell' } });
+    expect(formulaReferenceHover(range, resolver, () => ({ kind: 'number', value: 2 })))
+      .toMatchObject({ kind: 'range', values: [{ kind: 'number', value: 2 }], truncated: false });
+  });
   it('uses the shared parser and resolver for recovery diagnostics and stable identities', () => {
     const result = analyzeFormulaEditor("=SUM(@'Missing'[1],) + @'Revenue'[1]", resolver);
 

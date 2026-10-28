@@ -66,6 +66,43 @@ function mockFetch(body: unknown, init?: ResponseInit) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('workbook API read decoding', () => {
+  it.each([
+    ['non-JSON', 'not json'],
+    ['JSON without an error code', '{}'],
+    ['JSON with a non-string error code', '{"error":42}'],
+  ])('reports an HTTP failure with a fallback message for %s', async (_label, body) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { status: 500 })));
+    await expect(workbookApi.loadWorkbook()).rejects.toMatchObject({
+      status: 500, message: 'Workbook request failed with status 500.',
+    });
+  });
+
+  it('rejects unsupported sheet content and missing manifest documents', () => {
+    expect(() => decodeSheetDocument({ ...inputsResponse, content: { ...inputsResponse.content, kind: 'other' } } as unknown as SheetDocumentResponse))
+      .toThrowError(expect.objectContaining({ code: 'invalid-workbook-read-contract' }));
+    expect(() => decodeWorkbookBundle({ ...contractFixture, documents: [inputsResponse] }))
+      .toThrowError(expect.objectContaining({ code: 'invalid-workbook-read-contract' }));
+  });
+
+  it.each([
+    { id: '', name: 'Model', columns: [] },
+    { id: 'model', name: '', columns: [] },
+    { id: 'model', name: 'Model', columns: [{ id: '', name: 'Column', kind: 'manual', type: 'string' }] },
+    { id: 'model', name: 'Model', columns: [{ id: 'column', name: '', kind: 'manual', type: 'string' }] },
+    { id: 'model', name: 'Model', columns: [{ id: 'column', name: 'Column', kind: 'manual', type: 'unknown' }] },
+    { id: 'model', name: 'Model', columns: [{ id: 'column', name: 'Column', kind: 'calculated', type: 'string', formula: '  ' }] },
+    { id: 'model', name: 'Model', columns: [
+      { id: 'one', name: 'Column', kind: 'manual', type: 'string' },
+      { id: 'two', name: ' Column ', kind: 'manual', type: 'string' },
+    ] },
+    { id: 'model', name: 'Model', columns: [
+      { id: 'one', name: 'First', kind: 'manual', type: 'string' },
+      { id: 'one', name: 'Second', kind: 'manual', type: 'string' },
+    ] },
+  ])('rejects invalid model declarations on workbook reads', (model) => {
+    expect(() => decodeWorkbookBundle({ ...contractFixture, dataModels: [model] } as WorkbookBundleResponse))
+      .toThrowError(expect.objectContaining({ code: 'invalid-workbook-read-contract' }));
+  });
   it('loads manifest and stable sheet documents in manifest order', async () => {
     const fetchMock = mockFetch(contractFixture);
     const workbook = await workbookApi.loadWorkbook();
