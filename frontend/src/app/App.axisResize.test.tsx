@@ -4,6 +4,7 @@ import { App } from './App';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { virtualGridGeometry } from '@test-support/domGeometry';
+import { navigateFirstReference } from '@test-support/referenceNavigation';
 
 afterEach(cleanup);
 function pointer(element: Element, type: string, x = 0, y = 0) {
@@ -77,7 +78,7 @@ describe('axis resize application integration', () => {
     const body = within(frame).getByTestId('sheet-frame-body');
     act(() => { virtualGridGeometry(body, { height: 160, width: 240 }); });
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-    fireEvent.click(screen.getByRole('button', { name: '@Inputs!K[100]:L[101], reference' }), { ctrlKey: true });
+    navigateFirstReference(screen.getByRole('cell', { name: 'Outputs A1 cell' }), 'Outputs A1 editor');
     expect(body.scrollLeft).toBe(160 + 9 * 76);
     expect(body.scrollTop).toBeCloseTo(80 + 98 * 26.4);
     fireEvent.scroll(body);
