@@ -20,6 +20,9 @@ describe('workbook calculation boundary', () => {
         id: 'sheet-1',
         rows: Array.from({ length: 20 }, (_, index) => `sheet-1:row:${index + 1}`),
         columns: Array.from({ length: 10 }, (_, index) => `sheet-1:column:${index + 1}`),
+        columnTypes: {},
+        modelColumnBindings: undefined,
+        modelPropertyIds: undefined,
         cells: {
           [cellIdentityKey({ rowId: 'sheet-1:row:1', columnId: 'sheet-1:column:1' })]: '=1',
         },
