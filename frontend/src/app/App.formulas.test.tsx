@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -6,23 +6,17 @@ import { openCellEditor } from '@test-support/appScreen';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('App formula composition', () => {
-  it('shows calculated values and selected-formula inspection through the application', async () => {
+  it('shows calculated values and resolved references in the shared editor', async () => {
     const user = userEvent.setup();
     const inputs = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 120, y: 80 }), cells: { A1: '3', A2: '4' } };
     const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 420, y: 80 }), cells: { A1: '=SUM(@sheet-inputs!A[1]:A[2], @sheet-missing!B[2])' } };
     render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
     const formulaCell = screen.getByRole('cell', { name: 'Outputs A1 cell' });
     expect(formulaCell).toHaveTextContent('#REF!');
-    await user.click(formulaCell);
-    const numberFormats = screen.getByLabelText('Number formatting');
-    const inspection = screen.getByRole('region', { name: 'Selected formula' });
-    const surface = document.querySelector('.workspace-surface');
-
-    expect(numberFormats.compareDocumentPosition(inspection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(surface).toContainElement(inspection);
-    expect(inspection).toHaveTextContent('=SUM(@Inputs!A[1]:A[2], @#REF!B[2])');
-    expect(within(inspection).getByLabelText('@Inputs!A[1]:A[2], reference')).toHaveAttribute('data-navigable', 'true');
-    expect(within(inspection).getByLabelText('@#REF!B[2], broken reference')).toHaveAttribute('data-navigable', 'false');
+    const editor = await openCellEditor(user, formulaCell);
+    expect(editor).toHaveValue('=SUM(@Inputs!A[1]:A[2], @#REF!B[2])');
+    const references = document.querySelectorAll('[data-reference-index]');
+    expect([...references].map((reference) => reference.textContent)).toEqual(['@Inputs!A[1]:A[2]', '@#REF!B[2]']);
   });
 
   it('recomputes a visible formula after a committed cell edit', async () => {
