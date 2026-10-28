@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -11,7 +11,7 @@ function gesture(target: Element, type: string, scale: number) {
 }
 
 describe('native pinch over portal cell editors', () => {
-  it('consumes the complete lifecycle, zooms cumulatively, and preserves the editor draft, focus and caret', () => {
+  it('consumes the complete lifecycle, zooms cumulatively, and preserves the editor draft, focus and caret', async () => {
     render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     fireEvent.doubleClick(cell);
@@ -53,7 +53,7 @@ describe('native pinch over portal cell editors', () => {
       expect(editor).toHaveValue('Uncommitted draft');
       expect([editor.selectionStart, editor.selectionEnd]).toEqual([2, 6]);
     }
-    expect(surface).toHaveAttribute('data-viewport-scale', '2');
+    await waitFor(() => expect(surface).toHaveAttribute('data-viewport-scale', '2'));
     expect(surface).toHaveAttribute('data-viewport-x', '-40');
     expect(surface).toHaveAttribute('data-viewport-y', '-60');
     expect(cell).toHaveTextContent('');
@@ -62,13 +62,13 @@ describe('native pinch over portal cell editors', () => {
     expect(gesture(editor, 'gesturestart', 1).defaultPrevented).toBe(true);
     expect(gesture(editor, 'gesturechange', 1.25).defaultPrevented).toBe(true);
     expect(gesture(editor, 'gestureend', 1.25).defaultPrevented).toBe(true);
-    expect(surface).toHaveAttribute('data-viewport-scale', '2.5');
+    await waitFor(() => expect(surface).toHaveAttribute('data-viewport-scale', '2.5'));
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(cell).toHaveTextContent('Uncommitted draft');
   });
 
-  it('excludes unrelated portals even during an owned editor gesture', () => {
+  it('excludes unrelated portals even during an owned editor gesture', async () => {
     render(<>
       <App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />
       {/* Native events use only DOM ancestry: these external editor targets
@@ -91,10 +91,10 @@ describe('native pinch over portal cell editors', () => {
     expect(editor).toHaveFocus();
     expect(gesture(editor, 'gesturechange', 1.5).defaultPrevented).toBe(true);
     expect(gesture(editor, 'gestureend', 1.5).defaultPrevented).toBe(true);
-    expect(surface).toHaveAttribute('data-viewport-scale', '1.5');
+    await waitFor(() => expect(surface).toHaveAttribute('data-viewport-scale', '1.5'));
   });
 
-  it('does not treat reference metadata for a culled sheet as ownership of an external editor', () => {
+  it('does not treat reference metadata for a culled sheet as ownership of an external editor', async () => {
     render(<>
       <App initialWorkbook={workbookWithSheets([
         smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@remote!A[1]' } }),
@@ -109,7 +109,7 @@ describe('native pinch over portal cell editors', () => {
     const foreign = screen.getByRole('textbox', { name: 'Foreign editor' });
     const surface = screen.getByTestId('workspace-surface');
     expect(screen.queryByRole('article', { name: 'Sheet Remote' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '@Remote!A[1], reference' })).toHaveAttribute('data-sheet-id', 'remote');
+    expect(document.querySelector('[data-reference-index="0"]')).toHaveTextContent('@Remote!A[1]');
     expect(gesture(editor, 'gesturestart', 1).defaultPrevented).toBe(true);
     for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 3], ['gestureend', 3]] as const) {
       expect(gesture(foreign, type, scale).defaultPrevented).toBe(false);
@@ -120,7 +120,7 @@ describe('native pinch over portal cell editors', () => {
     expect(surface).toHaveAttribute('data-viewport-scale', '1');
     expect(gesture(editor, 'gesturechange', 1.5).defaultPrevented).toBe(true);
     expect(gesture(editor, 'gestureend', 1.5).defaultPrevented).toBe(true);
-    expect(surface).toHaveAttribute('data-viewport-scale', '1.5');
+    await waitFor(() => expect(surface).toHaveAttribute('data-viewport-scale', '1.5'));
     expect(editor).toHaveFocus();
   });
 });
