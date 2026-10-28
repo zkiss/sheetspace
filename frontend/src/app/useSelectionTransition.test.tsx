@@ -7,7 +7,34 @@ const cell = (sheetId: string, rowId = 'row') => ({ sheetId, cell: { rowId, colu
 
 describe('selection transition', () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it('ends an active transition when reduced motion is enabled and resumes transitions when disabled', () => {
+    let onChange = () => {};
+    const preference = {
+      matches: false,
+      addEventListener: vi.fn((_event: string, listener: () => void) => { onChange = listener; }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('matchMedia', vi.fn(() => preference));
+    const { result, rerender, unmount } = renderHook(({ active }) => useSelectionTransition(active), {
+      initialProps: { active: cell('source') },
+    });
+    rerender({ active: cell('middle') });
+    expect(result.current?.from.sheetId).toBe('source');
+    preference.matches = true;
+    act(() => onChange());
+    expect(result.current).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    rerender({ active: cell('destination') });
+    expect(result.current).toBeNull();
+    preference.matches = false;
+    act(() => onChange());
+    rerender({ active: cell('next') });
+    expect(result.current?.from.sheetId).toBe('destination');
+    unmount();
+    expect(preference.removeEventListener).toHaveBeenCalled();
+  });
 
   it('only transitions between sheets and retains the source until expiry', () => {
     const source = cell('source');

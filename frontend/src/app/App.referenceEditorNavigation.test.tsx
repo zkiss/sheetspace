@@ -7,6 +7,23 @@ import { App } from './App';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('does not retain the offscreen source for a reduced-motion selection transition', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+  const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4000, y: 3000 } });
+  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
+  render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+  act(() => { measuredElementGeometry(workspaceSurface(), { width: 800, height: 600 }); });
+  const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.click(source);
+  fireEvent.keyDown(source, { key: 'F2' });
+  const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+  editor.setSelectionRange(5, 5);
+  fireEvent.keyDown(editor, { key: 'F4' });
+  expect(screen.getByRole('cell', { name: 'Inputs B2 empty cell' })).toHaveFocus();
+  expect(screen.queryByRole('article', { name: 'Sheet Outputs' })).not.toBeInTheDocument();
+});
+
 it('interrupts an F4 reference jump with Back and restores the source draft', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
