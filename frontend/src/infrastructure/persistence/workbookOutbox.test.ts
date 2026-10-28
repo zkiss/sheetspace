@@ -6,6 +6,42 @@ import type { Workbook } from '@workbook/core/model';
 const rename = (sheetId: string, name: string) => ({ kind: 'rename-sheet', sheetId, name } as const);
 
 describe('WorkbookOutbox', () => {
+  it('waits for every pending model transition and identifies failed prerequisites', async () => {
+    const outbox = new WorkbookOutbox();
+    const workbook = { manifest: { version: 1, revision: 0, sheetIds: [] }, documents: {} } as Workbook;
+    expect(outbox.waitForModelTransitions()).toBeUndefined();
+    expect(outbox.modelTransitionIsBlockedByFailedPrerequisite('missing')).toBe(false);
+    outbox.enqueue('save', rename('a', 'Name'));
+    outbox.enqueue('model', { kind: 'model-lifecycle', before: workbook, after: workbook });
+    const finished = vi.fn();
+    const waiting = outbox.waitForModelTransitions()!.then(finished);
+    await outbox.executeNext({ execute: async () => { throw new Error('offline'); } });
+    expect(outbox.modelTransitionIsBlockedByFailedPrerequisite('save')).toBe(false);
+    expect(outbox.modelTransitionIsBlockedByFailedPrerequisite('model')).toBe(true);
+    expect(finished).not.toHaveBeenCalled();
+    outbox.retry('save');
+    outbox.retry('model');
+    const transport = { execute: async () => ({ kind: 'saved', revisions: [] } as const) };
+    await outbox.executeNext(transport);
+    await outbox.executeNext(transport);
+    await waiting;
+    expect(finished).toHaveBeenCalledOnce();
+    expect(outbox.hasModelTransition()).toBe(false);
+  });
+
+  it('preserves model boundaries while superseding obsolete sheet operations', () => {
+    const outbox = new WorkbookOutbox();
+    const workbook = { manifest: { version: 1, revision: 0, sheetIds: ['a'] }, documents: {} } as Workbook;
+    outbox.enqueue('before', rename('a', 'Before'));
+    outbox.enqueue('model', { kind: 'model-lifecycle', before: workbook, after: workbook });
+    outbox.enqueue('keep', rename('a', 'Keep'));
+    outbox.enqueue('obsolete', rename('a', 'Obsolete'));
+    outbox.enqueue('z', { kind: 'update-sheet-z-order', updates: [{ sheetId: 'a', zIndex: 1 }] });
+    outbox.supersedeSheetOperations('a', 'keep');
+    expect(outbox.snapshot().map(({ status }) => status)).toEqual(['queued', 'queued', 'queued', 'superseded', 'queued']);
+    outbox.supersedeMissingSheetOperations('a', 'keep');
+    expect(outbox.snapshot().map(({ status }) => status)).toEqual(['superseded', 'queued', 'queued', 'superseded', 'superseded']);
+  });
   it('orders dependent work while allowing independent sheets to progress', async () => {
     const first = deferred<void>(); const calls: string[] = [];
     const transport = { execute: vi.fn(async (entry) => { calls.push(entry.intent.kind === 'rename-sheet' ? entry.intent.name : ''); if (entry.intent.kind === 'rename-sheet' && entry.intent.name === 'first') await first.promise; return { kind: 'saved', revisions: [] } as const; }) };
