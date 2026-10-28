@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
@@ -56,7 +57,7 @@ describe('compact workspace interactions', () => {
   it('zooms from the portal editor and commits its draft before a middle-button canvas pan', () => {
     render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole('textbox');
     fireEvent.change(editor, { target: { value: 'Draft' } });
     fireEvent.wheel(editor, { ctrlKey: true, deltaY: -100 });
@@ -76,7 +77,7 @@ describe('compact workspace interactions', () => {
     const surface = screen.getByTestId('workspace-surface');
     act(() => { measuredElementGeometry(surface, { width: 800, height: 600 }); });
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole('textbox');
     fireEvent.change(editor, { target: { value: 'new' } });
     fireEvent.keyDown(editor, { key: 'Enter' });

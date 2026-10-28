@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
@@ -114,7 +115,7 @@ describe('context-menu ownership in the composed workspace', () => {
   it('keeps the shared formula editor context menu native without changing selection', () => {
     const { surface } = setup();
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole('textbox');
     const panel = editor.closest('section')!;
     for (const target of [panel, editor, panel.querySelector('[data-reference-index]')!]) {
@@ -129,7 +130,7 @@ describe('context-menu ownership in the composed workspace', () => {
   it('keeps the actual body-portaled editor native, commits once and undoes once', () => {
     const { surface } = setup();
     const cell = screen.getByRole('cell', { name: 'Inputs B1 cell' });
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole<HTMLTextAreaElement>('textbox');
     expect(surface).not.toContainElement(editor);
     fireEvent.change(editor, { target: { value: 'draft text' } });

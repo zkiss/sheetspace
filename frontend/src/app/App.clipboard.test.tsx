@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
@@ -90,7 +91,7 @@ describe('App grid clipboard integration', () => {
     const apiClient = autosaveClient();
     render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
     const cell = within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByRole('cell', { name: 'Inputs A1 cell' });
-    fireEvent.doubleClick(cell);
+    activateCellEditor(cell);
     const editor = screen.getByRole('textbox');
     const copied = clipboardData();
 

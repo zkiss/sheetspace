@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -371,8 +372,8 @@ describe('formula reference navigation', () => {
       newOwner = within(screen.getByRole('form', { name: 'Create sheet' })).getByRole('textbox');
       expect(newOwner).toHaveFocus();
     } else if (owner === 'editor') {
-      fireEvent.doubleClick(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
-      newOwner = screen.getByRole('textbox', { name: 'Outputs A1 editor' });
+      activateCellEditor(within(inputsFrame).getByRole('cell', { name: 'Inputs CU9999 empty cell' }));
+      newOwner = screen.getByRole('textbox', { name: 'Inputs CU9999 editor' });
     } else {
       newOwner = screen.getByRole('button', { name: 'New sheet' });
       newOwner.focus();

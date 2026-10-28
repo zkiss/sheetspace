@@ -14,7 +14,8 @@ export async function createSheetFromToolbar(name: string) {
 }
 
 export async function openCellEditor(user: ReturnType<typeof userEvent.setup>, cell: HTMLElement) {
-  await user.dblClick(cell);
+  await user.click(cell);
+  fireEvent.keyDown(cell, { key: 'F2' });
   return screen.getByRole('textbox');
 }
 
@@ -32,4 +33,10 @@ export function resizeHandle(frame: HTMLElement, handle: string) {
   }
 
   return match;
+}
+
+export function activateCellEditor(cell: HTMLElement) {
+  const label = cell.getAttribute('aria-label')!;
+  fireEvent.click(cell);
+  fireEvent.keyDown(screen.getByRole('cell', { name: label }), { key: 'F2' });
 }

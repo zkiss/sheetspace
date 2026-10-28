@@ -1,3 +1,4 @@
+import { activateCellEditor } from '@test-support/appScreen';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
@@ -146,7 +147,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Unbind model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm unbind' }));
     await waitFor(() => expect(screen.queryByLabelText('Bound to Receipt')).not.toBeInTheDocument());
-    fireEvent.doubleClick(cellInFrame(reloadedFirst, 'A1'));
+    activateCellEditor(cellInFrame(reloadedFirst, 'A1'));
     const editor = screen.getByRole('textbox');
     fireEvent.change(editor, { target: { value: '9' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
@@ -246,7 +247,7 @@ describe('App model binding workflow', () => {
     expect(cellAt('B1')).toHaveAttribute('aria-readonly', 'true');
     expect(cellAt('B1')).toHaveAccessibleName('Inputs B1 calculated, read-only; edit it in Data models cell');
     expect(cellAt('A1')).not.toHaveAttribute('aria-readonly');
-    fireEvent.doubleClick(cellAt('B1'));
+    activateCellEditor(cellAt('B1'));
     expect(cellAt('B1')).toHaveAttribute('aria-readonly', 'true');
 
     openSheetContextMenu(frame());

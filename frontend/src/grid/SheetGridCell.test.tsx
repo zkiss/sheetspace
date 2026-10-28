@@ -83,8 +83,8 @@ describe('SheetGridCell', () => {
     const target = cellTargetAt(props.sheet, 'A1');
     expect(props.cellInteraction.select).toHaveBeenCalledWith(target);
 
-    fireEvent.doubleClick(cell);
-    expect(props.cellInteraction.startEditing).toHaveBeenCalledWith(target);
+    fireEvent.keyDown(cell, { key: 'F2' });
+    expect(props.cellInteraction.startEditing).toHaveBeenCalledWith(target, undefined);
 
     fireEvent.keyDown(cell, { key: 'ArrowRight' });
     expect(props.cellInteraction.navigate).toHaveBeenCalledWith(target, 'right');
@@ -127,10 +127,9 @@ describe('SheetGridCell', () => {
 
     expect(cell).toHaveAttribute('aria-readonly', 'true');
     expect(cell).toHaveClass('sheet-grid-cell-calculated');
-    fireEvent.doubleClick(cell);
     fireEvent.keyDown(cell, { key: 'Enter' });
-    expect(props.cellInteraction.startEditing).toHaveBeenCalledTimes(2);
-    expect(props.cellInteraction.startEditing).toHaveBeenCalledWith(target);
+    expect(props.cellInteraction.startEditing).toHaveBeenCalledTimes(1);
+    expect(props.cellInteraction.startEditing).toHaveBeenCalledWith(target, undefined);
 
     // The clear reaches the ownership authority, which rejects it and lets the
     // workspace report the protection instead of failing silently.
