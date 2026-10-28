@@ -342,12 +342,11 @@ export function useWorkspaceController({
       if (document.timeline.currentTime !== null) animation.startTime = document.timeline.currentTime;
       activeViewportMotion.current = { animation, motion };
       animation.onfinish = () => {
-        if (activeViewportMotion.current?.animation !== animation) return;
+        if (activeViewportMotion.current?.animation !== animation || pendingViewportRestore.current?.id !== id) return;
         activeViewportMotion.current = undefined;
         navigationMayBeMoving.current = false;
         setNavigationMotion(false);
         animation.cancel();
-        if (pendingViewportRestore.current?.id !== id) return;
         pendingViewportRestore.current = undefined;
         pending.onSettled();
       };
