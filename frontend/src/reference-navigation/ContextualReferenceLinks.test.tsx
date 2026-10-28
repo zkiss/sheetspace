@@ -48,7 +48,47 @@ describe('ContextualReferenceLinks', () => {
   it('marks offscreen endpoints at the surface edge', () => {
     render(<ContextualReferenceLinks onNavigate={vi.fn()} references={[{ contextual: { reference, color: '#12ab34' }, geometry: { kind: 'offscreen', target: { x: 500, y: 40 } } }]} source={source} surfaceSize={{ width: 200, height: 200 }} visible />);
     expect(document.querySelector('.contextual-reference-offscreen-marker')).toHaveAttribute('cx', '188');
+    expect(document.querySelector('.contextual-reference-offscreen-marker')).toHaveAttribute('fill', '#12ab34');
     expect(screen.getByRole('button', { name: 'Navigate to @Source!A[1]' })).toBeInTheDocument();
+  });
+
+  it('anchors a miniature target to its frame and marks editor emphasis', () => {
+    render(<ContextualReferenceLinks onNavigate={vi.fn()} references={[{ contextual: { reference, color: '#12ab34' }, geometry: { kind: 'overview', rect: target.rect } }]} source={source} visible pulseSourceSpan={reference.sourceSpan} editorActive />);
+
+    const line = document.querySelector('.contextual-reference-visible-line');
+    expect(line).toHaveClass('contextual-reference-line-editor');
+    expect(line).toHaveAttribute('x1', '40');
+    expect(line).toHaveAttribute('x2', '120');
+    expect(document.querySelector('.contextual-reference-pulse')).toHaveClass('contextual-reference-pulse-editor');
+    expect(document.querySelector('.contextual-reference-overview-target')).toHaveAttribute('width', '40');
+  });
+
+  it('clears proximity emphasis when editing starts and ignores further pointer movement', () => {
+    const props = { onNavigate: vi.fn(), references: [{ contextual: { reference, color: '#12ab34' }, geometry: target }], source, visible: true };
+    const { rerender } = render(<ContextualReferenceLinks {...props} />);
+    const svg = document.querySelector('svg')!;
+    const line = svg.querySelector('.contextual-reference-visible-line')!;
+    const pulse = svg.querySelector('.contextual-reference-pulse')!;
+    Object.defineProperty(svg, 'getScreenCTM', { value: () => ({}) });
+    for (const [name, value] of Object.entries({ x1: 40, y1: 40, x2: 120, y2: 140 })) {
+      Object.defineProperty(line, name, { value: { baseVal: { value } } });
+    }
+    vi.stubGlobal('DOMPoint', class {
+      constructor(public x: number, public y: number) {}
+      matrixTransform() { return this; }
+    });
+    try {
+      fireEvent(window, new MouseEvent('pointermove', { clientX: 40, clientY: 40 }));
+      expect(line).toHaveStyle({ strokeWidth: '6px', strokeOpacity: '1' });
+      expect(pulse).toHaveClass('contextual-reference-pulse-active');
+
+      rerender(<ContextualReferenceLinks {...props} editorActive />);
+      fireEvent(window, new MouseEvent('pointermove', { clientX: 40, clientY: 40 }));
+      expect(line).not.toHaveStyle({ strokeWidth: '6px' });
+      expect(pulse).not.toHaveClass('contextual-reference-pulse-active');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('labels a broken reference but prevents navigation and misleading geometry', () => {
