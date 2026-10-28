@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
+import { openSheetContextMenu } from '@test-support/appScreen';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('App grid composition', () => {
@@ -125,7 +126,7 @@ describe('App grid composition', () => {
     expect(resumedEditor.scrollTop).toBe(14);
   });
 
-  it('transfers a direct draft to the rich panel without leaving the grid editor active', async () => {
+  it('expands the shared editor without losing its direct draft', async () => {
     const user = userEvent.setup();
     const inputs = sheetDocument({
       id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 }, columnCount: 2, rowCount: 2,
@@ -138,12 +139,11 @@ describe('App grid composition', () => {
     await user.keyboard('=1');
     expect(await screen.findByRole('textbox', { name: 'Inputs A1 editor' })).toHaveValue('=1');
 
-    await user.click(screen.getByRole('button', { name: 'Edit formula' }));
-
-    const panel = await screen.findByRole('textbox', { name: 'Cell formula' });
+    await user.keyboard('{F2}');
+    const panel = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
     expect(panel).toHaveFocus();
     expect(panel).toHaveValue('=1');
-    expect(screen.queryByRole('textbox', { name: 'Inputs A1 editor' })).not.toBeInTheDocument();
+    expect(panel.closest('[data-editor-mode]')).toHaveAttribute('data-editor-mode', 'heavy');
 
     await user.keyboard('{Enter}{Tab}');
     expect(panel).toHaveValue('=1\n  ');
@@ -159,8 +159,8 @@ describe('App grid composition', () => {
     const inputCell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
 
     await user.click(inputCell('A1'));
-    await user.click(screen.getByRole('button', { name: 'Edit formula' }));
-    expect(await screen.findByRole('textbox', { name: 'Cell formula' })).toHaveFocus();
+    await user.keyboard('{F2}{F2}');
+    expect(await screen.findByRole('textbox', { name: 'Inputs A1 editor' })).toHaveFocus();
 
     await user.click(inputCell('B1'));
     await user.keyboard('direct draft');
@@ -168,7 +168,7 @@ describe('App grid composition', () => {
     const editor = await screen.findByRole('textbox', { name: 'Inputs B1 editor' });
     expect(editor).toHaveFocus();
     expect(editor).toHaveValue('direct draft');
-    expect(screen.queryByRole('textbox', { name: 'Cell formula' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Inputs A1 editor' })).not.toBeInTheDocument();
   });
 
   it('suspends a direct draft when opening its bound model editor', async () => {
@@ -191,6 +191,7 @@ describe('App grid composition', () => {
     editor.setSelectionRange(2, 10);
     Object.defineProperty(editor, 'scrollTop', { configurable: true, value: 14 });
 
+    openSheetContextMenu(inputsFrame);
     await user.click(screen.getByRole('button', { name: 'Edit model' }));
 
     expect(apiClient.writeCells).not.toHaveBeenCalled();
