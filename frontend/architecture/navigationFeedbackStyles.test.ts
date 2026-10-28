@@ -31,3 +31,20 @@ it('fades sheet selections without a navigation pulse and suppresses fades for r
     expect(reducedRules.find((rule) => rule.selectorText === '.sheet-grid-selection-fade-out')!.style.display).toBe('none');
   } finally { style.remove(); }
 });
+
+it('keeps reference direction and editor emphasis decorative and suppresses the pulse for reduced motion', () => {
+  const style = document.createElement('style');
+  style.textContent = fs.readFileSync('src/reference-navigation/ContextualReferenceLinks.css', 'utf8');
+  document.head.append(style);
+  try {
+    const rules = Array.from(style.sheet!.cssRules);
+    const keyframes = rules.find((rule) => rule.cssText.startsWith('@keyframes reference-pulse'))!;
+    expect(keyframes.cssText).toContain('stroke-dashoffset: -100');
+    const editor = rules.find((rule) => rule.type === 1 && (rule as CSSStyleRule).selectorText.endsWith('.contextual-reference-line-editor')) as CSSStyleRule;
+    expect(editor.style.getPropertyValue('stroke-width')).toBe('6px');
+    expect(editor.style.getPropertyValue('stroke-opacity')).toBe('1');
+    const reduced = rules.find((rule) => rule.type === 4 && (rule as CSSMediaRule).conditionText === '(prefers-reduced-motion: reduce)') as CSSMediaRule;
+    const pulse = Array.from(reduced.cssRules).find((rule) => (rule as CSSStyleRule).selectorText.endsWith('.contextual-reference-pulse')) as CSSStyleRule;
+    expect(pulse.style.display).toBe('none');
+  } finally { style.remove(); }
+});
