@@ -132,11 +132,16 @@ describe('formula reference navigation', () => {
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
+    act(() => { virtualGridGeometry(within(screen.getByRole('article', { name: 'Sheet Outputs' })).getByTestId('sheet-frame-body'), { height: 126, width: 238 }); });
     fireEvent.keyDown(screen.getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'F2' });
     fireEvent.click(screen.getByRole('button', { name: 'Show references' }));
 
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Navigate to @Inputs!B[2]' })).not.toBeInTheDocument();
+    const link = await screen.findByRole('button', { name: 'Navigate to @Inputs!B[2]' });
+    const marker = document.querySelector('.contextual-reference-offscreen-marker');
+    expect(marker).toBeInTheDocument();
+    expect(marker).toHaveAttribute('fill', document.querySelector('.contextual-reference-visible-line')?.getAttribute('stroke'));
+    expect(link).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveFocus();
   });
 
@@ -154,6 +159,7 @@ describe('formula reference navigation', () => {
     const departure = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     modifierClickReference();
+
 
     // The actual SheetGrid starts unavailable to the virtual window. Giving
     // it geometry drives its own virtualizer and focus lifecycle for J30.
@@ -509,6 +515,7 @@ describe('formula reference navigation', () => {
     modifierClickReference();
 
     expect(formula).toHaveAttribute('data-active-cell', 'true');
+    expect(screen.getByText('Cannot navigate: @#REF!A[1] has a broken target.')).toHaveAttribute('role', 'status');
     expect(screen.getByRole('textbox', { name: 'Outputs A1 editor' })).toHaveFocus();
     expect(screen.getByRole('article', { name: 'Sheet sheet-deleted' })).not.toHaveAttribute('data-active-sheet');
   });

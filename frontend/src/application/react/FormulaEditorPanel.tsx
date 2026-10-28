@@ -41,6 +41,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const [completionChosen, setCompletionChosen] = useState(false);
   const [hoveredReference, setHoveredReference] = useState<{ index: number; element: HTMLElement }>();
   const [referenceModifier, setReferenceModifier] = useState(false);
+  const [referenceFeedback, setReferenceFeedback] = useState('');
   const completionsId = useId();
   const completionsList = useRef<HTMLUListElement>(null);
   const openingView = useRef(initialView);
@@ -92,6 +93,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   };
   function updateRaw(value: string) {
     if (readOnly) return;
+    setReferenceFeedback('');
     const currentSelection = selection();
     const typedNameCharacter = /[A-Za-z0-9_@!'.]/.test(value[currentSelection.start - 1] ?? '');
     const editingPrefix = value.length === raw.length + 1 || (completionRequest && value.length < raw.length);
@@ -108,7 +110,8 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       event.preventDefault(); event.stopPropagation();
       const caret = event.currentTarget.selectionStart;
       const reference = inspectionReferences?.find((item) => caret >= item.displaySpan.start && caret <= item.displaySpan.end);
-      if (reference?.navigable) { onReferenceHover?.(null); reportView(); onReferenceNavigate(reference); }
+      if (reference?.navigable) { setReferenceFeedback(''); onReferenceHover?.(null); reportView(); onReferenceNavigate(reference); }
+      else if (reference) setReferenceFeedback(`Cannot navigate: ${reference.text} has a broken target.`);
       return;
     }
     if (event.key === 'F2' && onToggleMode) {
@@ -215,7 +218,14 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
         if ((!event.ctrlKey && !event.metaKey) || !onReferenceNavigate) return;
         const token = tokenAt(event);
         const reference = token && inspectionAt(Number(token.dataset.referenceIndex));
-        if (reference?.navigable) { event.preventDefault(); onReferenceHover?.(null); reportView(); onReferenceNavigate(reference); }
+        if (reference) {
+          event.preventDefault();
+          if (reference.navigable) { setReferenceFeedback(''); onReferenceHover?.(null); reportView(); onReferenceNavigate(reference); }
+          else setReferenceFeedback(`Cannot navigate: ${reference.text} has a broken target.`);
+        } else if (token?.textContent?.includes('#REF!')) {
+          event.preventDefault();
+          setReferenceFeedback(`Cannot navigate: ${token.textContent} has a broken target.`);
+        }
       }}
       onSelect={() => {
         const current = selection();
@@ -223,6 +233,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
         reportView();
       }} onValueChange={updateRaw} ref={attachInput} spellCheck={false} value={raw} />
     </div>
+    {referenceFeedback ? <span role="status">{referenceFeedback}</span> : null}
     {!onReferenceNavigate && hoveredReference && analysis.references[hoveredReference.index] ? <FormulaEditorPopover anchor={() => hoveredReference.element.getBoundingClientRect()} className="formula-editor-hover-popover">
       <ReferenceHover modelOnly={modelOnly} reference={analysis.references[hoveredReference.index]} resolver={resolver} values={referenceValues} />
     </FormulaEditorPopover> : null}
