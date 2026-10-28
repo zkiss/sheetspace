@@ -9,8 +9,10 @@ afterEach(() => vi.useRealTimers());
 function setup() {
   const childAction = vi.fn();
   const clearSelection = vi.fn();
+  const renders = vi.fn();
   let controller: ReturnType<typeof useWorkspaceController>;
   function Harness() {
+    renders();
     controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: clearSelection });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface">
       <div className="workspace-grid" data-testid="grid" />
@@ -30,7 +32,7 @@ function setup() {
   surface.setPointerCapture = vi.fn((id) => { capture.add(id); });
   surface.hasPointerCapture = (id) => capture.has(id);
   surface.releasePointerCapture = vi.fn((id) => { capture.delete(id); });
-  return { ...view, surface, childAction, clearSelection, capture, state: () => controller! };
+  return { ...view, surface, childAction, clearSelection, capture, renders, state: () => controller! };
 }
 
 function pointer(target: Element | Window, type: string, props: MouseEventInit & { pointerId?: number } = {}) {
@@ -47,6 +49,24 @@ function wheel(target: Element, props: WheelEventInit = {}) {
 }
 
 describe('workspace wheel and gesture routing', () => {
+  it('bounds controller renders during a coalesced wheel preview', () => {
+    vi.useFakeTimers();
+    const { surface, renders, state } = setup();
+    renders.mockClear();
+    act(() => {
+      for (let i = 0; i < 20; i++) wheel(surface, { ctrlKey: true, deltaY: -2, clientX: 120, clientY: 80 });
+    });
+    expect(renders.mock.calls.length).toBeLessThanOrEqual(2);
+    renders.mockClear();
+    act(() => vi.advanceTimersByTime(16));
+    expect(renders).not.toHaveBeenCalled();
+    expect(state().viewport.scale).toBe(1);
+    expect(Number(surface.dataset.viewportScale)).toBeGreaterThan(1);
+    act(() => vi.advanceTimersByTime(150));
+    expect(renders.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(state().viewport.scale).toBeGreaterThan(1);
+  });
+
   it('coalesces wheel zoom previews and commits the exact anchored burst', () => {
     vi.useFakeTimers();
     const { surface, state } = setup();
