@@ -13,6 +13,8 @@ function setup() {
   function Harness() {
     controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: clearSelection });
     return <section ref={controller.workspaceSurfaceRef} data-testid="surface">
+      <div className="workspace-grid" data-testid="grid" />
+      <div ref={controller.workspacePlaneRef} data-testid="plane" />
       <div data-sheet-id="sheet" data-workspace-sheet-frame onContextMenu={(event) => controller.openSheetMenu('sheet', event)} onPointerDown={childAction} onWheel={(event) => event.stopPropagation()}>
         <div role="cell" tabIndex={0} onKeyDown={childAction} onClick={childAction}>Cell</div>
         <header>Header</header><div role="separator">Resize</div>
@@ -45,6 +47,30 @@ function wheel(target: Element, props: WheelEventInit = {}) {
 }
 
 describe('workspace wheel and gesture routing', () => {
+  it('coalesces wheel zoom previews and commits the exact anchored burst', () => {
+    vi.useFakeTimers();
+    const { surface, state } = setup();
+    const frame = vi.spyOn(window, 'requestAnimationFrame');
+    act(() => {
+      for (let i = 0; i < 4; i++) wheel(surface, { ctrlKey: true, deltaY: -2, clientX: 120, clientY: 80 });
+    });
+    expect(frame).toHaveBeenCalledTimes(1);
+    expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
+    act(() => vi.advanceTimersByTime(16));
+    expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
+    const x = Number(surface.dataset.viewportX);
+    const y = Number(surface.dataset.viewportY);
+    const scale = Math.exp(64 / 500);
+    expect(x).toBeCloseTo(120 * (1 - scale));
+    expect(y).toBeCloseTo(80 * (1 - scale));
+    expect(screen.getByTestId('grid').style.transform).toContain(`${x}px`);
+    act(() => vi.advanceTimersByTime(150));
+    expect(state().viewport.scale).toBeCloseTo(scale);
+    expect(state().viewport.x).toBeCloseTo(x);
+    expect(state().viewport.y).toBeCloseTo(y);
+    frame.mockRestore();
+  });
+
   it.each([[0, 32, 0], [1, 0, 3], [2, 0.04, 0.08]])('keeps ordinary mode %s scrolling inert on the background', (deltaMode, deltaX, deltaY) => {
     const { surface, state } = setup();
     expect(wheel(surface, { deltaMode, deltaX, deltaY }).defaultPrevented).toBe(true);
@@ -144,6 +170,30 @@ describe('workspace wheel and gesture routing', () => {
 });
 
 describe('workspace pointer ownership and lifecycle', () => {
+  it('coalesces drag previews, aligns the grid, and commits the final unpainted move', () => {
+    vi.useFakeTimers();
+    const { surface, state } = setup();
+    fireEvent.keyDown(screen.getByRole('cell'), { code: 'Space' });
+    pointer(screen.getByRole('cell'), 'pointerdown');
+    const frame = vi.spyOn(window, 'requestAnimationFrame');
+    act(() => {
+      pointer(surface, 'pointermove', { clientX: 10, clientY: 5 });
+      pointer(surface, 'pointermove', { clientX: 25, clientY: 15 });
+      pointer(surface, 'pointermove', { clientX: 35, clientY: 25 });
+    });
+    expect(frame).toHaveBeenCalledTimes(1);
+    expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
+    act(() => vi.advanceTimersByTime(16));
+    expect(state().viewport).toEqual({ x: 0, y: 0, scale: 1 });
+    expect(screen.getByTestId('plane').style.transform).toContain('35px');
+    expect(screen.getByTestId('grid').style.transform).toBe('translate(35px, 25px)');
+    pointer(surface, 'pointermove', { clientX: 49, clientY: 33 });
+    pointer(surface, 'pointerup');
+    expect(state().viewport).toEqual({ x: 49, y: 33, scale: 1 });
+    expect(screen.getByTestId('grid').style.transform).toBe('translate(9px, 33px)');
+    frame.mockRestore();
+  });
+
   it('ends a focused-cell Space pan on keyup before pointerup and releases capture', () => {
     const { surface, state, capture, clearSelection } = setup();
     const cell = screen.getByRole('cell');
