@@ -6,6 +6,7 @@ import {
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import type { ClipboardSourceSnapshot } from '@application/core/clipboardPayload';
+import { formulaRawToCanonical, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 
 type Sheet = ReturnType<typeof sheetDocument>;
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
@@ -36,7 +37,7 @@ describe('range move preparation', () => {
     expect(new Set(result.writes.map((item) => `${item.sheetId}:${item.rowId}:${item.columnId}`)).size).toBe(result.writes.length);
   });
 
-  it('moves nonoverlapping ranges across sheets, retaining blanks, raw formulas, and stable identity mappings', () => {
+  it('moves nonoverlapping ranges across sheets, retaining blanks and stable identity mappings', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 3, cells: { A1: '=@source:column:2[source:row:1]', B1: '' } });
     const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 3, columnCount: 3, cells: { B2: 'old', C2: 'replace' } });
     const sourceSnapshot = snapshot(source, 'A1', 1, 2);
@@ -44,7 +45,7 @@ describe('range move preparation', () => {
     expect(result).toEqual({
       ok: true,
       writes: [
-        write(destination.id, cellIdentityAt(destination.content, 'B2')!, '=@source:column:2[source:row:1]'),
+        write(destination.id, cellIdentityAt(destination.content, 'B2')!, '=@destination:column:3[destination:row:2]'),
         write(destination.id, cellIdentityAt(destination.content, 'C2')!, ''),
         write(source.id, cellIdentityAt(source.content, 'A1')!, ''),
         write(source.id, cellIdentityAt(source.content, 'B1')!, ''),
@@ -68,6 +69,32 @@ describe('range move preparation', () => {
         write(input.id, cellIdentityAt(input.content, 'B1')!, ''),
       ],
     });
+  });
+
+  it('rewrites dependents across the workbook while ignoring overwritten destination formulas', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 4, columnCount: 3, cells: { A1: '10', B1: '20' } });
+    const third = sheetDocument({ id: 'third', name: 'Third', rowCount: 4, columnCount: 3 });
+    const workbook = workbookWithSheets([source, third]);
+    const setFormula = (sheet: Sheet, address: string, raw: string) => {
+      sheet.content.cells[`${cellIdentityAt(sheet.content, address)!.rowId}\u0000${cellIdentityAt(sheet.content, address)!.columnId}`] = formulaRawToCanonical(raw, workbookFormulaReferenceResolver(workbook, sheet.id));
+    };
+    setFormula(source, 'C3', '=@A[1]+@B[1]');
+    setFormula(source, 'A4', '=SUM(@A[1]:C[1])');
+    setFormula(third, 'A1', '=@Source!A[1]');
+    const result = prepareMoveCellWrites(workbook, source.id, cellIdentityAt(source.content, 'A4')!, snapshot(source, 'A1', 1, 2));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.writes).toContainEqual(write(source.id, cellIdentityAt(source.content, 'C3')!, formulaRawToCanonical('=@A[4]+@B[4]', workbookFormulaReferenceResolver(workbook, source.id))));
+    expect(result.writes).toContainEqual(write(third.id, cellIdentityAt(third.content, 'A1')!, formulaRawToCanonical('=@Source!A[4]', workbookFormulaReferenceResolver(workbook, third.id))));
+  });
+
+  it('rejects a nonrectangular surviving dependent without mutating the workbook', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 4, columnCount: 4, cells: { A1: '1' } });
+    const workbook = workbookWithSheets([sheet]);
+    sheet.content.cells[`${sheet.content.rows[2]}\u0000${sheet.content.columns[2]}`] = formulaRawToCanonical('=SUM(@A[1]:C[1])', workbookFormulaReferenceResolver(workbook, sheet.id));
+    const before = structuredClone(workbook);
+    expect(prepareMoveCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'A4')!, snapshot(sheet, 'A1'))).toEqual({ ok: false, reason: 'unrepresentable-range' });
+    expect(workbook).toEqual(before);
   });
 
   it('reports a same-origin move as a successful no-op while retaining identity mappings', () => {

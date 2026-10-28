@@ -191,7 +191,61 @@ export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, des
   return { ok: true, raw: applyEdits(raw, edits) };
 }
 
-export function moveCanonicalFormula(raw: string): FormulaTransformResult { return { ok: true, raw }; }
+export type FormulaMoveTarget = { sheetId: SheetId; cell: FormulaCoordinate };
+export type FormulaMoveMapping = { source: FormulaMoveTarget; destination: FormulaMoveTarget };
+export type FormulaMoveResult = { ok: true; raw: string } | { ok: false; reason: 'unrepresentable-range' };
+
+export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceResolver, destinationSheetId?: SheetId, mappings: readonly FormulaMoveMapping[] = []): FormulaMoveResult {
+  if (!resolver) return { ok: true, raw };
+  const key = (target: FormulaMoveTarget) => JSON.stringify([target.sheetId, target.cell.columnId, target.cell.rowId]);
+  const mapped = new Map(mappings.map(({ source, destination }) => [key(source), destination]));
+  const edits: Edit[] = [];
+  for (const match of canonicalMatches(raw)) {
+    const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
+    if (!sheetId || !referenceMatchResolves(match, resolver)) continue;
+    const addresses = match.endpoints.map((endpoint) => resolver.addressOf(sheetId, endpoint.coordinate!)!);
+    const first = addresses[0]!, last = addresses[addresses.length - 1]!;
+    const targets: FormulaMoveTarget[] = [];
+    let changed = false;
+    for (let row = Math.min(first.rowIndex, last.rowIndex); row <= Math.max(first.rowIndex, last.rowIndex); row += 1) {
+      for (let column = Math.min(first.columnIndex, last.columnIndex); column <= Math.max(first.columnIndex, last.columnIndex); column += 1) {
+        const coordinate = resolver.coordinateAt(sheetId, { rowIndex: row, columnIndex: column });
+        if (!coordinate) continue;
+        const original = { sheetId, cell: coordinate };
+        const target = mapped.get(key(original));
+        changed ||= Boolean(target);
+        targets.push(target ?? original);
+      }
+    }
+    const finalSheet = targets[0]?.sheetId;
+    if (!finalSheet) continue;
+    if (changed && targets.some((target) => target.sheetId !== finalSheet)) return { ok: false, reason: 'unrepresentable-range' };
+    const targetAddresses = targets.map((target) => resolver.addressOf(target.sheetId, target.cell)!);
+    let minRow = Infinity, maxRow = -Infinity, minColumn = Infinity, maxColumn = -Infinity;
+    for (const address of targetAddresses) {
+      minRow = Math.min(minRow, address.rowIndex); maxRow = Math.max(maxRow, address.rowIndex);
+      minColumn = Math.min(minColumn, address.columnIndex); maxColumn = Math.max(maxColumn, address.columnIndex);
+    }
+    if (changed && (maxRow - minRow + 1) * (maxColumn - minColumn + 1) !== new Set(targets.map(key)).size) return { ok: false, reason: 'unrepresentable-range' };
+    if (changed) {
+      const ends = match.endpoints.length === 1 ? [targetAddresses[0]!] : [
+        { rowIndex: first.rowIndex <= last.rowIndex ? minRow : maxRow, columnIndex: first.columnIndex <= last.columnIndex ? minColumn : maxColumn },
+        { rowIndex: first.rowIndex <= last.rowIndex ? maxRow : minRow, columnIndex: first.columnIndex <= last.columnIndex ? maxColumn : minColumn },
+      ];
+      const coordinates = ends.map((address) => resolver.coordinateAt(finalSheet, address)!);
+      const named = coordinates.map((coordinate) => resolver.namedAddressAt?.(finalSheet, coordinate));
+      match.endpoints.forEach((endpoint, index) => {
+        const property = endpoint.propertyId && named[index] && (ends.length === 1 || named.every(Boolean)) ? named[index]!.propertyId : undefined;
+        edits.push({ ...endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(coordinates[index]!, endpoint.anchors, property) });
+      });
+    }
+    if (match.qualifier.kind === 'explicit' && finalSheet !== sheetId) edits.push({ ...match.qualifier.sourceSpan, value: finalSheet });
+    if (match.qualifier.kind === 'unqualified' && finalSheet !== (destinationSheetId ?? resolver.currentSheetId)) {
+      edits.push({ start: match.endpoints[0]!.sourceSpan.start, end: match.endpoints[0]!.sourceSpan.start, value: `${finalSheet}!` });
+    }
+  }
+  return { ok: true, raw: applyEdits(raw, edits) };
+}
 
 export function workbookFormulaReferenceResolver(workbook: Workbook, currentSheetId: SheetId): FormulaReferenceResolver {
   const sheet = (id: SheetId) => workbook.documents[id];

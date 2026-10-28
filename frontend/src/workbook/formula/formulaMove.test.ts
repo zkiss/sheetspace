@@ -1,0 +1,47 @@
+import { describe, expect, it } from 'vitest';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { formulaRawToCanonical, formulaRawToDisplay, moveCanonicalFormula, workbookFormulaReferenceResolver } from './reference';
+
+describe('formula move target mapping', () => {
+  const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 5, columnCount: 5 });
+  const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 5, columnCount: 5 });
+  const workbook = workbookWithSheets([source, other]);
+  const resolver = workbookFormulaReferenceResolver(workbook, source.id);
+  const mapping = (from: string, to: string, destination = source) => ({ source: { sheetId: source.id, cell: cellIdentityAt(source.content, from)! }, destination: { sheetId: destination.id, cell: cellIdentityAt(destination.content, to)! } });
+  const transform = (raw: string, mappings: ReturnType<typeof mapping>[], finalSheet = source.id) => moveCanonicalFormula(formulaRawToCanonical(raw, resolver), resolver, finalSheet, mappings);
+  const display = (result: ReturnType<typeof transform>, sheetId = source.id) => result.ok ? formulaRawToDisplay(result.raw, workbookFormulaReferenceResolver(workbook, sheetId)) : result;
+
+  it('maps targets once and retains anchors and unrelated text', () => {
+    expect(display(transform('=SUM(@$A[$1], @B[1], @C[1], "@A[1]")', [mapping('A1', 'B1'), mapping('B1', 'C1')])))
+      .toBe('=SUM(@$B[$1], @C[1], @C[1], "@A[1]")');
+  });
+
+  it('qualifies unmoved targets of a moved formula and maps targets across sheets', () => {
+    expect(display(transform('=@A[1]+@B[1]+@Source!C[1]', [mapping('A1', 'A2', other)], other.id), other.id))
+      .toBe('=@A[2]+@Source!B[1]+@Source!C[1]');
+    expect(display(transform('=@Source!A[1]', [mapping('A1', 'B2', other)])))
+      .toBe('=@Other!B[2]');
+  });
+
+  it('preserves exact rectangular range membership and reversed endpoints', () => {
+    expect(display(transform('=SUM(@B[2]:A[1])', [mapping('A1', 'A2'), mapping('B1', 'B2'), mapping('A2', 'A3'), mapping('B2', 'B3')])))
+      .toBe('=SUM(@B[3]:A[2])');
+    expect(display(transform('=SUM(@A[1]:B[1])', [mapping('A1', 'C1')])))
+      .toBe('=SUM(@B[1]:C[1])');
+    expect(display(transform('=SUM(@A[1]:B[1])', [mapping('A1', 'B1')])))
+      .toBe('=SUM(@B[1]:B[1])');
+  });
+
+  it('rejects holes, interior changes and split sheets', () => {
+    for (const [raw, mappings] of [
+      ['=SUM(@A[1]:C[1])', [mapping('B1', 'E1')]],
+      ['=SUM(@A[1]:B[1])', [mapping('A1', 'A1', other)]],
+    ] as const) expect(transform(raw, [...mappings])).toEqual({ ok: false, reason: 'unrepresentable-range' });
+  });
+
+  it('leaves broken references and malformed surrounding syntax intact', () => {
+    const raw = '=@#REF!A[1]+@source:column:missing[source:row:1]+(';
+    expect(moveCanonicalFormula(raw, resolver, other.id, [mapping('A1', 'B1')])).toEqual({ ok: true, raw });
+  });
+});
