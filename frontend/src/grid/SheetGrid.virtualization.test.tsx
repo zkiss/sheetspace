@@ -129,17 +129,17 @@ describe('SheetGrid virtualization', () => {
     expect(screen.getByTestId('sheet-grid')).toHaveStyle({ height: '707px', width: '650px' });
   });
 
-  it('allows an ordinary active cell to unmount and remount while preserving logical selection and grid entry', async () => {
+  it('keeps an offscreen selected cell mounted without undoing manual scrolling', async () => {
     const { body, geometry } = renderMeasuredSparseGrid({ activeCellKey: 'A1' });
     await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toBeInTheDocument());
 
     body.scrollTop = 20_000;
     body.scrollLeft = 2_000;
     fireEvent.scroll(body);
-    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).not.toBeInTheDocument());
-    const grid = screen.getByTestId('sheet-grid');
-    expect(grid).toHaveAttribute('tabindex', '0');
-    expect(screen.getAllByTestId('sheet-grid-cell').filter((cell) => cell.tabIndex === 0)).toHaveLength(0);
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sparse large sheet A1 empty cell' })).toHaveAttribute('data-active-cell', 'true'));
+    expect(body.scrollTop).toBe(20_000);
+    expect(body.scrollLeft).toBe(2_000);
+    expect(screen.getAllByTestId('sheet-grid-cell').filter((cell) => cell.tabIndex === 0)).toHaveLength(1);
 
     body.scrollTop = 0;
     body.scrollLeft = 0;
