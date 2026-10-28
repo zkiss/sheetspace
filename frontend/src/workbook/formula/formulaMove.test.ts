@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { formulaRawToCanonical, formulaRawToDisplay, moveCanonicalFormula, workbookFormulaReferenceResolver } from './reference';
@@ -38,6 +38,19 @@ describe('formula move target mapping', () => {
       ['=SUM(@A[1]:C[1])', [mapping('B1', 'E1')]],
       ['=SUM(@A[1]:B[1])', [mapping('A1', 'A1', other)]],
     ] as const) expect(transform(raw, [...mappings])).toEqual({ ok: false, reason: 'unrepresentable-range' });
+  });
+
+  it('does not enumerate a large unrelated range when moving a cell', () => {
+    const largeResolver = {
+      ...resolver,
+      addressOf: vi.fn((_sheet, cell) => ({ columnIndex: Number(cell.columnId.slice(1)), rowIndex: Number(cell.rowId.slice(1)) })),
+      coordinateAt: vi.fn((_sheet, address) => ({ columnId: `c${address.columnIndex}`, rowId: `r${address.rowIndex}` })),
+    } satisfies typeof resolver;
+    const raw = '=SUM(@c0[r0]:c9999[r9999])';
+    const move = [{ source: { sheetId: source.id, cell: { columnId: 'c10000', rowId: 'r10000' } }, destination: { sheetId: source.id, cell: { columnId: 'c10001', rowId: 'r10001' } } }];
+    expect(moveCanonicalFormula(raw, largeResolver, source.id, move)).toEqual({ ok: true, raw });
+    expect(largeResolver.coordinateAt).not.toHaveBeenCalled();
+    expect(largeResolver.addressOf.mock.calls.length).toBeLessThan(10);
   });
 
   it('leaves broken references and malformed surrounding syntax intact', () => {

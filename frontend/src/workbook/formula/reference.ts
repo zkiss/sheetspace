@@ -199,41 +199,59 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
   if (!resolver) return { ok: true, raw };
   const key = (target: FormulaMoveTarget) => JSON.stringify([target.sheetId, target.cell.columnId, target.cell.rowId]);
   const mapped = new Map(mappings.map(({ source, destination }) => [key(source), destination]));
+  const located = [...mapped].flatMap(([sourceKey, destination]) => {
+    const [sheetId, columnId, rowId] = JSON.parse(sourceKey) as [SheetId, ColumnId, RowId];
+    const source = resolver.addressOf(sheetId, { columnId, rowId });
+    const target = resolver.addressOf(destination.sheetId, destination.cell);
+    return source && target ? [{ sourceKey, sheetId, source, destination, target }] : [];
+  });
   const edits: Edit[] = [];
   for (const match of canonicalMatches(raw)) {
     const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
     if (!sheetId || !referenceMatchResolves(match, resolver)) continue;
     const addresses = match.endpoints.map((endpoint) => resolver.addressOf(sheetId, endpoint.coordinate!)!);
     const first = addresses[0]!, last = addresses[addresses.length - 1]!;
-    const targets: FormulaMoveTarget[] = [];
-    let changed = false;
-    for (let row = Math.min(first.rowIndex, last.rowIndex); row <= Math.max(first.rowIndex, last.rowIndex); row += 1) {
-      for (let column = Math.min(first.columnIndex, last.columnIndex); column <= Math.max(first.columnIndex, last.columnIndex); column += 1) {
-        const coordinate = resolver.coordinateAt(sheetId, { rowIndex: row, columnIndex: column });
-        if (!coordinate) continue;
-        const original = { sheetId, cell: coordinate };
-        const target = mapped.get(key(original));
-        changed ||= Boolean(target);
-        targets.push(target ?? original);
-      }
-    }
-    const finalSheet = targets[0]?.sheetId;
-    if (!finalSheet) continue;
-    if (changed && targets.some((target) => target.sheetId !== finalSheet)) return { ok: false, reason: 'unrepresentable-range' };
-    const targetAddresses = targets.map((target) => resolver.addressOf(target.sheetId, target.cell)!);
-    let minRow = Infinity, maxRow = -Infinity, minColumn = Infinity, maxColumn = -Infinity;
-    for (const address of targetAddresses) {
-      minRow = Math.min(minRow, address.rowIndex); maxRow = Math.max(maxRow, address.rowIndex);
-      minColumn = Math.min(minColumn, address.columnIndex); maxColumn = Math.max(maxColumn, address.columnIndex);
-    }
-    if (changed && (maxRow - minRow + 1) * (maxColumn - minColumn + 1) !== new Set(targets.map(key)).size) return { ok: false, reason: 'unrepresentable-range' };
+    const lowRow = Math.min(first.rowIndex, last.rowIndex), highRow = Math.max(first.rowIndex, last.rowIndex);
+    const lowColumn = Math.min(first.columnIndex, last.columnIndex), highColumn = Math.max(first.columnIndex, last.columnIndex);
+    const inside = (address: CellAddress) => address.rowIndex >= lowRow && address.rowIndex <= highRow && address.columnIndex >= lowColumn && address.columnIndex <= highColumn;
+    const affected = located.filter((entry) => entry.sheetId === sheetId && inside(entry.source));
+    const changed = affected.length > 0;
+    let finalSheet = sheetId;
+    let minRow = lowRow, maxRow = highRow, minColumn = lowColumn, maxColumn = highColumn;
     if (changed) {
-      const ends = match.endpoints.length === 1 ? [targetAddresses[0]!] : [
+      const area = (highRow - lowRow + 1) * (highColumn - lowColumn + 1);
+      const remaining = area - affected.length;
+      finalSheet = remaining ? sheetId : affected[0]!.destination.sheetId;
+      if (affected.some(({ destination }) => destination.sheetId !== finalSheet)) return { ok: false, reason: 'unrepresentable-range' };
+      const rows = new Map<number, number>(), columns = new Map<number, number>();
+      for (const { source } of affected) {
+        rows.set(source.rowIndex, (rows.get(source.rowIndex) ?? 0) + 1);
+        columns.set(source.columnIndex, (columns.get(source.columnIndex) ?? 0) + 1);
+      }
+      if (remaining) {
+        while (rows.get(minRow) === highColumn - lowColumn + 1) minRow += 1;
+        while (rows.get(maxRow) === highColumn - lowColumn + 1) maxRow -= 1;
+        while (columns.get(minColumn) === highRow - lowRow + 1) minColumn += 1;
+        while (columns.get(maxColumn) === highRow - lowRow + 1) maxColumn -= 1;
+      } else { minRow = Infinity; maxRow = -Infinity; minColumn = Infinity; maxColumn = -Infinity; }
+      const removed = new Set(affected.map(({ sourceKey }) => sourceKey));
+      const additions = new Set<string>();
+      for (const { destination, target } of affected) {
+        minRow = Math.min(minRow, target.rowIndex); maxRow = Math.max(maxRow, target.rowIndex);
+        minColumn = Math.min(minColumn, target.columnIndex); maxColumn = Math.max(maxColumn, target.columnIndex);
+        const targetKey = key(destination);
+        if (destination.sheetId !== sheetId || !inside(target) || removed.has(targetKey)) additions.add(targetKey);
+      }
+      if ((maxRow - minRow + 1) * (maxColumn - minColumn + 1) !== remaining + additions.size) return { ok: false, reason: 'unrepresentable-range' };
+    }
+    if (changed) {
+      const ends = match.endpoints.length === 1 ? [{ rowIndex: minRow, columnIndex: minColumn }] : [
         { rowIndex: first.rowIndex <= last.rowIndex ? minRow : maxRow, columnIndex: first.columnIndex <= last.columnIndex ? minColumn : maxColumn },
         { rowIndex: first.rowIndex <= last.rowIndex ? maxRow : minRow, columnIndex: first.columnIndex <= last.columnIndex ? maxColumn : minColumn },
       ];
-      const coordinates = ends.map((address) => resolver.coordinateAt(finalSheet, address)!);
-      const named = coordinates.map((coordinate) => resolver.namedAddressAt?.(finalSheet, coordinate));
+      const coordinates = ends.map((address) => resolver.coordinateAt(finalSheet, address));
+      if (coordinates.some((coordinate) => !coordinate)) continue;
+      const named = coordinates.map((coordinate) => resolver.namedAddressAt?.(finalSheet, coordinate!));
       match.endpoints.forEach((endpoint, index) => {
         const property = endpoint.propertyId && named[index] && (ends.length === 1 || named.every(Boolean)) ? named[index]!.propertyId : undefined;
         edits.push({ ...endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(coordinates[index]!, endpoint.anchors, property) });
