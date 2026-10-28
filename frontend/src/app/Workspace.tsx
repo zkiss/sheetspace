@@ -582,6 +582,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source' || moved.reason === 'calculated-cell-write') cancelPendingCut();
       if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       if (!moved.ok && moved.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
+      if (!moved.ok && moved.reason === 'unrepresentable-range') setCalculatedCellFeedback('The move did not happen because it would split a referenced range. Move the entire referenced range or choose another destination.');
     } else {
       const pasted = commands.pasteCells(destination.id, destinationKey, parsed);
       if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);

@@ -5,6 +5,8 @@ import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 import type { DataModel, Workbook } from '@workbook/core/model';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { formulaRawForStorage } from '@workbook/formula/reference';
 
 function clipboardData(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -16,6 +18,31 @@ function clipboardData(initial: Record<string, string> = {}) {
 }
 
 describe('App grid clipboard integration', () => {
+  it('explains an unrepresentable range move without changing cells or clearing the cut', () => {
+    const sheet = { ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }), columnCount: 3, rowCount: 4,
+      cells: { A1: '10', B1: '20' } };
+    const apiClient = autosaveClient();
+    const workbook = workbookWithSheets([sheet]);
+    const document = workbook.documents.inputs!;
+    document.content.cells[cellIdentityKey(cellIdentityAt(document.content, 'C1')!)] = formulaRawForStorage('=SUM(@A[1]:B[1])', workbook, document.id);
+    render(<App initialWorkbook={workbook} apiClient={apiClient} />);
+    const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
+    const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
+    const cut = clipboardData();
+
+    fireEvent.click(cell('A1'));
+    fireEvent.cut(cell('A1'), { clipboardData: cut });
+    fireEvent.click(cell('A4'));
+    fireEvent.paste(cell('A4'), { clipboardData: cut });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('move did not happen');
+    expect(screen.getByRole('alert')).toHaveTextContent('referenced range');
+    expect(cell('A1')).toHaveTextContent('10');
+    expect(cell('A4')).toBeEmptyDOMElement();
+    expect(cell('A1')).toHaveAttribute('data-pending-cut', 'true');
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+  });
+
   it('rejects calculated cut, paste, and move with feedback and cancels a rejected pending cut', () => {
     render(<App initialWorkbook={calculatedWorkbook()} apiClient={autosaveClient()} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
