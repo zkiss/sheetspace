@@ -71,7 +71,7 @@ describe('formula reference navigation', () => {
     await user.keyboard('{F2}');
     const editor = await screen.findByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
     fireEvent.change(editor, { target: { value: '=@inputs!A[1]' } });
-    expect(await screen.findByRole('button', { name: '@Inputs!A[1]' })).toBeVisible();
+    await waitFor(() => expect(document.querySelector('[data-reference-index="0"]')).toHaveTextContent('@inputs!A[1]'));
     editor.setSelectionRange(3, 8);
 
     inputsBody.scrollTop = 40;
@@ -222,7 +222,8 @@ describe('formula reference navigation', () => {
 
     fireEvent.click(screen.getByRole('cell', { name: 'Source A1 empty cell' }));
     fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Go to sheet: Empty' }));
+    fireEvent.click(screen.getByRole('button', { name: /Go to sheet…/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Empty' }));
     act(() => { vi.advanceTimersByTime(180); });
 
     expect([surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale]).not.toEqual(departure);
