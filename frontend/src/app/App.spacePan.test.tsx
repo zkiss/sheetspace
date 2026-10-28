@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
 
@@ -28,7 +28,9 @@ function pointer(target: Element, type: string, clientX = 0) {
 }
 
 describe('focused-cell Space pan lifecycle', () => {
+  afterEach(() => vi.useRealTimers());
   it('clears selection but retains the keyboard owner until keyup, then stops movement and releases capture', () => {
+    vi.useFakeTimers();
     const { surface, cell, capture } = setup();
     expect(pointer(cell, 'pointerdown').defaultPrevented).toBe(true);
     expect(cell).not.toHaveFocus();
@@ -36,6 +38,7 @@ describe('focused-cell Space pan lifecycle', () => {
     expect(capture.has(7)).toBe(true);
     expect(surface).toHaveClass('workspace-surface-panning');
     pointer(surface, 'pointermove', 10);
+    act(() => { vi.advanceTimersByTime(20); });
     expect(surface).toHaveAttribute('data-viewport-x', '10');
     fireEvent.keyUp(document.body, { key: ' ', code: 'Space' });
     expect(surface).not.toHaveClass('workspace-surface-panning');
