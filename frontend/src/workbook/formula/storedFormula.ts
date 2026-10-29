@@ -115,14 +115,14 @@ function validateLayout(formula: StoredFormula): void {
     let previous: FormulaOrigin | undefined;
     for (const origin of origins) {
       if (origin.start < guard.start || origin.end > guard.end || origin.start > origin.end
-        || origin.start < ownedEnd || (previous && compareOrigins(previous, origin) >= 0)) return invalid();
+        || origin.start < ownedEnd || (previous && compareFormulaOrigins(previous, origin) >= 0)) return invalid();
       ownedEnd = origin.end;
       previous = origin;
     }
   }
 }
 
-function compareOrigins(left: FormulaOrigin, right: FormulaOrigin): number {
+export function compareFormulaOrigins(left: FormulaOrigin, right: FormulaOrigin): number {
   return left.start - right.start || left.end - right.end || compareLabels(left.slotId, right.slotId);
 }
 

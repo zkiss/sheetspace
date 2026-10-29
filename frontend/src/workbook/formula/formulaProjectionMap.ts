@@ -1,4 +1,5 @@
 import type { FormulaOccurrence, FormulaOrigin, FormulaSpan, StoredFormula } from './storedFormula';
+import { compareFormulaOrigins } from './storedFormula';
 
 export type FormulaProjectionEdit = FormulaSpan & {
   text: string;
@@ -46,7 +47,7 @@ export function mapFormulaProjection(formula: StoredFormula, edits: FormulaProje
       origins.push({ start: start + edit.payload.start, end: start + edit.payload.end, slotId: edit.slotId });
       if (edit.payload.end < edit.text.length) origins.push({ start: start + edit.payload.end, end: start + edit.text.length, slotId: null });
     }
-    origins.sort((left, right) => left.start - right.start || left.end - right.end || (left.slotId ?? '').localeCompare(right.slotId ?? ''));
+    origins.sort(compareFormulaOrigins);
     return { ...occurrence, guard: { start: offset(occurrence.guard.start, 'after'), end: offset(occurrence.guard.end, 'after') }, origins };
   });
   const text = [...ordered].reverse().reduce((text, edit) => text.slice(0, edit.start) + edit.text + text.slice(edit.end), formula.text);

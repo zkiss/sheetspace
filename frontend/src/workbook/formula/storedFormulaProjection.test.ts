@@ -198,4 +198,17 @@ describe('stored editable projection', () => {
     expect(projection.text.slice(projection.formula.occurrences[1].guard.start)).toBe('+@Cost[2]');
     expect(analyzeStoredFormula(encodeStoredFormula(projection.formula), changed).dormantOccurrences.map(({ id }) => id)).toEqual(['f1']);
   });
+
+  it('preserves codec ordering for coincident dormant markers with arbitrary slot IDs', () => {
+    const formula = decodeStoredFormula(prepare('=@A[1]'));
+    const occurrence = formula.occurrences[0];
+    occurrence.slots.push(...['Z', 'a'].map((id) => ({ id, kind: 'row' as const, key: null, status: 'unresolved' as const, targetIds: [] })));
+    occurrence.origins.unshift(...['Z', 'a'].map((slotId) => ({ start: occurrence.guard.start, end: occurrence.guard.start, slotId })));
+    const content = encodeStoredFormula(formula);
+
+    const projection = projectStoredFormula(content, workbook);
+
+    expect(projection.formula).toEqual(formula);
+    expect(encodeStoredFormula(projection.formula)).toBe(content);
+  });
 });
