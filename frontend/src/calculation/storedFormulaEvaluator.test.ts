@@ -4,6 +4,7 @@ import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { evaluateStoredFormulaCells } from './formulaEvaluator';
 import { FormulaCalculation } from './formulaCalculation';
+import { buildFormulaDependencyGraph, storedFormulaParser } from './formulaDependencies';
 
 describe('stored formula evaluation', () => {
   it('evaluates retained identities after rename and reports unresolved targets', () => {
@@ -34,5 +35,30 @@ describe('stored formula evaluation', () => {
     const result = calculation.updateStored(calculationProjection(changed), changed, { kind: 'cells', cells: [{ sheetId: source.id, key: 'A1' }] });
 
     expect(result.output.A1).toMatchObject({ value: 10 });
+  });
+
+  it('does not rebind a deleted sheet to a replacement with the same name', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '4' } });
+    const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1 });
+    const formula = prepareUserFormula('=@Source!A[1]+2', workbookWithSheets([source, output]), output.id);
+    const target = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1, cells: { A1: formula } });
+    const replacement = sheetDocument({ id: 'replacement', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '8' } });
+    const changed = workbookWithSheets([replacement, target]);
+
+    const graph = buildFormulaDependencyGraph(calculationProjection(changed), storedFormulaParser(changed));
+    expect([...graph.dependencies.values()].map((dependencies) => [...dependencies])).toEqual([[]]);
+    const calculation = new FormulaCalculation();
+    expect(calculation.updateStored(calculationProjection(changed), changed, { kind: 'structure' }).output.A1).toMatchObject({ display: '#REF!' });
+    expect(calculation.updateStored(calculationProjection(changed), changed, { kind: 'cells', cells: [{ sheetId: replacement.id, key: 'A1' }] }).output.A1).toMatchObject({ display: '#REF!' });
+  });
+
+  it('reports mixed invalid syntax without altering the stored content', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '4' } });
+    const formula = prepareUserFormula('=@Sheet!A[1]+@Missing!A[1]+', workbookWithSheets([sheet]), sheet.id);
+    const target = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '4', B1: formula } });
+    const workbook = workbookWithSheets([target]);
+
+    expect(evaluateStoredFormulaCells(calculationProjection(workbook), workbook).sheet.B1).toMatchObject({ display: '#PARSE!' });
+    expect(Object.values(target.content.cells)).toContain(formula);
   });
 });
