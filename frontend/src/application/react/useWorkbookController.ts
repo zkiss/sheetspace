@@ -15,7 +15,7 @@ import { classifyCellValue, type FormulaEvaluationSnapshot } from '@calculation/
 import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
-  applyWorkbookOperation,
+  applyWorkbookOperation, applyStoredCellWrites,
   preparePasteCellWrites,
   prepareMoveCellWrites,
   replayCellPersistenceWrites,
@@ -72,7 +72,7 @@ export type WorkbookCommands = {
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
   setSheetVisualScale: (sheetId: string, visualScale: number) => WorkbookOperationResult;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
-  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
+  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
 
 export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
@@ -278,11 +278,11 @@ export function useWorkbookController({
     return result.value;
   }
 
-  function applyAction(action: WorkbookOperationInput, recordContentHistory = true): WorkbookOperationResult {
+  function applyAction(action: WorkbookOperationInput, recordContentHistory = true, stored = false): WorkbookOperationResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
-    const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
+    const result = stored && operation.kind === 'write-cells' ? applyStoredCellWrites(optimisticWorkbook.current, operation.writes) : applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
     if (result.ok) setMutationFailure(undefined);
     if (applied?.changed) {
@@ -445,6 +445,7 @@ export function useWorkbookController({
     return { ok: true, changed: result.value.changed };
   }
 
+
   function replayContentHistory(direction: 'undo' | 'redo') {
     if (savedAutosave.hasModelTransition()) return;
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
@@ -466,10 +467,12 @@ export function useWorkbookController({
     setHistoryRevision((revision) => revision + 1);
   }
 
+
   function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
     const localSheetId = sheetId;
     return applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
   }
+
 
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize): WorkbookOperationResult {
     const localSheetId = sheetId;
@@ -478,9 +481,11 @@ export function useWorkbookController({
     });
   }
 
+
   function setSheetVisualScale(sheetId: string, visualScale: number): WorkbookOperationResult {
     return applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
   }
+
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection): WorkbookOperationResult {
     return applyAction({
@@ -515,6 +520,7 @@ export function useWorkbookController({
       redo: () => replayContentHistory('redo'),
       updateCellContent,
       writeCells,
+      writeStoredCells: (writes) => storedWriteResult(applyAction({ kind: 'write-cells', writes }, true, true)),
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
     canUndo: !savedAutosave.hasModelTransition() && contentHistory.canUndo,
@@ -532,3 +538,5 @@ export function useWorkbookController({
     workbook,
   };
 }
+
+function storedWriteResult(result: WorkbookOperationResult): CellWriteResult { return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason }; }

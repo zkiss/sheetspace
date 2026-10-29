@@ -15,7 +15,7 @@ export function formattingCommands(): WorkbookCommands {
     changeSheetZOrder: vi.fn(), createSheet: vi.fn(), deleteSheet: vi.fn(), moveSheetFrame: vi.fn(),
     pasteCells: vi.fn(), moveCells: vi.fn(), renameSheet: vi.fn(), retryFailedSaves: vi.fn(),
     undo: vi.fn(), redo: vi.fn(), resizeSheetFrame: vi.fn(), setSheetVisualScale: vi.fn(),
-    updateCellContent: vi.fn(), writeCells: vi.fn(),
+    updateCellContent: vi.fn(), writeCells: vi.fn(), writeStoredCells: vi.fn(),
   };
 }
 

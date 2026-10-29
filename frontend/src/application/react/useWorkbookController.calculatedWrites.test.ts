@@ -36,6 +36,16 @@ function clipboardFor(workbook: Workbook, sheetId: string, key: string, kind: 'c
 }
 
 describe('useWorkbookController calculated writes', () => {
+  it('rejects a trusted mixed batch atomically', () => {
+    const workbook = boundWorkbook();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+    act(() => expect(result.current.commands.writeStoredCells([
+      { sheetId: 'sheet', rowId: 'sheet:row:1', columnId: 'sheet:column:1', raw: '9' },
+      { sheetId: 'sheet', rowId: 'sheet:row:1', columnId: 'sheet:column:2', raw: '7' },
+    ])).toEqual({ ok: false, reason: 'calculated-cell-write' }));
+    expect(result.current.workbook).toBe(workbook);
+    expect(result.current.canUndo).toBe(false);
+  });
   it('rejects a direct edit of a calculated cell without persistence or history', async () => {
     const apiClient = autosaveClient();
     const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: boundWorkbook() }));
