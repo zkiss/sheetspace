@@ -148,7 +148,7 @@ export function preparePasteCellWrites(
       if (targetIdentities.has(targetIdentity)) return { ok: false, reason: 'invalid-paste-footprint' };
       targetIdentities.add(targetIdentity);
       let raw = grid.rows[rowOffset]![columnOffset]!;
-      if (!source && decodeCellTextLiteral(raw) !== undefined) raw = encodeCellTextLiteral(raw);
+      if (!source && (raw.startsWith('=') || decodeCellTextLiteral(raw) !== undefined)) raw = encodeCellTextLiteral(raw);
       if (source) {
         const sourceCell = source.cells[rowOffset]![columnOffset]!;
         const sourceIdentity = `${source.sheetId}\u0000${sourceCell.identity.rowId}\u0000${sourceCell.identity.columnId}`;

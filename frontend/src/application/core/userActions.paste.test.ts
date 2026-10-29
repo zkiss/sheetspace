@@ -5,10 +5,21 @@ import {
   type CellWrite,
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
 
 describe('paste preparation', () => {
+  it('preserves formula-like and envelope-like external fields as exact literal text', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const envelope = encodeCellTextLiteral('hidden');
+    const result = preparePasteCellWrites(workbookWithSheets([sheet]), sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
+      ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 2, rows: [['=1+2', envelope]] } },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('paste failed');
+    expect(result.writes.map((item) => decodeCellTextLiteral(item.raw))).toEqual(['=1+2', envelope]);
+  });
   it('materializes blanks and translates an internal canonical formula at its matching source coordinate', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', cells: { A1: '=@B[1]', B1: '4' } });
     const destination = sheetDocument({ id: 'destination', name: 'Destination', cells: { B2: 'old' } });
@@ -41,6 +52,24 @@ describe('paste preparation', () => {
         write(destination.id, cellIdentityAt(destination.content, 'C2')!, ''),
       ],
     });
+  });
+
+  it('copies a mixed internal range with formula offsets and literal identity intact', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 3, columnCount: 3 });
+    const literal = encodeCellTextLiteral('=1+2');
+    const result = preparePasteCellWrites(workbookWithSheets([sheet]), sheet.id, cellIdentityAt(sheet.content, 'B2')!, {
+      ok: true, value: {
+        kind: 'internal', grid: { rowCount: 1, columnCount: 2, rows: [['=@B[1]', '=1+2']] },
+        source: { sheetId: sheet.id, dimensions: { rowCount: 1, columnCount: 2 }, cells: [[
+          { identity: cellIdentityAt(sheet.content, 'A1')!, raw: '=@sheet:column:2[sheet:row:1]' },
+          { identity: cellIdentityAt(sheet.content, 'B1')!, raw: literal },
+        ]] },
+      },
+    });
+    expect(result).toEqual({ ok: true, writes: [
+      write(sheet.id, cellIdentityAt(sheet.content, 'B2')!, '=@sheet:column:3[sheet:row:2]'),
+      write(sheet.id, cellIdentityAt(sheet.content, 'C2')!, literal),
+    ] });
   });
 
   it('rejects an out-of-bounds footprint before generating a partial write', () => {

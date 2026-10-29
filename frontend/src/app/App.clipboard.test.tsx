@@ -18,6 +18,17 @@ function clipboardData(initial: Record<string, string> = {}) {
 }
 
 describe('App grid clipboard integration', () => {
+  it('reports malformed tabular paste without changing existing cells', () => {
+    const sheet = { ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }), cells: { A1: 'original' } };
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    const cell = screen.getByRole('article', { name: 'Sheet Inputs' }).querySelector<HTMLElement>('[data-cell-key="A1"]')!;
+    fireEvent.click(cell);
+    fireEvent.paste(cell, { clipboardData: clipboardData({ 'text/plain': '"unterminated' }) });
+    expect(screen.getByRole('alert')).toHaveTextContent('malformed tabular text');
+    expect(cell).toHaveTextContent('original');
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+  });
   it('explains an unrepresentable range move without changing cells or clearing the cut', () => {
     const sheet = { ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }), columnCount: 3, rowCount: 4,
       cells: { A1: '10', B1: '20' } };
