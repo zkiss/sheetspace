@@ -110,6 +110,14 @@ export function preparePasteCellWrites(
   destination: StableCellIdentity,
   clipboard: ClipboardParseResult,
 ): PastePreparationResult {
+  return preparePasteWrites(workbook, destinationSheetId, destination, clipboard, false);
+}
+
+export function prepareStoredPasteCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, clipboard: ClipboardParseResult): PastePreparationResult {
+  return preparePasteWrites(workbook, destinationSheetId, destination, clipboard, true);
+}
+
+function preparePasteWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, clipboard: ClipboardParseResult, stored: boolean): PastePreparationResult {
   if (!clipboard.ok) return clipboard;
   const destinationSheet = findSheetById(workbook, destinationSheetId);
   if (!destinationSheet || !cellAddressOf(destinationSheet.content, destination)) {
@@ -157,7 +165,11 @@ export function preparePasteCellWrites(
         sourceIdentities.add(sourceIdentity);
         const sourceAddress = cellAddressOf(sourceSheet!.content, sourceCell.identity);
         if (!sourceAddress) return { ok: false, reason: 'invalid-internal-source' };
-        if (sourceCell.raw.startsWith('=')) {
+        if (stored && sourceCell.raw.startsWith('=')) {
+          if (source.sheetId !== destinationSheetId || sourceCell.identity.rowId !== rowId || sourceCell.identity.columnId !== columnId) {
+            return { ok: false, reason: 'formula-transform-failed' }; }
+          raw = sourceCell.raw;
+        } else if (sourceCell.raw.startsWith('=')) {
           const transformed = copyCanonicalFormula(
             sourceCell.raw,
             sourceCell.identity,

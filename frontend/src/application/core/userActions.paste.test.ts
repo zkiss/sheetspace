@@ -2,15 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import {
   preparePasteCellWrites,
+  prepareStoredPasteCellWrites,
   type CellWrite,
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { classifyCellValue } from '@calculation/formulaValue';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
 
 describe('paste preparation', () => {
+  it('preserves a stored snapshot at its original identity and rejects unsafe translation', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const workbook = workbookWithSheets([sheet]);
+    const identity = cellIdentityAt(sheet.content, 'A1')!;
+    const raw = prepareUserFormula('=@A[1]+@Missing!A[0]', workbook, sheet.id);
+    const clipboard = { ok: true as const, value: {
+      kind: 'internal' as const, grid: { rowCount: 1, columnCount: 1, rows: [['display']] },
+      source: { sheetId: sheet.id, dimensions: { rowCount: 1, columnCount: 1 }, cells: [[{ identity, raw }]] },
+    } };
+    expect(prepareStoredPasteCellWrites(workbook, sheet.id, identity, clipboard)).toEqual({ ok: true, writes: [write(sheet.id, identity, raw)] });
+    expect(prepareStoredPasteCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'B1')!, clipboard)).toEqual({ ok: false, reason: 'formula-transform-failed' });
+  });
   it('classifies scalar-looking direct and tabular fields as numbers and booleans', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const workbook = workbookWithSheets([sheet]);
