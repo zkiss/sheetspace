@@ -6,6 +6,7 @@ import { cellIdentityKey } from '../core/cellIdentity';
 import { calculationProjection } from '../read/calculationProjection';
 import { cellRawContent } from '../read/queries';
 import { bindModelFormula, bindModelFormulas, instantiateModelFormula, instantiateModelFormulas } from './modelTemplate';
+import { instantiatePreparedModelFormulas, prepareModelFormulas } from './preparedModelTemplate';
 import { formulaRawForDisplay, formulaRawForStorage } from './reference';
 
 const model: DataModel = { id: 'model', name: 'Model', columns: [
@@ -29,6 +30,22 @@ function expand(workbook: Workbook): Workbook {
 }
 
 describe('model formula row templates', () => {
+  it('retains prepared instance bytes by row identity and derives newly inserted rows', () => {
+    const workbook = instances();
+    const bindings = prepareModelFormulas(workbook, 'one');
+    const initial = instantiatePreparedModelFormulas(workbook, 'one', bindings, workbook.documents.one, {});
+    const [first, second] = initial.content.rows;
+    const columnId = initial.modelColumnBindings!.result;
+    const key = (rowId: string) => cellIdentityKey({ rowId, columnId });
+    const changed = { ...initial, content: { ...initial.content, rows: [second, 'inserted', first] } };
+    const next = { ...workbook, documents: { ...workbook.documents, one: changed } };
+    const expanded = instantiatePreparedModelFormulas(next, 'one', bindings, initial, bindings);
+
+    expect(expanded.content.cells[key(first)]).toBe(initial.content.cells[key(first)]);
+    expect(expanded.content.cells[key(second)]).toBe(initial.content.cells[key(second)]);
+    expect(expanded.content.cells[key('inserted')]).toBeDefined();
+    expect(expanded.content.cells[key('inserted')]).not.toBe(initial.content.cells[key(first)]);
+  });
   it('binds same-row unquoted and escaped quoted property references', () => {
     const workbook = instances();
     const unquoted = bindModelFormula('=@Result', workbook, 'one');

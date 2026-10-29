@@ -78,17 +78,22 @@ export function instantiateModelFormula(template: BoundModelFormula, workbook: W
 
 /** Call only after every affected sheet has its final reconciled structure. */
 export function instantiateModelFormulas(workbook: Workbook, sheetId: string, bindings = workbook.documents[sheetId].modelFormulaBindings ?? bindModelFormulas(workbook, sheetId), previous = workbook.documents[sheetId]): SheetDocument {
+  return instantiateModelFormulaBindings(workbook, sheetId, bindings, previous, previous.modelFormulaBindings ?? {}, instantiateModelFormula);
+}
+
+/** Materialize calculated columns while retaining authoritative instances by output row identity. */
+export function instantiateModelFormulaBindings<T>(workbook: Workbook, sheetId: string, bindings: Readonly<Record<string, T>>, previous: SheetDocument, previousBindings: Readonly<Record<string, T>>, instantiate: (template: T, workbook: Workbook, rowIndex: number) => string): SheetDocument {
   const sheet = workbook.documents[sheetId];
   const cells = { ...sheet.content.cells };
   for (const [propertyId, template] of Object.entries(bindings)) {
     const columnId = sheet.modelColumnBindings?.[propertyId];
     if (!columnId || !sheet.content.columns.includes(columnId)) continue;
     const continuing = previous.modelId === sheet.modelId && previous.modelColumnBindings?.[propertyId] === columnId
-      && JSON.stringify(previous.modelFormulaBindings?.[propertyId]) === JSON.stringify(template);
+      && JSON.stringify(previousBindings[propertyId]) === JSON.stringify(template);
     sheet.content.rows.forEach((rowId, rowIndex) => {
       const key = cellIdentityKey({ rowId, columnId });
       const retained = continuing && previous.content.rows.includes(rowId) ? previous.content.cells[key] : undefined;
-      cells[key] = retained ?? instantiateModelFormula(template, workbook, rowIndex);
+      cells[key] = retained ?? instantiate(template, workbook, rowIndex);
     });
   }
   return { ...sheet, content: { ...sheet.content, cells } };
