@@ -55,6 +55,7 @@ export const frontendPolicy: ArchitecturePolicy = {
   exactTestData: [
     { file: '../test-fixtures/workbook-read-contract.json', importers: ['src/infrastructure/persistence/workbookApi.test.ts'] },
     { file: '../test-fixtures/stored-formula-contract.json', importers: ['src/workbook/formula/storedFormula.test.ts'] },
+    { file: '../test-fixtures/stored-model-instances.json', importers: ['src/workbook/formula/modelFormulaInstance.test.ts'] },
   ],
   forbiddenFiles: ['src/workbook.ts', 'src/workbook.tsx', 'src/appTypes.ts', 'src/index.ts', 'src/index.tsx'],
   styles: [
