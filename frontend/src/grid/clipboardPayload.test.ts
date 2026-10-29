@@ -4,6 +4,8 @@ import { cellTargetAt } from '@grid/cellInteraction';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { encodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { cellIdentityKey } from '@workbook/core/cellIdentity';
 
 describe('TSV clipboard codec', () => {
   it('round trips blank cells, rows, trailing fields, ragged rows, and scalar values as a rectangular footprint', () => {
@@ -36,6 +38,18 @@ describe('TSV clipboard codec', () => {
 });
 
 describe('clipboard payload provenance', () => {
+  it('retains stored formula metadata in an internal snapshot', () => {
+    const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
+    const workbook = workbookWithSheets([sheet]);
+    const raw = prepareUserFormula('=@A[1]+@Missing!A[0]', workbook, sheet.id);
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! });
+    const withFormula = workbookWithSheets([{ ...sheet, content: { ...sheet.content, cells: { [key]: raw } } }]);
+    const target = cellTargetAt(sheet, 'A1')!;
+    const store = new ClipboardPayloadStore();
+    const copied = store.copy(withFormula, { mode: 'cells', anchor: target, extent: target });
+    if (!copied.ok) throw new Error('copy failed');
+    expect(store.parse(withFormula, copied.value)).toMatchObject({ ok: true, value: { kind: 'internal', source: { cells: [[{ raw }]] } } });
+  });
   it('exports readable frozen text while retaining its non-executable storage for internal copy', () => {
     const raw = encodeCellTextLiteral('=not a formula');
     const sheet = sheetDocument({ id: 'literal', name: 'Literal', cells: { A1: raw } });
