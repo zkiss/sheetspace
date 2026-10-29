@@ -10,6 +10,7 @@ export type FormulaErrorCode =
   | '#N/A';
 
 export type FormulaSourceSpan = { start: number; end: number };
+export type FormulaNamedColumnPredicate = (qualifier: string | undefined, name: string, payloadSpan: FormulaSourceSpan) => boolean;
 
 export type FormulaReference =
   | {

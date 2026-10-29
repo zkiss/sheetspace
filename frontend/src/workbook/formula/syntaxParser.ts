@@ -11,6 +11,7 @@ import type {
   FormulaSyntaxResult,
   FormulaSyntaxToken,
   FormulaDiagnostic,
+  FormulaNamedColumnPredicate,
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
 import { decodeStableId } from './stableId';
@@ -32,7 +33,7 @@ export class FormulaParser {
 
   constructor(
     private readonly input: string,
-    private readonly isNamedColumn?: (qualifier: string | undefined, name: string) => boolean,
+    private readonly isNamedColumn?: FormulaNamedColumnPredicate,
     private readonly userReferences = false,
   ) {}
 
@@ -382,7 +383,7 @@ export class FormulaParser {
     this.index = propertyStart;
     const columnAnchor = this.consume('$');
     const propertyName = this.readIdentifier();
-    if (propertyName && this.peek() === '[' && this.isNamedColumn?.(qualifier, propertyName)) {
+    if (propertyName && this.peek() === '[' && this.isNamedColumn?.(qualifier, propertyName, { start: start + Number(columnAnchor) + 1, end: this.index + 1 })) {
       const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
       if (!row) return undefined;
       this.index += row[0].length;
