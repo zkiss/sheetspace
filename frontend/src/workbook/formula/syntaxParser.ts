@@ -14,7 +14,8 @@ import type {
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
 import { decodeStableId } from './stableId';
-import { makeFormulaReference } from './syntaxReference';
+import { completeUserReferenceStart, makeFormulaReference, qualifierPayloadSpan, referencePayloadSpans } from './syntaxReference';
+import { completeFormulaTokens } from './syntaxTokens';
 
 type ReadResult<T> =
   | { ok: true; value: T }
@@ -32,6 +33,7 @@ export class FormulaParser {
   constructor(
     private readonly input: string,
     private readonly isNamedColumn?: (qualifier: string | undefined, name: string) => boolean,
+    private readonly userReferences = false,
   ) {}
 
   parse(raw: string): FormulaSyntaxResult {
@@ -54,7 +56,7 @@ export class FormulaParser {
       result,
       references: [...this.references],
       referenceLexemes: [...this.referenceLexemes],
-      tokens: this.completeTokens(raw),
+      tokens: completeFormulaTokens(raw, this.syntaxTokens),
       diagnostics: mergeFormulaDiagnostics(this.diagnostics),
     };
   }
@@ -316,6 +318,7 @@ export class FormulaParser {
 
   private readReference(): ReadResult<FormulaExpression> {
     const start = this.index;
+    if (this.userReferences && !completeUserReferenceStart(this.input, start)) { this.index += 1; return this.error(); }
     if (!this.consume('@')) return this.error();
     const qualifier = this.readOptionalQualifier();
     if (qualifier === false) return this.error();
@@ -324,6 +327,7 @@ export class FormulaParser {
     const firstEnd = this.index;
     this.skipWhitespace();
     if (!this.consume(':')) {
+      if (this.userReferences && !this.completeReferenceEnd()) return this.error();
       const reference = this.makeReference(first, undefined, qualifier, start, firstEnd);
       this.recordReference(reference, qualifier, [first]);
       return { ok: true, value: reference };
@@ -334,7 +338,10 @@ export class FormulaParser {
     if (!second || !this.referenceEndpointsMatch(first, second)) {
       return this.error();
     }
-    const reference = this.makeReference(first, second, qualifier, start, this.index);
+    const secondEnd = this.index;
+    this.skipWhitespace();
+    if (this.userReferences && !this.completeReferenceEnd()) return this.error();
+    const reference = this.makeReference(first, second, qualifier, start, secondEnd);
     this.recordReference(reference, qualifier, [first, second]);
     return { ok: true, value: reference };
   }
@@ -343,27 +350,34 @@ export class FormulaParser {
     return first.kind === second.kind;
   }
 
+  private completeReferenceEnd(): boolean {
+    return this.atEnd() || /[+\-*/=<>),]/.test(this.peek());
+  }
+
   private readReferenceEndpoint(qualifier?: string): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
     const named = /^(\$?)~([0-9a-f]+)~([0-9a-f]+)\[(\$?)([0-9a-f]+)\]/i.exec(this.input.slice(this.index));
-    if (named) {
+    if (named && !this.userReferences) {
       const propertyId = decodeStableId(named[2]);
       const columnId = decodeStableId(named[3]);
       const rowId = decodeStableId(named[5]);
       if (propertyId === undefined || columnId === undefined || rowId === undefined) return undefined;
       this.index += named[0].length;
-      return { kind: 'stored-named', value: { propertyId, columnId, rowId }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start) };
+      return { kind: 'stored-named', value: { propertyId, columnId, rowId }, anchors: { column: named[1] === '$', row: named[4] === '$' }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + named[1].length, this.index - named[5].length - named[4].length - 2, this.index - named[5].length - 1, this.index - 1) };
     }
     const propertyStart = this.index;
     const propertyAnchor = this.consume('$');
     const property = this.readQuotedProperty();
     if (property !== undefined) {
+      const columnEnd = this.index - 1;
       const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
       if (!row) {
-        return { kind: 'named', value: { propertyName: property, row: 1 }, anchors: { column: propertyAnchor, row: false }, sourceSpan: this.span(start) };
+        if (this.userReferences && this.peek() === '[') return undefined;
+        return { kind: 'named', value: { propertyName: property, row: 1 }, anchors: { column: propertyAnchor, row: false }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(propertyAnchor) + 1, columnEnd, this.index, this.index) };
       }
       this.index += row[0].length;
-      return { kind: 'named', value: { propertyName: property, row: Number(row[2]) }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
+      if (this.userReferences && !Number.isSafeInteger(Number(row[2]))) return undefined;
+      return { kind: 'named', value: { propertyName: property, row: Number(row[2]) }, anchors: { column: propertyAnchor, row: row[1] === '$' }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(propertyAnchor) + 1, columnEnd, this.index - row[2].length - 1, this.index - 1) };
     }
     this.index = propertyStart;
     const columnAnchor = this.consume('$');
@@ -372,21 +386,23 @@ export class FormulaParser {
       const row = /^\[(\$?)([1-9][0-9]*)\]/.exec(this.input.slice(this.index));
       if (!row) return undefined;
       this.index += row[0].length;
-      return { kind: 'named', value: { propertyName, row: Number(row[2]) }, anchors: { column: columnAnchor, row: row[1] === '$' }, sourceSpan: this.span(start) };
+      if (this.userReferences && !Number.isSafeInteger(Number(row[2]))) return undefined;
+      return { kind: 'named', value: { propertyName, row: Number(row[2]) }, anchors: { column: columnAnchor, row: row[1] === '$' }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(columnAnchor), start + Number(columnAnchor) + propertyName.length, this.index - row[2].length - 1, this.index - 1) };
     }
     const hyphenatedCanonical = this.peek() === '-' && /^-[A-Za-z0-9_:-]+\[\$?[A-Za-z0-9_:-]+\]/.test(this.input.slice(this.index));
     if (propertyName && (!/[A-Za-z0-9_:\-[]/.test(this.peek()) || (this.peek() === '-' && !hyphenatedCanonical))) {
-      return { kind: 'named', value: { propertyName, row: 1 }, anchors: { column: columnAnchor, row: false }, sourceSpan: this.span(start) };
+      return { kind: 'named', value: { propertyName, row: 1 }, anchors: { column: columnAnchor, row: false }, sourceSpan: this.span(start), payloadSpans: referencePayloadSpans(start + Number(columnAnchor), this.index, this.index, this.index) };
     }
     this.index = propertyStart;
     const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
-    if (canonical && !/^[A-Za-z]+$/.test(canonical[2])) {
+    if (canonical && !this.userReferences && !/^[A-Za-z]+$/.test(canonical[2])) {
       this.index += canonical[0].length;
       return {
         kind: 'canonical',
         value: { columnId: canonical[2], rowId: canonical[4] },
         anchors: { column: canonical[1] === '$', row: canonical[3] === '$' },
         sourceSpan: this.span(start),
+        payloadSpans: referencePayloadSpans(start + canonical[1].length, start + canonical[1].length + canonical[2].length, this.index - canonical[4].length - 1, this.index - 1),
       };
     }
     const token = this.readA1Token();
@@ -401,6 +417,7 @@ export class FormulaParser {
       value: address.value,
       anchors: { column: token.startsWith('$'), row: /\$[0-9]/.test(token) },
       sourceSpan: this.span(start),
+      payloadSpans: referencePayloadSpans(start + Number(token.startsWith('$')), start + token.indexOf('['), start + token.indexOf('[') + 1 + Number(/\[\$/.test(token)), this.index - 1),
     };
   }
 
@@ -428,7 +445,7 @@ export class FormulaParser {
     this.referenceLexemes.push({
       sourceSpan: reference.sourceSpan,
       ...(qualifier.sourceSpan && qualifier.sheetId !== undefined
-        ? { qualifier: { value: qualifier.sheetId, sourceSpan: qualifier.sourceSpan, broken: qualifier.sheetId === '#REF' } }
+        ? { qualifier: { value: qualifier.sheetId, sourceSpan: qualifier.sourceSpan, payloadSpan: qualifierPayloadSpan(this.input, qualifier.sourceSpan), broken: qualifier.sheetId === '#REF' } }
         : {}),
       endpoints,
     });
@@ -527,18 +544,4 @@ export class FormulaParser {
     if (end > start) this.syntaxTokens.push({ kind, sourceSpan: this.spanTo(start, end) });
   }
 
-  /** Fill only parser-unrecognised draft fragments; recognised tokens remain parser-owned. */
-  private completeTokens(raw: string): FormulaSyntaxToken[] {
-    const selected = [...this.syntaxTokens]
-      .sort((left, right) => left.sourceSpan.start - right.sourceSpan.start || right.sourceSpan.end - left.sourceSpan.end)
-      .filter((token, index, tokens) => !tokens.slice(0, index).some((prior) => prior.sourceSpan.start < token.sourceSpan.end && token.sourceSpan.start < prior.sourceSpan.end));
-    const complete: FormulaSyntaxToken[] = []; let cursor = 0;
-    for (const token of selected) {
-      if (cursor < token.sourceSpan.start) complete.push({ kind: 'invalid', sourceSpan: { start: cursor, end: token.sourceSpan.start } });
-      complete.push(token);
-      cursor = token.sourceSpan.end;
-    }
-    if (cursor < raw.length) complete.push({ kind: 'invalid', sourceSpan: { start: cursor, end: raw.length } });
-    return complete;
-  }
 }

@@ -46,12 +46,17 @@ export function parseFormulaForInspection(raw: string): FormulaParseResult {
  */
 export function parseFormulaSyntax(
   raw: string,
-  options: { preserveUnknownFunctions?: boolean; isNamedColumn?: (qualifier: string | undefined, name: string) => boolean } = {},
+  options: { preserveUnknownFunctions?: boolean; isNamedColumn?: (qualifier: string | undefined, name: string) => boolean; referenceMode?: 'user' } = {},
 ): FormulaSyntaxResult {
   if (!raw.startsWith('=')) {
     return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [], tokens: raw ? [{ kind: 'text', sourceSpan: { start: 0, end: raw.length } }] : [], diagnostics: [] };
   }
-  return new FormulaParser(raw.slice(1), options.isNamedColumn).parse(raw);
+  return new FormulaParser(raw.slice(1), options.isNamedColumn, options.referenceMode === 'user').parse(raw);
+}
+
+/** User spelling never grants stable-identity authority, even when it resembles stored syntax. */
+export function parseUserFormulaSyntax(raw: string, isNamedColumn?: (qualifier: string | undefined, name: string) => boolean): FormulaSyntaxResult {
+  return parseFormulaSyntax(raw, { referenceMode: 'user', isNamedColumn });
 }
 
 export function collectFormulaReferences(expression: FormulaExpression): FormulaReference[] {

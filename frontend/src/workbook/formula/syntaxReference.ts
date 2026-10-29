@@ -3,6 +3,19 @@ import type { FormulaReference, FormulaReferenceLexeme, FormulaSourceSpan } from
 
 type Endpoint = FormulaReferenceLexeme['endpoints'][number];
 
+export function completeUserReferenceStart(input: string, start: number): boolean {
+  const before = input.slice(0, start).trimEnd();
+  return !before || /[+\-*/=<>(,]$/.test(before) || /\s/.test(input[start - 1]) && !/[:!@$[\]']$/.test(before);
+}
+
+export function referencePayloadSpans(columnStart: number, columnEnd: number, rowStart: number, rowEnd: number): Endpoint['payloadSpans'] {
+  return { column: { start: columnStart + 1, end: columnEnd + 1 }, row: { start: rowStart + 1, end: rowEnd + 1 } };
+}
+
+export function qualifierPayloadSpan(input: string, span: FormulaSourceSpan): FormulaSourceSpan {
+  return input[span.start - 1] === "'" ? { start: span.start + 1, end: span.end - 1 } : span;
+}
+
 export function makeFormulaReference(
   first: Endpoint,
   second: Endpoint | undefined,

@@ -118,8 +118,8 @@ export type FormulaSyntaxResult = {
 /** Exact reference lexemes for source-preserving transforms.  This is the sole lexical authority. */
 export type FormulaReferenceLexeme = {
   sourceSpan: FormulaSourceSpan;
-  qualifier?: { value: string; sourceSpan: FormulaSourceSpan; broken: boolean };
-  endpoints: readonly ({ anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan } & (
+  qualifier?: { value: string; sourceSpan: FormulaSourceSpan; payloadSpan: FormulaSourceSpan; broken: boolean };
+  endpoints: readonly ({ anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan; payloadSpans: { column: FormulaSourceSpan; row: FormulaSourceSpan } } & (
     | { kind: 'a1'; value: CellAddress }
     | { kind: 'canonical'; value: { columnId: string; rowId: string } }
     | { kind: 'named'; value: { propertyName: string; row: number } }
