@@ -25,10 +25,11 @@ export function mapFormulaProjection(formula: StoredFormula, edits: FormulaProje
   const mappings = ordered.map((edit) => ({ source: { start: edit.start, end: edit.end }, projected: { start: offset(edit.start, 'before'), end: offset(edit.start, 'before') + edit.text.length }, occurrenceId: edit.occurrenceId, slotId: edit.slotId }));
   const occurrences = formula.occurrences.map((occurrence): FormulaOccurrence => {
     const ownEdits = ordered.filter((edit) => edit.occurrenceId === occurrence.id);
+    const extendsEnd = ownEdits.some((edit) => edit.start === occurrence.guard.end && edit.end === edit.start);
     const origins = occurrence.origins.flatMap((origin): FormulaOrigin[] => {
       if (origin.start === origin.end) {
         if (ownEdits.some((edit) => edit.slotId === origin.slotId && edit.start <= origin.start && edit.end >= origin.end)) return [];
-        const point = offset(origin.start, 'after');
+        const point = offset(origin.start, origin.start === occurrence.guard.end && !extendsEnd ? 'before' : 'after');
         return [{ ...origin, start: point, end: point }];
       }
       let cursor = origin.start;
@@ -48,7 +49,8 @@ export function mapFormulaProjection(formula: StoredFormula, edits: FormulaProje
       if (edit.payload.end < edit.text.length) origins.push({ start: start + edit.payload.end, end: start + edit.text.length, slotId: null });
     }
     origins.sort(compareFormulaOrigins);
-    return { ...occurrence, guard: { start: offset(occurrence.guard.start, 'after'), end: offset(occurrence.guard.end, 'after') }, origins };
+    const replacesStart = ownEdits.some((edit) => edit.start === occurrence.guard.start && edit.end > edit.start);
+    return { ...occurrence, guard: { start: offset(occurrence.guard.start, replacesStart ? 'before' : 'after'), end: offset(occurrence.guard.end, extendsEnd ? 'after' : 'before') }, origins };
   });
   const text = [...ordered].reverse().reduce((text, edit) => text.slice(0, edit.start) + edit.text + text.slice(edit.end), formula.text);
   return { formula: { text, occurrences }, mappings };
