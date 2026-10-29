@@ -18,6 +18,7 @@ class SqliteWorkbookStore internal constructor(
     keepAliveConnection: Connection? = null,
     private val aggregateReadCheckpoint: (() -> Unit)? = null,
     private val sheetReadObserver: ((SheetReadEvent) -> Unit)? = null,
+    private val calculatedAdmission: (WorkbookState, WorkbookState) -> Unit = ::rejectCalculatedOverrides,
 ) : WorkbookStore, AutoCloseable {
     private val database = SqliteDatabase(jdbcUrl, keepAliveConnection)
     private val updateLock = Any()
@@ -51,7 +52,7 @@ class SqliteWorkbookStore internal constructor(
             database.transaction { conn ->
                 val reader = reader(conn)
                 validateModelMetadata(workbook)
-                rejectCalculatedOverrides(reader.loadWorkbookBundle(), workbook)
+                calculatedAdmission(reader.loadWorkbookBundle(), workbook)
                 SqliteWorkbookWriter(conn, reader).replaceAll(workbook)
             }
         }
@@ -144,7 +145,7 @@ class SqliteWorkbookStore internal constructor(
             val current = reader.loadWorkbookBundle()
             val updated = transform(current)
             validateModelMetadata(updated)
-            rejectCalculatedOverrides(current, updated)
+            calculatedAdmission(current, updated)
             if (expectedRevision != null) {
                 val currentSheet = current.findSheet(SheetId(expectedRevision.sheetId))
                 if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {
@@ -169,12 +170,16 @@ class SqliteWorkbookStore internal constructor(
     private fun reader(conn: Connection) = SqliteWorkbookReader(conn, sheetReadObserver = sheetReadObserver)
 
     companion object {
-        internal fun inMemory(sheetReadObserver: ((SheetReadEvent) -> Unit)? = null): SqliteWorkbookStore {
+        internal fun inMemory(
+            sheetReadObserver: ((SheetReadEvent) -> Unit)? = null,
+            calculatedAdmission: (WorkbookState, WorkbookState) -> Unit = ::rejectCalculatedOverrides,
+        ): SqliteWorkbookStore {
             val jdbcUrl = "jdbc:sqlite:file:sheetspace-${UUID.randomUUID()}?mode=memory&cache=shared"
             return SqliteWorkbookStore(
                 jdbcUrl,
                 DriverManager.getConnection(jdbcUrl),
                 sheetReadObserver = sheetReadObserver,
+                calculatedAdmission = calculatedAdmission,
             )
         }
     }
