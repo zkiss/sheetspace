@@ -6,10 +6,25 @@ import {
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { classifyCellValue, displayRawCellValue } from '@calculation/formulaValue';
 
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
 
 describe('paste preparation', () => {
+  it('keeps scalar-looking direct and tabular fields as displayed text and calculation values', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const workbook = workbookWithSheets([sheet]);
+    for (const fields of [[['001']], [['1.00', 'true'], ['001', 'FALSE']]]) {
+      const result = preparePasteCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
+        ok: true, value: { kind: 'external', grid: { rowCount: fields.length, columnCount: fields[0]!.length, rows: fields } },
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('paste failed');
+      expect(result.writes.map(({ raw }) => classifyCellValue(raw)))
+        .toEqual(fields.flat().map((value) => ({ kind: 'text', value })));
+      expect(result.writes.map(({ raw }) => displayRawCellValue(raw).display)).toEqual(fields.flat());
+    }
+  });
   it('preserves formula-like and envelope-like external fields as exact literal text', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const envelope = encodeCellTextLiteral('hidden');
