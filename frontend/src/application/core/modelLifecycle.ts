@@ -83,7 +83,7 @@ function calculate(workbook: Workbook): FormulaEvaluationSnapshot {
   return new FormulaCalculation().update(calculationProjection(workbook), { kind: 'structure' });
 }
 
-function freezeCalculatedColumns(workbook: Workbook, sheet: SheetDocument, snapshot: FormulaEvaluationSnapshot, propertyIds?: ReadonlySet<string>): SheetDocument {
+export function freezeCalculatedColumns(workbook: Workbook, sheet: SheetDocument, snapshot: FormulaEvaluationSnapshot, propertyIds?: ReadonlySet<string>): SheetDocument {
   const model = workbook.dataModels?.[sheet.modelId!];
   const cells = { ...sheet.content.cells };
   for (const property of model?.columns ?? []) {
@@ -102,7 +102,7 @@ function freezeCalculatedColumns(workbook: Workbook, sheet: SheetDocument, snaps
   return { ...sheet, content: { ...sheet.content, cells } };
 }
 
-function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: string[]): SheetDocument {
+export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: string[]): SheetDocument {
   const retained = new Set(columns);
   const keepCell = (key: string) => retained.has(cellIdentityFromKey(key)!.columnId);
   const filter = <T,>(values: Record<string, T>, keep: (key: string) => boolean) => Object.fromEntries(Object.entries(values).filter(([key]) => keep(key)));
@@ -121,7 +121,7 @@ function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: string[])
   };
 }
 
-function withSheet(workbook: Workbook, sheet: SheetDocument): Workbook {
+export function withSheet(workbook: Workbook, sheet: SheetDocument): Workbook {
   return { ...workbook, documents: { ...workbook.documents, [sheet.id]: sheet } };
 }
 
