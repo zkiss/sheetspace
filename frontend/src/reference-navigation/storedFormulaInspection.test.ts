@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { inspectStoredFormula } from './formulaInspection';
 
 describe('stored formula inspection', () => {
@@ -15,6 +17,11 @@ describe('stored formula inspection', () => {
       ['@Renamed!B[1]', true], ['@Missing!B[2]', false],
     ]);
     expect(inspection.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'reference' })]));
+    for (const reference of inspection.references) {
+      expect(inspection.raw.slice(reference.displaySpan.start, reference.displaySpan.end)).toBe(reference.text);
+    }
+    const diagnostic = inspection.diagnostics.find(({ kind }) => kind === 'reference')!;
+    expect(inspection.raw.slice(diagnostic.sourceSpan.start, diagnostic.sourceSpan.end)).toBe('@Missing!B[2]');
   });
 
   it('does not navigate to replacement identities', () => {
@@ -26,5 +33,15 @@ describe('stored formula inspection', () => {
     expect(inspection.raw).toBe('=@Inputs!A[1]');
     expect(inspection.references[0]).toMatchObject({ broken: true, navigable: false });
     expect(inspection.diagnostics[0]).toMatchObject({ kind: 'reference' });
+  });
+
+  it('preserves syntax errors without references at the display and diagnostic boundary', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Inputs', rowCount: 1, columnCount: 1 });
+    const workbook = workbookWithSheets([sheet]);
+    const content = prepareUserFormula('=1+', workbook, sheet.id);
+
+    expect(inspectStoredFormula(content, workbook, sheet)).toBeUndefined();
+    expect(projectStoredFormula(content, workbook, sheet.id).text).toBe('=1+');
+    expect(analyzeStoredFormula(content, workbook, sheet.id).result).toMatchObject({ kind: 'error', error: '#PARSE!' });
   });
 });
