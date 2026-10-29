@@ -1,5 +1,9 @@
 package com.sheetspace
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -7,6 +11,63 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class PreparedCalculatedTransitionTest {
+    @Test
+    fun `mixed fixture keeps dead target identity and historical bytes after replacement`() {
+        val fixture = Json.parseToJsonElement(requireNotNull(javaClass.getResource("/stored-model-instances.json")).readText()).jsonArray.first().jsonObject
+        val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content)
+        val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val base = initial.removeSheet(initial.sheetsInOrder.last().id)
+        val sheet = base.sheetsInOrder.first()
+        val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+        val property = model.columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn
+        val mixedModel = model.copy(columns = model.columns.map { if (it.id == property.id) property.copy(formula = "=@A[1]:B[2]+???😀") else it })
+        val rows = listOf(RowId("sheet:row:1"), RowId("sheet:row:2"), RowId("sheet:row:3"))
+        val target = SheetDocument(SheetId("sheet"), name = "Inputs", content = TabularContent(rows, listOf(ColumnId("col1"), ColumnId("col2")), emptyMap()))
+        val withTarget = base.copy(dataModels = base.dataModels + (model.id to mixedModel)).addSheet(target)
+        val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+        val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, withTarget, index)
+        }
+        val before = withTarget.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
+        val replacement = before.removeSheet(target.id).addSheet(target.copy(id = SheetId("replacement")))
+        val rules = preparedCalculatedTemplates { candidate -> if (candidate.id == sheet.id) mapOf(LIFECYCLE_OUTPUT to template) else null }
+
+        assertEquals(fixture.getValue("expected").jsonPrimitive.content, derivedPreparedFormulaRaw(template, before, 1))
+        assertTrue(calculatedTransitionIsValid(before, replacement, rules))
+        assertEquals(contents, replacement.documents.getValue(sheet.id).tabularContent.cellContents)
+    }
+
+    @Test
+    fun `renaming retains historical bytes while changing declaration derives replacements`() {
+        val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val base = initial.removeSheet(initial.sheetsInOrder.last().id)
+        val sheet = base.sheetsInOrder.first()
+        val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+        val property = model.columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn
+        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(property.formula, emptyList())))
+        val changed = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula("=42", emptyList())))
+        val rules = preparedCalculatedTemplates { candidate ->
+            mapOf(LIFECYCLE_OUTPUT to if (candidate.name == "changed") changed else template)
+        }
+        val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+        val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index)
+        }
+        val before = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
+        val renamed = before.copy(dataModels = before.dataModels + (model.id to model.copy(name = "renamed")))
+        assertTrue(calculatedTransitionIsValid(before, renamed, rules))
+        val changedModel = model.copy(columns = model.columns.map { if (it.id == property.id) property.copy(formula = "=42") else it })
+        val declarationChanged = before.copy(dataModels = before.dataModels + (model.id to changedModel))
+        val changedContents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(changed, declarationChanged, index)
+        }
+        val replacement = declarationChanged.replaceSheet(sheet.copy(name = "changed", content = TabularContent(
+            sheet.tabularContent.rows, sheet.tabularContent.columns, changedContents,
+        )))
+        assertTrue(calculatedTransitionIsValid(before, replacement, rules))
+        assertFalse(calculatedTransitionIsValid(before, replacement.replaceSheet(sheet.copy(name = "changed")), rules))
+    }
+
     @Test
     fun `declaration filtering compares decoded text and retains complete prepared bytes`() {
         val workbook = lifecycleBoundWorkbook(lifecycleWorkbook())

@@ -6,6 +6,40 @@ import kotlin.test.assertFailsWith
 
 class PreparedSqliteAdmissionTest {
     @Test
+    fun `persisted missing history and forged templates cannot authorize calculated output`() {
+        val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val base = initial.removeSheet(initial.sheetsInOrder.last().id)
+        val sheet = base.sheetsInOrder.first()
+        val property = base.dataModels.getValue(LIFECYCLE_MODEL).columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn
+        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(property.formula, emptyList())))
+        val forgedTemplate = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(property.formula + " ", emptyList())))
+        val rules = preparedCalculatedTemplates { candidate ->
+            if (candidate.id != sheet.id) null else mapOf(LIFECYCLE_OUTPUT to if (candidate.name == "forged") forgedTemplate else template)
+        }
+        val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+        val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index)
+        }
+        val missing = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, emptyMap())))
+        val restored = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
+        var enforce = false
+        SqliteWorkbookStore.inMemory(calculatedAdmission = { current, updated ->
+            if (enforce) rejectCalculatedOverrides(current, updated, rules)
+        }).use { store ->
+            store.saveWorkbook(missing)
+            enforce = true
+            val persisted = store.loadWorkbookBundle()
+            assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(restored) }
+            assertFailsWith<WorkbookApplicationException> { store.updateWorkbook(null) { restored } }
+            assertEquals(persisted, store.loadWorkbookBundle())
+            val forged = persisted.replaceSheet(persisted.documents.getValue(sheet.id).copy(name = "forged"))
+            assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(forged) }
+            assertFailsWith<WorkbookApplicationException> { store.updateWorkbook(null) { forged } }
+            assertEquals(persisted, store.loadWorkbookBundle())
+        }
+    }
+
+    @Test
     fun `both persistence boundaries authorize prepared content against reloaded history`() {
         val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
         val base = initial.removeSheet(initial.sheetsInOrder.last().id)
