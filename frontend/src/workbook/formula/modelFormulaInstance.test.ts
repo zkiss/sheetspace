@@ -3,11 +3,20 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { prepareUserFormula } from './formulaPreparation';
 import { instantiateStoredModelFormula } from './modelFormulaInstance';
 import { decodeStoredFormula } from './storedFormula';
+import type { StoredFormulaContent } from './storedFormula';
+import fixtures from '../../../../test-fixtures/stored-model-instances.json';
 
 const sheet = sheetDocument({ id: 'sheet', name: 'Inputs', rowCount: 3, columnCount: 2 });
 const workbook = workbookWithSheets([sheet]);
 
 describe('stored model formula instantiation', () => {
+  it('matches shared cross-language encoded instances', () => {
+    for (const fixture of fixtures) {
+      const target = fixture.rows ? { ...sheet, content: { ...sheet.content, rows: fixture.rows } } : undefined;
+      const instance = instantiateStoredModelFormula(fixture.template as StoredFormulaContent, workbookWithSheets(target ? [target] : []), fixture.rowIndex);
+      expect(instance, fixture.name).toBe(fixture.expected);
+    }
+  });
   it('uses independent relative and anchored row recipes for range endpoints', () => {
     const text = '=@A[1]:$B[$2]+???';
     const template = prepareUserFormula(text, workbook, sheet.id);
