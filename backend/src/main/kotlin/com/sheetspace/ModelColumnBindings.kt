@@ -32,7 +32,7 @@ internal fun calculatedTemplatesAreValid(workbook: WorkbookState): Boolean = wor
         calculated.all { property -> templates.getValue(property.id).raw == property.formula }
 }
 
-/** Every row of a bound calculated sheet carries the derived instance of its persisted template. */
+/** Fresh-instantiation check only; historical contents require persisted transition authority. */
 internal fun calculatedContentsAreDerived(workbook: WorkbookState): Boolean =
     calculatedTemplatesAreValid(workbook) && workbook.documents.values.all { sheet ->
         val model = sheet.modelId?.let(workbook.dataModels::get) ?: return@all true
@@ -48,43 +48,9 @@ internal fun calculatedContentsAreDerived(workbook: WorkbookState): Boolean =
         }
     }
 
-/**
- * True when the operation changed a calculated cell to content that is not the derived instance.
- *
- * Only the cells the operation changed are constrained. A cell the operation left alone keeps its
- * content even when a structural change elsewhere invalidated its derived instance, so an
- * unrelated operation never fails for a calculation it did not override.
- */
+/** Every calculated cell must be authorized by the persisted transition, including unchanged cells. */
 internal fun calculatedOverridesWereIntroduced(current: WorkbookState, updated: WorkbookState): Boolean =
-    updated.documents.values.any { sheet -> sheetOverridesACalculation(current, updated, sheet) }
-
-private fun sheetOverridesACalculation(current: WorkbookState, updated: WorkbookState, sheet: SheetDocument): Boolean {
-    val model = sheet.modelId?.let(updated.dataModels::get) ?: return false
-    val templates = sheet.modelFormulaBindings ?: return false
-    val previous = current.documents[sheet.id]
-    val calculated = model.columns.filterIsInstance<CalculatedModelColumn>()
-        .filter { it.id in sheet.modelColumnBindings }
-    return calculated.any { property ->
-        propertyOverridesCalculation(previous, updated, sheet, property, templates[property.id])
-    }
-}
-
-private fun propertyOverridesCalculation(
-    previous: SheetDocument?,
-    updated: WorkbookState,
-    sheet: SheetDocument,
-    property: CalculatedModelColumn,
-    template: BoundModelFormula?,
-): Boolean {
-    if (template == null) return false
-    val column = sheet.modelColumnBindings.getValue(property.id)
-    return sheet.tabularContent.rows.withIndex().any { (rowIndex, row) ->
-        val coordinate = CellCoordinate(row, column)
-        val previousRaw = previous?.let { it.tabularContent.cellContents[coordinate] }
-        val currentRaw = sheet.tabularContent.cellContents[coordinate]
-        previousRaw != currentRaw && currentRaw != derivedFormulaRaw(template, updated, rowIndex)
-    }
-}
+    !calculatedTransitionIsValid(current, updated)
 
 internal fun derivedFormulaRaw(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int): String {
     val edits = buildList {

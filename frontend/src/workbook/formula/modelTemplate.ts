@@ -77,24 +77,27 @@ export function instantiateModelFormula(template: BoundModelFormula, workbook: W
 }
 
 /** Call only after every affected sheet has its final reconciled structure. */
-export function instantiateModelFormulas(workbook: Workbook, sheetId: string, bindings = bindModelFormulas(workbook, sheetId)): SheetDocument {
+export function instantiateModelFormulas(workbook: Workbook, sheetId: string, bindings = workbook.documents[sheetId].modelFormulaBindings ?? bindModelFormulas(workbook, sheetId), previous = workbook.documents[sheetId]): SheetDocument {
   const sheet = workbook.documents[sheetId];
   const cells = { ...sheet.content.cells };
   for (const [propertyId, template] of Object.entries(bindings)) {
     const columnId = sheet.modelColumnBindings?.[propertyId];
     if (!columnId || !sheet.content.columns.includes(columnId)) continue;
+    const continuing = previous.modelId === sheet.modelId && previous.modelColumnBindings?.[propertyId] === columnId
+      && JSON.stringify(previous.modelFormulaBindings?.[propertyId]) === JSON.stringify(template);
     sheet.content.rows.forEach((rowId, rowIndex) => {
-      cells[cellIdentityKey({ rowId, columnId })] = instantiateModelFormula(template, workbook, rowIndex);
+      const key = cellIdentityKey({ rowId, columnId });
+      const retained = continuing && previous.content.rows.includes(rowId) ? previous.content.cells[key] : undefined;
+      cells[key] = retained ?? instantiateModelFormula(template, workbook, rowIndex);
     });
   }
   return { ...sheet, content: { ...sheet.content, cells } };
 }
 
 /**
- * Recomputes the derived instance of every bound calculated cell from its persisted template.
+ * Materializes new output coordinates without rebinding surviving calculated instances.
  *
- * A structural change that invalidates a derived instance must update the dependent sheets in the
- * same operation, so no client keeps a calculation its declarations no longer produce.
+ * Target deletion and replacement affect evaluation, never the identities in persisted contents.
  */
 export function refreshDerivedInstances(workbook: Workbook): Workbook {
   const documents = { ...workbook.documents };

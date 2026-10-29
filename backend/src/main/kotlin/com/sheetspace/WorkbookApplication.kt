@@ -102,10 +102,7 @@ class DefaultWorkbookApplication(
     override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
         store.updateWorkbook { current ->
             val reconciled = reconcileModelLifecycle(current, before, after)
-            // The transition carries the complete post-state, so every row of every bound
-            // calculated sheet must already carry its derived instance. A transition that leaves a
-            // bound calculated property without its derived content is rejected, never persisted.
-            if (!calculatedContentsAreDerived(after)) {
+            if (!calculatedTransitionIsValid(current, reconciled)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
             }
             reconciled

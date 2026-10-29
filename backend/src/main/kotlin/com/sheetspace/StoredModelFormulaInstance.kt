@@ -9,9 +9,10 @@ internal fun storedModelInstanceMatchesTemplate(template: String, instance: Stri
     expected.text == actual.text && expected.occurrences.size == actual.occurrences.size &&
         expected.occurrences.zip(actual.occurrences).all { (source, result) ->
             val rowSlots = source.endpoints.map { it.rowSlotId }.toSet()
+            val sourceSlots = source.slots.associateBy { it.id }
             val normalized = result.copy(slots = result.slots.map { slot ->
-                val original = source.slots.firstOrNull { it.id == slot.id }
-                if (slot.id in rowSlots && original != null) {
+                if (slot.id in rowSlots) {
+                    val original = sourceSlots.getValue(slot.id)
                     slot.copy(status = original.status, targetIds = original.targetIds)
                 } else {
                     slot

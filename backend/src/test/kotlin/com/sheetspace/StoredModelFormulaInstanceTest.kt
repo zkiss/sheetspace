@@ -1,6 +1,7 @@
 package com.sheetspace
 
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -50,5 +51,22 @@ class StoredModelFormulaInstanceTest {
         val slots = occurrence.slots.map { if (it.id == "c1") it.copy(targetIds = listOf("forged")) else it }
         val forged = formula.copy(occurrences = listOf(occurrence.copy(slots = slots)))
         assertFalse(storedModelInstanceMatchesTemplate(template, StoredFormulaCodec.encode(forged)))
+        assertFalse(storedModelInstanceMatchesTemplate(template, StoredFormulaCodec.encode(formula.copy(occurrences = emptyList()))))
+    }
+
+    @Test
+    fun `unresolved sheet and dormant row payloads are not manufactured into new bindings`() {
+        val occurrence = formula.occurrences.single()
+        val unresolved = formula.copy(occurrences = listOf(occurrence.copy(slots = occurrence.slots.map {
+            if (it.id == "s") it.copy(status = "unresolved", targetIds = emptyList()) else it
+        })))
+        val unresolvedContent = StoredFormulaCodec.encode(unresolved)
+        assertEquals(unresolvedContent, instantiateStoredModelFormula(unresolvedContent, 1) { error("An unresolved parent must not be looked up") })
+        val dormant = formula.copy(occurrences = listOf(occurrence.copy(slots = occurrence.slots.map {
+            if (it.id == "r1") it.copy(key = JsonNull) else it
+        })))
+        val instance = StoredFormulaCodec.decode(instantiateStoredModelFormula(StoredFormulaCodec.encode(dormant), 1) { listOf("new-row1", "new-row2") })
+        assertEquals(dormant.occurrences.single().slots.first { it.id == "r1" }, instance.occurrences.single().slots.first { it.id == "r1" })
+        assertEquals(listOf("new-row2"), instance.occurrences.single().slots.first { it.id == "r2" }.targetIds)
     }
 }

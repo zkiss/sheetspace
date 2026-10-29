@@ -47,11 +47,11 @@ class SqliteWorkbookStore internal constructor(
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
-        validateModelMetadata(workbook)
-        rejectInvalidCalculatedContents(workbook)
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = reader(conn)
+                validateModelMetadata(workbook)
+                rejectCalculatedOverrides(reader.loadWorkbookBundle(), workbook)
                 SqliteWorkbookWriter(conn, reader).replaceAll(workbook)
             }
         }
@@ -181,44 +181,10 @@ class SqliteWorkbookStore internal constructor(
 }
 
 private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) {
-    current.documents.forEach { (id, before) ->
-        val sheet = updated.documents[id] ?: return@forEach
-        if (before.modelId == sheet.modelId) {
-            val beforeModel = before.modelId?.let(current.dataModels::get)
-            val updatedModel = sheet.modelId?.let(updated.dataModels::get)
-            beforeModel?.columns?.filterIsInstance<CalculatedModelColumn>()?.forEach { property ->
-                val column = before.modelColumnBindings[property.id] ?: return@forEach
-                val stillCalculated = updatedModel?.columns
-                    ?.filterIsInstance<CalculatedModelColumn>()
-                    ?.any { it.id == property.id } == true
-                if (stillCalculated && sheet.modelColumnBindings[property.id] != column) {
-                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-                }
-                if (stillCalculated && before.modelFormulaBindings?.containsKey(property.id) == true &&
-                    sheet.modelFormulaBindings?.containsKey(property.id) != true
-                ) {
-                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-                }
-            }
-        }
-    }
-    if (!calculatedTemplatesAreValid(updated)) {
-        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-    }
     if (calculatedOverridesWereIntroduced(current, updated)) {
         throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
     }
 }
-
-/**
- * A whole-workbook save replaces every cell, so every calculated cell must be a derived instance.
- */
-private fun rejectInvalidCalculatedContents(workbook: WorkbookState) {
-    if (!calculatedContentsAreDerived(workbook)) {
-        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-    }
-}
-
 
 private fun validateModelMetadata(workbook: WorkbookState) {
     require(workbook.dataModels.keys.all { it.toUuidBytesOrNull() != null }) { "Model IDs must be UUIDs" }

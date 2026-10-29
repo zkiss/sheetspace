@@ -70,13 +70,13 @@ export function replaceModelDeclaration(workbook: Workbook, model: DataModel, cr
       const old = oldBindings.get(sheet.id)![property.id];
       return [[property.id, old?.raw === property.formula ? old : bindModelFormula(property.formula, structured, sheet.id)]];
     }));
-    next = refreshModelSheet(next, sheet.id, bindings);
+    next = refreshModelSheet(next, sheet.id, bindings, source.documents[sheet.id]);
   }
   return { ok: true, value: refreshDerivedInstances(next) };
 }
 
-function refreshModelSheet(workbook: Workbook, sheetId: string, bindings: ModelFormulaBindings): Workbook {
-  return withSheet(workbook, { ...instantiateModelFormulas(workbook, sheetId, bindings), modelFormulaBindings: bindings });
+function refreshModelSheet(workbook: Workbook, sheetId: string, bindings: ModelFormulaBindings, previous = workbook.documents[sheetId]): Workbook {
+  return withSheet(workbook, { ...instantiateModelFormulas(workbook, sheetId, bindings, previous), modelFormulaBindings: bindings });
 }
 
 function calculate(workbook: Workbook): FormulaEvaluationSnapshot {

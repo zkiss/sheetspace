@@ -22,9 +22,8 @@ internal fun materializeCalculatedRow(workbook: WorkbookState, sheet: SheetDocum
 /**
  * Materializes the calculated contents of every bound calculated sheet.
  *
- * A structural change that invalidates a derived instance must update the dependent sheets in the
- * same operation, so no persisted workbook keeps a calculation its declarations no longer
- * produce.
+ * Structural changes never rebind surviving instances to replacement targets. Only missing output
+ * coordinates receive new row-recipe instances.
  */
 internal fun materializeDerivedContents(workbook: WorkbookState): WorkbookState {
     val documents = workbook.documents.mapValues { (_, sheet) ->
@@ -35,7 +34,7 @@ internal fun materializeDerivedContents(workbook: WorkbookState): WorkbookState 
             val column = sheet.modelColumnBindings[property.id] ?: return@forEach
             val template = templates[property.id] ?: return@forEach
             sheet.tabularContent.rows.forEachIndexed { rowIndex, row ->
-                contents[CellCoordinate(row, column)] = derivedFormulaRaw(template, workbook, rowIndex)
+                contents.getOrPut(CellCoordinate(row, column)) { derivedFormulaRaw(template, workbook, rowIndex) }
             }
         }
         sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents))

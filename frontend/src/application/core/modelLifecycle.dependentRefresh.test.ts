@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { calculatedModelCells } from '@test-support/modelLifecycleFixtures';
 import { bindSheetToModel, replaceModelDeclaration, unbindSheetFromModel } from '@application/core/modelLifecycle';
 import { applyWorkbookOperation } from '@application/core/userActions';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
@@ -19,8 +20,6 @@ const targetModel: DataModel = {
     { id: 'total', name: 'Total', kind: 'calculated', type: 'float', formula: "=@Source!'Total'[1]" },
   ],
 };
-
-const BROKEN_INSTANCE = '=@#REF!A[1]';
 
 /** A workbook whose calculated property of the target sheet references a property of the source sheet. */
 function crossSheetWorkbook(): Workbook {
@@ -50,7 +49,7 @@ describe('dependent derived instances', () => {
     expect(totalCells(workbook).every((raw) => raw?.startsWith('=@source!'))).toBe(true);
   });
 
-  it('refreshes the referencing sheet when a referenced sheet is deleted', () => {
+  it('retains the referencing instances when a referenced sheet is deleted', () => {
     const workbook = crossSheetWorkbook();
 
     const result = applyWorkbookOperation(workbook, { kind: 'delete-sheet', operationId: 'delete-source', sheetId: 'source' });
@@ -58,10 +57,11 @@ describe('dependent derived instances', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.nextWorkbook.documents.source).toBeUndefined();
-    expect(totalCells(result.value.nextWorkbook)).toEqual([BROKEN_INSTANCE, BROKEN_INSTANCE]);
+    expect(totalCells(result.value.nextWorkbook)).toEqual(totalCells(workbook));
+    expect(calculatedModelCells(result.value.nextWorkbook).target.B1).toMatchObject({ error: '#REF!' });
   });
 
-  it('refreshes the referencing sheet when a referenced sheet is unbound', () => {
+  it('retains the referencing instances when a referenced sheet is unbound', () => {
     const workbook = crossSheetWorkbook();
 
     const unbound = unbindSheetFromModel(workbook, 'source');
@@ -69,17 +69,19 @@ describe('dependent derived instances', () => {
     expect(unbound.ok).toBe(true);
     if (!unbound.ok) return;
     expect(unbound.value.documents.source!.modelId).toBeUndefined();
-    expect(totalCells(unbound.value)).toEqual([BROKEN_INSTANCE, BROKEN_INSTANCE]);
+    expect(totalCells(unbound.value)).toEqual(totalCells(workbook));
+    expect(calculatedModelCells(unbound.value).target.B1).toMatchObject({ error: '#REF!' });
   });
 
-  it('refreshes the referencing sheet when a declaration drops the referenced property', () => {
+  it('retains the referencing instances when a declaration drops the referenced property', () => {
     const workbook = crossSheetWorkbook();
 
     const changed = replaceModelDeclaration(workbook, { ...sourceModel, columns: [] }, () => 'unused');
 
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
-    expect(totalCells(changed.value)).toEqual([BROKEN_INSTANCE, BROKEN_INSTANCE]);
+    expect(totalCells(changed.value)).toEqual(totalCells(workbook));
+    expect(calculatedModelCells(changed.value).target.B1).toMatchObject({ error: '#REF!' });
   });
 
   it('keeps manual sheets and unbound editing untouched', () => {
