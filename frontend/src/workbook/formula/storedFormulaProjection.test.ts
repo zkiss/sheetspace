@@ -177,4 +177,25 @@ describe('stored editable projection', () => {
     expect(projection.analysis.dormantOccurrences).toHaveLength(1);
     expect(projection.mappings).toEqual([]);
   });
+
+  it('shifts an adjacent dormant guard past an inserted implicit row suffix', () => {
+    const original = modeledWorkbook();
+    const formula = decodeStoredFormula(prepareUserFormula('=@Cost+@Cost[2]', original, sheet.id));
+    const dormant = formula.occurrences[1];
+    dormant.guard.start -= 1;
+    dormant.origins.unshift({ start: dormant.guard.start, end: dormant.guard.start + 1, slotId: null });
+    const marker = dormant.origins.find(({ slotId }) => slotId === 'sheet')!;
+    marker.start = dormant.guard.start; marker.end = dormant.guard.start;
+    dormant.origins.sort((left, right) => left.start - right.start || left.end - right.end);
+    const changed = modeledWorkbook();
+    changed.documents[sheet.id].content = reordered.content;
+
+    const projection = projectStoredFormula(encodeStoredFormula(formula), changed);
+
+    expect(projection.text).toBe('=@Cost[2]+@Cost[2]');
+    expect(projection.formula.occurrences[0].guard.end).toBe(projection.formula.occurrences[1].guard.start);
+    expect(projection.formula.occurrences[1].origins.find(({ slotId }) => slotId === 'sheet')?.start).toBe(projection.formula.occurrences[1].guard.start);
+    expect(projection.text.slice(projection.formula.occurrences[1].guard.start)).toBe('+@Cost[2]');
+    expect(analyzeStoredFormula(encodeStoredFormula(projection.formula), changed).dormantOccurrences.map(({ id }) => id)).toEqual(['f1']);
+  });
 });

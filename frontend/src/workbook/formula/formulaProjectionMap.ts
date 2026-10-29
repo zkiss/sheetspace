@@ -27,7 +27,7 @@ export function mapFormulaProjection(formula: StoredFormula, edits: FormulaProje
     const origins = occurrence.origins.flatMap((origin): FormulaOrigin[] => {
       if (origin.start === origin.end) {
         if (ownEdits.some((edit) => edit.slotId === origin.slotId && edit.start <= origin.start && edit.end >= origin.end)) return [];
-        const point = offset(origin.start, 'before');
+        const point = offset(origin.start, 'after');
         return [{ ...origin, start: point, end: point }];
       }
       let cursor = origin.start;
@@ -47,7 +47,7 @@ export function mapFormulaProjection(formula: StoredFormula, edits: FormulaProje
       if (edit.payload.end < edit.text.length) origins.push({ start: start + edit.payload.end, end: start + edit.text.length, slotId: null });
     }
     origins.sort((left, right) => left.start - right.start || left.end - right.end || (left.slotId ?? '').localeCompare(right.slotId ?? ''));
-    return { ...occurrence, guard: { start: offset(occurrence.guard.start, 'before'), end: offset(occurrence.guard.end, 'after') }, origins };
+    return { ...occurrence, guard: { start: offset(occurrence.guard.start, 'after'), end: offset(occurrence.guard.end, 'after') }, origins };
   });
   const text = [...ordered].reverse().reduce((text, edit) => text.slice(0, edit.start) + edit.text + text.slice(edit.end), formula.text);
   return { formula: { text, occurrences }, mappings };
