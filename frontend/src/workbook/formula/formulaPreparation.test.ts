@@ -75,7 +75,8 @@ describe('fresh formula preparation', () => {
       [[sheet.id], [], [sheet.content.rows[0]]],
       [[sheet.id], ['cost', sheet.content.columns[1]], [sheet.content.rows[0]]],
     ]);
-    expect(stored.occurrences[3].origins.at(-1)).toMatchObject({ start: 40, end: 40, slotId: 'r0' });
+    const origins = stored.occurrences[3].origins;
+    expect(origins[origins.length - 1]).toMatchObject({ start: 40, end: 40, slotId: 'r0' });
   });
 
   it.each(['missing-model', 'missing-binding', 'deleted-column'])('does not manufacture a target for a %s property', (scenario) => {
