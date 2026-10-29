@@ -3,6 +3,8 @@ package com.sheetspace
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class StoredModelFormulaInstanceTest {
     private val formula = StoredFormula(
@@ -34,5 +36,19 @@ class StoredModelFormulaInstanceTest {
         val instance = StoredFormulaCodec.decode(instantiateStoredModelFormula(content, 3) { listOf("row1", "row2") })
         assertEquals("unresolved", instance.occurrences.single().slots.first { it.id == "r1" }.status)
         assertEquals(content, instantiateStoredModelFormula(content, 3) { null })
+    }
+
+    @Test
+    fun `instance structure permits instantiated row identities but rejects other changes`() {
+        val template = StoredFormulaCodec.encode(formula)
+        val instance = instantiateStoredModelFormula(template, 1) { listOf("row1", "row2", "row3") }
+        assertTrue(storedModelInstanceMatchesTemplate(template, instance))
+        val changed = formula.copy(text = "=@A[1]:B[2]+BAD")
+        assertFalse(storedModelInstanceMatchesTemplate(template, StoredFormulaCodec.encode(changed)))
+        assertFalse(storedModelInstanceMatchesTemplate(template, "not a formula"))
+        val occurrence = formula.occurrences.single()
+        val slots = occurrence.slots.map { if (it.id == "c1") it.copy(targetIds = listOf("forged")) else it }
+        val forged = formula.copy(occurrences = listOf(occurrence.copy(slots = slots)))
+        assertFalse(storedModelInstanceMatchesTemplate(template, StoredFormulaCodec.encode(forged)))
     }
 }

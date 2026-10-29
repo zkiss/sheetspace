@@ -2,6 +2,27 @@ package com.sheetspace
 
 import kotlinx.serialization.json.longOrNull
 
+/** Check template structure, not the historical authority of an instance's row identities. */
+internal fun storedModelInstanceMatchesTemplate(template: String, instance: String): Boolean = try {
+    val expected = StoredFormulaCodec.decode(template)
+    val actual = StoredFormulaCodec.decode(instance)
+    expected.text == actual.text && expected.occurrences.size == actual.occurrences.size &&
+        expected.occurrences.zip(actual.occurrences).all { (source, result) ->
+            val rowSlots = source.endpoints.map { it.rowSlotId }.toSet()
+            val normalized = result.copy(slots = result.slots.map { slot ->
+                val original = source.slots.firstOrNull { it.id == slot.id }
+                if (slot.id in rowSlots && original != null) {
+                    slot.copy(status = original.status, targetIds = original.targetIds)
+                } else {
+                    slot
+                }
+            })
+            source == normalized
+        }
+} catch (_: IllegalArgumentException) {
+    false
+}
+
 /** Instantiate the row recipes in supplied provenance without interpreting formula text. */
 internal fun instantiateStoredModelFormula(
     template: String,
