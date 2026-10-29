@@ -17,6 +17,7 @@ import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation, applyStoredCellWrites,
   preparePasteCellWrites,
+  prepareStoredPasteCellWrites,
   prepareMoveCellWrites,
   replayCellPersistenceWrites,
   type AppliedWorkbookOperation,
@@ -64,6 +65,7 @@ export type WorkbookCommands = {
   deleteSheet: (sheetId: string) => WorkbookOperationResult;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
+  pasteStoredCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
   retryFailedSaves: () => void;
@@ -413,22 +415,20 @@ export function useWorkbookController({
 
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]): CellWriteResult {
     const result = applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] });
-    if (!result.ok) return { ok: false, reason: result.reason };
-    return { ok: true, changed: result.value.changed };
+    return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
-  function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult): PasteCellsResult {
+  function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult, stored = false): PasteCellsResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
     if (!destination) return { ok: false, reason: 'invalid-destination' };
-    const prepared = preparePasteCellWrites(sourceWorkbook, sheetId, destination, clipboard);
+    const prepared = (stored ? prepareStoredPasteCellWrites : preparePasteCellWrites)(sourceWorkbook, sheetId, destination, clipboard);
     if (!prepared.ok) return prepared;
-    const result = applyAction({ kind: 'write-cells', writes: prepared.writes });
-    if (!result.ok) return { ok: false, reason: result.reason };
-    return { ok: true, changed: result.value.changed };
+    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, stored);
+    return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
   function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
@@ -441,10 +441,8 @@ export function useWorkbookController({
     const prepared = prepareMoveCellWrites(sourceWorkbook, sheetId, destination, source);
     if (!prepared.ok) return prepared;
     const result = applyAction({ kind: 'write-cells', writes: prepared.writes });
-    if (!result.ok) return { ok: false, reason: result.reason };
-    return { ok: true, changed: result.value.changed };
+    return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
-
 
   function replayContentHistory(direction: 'undo' | 'redo') {
     if (savedAutosave.hasModelTransition()) return;
@@ -467,12 +465,10 @@ export function useWorkbookController({
     setHistoryRevision((revision) => revision + 1);
   }
 
-
   function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
     const localSheetId = sheetId;
     return applyAction({ kind: 'move-sheet-frame', sheetId: localSheetId, position });
   }
-
 
   function resizeSheetFrame(sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize): WorkbookOperationResult {
     const localSheetId = sheetId;
@@ -481,11 +477,9 @@ export function useWorkbookController({
     });
   }
 
-
   function setSheetVisualScale(sheetId: string, visualScale: number): WorkbookOperationResult {
     return applyAction({ kind: 'set-sheet-visual-scale', sheetId, visualScale });
   }
-
 
   function changeSheetZOrder(sheetId: string, direction: SheetZOrderDirection): WorkbookOperationResult {
     return applyAction({
@@ -512,6 +506,7 @@ export function useWorkbookController({
       moveSheetFrame,
       moveCells,
       pasteCells,
+      pasteStoredCells: (sheetId, destination, clipboard) => pasteCells(sheetId, destination, clipboard, true),
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
