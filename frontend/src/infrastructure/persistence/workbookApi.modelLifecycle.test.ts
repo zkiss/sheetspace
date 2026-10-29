@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { bindSheetToModel, replaceModelDeclaration, unbindSheetFromModel } from '@application/core/modelLifecycle';
+import { applyWorkbookOperation, preparePasteCellWrites } from '@application/core/userActions';
+import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { displayRawCellValue } from '@calculation/formulaValue';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import type { DataModel, Workbook } from '@workbook/core/model';
@@ -17,6 +20,23 @@ function successful(result: ModelMutationResult): Workbook {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('lifecycle HTTP mapping', () => {
+  it('preserves a grid-pasted formula-like literal through workbook serialization', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+    const workbook = workbookWithSheets([sheet]);
+    const paste = preparePasteCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'A1')!, {
+      ok: true, value: { kind: 'external', grid: { rowCount: 1, columnCount: 1, rows: [['=1+2']] } },
+    });
+    if (!paste.ok) throw new Error(paste.reason);
+    const applied = applyWorkbookOperation(workbook, { kind: 'write-cells', operationId: 'paste', writes: paste.writes });
+    if (!applied.ok) throw new Error(applied.reason);
+
+    const reloaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(applied.value.nextWorkbook))));
+    const raw = cellRawContent(reloaded.documents.sheet!, 'A1')!;
+    expect(decodeCellTextLiteral(raw)).toBe('=1+2');
+    expect(displayRawCellValue(raw)).toEqual({ kind: 'text', value: '=1+2', display: '=1+2' });
+    expect(new FormulaCalculation().update(calculationProjection(reloaded), { kind: 'structure' }).sheet).toEqual({});
+  });
+
   it('sends complete compare-and-swap snapshots and keeps frozen errors and formula-looking text non-executable on reload', async () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
     const model: DataModel = { id: 'model', name: 'Model', columns: [
