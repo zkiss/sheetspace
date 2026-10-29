@@ -585,6 +585,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       if (!moved.ok && moved.reason === 'unrepresentable-range') setCalculatedCellFeedback('The move did not happen because it would split a referenced range. Move the entire referenced range or choose another destination.');
     } else {
       const pasted = commands.pasteCells(destination.id, destinationKey, parsed);
+      if (!pasted.ok && pasted.reason === 'malformed-tsv') setCalculatedCellFeedback('The clipboard contains malformed tabular text. Check quoted fields and try again. No cells were changed.');
       if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       if (!pasted.ok && pasted.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
     }

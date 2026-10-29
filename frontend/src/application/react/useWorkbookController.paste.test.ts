@@ -6,6 +6,7 @@ import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { formulaRawForStorage } from '@workbook/formula/reference';
+import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { cellRawContent, findSheetById } from '@workbook/read/queries';
 import { autosaveClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -208,7 +209,7 @@ describe('useWorkbookController paste', () => {
     await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(3));
   });
 
-  it('uses external parser results as newly entered destination formulas', () => {
+  it('preserves external formula-like text as literal cell content', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const workbook = workbookWithSheets([sheet]);
     const store = new ClipboardPayloadStore();
@@ -219,7 +220,7 @@ describe('useWorkbookController paste', () => {
       expect(result.current.commands.pasteCells(sheet.id, 'B2', external)).toEqual({ ok: true, changed: true });
     });
 
-    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B2')).toBe('=@sheet:column:1[sheet:row:1]');
+    expect(decodeCellTextLiteral(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B2')!)).toBe('=@A[1]');
   });
 
   it('suppresses calculation, persistence, and history for malformed and no-op parser results', () => {

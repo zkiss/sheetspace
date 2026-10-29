@@ -31,7 +31,7 @@ describe('TSV clipboard codec', () => {
     expect(decodeTsv('"unterminated')).toEqual({ ok: false, reason: 'malformed-tsv' });
     expect(decodeTsv('"quoted"tail')).toEqual({ ok: false, reason: 'malformed-tsv' });
     expect(decodeTsv('bare\rreturn')).toEqual({ ok: false, reason: 'malformed-tsv' });
-    expect(decodeTsv('prefix"quoted"')).toEqual({ ok: false, reason: 'malformed-tsv' });
+    expect(decodeTsv('prefix"quoted"')).toEqual({ ok: true, value: { rows: [['prefix"quoted"']], rowCount: 1, columnCount: 1 } });
   });
 });
 

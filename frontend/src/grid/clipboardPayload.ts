@@ -57,8 +57,7 @@ export function decodeTsv(text: string): TsvDecodeResult {
       recordTerminated = true;
       continue;
     }
-    if (character === '"') {
-      if (field.length > 0) return { ok: false, reason: 'malformed-tsv' };
+    if (character === '"' && field.length === 0) {
       quoted = true;
       recordTerminated = false;
       continue;
