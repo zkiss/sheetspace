@@ -11,6 +11,14 @@ import {
   parseFormula,
   type FormulaReference,
 } from '@workbook/formula/syntax';
+import type { Workbook } from '@workbook/core/model';
+import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
+
+type FormulaParser = (content: string, sheetId: string) => ReturnType<typeof parseFormula>;
+
+export function storedFormulaParser(workbook: Workbook): FormulaParser {
+  return (content, sheetId) => analyzeStoredFormula(content, workbook, sheetId).result;
+}
 
 export type FormulaDependencyGraph = {
   readonly dependencies: ReadonlyMap<string, ReadonlySet<string>>;
@@ -26,6 +34,7 @@ export function emptyFormulaDependencyGraph(): FormulaDependencyGraph {
 
 export function buildFormulaDependencyGraph(
   projection: CalculationProjection,
+  parse: FormulaParser = parseFormula,
 ): FormulaDependencyGraph {
   const formulaChanges: CalculationCellChange[] = [];
   for (const sheet of projection.sheets) {
@@ -39,6 +48,7 @@ export function buildFormulaDependencyGraph(
     emptyFormulaDependencyGraph(),
     projection,
     formulaChanges,
+    parse,
   );
 }
 
@@ -50,6 +60,7 @@ export function updateFormulaDependencyGraph(
   graph: FormulaDependencyGraph,
   projection: CalculationProjection,
   changes: readonly CalculationCellChange[],
+  parse: FormulaParser = parseFormula,
 ): FormulaDependencyGraph {
   const dependencies = cloneAdjacencyMap(graph.dependencies);
   const dependents = cloneAdjacencyMap(graph.dependents);
@@ -71,7 +82,7 @@ export function updateFormulaDependencyGraph(
       continue;
     }
 
-    const parsed = parseFormula(raw);
+    const parsed = parse(raw, currentSheet.id);
     const nextDependencies = parsed.kind === 'formula'
       ? formulaDependencies(parsed.expression, projection, currentSheet)
       : new Set<string>();
