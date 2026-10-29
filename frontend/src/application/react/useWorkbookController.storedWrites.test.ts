@@ -48,6 +48,29 @@ describe('trusted controller writes', () => {
     expect(result.current.workbook.documents[sheet.id]!.content.cells[cellIdentityKey(identity)]).toBe(raw);
   });
 
+  it('copies a translated stored formula and restores exact contents through undo and redo', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 4 });
+    const workbook = workbookWithSheets([sheet]);
+    const raw = prepareUserFormula('=@A[1]+@Missing!A[0]', workbook, sheet.id);
+    const source = cellIdentityAt(sheet.content, 'B1')!;
+    const target = cellIdentityAt(sheet.content, 'C1')!;
+    const clipboard = { ok: true as const, value: { kind: 'internal' as const,
+      grid: { rows: [[raw]], rowCount: 1, columnCount: 1 },
+      source: { sheetId: sheet.id, dimensions: { rowCount: 1, columnCount: 1 }, cells: [[{ identity: source, raw }]] } } };
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+
+    act(() => { expect(result.current.commands.pasteStoredCells(sheet.id, 'C1', clipboard)).toEqual({ ok: true, changed: true }); });
+    const copied = result.current.workbook.documents[sheet.id]!.content.cells[cellIdentityKey(target)]!;
+    const decoded = decodeStoredFormula(copied);
+    expect(decoded.text).toBe('=@B[1]+@Missing!A[0]');
+    expect(decoded.occurrences[0].slots.find((slot) => slot.kind === 'column')?.targetIds).toEqual([sheet.content.columns[1]]);
+    expect(decoded.occurrences[1]).toEqual(decodeStoredFormula(raw).occurrences[1]);
+    act(() => { result.current.commands.undo(); });
+    expect(result.current.workbook.documents[sheet.id]!.content.cells[cellIdentityKey(target)]).toBeUndefined();
+    act(() => { result.current.commands.redo(); });
+    expect(result.current.workbook.documents[sheet.id]!.content.cells[cellIdentityKey(target)]).toBe(copied);
+  });
+
   it('retains stored formula metadata through undo and redo', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);
