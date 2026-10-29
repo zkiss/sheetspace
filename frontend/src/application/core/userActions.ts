@@ -12,6 +12,8 @@ import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { copyCanonicalFormula, moveCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { copyStoredFormula } from '@workbook/formula/storedFormulaCopy';
+import { moveStoredFormula } from '@workbook/formula/storedFormulaMove';
 import { refreshDerivedInstances } from '@workbook/formula/modelTemplate';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
@@ -104,12 +106,7 @@ export type MovePreparationResult = {
  * Validates and materializes a clipboard range before handing it to the normal single write
  * operation. Keeping this separate means a bad footprint or formula can never partially paste.
  */
-export function preparePasteCellWrites(
-  workbook: Workbook,
-  destinationSheetId: SheetId,
-  destination: StableCellIdentity,
-  clipboard: ClipboardParseResult,
-): PastePreparationResult {
+export function preparePasteCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, clipboard: ClipboardParseResult): PastePreparationResult {
   return preparePasteWrites(workbook, destinationSheetId, destination, clipboard, false);
 }
 
@@ -166,9 +163,9 @@ function preparePasteWrites(workbook: Workbook, destinationSheetId: SheetId, des
         const sourceAddress = cellAddressOf(sourceSheet!.content, sourceCell.identity);
         if (!sourceAddress) return { ok: false, reason: 'invalid-internal-source' };
         if (stored && sourceCell.raw.startsWith('=')) {
-          if (source.sheetId !== destinationSheetId || sourceCell.identity.rowId !== rowId || sourceCell.identity.columnId !== columnId) {
-            return { ok: false, reason: 'formula-transform-failed' }; }
-          raw = sourceCell.raw;
+          const transformed = copyStoredFormula(sourceCell.raw, sourceCell.identity, { rowId, columnId }, workbook, { sourceSheetId: source.sheetId, destinationSheetId });
+          if (!transformed.ok) return { ok: false, reason: 'formula-transform-failed' };
+          raw = transformed.content;
         } else if (sourceCell.raw.startsWith('=')) {
           const transformed = copyCanonicalFormula(
             sourceCell.raw,
@@ -192,12 +189,15 @@ function preparePasteWrites(workbook: Workbook, destinationSheetId: SheetId, des
  * Cutting alone changes nothing: staleness is checked against live contents
  * so a changed source can never be cleared by a stale snapshot.
  */
-export function prepareMoveCellWrites(
-  workbook: Workbook,
-  destinationSheetId: SheetId,
-  destination: StableCellIdentity,
-  source: ClipboardSourceSnapshot,
-): MovePreparationResult {
+export function prepareMoveCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, source: ClipboardSourceSnapshot): MovePreparationResult {
+  return prepareMoveWrites(workbook, destinationSheetId, destination, source, false);
+}
+
+export function prepareStoredMoveCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, source: ClipboardSourceSnapshot): MovePreparationResult {
+  return prepareMoveWrites(workbook, destinationSheetId, destination, source, true);
+}
+
+function prepareMoveWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, source: ClipboardSourceSnapshot, stored: boolean): MovePreparationResult {
   const destinationSheet = findSheetById(workbook, destinationSheetId);
   const sourceSheet = findSheetById(workbook, source.sheetId);
   if (!destinationSheet || !cellAddressOf(destinationSheet.content, destination)) {
@@ -303,10 +303,11 @@ export function prepareMoveCellWrites(
       const movedIndex = sourceKeys.indexOf(key);
       if (movedIndex < 0 && destinationKeySet.has(key)) continue;
       const finalSheet = movedIndex >= 0 ? destinationSheetId : sheet.id;
-      const result = moveCanonicalFormula(raw, resolver, finalSheet, mappings);
+      const result = stored ? moveStoredFormula(raw, workbook, sheet.id, finalSheet, mappings) : moveCanonicalFormula(raw, resolver, finalSheet, mappings);
       if (!result.ok) return result;
-      if (movedIndex >= 0) writes[movedIndex] = { ...writes[movedIndex]!, raw: result.raw };
-      else if (!sourceKeySet.has(key) && result.raw !== raw) writes.push({ sheetId: sheet.id, ...cell, raw: result.raw });
+      const transformed = 'content' in result ? result.content : result.raw;
+      if (movedIndex >= 0) writes[movedIndex] = { ...writes[movedIndex]!, raw: transformed };
+      else if (!sourceKeySet.has(key) && transformed !== raw) writes.push({ sheetId: sheet.id, ...cell, raw: transformed });
     }
   }
   return { ok: true, writes, mappings };

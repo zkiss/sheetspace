@@ -2,10 +2,7 @@ import type { AxisSizeWrite, FormatWrite } from '@workbook/core/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
-import {
-  workbookApi,
-  type WorkbookApi,
-} from '@infrastructure/persistence/workbookApi';
+import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -16,9 +13,8 @@ import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, ty
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation, applyStoredCellWrites,
-  preparePasteCellWrites,
-  prepareStoredPasteCellWrites,
-  prepareMoveCellWrites,
+  preparePasteCellWrites, prepareStoredPasteCellWrites,
+  prepareMoveCellWrites, prepareStoredMoveCellWrites,
   replayCellPersistenceWrites,
   type AppliedWorkbookOperation,
   type AffectedWorkbookEntities,
@@ -66,6 +62,7 @@ export type WorkbookCommands = {
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
   pasteStoredCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
+  moveStoredCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
   retryFailedSaves: () => void;
@@ -431,16 +428,16 @@ export function useWorkbookController({
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
-  function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
+  function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot, stored = false): MoveCellsResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
     if (!destination) return { ok: false, reason: 'invalid-destination' };
-    const prepared = prepareMoveCellWrites(sourceWorkbook, sheetId, destination, source);
+    const prepared = (stored ? prepareStoredMoveCellWrites : prepareMoveCellWrites)(sourceWorkbook, sheetId, destination, source);
     if (!prepared.ok) return prepared;
-    const result = applyAction({ kind: 'write-cells', writes: prepared.writes });
+    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, stored);
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
@@ -507,6 +504,7 @@ export function useWorkbookController({
       moveCells,
       pasteCells,
       pasteStoredCells: (sheetId, destination, clipboard) => pasteCells(sheetId, destination, clipboard, true),
+      moveStoredCells: (sheetId, destination, source) => moveCells(sheetId, destination, source, true),
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
