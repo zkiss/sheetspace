@@ -410,7 +410,11 @@ function applyRenameSheet(workbook: Workbook, operation: Extract<WorkbookOperati
   return sheetSuccess(workbook, { ...sheet, name: validation.name }, { kind: 'none' }, { kind: 'rename-sheet', sheetId: sheet.id, name: validation.name }, { kind: 'rename-sheet', sheetId: sheet.id, name: sheet.name });
 }
 
-function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'write-cells' }>): WorkbookOperationResult {
+export function applyStoredCellWrites(workbook: Workbook, writes: readonly CellWrite[]): WorkbookOperationResult {
+  return applyCellWrites(workbook, { kind: 'write-cells', operationId: '', writes }, true);
+}
+
+function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'write-cells' }>, stored = false): WorkbookOperationResult {
   const resolved = operation.writes.map((write) => {
     const sheet = findSheetById(workbook, write.sheetId);
     const cell = { rowId: write.rowId, columnId: write.columnId };
@@ -445,8 +449,7 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
     const cells = cellsBySheet.get(sheet.id) ?? { ...sheet.content.cells };
     cellsBySheet.set(sheet.id, cells);
     const before = cells[identityKey];
-    // Resolve every editor formula against the original workbook, before any write is applied.
-    const raw = entry.write.raw.length === 0 ? '' : formulaRawForStorage(entry.write.raw, workbook, sheet.id);
+    const raw = stored || entry.write.raw.length === 0 ? entry.write.raw : formulaRawForStorage(entry.write.raw, workbook, sheet.id);
     if ((raw.length === 0 && before === undefined) || (raw.length > 0 && before === raw)) continue;
     inverseWrites.push({ ...entry.write, raw: before ?? '' });
     persistenceWrites.push({
