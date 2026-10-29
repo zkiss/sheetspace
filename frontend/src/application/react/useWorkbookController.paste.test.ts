@@ -22,6 +22,70 @@ function parsedInternalClipboard(workbook: ReturnType<typeof workbookWithSheets>
 }
 
 describe('useWorkbookController paste', () => {
+  it('retains the entire optimistic move and retries it as one operation after a save failure', async () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2, cells: { A1: '10' } });
+    const workbook = workbookWithSheets([sheet]);
+    sheet.content.cells[cellIdentityKey(cellIdentityAt(sheet.content, 'B1')!)] = formulaRawForStorage('=@A[1]', workbook, sheet.id);
+    const store = new ClipboardPayloadStore();
+    const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'A1')! });
+    if (!cut.ok) throw new Error('cut failed');
+    const parsed = store.parse(workbook, cut.value);
+    if (!parsed.ok || parsed.value.kind !== 'cut') throw new Error('cut did not parse');
+    const cutSource = parsed.value.source;
+    const writeCells = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ sheets: [{ sheetId: sheet.id, revision: 1 }] });
+    const { result } = renderHook(() => useWorkbookController({ apiClient: autosaveClient({ writeCells }), initialWorkbook: workbook }));
+
+    act(() => expect(result.current.commands.moveCells(sheet.id, 'A2', cutSource)).toEqual({ ok: true, changed: true }));
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+    const moved = findSheetById(result.current.workbook, sheet.id)!;
+    expect(cellRawContent(moved, 'A1')).toBeUndefined();
+    expect(cellRawContent(moved, 'A2')).toBe('10');
+    expect(cellRawContent(moved, 'B1')).not.toBe(cellRawContent(sheet, 'B1'));
+    act(() => result.current.commands.retryFailedSaves());
+    await waitFor(() => expect(writeCells).toHaveBeenCalledTimes(2));
+    expect(writeCells.mock.calls[1]).toEqual(writeCells.mock.calls[0]);
+  });
+
+  it('persists and replays one move including a third-sheet dependent and a moved formula', async () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: '10' } });
+    const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 2, columnCount: 2 });
+    const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([source, destination, dependent]);
+    source.content.cells[cellIdentityKey(cellIdentityAt(source.content, 'B1')!)] = formulaRawForStorage('=@A[1]', workbook, source.id);
+    dependent.content.cells[cellIdentityKey(cellIdentityAt(dependent.content, 'A1')!)] = formulaRawForStorage('=@Source!A[1]', workbook, dependent.id);
+    const store = new ClipboardPayloadStore();
+    const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(source, 'A1')!, extent: cellTargetAt(source, 'B1')! });
+    if (!cut.ok) throw new Error('cut failed');
+    const parsed = store.parse(workbook, cut.value);
+    if (!parsed.ok || parsed.value.kind !== 'cut') throw new Error('cut did not parse');
+    const cutSource = parsed.value.source;
+    const apiClient = autosaveClient();
+    const { result } = renderHook(() => useWorkbookController({ apiClient, initialWorkbook: workbook }));
+
+    act(() => expect(result.current.commands.moveCells(destination.id, 'A2', cutSource)).toEqual({ ok: true, changed: true }));
+    const moved = result.current.workbook;
+    const movedFormula = cellRawContent(findSheetById(moved, destination.id)!, 'B2');
+    const movedDependent = cellRawContent(findSheetById(moved, dependent.id)!, 'A1');
+    expect(movedFormula).not.toBe(cellRawContent(source, 'B1'));
+    expect(movedDependent).not.toBe(cellRawContent(dependent, 'A1'));
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledOnce());
+    expect(vi.mocked(apiClient.writeCells).mock.calls[0]![0]).toEqual(expect.arrayContaining([
+      { sheetId: source.id, revision: 0 }, { sheetId: destination.id, revision: 0 }, { sheetId: dependent.id, revision: 0 },
+    ]));
+    expect(vi.mocked(apiClient.writeCells).mock.calls[0]![1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sheetId: dependent.id, raw: movedDependent }),
+      expect.objectContaining({ sheetId: destination.id, raw: movedFormula }),
+    ]));
+
+    act(() => result.current.commands.undo());
+    expect(cellRawContent(findSheetById(result.current.workbook, source.id)!, 'B1')).toBe(cellRawContent(source, 'B1'));
+    expect(cellRawContent(findSheetById(result.current.workbook, dependent.id)!, 'A1')).toBe(cellRawContent(dependent, 'A1'));
+    act(() => result.current.commands.redo());
+    expect(cellRawContent(findSheetById(result.current.workbook, destination.id)!, 'B2')).toBe(movedFormula);
+    expect(cellRawContent(findSheetById(result.current.workbook, dependent.id)!, 'A1')).toBe(movedDependent);
+    await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(3));
+  });
+
   it('keeps sparse appearance records through copy, paste, clear, move, and content undo', () => {
     const presentation = {
       rowHeights: {}, columnWidths: {}, formatOverrides: {

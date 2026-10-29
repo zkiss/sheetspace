@@ -6,12 +6,12 @@ import { classifyCellValue, matchesModelColumnType } from '@calculation/formulaV
 import { applyFormatWrites, emptySheetFormatOverrides, validFormatWrites } from '@workbook/core/numberFormat';
 import type { AppearanceWrite, CellAppearance } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
-import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { cellAddressOf, cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { formulaRawForStorage } from '@workbook/formula/reference';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
-import { copyCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { copyCanonicalFormula, moveCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { refreshDerivedInstances } from '@workbook/formula/modelTemplate';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
@@ -89,7 +89,7 @@ export type CellWriteResult = { ok: true; changed: boolean } | { ok: false; reas
 /** Plain decoded clipboard data; UI code owns decoding and application code owns mutation. */
 export type PastePreparationFailureReason = 'malformed-tsv' | 'invalid-destination' | 'invalid-paste-footprint' | 'invalid-internal-source' | 'formula-transform-failed';
 export type PastePreparationResult = { ok: true; writes: readonly CellWrite[] } | { ok: false; reason: PastePreparationFailureReason };
-export type MovePreparationFailureReason = 'invalid-destination' | 'invalid-move-footprint' | 'invalid-move-source' | 'stale-move-source';
+export type MovePreparationFailureReason = 'invalid-destination' | 'invalid-move-footprint' | 'invalid-move-source' | 'stale-move-source' | 'unrepresentable-range';
 export type MoveCellIdentityMapping = {
   source: { sheetId: SheetId; cell: StableCellIdentity };
   destination: { sheetId: SheetId; cell: StableCellIdentity };
@@ -175,8 +175,7 @@ export function preparePasteCellWrites(
 }
 
 /**
- * Plans a cut/move as one unique final write set. Moved raw text stays
- * verbatim (no copy transform); recalculation follows from new locations.
+ * Plans a cut/move as one unique final write set.
  * Cutting alone changes nothing: staleness is checked against live contents
  * so a changed source can never be cleared by a stale snapshot.
  */
@@ -278,6 +277,23 @@ export function prepareMoveCellWrites(
       const key = `${source.sheetId}\u0000${cell.identity.rowId}\u0000${cell.identity.columnId}`;
       if (destinationKeySet.has(key)) continue;
       writes.push({ sheetId: source.sheetId, rowId: cell.identity.rowId, columnId: cell.identity.columnId, raw: '' });
+    }
+  }
+  const sourceKeySet = new Set(sourceKeys);
+  for (const sheet of sheetsInOrder(workbook)) {
+    const resolver = workbookFormulaReferenceResolver(workbook, sheet.id);
+    for (const [cellKey, raw] of Object.entries(sheet.content.cells)) {
+      if (!raw.startsWith('=')) continue;
+      const cell = cellIdentityFromKey(cellKey);
+      if (!cell) continue;
+      const key = `${sheet.id}\u0000${cell.rowId}\u0000${cell.columnId}`;
+      const movedIndex = sourceKeys.indexOf(key);
+      if (movedIndex < 0 && destinationKeySet.has(key)) continue;
+      const finalSheet = movedIndex >= 0 ? destinationSheetId : sheet.id;
+      const result = moveCanonicalFormula(raw, resolver, finalSheet, mappings);
+      if (!result.ok) return result;
+      if (movedIndex >= 0) writes[movedIndex] = { ...writes[movedIndex]!, raw: result.raw };
+      else if (!sourceKeySet.has(key) && result.raw !== raw) writes.push({ sheetId: sheet.id, ...cell, raw: result.raw });
     }
   }
   return { ok: true, writes, mappings };
