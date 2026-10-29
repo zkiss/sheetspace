@@ -52,7 +52,10 @@ export const frontendPolicy: ArchitecturePolicy = {
     { name: 'architecture', files: /^architecture\/[^/]+$/, role: 'tooling', mayImport: ['configuration'], external: ['node:child_process', 'node:fs', 'node:os', 'node:path', 'node:url', 'typescript', 'vitest', '@csstools/css-tokenizer'] },
     { name: 'configuration', files: /^(?:package(?:-lock)?\.json|tsconfig(?:\.node)?\.json|(?:vite|performance)\.config\.ts)$/, role: 'tooling', external: ['vite', '@vitejs/plugin-react'] },
   ],
-  exactTestData: [{ file: '../test-fixtures/workbook-read-contract.json', importers: ['src/infrastructure/persistence/workbookApi.test.ts'] }],
+  exactTestData: [
+    { file: '../test-fixtures/workbook-read-contract.json', importers: ['src/infrastructure/persistence/workbookApi.test.ts'] },
+    { file: '../test-fixtures/stored-formula-contract.json', importers: ['src/workbook/formula/storedFormula.test.ts'] },
+  ],
   forbiddenFiles: ['src/workbook.ts', 'src/workbook.tsx', 'src/appTypes.ts', 'src/index.ts', 'src/index.tsx'],
   styles: [
     { files: /^src\/app\/global\.css$/, kind: 'global', importers: ['src/app/main.tsx'] },
