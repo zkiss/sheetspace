@@ -35,6 +35,19 @@ class PreparedCalculatedTransitionTest {
         assertEquals(fixture.getValue("expected").jsonPrimitive.content, derivedPreparedFormulaRaw(template, before, 1))
         assertTrue(calculatedTransitionIsValid(before, replacement, rules))
         assertEquals(contents, replacement.documents.getValue(sheet.id).tabularContent.cellContents)
+        val dead = before.removeSheet(target.id)
+        val newTarget = SheetDocument(SheetId.generate(), name = "Inputs", content = TabularContent(
+            listOf(RowId.generate()), listOf(ColumnId.generate()), emptyMap(),
+        ))
+        var enforce = false
+        SqliteWorkbookStore.inMemory(calculatedAdmission = { current, updated ->
+            if (enforce) rejectCalculatedOverrides(current, updated, rules)
+        }).use { store ->
+            store.saveWorkbook(dead)
+            enforce = true
+            store.updateWorkbook(null) { it.addSheet(newTarget) }
+            assertEquals(contents, store.loadWorkbookBundle().documents.getValue(sheet.id).tabularContent.cellContents)
+        }
     }
 
     @Test
