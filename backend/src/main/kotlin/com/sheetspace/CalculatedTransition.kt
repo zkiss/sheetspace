@@ -10,7 +10,7 @@ internal interface CalculatedTemplates<T> {
     fun derive(template: T, workbook: WorkbookState, rowIndex: Int): String
 }
 
-private object LegacyCalculatedTemplates : CalculatedTemplates<BoundModelFormula> {
+internal object LegacyCalculatedTemplates : CalculatedTemplates<BoundModelFormula> {
     override fun templates(sheet: SheetDocument) = sheet.modelFormulaBindings
     override fun valid(template: BoundModelFormula, declaration: String) = template.raw == declaration
     override fun derive(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int) = derivedFormulaRaw(template, workbook, rowIndex)

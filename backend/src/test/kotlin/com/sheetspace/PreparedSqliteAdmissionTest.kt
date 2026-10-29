@@ -3,8 +3,50 @@ package com.sheetspace
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class PreparedSqliteAdmissionTest {
+    @Test
+    fun `persisted same declaration provenance cannot be replaced even with matching forged outputs`() {
+        val fixture = Json.parseToJsonElement(requireNotNull(javaClass.getResource("/stored-model-instances.json")).readText()).jsonArray.first().jsonObject
+        val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content)
+        val forgedTemplate = PreparedModelFormula(template.content.replace("\"col1\"", "\"other-column\""))
+        val declaration = "=@A[1]:B[2]+???😀"
+        assertTrue(preparedModelTemplateIsValid(template, declaration))
+        assertTrue(preparedModelTemplateIsValid(forgedTemplate, declaration))
+        for (empty in listOf(false, true)) {
+            val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
+            val base = initial.removeSheet(initial.sheetsInOrder.last().id)
+            val sheet = base.sheetsInOrder.first()
+            val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+            val changedModel = model.copy(columns = model.columns.map {
+                if (it.id == LIFECYCLE_OUTPUT) (it as CalculatedModelColumn).copy(formula = declaration) else it
+            })
+            val rules = preparedCalculatedTemplates { candidate ->
+                if (candidate.id == sheet.id) mapOf(LIFECYCLE_OUTPUT to if (candidate.name == "forged") forgedTemplate else template) else null
+            }
+            val rows = if (empty) emptyList() else sheet.tabularContent.rows
+            val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+            val workbook = base.copy(dataModels = base.dataModels + (model.id to changedModel))
+            fun contents(value: PreparedModelFormula) = rows.withIndex().associate { (index, row) ->
+                CellCoordinate(row, output) to derivedPreparedFormulaRaw(value, workbook, index)
+            }
+            val before = workbook.replaceSheet(sheet.copy(presentation = SheetPresentation(), content = TabularContent(rows, sheet.tabularContent.columns, contents(template))))
+            SqliteWorkbookStore.inMemory(calculatedAdmission = { current, updated -> rejectCalculatedOverrides(current, updated, rules) }).use { store ->
+                store.saveWorkbook(before)
+                val persisted = store.loadWorkbookBundle()
+                val saved = persisted.documents.getValue(sheet.id)
+                val forged = persisted.replaceSheet(saved.copy(name = "forged", content = TabularContent(rows, saved.tabularContent.columns, contents(forgedTemplate))))
+                assertFailsWith<WorkbookApplicationException> { store.saveWorkbook(forged) }
+                assertFailsWith<WorkbookApplicationException> { store.updateWorkbook(null) { forged } }
+                assertEquals(persisted, store.loadWorkbookBundle())
+            }
+        }
+    }
     @Test
     fun `persisted missing history and forged templates cannot authorize calculated output`() {
         val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
