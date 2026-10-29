@@ -289,8 +289,8 @@ class DefaultWorkbookApplication(
                 documents = workbook.documents.mapValues { (_, sheet) ->
                     if (sheet.modelId != model.id) sheet else sheet.copy(
                         modelColumnBindings = sheet.modelColumnBindings.filterKeys(propertyIds::contains),
-                        modelFormulaBindings = sheet.modelFormulaBindings?.filter { (propertyId, template) ->
-                            model.columns.any { it.id == propertyId && it is CalculatedModelColumn && it.formula == template.raw }
+                        modelFormulaBindings = retainDeclaredCalculatedTemplates(model, sheet.modelFormulaBindings) { template, declaration ->
+                            template.raw == declaration
                         },
                     )
                 },

@@ -16,6 +16,9 @@ private object LegacyCalculatedTemplates : CalculatedTemplates<BoundModelFormula
     override fun derive(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int) = derivedFormulaRaw(template, workbook, rowIndex)
 }
 
+internal fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) =
+    rejectCalculatedOverrides(current, updated, LegacyCalculatedTemplates)
+
 internal fun <T> calculatedTransitionIsValid(current: WorkbookState, updated: WorkbookState, rules: CalculatedTemplates<T>): Boolean =
     calculatedTemplatesAreValid(updated, rules) && calculatedOwnershipIsPreserved(current, updated) && updated.documents.values.all { sheet ->
         val model = sheet.modelId?.let(updated.dataModels::get) ?: return@all true
@@ -52,6 +55,20 @@ internal fun preparedCalculatedTemplates(templates: (SheetDocument) -> Map<Strin
         override fun derive(template: PreparedModelFormula, workbook: WorkbookState, rowIndex: Int) =
             derivedPreparedFormulaRaw(template, workbook, rowIndex)
     }
+
+internal fun <T> retainDeclaredCalculatedTemplates(
+    model: DataModel,
+    templates: Map<String, T>?,
+    matches: (T, String) -> Boolean,
+): Map<String, T>? = templates?.filter { (propertyId, template) ->
+    model.columns.any { it.id == propertyId && it is CalculatedModelColumn && matches(template, it.formula) }
+}
+
+internal fun <T> rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState, rules: CalculatedTemplates<T>) {
+    if (!calculatedTransitionIsValid(current, updated, rules)) {
+        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
+    }
+}
 
 private fun calculatedOwnershipIsPreserved(current: WorkbookState, updated: WorkbookState): Boolean =
     current.documents.values.all { previous ->

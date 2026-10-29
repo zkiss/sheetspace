@@ -39,9 +39,7 @@ internal fun <T> reconcileCalculatedLifecycle(
     rules: CalculatedTemplates<T>,
 ): WorkbookState {
     val reconciled = reconcileModelLifecycle(current, before, after) { validateLifecycleWorkbook(it, rules) }
-    if (!calculatedTransitionIsValid(current, reconciled, rules)) {
-        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-    }
+    rejectCalculatedOverrides(current, reconciled, rules)
     return reconciled
 }
 

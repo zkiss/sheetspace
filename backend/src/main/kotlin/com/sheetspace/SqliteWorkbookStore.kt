@@ -180,12 +180,6 @@ class SqliteWorkbookStore internal constructor(
     }
 }
 
-private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) {
-    if (calculatedOverridesWereIntroduced(current, updated)) {
-        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-    }
-}
-
 private fun validateModelMetadata(workbook: WorkbookState) {
     require(workbook.dataModels.keys.all { it.toUuidBytesOrNull() != null }) { "Model IDs must be UUIDs" }
     workbook.dataModels.values.forEach { model ->
