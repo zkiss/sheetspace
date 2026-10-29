@@ -285,7 +285,7 @@ describe('useWorkbookController content mutations', () => {
 
     await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(1));
     expect(apiClient.loadSheet).toHaveBeenCalledWith('sheet-inputs');
-    expect(cellRawContent(findSheetById(result.current.workbook, 'sheet-inputs')!, 'A1')).toEqual('Local value');
+    expect(cellRawContent(findSheetById(result.current.workbook, 'sheet-inputs')!, 'A1')).toEqual('"Local value"');
     await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
   });
 

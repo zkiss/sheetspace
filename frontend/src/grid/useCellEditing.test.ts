@@ -16,7 +16,7 @@ function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x
 }
 
 describe('useCellEditing', () => {
-  it.each(['=1+2', '123', '', '\u001eSheetspace:text:"nested"'])('edits frozen text %j without exposing its envelope or executing an unchanged draft', (text) => {
+  it.each(['=1+2', '123', 'TRUE', '', '\u001eSheetspace:text:"nested"'])('edits frozen text %j without exposing storage quoting or executing an unchanged draft', (text) => {
     const sheet = sheetDocument({ id: 'literal', name: 'Literal', cells: { A1: encodeCellTextLiteral(text) } });
     const { result, commands } = renderCellEditing(sheet);
     act(() => result.current.startEditingCell(cellTargetAt(sheet, 'A1')!));

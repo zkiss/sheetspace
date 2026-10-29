@@ -11,7 +11,7 @@ import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/oper
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { cellKey, type CellKey } from '@workbook/core/address';
 import type { StableCellIdentity } from '@workbook/core/model';
-import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { classifyCellValue, type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
@@ -406,7 +406,9 @@ export function useWorkbookController({
     if (!currentSheet) return { ok: false, reason: 'unknown-sheet' };
     const cell = cellIdentityAt(currentSheet.content, cellKey);
     if (!cell) return { ok: false, reason: 'invalid-cell' };
-    return writeCells([{ sheetId: localSheetId, ...cell, raw: decodeCellTextLiteral(raw) === undefined ? raw : encodeCellTextLiteral(raw) }]);
+    const stored = raw && !raw.startsWith('=') && (decodeCellTextLiteral(raw) !== undefined || classifyCellValue(raw).kind === 'text')
+      ? encodeCellTextLiteral(raw) : raw;
+    return writeCells([{ sheetId: localSheetId, ...cell, raw: stored }]);
   }
 
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]): CellWriteResult {

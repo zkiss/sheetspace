@@ -171,7 +171,7 @@ describe('App grid clipboard integration', () => {
     const sheet = {
       ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }),
       columnCount: 2,
-      cells: { A1: 'move me', B1: 'outside' },
+      cells: { A1: 'move me', B1: '"outside"' },
     };
     const apiClient = autosaveClient();
     render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);

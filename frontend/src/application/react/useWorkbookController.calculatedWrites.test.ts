@@ -84,7 +84,7 @@ describe('useWorkbookController calculated writes', () => {
     expect(cellRawContent(result.current.workbook.documents.sheet!, 'B2')).toBe('=SUM(@sheet:column:1[sheet:row:2])');
 
     act(() => expect(result.current.commands.pasteCells('sheet', 'C2', external)).toEqual({ ok: true, changed: true }));
-    expect(cellRawContent(result.current.workbook.documents.sheet!, 'C2')).toBe('pasted');
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'C2')).toBe('"pasted"');
     await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(1));
   });
 

@@ -6,7 +6,7 @@ import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { formulaRawForStorage } from '@workbook/formula/reference';
-import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { cellRawContent, findSheetById } from '@workbook/read/queries';
 import { autosaveClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -23,6 +23,21 @@ function parsedInternalClipboard(workbook: ReturnType<typeof workbookWithSheets>
 }
 
 describe('useWorkbookController paste', () => {
+  it('preserves quoted scalar text through internal copy and undo redo', () => {
+    const raw = encodeCellTextLiteral('=1+"2"');
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2, cells: { A1: raw } });
+    const workbook = workbookWithSheets([sheet]);
+    const store = new ClipboardPayloadStore();
+    const copied = store.copy(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'A1')! });
+    if (!copied.ok) throw new Error('copy failed');
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+    act(() => result.current.commands.pasteCells(sheet.id, 'B1', store.parse(workbook, copied.value)));
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B1')).toBe(raw);
+    act(() => result.current.commands.undo());
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B1')).toBeUndefined();
+    act(() => result.current.commands.redo());
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B1')).toBe(raw);
+  });
   it('retains the entire optimistic move and retries it as one operation after a save failure', async () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2, cells: { A1: '10' } });
     const workbook = workbookWithSheets([sheet]);

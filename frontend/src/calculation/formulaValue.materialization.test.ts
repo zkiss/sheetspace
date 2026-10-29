@@ -34,6 +34,13 @@ describe('ordinary materialized formula results', () => {
     expect(classifyCellValue(raw)).toEqual({ kind: 'text', value: '#DIV/0!' });
   });
 
+  it('uses formula string quoting and rejects malformed quoted literals', () => {
+    expect(encodeCellTextLiteral('a"b\\c\n')).toBe('"a""b\\c\n"');
+    expect(decodeCellTextLiteral('"a""b\\c\n"')).toBe('a"b\\c\n');
+    expect(decodeCellTextLiteral('"a"b"')).toBeUndefined();
+    expect(decodeCellTextLiteral('""')).toBe('');
+  });
+
   it('does not execute frozen text after storage canonicalization, reload or recalculation', () => {
     const frozen = materializeFormulaValue({ kind: 'text', value: '=@B[1]+1' });
     const sheet = sheetDocument({ id: 'one', name: 'One', cells: { A1: frozen, B1: '4', C1: '=@A[1]' } });
