@@ -4,8 +4,8 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 
 type Props = Parameters<typeof useWorkspaceActionCommands>[0];
-function setup() {
-  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+function setup(columnCount = 1) {
+  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount });
   const cell = { sheetId: sheet.id, cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! } };
   const commands = { appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn() };
   const controller = { createSheetAtViewportCenter: vi.fn(), zoomWorkspaceBy: vi.fn(), resetViewport: vi.fn() };
@@ -104,6 +104,17 @@ describe('workspace palette actions', () => {
     fireEvent.submit(screen.getByLabelText('Column name').closest('form')!);
     expect(await screen.findByRole('alert')).toHaveTextContent('selected column has changed');
     expect(commands.renameColumn).not.toHaveBeenCalled();
+  });
+
+  it('disables rename for a multi-column selection and an unsaved column', () => {
+    const { command, hook, props, sheet, cell } = setup(2);
+    props.selection = { mode: 'columns', anchor: cell, extent: { ...cell, cell: { ...cell.cell, columnId: sheet.content.columns[1]! } } };
+    hook.rerender();
+    expect(command('rename-column').unavailable).toBe('Select one existing column first');
+    const pending = { ...cell, cell: { ...cell.cell, columnId: 'pending-column' } };
+    props.selection = { mode: 'columns', anchor: pending, extent: pending };
+    hook.rerender();
+    expect(command('rename-column').unavailable).toBe('Select one existing column first');
   });
 
   it('preserves clipboard markers and cancels a failed cut', async () => {
