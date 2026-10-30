@@ -3,7 +3,7 @@ import { sheetDocument } from '@test-support/workbookFactories';
 import { bindModelSheets, calculatedModelCells, calculatedProperty, declaration, freshColumns, manualProperty, modelWorkbook, successfulModelMutation } from '@test-support/modelLifecycleFixtures';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { bindSheetToModel, replaceModelDeclaration } from './modelLifecycle';
-import { bindPreparedSheet, replacePreparedDeclaration } from './preparedModelLifecycle';
+import { bindPreparedSheet, renamePreparedOrdinaryColumn, replacePreparedDeclaration } from './preparedModelLifecycle';
 import { renameOrdinaryColumn } from '@workbook/mutations/renameOrdinaryColumn';
 import { bindModelFormula } from '@workbook/formula/modelTemplate';
 import { modelFormulaAssociations } from '@workbook/formula/modelFormulaAssociation';
@@ -128,4 +128,21 @@ it('projects unresolved templates in stored and prepared lifecycles without chan
   expect(preparedResult.value.bindings.one.result).toEqual(renamed.documents.one.modelFormulaBindings!.result);
   expect(renamed.documents.one.content.cells).toBe(stored.documents.one.content.cells);
   expect(preparedResult.value.workbook.documents.one.content.cells).toBe(partial.documents.one.content.cells);
+});
+
+it('projects an opaque qualified reference in prepared bindings when an ordinary column is renamed', () => {
+  const formula = '=@Source!Old[2]';
+  const model = declaration([calculatedProperty('result', formula, 'Total')]);
+  const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
+  const consumer = sheetDocument({ id: 'consumer', name: 'Consumer', rowCount: 1, columnCount: 1 });
+  const initial = modelWorkbook(model, [{ ...source, columnNames: { [source.content.columns[0]]: 'Old' } }, consumer]);
+  const bound = bindPreparedSheet({ workbook: initial, bindings: {} }, 'consumer', model.id, freshColumns());
+  if (!bound.ok) throw new Error(bound.reason);
+
+  const result = renamePreparedOrdinaryColumn(bound.value, 'source', source.content.columns[0], "Owner's cost");
+  if (!result.ok) throw new Error(result.reason);
+  const declarationText = result.value.workbook.dataModels!.model.columns[0].formula!;
+  expect(declarationText).toBe("=@Source!'Owner''s cost'[2]");
+  expect(modelFormulaAssociations(result.value.bindings.consumer.result.content, declarationText)).toBeDefined();
+  expect(result.value.workbook.documents.consumer.content.cells).toBe(bound.value.workbook.documents.consumer.content.cells);
 });

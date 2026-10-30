@@ -1,8 +1,8 @@
 import type { Workbook } from '../core/model';
 import { namedColumns } from '../core/columnNames';
-import { projectRenamedModelFormulas } from '../formula/renamedModelFormulas';
+import { projectRenamedModelFormulas, type ModelFormulaEditPlan } from '../formula/renamedModelFormulas';
 
-export function renameOrdinaryColumn(workbook: Workbook, sheetId: string, columnId: string, input: string):
+export function renameOrdinaryColumn(workbook: Workbook, sheetId: string, columnId: string, input: string, receivePlans?: (plans: ModelFormulaEditPlan) => void):
   | { ok: true; value: Workbook }
   | { ok: false; reason: 'unknown-sheet' | 'unknown-column' | 'model-column' | 'empty' | 'duplicate' } {
   const sheet = workbook.documents[sheetId];
@@ -13,5 +13,5 @@ export function renameOrdinaryColumn(workbook: Workbook, sheetId: string, column
   if (!name) return { ok: false, reason: 'empty' };
   if (namedColumns(workbook, sheet).some((column) => column.columnId !== columnId && column.name === name)) return { ok: false, reason: 'duplicate' };
   if (sheet.columnNames?.[columnId] === name) return { ok: true, value: workbook };
-  return { ok: true, value: projectRenamedModelFormulas(workbook, { ...workbook, documents: { ...workbook.documents, [sheetId]: { ...sheet, columnNames: { ...sheet.columnNames, [columnId]: name } } } }) };
+  return { ok: true, value: projectRenamedModelFormulas(workbook, { ...workbook, documents: { ...workbook.documents, [sheetId]: { ...sheet, columnNames: { ...sheet.columnNames, [columnId]: name } } } }, receivePlans) };
 }
