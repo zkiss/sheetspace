@@ -96,4 +96,57 @@ class ModelFormulaProjectionPlanTest {
         assertEquals(formula, project(named.replaceSheet(sheet.copy(columnNames = mapOf(ColumnId.generate().value to "New")))))
     }
 
+    @Test
+    fun `qualified references require a surviving model and property`() {
+        val before = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val sheet = before.sheetsInOrder.first()
+        val model = before.dataModels.getValue(LIFECYCLE_MODEL)
+        val formula = "=@'${sheet.name}'!Input[1]"
+        fun project(workbook: WorkbookState) = applyFormulaNameEdits(formula, renamedDeclarationEdits(before, workbook, model, formula))
+        val withoutProperty = model.copy(columns = model.columns.filterNot { it.id == LIFECYCLE_INPUT })
+
+        assertEquals(formula, project(before.copy(dataModels = emptyMap())))
+        assertEquals(formula, project(before.copy(dataModels = before.dataModels + (model.id to withoutProperty))))
+        assertEquals(formula, project(before.replaceSheet(sheet.copy(modelId = "other"))))
+        assertEquals(formula, project(before.replaceSheet(sheet.copy(modelColumnBindings = emptyMap()))))
+    }
+
+    @Test
+    fun `unbound names and quoted names without escapes stay unchanged when not renamed`() {
+        val old = DataModel("model", "Model", listOf(ManualModelColumn("input", "Old name", ModelColumnType.INT)))
+        val before = emptyWorkbookState().copy(dataModels = mapOf(old.id to old))
+        val next = old.copy(columns = listOf(ManualModelColumn("input", "New", ModelColumnType.INT)))
+        val after = before.copy(dataModels = mapOf(next.id to next))
+        val formula = "=@'Old name'[1]+@Unknown[2]"
+
+        assertEquals("=@New[1]+@Unknown[2]", applyFormulaNameEdits(formula, renamedDeclarationEdits(before, after, old, formula)))
+        assertEquals(formula, applyFormulaNameEdits(formula, renamedDeclarationEdits(before, before, old, formula)))
+    }
+
+    @Test
+    fun `qualified ordinary references do not infer a missing or detached model property`() {
+        val before = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val sheet = before.sheetsInOrder.first()
+        val model = before.dataModels.getValue(LIFECYCLE_MODEL)
+        val column = ColumnId.generate()
+        val detached = before.replaceSheet(sheet.copy(modelId = null, modelColumnBindings = emptyMap(), columnNames = mapOf(column.value to "Local")))
+        val renamed = detached.replaceSheet(detached.documents.getValue(sheet.id).copy(columnNames = mapOf(column.value to "New")))
+        val formula = "=@'${sheet.name}'!Local[1]"
+
+        assertEquals("=@'${sheet.name}'!New[1]", applyFormulaNameEdits(formula, renamedDeclarationEdits(detached, renamed, model, formula)))
+        val missingModel = detached.replaceSheet(detached.documents.getValue(sheet.id).copy(modelId = "missing"))
+        assertEquals("=@'${sheet.name}'!New[1]", applyFormulaNameEdits(formula, renamedDeclarationEdits(missingModel, renamed, model, formula)))
+        assertEquals(formula, applyFormulaNameEdits(formula, renamedDeclarationEdits(detached, detached, model, formula)))
+    }
+
+    @Test
+    fun `opaque projection leaves canonical references and unrelated edits unchanged`() {
+        val declaration = "=@Old[1]+@Missing[2]"
+        val canonical = lifecycleBoundWorkbook(lifecycleWorkbook()).sheetsInOrder.first().modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).content
+        assertNull(projectOpaqueModelTemplate(canonical, declaration, emptyList()))
+        val content = "=" + StoredFormulaCodec.escape("@Old[1]") + "+" + StoredFormulaCodec.escape("@Missing[2]")
+        val outside = FormulaNameEdit(declaration.length + 1, declaration.length + 1, "ignored")
+        assertEquals(content, projectOpaqueModelTemplate(content, declaration, listOf(outside)))
+    }
+
 }
