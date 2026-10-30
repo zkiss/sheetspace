@@ -71,6 +71,7 @@ export function collectFormulaReferences(expression: FormulaExpression): Formula
     case 'number':
     case 'text':
     case 'boolean':
+    case 'invalid-reference':
       return [];
     case 'group':
       return collectFormulaReferences(expression.expression);

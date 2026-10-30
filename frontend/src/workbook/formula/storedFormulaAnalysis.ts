@@ -48,7 +48,6 @@ function analyzeDecodedStoredFormula(formula: StoredFormula, workbook: Workbook)
   let result = syntax.result;
   if (result.kind === 'formula') {
     if (dormantOccurrences.length) result = { kind: 'error', raw: formula.text, error: '#PARSE!' };
-    else if (references.some((reference) => !reference.live)) result = { kind: 'error', raw: formula.text, error: '#REF!' };
     else result = { ...result, expression: overlayExpression(result.expression, references) };
   }
   return { formula, syntax, references, dormantOccurrences, result, diagnostics };
@@ -118,7 +117,10 @@ function canonicalReference(occurrence: FormulaOccurrence, lexeme: FormulaRefere
 function overlayExpression(expression: FormulaExpression, references: StoredReferenceAnalysis[]): FormulaExpression {
   switch (expression.kind) {
     case 'cell': case 'range': case 'named': case 'canonical':
-      return references.find(({ lexeme }) => sameSpan(lexeme.sourceSpan, expression.sourceSpan))!.reference!;
+      {
+        const reference = references.find(({ lexeme }) => sameSpan(lexeme.sourceSpan, expression.sourceSpan));
+        return reference?.live && reference.reference ? reference.reference : { kind: 'invalid-reference', sourceSpan: expression.sourceSpan };
+      }
     case 'group': return { ...expression, expression: overlayExpression(expression.expression, references) };
     case 'unary': return { ...expression, operand: overlayExpression(expression.operand, references) };
     case 'binary': return { ...expression, left: overlayExpression(expression.left, references), right: overlayExpression(expression.right, references) };

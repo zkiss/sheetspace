@@ -9,6 +9,46 @@ import { FormulaCalculation } from './formulaCalculation';
 import { buildFormulaDependencyGraph, storedFormulaParser } from './formulaDependencies';
 
 describe('stored formula evaluation', () => {
+  it.each([
+    ['=IF(TRUE,7,@Missing!A[1])', '7'],
+    ['=IF(FALSE,7,@Missing!A[1])', '#REF!'],
+    ['=IF(FALSE,@Missing!A[1],7)', '7'],
+    ['=IF(TRUE,@Missing!A[1],7)', '#REF!'],
+    ['=@Missing!A[1]', '#REF!'],
+    ['=SUM(@Missing!A[1])', '#REF!'],
+  ])('evaluates invalid references lazily in %s', (text, display) => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
+    const initial = workbookWithSheets([sheet]);
+    const formula = prepareUserFormula(text, initial, sheet.id);
+    const target = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1, cells: { A1: formula } });
+    const workbook = workbookWithSheets([target]);
+
+    expect(evaluateStoredFormulaCells(calculationProjection(workbook), workbook).sheet.A1).toMatchObject({ display });
+    expect(analyzeStoredFormula(formula, workbook).diagnostics).toContainEqual(expect.objectContaining({ kind: 'reference', code: '#REF!' }));
+    expect(Object.values(target.content.cells)).toContain(formula);
+  });
+
+  it('retains live conditional dependencies and recalculates without rebinding a dead target', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 2, cells: { A1: 'TRUE', B1: '4' } });
+    const dead = sheetDocument({ id: 'dead', name: 'Dead', rowCount: 1, columnCount: 1, cells: { A1: '9' } });
+    const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1 });
+    const formula = prepareUserFormula('=IF(@Source!A[1],@Source!B[1],@Dead!A[1])', workbookWithSheets([source, dead, output]), output.id);
+    const target = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1, cells: { A1: formula } });
+    const replacement = sheetDocument({ id: 'replacement', name: 'Dead', rowCount: 1, columnCount: 1, cells: { A1: '99' } });
+    const initial = workbookWithSheets([source, replacement, target]);
+    const graph = buildFormulaDependencyGraph(calculationProjection(initial), storedFormulaParser(initial));
+    expect([...graph.dependencies.values()][0]?.size).toBe(2);
+    expect(analyzeStoredFormula(formula, initial).references.map(({ live }) => live)).toEqual([true, true, false]);
+    const calculation = new FormulaCalculation();
+    expect(calculation.updateStored(calculationProjection(initial), initial, { kind: 'structure' }).output.A1).toMatchObject({ value: 4 });
+
+    const withCells = (cells: Record<string, string>) => workbookWithSheets([{ ...source, content: { ...source.content, cells } }, replacement, target]);
+    const keys = Object.keys(source.content.cells);
+    const updated = withCells({ [keys[0]]: 'TRUE', [keys[1]]: '8' });
+    expect(calculation.updateStored(calculationProjection(updated), updated, { kind: 'cells', cells: [{ sheetId: source.id, key: 'B1' }] }).output.A1).toMatchObject({ value: 8 });
+    const switched = withCells({ [keys[0]]: 'FALSE', [keys[1]]: '8' });
+    expect(calculation.updateStored(calculationProjection(switched), switched, { kind: 'cells', cells: [{ sheetId: source.id, key: 'A1' }] }).output.A1).toMatchObject({ display: '#REF!' });
+  });
   it('evaluates retained identities after rename and reports unresolved targets', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '4' } });
     const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 2 });

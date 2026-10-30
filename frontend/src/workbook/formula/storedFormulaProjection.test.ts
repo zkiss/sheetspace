@@ -61,7 +61,7 @@ describe('stored editable projection', () => {
     const projection = projectStoredFormula(content, workbook, sheet.id);
 
     expect(projection.formula).toEqual(decodeStoredFormula(content));
-    expect(projection.analysis.result).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(projection.analysis.result).toMatchObject({ kind: 'formula', expression: { kind: 'invalid-reference' } });
   });
 
   it('maps quoted escaped Unicode names, changed lengths, guards, origins and endpoint IDs', () => {

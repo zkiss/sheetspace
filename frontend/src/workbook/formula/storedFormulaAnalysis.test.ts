@@ -60,7 +60,7 @@ describe('stored identity analysis', () => {
 
     expect(analysis.references.map(({ live }) => live)).toEqual([false, false]);
     expect(analysis.formula).toEqual(decodeStoredFormula(content));
-    expect(analysis.result).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(analysis.result).toMatchObject({ kind: 'formula', expression: { kind: 'binary', left: { kind: 'invalid-reference' }, right: { kind: 'invalid-reference' } } });
   });
 
   it('does not fall back from deleted sheet identities to same-name replacements', () => {
@@ -87,7 +87,7 @@ describe('stored identity analysis', () => {
     const analysis = analyze({ text: '=@A[1]', occurrences: [] });
 
     expect(analysis.references[0]).toMatchObject({ live: false, slots: [] });
-    expect(analysis.result).toMatchObject({ kind: 'error', error: '#REF!' });
+    expect(analysis.result).toMatchObject({ kind: 'formula', expression: { kind: 'invalid-reference' } });
   });
 
   it('classifies identical column and property spellings by occurrence origins rather than global names', () => {

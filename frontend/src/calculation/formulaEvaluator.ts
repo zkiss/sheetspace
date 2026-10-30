@@ -155,6 +155,7 @@ export class FormulaEvaluator {
   }
 
   private evaluateExpression(expression: FormulaExpression, currentSheet: CalculationSheet): FormulaValue {
+    if (expression.kind === 'invalid-reference') return formulaErrorValue('#REF!');
     if (expression.kind === 'number') {
       return Number.isFinite(expression.value)
         ? { kind: 'number', value: expression.value }
@@ -276,6 +277,7 @@ export class FormulaEvaluator {
     expression: FormulaExpression,
     currentSheet: CalculationSheet,
   ): FormulaReferenceArgumentResult {
+    if (expression.kind === 'invalid-reference') return { ok: false, error: '#REF!' };
     if (expression.kind === 'group') {
       return this.evaluateFunctionReferenceArgument(expression.expression, currentSheet);
     }
