@@ -2,11 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { prepareModelFormula, prepareModelFormulas, instantiatePreparedModelFormula } from './preparedModelTemplate';
 import { projectStoredFormula } from './storedFormulaProjection';
+import fixtures from '../../../../test-fixtures/stored-model-instances.json';
+import { instantiateStoredModelFormula } from './modelFormulaInstance';
+import { requireStoredFormula } from './storedFormula';
 
 const sheet = sheetDocument({ id: 'sheet', name: 'Inputs', rowCount: 3, columnCount: 2 });
 const workbook = workbookWithSheets([sheet]);
 
 describe('stored model formula instantiation', () => {
+  it('agrees with the shared inline row recipe fixtures', () => {
+    for (const fixture of fixtures) {
+      const target = { ...sheet, content: { ...sheet.content, rows: fixture.rows ?? [] } };
+      const fixtureWorkbook = workbookWithSheets(fixture.rows === null ? [] : [target]);
+      expect(instantiateStoredModelFormula(requireStoredFormula(fixture.template), fixtureWorkbook, fixture.rowIndex, fixture.declaration, 'sheet')).toBe(fixture.expected);
+    }
+  });
   it('transports only inline content and instantiates relative and anchored row recipes', () => {
     const declaration = '=@A[1]:$B[$2]+???';
     const template = prepareModelFormula(declaration, workbook, sheet.id);

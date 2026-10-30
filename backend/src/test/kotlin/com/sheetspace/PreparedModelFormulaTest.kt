@@ -30,18 +30,18 @@ class PreparedModelFormulaTest {
 
             assertEquals(setOf("content"), Json.parseToJsonElement(transport).jsonObject.keys)
             assertEquals(template, restored)
-            assertTrue(preparedModelTemplateIsValid(restored, "=@A[1]:B[2]+???😀"))
-            assertEquals(fixture.getValue("expected").jsonPrimitive.content, derivedPreparedFormulaRaw(restored, workbook, fixture.getValue("rowIndex").jsonPrimitive.int))
+            val declaration = fixture.getValue("declaration").jsonPrimitive.content
+            assertTrue(preparedModelTemplateIsValid(restored, declaration))
+            assertEquals(fixture.getValue("expected").jsonPrimitive.content, derivedPreparedFormulaRaw(restored, workbook, fixture.getValue("rowIndex").jsonPrimitive.int, declaration, "sheet"))
         }
     }
 
     @Test
-    fun `declaration association rejects invalid codecs and different text but permits dead provenance`() {
-        val content = StoredFormulaCodec.encode(StoredFormula("=@Missing!A[1]+???", emptyList()))
+    fun `declaration association rejects malformed encoding and changed expression`() {
+        val content = "=" + StoredFormulaCodec.escape("@Missing!A[1]") + "+???"
 
         assertTrue(preparedModelTemplateIsValid(PreparedModelFormula(content), "=@Missing!A[1]+???"))
         assertFalse(preparedModelTemplateIsValid(PreparedModelFormula(content), "=@Missing!A[1]+3"))
-        assertFalse(preparedModelTemplateIsValid(PreparedModelFormula("=@Missing!A[1]+???"), "=@Missing!A[1]+???"))
-        assertFalse(preparedModelTemplateIsValid(PreparedModelFormula("=~F1[]"), "=1"))
+        assertFalse(preparedModelTemplateIsValid(PreparedModelFormula("=~{xyz}"), "=1"))
     }
 }
