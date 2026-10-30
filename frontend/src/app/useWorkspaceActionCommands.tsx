@@ -199,7 +199,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   if (panel?.kind === 'model' && sheet) content = <SheetModelControls key={`${sheet.id}:${panel.initialAction}`} models={Object.values(workbook.dataModels ?? {})} sheet={sheet} initialAction={panel.initialAction} onBind={commands.bindSheetToModel} onUnbind={commands.unbindSheetFromModel} onOpenDataModels={(id) => run(() => onOpenDataModels?.(id), false)()} />;
   if (panel?.kind === 'rename-column') content = <RenameColumnForm target={panel.target} initialName={panel.initialName} onCancel={() => { setPanel(null); closePalette(); }} onApply={async (name) => {
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
-    if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target)) return 'The selected column has changed. Close and try again.';
+    if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target) ||
+      (current?.kind === 'ordinary' && (workbook.documents[current.sheetId]?.columnNames?.[current.columnId] ?? '') !== panel.initialName)) return 'The selected column has changed. Close and try again.';
     const submission = commands.renameColumn(panel.target.sheetId, panel.target.columnId, name);
     setRenameBusy(true);
     let result;

@@ -106,6 +106,25 @@ describe('workspace palette actions', () => {
     expect(commands.renameColumn).not.toHaveBeenCalled();
   });
 
+  it('preserves the draft and rejects a newer ordinary column name', async () => {
+    const { command, hook, commands, props, sheet, cell } = setup();
+    props.selection = { mode: 'columns', anchor: cell, extent: cell };
+    hook.rerender();
+    act(() => command('rename-column').run());
+    const view = render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.change(screen.getByLabelText('Column name'), { target: { value: 'My draft' } });
+    const updated = { ...sheet, columnNames: { [cell.cell.columnId]: 'Newer name' } };
+    props.workbook = workbookWithSheets([updated]);
+    props.sheet = updated;
+    hook.rerender();
+    view.rerender(<>{hook.result.current.panel?.content}</>);
+    fireEvent.submit(screen.getByLabelText('Column name').closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent('selected column has changed');
+    expect(screen.getByLabelText('Column name')).toHaveValue('My draft');
+    expect(commands.renameColumn).not.toHaveBeenCalled();
+    expect(props.closePalette).not.toHaveBeenCalled();
+  });
+
   it('disables rename for a multi-column selection and an unsaved column', () => {
     const { command, hook, props, sheet, cell } = setup(2);
     props.selection = { mode: 'columns', anchor: cell, extent: { ...cell, cell: { ...cell.cell, columnId: sheet.content.columns[1]! } } };
