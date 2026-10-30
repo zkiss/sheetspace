@@ -44,7 +44,9 @@ afterEach(cleanup);
 describe('SheetGrid virtualization', () => {
   it('measures two-axis windows at edges, retains overlapping identities, and reacts to resize', async () => {
     const { body, geometry } = renderMeasuredSparseGrid();
-    await waitFor(() => expect(mountedCellKeys()).toContain('A1'));
+    // Wait for the measured viewport rather than the virtualizer's larger initialRect.
+    await waitFor(() => expect(mountedCellKeys().length).toBeLessThan(100));
+    expect(mountedCellKeys()).toContain('A1');
     const initial = mountedCellKeys();
     const grid = screen.getByTestId('sheet-grid');
 

@@ -80,7 +80,7 @@ describe('portal cell editor', () => {
     }
   });
 
-  it.each(['automatic', 'explicit'])('light Escape cancels with %s completion open', (trigger) => {
+  it.each(['automatic', 'explicit'])('light Escape dismisses %s completion before cancelling', (trigger) => {
     const { editor, interaction, updateDraft } = setup('=S');
     if (trigger === 'automatic') {
       fireEvent.change(editor, { target: { value: '=SU' } });
@@ -89,6 +89,9 @@ describe('portal cell editor', () => {
       fireEvent.keyDown(editor, { key: ' ', code: 'Space', ctrlKey: true });
     }
     expect(screen.getByRole('listbox')).toBeInTheDocument();
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(interaction.cancel).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     fireEvent.keyDown(editor, { key: 'Escape' });
     expect(interaction.cancel).toHaveBeenCalledOnce();
     expect(interaction.commitAndNavigate).not.toHaveBeenCalled();
