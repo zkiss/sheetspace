@@ -203,7 +203,7 @@ describe('useWorkbookController paste', () => {
 
     const pasted = findSheetById(result.current.workbook, sheet.id)!;
     const pastedFormula = cellRawContent(pasted, 'B2')!;
-    expect(projectStoredFormula(pastedFormula, result.current.workbook).text).toBe('=@C[2]');
+    expect(projectStoredFormula(pastedFormula, result.current.workbook, sheet.id).text).toBe('=@C[2]');
     expect(cellRawContent(pasted, 'C2')).toBeUndefined();
     expect(pasted.presentation).toBe(presentation);
     expect(calculate).toHaveBeenCalledTimes(1);

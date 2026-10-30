@@ -1,5 +1,6 @@
 import type { Workbook } from '../core/model';
-import { requireStoredFormula, type StoredFormulaContent } from './storedFormula';
+import { requireStoredFormula } from './storedFormula';
+import type { StoredFormulaContent } from '../core/storedFormulaContent';
 import { formatCanonicalFormulaEndpoint } from './reference';
 import { escapeFormulaText } from './opaqueFormulaText';
 import { modelFormulaRecipes } from './modelFormulaAssociation';

@@ -1,6 +1,7 @@
 import type { SheetDocument, Workbook } from '../core/model';
 import { parseUserFormulaSyntax, type FormulaReferenceLexeme, type FormulaSourceSpan } from './syntax';
-import { requireStoredFormula, type StoredFormulaContent } from './storedFormula';
+import { requireStoredFormula } from './storedFormula';
+import type { StoredFormulaContent } from '../core/storedFormulaContent';
 import { escapeFormulaText } from './opaqueFormulaText';
 import { formatCanonicalFormulaEndpoint } from './reference';
 import { projectStoredFormula } from './storedFormulaProjection';

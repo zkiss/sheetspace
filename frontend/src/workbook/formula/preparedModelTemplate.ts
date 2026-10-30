@@ -2,7 +2,7 @@ import type { SheetDocument, Workbook } from '../core/model';
 import { prepareModelFormulaContent } from './formulaPreparation';
 import { instantiateStoredModelFormula } from './modelFormulaInstance';
 import { instantiateModelFormulaBindings } from './modelTemplate';
-import type { StoredFormulaContent } from './storedFormula';
+import type { StoredFormulaContent } from '../core/storedFormulaContent';
 
 /** The complete template transport: one authoritative inline expression. */
 export type PreparedModelFormula = import('../core/modelFormula').BoundModelFormula;
