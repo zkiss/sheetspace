@@ -400,10 +400,13 @@ internal fun formulaChangedWorkbook(before: WorkbookState, model: DataModel): Wo
         val input = sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT)
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         sheet.copy(
-            modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) -> template.copy(raw = "=@A[1]*3") },
+            modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, _) -> lifecycleTemplate(sheet, input, "=@A[1]*3") },
             content = sheet.tabularContent.let { content ->
                 content.rows.fold(content) { updated, row ->
-                    updated.updateCell(updated.addressOf(CellCoordinate(row, output))!!, "=@${input.value}[${row.value}]*3")
+                    val template = lifecycleTemplate(sheet, input, "=@A[1]*3")
+                    val index = content.rows.indexOf(row)
+                    updated.updateCell(updated.addressOf(CellCoordinate(row, output))!!,
+                        instantiateStoredModelFormula(template.content, index) { content.rows.map { it.value } })
                 }
             },
         )

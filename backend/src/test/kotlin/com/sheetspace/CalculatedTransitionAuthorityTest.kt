@@ -180,11 +180,8 @@ private fun transitionWorkbook(anchored: Boolean = false): WorkbookState {
         dataModels = base.dataModels.mapValues { (_, model) -> model.copy(columns = model.columns.map {
             if (it is CalculatedModelColumn) it.copy(formula = formula) else it
         }) },
-        documents = base.documents.mapValues { (_, sheet) -> sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
-            BoundModelFormula(formula, template.references.map { reference -> reference.copy(
-                sourceSpan = ModelFormulaSpan(1, 7),
-                endpoints = reference.endpoints.map { it!!.copy(sourceSpan = ModelFormulaSpan(2, 7), anchors = ModelFormulaAnchors(true, false)) },
-            ) })
+        documents = base.documents.mapValues { (_, sheet) -> sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, _) ->
+            lifecycleTemplate(sheet, sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT), formula, anchored = true)
         }) },
     ))
 }
