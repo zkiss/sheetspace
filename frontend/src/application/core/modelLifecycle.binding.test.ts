@@ -7,7 +7,7 @@ import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { classifyCellValue } from '@calculation/formulaValue';
 import type { DataModel } from '@workbook/core/model';
 import { commitCellRawContent, commitStoredCellContent, renameSheet } from '@workbook/mutations/operations';
-import { decodeStoredFormula } from '@workbook/formula/storedFormula';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import type { Workbook } from '@workbook/core/model';
 
@@ -29,7 +29,7 @@ describe('explicit positional binding', () => {
     expect(next.content.columns.slice(0, Math.min(width, 2))).toEqual(sheet.content.columns.slice(0, 2));
     expect(next.content.rows).toBe(sheet.content.rows);
     expect(next.modelColumnBindings).toEqual({ input: next.content.columns[0], result: next.content.columns[1] });
-    expect(decodeStoredFormula(next.modelFormulaBindings!.result.content).text).toBe('=@A[1]*2');
+    expect(projectStoredFormula(next.modelFormulaBindings!.result.content, bound, 'sheet').text).toBe('=@A[1]*2');
     expect(storedModelCells(bound).A1).toBe(width ? '3' : undefined);
     expect(calculatedModelCells(bound).sheet.B1).toMatchObject(width ? { kind: 'number', value: 6 } : { error: '#VALUE!' });
     expect(calculatedModelCells(bound).sheet.B2).toMatchObject({ error: '#VALUE!' });
@@ -43,7 +43,7 @@ describe('explicit positional binding', () => {
     const workbook = modelWorkbook(model, [first, second]);
     const bound = bindModelSheets(writeFormula(workbook, 'first', 'A1', '=1+2'), ['first', 'second']);
 
-    expect(decodeStoredFormula(storedModelCells(bound, 'first').A1!).text).toBe('=1+2');
+    expect(storedModelCells(bound, 'first').A1).toBe('=1+2');
     expect(storedModelCells(bound, 'first').A2).toBe('4');
     expect(calculatedModelCells(bound).first.B1).toMatchObject({ value: 6 });
     expect(calculatedModelCells(bound).first.B2).toMatchObject({ value: 8 });
@@ -134,7 +134,7 @@ describe('explicit unbinding and model switching', () => {
 
     const unbound = successfulModelMutation(unbindSheetFromModel(bound, 'sheet'));
 
-    expect(decodeStoredFormula(storedModelCells(unbound).A1!).text).toBe('=2+3');
+    expect(storedModelCells(unbound).A1).toBe('=2+3');
     expect(storedModelCells(unbound).B1).toBe('10');
     expect(calculatedModelCells(unbound).other.A1).toMatchObject({ value: 11 });
     expect(calculatedModelCells(commitCellRawContent(unbound, 'sheet', 'A1', '20')).other.A1).toMatchObject({ value: 11 });
@@ -148,7 +148,7 @@ describe('explicit unbinding and model switching', () => {
 
     expect(renamed).toMatchObject({ ok: true });
     if (!renamed.ok) return;
-    expect(decodeStoredFormula(storedModelCells(withReference, 'consumer').A1!).occurrences).toHaveLength(1);
+    expect(projectStoredFormula(storedModelCells(withReference, 'consumer').A1!, renamed.value, 'consumer').text).toBe("=@'Renamed sheet'!B[1]");
     expect(calculatedModelCells(withReference).consumer.A1).toMatchObject({ value: 6 });
     expect(renamed.value.documents.sheet!.name).toBe('Renamed sheet');
     expect(calculatedModelCells(renamed.value).consumer.A1).toMatchObject({ value: 6 });

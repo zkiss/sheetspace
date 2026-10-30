@@ -1,5 +1,15 @@
 import type { FormulaSyntaxToken } from './syntaxTypes';
 
+export function skipFormulaTextLiteral(input: string, start: number): number {
+  let index = start + 1;
+  while (index < input.length) {
+    if (input[index] !== '"') index++;
+    else if (input[index + 1] === '"') index += 2;
+    else return index + 1;
+  }
+  return index;
+}
+
 /** Fill parser-unrecognised fragments without changing recognised tokens. */
 export function completeFormulaTokens(raw: string, tokens: readonly FormulaSyntaxToken[]): FormulaSyntaxToken[] {
   const selected = [...tokens]

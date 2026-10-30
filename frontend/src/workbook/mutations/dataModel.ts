@@ -1,5 +1,4 @@
 import type { DataModel, SheetDocument, SheetId, Workbook } from '../core/model';
-import { modelFormulaDeclaration } from '../formula/preparedModelTemplate';
 
 export type ModelMutationResult = { ok: true; value: Workbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'invalid-model' };
 
@@ -28,7 +27,7 @@ export function replaceDataModel(workbook: Workbook, model: DataModel): ModelMut
       ...workbook,
       dataModels: { ...workbook.dataModels, [model.id]: model },
       documents: Object.fromEntries(Object.entries(workbook.documents).map(([sheetId, sheet]) => [
-        sheetId, retainPropertyBindings(sheet, model),
+        sheetId, retainPropertyBindings(sheet, model, workbook.dataModels![model.id]),
       ])),
     },
   };
@@ -83,13 +82,13 @@ function sameModelColumnBindings(current: Readonly<Record<string, string>> | und
   return currentEntries.every(([propertyId, columnId]) => next?.[propertyId] === columnId);
 }
 
-function retainPropertyBindings(sheet: SheetDocument, model: DataModel): SheetDocument {
+function retainPropertyBindings(sheet: SheetDocument, model: DataModel, previous: DataModel): SheetDocument {
   if (sheet.modelId !== model.id) return sheet;
   const propertyIds = new Set(model.columns.map((column) => column.id));
   return {
     ...sheet,
     ...(sheet.modelColumnBindings === undefined ? {} : { modelColumnBindings: Object.fromEntries(Object.entries(sheet.modelColumnBindings).filter(([propertyId]) => propertyIds.has(propertyId))) }),
-    ...(sheet.modelFormulaBindings === undefined ? {} : { modelFormulaBindings: Object.fromEntries(Object.entries(sheet.modelFormulaBindings).filter(([propertyId, template]) => model.columns.some((property) => property.id === propertyId && property.kind === 'calculated' && property.formula === modelFormulaDeclaration(template)))) }),
+    ...(sheet.modelFormulaBindings === undefined ? {} : { modelFormulaBindings: Object.fromEntries(Object.entries(sheet.modelFormulaBindings).filter(([propertyId]) => model.columns.some((property) => property.id === propertyId && property.kind === 'calculated' && previous.columns.some((old) => old.id === propertyId && old.kind === 'calculated' && old.formula === property.formula)))) }),
   };
 }
 

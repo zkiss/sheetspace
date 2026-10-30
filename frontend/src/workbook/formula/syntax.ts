@@ -48,12 +48,12 @@ export function parseFormulaForInspection(raw: string): FormulaParseResult {
  */
 export function parseFormulaSyntax(
   raw: string,
-  options: { preserveUnknownFunctions?: boolean; isNamedColumn?: FormulaNamedColumnPredicate; referenceMode?: 'user' } = {},
+  options: { preserveUnknownFunctions?: boolean; isNamedColumn?: FormulaNamedColumnPredicate; referenceMode?: 'user'; stored?: boolean } = {},
 ): FormulaSyntaxResult {
   if (!raw.startsWith('=')) {
     return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [], tokens: raw ? [{ kind: 'text', sourceSpan: { start: 0, end: raw.length } }] : [], diagnostics: [] };
   }
-  return new FormulaParser(raw.slice(1), options.isNamedColumn, options.referenceMode === 'user').parse(raw);
+  return new FormulaParser(raw.slice(1), options.isNamedColumn, options.referenceMode === 'user', options.stored).parse(raw);
 }
 
 /** User spelling never grants stable-identity authority, even when it resembles stored syntax. */

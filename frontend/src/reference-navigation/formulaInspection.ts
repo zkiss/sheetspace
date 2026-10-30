@@ -3,8 +3,6 @@ import { cellIdentityAt, stableRangeAt } from '@workbook/core/cellIdentity';
 import { findSheetById } from '@workbook/read/queries';
 import { analyzeFormulaSyntax, formulaRawForDisplay, formulaRawToDisplayProjection, formulaReferenceTokens, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
-import { encodeStoredFormula } from '@workbook/formula/storedFormula';
-import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import {
   collectFormulaReferences,
@@ -27,10 +25,10 @@ export type FormulaInspection = {
 
 export function inspectStoredFormula(content: string, workbook: Workbook, currentSheet: SheetDocument): FormulaInspection | undefined {
   const projection = projectStoredFormula(content, workbook, currentSheet.id);
-  const analysis = analyzeStoredFormula(encodeStoredFormula(projection.formula), workbook, currentSheet.id);
+  const analysis = projection.analysis;
   if (analysis.syntax.result.kind === 'not-formula' || analysis.references.length === 0) return undefined;
   const references = analysis.references.map(({ lexeme, reference, live }) => {
-    const span = lexeme.sourceSpan;
+    const span = projection.references.find(({ sourceSpan }) => sourceSpan.start === lexeme.sourceSpan.start)?.displaySpan ?? lexeme.sourceSpan;
     if (reference) return inspectionReference(reference, projection.text, span, workbook, currentSheet, !live);
     return {
       kind: 'reference' as const, text: projection.text.slice(span.start, span.end), sourceSpan: span, displaySpan: span,
@@ -38,7 +36,7 @@ export function inspectStoredFormula(content: string, workbook: Workbook, curren
       broken: true, navigable: false,
     };
   });
-  return { raw: projection.text, references, parts: inspectionParts(projection.text, references), diagnostics: analysis.diagnostics };
+  return { raw: projection.text, references, parts: inspectionParts(projection.text, references), diagnostics: analysis.diagnostics.map((diagnostic) => ({ ...diagnostic, sourceSpan: projection.displaySpan(diagnostic.sourceSpan) })) };
 }
 
 export function inspectFormula(

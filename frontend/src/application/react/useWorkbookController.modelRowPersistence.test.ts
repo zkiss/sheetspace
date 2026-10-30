@@ -2,7 +2,6 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
-import { decodeStoredFormula } from '@workbook/formula/storedFormula';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { decodeWorkbookBundle, encodeWorkbookBundle, WorkbookApiError } from '@infrastructure/persistence/workbookApi';
@@ -105,7 +104,7 @@ describe('calculated row persistence', () => {
     expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
     expect(api.writeCells).not.toHaveBeenCalled();
     const persisted = await api.loadWorkbook();
-    expect(decodeStoredFormula(persisted.documents.sheet!.modelFormulaBindings!.output.content).text).toBe('=SUM(@A[1])');
+    expect(projectStoredFormula(persisted.documents.sheet!.modelFormulaBindings!.output.content, persisted, 'sheet').text).toBe('=SUM(@A[1])');
     expect(projectStoredFormula(cellRawContent(persisted.documents.sheet!, 'B1')!, persisted, 'sheet').text).toBe('=SUM(@A[1])');
     expect(persisted).toEqual(result.current.workbook);
 

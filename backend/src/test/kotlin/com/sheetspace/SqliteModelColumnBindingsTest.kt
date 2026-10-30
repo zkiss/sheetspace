@@ -17,9 +17,9 @@ class SqliteModelColumnBindingsTest {
     private val boundSheet = sheet.copy(
         modelId = modelId,
         modelColumnBindings = mapOf(revenueId to sheet.tabularContent.columns[0], costId to sheet.tabularContent.columns[1]),
-        modelFormulaBindings = mapOf(costId to BoundModelFormula(StoredFormulaCodec.encode(StoredFormula("=1", emptyList())))),
-        content = sheet.tabularContent.updateCell("B1", StoredFormulaCodec.encode(StoredFormula("=1", emptyList())))
-            .updateCell("B2", StoredFormulaCodec.encode(StoredFormula("=1", emptyList()))),
+        modelFormulaBindings = mapOf(costId to BoundModelFormula("=1")),
+        content = sheet.tabularContent.updateCell("B1", "=1")
+            .updateCell("B2", "=1"),
     )
     private val workbook = testWorkbookOf(boundSheet).copy(dataModels = mapOf(modelId to model))
 

@@ -1,11 +1,11 @@
 import { cellIdentityKey } from '../core/cellIdentity';
 import type { SheetDocument, Workbook } from '../core/model';
 import type { BoundModelFormula, ModelFormulaBindings } from '../core/modelFormula';
-import { prepareUserFormula } from './formulaPreparation';
+import { prepareModelFormulaContent } from './formulaPreparation';
 import { instantiateStoredModelFormula } from './modelFormulaInstance';
 
 export function bindModelFormula(raw: string, workbook: Workbook, sheetId: string): BoundModelFormula {
-  return { content: prepareUserFormula(raw, workbook, sheetId) };
+  return { content: prepareModelFormulaContent(raw, workbook, sheetId) };
 }
 
 export function bindModelFormulas(workbook: Workbook, sheetId: string): ModelFormulaBindings {
@@ -15,8 +15,8 @@ export function bindModelFormulas(workbook: Workbook, sheetId: string): ModelFor
     ? [[property.id, bindModelFormula(property.formula, workbook, sheetId)]] : []));
 }
 
-export function instantiateModelFormula(template: BoundModelFormula, workbook: Workbook, rowIndex: number): string {
-  return instantiateStoredModelFormula(template.content, workbook, rowIndex);
+export function instantiateModelFormula(template: BoundModelFormula, workbook: Workbook, rowIndex: number, declaration: string, sheetId: string): string {
+  return instantiateStoredModelFormula(template.content, workbook, rowIndex, declaration, sheetId);
 }
 
 /** Call only after every affected sheet has its final reconciled structure. */
@@ -25,10 +25,12 @@ export function instantiateModelFormulas(workbook: Workbook, sheetId: string, bi
 }
 
 /** Materialize calculated columns while retaining authoritative instances by output row identity. */
-export function instantiateModelFormulaBindings<T>(workbook: Workbook, sheetId: string, bindings: Readonly<Record<string, T>>, previous: SheetDocument, previousBindings: Readonly<Record<string, T>>, instantiate: (template: T, workbook: Workbook, rowIndex: number) => string): SheetDocument {
+export function instantiateModelFormulaBindings<T>(workbook: Workbook, sheetId: string, bindings: Readonly<Record<string, T>>, previous: SheetDocument, previousBindings: Readonly<Record<string, T>>, instantiate: (template: T, workbook: Workbook, rowIndex: number, declaration: string, sheetId: string) => string): SheetDocument {
   const sheet = workbook.documents[sheetId];
   const cells = { ...sheet.content.cells };
   for (const [propertyId, template] of Object.entries(bindings)) {
+    const property = sheet.modelId ? workbook.dataModels?.[sheet.modelId]?.columns.find((property) => property.id === propertyId) : undefined;
+    if (property?.kind !== 'calculated') continue;
     const columnId = sheet.modelColumnBindings?.[propertyId];
     if (!columnId || !sheet.content.columns.includes(columnId)) continue;
     const continuing = previous.modelId === sheet.modelId && previous.modelColumnBindings?.[propertyId] === columnId
@@ -36,7 +38,7 @@ export function instantiateModelFormulaBindings<T>(workbook: Workbook, sheetId: 
     sheet.content.rows.forEach((rowId, rowIndex) => {
       const key = cellIdentityKey({ rowId, columnId });
       const retained = continuing && previous.content.rows.includes(rowId) ? previous.content.cells[key] : undefined;
-      cells[key] = retained ?? instantiate(template, workbook, rowIndex);
+      cells[key] = retained ?? instantiate(template, workbook, rowIndex, property.formula, sheetId);
     });
   }
   return { ...sheet, content: { ...sheet.content, cells } };

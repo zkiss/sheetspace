@@ -1,6 +1,5 @@
 package com.sheetspace
 
-import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -254,23 +253,13 @@ private fun crossSheetWorkbook(): WorkbookState {
     )
 }
 
-/** The template the frontend produces for a named property target of another sheet. */
-private fun sourceTemplate(sourceColumnId: String, sourceRowId: String): BoundModelFormula = BoundModelFormula(
-    StoredFormulaCodec.encode(StoredFormula(TARGET_FORMULA, listOf(FormulaOccurrence(
-        "o", FormulaSpan(1, 19), "s",
-        listOf(FormulaEndpoint("e", "c", "r", false, false)),
-        listOf(
-            FormulaSlot("s", "sheet", JsonPrimitive("Source"), "retained", listOf(SOURCE_SHEET)),
-            FormulaSlot("c", "property", JsonPrimitive("Total"), "retained", listOf(SOURCE_TOTAL, sourceColumnId)),
-            FormulaSlot("r", "row", JsonPrimitive(1), "retained", listOf(sourceRowId)),
-        ), listOf(
-            FormulaOrigin(1, 2, null), FormulaOrigin(2, 8, "s"), FormulaOrigin(8, 10, null),
-            FormulaOrigin(10, 15, "c"), FormulaOrigin(15, 17, null), FormulaOrigin(17, 18, "r"),
-            FormulaOrigin(18, 19, null),
-        ),
-    )))),
-)
+private fun hex(value: String) = value.map { it.code.toString(16).padStart(4, '0') }.joinToString("")
+
+private fun sourceTemplate(sourceColumnId: String, sourceRowId: String): BoundModelFormula =
+    BoundModelFormula("=@$SOURCE_SHEET!~${hex(SOURCE_TOTAL)}~${hex(sourceColumnId)}[${hex(sourceRowId)}]")
 
 private fun derivedInstance(source: SheetDocument, sourceColumn: ColumnId, sourceRow: RowId): String =
-    instantiateStoredModelFormula(sourceTemplate(sourceColumn.value, source.tabularContent.rows[0].value).content,
-        source.tabularContent.rows.indexOf(sourceRow)) { source.tabularContent.rows.map { it.value } }
+    instantiateStoredModelFormula(
+        sourceTemplate(sourceColumn.value, source.tabularContent.rows[0].value).content,
+        TARGET_FORMULA, TARGET_SHEET, source.tabularContent.rows.indexOf(sourceRow),
+    ) { source.tabularContent.rows.map { it.value } }

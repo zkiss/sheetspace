@@ -1,7 +1,6 @@
 package com.sheetspace
 
 import java.nio.file.Files
-import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -59,7 +58,7 @@ class CalculatedTransitionAuthorityTest {
         assertEquals(sheet.tabularContent.cellContents, saved.documents.getValue(sheet.id).tabularContent.cellContents.filterKeys { it.rowId != row })
         val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
         val coordinate = CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT))
-        assertEquals(derivedFormulaRaw(template, after, 0), saved.documents.getValue(sheet.id).tabularContent.cellContents[coordinate])
+        assertEquals(derivedFormulaRaw(template, after, 0, "=@A[1]*2", sheet.id.value), saved.documents.getValue(sheet.id).tabularContent.cellContents[coordinate])
     }
 
     @Test
@@ -68,10 +67,7 @@ class CalculatedTransitionAuthorityTest {
         store.saveWorkbook(before)
         val sheet = before.sheetsInOrder.first()
         val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
-        val stored = StoredFormulaCodec.decode(template.content)
-        val forged = template.copy(content = StoredFormulaCodec.encode(stored.copy(occurrences = stored.occurrences.map { occurrence ->
-            occurrence.copy(slots = occurrence.slots.map { slot -> if (slot.kind == "row") slot.copy(key = JsonPrimitive(2)) else slot })
-        })))
+        val forged = template.copy(content = template.content.replace(sheet.tabularContent.rows.first().value, sheet.tabularContent.rows.last().value))
         val tampered = freshlyInstantiated(before.replaceSheet(sheet.copy(modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to forged))))
 
         listOf(tampered, tampered.replaceSheet(tampered.documents.getValue(sheet.id).copy(
@@ -93,8 +89,7 @@ class CalculatedTransitionAuthorityTest {
         val changed = renamed.copy(dataModels = renamed.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
             if (it is CalculatedModelColumn) it.copy(formula = "=@A[1]*3") else it
         }) }, documents = renamed.documents.mapValues { (_, sheet) -> sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
-            val stored = StoredFormulaCodec.decode(template.content)
-            template.copy(content = StoredFormulaCodec.encode(stored.copy(text = "=@A[1]*3")))
+            template.copy(content = template.content.replace("*2", "*3"))
         }) })
 
         assertTrue(calculatedTransitionIsValid(before, renamed))
@@ -194,6 +189,7 @@ private fun freshlyInstantiated(workbook: WorkbookState): WorkbookState = workbo
     val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
     val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
     val contents = sheet.tabularContent.cellContents.toMutableMap()
-    sheet.tabularContent.rows.forEachIndexed { index, row -> contents[CellCoordinate(row, output)] = derivedFormulaRaw(template, workbook, index) }
+    val declaration = (workbook.dataModels.getValue(LIFECYCLE_MODEL).columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn).formula
+    sheet.tabularContent.rows.forEachIndexed { index, row -> contents[CellCoordinate(row, output)] = derivedFormulaRaw(template, workbook, index, declaration, sheet.id.value) }
     sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents))
 })

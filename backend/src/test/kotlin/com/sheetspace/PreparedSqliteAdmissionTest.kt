@@ -14,8 +14,8 @@ class PreparedSqliteAdmissionTest {
     fun `persisted same declaration provenance cannot be replaced even with matching forged outputs`() {
         val fixture = Json.parseToJsonElement(requireNotNull(javaClass.getResource("/stored-model-instances.json")).readText()).jsonArray.first().jsonObject
         val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content)
-        val forgedTemplate = PreparedModelFormula(template.content.replace("\"col1\"", "\"other-column\""))
-        val declaration = "=@A[1]:B[2]+???😀"
+        val forgedTemplate = PreparedModelFormula(template.content.replace("col1", "other-column"))
+        val declaration = fixture.getValue("declaration").jsonPrimitive.content
         assertTrue(preparedModelTemplateIsValid(template, declaration))
         assertTrue(preparedModelTemplateIsValid(forgedTemplate, declaration))
         for (empty in listOf(false, true)) {
@@ -33,7 +33,7 @@ class PreparedSqliteAdmissionTest {
             val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
             val workbook = base.copy(dataModels = base.dataModels + (model.id to changedModel))
             fun contents(value: PreparedModelFormula) = rows.withIndex().associate { (index, row) ->
-                CellCoordinate(row, output) to derivedPreparedFormulaRaw(value, workbook, index)
+                CellCoordinate(row, output) to derivedPreparedFormulaRaw(value, workbook, index, declaration, sheet.id.value)
             }
             val before = workbook.replaceSheet(sheet.copy(presentation = SheetPresentation(), content = TabularContent(rows, sheet.tabularContent.columns, contents(template))))
             SqliteWorkbookStore.inMemory(calculatedAdmission = { current, updated -> rejectCalculatedOverrides(current, updated, rules) }).use { store ->
@@ -53,14 +53,14 @@ class PreparedSqliteAdmissionTest {
         val base = initial.removeSheet(initial.sheetsInOrder.last().id)
         val sheet = base.sheetsInOrder.first()
         val property = base.dataModels.getValue(LIFECYCLE_MODEL).columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn
-        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(property.formula, emptyList())))
-        val forgedTemplate = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(property.formula + " ", emptyList())))
+        val template = PreparedModelFormula(property.formula)
+        val forgedTemplate = PreparedModelFormula(property.formula + " ")
         val rules = preparedCalculatedTemplates { candidate ->
             if (candidate.id != sheet.id) null else mapOf(LIFECYCLE_OUTPUT to if (candidate.name == "forged") forgedTemplate else template)
         }
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index, template.content, sheet.id.value)
         }
         val missing = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, emptyMap())))
         val restored = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
@@ -87,13 +87,13 @@ class PreparedSqliteAdmissionTest {
         val base = initial.removeSheet(initial.sheetsInOrder.last().id)
         val sheet = base.sheetsInOrder.first()
         val declaration = (base.dataModels.getValue(LIFECYCLE_MODEL).columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn).formula
-        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(declaration, emptyList())))
+        val template = PreparedModelFormula(declaration)
         val rules = preparedCalculatedTemplates { candidate ->
             if (candidate.id == sheet.id) mapOf(LIFECYCLE_OUTPUT to template) else null
         }
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index, template.content, sheet.id.value)
         }
         val before = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
         SqliteWorkbookStore.inMemory(calculatedAdmission = { current, updated ->
@@ -119,7 +119,7 @@ class PreparedSqliteAdmissionTest {
                 current.replaceSheet(currentSheet.copy(content = TabularContent(
                     currentSheet.tabularContent.rows + row, currentSheet.tabularContent.columns,
                     currentSheet.tabularContent.cellContents +
-                        (CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, current, currentSheet.tabularContent.rows.size)),
+                        (CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, current, currentSheet.tabularContent.rows.size, declaration, sheet.id.value)),
                 )))
             }
             assertEquals(contents, updated.documents.getValue(sheet.id).tabularContent.cellContents - CellCoordinate(row, output))

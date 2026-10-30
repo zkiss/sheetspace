@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import kotlinx.serialization.json.JsonPrimitive
 
 /** Canonical property-target text, encoding every UTF-16 code unit as four hexadecimal digits. */
 internal fun namedCanonicalEndpoint(propertyId: String, columnId: String, rowId: String): String =
@@ -28,7 +27,7 @@ class CalculatedWritePolicyTest {
 
         assertEquals(setOf(output), calculatedModelColumns(sheet, base.dataModels))
         assertEquals(
-            instantiateStoredModelFormula(sheet.modelFormulaBindings!!.getValue(outputId).content, 0) { sheet.tabularContent.rows.map { it.value } },
+            instantiateStoredModelFormula(sheet.modelFormulaBindings!!.getValue(outputId).content, "=@A[1]*2", sheetId, 0) { sheet.tabularContent.rows.map { it.value } },
             sheet.tabularContent.cellContents.getValue(CellCoordinate(row, output)),
         )
         assertTrue(calculatedContentsAreDerived(base))
@@ -65,12 +64,11 @@ class CalculatedWritePolicyTest {
         val materialized = materializeCalculatedRow(base.replaceSheet(appended), appended, appendedRow)
 
         assertEquals(
-            instantiateStoredModelFormula(appended.modelFormulaBindings!!.getValue(outputId).content, 1) { appended.tabularContent.rows.map { it.value } },
+            instantiateStoredModelFormula(appended.modelFormulaBindings!!.getValue(outputId).content, "=@A[1]*2", sheetId, 1) { appended.tabularContent.rows.map { it.value } },
             materialized.tabularContent.cellContents.getValue(CellCoordinate(appendedRow, appended.modelColumnBindings.getValue(outputId))),
         )
-        val instance = StoredFormulaCodec.decode(materialized.tabularContent.cellContents.getValue(CellCoordinate(appendedRow, appended.modelColumnBindings.getValue(outputId))))
-        assertEquals("=@A[1]*2", instance.text)
-        assertEquals(listOf(appendedRow.value), instance.occurrences.single().slots.single { it.id == "r" }.targetIds)
+        val instance = materialized.tabularContent.cellContents.getValue(CellCoordinate(appendedRow, appended.modelColumnBindings.getValue(outputId)))
+        assertTrue(instance.contains("[${appendedRow.value}]"))
         assertTrue(calculatedContentsAreDerived(base.replaceSheet(materialized)))
 
         val withoutTemplate = base.replaceSheet(appended.copy(modelFormulaBindings = null))
@@ -88,14 +86,10 @@ class CalculatedWritePolicyTest {
         val workbook = propertyTargetWorkbook()
         val template = propertyTargetTemplate()
         val rows = workbook.documents.getValue(SheetId("s")).tabularContent.rows.map { it.value }
-        val instance = StoredFormulaCodec.decode(instantiateStoredModelFormula(template.content, 0) { rows })
-
-        assertEquals("=@p[1]", instance.text)
-        assertEquals(listOf("p", "c"), instance.occurrences.single().slots.single { it.kind == "property" }.targetIds)
-        assertEquals(listOf("r"), instance.occurrences.single().slots.single { it.kind == "row" }.targetIds)
-        val missingRow = StoredFormulaCodec.decode(instantiateStoredModelFormula(template.content, 1) { rows })
-        assertEquals("unresolved", missingRow.occurrences.single().slots.single { it.kind == "row" }.status)
-        assertEquals(listOf("p", "c"), missingRow.occurrences.single().slots.single { it.kind == "property" }.targetIds)
+        val instance = instantiateStoredModelFormula(template.content, "=@p[1]", "s", 0) { rows }
+        assertEquals(template.content, instance)
+        val missingRow = instantiateStoredModelFormula(template.content, "=@p[1]", "s", 1) { rows }
+        assertEquals("=" + StoredFormulaCodec.escape("@p[1]"), missingRow)
     }
 
     private fun propertyTargetWorkbook(): WorkbookState {
@@ -111,17 +105,7 @@ class CalculatedWritePolicyTest {
         )
     }
 
-    private fun propertyTargetTemplate(): BoundModelFormula = BoundModelFormula(StoredFormulaCodec.encode(StoredFormula(
-        "=@p[1]", listOf(FormulaOccurrence(
-            "o", FormulaSpan(1, 6), "s", listOf(FormulaEndpoint("e", "p", "r", false, false)),
-            listOf(
-                FormulaSlot("s", "sheet", JsonPrimitive("Property"), "retained", listOf("s")),
-                FormulaSlot("p", "property", JsonPrimitive("p"), "retained", listOf("p", "c")),
-                FormulaSlot("r", "row", JsonPrimitive(1), "retained", listOf("r")),
-            ), listOf(FormulaOrigin(1, 2, null), FormulaOrigin(2, 3, "p"), FormulaOrigin(3, 4, null),
-                FormulaOrigin(4, 5, "r"), FormulaOrigin(5, 6, null)),
-        )),
-    )))
+    private fun propertyTargetTemplate(): BoundModelFormula = BoundModelFormula("=@${namedCanonicalEndpoint("p", "c", "r")}")
 
     private fun workbook(): WorkbookState {
         val content = TabularContent(rowCount = 1, columnCount = 2)
@@ -134,7 +118,7 @@ class CalculatedWritePolicyTest {
         )
         val template = lifecycleTemplate(sheet, content.columns[0], "=@A[1]*2")
         val derived = sheet.copy(modelFormulaBindings = mapOf(outputId to template)).updateTabularContent {
-            it.updateCell("B1", instantiateStoredModelFormula(template.content, 0) { content.rows.map { row -> row.value } })
+            it.updateCell("B1", instantiateStoredModelFormula(template.content, "=@A[1]*2", sheetId, 0) { content.rows.map { row -> row.value } })
         }
         return emptyWorkbookState().addSheet(derived).copy(dataModels = mapOf(modelId to DataModel(
             modelId,

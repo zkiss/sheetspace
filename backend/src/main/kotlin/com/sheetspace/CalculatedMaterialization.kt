@@ -17,7 +17,7 @@ internal fun <T> materializeCalculatedRow(workbook: WorkbookState, sheet: SheetD
         val column = sheet.modelColumnBindings[property.id] ?: return@forEach
         val template = rules.templates(sheet)?.get(property.id)
             ?: throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-        contents[CellCoordinate(row, column)] = rules.derive(template, workbook, rowIndex)
+        contents[CellCoordinate(row, column)] = rules.derive(template, workbook, rowIndex, property.formula, sheet.id.value)
     }
     return sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents))
 }
@@ -39,7 +39,7 @@ internal fun <T> materializeDerivedContents(workbook: WorkbookState, rules: Calc
             val column = sheet.modelColumnBindings[property.id] ?: return@forEach
             val template = templates[property.id] ?: return@forEach
             sheet.tabularContent.rows.forEachIndexed { rowIndex, row ->
-                contents.getOrPut(CellCoordinate(row, column)) { rules.derive(template, workbook, rowIndex) }
+                contents.getOrPut(CellCoordinate(row, column)) { rules.derive(template, workbook, rowIndex, property.formula, sheet.id.value) }
             }
         }
         sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents))

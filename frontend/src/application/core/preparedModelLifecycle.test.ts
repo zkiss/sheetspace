@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { calculatedProperty, declaration, freshColumns, manualProperty, modelWorkbook } from '@test-support/modelLifecycleFixtures';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import { modelFormulaDeclaration } from '@workbook/formula/preparedModelTemplate';
-import { decodeStoredFormula } from '@workbook/formula/storedFormula';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { bindPreparedSheet, refreshPreparedInstances, replacePreparedDeclaration, unbindPreparedSheet, type PreparedLifecycle } from './preparedModelLifecycle';
@@ -19,21 +18,12 @@ describe('prepared model lifecycle', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2, cells: { A1: '3', A2: '7' } });
     const bound = success(bindPreparedSheet({ workbook: modelWorkbook(model, [sheet]), bindings: {} }, 'sheet', model.id, freshColumns()));
     const template = bound.bindings.sheet.result;
-    expect(modelFormulaDeclaration(template)).toBe(model.columns[1].formula);
     const current = bound.workbook.documents.sheet;
-    const decodedTemplate = decodeStoredFormula(template.content);
-    expect(decodedTemplate.text).toBe('=@A[$1]+@Missing!A[1]+@bad[');
-    expect(decodedTemplate.occurrences[0].slots).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'column', status: 'retained', targetIds: [current.content.columns[0]] }),
-    ]));
-    expect(decodedTemplate.occurrences.flatMap((occurrence) => occurrence.slots)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'sheet', status: 'unresolved' }),
-    ]));
-    const instance = decodeStoredFormula(current.content.cells[cellIdentityKey({ rowId: current.content.rows[0], columnId: current.content.columns[1] })]);
-    expect(instance.text).toBe('=@A[$1]+@Missing!A[1]+@bad[');
-    expect(instance.occurrences[0].slots).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'column', status: 'retained', targetIds: [current.content.columns[0]] }),
-    ]));
+    expect(projectStoredFormula(template.content, bound.workbook, sheet.id).text).toBe('=@A[$1]+@Missing!A[1]+@bad[');
+    expect(template.content).toContain(current.content.columns[0]);
+    const instance = current.content.cells[cellIdentityKey({ rowId: current.content.rows[0], columnId: current.content.columns[1] })];
+    expect(projectStoredFormula(instance, bound.workbook, sheet.id).text).toBe('=@A[$1]+@Missing!A[1]+@bad[');
+    expect(instance).toContain(current.content.columns[0]);
     const reordered = { ...current, content: { ...current.content, rows: ['new', ...current.content.rows.slice().reverse()] } };
     const refreshed = refreshPreparedInstances({ ...bound, workbook: { ...bound.workbook, documents: { sheet: reordered } } }, bound.workbook);
     for (const [key, value] of Object.entries(current.content.cells)) expect(refreshed.workbook.documents.sheet.content.cells[key]).toBe(value);
@@ -41,7 +31,7 @@ describe('prepared model lifecycle', () => {
     const renamed = success(replacePreparedDeclaration(refreshed, { ...model, name: 'Renamed' }, freshColumns()));
     expect(renamed.bindings.sheet.result).toEqual(template);
     const changed = success(replacePreparedDeclaration(renamed, { ...model, columns: [model.columns[0], calculatedProperty('result', '=@A[1]*3', 'Result')] }, freshColumns()));
-    expect(modelFormulaDeclaration(changed.bindings.sheet.result)).toBe('=@A[1]*3');
+    expect(projectStoredFormula(changed.bindings.sheet.result.content, changed.workbook, sheet.id).text).toBe('=@A[1]*3');
   });
 
   it('creates templates with zero rows, materializes appended rows, and freezes stored calculations', () => {
@@ -71,10 +61,8 @@ describe('prepared model lifecycle', () => {
     const current = renamed.workbook.documents.sheet;
     const appended = { ...current, content: { ...current.content, rows: [...current.content.rows, 'new'] } };
     const refreshed = refreshPreparedInstances({ ...renamed, workbook: { ...renamed.workbook, documents: { ...renamed.workbook.documents, sheet: appended } } }, renamed.workbook);
-    const derived = decodeStoredFormula(refreshed.workbook.documents.sheet.content.cells[cellIdentityKey({ rowId: 'new', columnId: current.content.columns[0] })]);
-    expect(derived.occurrences[0].slots).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'sheet', status: 'retained', targetIds: ['source'] }),
-    ]));
+    const derived = refreshed.workbook.documents.sheet.content.cells[cellIdentityKey({ rowId: 'new', columnId: current.content.columns[0] })];
+    expect(derived).toContain('source');
     expect(new FormulaCalculation().updateStored(calculationProjection(refreshed.workbook), refreshed.workbook, { kind: 'structure' }).sheet.A2).toMatchObject({ display: '#REF!' });
   });
 

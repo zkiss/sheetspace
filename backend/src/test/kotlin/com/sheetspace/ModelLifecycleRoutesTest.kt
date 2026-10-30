@@ -9,7 +9,6 @@ import io.ktor.server.testing.testApplication
 import java.nio.file.Files
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -32,7 +31,7 @@ class ModelLifecycleRoutesTest {
                 repeat(2) { index ->
                     val reloaded = store.loadSheet(id)!!
                     val row = client.post("/api/sheets/${id.value}/rows") { header("If-Match", reloaded.revision) }.decodeBody<RowAppendResponse>()
-                    val formula = derivedFormulaRaw(empty.documents.getValue(id).modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT), store.loadWorkbookBundle(), index)
+                    val formula = derivedFormulaRaw(empty.documents.getValue(id).modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT), store.loadWorkbookBundle(), index, "=@A[1]*2", id.value)
                     val request = CellPatchRequest(
                         listOf(CellRevisionRequest(id.value, row.revision)),
                         listOf(CellWriteRequest(id.value, row.rowId, inputColumn.value, "5")),
@@ -228,9 +227,9 @@ class ModelLifecycleRoutesTest {
                 val saved = store.loadWorkbookBundle()
                 assertEquals(changedModel, saved.dataModels.getValue(LIFECYCLE_MODEL))
                 saved.sheetsInOrder.forEach { sheet ->
-                    assertEquals("=@A[1]*3", StoredFormulaCodec.decode(sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).content).text)
+                    assertEquals(lifecycleTemplate(sheet, sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT), "=@A[1]*3"), sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT))
                     assertEquals(
-                        sheet.tabularContent.rows.indices.map { index -> instantiateStoredModelFormula(sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).content, index) { sheet.tabularContent.rows.map { it.value } } },
+                        sheet.tabularContent.rows.indices.map { index -> instantiateStoredModelFormula(sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).content, "=@A[1]*3", sheet.id.value, index) { sheet.tabularContent.rows.map { it.value } } },
                         sheet.tabularContent.rows.map { row -> sheet.tabularContent.cellContents.getValue(CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT))) },
                     )
                 }
@@ -291,23 +290,18 @@ internal fun lifecycleBoundWorkbook(before: WorkbookState): WorkbookState = befo
         modelColumnBindings = mapOf(LIFECYCLE_INPUT to columns[0], LIFECYCLE_OUTPUT to columns[1]),
         modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template),
         content = TabularContent(content.rows, columns, content.cellContents)
-            .updateCell("B1", instantiateStoredModelFormula(template.content, 0) { content.rows.map { it.value } })
-            .updateCell("B2", instantiateStoredModelFormula(template.content, 1) { content.rows.map { it.value } }),
+            .updateCell("B1", instantiateStoredModelFormula(template.content, "=@A[1]*2", sheet.id.value, 0) { content.rows.map { it.value } })
+            .updateCell("B2", instantiateStoredModelFormula(template.content, "=@A[1]*2", sheet.id.value, 1) { content.rows.map { it.value } }),
         presentation = SheetPresentation(rowHeights = mapOf(content.rows[0].value to 32.0), columnWidths = mapOf(columns[0].value to 100.0)),
     )
 })
 
 internal fun lifecycleTemplate(sheet: SheetDocument, column: ColumnId, formula: String, anchored: Boolean = false): BoundModelFormula {
-    val end = if (anchored) 7 else 6
-    return BoundModelFormula(StoredFormulaCodec.encode(StoredFormula(formula, listOf(FormulaOccurrence(
-        "o", FormulaSpan(1, end), "s", listOf(FormulaEndpoint("e", "c", "r", false, anchored)),
-        listOf(
-            FormulaSlot("s", "sheet", JsonPrimitive(sheet.name), "retained", listOf(sheet.id.value)),
-            FormulaSlot("c", "column", JsonPrimitive(0), "retained", listOf(column.value)),
-            FormulaSlot("r", "row", JsonPrimitive(1), "retained", listOfNotNull(sheet.tabularContent.rows.firstOrNull()?.value)),
-        ), listOf(FormulaOrigin(1, 2, null), FormulaOrigin(2, 3, "c"),
-            FormulaOrigin(3, if (anchored) 5 else 4, null), FormulaOrigin(if (anchored) 5 else 4, end - 1, "r"), FormulaOrigin(end - 1, end, null)),
-    )))))
+    val reference = if (anchored) "@A[$1]" else "@A[1]"
+    val row = sheet.tabularContent.rows.firstOrNull()
+    val stored = if (row == null) StoredFormulaCodec.escape(reference)
+        else "@${column.value}[${if (anchored) "$" else ""}${row.value}]"
+    return BoundModelFormula(formula.replace(reference, stored))
 }
 
 internal fun lifecycleBody(before: WorkbookState, after: WorkbookState): String = Json.encodeToString(ModelLifecycleRequest(WorkbookReadTransportAdapter.bundle(before), WorkbookReadTransportAdapter.bundle(after)))

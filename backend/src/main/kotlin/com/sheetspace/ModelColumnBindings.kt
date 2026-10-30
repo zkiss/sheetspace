@@ -29,7 +29,7 @@ internal fun calculatedContentsAreDerived(workbook: WorkbookState): Boolean =
             val column = sheet.modelColumnBindings.getValue(property.id)
             val template = templates.getValue(property.id)
             sheet.tabularContent.rows.withIndex().all { (rowIndex, row) ->
-                sheet.tabularContent.cellContents[CellCoordinate(row, column)] == derivedFormulaRaw(template, workbook, rowIndex)
+                sheet.tabularContent.cellContents[CellCoordinate(row, column)] == derivedFormulaRaw(template, workbook, rowIndex, property.formula, sheet.id.value)
             }
         }
     }
@@ -37,5 +37,5 @@ internal fun calculatedContentsAreDerived(workbook: WorkbookState): Boolean =
 internal fun calculatedOverridesWereIntroduced(current: WorkbookState, updated: WorkbookState): Boolean =
     !calculatedTransitionIsValid(current, updated)
 
-internal fun derivedFormulaRaw(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int): String =
-    derivedPreparedFormulaRaw(template, workbook, rowIndex)
+internal fun derivedFormulaRaw(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int, declaration: String, sheetId: String): String =
+    derivedPreparedFormulaRaw(template, workbook, rowIndex, declaration, sheetId)

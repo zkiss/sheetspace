@@ -1,6 +1,6 @@
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import type { Workbook } from '@workbook/core/model';
-import { instantiatePreparedModelFormulas, modelFormulaDeclaration, prepareModelFormula, prepareModelFormulas, type PreparedModelFormula } from '@workbook/formula/preparedModelTemplate';
+import { instantiatePreparedModelFormulas, prepareModelFormula, prepareModelFormulas, type PreparedModelFormula } from '@workbook/formula/preparedModelTemplate';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { lifecycleOperations, withSheet } from './modelLifecycle';
 
@@ -21,7 +21,6 @@ const preparedLifecycle = lifecycleOperations<PreparedLifecycle, PreparedModelFo
   bindings: (state, sheetId) => state.bindings[sheetId] ?? {},
   prepare: (workbook, sheetId, formula) => prepareModelFormula(formula, workbook, sheetId),
   prepareAll: prepareModelFormulas,
-  declaration: modelFormulaDeclaration,
   calculate: (workbook) => new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }),
   finish: (state, workbook, changes) => {
     const bindings = { ...state.bindings };
