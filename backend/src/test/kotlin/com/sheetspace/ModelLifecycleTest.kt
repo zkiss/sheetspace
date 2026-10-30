@@ -142,7 +142,7 @@ class ModelLifecycleTest {
         val before = lifecycleWorkbook()
         val bound = lifecycleBoundWorkbook(before)
         val invalidTemplates: List<(BoundModelFormula) -> BoundModelFormula> = listOf(
-            { BoundModelFormula(StoredFormulaCodec.encode(StoredFormula("=different", emptyList()))) },
+            { BoundModelFormula("=different") },
             { it.copy(content = "=~F1[\"=@A[1]*2\",[[\"o\",[-1,6],\"s\",[],[],[]]]]") },
             { it.copy(content = "=~F1[\"=@A[1]*2\",[[\"o\",[1,99],\"s\",[],[],[]]]]") },
             { it.copy(content = "=~F1[\"=@A[1]*2\",[[\"o\",[1,6],\"s\",[[\"e\",\"missing\",\"r\",false,false]],[],[]]]]") },
@@ -188,7 +188,7 @@ class ModelLifecycleTest {
             sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, sheet.tabularContent.cellContents - CellCoordinate(sheet.tabularContent.rows.first(), output))),
         )
         val staleTemplate = bound.replaceSheet(
-            sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, _) -> BoundModelFormula(StoredFormulaCodec.encode(StoredFormula("=stale", emptyList()))) }),
+            sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, _) -> BoundModelFormula("=stale") }),
         )
         val missingTemplates = bound.replaceSheet(sheet.copy(modelFormulaBindings = null))
         val incompleteTemplates = bound.replaceSheet(sheet.copy(modelFormulaBindings = emptyMap()))

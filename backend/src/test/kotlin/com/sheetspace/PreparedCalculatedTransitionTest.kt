@@ -26,26 +26,26 @@ class PreparedCalculatedTransitionTest {
         val withTarget = base.copy(dataModels = base.dataModels + (model.id to mixedModel)).addSheet(target)
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, withTarget, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, withTarget, index, mixedModel.columns.filterIsInstance<CalculatedModelColumn>().single().formula, sheet.id.value)
         }
         val before = withTarget.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
         val replacement = before.removeSheet(target.id).addSheet(target.copy(id = SheetId("replacement")))
         val rules = preparedCalculatedTemplates { candidate -> if (candidate.id == sheet.id) mapOf(LIFECYCLE_OUTPUT to template) else null }
 
-        assertEquals(fixture.getValue("expected").jsonPrimitive.content, derivedPreparedFormulaRaw(template, before, 1))
+        assertEquals(fixture.getValue("expected").jsonPrimitive.content, derivedPreparedFormulaRaw(template, before, 1, mixedModel.columns.filterIsInstance<CalculatedModelColumn>().single().formula, sheet.id.value))
         assertTrue(calculatedTransitionIsValid(before, replacement, rules))
         assertEquals(contents, replacement.documents.getValue(sheet.id).tabularContent.cellContents)
         val targetId = SheetId.generate()
         val targetRows = rows.map { RowId.generate() }
         val targetColumns = listOf(ColumnId.generate(), ColumnId.generate())
-        var persistedTemplate = template.content.replace("[\"sheet\"]", "[\"${targetId.value}\"]")
+        var persistedTemplate = template.content.replace("sheet!", "${targetId.value}!")
         rows.zip(targetRows).forEach { (old, new) -> persistedTemplate = persistedTemplate.replace(old.value, new.value) }
-        listOf("col1", "col2").zip(targetColumns).forEach { (old, new) -> persistedTemplate = persistedTemplate.replace("\"$old\"", "\"${new.value}\"") }
+        listOf("col1", "col2").zip(targetColumns).forEach { (old, new) -> persistedTemplate = persistedTemplate.replace(old, new.value) }
         val persistedRules = preparedCalculatedTemplates { candidate -> if (candidate.id == sheet.id) mapOf(LIFECYCLE_OUTPUT to PreparedModelFormula(persistedTemplate)) else null }
         val persistedTarget = target.copy(id = targetId, content = TabularContent(targetRows, targetColumns, emptyMap()))
         val live = withTarget.removeSheet(target.id).addSheet(persistedTarget)
         val persistedContents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(PreparedModelFormula(persistedTemplate), live, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(PreparedModelFormula(persistedTemplate), live, index, mixedModel.columns.filterIsInstance<CalculatedModelColumn>().single().formula, sheet.id.value)
         }
         val persistedBefore = live.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, persistedContents)))
         val newTarget = SheetDocument(SheetId.generate(), name = "Inputs", content = TabularContent(
@@ -91,14 +91,14 @@ class PreparedCalculatedTransitionTest {
         val sheet = base.sheetsInOrder.first()
         val model = base.dataModels.getValue(LIFECYCLE_MODEL)
         val property = model.columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn
-        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(property.formula, emptyList())))
-        val changed = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula("=42", emptyList())))
+        val template = PreparedModelFormula(property.formula)
+        val changed = PreparedModelFormula("=42")
         val rules = preparedCalculatedTemplates { candidate ->
             mapOf(LIFECYCLE_OUTPUT to if (candidate.name == "changed") changed else template)
         }
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index, template.content, sheet.id.value)
         }
         val before = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
         val renamed = before.copy(dataModels = before.dataModels + (model.id to model.copy(name = "renamed")))
@@ -106,7 +106,7 @@ class PreparedCalculatedTransitionTest {
         val changedModel = model.copy(columns = model.columns.map { if (it.id == property.id) property.copy(formula = "=42") else it })
         val declarationChanged = before.copy(dataModels = before.dataModels + (model.id to changedModel))
         val changedContents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(changed, declarationChanged, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(changed, declarationChanged, index, "=42", sheet.id.value)
         }
         val replacement = declarationChanged.replaceSheet(sheet.copy(name = "changed", content = TabularContent(
             sheet.tabularContent.rows, sheet.tabularContent.columns, changedContents,
@@ -120,8 +120,8 @@ class PreparedCalculatedTransitionTest {
         val workbook = lifecycleBoundWorkbook(lifecycleWorkbook())
         val model = workbook.dataModels.getValue(LIFECYCLE_MODEL)
         val declaration = (model.columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn).formula
-        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(declaration, emptyList())))
-        val stale = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula("=stale", emptyList())))
+        val template = PreparedModelFormula(declaration)
+        val stale = PreparedModelFormula("=stale")
 
         assertEquals(mapOf(LIFECYCLE_OUTPUT to template), retainDeclaredCalculatedTemplates(
             model, mapOf(LIFECYCLE_OUTPUT to template, "unknown" to stale), ::preparedModelTemplateIsValid,
@@ -136,17 +136,17 @@ class PreparedCalculatedTransitionTest {
         val base = initial.removeSheet(initial.sheetsInOrder.last().id)
         val sheet = base.sheetsInOrder.first()
         val declaration = (base.dataModels.getValue(LIFECYCLE_MODEL).columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn).formula
-        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(declaration, emptyList())))
+        val template = PreparedModelFormula(declaration)
         val rules = preparedCalculatedTemplates { mapOf(LIFECYCLE_OUTPUT to template) }
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index, template.content, sheet.id.value)
         }
         val before = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
         val row = RowId.generate()
         val after = before.replaceSheet(sheet.copy(content = TabularContent(
             sheet.tabularContent.rows + row, sheet.tabularContent.columns,
-            contents + (CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, before, sheet.tabularContent.rows.size)),
+            contents + (CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, before, sheet.tabularContent.rows.size, declaration, sheet.id.value)),
         )))
 
         assertEquals(after, reconcileCalculatedLifecycle(before, before, after, rules))
@@ -162,17 +162,17 @@ class PreparedCalculatedTransitionTest {
         val base = initial.removeSheet(initial.sheetsInOrder.last().id)
         val sheet = base.sheetsInOrder.first()
         val declaration = (base.dataModels.getValue(LIFECYCLE_MODEL).columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn).formula
-        val template = PreparedModelFormula(StoredFormulaCodec.encode(StoredFormula(declaration, emptyList())))
+        val template = PreparedModelFormula(declaration)
         val rules = preparedCalculatedTemplates { mapOf(LIFECYCLE_OUTPUT to template) }
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
         val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
-            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index)
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, base, index, template.content, sheet.id.value)
         }
         val before = base.replaceSheet(sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents)))
         val row = RowId.generate()
         val reordered = before.replaceSheet(sheet.copy(content = TabularContent(
             listOf(row) + sheet.tabularContent.rows.reversed(), sheet.tabularContent.columns,
-            contents + (CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, before, 0)),
+            contents + (CellCoordinate(row, output) to derivedPreparedFormulaRaw(template, before, 0, declaration, sheet.id.value)),
         )))
 
         assertTrue(calculatedTransitionIsValid(emptyWorkbookState(), before, rules))
