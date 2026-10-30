@@ -2,6 +2,8 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-li
 import { describe, expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
+import { NavigationPalette } from './NavigationPalette';
+import { useRef, useState } from 'react';
 
 type Props = Parameters<typeof useWorkspaceActionCommands>[0];
 function setup(columnCount = 1) {
@@ -24,7 +26,65 @@ function setup(columnCount = 1) {
   return { hook, command, props, commands, controller, clipboard, sheet, cell };
 }
 
+function RenamePalette({ props }: { props: Props }) {
+  const [open, setOpen] = useState(true);
+  const origin = useRef<HTMLButtonElement>(null);
+  const close = () => { setOpen(false); origin.current?.focus(); };
+  const actions = useWorkspaceActionCommands({ ...props, closePalette: close, openPanel: () => {} });
+  return <><button ref={origin}>Selected column</button>{open && <NavigationPalette commands={actions.commands} panel={actions.panel} onClose={() => { if (!actions.preventClose) { actions.resetPanel(); close(); } }} />}</>;
+}
+
+function openRename() {
+  fireEvent.change(screen.getByLabelText('Command search'), { target: { value: 'Rename column' } });
+  fireEvent.keyDown(screen.getByLabelText('Command search'), { key: 'Enter' });
+}
+
 describe('workspace palette actions', () => {
+  it.each(['Escape', 'Cancel'])('cancels an ordinary rename with %s and restores the selection focus', (method) => {
+    const { props, commands, cell } = setup();
+    props.selection = { mode: 'columns', anchor: cell, extent: cell };
+    render(<RenamePalette props={props} />);
+    openRename();
+    fireEvent.change(screen.getByLabelText('Column name'), { target: { value: 'Draft' } });
+    if (method === 'Escape') fireEvent.keyDown(screen.getByLabelText('Column name'), { key: 'Escape' });
+    else fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(commands.renameColumn).not.toHaveBeenCalled();
+    expect(props.selection).toEqual({ mode: 'columns', anchor: cell, extent: cell });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Selected column' })).toHaveFocus();
+  });
+
+  it.each(['Escape', 'Cancel'])('cancels model confirmation with %s without mutation and restores focus', (method) => {
+    const { props, commands, sheet, cell } = setup();
+    const bound = { ...sheet, modelId: 'model', modelColumnBindings: { property: cell.cell.columnId } };
+    props.sheet = bound;
+    props.workbook = { ...workbookWithSheets([bound]), dataModels: { model: { id: 'model', name: 'Model', columns: [{ id: 'property', name: 'Amount', kind: 'manual', type: 'float' }] } } };
+    props.selection = { mode: 'columns', anchor: cell, extent: cell };
+    render(<RenamePalette props={props} />);
+    openRename();
+    expect(screen.getByText(/defined by data model "Model"/)).toHaveTextContent('Amount');
+    expect(screen.queryByLabelText('Column name')).not.toBeInTheDocument();
+    if (method === 'Escape') fireEvent.keyDown(screen.getByRole('button', { name: 'Continue' }), { key: 'Escape' });
+    else fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(commands.renameColumn).not.toHaveBeenCalled();
+    expect(props.selection).toEqual({ mode: 'columns', anchor: cell, extent: cell });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Selected column' })).toHaveFocus();
+  });
+
+  it('retains the focused draft and shows an immediate pending-operation rejection', async () => {
+    const { props, commands, cell } = setup();
+    props.selection = { mode: 'columns', anchor: cell, extent: cell };
+    commands.renameColumn.mockReturnValue({ result: { ok: false, reason: 'pending-axis-creation' } });
+    render(<RenamePalette props={props} />);
+    openRename();
+    fireEvent.change(screen.getByLabelText('Column name'), { target: { value: 'Draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('pending-axis-creation');
+    await waitFor(() => expect(screen.getByLabelText('Column name')).toHaveFocus());
+    expect(screen.getByLabelText('Column name')).toHaveValue('Draft');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
   it('routes representative workspace, sheet, stacking, view, selection and model commands and exposes guards', () => {
     const { command, commands, controller, props, sheet, cell } = setup();
     expect(command('undo').unavailable).toBe('Nothing to undo');
