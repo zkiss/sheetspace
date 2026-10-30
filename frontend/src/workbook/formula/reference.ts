@@ -4,7 +4,7 @@ import { findSheetById, sheetsInOrder } from '../read/queries';
 import { formulaMoveGeometry } from './formulaMoveGeometry';
 import type { FormulaCoordinate, FormulaMoveMapping, FormulaReferenceResolver } from './formulaTransformTypes';
 export type { FormulaCoordinate, FormulaMoveMapping, FormulaMoveTarget, FormulaReferenceResolver } from './formulaTransformTypes';
-import { formatPropertyReferenceToken, formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, replaceFormulaQualifiers, type FormulaExpression, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
+import { formatPropertyReferenceToken, formatSheetReferenceToken, formulaReferenceLexemes, formulaSheetReferences, mergeFormulaDiagnostics, parseFormulaSyntax, parseUserFormulaSyntax, replaceFormulaQualifiers, type FormulaExpression, type FormulaReference, type FormulaReferenceLexeme, type FormulaSyntaxResult } from './syntax';
 
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
 export type FormulaSourceSpan = { start: number; end: number };
@@ -101,7 +101,10 @@ export function formulaRawToCanonicalBestEffort(raw: string, resolver: FormulaRe
 
 function canonicalizeRawReferences(raw: string, resolver: FormulaReferenceResolver, preserveUnresolved: boolean): string {
   const edits: Edit[] = [];
-  for (const match of rawMatches(raw, resolver)) {
+  const matches = preserveUnresolved
+    ? parseUserFormulaSyntax(raw, namedColumnPredicate(resolver)).referenceLexemes.map(matchFromLexeme).filter((match) => !match.canonical)
+    : rawMatches(raw, resolver);
+  for (const match of matches) {
     const sheetId = rawTargetSheet(match.qualifier, resolver);
     const resolved = sheetId && match.endpoints.map((endpoint) => endpoint.kind === 'named'
       ? resolver.namedCoordinateAt?.(sheetId, endpoint.propertyName!, endpoint.row!)
