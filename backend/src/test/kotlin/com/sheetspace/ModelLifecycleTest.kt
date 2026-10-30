@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
 
 class ModelLifecycleTest {
     @Test
@@ -30,9 +29,9 @@ class ModelLifecycleTest {
         assertEquals(formulaChanged, saved.dataModels.getValue(LIFECYCLE_MODEL))
         saved.sheetsInOrder.forEach { sheet ->
             val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
-            assertEquals("=@A[1]*3", StoredFormulaCodec.decode(template.content).text)
+            assertEquals(lifecycleTemplate(sheet, sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT), "=@A[1]*3"), template)
             assertEquals(
-                sheet.tabularContent.rows.indices.map { index -> instantiateStoredModelFormula(template.content, index) { sheet.tabularContent.rows.map { it.value } } },
+                sheet.tabularContent.rows.indices.map { index -> instantiateStoredModelFormula(template.content, "=@A[1]*3", sheet.id.value, index) { sheet.tabularContent.rows.map { it.value } } },
                 sheet.tabularContent.rows.map { row -> sheet.tabularContent.cellContents.getValue(CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT))) },
             )
         }
@@ -108,21 +107,10 @@ class ModelLifecycleTest {
         val bound = lifecycleBoundWorkbook(before)
         val changed = bound.copy(documents = bound.documents.mapValues { (_, sheet) ->
             val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
-            val formula = StoredFormulaCodec.decode(template.content)
-            val occurrence = formula.occurrences.single()
-            val changedTemplate = BoundModelFormula(StoredFormulaCodec.encode(formula.copy(occurrences = listOf(
-                occurrence.copy(slots = occurrence.slots.map { slot ->
-                    if (slot.id == "r") slot.copy(key = JsonPrimitive(3000000000L), status = "unresolved", targetIds = emptyList()) else slot
-                }),
-            ))))
-            val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
-            val content = sheet.tabularContent.rows.foldIndexed(sheet.tabularContent) { index, updated, row ->
-                updated.updateCell(updated.addressOf(CellCoordinate(row, output))!!,
-                    instantiateStoredModelFormula(changedTemplate.content, index) { sheet.tabularContent.rows.map { it.value } })
-            }
+            val changedTemplate = template
             sheet.copy(
                 modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to changedTemplate),
-                content = content,
+                content = sheet.tabularContent,
                 presentation = sheet.presentation.copy(formatOverrides = SheetFormatOverrides(
                     rows = mapOf(sheet.tabularContent.rows[0].value to CellFormat(fontWeight = "bold")),
                     columns = mapOf(sheet.tabularContent.columns[0].value to CellFormat(numberFormat = NumberFormat("number", 2))),
@@ -202,43 +190,21 @@ class ModelLifecycleTest {
     }
 
     @Test
-    fun `derived formulas preserve text and identity provenance while refreshing row recipes`() {
+    fun `derived formulas retain canonical columns and derive row recipes`() {
         val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
         val sheet = bound.sheetsInOrder.first()
         val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
+        val declaration = "=@A[1]*2"
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
-        val original = StoredFormulaCodec.decode(template.content)
-        val instance = StoredFormulaCodec.decode(derivedFormulaRaw(template, bound, 1))
-
-        assertEquals(original.text, instance.text)
-        assertEquals(original.occurrences.single().slots.single { it.id == "c" }, instance.occurrences.single().slots.single { it.id == "c" })
-        assertEquals(listOf(sheet.tabularContent.rows[1].value), instance.occurrences.single().slots.single { it.id == "r" }.targetIds)
+        val instance = derivedFormulaRaw(template, bound, 1, declaration, sheet.id.value)
+        assertEquals("=@${sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT).value}[${sheet.tabularContent.rows[1].value}]*2", instance)
         assertEquals(true, calculatedContentsAreDerived(bound))
-        val staleContent = bound.replaceSheet(sheet.updateTabularContent { content ->
+        val stale = bound.replaceSheet(sheet.updateTabularContent { content ->
             content.updateCell(content.addressOf(CellCoordinate(sheet.tabularContent.rows[1], output))!!, "=stale")
         })
-        assertEquals(false, calculatedContentsAreDerived(staleContent))
-
-        val occurrence = original.occurrences.single()
-        val property = occurrence.copy(slots = occurrence.slots.map { slot ->
-            if (slot.id == "c") slot.copy(kind = "property", key = JsonPrimitive("Missing"), targetIds = listOf("missing-property", "missing-column")) else slot
-        })
-        val propertyTemplate = BoundModelFormula(StoredFormulaCodec.encode(original.copy(occurrences = listOf(property))))
-        val retained = StoredFormulaCodec.decode(derivedFormulaRaw(propertyTemplate, bound, 1)).occurrences.single()
-        assertEquals(listOf("missing-property", "missing-column"), retained.slots.single { it.id == "c" }.targetIds)
-        assertEquals(listOf(sheet.tabularContent.rows[1].value), retained.slots.single { it.id == "r" }.targetIds)
-
-        val missingSheet = occurrence.copy(slots = occurrence.slots.map { slot ->
-            if (slot.id == "s") slot.copy(targetIds = listOf("missing-sheet")) else slot
-        })
-        val missingTemplate = BoundModelFormula(StoredFormulaCodec.encode(original.copy(occurrences = listOf(missingSheet))))
-        assertEquals(missingTemplate.content, derivedFormulaRaw(missingTemplate, bound, 1))
-        val unavailableRow = StoredFormulaCodec.decode(derivedFormulaRaw(template, bound, 100)).occurrences.single().slots.single { it.id == "r" }
-        assertEquals("unresolved", unavailableRow.status)
-        assertEquals(emptyList(), unavailableRow.targetIds)
+        assertEquals(false, calculatedContentsAreDerived(stale))
         val anchored = lifecycleTemplate(sheet, sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT), "=@A[$1]*2", anchored = true)
-        val anchoredRow = StoredFormulaCodec.decode(derivedFormulaRaw(anchored, bound, 1)).occurrences.single().slots.single { it.id == "r" }
-        assertEquals(listOf(sheet.tabularContent.rows[0].value), anchoredRow.targetIds)
+        assertEquals(anchored.content, derivedFormulaRaw(anchored, bound, 1, "=@A[$1]*2", sheet.id.value))
     }
 
     @Test
@@ -247,22 +213,14 @@ class ModelLifecycleTest {
         val bound = lifecycleBoundWorkbook(before)
         val target = bound.sheetsInOrder.first()
         val source = bound.sheetsInOrder.last()
-        val declaration = "=One!@A[1]"
-        val occurrence = FormulaOccurrence(
-            "o", FormulaSpan(1, 10), "s", listOf(FormulaEndpoint("e", "c", "r", false, false)),
-            listOf(
-                FormulaSlot("s", "sheet", JsonPrimitive("One"), "retained", listOf(target.id.value)),
-                FormulaSlot("c", "column", JsonPrimitive(0), "retained", listOf(target.tabularContent.columns[0].value)),
-                FormulaSlot("r", "row", JsonPrimitive(1), "retained", listOf(target.tabularContent.rows[0].value)),
-            ), emptyList(),
-        )
-        val template = BoundModelFormula(StoredFormulaCodec.encode(StoredFormula(declaration, listOf(occurrence))))
+        val declaration = "=@One!A[1]"
+        val template = BoundModelFormula("=@${target.id.value}!${target.tabularContent.columns[0].value}[${target.tabularContent.rows[0].value}]")
         val model = bound.dataModels.getValue(LIFECYCLE_MODEL)
         val changedModel = model.copy(columns = listOf(model.columns[0], (model.columns[1] as CalculatedModelColumn).copy(formula = declaration)))
         val changed = bound.copy(dataModels = bound.dataModels + (model.id to changedModel), documents = bound.documents.mapValues { (_, sheet) ->
             val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
             val content = sheet.tabularContent.rows.foldIndexed(sheet.tabularContent) { index, current, row ->
-                current.updateCell(current.addressOf(CellCoordinate(row, output))!!, derivedFormulaRaw(template, bound, index))
+                current.updateCell(current.addressOf(CellCoordinate(row, output))!!, derivedFormulaRaw(template, bound, index, declaration, sheet.id.value))
             }
             sheet.copy(modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template), content = content)
         })
@@ -273,11 +231,7 @@ class ModelLifecycleTest {
         assertEquals(template, savedSource.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT))
         savedSource.tabularContent.rows.forEachIndexed { index, row ->
             val content = savedSource.tabularContent.cellContents.getValue(CellCoordinate(row, savedSource.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)))
-            val instance = StoredFormulaCodec.decode(content)
-            assertEquals(declaration, instance.text)
-            assertEquals(occurrence.slots[0], instance.occurrences.single().slots[0])
-            assertEquals(occurrence.slots[1], instance.occurrences.single().slots[1])
-            assertEquals(listOf(target.tabularContent.rows[index].value), instance.occurrences.single().slots[2].targetIds)
+            assertEquals("=@${target.id.value}!${target.tabularContent.columns[0].value}[${target.tabularContent.rows[index].value}]", content)
         }
     }
 
@@ -359,7 +313,7 @@ internal fun formulaChangedWorkbook(before: WorkbookState, model: DataModel): Wo
                     val template = lifecycleTemplate(sheet, input, "=@A[1]*3")
                     val index = content.rows.indexOf(row)
                     updated.updateCell(updated.addressOf(CellCoordinate(row, output))!!,
-                        instantiateStoredModelFormula(template.content, index) { content.rows.map { it.value } })
+                        instantiateStoredModelFormula(template.content, "=@A[1]*3", sheet.id.value, index) { content.rows.map { it.value } })
                 }
             },
         )

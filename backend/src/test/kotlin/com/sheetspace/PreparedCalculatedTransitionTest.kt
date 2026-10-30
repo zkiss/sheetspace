@@ -14,13 +14,13 @@ class PreparedCalculatedTransitionTest {
     @Test
     fun `mixed fixture keeps dead target identity and historical bytes after replacement`() {
         val fixture = Json.parseToJsonElement(requireNotNull(javaClass.getResource("/stored-model-instances.json")).readText()).jsonArray.first().jsonObject
-        val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content)
+        val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content.replace("@col1[r1]", "@sheet!col1[sheet:row:1]").replace("[${'$'}r2]", "[${'$'}sheet:row:2]"))
         val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
         val base = initial.removeSheet(initial.sheetsInOrder.last().id)
         val sheet = base.sheetsInOrder.first()
         val model = base.dataModels.getValue(LIFECYCLE_MODEL)
         val property = model.columns.single { it.id == LIFECYCLE_OUTPUT } as CalculatedModelColumn
-        val mixedModel = model.copy(columns = model.columns.map { if (it.id == property.id) property.copy(formula = "=@A[1]:B[2]+???😀") else it })
+        val mixedModel = model.copy(columns = model.columns.map { if (it.id == property.id) property.copy(formula = "=@Inputs!A[1]:B[$2]+???😀") else it })
         val rows = listOf(RowId("sheet:row:1"), RowId("sheet:row:2"), RowId("sheet:row:3"))
         val target = SheetDocument(SheetId("sheet"), name = "Inputs", content = TabularContent(rows, listOf(ColumnId("col1"), ColumnId("col2")), emptyMap()))
         val withTarget = base.copy(dataModels = base.dataModels + (model.id to mixedModel)).addSheet(target)
@@ -32,7 +32,7 @@ class PreparedCalculatedTransitionTest {
         val replacement = before.removeSheet(target.id).addSheet(target.copy(id = SheetId("replacement")))
         val rules = preparedCalculatedTemplates { candidate -> if (candidate.id == sheet.id) mapOf(LIFECYCLE_OUTPUT to template) else null }
 
-        assertEquals(fixture.getValue("expected").jsonPrimitive.content, derivedPreparedFormulaRaw(template, before, 1, mixedModel.columns.filterIsInstance<CalculatedModelColumn>().single().formula, sheet.id.value))
+        assertEquals(fixture.getValue("expected").jsonPrimitive.content.replace("@col1[r2]", "@sheet!col1[sheet:row:2]").replace("[${'$'}r2]", "[${'$'}sheet:row:2]"), derivedPreparedFormulaRaw(template, before, 1, mixedModel.columns.filterIsInstance<CalculatedModelColumn>().single().formula, sheet.id.value))
         assertTrue(calculatedTransitionIsValid(before, replacement, rules))
         assertEquals(contents, replacement.documents.getValue(sheet.id).tabularContent.cellContents)
         val targetId = SheetId.generate()
@@ -64,7 +64,7 @@ class PreparedCalculatedTransitionTest {
     @Test
     fun `prepared materializers derive appended and missing rows without replacing historical bytes`() {
         val fixture = Json.parseToJsonElement(requireNotNull(javaClass.getResource("/stored-model-instances.json")).readText()).jsonArray.first().jsonObject
-        val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content)
+        val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content.replace("@col1[r1]", "@sheet!col1[sheet:row:1]").replace("[${'$'}r2]", "[${'$'}sheet:row:2]"))
         val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
         val base = initial.removeSheet(initial.sheetsInOrder.last().id)
         val sheet = base.sheetsInOrder.first()
@@ -76,10 +76,14 @@ class PreparedCalculatedTransitionTest {
         val row = RowId.generate()
         val existing = sheet.tabularContent.rows.first()
         val staged = sheet.copy(content = TabularContent(listOf(existing, row), sheet.tabularContent.columns, mapOf(CellCoordinate(existing, output) to "historic")))
-        val workbook = base.replaceSheet(staged).addSheet(target)
+        val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+        val changedModel = model.copy(columns = model.columns.map {
+            if (it.id == LIFECYCLE_OUTPUT) (it as CalculatedModelColumn).copy(formula = "=@Inputs!A[1]:B[$2]+???😀") else it
+        })
+        val workbook = base.copy(dataModels = base.dataModels + (model.id to changedModel)).replaceSheet(staged).addSheet(target)
         val appended = materializeCalculatedRow(workbook, staged, row, rules)
         assertEquals("historic", appended.tabularContent.cellContents[CellCoordinate(existing, output)])
-        assertEquals(fixture.getValue("expected").jsonPrimitive.content, appended.tabularContent.cellContents[CellCoordinate(row, output)])
+        assertEquals(fixture.getValue("expected").jsonPrimitive.content.replace("@col1[r2]", "@sheet!col1[sheet:row:2]").replace("[${'$'}r2]", "[${'$'}sheet:row:2]"), appended.tabularContent.cellContents[CellCoordinate(row, output)])
         val refreshed = materializeDerivedContents(workbook, rules).documents.getValue(sheet.id)
         assertEquals(appended.tabularContent.cellContents, refreshed.tabularContent.cellContents)
     }

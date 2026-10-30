@@ -15,7 +15,7 @@ class PreparedSqliteAdmissionTest {
         val fixture = Json.parseToJsonElement(requireNotNull(javaClass.getResource("/stored-model-instances.json")).readText()).jsonArray.first().jsonObject
         val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content)
         val forgedTemplate = PreparedModelFormula(template.content.replace("col1", "other-column"))
-        val declaration = "=@A[1]:B[2]+???😀"
+        val declaration = fixture.getValue("declaration").jsonPrimitive.content
         assertTrue(preparedModelTemplateIsValid(template, declaration))
         assertTrue(preparedModelTemplateIsValid(forgedTemplate, declaration))
         for (empty in listOf(false, true)) {
