@@ -52,6 +52,20 @@ class StoredModelFormulaInstanceTest {
     }
 
     @Test
+    fun `association aligns separately encoded expression gaps and references`() {
+        val declaration = "=2+@Missing[1]+3"
+        val opaque = StoredFormulaCodec.escape("@Missing[1]")
+        val template = "=" + StoredFormulaCodec.escape("2+") + opaque + "+3"
+        val associations = requireNotNull(modelFormulaAssociations(template, declaration))
+
+        assertEquals(1, associations.size)
+        assertNull(associations.single().stored)
+        assertEquals(opaque, template.substring(associations.single().start, associations.single().end))
+        assertEquals(emptyList(), modelFormulaRecipes(template, declaration))
+        assertNull(modelFormulaAssociations("=" + StoredFormulaCodec.escape("2+@Missing[1]") + "+3", declaration))
+    }
+
+    @Test
     fun `projection edits opaque references without changing canonical tokens or literals`() {
         val declaration = "=@Old[1]+@Old[1]:Missing[1]+\"Old\""
         val opaque = StoredFormulaCodec.escape("@Old[1]:Missing[1]")

@@ -171,7 +171,7 @@ class PreparedCalculatedTransitionTest {
         val stale = PreparedModelFormula("=stale")
 
         assertEquals(mapOf(LIFECYCLE_OUTPUT to template), retainDeclaredCalculatedTemplates(
-            model, mapOf(LIFECYCLE_OUTPUT to template, "unknown" to stale), ::preparedModelTemplateIsValid,
+            model, mapOf(LIFECYCLE_OUTPUT to template, LIFECYCLE_INPUT to stale, "unknown" to stale), ::preparedModelTemplateIsValid,
         ))
         assertEquals(emptyMap(), retainDeclaredCalculatedTemplates(model, mapOf(LIFECYCLE_OUTPUT to stale), ::preparedModelTemplateIsValid))
         assertEquals(null, retainDeclaredCalculatedTemplates(model, null as Map<String, PreparedModelFormula>?, ::preparedModelTemplateIsValid))

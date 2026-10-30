@@ -23,6 +23,8 @@ class ModelFormulaProjectionPlanTest {
         assertEquals("=@'${sheet.name}'!Next[1]", project(after, qualified))
         assertEquals(local, project(named, local))
         assertEquals(local, project(after.copy(dataModels = emptyMap()), local))
+        val removed = renamed.copy(columns = renamed.columns.filterNot { it.id == input.id })
+        assertEquals(local, project(after.copy(dataModels = after.dataModels + (model.id to removed)), local))
         assertEquals(qualified, project(after.removeSheet(sheet.id), qualified))
         assertEquals(qualified, project(after.replaceSheet(sheet.copy(modelId = null, modelColumnBindings = emptyMap())), qualified))
         assertEquals(qualified, project(after.replaceSheet(sheet.copy(modelColumnBindings = sheet.modelColumnBindings + (input.id to ColumnId.generate()))), qualified))
