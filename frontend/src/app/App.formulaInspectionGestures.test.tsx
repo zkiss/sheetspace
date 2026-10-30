@@ -1,11 +1,11 @@
 import { activateCellEditor } from '@test-support/appScreen';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import { App } from './App';
 
 function setup() {
-  render(<App initialWorkbook={workbookWithSheets([
+  render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([
     smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@B[1]+1', B1: '2' } }),
   ])} />);
   const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });

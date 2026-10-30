@@ -4,6 +4,7 @@ import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { bindSheetToModel, replaceModelDeclaration, unbindSheetFromModel } from '@application/core/modelLifecycle';
 import { applyWorkbookOperation, replayCellPersistenceWrites, type CellPersistenceWrite } from '@application/core/userActions';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 
 const model: DataModel = {
   id: 'model',
@@ -46,7 +47,7 @@ describe('calculated write admission', () => {
 
     expect(result).toEqual({ ok: false, reason: 'calculated-cell-write' });
     expect(cellRaw(workbook, input)).toBeUndefined();
-    expect(cellRaw(workbook, output)).toBe('=1');
+    expect(projectStoredFormula(cellRaw(workbook, output)!, workbook, 'sheet').text).toBe('=1');
   });
 
   it('rejects a protected target before a no-op target can carry a manual change through', () => {

@@ -6,7 +6,8 @@ import { cellIdentityKey } from '../core/cellIdentity';
 import { calculationProjection } from '../read/calculationProjection';
 import { cellRawContent } from '../read/queries';
 import { bindModelFormula, bindModelFormulas, instantiateModelFormula, instantiateModelFormulas } from './modelTemplate';
-import { formulaRawForDisplay, formulaRawForStorage } from './reference';
+import { decodeStoredFormula, encodeStoredFormula } from './storedFormula';
+import { projectStoredFormula } from './storedFormulaProjection';
 
 const model: DataModel = { id: 'model', name: 'Model', columns: [
   { id: 'input', name: "Owner's input", kind: 'manual', type: 'float' },
@@ -17,83 +18,90 @@ const model: DataModel = { id: 'model', name: 'Model', columns: [
 function instances(rowCount = 2): Workbook {
   const sheets = ['one', 'two'].map((id, index) => ({
     ...sheetDocument({ id, name: id === 'one' ? "One's sheet" : 'Two', columnCount: 3, rowCount,
-      cells: rowCount ? { A1: String(index + 1), A2: String(index + 3), B1: '=999' } : {} }),
+      cells: rowCount ? { A1: String(index + 1), A2: String(index + 3), B1: encodeStoredFormula({ text: '=999', occurrences: [] }) } : {} }),
     modelId: model.id,
     modelColumnBindings: { input: `${id}:column:1`, result: `${id}:column:2`, total: `${id}:column:3` },
   }));
   return { ...workbookWithSheets(sheets), dataModels: { [model.id]: model } };
 }
 
-function expand(workbook: Workbook): Workbook {
-  return { ...workbook, documents: Object.fromEntries(workbook.manifest.sheetIds.map((id) => [id, instantiateModelFormulas(workbook, id)])) };
+function calculate(workbook: Workbook) {
+  return new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' });
 }
 
-describe('model formula row templates', () => {
-  it('binds same-row unquoted and escaped quoted property references', () => {
+describe('single-content model templates', () => {
+  it('instantiates implicit rows for unquoted and escaped property names', () => {
     const workbook = instances();
-    const unquoted = bindModelFormula('=@Result', workbook, 'one');
-    const quoted = bindModelFormula("=@'Owner''s input'", workbook, 'one');
-
-    expect(formulaRawForDisplay(instantiateModelFormula(unquoted, workbook, 1), workbook, 'one')).toBe('=@Result[2]');
-    expect(formulaRawForDisplay(instantiateModelFormula(quoted, workbook, 1), workbook, 'one')).toBe("=@'Owner''s input'[2]");
+    for (const [raw, expected] of [['=@Result', '=@Result[2]'], ["=@'Owner''s input'", "=@'Owner''s input'[2]"]] as const) {
+      const instance = instantiateModelFormula(bindModelFormula(raw, workbook, 'one'), workbook, 1);
+      expect(projectStoredFormula(instance, workbook, 'one').text).toBe(expected);
+    }
   });
 
-  it.each(['@A', "@'Owner''s input'"])('keeps oversized %s row targets serializable and broken rather than rejecting their declarations', (reference) => {
+  it('leaves unbound sheets unchanged and does not repair a missing model target', () => {
     const workbook = instances();
-    const finite = bindModelFormula(`=${reference}[3000000000]`, workbook, 'one');
-    expect(finite.references[0].endpoints[0]?.rowIndex).toBe(2999999999);
-    expect(instantiateModelFormula(JSON.parse(JSON.stringify(finite)), workbook, 0)).toBe('=@#REF!A[1]');
+    const sheet = workbook.documents.one;
+    const ordinary = { ...workbook, documents: { ...workbook.documents, one: { ...sheet, modelId: undefined } } };
+    expect(bindModelFormulas(ordinary, 'one')).toEqual({});
+    expect(bindModelFormulas(ordinary, 'missing')).toEqual({});
+    expect(instantiateModelFormulas(ordinary, 'one', { missing: bindModelFormula('=1', ordinary, 'one') }).content.cells).toEqual(sheet.content.cells);
+    const template = bindModelFormula("=@'Owner''s input'[1]", workbook, 'one');
+    const noModel = { ...workbook, dataModels: {} };
+    const instance = instantiateModelFormula(template, noModel, 0);
+    expect(decodeStoredFormula(instance).occurrences[0].slots.find((slot) => slot.kind === 'property')!.targetIds).toEqual(['input', sheet.content.columns[0]]);
+    const output = instantiateModelFormulas(noModel, 'one', { result: template });
+    expect(calculate({ ...noModel, documents: { ...noModel.documents, one: output } }).one.B1).toMatchObject({ error: '#REF!' });
+  });
+  it('serializes one expression and derives independent instances from declarations, not first-row cells', () => {
+    const workbook = instances();
+    const bindings = JSON.parse(JSON.stringify(bindModelFormulas(workbook, 'one')));
+    const expanded = { ...workbook, documents: Object.fromEntries(workbook.manifest.sheetIds.map((id) => [id, instantiateModelFormulas(workbook, id)])) };
+
+    expect(Object.keys(bindings.result)).toEqual(['content']);
+    expect(decodeStoredFormula(bindings.result.content).text).toBe(model.columns[1].kind === 'calculated' ? model.columns[1].formula : '');
+    expect(calculate(expanded).one.B2).toMatchObject({ value: 6 });
+    expect(calculate(expanded).one.C2).toMatchObject({ value: 9 });
+    expect(calculate(expanded).two.C2).toMatchObject({ value: 12 });
+    expect(decodeStoredFormula(cellRawContent(workbook.documents.one, 'B1')!).text).toBe('=999');
   });
 
-  it('serializes unrepresentable named row targets as broken endpoints', () => {
+  it('retains instances by output row identity and derives only newly inserted rows', () => {
     const workbook = instances();
-    const unrepresentable = bindModelFormula(`=@'Owner''s input'[${'9'.repeat(400)}]`, workbook, 'one');
-    expect(unrepresentable.references[0].endpoints).toEqual([null]);
-    expect(instantiateModelFormula(JSON.parse(JSON.stringify(unrepresentable)), workbook, 0)).toBe('=@#REF!A[1]');
-  });
-  it('calculates independent instances and multiple properties from declarations rather than first-row cells', () => {
-    const workbook = instances();
-    const expanded = expand(workbook);
-    const results = new FormulaCalculation().update(calculationProjection(expanded), { kind: 'structure' });
+    const bindings = bindModelFormulas(workbook, 'one');
+    const initial = { ...instantiateModelFormulas(workbook, 'one', bindings), modelFormulaBindings: bindings };
+    const [first, second] = initial.content.rows;
+    const key = (rowId: string) => cellIdentityKey({ rowId, columnId: initial.modelColumnBindings!.result });
+    const changed = { ...initial, content: { ...initial.content, rows: [second, 'inserted', first] } };
+    const next = { ...workbook, documents: { ...workbook.documents, one: changed } };
+    const expanded = instantiateModelFormulas(next, 'one', bindings, initial);
 
-    expect(results.one.B1).toMatchObject({ value: 2 });
-    expect(results.one.B2).toMatchObject({ value: 6 });
-    expect(results.one.C2).toMatchObject({ value: 9 });
-    expect(results.two.B1).toMatchObject({ value: 4 });
-    expect(results.two.C2).toMatchObject({ value: 12 });
-    expect(cellRawContent(workbook.documents.one, 'B1')).toBe('=999');
-    expect(cellRawContent(expanded.documents.one, 'A2')).toBe('3');
+    expect(expanded.content.cells[key(first)]).toBe(initial.content.cells[key(first)]);
+    expect(expanded.content.cells[key(second)]).toBe(initial.content.cells[key(second)]);
+    expect(expanded.content.cells[key('inserted')]).toBe(instantiateModelFormula(bindings.result, next, 1));
   });
 
-  it('binds empty sheets without row identities and expands their first and subsequent appended rows', () => {
+  it('binds empty sheets before rows exist and instantiates after append', () => {
     const empty = instances(0);
     const bindings = JSON.parse(JSON.stringify(bindModelFormulas(empty, 'one')));
-    expect(instantiateModelFormulas(empty, 'one', bindings).content.rows).toEqual([]);
     const sheet = empty.documents.one;
-    const appended = { ...empty, documents: { ...empty.documents, one: {
-      ...sheet, content: { ...sheet.content, rows: ['new-first', 'new-second'], cells: {
-        [cellIdentityKey({ columnId: sheet.content.columns[0], rowId: 'new-first' })]: '5',
-        [cellIdentityKey({ columnId: sheet.content.columns[0], rowId: 'new-second' })]: '7',
-      } },
-    } } };
+    const appended = { ...empty, documents: { ...empty.documents, one: { ...sheet, content: { ...sheet.content, rows: ['first', 'second'] } } } };
     const expanded = instantiateModelFormulas(appended, 'one', bindings);
 
-    expect(formulaRawForDisplay(cellRawContent(expanded, 'B1')!, appended, 'one')).toBe("=@'Owner''s input'[1]*2");
-    expect(formulaRawForDisplay(cellRawContent(expanded, 'B2')!, appended, 'one')).toBe("=@'Owner''s input'[2]*2");
-    expect(cellRawContent(expanded, 'B2')).toContain('006e00650077002d007300650063006f006e0064');
+    expect(instantiateModelFormulas(empty, 'one', bindings).content.rows).toEqual([]);
+    expect(projectStoredFormula(cellRawContent(expanded, 'B2')!, appended, 'one').text).toBe("=@'Owner''s input'[2]*2");
+    expect(decodeStoredFormula(cellRawContent(expanded, 'B2')!).occurrences[0].slots.find((slot) => slot.kind === 'row')!.targetIds).toEqual(['second']);
   });
 
-  it('preserves mixed anchors, qualified references, ranges and source spelling with no horizontal offset', () => {
+  it('preserves mixed anchors, qualifiers, ranges and source spelling', () => {
     const workbook = instances();
     const raw = "= SUM( @A[1]:$B[$1], @$A[1], @A[$1], @'One''s sheet'!A[1], @Two!$A[$1] )";
-    const template = bindModelFormula(raw, workbook, 'one');
-    const formula = instantiateModelFormula(template, workbook, 1);
+    const formula = instantiateModelFormula(bindModelFormula(raw, workbook, 'one'), workbook, 1);
 
-    expect(formulaRawForDisplay(formula, workbook, 'one'))
-      .toBe("= SUM( @A[2]:$B[$1], @$A[2], @A[$1], @'One''s sheet'!A[2], @Two!$A[$1] )");
+    expect(projectStoredFormula(formula, workbook, 'one').text).toBe("= SUM( @A[2]:$B[$1], @$A[2], @A[$1], @'One''s sheet'!A[2], @Two!$A[$1] )");
+    expect(decodeStoredFormula(formula).text).toBe(raw);
   });
 
-  it('resolves cross-sheet calculations only against the complete expanded workbook', () => {
+  it('calculates cross-sheet dependencies against the complete expanded workbook', () => {
     const workbook = instances();
     const one = instantiateModelFormulas(workbook, 'one', {
       result: bindModelFormula('=@Two!B[1]+1', workbook, 'one'),
@@ -101,82 +109,89 @@ describe('model formula row templates', () => {
     });
     const two = instantiateModelFormulas(workbook, 'two');
     const expanded = { ...workbook, documents: { one, two } };
-    const results = new FormulaCalculation().update(calculationProjection(expanded), { kind: 'structure' });
+    const results = calculate(expanded);
 
+    expect(projectStoredFormula(cellRawContent(one, 'B2')!, expanded, 'one').text).toBe('=@Two!B[2]+1');
     expect(results.one.B1).toMatchObject({ value: 5 });
     expect(results.one.B2).toMatchObject({ value: 9 });
     expect(results.one.C2).toMatchObject({ value: 12 });
   });
 
-  it('keeps future row offsets in bindings until appended rows make the reference valid', () => {
+  it('resolves a future row recipe after append and leaves the next offset out of bounds', () => {
     const workbook = instances();
-    const template = bindModelFormula('=@A[3]', workbook, 'one');
-    expect(instantiateModelFormula(template, workbook, 0)).toBe('=@#REF!A[1]');
+    const template = JSON.parse(JSON.stringify(bindModelFormula('=@A[3]', workbook, 'one')));
     const sheet = workbook.documents.one;
+    const beforeAppend = instantiateModelFormulas(workbook, 'one', { result: template });
     const appended = { ...workbook, documents: { ...workbook.documents, one: {
-      ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, 'third'] },
+      ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, 'third'], cells: {
+        ...sheet.content.cells, [cellIdentityKey({ columnId: sheet.content.columns[0], rowId: 'third' })]: '11',
+      } },
     } } };
+    const first = instantiateModelFormula(template, appended, 0);
+    const second = instantiateModelFormula(template, appended, 1);
+    const expanded = instantiateModelFormulas(appended, 'one', { result: template });
+    const results = calculate({ ...appended, documents: { ...appended.documents, one: expanded } });
 
-    expect(formulaRawForDisplay(instantiateModelFormula(template, appended, 0), appended, 'one')).toBe('=@A[3]');
-    expect(instantiateModelFormula(template, appended, 1)).toBe('=@#REF!A[1]');
+    expect(calculate({ ...workbook, documents: { ...workbook.documents, one: beforeAppend } }).one.B1).toMatchObject({ error: '#REF!' });
+    expect(projectStoredFormula(first, appended, 'one').text).toBe('=@A[3]');
+    expect(decodeStoredFormula(first).occurrences[0].slots.find((slot) => slot.kind === 'row')!.targetIds).toEqual(['third']);
+    expect(results.one.B1).toMatchObject({ value: 11 });
+    expect(results.one.B2).toMatchObject({ error: '#REF!' });
+    expect(decodeStoredFormula(second).text).toBe('=@A[3]');
   });
 
-  it('keeps retained targets across rename and reorder, and leaves removed targets broken after name reuse', () => {
+  it.each(['=@A[3000000000]', `=@'Owner''s input'[${'9'.repeat(400)}]`, '=@Missing!A[1]', '=@A[bad]', '=1+', '=@Z[1]'])('retains invalid declaration %s through serialization and derivation', (raw) => {
+    const workbook = instances();
+    const template = JSON.parse(JSON.stringify(bindModelFormula(raw, workbook, 'one')));
+    const instance = instantiateModelFormula(template, workbook, 0);
+
+    expect(decodeStoredFormula(template.content).text).toBe(raw);
+    expect(decodeStoredFormula(instance).text).toBe(raw);
+  });
+
+  it('keeps dead property and column identities broken rather than binding replacements', () => {
+    const workbook = instances();
+    const template = bindModelFormula("=@'Owner''s input'[1]", workbook, 'one');
+    const sheet = workbook.documents.one;
+    const removed = { ...workbook, documents: { ...workbook.documents, one: { ...sheet,
+      modelColumnBindings: { ...sheet.modelColumnBindings, input: 'replacement' },
+      content: { ...sheet.content, columns: ['replacement', ...sheet.content.columns.slice(1)] },
+    } } };
+    const instance = instantiateModelFormula(template, removed, 0);
+    const output = instantiateModelFormulas(removed, 'one', { result: template });
+
+    expect(decodeStoredFormula(instance).occurrences[0].slots.find((slot) => slot.kind === 'property')!.targetIds).toEqual(['input', sheet.content.columns[0]]);
+    expect(calculate({ ...removed, documents: { ...removed.documents, one: output } }).one.B1).toMatchObject({ error: '#REF!' });
+  });
+
+  it('retains named and positional targets through property rename and column reorder', () => {
     const workbook = instances();
     const named = bindModelFormula("=@'Owner''s input'[1]", workbook, 'one');
     const positional = bindModelFormula('=@A[1]', workbook, 'one');
     const sheet = workbook.documents.one;
-    const reordered = { ...workbook, dataModels: { model: { ...model, columns: [model.columns[1], { ...model.columns[0], name: 'Renamed' }, model.columns[2]] } },
-      documents: { ...workbook.documents, one: { ...sheet, content: { ...sheet.content, columns: [sheet.content.columns[1], sheet.content.columns[0], sheet.content.columns[2]] } } } };
-
-    expect(formulaRawForDisplay(instantiateModelFormula(named, reordered, 1), reordered, 'one')).toBe('=@Renamed[2]');
-    expect(formulaRawForDisplay(instantiateModelFormula(positional, reordered, 1), reordered, 'one')).toBe('=@B[2]');
-
-    const removed = { ...reordered, documents: { ...reordered.documents, one: { ...reordered.documents.one,
-      modelColumnBindings: { ...sheet.modelColumnBindings, input: 'fresh' },
-      content: { ...sheet.content, columns: ['fresh', ...sheet.content.columns.slice(1)] },
+    const renamedModel = { ...model, columns: model.columns.map((column) => column.id === 'input' ? { ...column, name: 'Renamed' } : column) };
+    const changed = { ...workbook, dataModels: { [model.id]: renamedModel }, documents: { ...workbook.documents, one: {
+      ...sheet, content: { ...sheet.content, columns: [sheet.content.columns[1], sheet.content.columns[0], sheet.content.columns[2]] },
     } } };
-    expect(instantiateModelFormula(named, removed, 0)).toBe('=@#REF!A[1]');
-    expect(instantiateModelFormula(positional, removed, 0)).toBe('=@#REF!A[1]');
+    const namedInstance = instantiateModelFormula(named, changed, 0);
+    const positionalInstance = instantiateModelFormula(positional, changed, 0);
+    const output = instantiateModelFormulas(changed, 'one', { result: named, total: positional });
+    const results = calculate({ ...changed, documents: { ...changed.documents, one: output } });
+
+    expect(projectStoredFormula(namedInstance, changed, 'one').text).toBe('=@Renamed[1]');
+    expect(projectStoredFormula(positionalInstance, changed, 'one').text).toBe('=@B[1]');
+    expect(results.one.A1).toMatchObject({ value: 1 });
+    expect(results.one.C1).toMatchObject({ value: 1 });
   });
 
-  it('accepts existing canonical references without capturing instance row identities', () => {
+  it('evaluates errors and conditional branches without destructively replacing invalid text', () => {
     const workbook = instances();
-    const canonical = formulaRawForStorage("=@A[1]+@'Owner''s input'[$1]", workbook, 'one');
-    const template = bindModelFormula(canonical, workbook, 'one');
-
-    expect(formulaRawForDisplay(instantiateModelFormula(template, workbook, 1), workbook, 'one'))
-      .toBe("=@A[2]+@'Owner''s input'[$1]");
-  });
-
-  it('retains parse errors and computes missing, out-of-bounds and cyclic references through the existing evaluator', () => {
-    const workbook = instances();
-    for (const [raw, error] of [
-      ['=1+', '#PARSE!'], ['=@Missing!A[1]', '#REF!'], ["=@'Missing'[1]", '#REF!'],
-      ['=@Z[1]', '#REF!'], ['=@A[3]', '#REF!'], ['=@B[1]', '#CYCLE!'],
-      ['=IF(TRUE, 7, @A[999])', undefined],
-    ] as const) {
-      const template = bindModelFormula(raw, workbook, 'one');
-      const one = instantiateModelFormulas(workbook, 'one', { result: template });
+    for (const [raw, error] of [['=1+', '#PARSE!'], ['=@Missing!A[1]', '#REF!'], ["=@'Missing'[1]", '#REF!'], ['=@Z[1]', '#REF!'], ['=@A[3]', '#REF!'], ['=@B[1]', '#CYCLE!'], ['=IF(TRUE, 7, @A[999])', undefined]] as const) {
+      const one = instantiateModelFormulas(workbook, 'one', { result: bindModelFormula(raw, workbook, 'one') });
       const updated = { ...workbook, documents: { ...workbook.documents, one } };
-      const result = new FormulaCalculation().update(calculationProjection(updated), { kind: 'structure' }).one.B1;
-      expect(result, raw).toMatchObject(error ? { kind: 'error', error } : { kind: 'number', value: 7 });
-    }
-  });
 
-  it('handles unbound sheets, unresolved canonical targets and stale property bindings without repairing targets', () => {
-    const workbook = instances();
-    const sheet = workbook.documents.one;
-    const ordinary = { ...workbook, documents: { ...workbook.documents, one: { ...sheet, modelId: undefined } } };
-    expect(bindModelFormulas(ordinary, 'one')).toEqual({});
-    expect(bindModelFormulas(ordinary, 'missing')).toEqual({});
-    expect(instantiateModelFormulas(ordinary, 'one', { missing: bindModelFormula('=1', ordinary, 'one') }).content.cells).toEqual(sheet.content.cells);
-    expect(instantiateModelFormula(bindModelFormula('=@#REF!A[1]', workbook, 'one'), workbook, 0)).toBe('=@#REF!A[1]');
-    const canonical = formulaRawForStorage("=@'Owner''s input'[1]", workbook, 'one');
-    const template = bindModelFormula(canonical, workbook, 'one');
-    const noModel = { ...workbook, dataModels: {} };
-    expect(instantiateModelFormula(template, noModel, 0)).toBe('=@#REF!A[1]');
-    const deletedRow = { ...workbook, documents: { ...workbook.documents, one: { ...sheet, content: { ...sheet.content, rows: [] } } } };
-    expect(instantiateModelFormula(bindModelFormula(canonical, deletedRow, 'one'), workbook, 0)).toBe('=@#REF!A[1]');
+      expect(calculate(updated).one.B1, raw).toMatchObject(error ? { error } : { value: 7 });
+      expect(decodeStoredFormula(cellRawContent(one, 'B1')!).text).toBe(raw);
+    }
   });
 });

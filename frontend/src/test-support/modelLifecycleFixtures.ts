@@ -24,4 +24,4 @@ export function bindModelSheets(workbook: Workbook, ids: string[], createId = fr
   return ids.reduce((current, id) => successfulModelMutation(bindSheetToModel(current, id, 'model', createId)), workbook);
 }
 export const storedModelCells = (workbook: Workbook, id = 'sheet') => tabularCellsByA1(workbook.documents[id]!.content);
-export const calculatedModelCells = (workbook: Workbook) => new FormulaCalculation().update(calculationProjection(workbook), { kind: 'structure' });
+export const calculatedModelCells = (workbook: Workbook) => new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' });

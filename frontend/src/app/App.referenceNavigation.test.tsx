@@ -6,7 +6,7 @@ import { App } from './App';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
 import { resetWorkspaceViewport, setSheetScale } from '@test-support/workspaceActions';
 import { measuredElementGeometry, virtualGridGeometry } from '@test-support/domGeometry';
-import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { positionedSheet, sheetDocument, sparseLargeSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 
 function modifierClickReference(modifier: 'ctrl' | 'meta' = 'ctrl') {
   const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
@@ -32,7 +32,7 @@ describe('formula reference navigation', () => {
   it('shows a hovered editor reference and emphasizes it under either modifier', async () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', position: { x: 20, y: 20 }, cells: { A1: '=@inputs!B[2]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => {
       setSurfaceSize(800, 600);
       virtualGridGeometry(within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body'), { height: 126, width: 238 });
@@ -64,7 +64,7 @@ describe('formula reference navigation', () => {
       id: 'outputs', name: 'Outputs', position: { x: 20, y: 20 },
       cells: { A1: '=@inputs!B[2]', B1: '=@inputs!A[1]', C1: 'plain text' },
     });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     act(() => {
@@ -91,7 +91,7 @@ describe('formula reference navigation', () => {
     const user = userEvent.setup();
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', position: { x: 20, y: 20 }, cells: { A1: '=@inputs!B[2]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     const inputsBody = within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body');
@@ -120,7 +120,7 @@ describe('formula reference navigation', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 400, y: 20 } });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', position: { x: 20, y: 20 }, cells: { A1: '=@inputs!B[2]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     const inputsBody = within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByTestId('sheet-frame-body');
@@ -158,7 +158,7 @@ describe('formula reference navigation', () => {
   it('reports an unmounted virtualized reference as a fallback instead of mounting its source sheet', async () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 } });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
@@ -182,7 +182,7 @@ describe('formula reference navigation', () => {
       id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 }, rowCount: 30, columnCount: 10,
     });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!J[30]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     const surface = workspaceSurface();
@@ -237,7 +237,7 @@ describe('formula reference navigation', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 4_000, y: 3_000 } });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
@@ -257,7 +257,7 @@ describe('formula reference navigation', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
     const source = sheetDocument({ id: 'source', name: 'Source', position: { x: 0, y: 0 } });
     const empty = sheetDocument({ id: 'empty', name: 'Empty', position: { x: 4_000, y: 3_000 }, rowCount: 0, columnCount: 0 });
-    render(<App initialWorkbook={workbookWithSheets([source, empty])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([source, empty])} />);
     act(() => { setSurfaceSize(800, 600); });
     const surface = workspaceSurface();
     const departure = [surface.dataset.viewportX, surface.dataset.viewportY, surface.dataset.viewportScale];
@@ -282,7 +282,7 @@ describe('formula reference navigation', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!B[2]:D[4])' } });
-    const view = render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    const view = render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     const navigate = () => {
       fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
       modifierClickReference();
@@ -312,7 +312,7 @@ describe('formula reference navigation', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!B[2]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     modifierClickReference();
     expect(screen.getByTestId('workspace-plane')).toHaveAttribute('data-navigation-motion', 'instant');
@@ -325,7 +325,7 @@ describe('formula reference navigation', () => {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
       cells: { A1: '=SUM(@sheet-inputs!CU[9999]:CV[10000])' },
     };
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(inputsFrame).getByTestId('sheet-frame-body');
@@ -355,7 +355,7 @@ describe('formula reference navigation', () => {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
       cells: { A1: '=@sheet-inputs!CU[9999]' },
     };
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
@@ -401,7 +401,7 @@ describe('formula reference navigation', () => {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
       cells: { A1: '=@sheet-inputs!CU[9999]' },
     };
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
 
     fireEvent.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
@@ -441,7 +441,7 @@ describe('formula reference navigation', () => {
     const user = userEvent.setup();
     const inputs = { ...positionedSheet('sheet-inputs', 'Sales Q1', { x: 120, y: 80 }), cells: { A1: '7' }, zIndex: 2 };
     const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 140, y: 100 }), cells: { A1: '=@sheet-inputs!A[1]' }, zIndex: 9 };
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     setSurfaceSize(800, 600);
 
     const inputsFrame = screen.getByRole('article', { name: 'Sheet Sales Q1' });
@@ -472,7 +472,7 @@ describe('formula reference navigation', () => {
       ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }),
       cells: { A1: '=@sheet-inputs!B[2]' },
     };
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     act(() => { setSurfaceSize(800, 600); });
     expect(screen.queryByRole('article', { name: 'Sheet Inputs' })).not.toBeInTheDocument();
 
@@ -507,7 +507,7 @@ describe('formula reference navigation', () => {
     const archive = sheetDocument({
       id: 'sheet-archive', name: 'Archive', position: { x: 6_000, y: 4_000 }, visualScale: 0.25,
     });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs, archive])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs, archive])} />);
     act(() => { setSurfaceSize(800, 600); });
     expect(screen.queryByRole('article', { name: 'Sheet Archive' })).not.toBeInTheDocument();
 
@@ -537,7 +537,7 @@ describe('formula reference navigation', () => {
   it('reports a broken reference without selecting a similarly named sheet', () => {
     const alias = positionedSheet('sheet-other', 'sheet-deleted', { x: 300, y: 80 });
     const outputs = { ...positionedSheet('sheet-outputs', 'Outputs', { x: 20, y: 20 }), cells: { A1: '=@sheet-deleted!A[1]' } };
-    render(<App initialWorkbook={workbookWithSheets([alias, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([alias, outputs])} />);
     setSurfaceSize(800, 600);
 
     const formula = screen.getByRole('cell', { name: 'Outputs A1 cell' });

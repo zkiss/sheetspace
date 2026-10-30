@@ -5,6 +5,7 @@ import type {
   FormulaReference,
   FormulaReferenceLexeme,
   FormulaSyntaxResult,
+  FormulaNamedColumnPredicate,
 } from './syntaxTypes';
 import { FormulaParser } from './syntaxParser';
 
@@ -22,12 +23,13 @@ export type {
   FormulaSyntaxResult,
   FormulaSyntaxToken,
   FormulaDiagnostic,
+  FormulaNamedColumnPredicate,
   FunctionFormula,
   GroupFormula,
   UnaryFormula,
 } from './syntaxTypes';
 
-export function formulaReferenceLexemes(raw: string, isNamedColumn?: (qualifier: string | undefined, name: string) => boolean): FormulaReferenceLexeme[] {
+export function formulaReferenceLexemes(raw: string, isNamedColumn?: FormulaNamedColumnPredicate): FormulaReferenceLexeme[] {
   return parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn }).referenceLexemes;
 }
 
@@ -46,12 +48,17 @@ export function parseFormulaForInspection(raw: string): FormulaParseResult {
  */
 export function parseFormulaSyntax(
   raw: string,
-  options: { preserveUnknownFunctions?: boolean; isNamedColumn?: (qualifier: string | undefined, name: string) => boolean } = {},
+  options: { preserveUnknownFunctions?: boolean; isNamedColumn?: FormulaNamedColumnPredicate; referenceMode?: 'user' } = {},
 ): FormulaSyntaxResult {
   if (!raw.startsWith('=')) {
     return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [], tokens: raw ? [{ kind: 'text', sourceSpan: { start: 0, end: raw.length } }] : [], diagnostics: [] };
   }
-  return new FormulaParser(raw.slice(1), options.isNamedColumn).parse(raw);
+  return new FormulaParser(raw.slice(1), options.isNamedColumn, options.referenceMode === 'user').parse(raw);
+}
+
+/** User spelling never grants stable-identity authority, even when it resembles stored syntax. */
+export function parseUserFormulaSyntax(raw: string, isNamedColumn?: FormulaNamedColumnPredicate): FormulaSyntaxResult {
+  return parseFormulaSyntax(raw, { referenceMode: 'user', isNamedColumn });
 }
 
 export function collectFormulaReferences(expression: FormulaExpression): FormulaReference[] {
@@ -64,6 +71,7 @@ export function collectFormulaReferences(expression: FormulaExpression): Formula
     case 'number':
     case 'text':
     case 'boolean':
+    case 'invalid-reference':
       return [];
     case 'group':
       return collectFormulaReferences(expression.expression);

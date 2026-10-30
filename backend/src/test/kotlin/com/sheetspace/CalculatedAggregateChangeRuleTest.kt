@@ -1,20 +1,16 @@
 package com.sheetspace
 
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * The aggregate rule constrains the cells an operation changed.
- *
- * A structural change never fails for a calculation it did not override, and no operation leaves a
- * persisted workbook that later operations reject.
- */
+/** Structural changes preserve persisted instances instead of rebinding their targets. */
 class CalculatedAggregateChangeRuleTest {
     @Test
-    fun `deleting a referenced sheet succeeds and refreshes the dependent calculated cell`() = withSqliteStore { store ->
+    fun `deleting a referenced sheet succeeds and retains the dependent calculated cell`() = withSqliteStore { store ->
         val workbook = crossSheetWorkbook()
         store.saveWorkbook(workbook)
         val application = DefaultWorkbookApplication(store)
@@ -25,7 +21,9 @@ class CalculatedAggregateChangeRuleTest {
         val saved = store.loadWorkbookBundle()
         val target = saved.sheetsInOrder.single()
         assertEquals(
-            listOf(BROKEN_INSTANCE, BROKEN_INSTANCE),
+            workbook.sheetsInOrder.last().tabularContent.rows.map { row ->
+                workbook.sheetsInOrder.last().tabularContent.cellContents[CellCoordinate(row, target.modelColumnBindings.getValue(TARGET_TOTAL))]
+            },
             target.tabularContent.rows.map { row ->
                 target.tabularContent.cellContents[CellCoordinate(row, target.modelColumnBindings.getValue(TARGET_TOTAL))]
             },
@@ -33,20 +31,20 @@ class CalculatedAggregateChangeRuleTest {
     }
 
     @Test
-    fun `unbinding a referenced sheet succeeds through the lifecycle transition with the dependent cell refreshed`() = withSqliteStore { store ->
+    fun `unbinding a referenced sheet succeeds through the lifecycle transition with the dependent cell retained`() = withSqliteStore { store ->
         val workbook = crossSheetWorkbook()
         store.saveWorkbook(workbook)
         val application = DefaultWorkbookApplication(store)
         val source = workbook.sheetsInOrder.first()
         val target = workbook.sheetsInOrder.last()
         val unbound = source.copy(modelId = null, modelColumnBindings = emptyMap(), modelFormulaBindings = null)
-        val after = workbook.replaceSheet(unbound).replaceSheet(refreshedTarget(target))
+        val after = workbook.replaceSheet(unbound)
 
         val saved = application.saveModelLifecycle(workbook, after)
 
         val persisted = saved.sheetsInOrder.last()
         assertEquals(
-            listOf(BROKEN_INSTANCE, BROKEN_INSTANCE),
+            target.tabularContent.rows.map { row -> target.tabularContent.cellContents[CellCoordinate(row, target.modelColumnBindings.getValue(TARGET_TOTAL))] },
             persisted.tabularContent.rows.map { row ->
                 persisted.tabularContent.cellContents[CellCoordinate(row, persisted.modelColumnBindings.getValue(TARGET_TOTAL))]
             },
@@ -150,12 +148,12 @@ class CalculatedAggregateChangeRuleTest {
     }
 
     @Test
-    fun `a bound calculated property without its template is no override`() {
+    fun `a bound calculated property without its template is invalid`() {
         val workbook = crossSheetWorkbook()
         val target = workbook.sheetsInOrder.last()
 
-        assertFalse(calculatedOverridesWereIntroduced(workbook, workbook.replaceSheet(target.copy(modelFormulaBindings = emptyMap()))))
-        assertFalse(calculatedOverridesWereIntroduced(workbook, workbook.replaceSheet(target.copy(modelFormulaBindings = null))))
+        assertTrue(calculatedOverridesWereIntroduced(workbook, workbook.replaceSheet(target.copy(modelFormulaBindings = emptyMap()))))
+        assertTrue(calculatedOverridesWereIntroduced(workbook, workbook.replaceSheet(target.copy(modelFormulaBindings = null))))
     }
 
     @Test
@@ -212,7 +210,6 @@ private const val TARGET_SHEET = "32000000-0000-0000-0000-000000000011"
 private const val NEW_MODEL = "32000000-0000-0000-0000-000000000020"
 private const val NEW_CALCULATED = "32000000-0000-0000-0000-000000000021"
 private const val TARGET_FORMULA = "=@Source!'Total'[1]"
-private const val BROKEN_INSTANCE = "=@#REF!A[1]"
 
 private fun crossSheetWorkbook(): WorkbookState {
     val sourceRows = listOf(RowId.generate(), RowId.generate(), RowId.generate())
@@ -240,7 +237,7 @@ private fun crossSheetWorkbook(): WorkbookState {
         ),
         modelId = TARGET_MODEL,
         modelColumnBindings = mapOf(TARGET_INPUT to targetColumns[0], TARGET_TOTAL to targetColumns[1]),
-        modelFormulaBindings = mapOf(TARGET_TOTAL to sourceTemplate(sourceColumn.value)),
+        modelFormulaBindings = mapOf(TARGET_TOTAL to sourceTemplate(sourceColumn.value, sourceRows[0].value)),
     )
     return emptyWorkbookState().addSheet(source).addSheet(target).copy(
         dataModels = mapOf(
@@ -258,26 +255,22 @@ private fun crossSheetWorkbook(): WorkbookState {
 }
 
 /** The template the frontend produces for a named property target of another sheet. */
-private fun sourceTemplate(sourceColumnId: String): BoundModelFormula = BoundModelFormula(
-    TARGET_FORMULA,
-    listOf(
-        ModelFormulaReference(
-            ModelFormulaSpan(1, 19),
-            SOURCE_SHEET,
-            ModelFormulaSpan(2, 8),
-            listOf(ModelFormulaEndpoint(ModelFormulaSpan(9, 19), sourceColumnId, 0.0, ModelFormulaAnchors(false, false), SOURCE_TOTAL)),
+private fun sourceTemplate(sourceColumnId: String, sourceRowId: String): BoundModelFormula = BoundModelFormula(
+    StoredFormulaCodec.encode(StoredFormula(TARGET_FORMULA, listOf(FormulaOccurrence(
+        "o", FormulaSpan(1, 19), "s",
+        listOf(FormulaEndpoint("e", "c", "r", false, false)),
+        listOf(
+            FormulaSlot("s", "sheet", JsonPrimitive("Source"), "retained", listOf(SOURCE_SHEET)),
+            FormulaSlot("c", "property", JsonPrimitive("Total"), "retained", listOf(SOURCE_TOTAL, sourceColumnId)),
+            FormulaSlot("r", "row", JsonPrimitive(1), "retained", listOf(sourceRowId)),
+        ), listOf(
+            FormulaOrigin(1, 2, null), FormulaOrigin(2, 8, "s"), FormulaOrigin(8, 10, null),
+            FormulaOrigin(10, 15, "c"), FormulaOrigin(15, 17, null), FormulaOrigin(17, 18, "r"),
+            FormulaOrigin(18, 19, null),
         ),
-    ),
+    )))),
 )
 
 private fun derivedInstance(source: SheetDocument, sourceColumn: ColumnId, sourceRow: RowId): String =
-    "=@${source.id.value}!${namedCanonicalEndpoint(SOURCE_TOTAL, sourceColumn.value, sourceRow.value)}"
-
-/** The dependent sheet with every calculated cell refreshed to the broken instance. */
-private fun refreshedTarget(target: SheetDocument, addedRow: RowId? = null): SheetDocument {
-    val rows = addedRow?.let { target.tabularContent.rows + it } ?: target.tabularContent.rows
-    val output = target.modelColumnBindings.getValue(TARGET_TOTAL)
-    val contents = target.tabularContent.cellContents.toMutableMap()
-    rows.forEach { row -> contents[CellCoordinate(row, output)] = BROKEN_INSTANCE }
-    return target.copy(content = TabularContent(rows, target.tabularContent.columns, contents))
-}
+    instantiateStoredModelFormula(sourceTemplate(sourceColumn.value, source.tabularContent.rows[0].value).content,
+        source.tabularContent.rows.indexOf(sourceRow)) { source.tabularContent.rows.map { it.value } }

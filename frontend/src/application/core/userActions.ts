@@ -9,9 +9,11 @@ import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { cellAddressOf, cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
-import { formulaRawForStorage } from '@workbook/formula/reference';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { copyCanonicalFormula, moveCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { copyStoredFormula } from '@workbook/formula/storedFormulaCopy';
+import { moveStoredFormula } from '@workbook/formula/storedFormulaMove';
 import { refreshDerivedInstances } from '@workbook/formula/modelTemplate';
 import type { ClipboardParseResult, ClipboardSourceSnapshot } from './clipboardPayload';
 import { moveSheetZOrder, validateSheetName } from '@workbook/mutations/operations';
@@ -104,12 +106,15 @@ export type MovePreparationResult = {
  * Validates and materializes a clipboard range before handing it to the normal single write
  * operation. Keeping this separate means a bad footprint or formula can never partially paste.
  */
-export function preparePasteCellWrites(
-  workbook: Workbook,
-  destinationSheetId: SheetId,
-  destination: StableCellIdentity,
-  clipboard: ClipboardParseResult,
-): PastePreparationResult {
+export function preparePasteCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, clipboard: ClipboardParseResult): PastePreparationResult {
+  return preparePasteWrites(workbook, destinationSheetId, destination, clipboard, false);
+}
+
+export function prepareStoredPasteCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, clipboard: ClipboardParseResult): PastePreparationResult {
+  return preparePasteWrites(workbook, destinationSheetId, destination, clipboard, true);
+}
+
+function preparePasteWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, clipboard: ClipboardParseResult, stored: boolean): PastePreparationResult {
   if (!clipboard.ok) return clipboard;
   const destinationSheet = findSheetById(workbook, destinationSheetId);
   if (!destinationSheet || !cellAddressOf(destinationSheet.content, destination)) {
@@ -148,8 +153,8 @@ export function preparePasteCellWrites(
       if (targetIdentities.has(targetIdentity)) return { ok: false, reason: 'invalid-paste-footprint' };
       targetIdentities.add(targetIdentity);
       let raw = grid.rows[rowOffset]![columnOffset]!;
-      if (!source && raw !== '' && (raw.startsWith('=') || decodeCellTextLiteral(raw) !== undefined
-        || classifyCellValue(raw).kind !== 'text')) raw = encodeCellTextLiteral(raw);
+      if (!source && raw !== '' && (decodeCellTextLiteral(raw) !== undefined
+        || classifyCellValue(raw).kind === 'text')) raw = encodeCellTextLiteral(raw);
       if (source) {
         const sourceCell = source.cells[rowOffset]![columnOffset]!;
         const sourceIdentity = `${source.sheetId}\u0000${sourceCell.identity.rowId}\u0000${sourceCell.identity.columnId}`;
@@ -157,7 +162,11 @@ export function preparePasteCellWrites(
         sourceIdentities.add(sourceIdentity);
         const sourceAddress = cellAddressOf(sourceSheet!.content, sourceCell.identity);
         if (!sourceAddress) return { ok: false, reason: 'invalid-internal-source' };
-        if (sourceCell.raw.startsWith('=')) {
+        if (stored && sourceCell.raw.startsWith('=')) {
+          const transformed = copyStoredFormula(sourceCell.raw, sourceCell.identity, { rowId, columnId }, workbook, { sourceSheetId: source.sheetId, destinationSheetId });
+          if (!transformed.ok) return { ok: false, reason: 'formula-transform-failed' };
+          raw = transformed.content;
+        } else if (sourceCell.raw.startsWith('=')) {
           const transformed = copyCanonicalFormula(
             sourceCell.raw,
             sourceCell.identity,
@@ -180,12 +189,15 @@ export function preparePasteCellWrites(
  * Cutting alone changes nothing: staleness is checked against live contents
  * so a changed source can never be cleared by a stale snapshot.
  */
-export function prepareMoveCellWrites(
-  workbook: Workbook,
-  destinationSheetId: SheetId,
-  destination: StableCellIdentity,
-  source: ClipboardSourceSnapshot,
-): MovePreparationResult {
+export function prepareMoveCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, source: ClipboardSourceSnapshot): MovePreparationResult {
+  return prepareMoveWrites(workbook, destinationSheetId, destination, source, false);
+}
+
+export function prepareStoredMoveCellWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, source: ClipboardSourceSnapshot): MovePreparationResult {
+  return prepareMoveWrites(workbook, destinationSheetId, destination, source, true);
+}
+
+function prepareMoveWrites(workbook: Workbook, destinationSheetId: SheetId, destination: StableCellIdentity, source: ClipboardSourceSnapshot, stored: boolean): MovePreparationResult {
   const destinationSheet = findSheetById(workbook, destinationSheetId);
   const sourceSheet = findSheetById(workbook, source.sheetId);
   if (!destinationSheet || !cellAddressOf(destinationSheet.content, destination)) {
@@ -291,10 +303,11 @@ export function prepareMoveCellWrites(
       const movedIndex = sourceKeys.indexOf(key);
       if (movedIndex < 0 && destinationKeySet.has(key)) continue;
       const finalSheet = movedIndex >= 0 ? destinationSheetId : sheet.id;
-      const result = moveCanonicalFormula(raw, resolver, finalSheet, mappings);
+      const result = stored ? moveStoredFormula(raw, workbook, sheet.id, finalSheet, mappings) : moveCanonicalFormula(raw, resolver, finalSheet, mappings);
       if (!result.ok) return result;
-      if (movedIndex >= 0) writes[movedIndex] = { ...writes[movedIndex]!, raw: result.raw };
-      else if (!sourceKeySet.has(key) && result.raw !== raw) writes.push({ sheetId: sheet.id, ...cell, raw: result.raw });
+      const transformed = 'content' in result ? result.content : result.raw;
+      if (movedIndex >= 0) writes[movedIndex] = { ...writes[movedIndex]!, raw: transformed };
+      else if (!sourceKeySet.has(key) && transformed !== raw) writes.push({ sheetId: sheet.id, ...cell, raw: transformed });
     }
   }
   return { ok: true, writes, mappings };
@@ -410,7 +423,11 @@ function applyRenameSheet(workbook: Workbook, operation: Extract<WorkbookOperati
   return sheetSuccess(workbook, { ...sheet, name: validation.name }, { kind: 'none' }, { kind: 'rename-sheet', sheetId: sheet.id, name: validation.name }, { kind: 'rename-sheet', sheetId: sheet.id, name: sheet.name });
 }
 
-function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'write-cells' }>): WorkbookOperationResult {
+export function applyStoredCellWrites(workbook: Workbook, writes: readonly CellWrite[]): WorkbookOperationResult {
+  return applyCellWrites(workbook, { kind: 'write-cells', operationId: '', writes }, true);
+}
+
+function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperation, { kind: 'write-cells' }>, stored = false): WorkbookOperationResult {
   const resolved = operation.writes.map((write) => {
     const sheet = findSheetById(workbook, write.sheetId);
     const cell = { rowId: write.rowId, columnId: write.columnId };
@@ -445,8 +462,7 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
     const cells = cellsBySheet.get(sheet.id) ?? { ...sheet.content.cells };
     cellsBySheet.set(sheet.id, cells);
     const before = cells[identityKey];
-    // Resolve every editor formula against the original workbook, before any write is applied.
-    const raw = entry.write.raw.length === 0 ? '' : formulaRawForStorage(entry.write.raw, workbook, sheet.id);
+    const raw = !stored && entry.write.raw.startsWith('=') ? prepareUserFormula(entry.write.raw, workbook, sheet.id) : entry.write.raw;
     if ((raw.length === 0 && before === undefined) || (raw.length > 0 && before === raw)) continue;
     inverseWrites.push({ ...entry.write, raw: before ?? '' });
     persistenceWrites.push({

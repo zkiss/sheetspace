@@ -3,6 +3,7 @@ import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { appendRow } from '@workbook/mutations/operations';
+import { decodeStoredFormula } from '@workbook/formula/storedFormula';
 import { bindSheetToModel } from './modelLifecycle';
 import { materializeAppendedModelRow } from './modelRowAppend';
 
@@ -26,7 +27,10 @@ describe('appended model row materialization', () => {
 
     const materialized = materializeAppendedModelRow(appended, 'sheet', 'server-row');
 
-    expect(cellRawContent(materialized.documents.sheet!, 'B2')).toBe('=SUM(@sheet:column:1[server-row])');
+    const instance = decodeStoredFormula(cellRawContent(materialized.documents.sheet!, 'B2')!);
+    expect(instance.text).toBe('=SUM(@A[1])');
+    expect(instance.occurrences[0].slots.find((slot) => slot.kind === 'row')!.targetIds).toEqual(['server-row']);
+    expect(instance.occurrences[0].slots.find((slot) => slot.kind === 'column')!.targetIds).toEqual(['sheet:column:1']);
     expect(cellRawContent(materialized.documents.sheet!, 'A1')).toBe('3');
     expect(cellRawContent(materialized.documents.sheet!, 'A2')).toBeUndefined();
   });

@@ -102,10 +102,7 @@ class DefaultWorkbookApplication(
     override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
         store.updateWorkbook { current ->
             val reconciled = reconcileModelLifecycle(current, before, after)
-            // The transition carries the complete post-state, so every row of every bound
-            // calculated sheet must already carry its derived instance. A transition that leaves a
-            // bound calculated property without its derived content is rejected, never persisted.
-            if (!calculatedContentsAreDerived(after)) {
+            if (!calculatedTransitionIsValid(current, reconciled)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
             }
             reconciled
@@ -292,8 +289,8 @@ class DefaultWorkbookApplication(
                 documents = workbook.documents.mapValues { (_, sheet) ->
                     if (sheet.modelId != model.id) sheet else sheet.copy(
                         modelColumnBindings = sheet.modelColumnBindings.filterKeys(propertyIds::contains),
-                        modelFormulaBindings = sheet.modelFormulaBindings?.filter { (propertyId, template) ->
-                            model.columns.any { it.id == propertyId && it is CalculatedModelColumn && it.formula == template.raw }
+                        modelFormulaBindings = retainDeclaredCalculatedTemplates(model, sheet.modelFormulaBindings) { template, declaration ->
+                            preparedModelTemplateIsValid(template, declaration)
                         },
                     )
                 },

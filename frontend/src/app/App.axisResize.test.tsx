@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from './App';
 import { persistedWorkbookClient } from '@test-support/apiClients';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import { virtualGridGeometry } from '@test-support/domGeometry';
 import { navigateFirstReference } from '@test-support/referenceNavigation';
 
@@ -17,7 +17,7 @@ function pointer(element: Element, type: string, x = 0, y = 0) {
 describe('axis resize application integration', () => {
   it.each(['row', 'column'] as const)('cancels a %s resize when Escape comes from the focused cell editor', async (axis) => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '7' } });
-    const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
+    const apiClient = persistedWorkbookClient(workbookWithLegacyFormulaFixtures([sheet]));
     render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     activateCellEditor(cell);
@@ -41,7 +41,8 @@ describe('axis resize application integration', () => {
   });
   it.each([16, 40])('saves committed dimensions with a %spx row, restores them on reload, aligns the editor and leaves frames and formulas intact', async (rowHeight) => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '7', B2: '=@A[1]*2' } });
-    const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
+    const initialWorkbook = workbookWithLegacyFormulaFixtures([sheet]);
+    const apiClient = persistedWorkbookClient(initialWorkbook);
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
     const column = screen.getByRole('separator', { name: 'Resize column A' });
     pointer(column, 'pointerdown'); pointer(column, 'pointermove', 44); pointer(column, 'pointerup', 44);
@@ -50,7 +51,7 @@ describe('axis resize application integration', () => {
     await waitFor(() => expect(apiClient.writeAxisSizes).toHaveBeenCalledTimes(2));
     const persisted = await apiClient.loadWorkbook();
     expect(persisted.documents.inputs.presentation).toEqual({ columnWidths: { [sheet.content.columns[0]]: 120 }, rowHeights: { [sheet.content.rows[0]]: rowHeight } });
-    expect(persisted.documents.inputs.content).toEqual(sheet.content);
+    expect(persisted.documents.inputs.content).toEqual(initialWorkbook.documents.inputs.content);
     expect(persisted.documents.inputs.frame).toEqual(sheet.frame);
     view.unmount();
     render(<App initialWorkbook={persisted} apiClient={apiClient} />);
@@ -74,7 +75,7 @@ describe('axis resize application integration', () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1000, columnCount: 100 });
     inputs.presentation = { rowHeights: { [inputs.content.rows[0]]: 80 }, columnWidths: { [inputs.content.columns[0]]: 160 } };
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!K[100]:L[101])' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(frame).getByTestId('sheet-frame-body');
     act(() => { virtualGridGeometry(body, { height: 160, width: 240 }); });

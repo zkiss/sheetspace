@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { autosaveClient, persistedWorkbookClient } from '@test-support/apiClients';
 import { openCellEditor } from '@test-support/appScreen';
-import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 
 describe('App cell editing composition', () => {
   it('clears a reversed mixed range with Delete in one saved transaction, recalculates, and reloads', async () => {
@@ -13,8 +13,8 @@ describe('App cell editing composition', () => {
       id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
       cells: { A1: '2', B1: '=@A[1] * 3', B2: '7', C1: '=SUM(@A[1]:B[2])' },
     });
-    const apiClient = persistedWorkbookClient(workbookWithSheets([inputs]));
-    const view = render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);
+    const apiClient = persistedWorkbookClient(workbookWithLegacyFormulaFixtures([inputs]));
+    const view = render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
 
@@ -47,8 +47,8 @@ describe('App cell editing composition', () => {
       id: 'sheet-inputs', name: 'Inputs', position: { x: 48, y: 96 },
       cells: { A1: '1', B1: '=@A[1] * 2', A2: '3', B2: '4' },
     });
-    const apiClient = persistedWorkbookClient(workbookWithSheets([inputs]));
-    render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);
+    const apiClient = persistedWorkbookClient(workbookWithLegacyFormulaFixtures([inputs]));
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
 
     const axis = within(frame).getAllByRole(mode).find((element) => element.textContent?.trim().startsWith(header));
@@ -68,7 +68,7 @@ describe('App cell editing composition', () => {
       cells: { A1: 'Retained', B1: 'Other' },
     });
     const apiClient = autosaveClient();
-    render(<App initialWorkbook={workbookWithSheets([inputs])} apiClient={apiClient} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
     const b2 = within(frame).getByRole('cell', { name: 'Inputs B2 empty cell' });

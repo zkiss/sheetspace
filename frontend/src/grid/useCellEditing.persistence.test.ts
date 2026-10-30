@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useCellEditing } from '@grid/useCellEditing';
-import { formulaRawForStorage } from '@workbook/formula/reference';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 
 function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 })) {
   const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
@@ -17,6 +17,20 @@ function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x
 
 
 describe('useCellEditing edit persistence', () => {
+    it('retains an invalid formula draft through editor handoff and commits its correction', () => {
+      const base = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
+      const raw = prepareUserFormula('=@Missing!A[1]+3', workbookWithSheets([base]), base.id);
+      const sheet = sheetDocument({ id: base.id, name: base.name, rowCount: 2, columnCount: 2, cells: { B1: raw } });
+      const { commands, result } = renderCellEditing(sheet);
+      const target = cellTargetAt(sheet, 'B1')!;
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell?.draft).toBe('=@Missing!A[1]+3');
+      act(() => result.current.updateEditingCellValue('=@A[1]+3'));
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell?.draft).toBe('=@A[1]+3');
+      act(() => result.current.commitActiveEdit());
+      expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'B1', '=@A[1]+3');
+    });
     it('discards a changed draft on cancellation without writing or changing the saved content', () => {
       const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { B1: '2' } });
       const { commands, result } = renderCellEditing(sheet);
@@ -92,7 +106,7 @@ describe('useCellEditing edit persistence', () => {
       const inputs = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
       const outputWithoutFormula = sheetDocument({ id: 'sheet-output', name: 'Output' });
       const initialWorkbook = workbookWithSheets([inputs, outputWithoutFormula]);
-      const storedFormula = formulaRawForStorage("=@'Inputs'!A[1]", initialWorkbook, outputWithoutFormula.id);
+      const storedFormula = prepareUserFormula("=@'Inputs'!A[1]", initialWorkbook, outputWithoutFormula.id);
       const output = sheetDocument({
         id: outputWithoutFormula.id,
         name: outputWithoutFormula.name,
@@ -118,7 +132,9 @@ describe('useCellEditing edit persistence', () => {
       ['numeric-looking text', '123'],
       ['formula', '=SUM(@A[2]:A[3])'],
     ])('clears existing %s when an empty edit is committed', (_label, raw) => {
-      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { A1: raw } });
+      const initial = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+      const content = raw.startsWith('=') ? prepareUserFormula(raw, workbookWithSheets([initial]), initial.id) : raw;
+      const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { A1: content } });
       const { commands, result } = renderCellEditing(sheet);
       const target = cellTargetAt(sheet, 'A1')!;
 

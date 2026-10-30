@@ -6,6 +6,7 @@ import {
 import { Workbook } from '@workbook/core/model';
 
 export type CalculationRequest = {
+  workbook: Workbook;
   projection: CalculationProjection;
   impact: CalculationImpact;
 };
@@ -20,6 +21,7 @@ export function calculationRequest(
   impact: CalculationImpact,
 ): CalculationRequest {
   return {
+    workbook,
     projection: calculationProjection(workbook),
     impact,
   };

@@ -39,6 +39,8 @@ import { calculationCellKey } from '@workbook/read/calculationProjection';
 import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { sheetCellNodeId } from './nodeIdentity';
+import type { Workbook } from '@workbook/core/model';
+import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
 
 export type FormulaEvaluationObserver = (sheetId: string, cellKey: CellKey) => void;
 
@@ -46,6 +48,12 @@ export function evaluateFormulaCells<T extends CalculationProjection>(
   projection: T,
 ): FormulaEvaluationSnapshot {
   return new FormulaEvaluator(projection).evaluate();
+}
+
+/** Evaluate a projection whose formula cells contain trusted stored formulas. */
+export function evaluateStoredFormulaCells(projection: CalculationProjection, workbook: Workbook): FormulaEvaluationSnapshot {
+  return new FormulaEvaluator(projection, new Map(), undefined, builtInFormulaFunctions,
+    (content, sheetId) => analyzeStoredFormula(content, workbook, sheetId).result).evaluate();
 }
 
 export class FormulaEvaluator {
@@ -58,6 +66,7 @@ export class FormulaEvaluator {
     initialResults: ReadonlyMap<string, FormulaScalarValue> = new Map(),
     private readonly onEvaluate?: FormulaEvaluationObserver,
     private readonly functions: FormulaFunctionRegistry = builtInFormulaFunctions,
+    private readonly parse: (content: string, sheetId: string) => ReturnType<typeof parseFormula> = parseFormula,
   ) {
     this.results = new Map(initialResults);
   }
@@ -122,7 +131,7 @@ export class FormulaEvaluator {
     this.visiting.add(nodeId);
     this.stack.push({ nodeId, sheet, key });
 
-    const parsed = parseFormula(cell);
+    const parsed = this.parse(cell, sheet.id);
     let result: FormulaScalarValue;
     if (parsed.kind === 'error') {
       result = formulaErrorValue(parsed.error);
@@ -146,6 +155,7 @@ export class FormulaEvaluator {
   }
 
   private evaluateExpression(expression: FormulaExpression, currentSheet: CalculationSheet): FormulaValue {
+    if (expression.kind === 'invalid-reference') return formulaErrorValue('#REF!');
     if (expression.kind === 'number') {
       return Number.isFinite(expression.value)
         ? { kind: 'number', value: expression.value }
@@ -267,6 +277,7 @@ export class FormulaEvaluator {
     expression: FormulaExpression,
     currentSheet: CalculationSheet,
   ): FormulaReferenceArgumentResult {
+    if (expression.kind === 'invalid-reference') return { ok: false, error: '#REF!' };
     if (expression.kind === 'group') {
       return this.evaluateFunctionReferenceArgument(expression.expression, currentSheet);
     }

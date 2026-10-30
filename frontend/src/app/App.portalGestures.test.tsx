@@ -2,7 +2,7 @@ import { activateCellEditor } from '@test-support/appScreen';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
-import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 
 function gesture(target: Element, type: string, scale: number) {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -13,7 +13,7 @@ function gesture(target: Element, type: string, scale: number) {
 
 describe('native pinch over portal cell editors', () => {
   it('consumes the complete lifecycle, zooms cumulatively, and preserves the editor draft, focus and caret', async () => {
-    render(<App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />);
     const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
     activateCellEditor(cell);
     const editor = screen.getByRole<HTMLTextAreaElement>('textbox');
@@ -71,7 +71,7 @@ describe('native pinch over portal cell editors', () => {
 
   it('excludes unrelated portals even during an owned editor gesture', async () => {
     render(<>
-      <App initialWorkbook={workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />
+      <App initialWorkbook={workbookWithLegacyFormulaFixtures([smallSheetDocument({ id: 'inputs', name: 'Inputs' })])} />
       {/* Native events use only DOM ancestry: these external editor targets
           have the same outside-surface route as unrelated body portals. */}
       <textarea aria-label="Unrelated portal" />
@@ -97,7 +97,7 @@ describe('native pinch over portal cell editors', () => {
 
   it('does not treat reference metadata for a culled sheet as ownership of an external editor', async () => {
     render(<>
-      <App initialWorkbook={workbookWithSheets([
+      <App initialWorkbook={workbookWithLegacyFormulaFixtures([
         smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@remote!A[1]' } }),
         smallSheetDocument({ id: 'remote', name: 'Remote', position: { x: 1e6, y: 1e6 } }),
       ])} />

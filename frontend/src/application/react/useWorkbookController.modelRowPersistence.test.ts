@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
+import { decodeStoredFormula } from '@workbook/formula/storedFormula';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { decodeWorkbookBundle, encodeWorkbookBundle, WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { persistedWorkbookClient } from '@test-support/apiClients';
@@ -57,7 +59,7 @@ describe('calculated row persistence', () => {
 
     expect(cellRawContent(result.current.workbook.documents.first!, 'B1')).toBe('3');
     expect(cellRawContent(result.current.workbook.documents.second!, 'B1')).toBe('7');
-    expect(cellRawContent(result.current.workbook.documents.first!, 'A2')).toMatch(/^=SUM\(/);
+    expect(projectStoredFormula(cellRawContent(result.current.workbook.documents.first!, 'A2')!, result.current.workbook, 'first').text).toMatch(/^=SUM\(/);
     expect(result.current.workbook.documents.first!.presentation.rowHeights['first:row:1']).toBe(31);
     expect(result.current.workbook.documents.second!.presentation.columnWidths['second:column:1']).toBe(123);
     unmount();
@@ -85,7 +87,7 @@ describe('calculated row persistence', () => {
     expect(api.appendRow).toHaveBeenCalledTimes(1);
     expect(api.writeCells).not.toHaveBeenCalled();
     const local = result.current.workbook;
-    expect(cellRawContent(local.documents.sheet!, 'B2')).toBe('=SUM(@sheet:column:1[sheet:row:2])');
+    expect(projectStoredFormula(cellRawContent(local.documents.sheet!, 'B2')!, local, 'sheet').text).toBe('=SUM(@A[2])');
     expect(cellRawContent(local.documents.sheet!, 'A1')).toBe('3');
     const reloaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(await api.loadWorkbook()))));
     expect(reloaded).toEqual(local);
@@ -103,8 +105,8 @@ describe('calculated row persistence', () => {
     expect(api.saveModelLifecycle).toHaveBeenCalledTimes(1);
     expect(api.writeCells).not.toHaveBeenCalled();
     const persisted = await api.loadWorkbook();
-    expect(persisted.documents.sheet!.modelFormulaBindings?.output.raw).toBe('=SUM(@A[1])');
-    expect(cellRawContent(persisted.documents.sheet!, 'B1')).toBe('=SUM(@sheet:column:1[sheet:row:1])');
+    expect(decodeStoredFormula(persisted.documents.sheet!.modelFormulaBindings!.output.content).text).toBe('=SUM(@A[1])');
+    expect(projectStoredFormula(cellRawContent(persisted.documents.sheet!, 'B1')!, persisted, 'sheet').text).toBe('=SUM(@A[1])');
     expect(persisted).toEqual(result.current.workbook);
 
     act(() => { result.current.commands.unbindSheetFromModel('sheet'); });

@@ -1,4 +1,4 @@
-import { buildFormulaDependencyGraph, type FormulaDependencyGraph } from './formulaDependencies';
+import { buildFormulaDependencyGraph, storedFormulaParser, type FormulaDependencyGraph } from './formulaDependencies';
 import { sheetCellNodeId } from './nodeIdentity';
 import { calculationProjection, type CalculationProjection } from '@workbook/read/calculationProjection';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
@@ -37,7 +37,7 @@ export class UsageQueries {
 
   constructor(workbook: Workbook) {
     this.projection = calculationProjection(workbook);
-    this.graph = buildFormulaDependencyGraph(this.projection);
+    this.graph = buildFormulaDependencyGraph(this.projection, storedFormulaParser(workbook));
     this.modelIdsBySheet = new Map(
       Object.values(workbook.documents).map((sheet) => [sheet.id, sheet.modelId]),
     );

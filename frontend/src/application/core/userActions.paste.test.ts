@@ -2,16 +2,34 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import {
   preparePasteCellWrites,
+  prepareStoredPasteCellWrites,
   type CellWrite,
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
-import { classifyCellValue, displayRawCellValue } from '@calculation/formulaValue';
+import { classifyCellValue } from '@calculation/formulaValue';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { decodeStoredFormula } from '@workbook/formula/storedFormula';
 
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
 
 describe('paste preparation', () => {
-  it('keeps scalar-looking direct and tabular fields as displayed text and calculation values', () => {
+  it('preserves a stored snapshot and translates its retained references on copy', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const workbook = workbookWithSheets([sheet]);
+    const identity = cellIdentityAt(sheet.content, 'A1')!;
+    const raw = prepareUserFormula('=@A[1]+@Missing!A[0]', workbook, sheet.id);
+    const clipboard = { ok: true as const, value: {
+      kind: 'internal' as const, grid: { rowCount: 1, columnCount: 1, rows: [['display']] },
+      source: { sheetId: sheet.id, dimensions: { rowCount: 1, columnCount: 1 }, cells: [[{ identity, raw }]] },
+    } };
+    expect(prepareStoredPasteCellWrites(workbook, sheet.id, identity, clipboard)).toEqual({ ok: true, writes: [write(sheet.id, identity, raw)] });
+    const copied = prepareStoredPasteCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'B1')!, clipboard);
+    expect(copied.ok).toBe(true);
+    if (!copied.ok) throw new Error(copied.reason);
+    expect(decodeStoredFormula(copied.writes[0]!.raw).text).toBe('=@B[1]+@Missing!A[0]');
+  });
+  it('classifies scalar-looking direct and tabular fields as numbers and booleans', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const workbook = workbookWithSheets([sheet]);
     for (const fields of [[['001']], [['1.00', 'true'], ['001', 'FALSE']]]) {
@@ -21,8 +39,7 @@ describe('paste preparation', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error('paste failed');
       expect(result.writes.map(({ raw }) => classifyCellValue(raw)))
-        .toEqual(fields.flat().map((value) => ({ kind: 'text', value })));
-      expect(result.writes.map(({ raw }) => displayRawCellValue(raw).display)).toEqual(fields.flat());
+        .toEqual(fields.flat().map((value) => classifyCellValue(value)));
     }
   });
   it('preserves formula-like and envelope-like external fields as exact literal text', () => {

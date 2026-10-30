@@ -36,7 +36,14 @@ export function resizeHandle(frame: HTMLElement, handle: string) {
 }
 
 export function activateCellEditor(cell: HTMLElement) {
-  const label = cell.getAttribute('aria-label')!;
+  const sheetId = cell.closest<HTMLElement>('[data-sheet-id]')?.dataset.sheetId;
+  const cellKey = cell.dataset.cellKey;
+  if (!sheetId || !cellKey) throw new Error('Cell is missing its sheet or key');
   fireEvent.click(cell);
-  fireEvent.keyDown(screen.getByRole('cell', { name: label }), { key: 'F2' });
+  const frame = Array.from(document.querySelectorAll<HTMLElement>('[data-sheet-id]'))
+    .find((candidate) => candidate.dataset.sheetId === sheetId);
+  const current = Array.from(frame?.querySelectorAll<HTMLElement>('[data-cell-key]') ?? [])
+    .find((candidate) => candidate.dataset.cellKey === cellKey);
+  if (!current) throw new Error(`Missing cell ${cellKey} in sheet ${sheetId}`);
+  fireEvent.keyDown(current, { key: 'F2' });
 }

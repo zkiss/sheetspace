@@ -3,13 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { App } from './App';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 
 describe('navigation palette composition', () => {
   it('opens from the visible launcher, browses sheets, and returns focus on escape', async () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'alpha', name: 'Alpha' });
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} />);
     const launcher = screen.getByRole('button', { name: 'Command palette' });
     await user.click(launcher);
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
@@ -24,7 +24,7 @@ describe('navigation palette composition', () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'invoice-sheet', name: 'Invoice', rowCount: 1, columnCount: 1 });
     const model: DataModel = { id: 'invoice', name: 'Invoice', columns: [{ id: 'amount', name: 'Amount', kind: 'manual', type: 'float' }] };
-    const workbook = workbookWithSheets([{ ...sheet, modelId: model.id, modelColumnBindings: { amount: 'invoice-sheet:column:1' } }]);
+    const workbook = workbookWithLegacyFormulaFixtures([{ ...sheet, modelId: model.id, modelColumnBindings: { amount: 'invoice-sheet:column:1' } }]);
     workbook.dataModels = { [model.id]: model };
     render(<App initialWorkbook={workbook} />);
 
@@ -47,7 +47,7 @@ describe('navigation palette composition', () => {
       { id: 'amount', name: 'Amount', kind: 'manual', type: 'float' },
       { id: 'total', name: 'Total', kind: 'manual', type: 'float' },
     ] };
-    const workbook = workbookWithSheets([{
+    const workbook = workbookWithLegacyFormulaFixtures([{
       ...sheet,
       modelId: model.id,
       modelColumnBindings: { amount: 'invoice-sheet:column:1', total: 'invoice-sheet:column:2' },
@@ -72,7 +72,7 @@ describe('navigation palette composition', () => {
     const user = userEvent.setup();
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!A[1]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
 
     await user.click(screen.getByRole('cell', { name: 'Outputs A1 cell' }));
     await user.click(screen.getByRole('button', { name: 'Command palette' }));
@@ -85,7 +85,7 @@ describe('navigation palette composition', () => {
     const user = userEvent.setup();
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1, columnCount: 2 });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=@inputs!A[1]+@inputs!B[1]' } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
 
     const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
     await user.click(source);
@@ -100,7 +100,7 @@ describe('navigation palette composition', () => {
   it('opens usages from its shortcut and rejects non-existent row numbers', async () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'invoice', name: 'Invoice', rowCount: 1, columnCount: 2, cells: { B1: '=@A[1]' } });
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} />);
 
     const source = screen.getByRole('cell', { name: /Invoice A1/ });
     await user.click(source);
@@ -121,7 +121,7 @@ describe('navigation palette composition', () => {
   it('reports unavailable shortcut commands and shows an empty usage result', async () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} />);
 
     const source = screen.getByRole('cell', { name: /Source A1/ });
     await user.click(source);
@@ -139,7 +139,7 @@ describe('navigation palette composition', () => {
     const user = userEvent.setup();
     const populated = sheetDocument({ id: 'populated', name: 'Populated' });
     const empty = sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 0 });
-    render(<App initialWorkbook={workbookWithSheets([populated, empty])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([populated, empty])} />);
 
     await user.click(screen.getByRole('button', { name: 'Command palette' }));
     await user.click(screen.getByRole('button', { name: /Go to sheet…/ }));
@@ -153,7 +153,7 @@ describe('navigation palette composition', () => {
     const user = userEvent.setup();
     const first = sheetDocument({ id: 'first', name: 'First' });
     const second = sheetDocument({ id: 'second', name: 'Second' });
-    render(<App initialWorkbook={workbookWithSheets([first, second])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([first, second])} />);
 
     await user.click(screen.getByRole('cell', { name: 'First A1 empty cell' }));
     await user.click(screen.getByRole('button', { name: 'Command palette' }));
@@ -169,7 +169,7 @@ describe('navigation palette composition', () => {
   it('opens the palette from its keyboard shortcut and rejects usage without a selection', async () => {
     const user = userEvent.setup();
     const empty = sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 0 });
-    render(<App initialWorkbook={workbookWithSheets([empty])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([empty])} />);
 
     fireEvent.keyDown(document.body, { ctrlKey: true, shiftKey: true, key: 'p' });
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
@@ -181,7 +181,7 @@ describe('navigation palette composition', () => {
   it('offers unnamed columns when a sheet retains a deleted model binding', async () => {
     const user = userEvent.setup();
     const sheet = { ...sheetDocument({ id: 'orphaned', name: 'Orphaned' }), modelId: 'deleted-model' };
-    const workbook = workbookWithSheets([sheet]);
+    const workbook = workbookWithLegacyFormulaFixtures([sheet]);
     workbook.dataModels = {};
     render(<App initialWorkbook={workbook} />);
 

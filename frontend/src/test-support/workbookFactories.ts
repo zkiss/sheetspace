@@ -2,6 +2,8 @@ import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { tabularCellsByA1 } from '@workbook/read/queries';
 import { type CellKey } from '@workbook/core/address';
 import { type SheetDocument, type Workbook, type WorkspacePosition } from '@workbook/core/model';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { formulaRawForDisplay } from '@workbook/formula/reference';
 
 export function positionedSheet(id: string, name: string, position: WorkspacePosition): SheetDocument {
   return sheetDocument({ id, name, position });
@@ -74,6 +76,19 @@ export function workbookWithSheets(sheets: readonly SheetDocument[], revision = 
     manifest: { version: 1, revision, sheetIds: normalizedSheets.map((sheet) => sheet.id) },
     documents: Object.fromEntries(normalizedSheets.map((sheet) => [sheet.id, sheet])),
   };
+}
+
+/** Convert historical canonical formula fixtures at the explicit test input boundary. */
+export function workbookWithLegacyFormulaFixtures(sheets: readonly SheetDocument[], revision = 0): Workbook {
+  const workbook = workbookWithSheets(structuredClone(sheets), revision);
+  for (const sheet of Object.values(workbook.documents)) {
+    for (const [cell, raw] of Object.entries(sheet.content.cells)) {
+      if (raw.startsWith('=')) {
+        sheet.content.cells[cell] = prepareUserFormula(formulaRawForDisplay(raw, workbook, sheet.id), workbook, sheet.id);
+      }
+    }
+  }
+  return workbook;
 }
 
 /** Keeps older test literals readable while production consumes only SheetDocument. */

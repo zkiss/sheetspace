@@ -18,6 +18,7 @@ class SqliteWorkbookStore internal constructor(
     keepAliveConnection: Connection? = null,
     private val aggregateReadCheckpoint: (() -> Unit)? = null,
     private val sheetReadObserver: ((SheetReadEvent) -> Unit)? = null,
+    private val calculatedAdmission: (WorkbookState, WorkbookState) -> Unit = ::rejectCalculatedOverrides,
 ) : WorkbookStore, AutoCloseable {
     private val database = SqliteDatabase(jdbcUrl, keepAliveConnection)
     private val updateLock = Any()
@@ -47,11 +48,11 @@ class SqliteWorkbookStore internal constructor(
         require(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION) {
             "Unsupported workbook version: ${workbook.manifest.version}"
         }
-        validateModelMetadata(workbook)
-        rejectInvalidCalculatedContents(workbook)
         synchronized(updateLock) {
             database.transaction { conn ->
                 val reader = reader(conn)
+                validateModelMetadata(workbook)
+                calculatedAdmission(reader.loadWorkbookBundle(), workbook)
                 SqliteWorkbookWriter(conn, reader).replaceAll(workbook)
             }
         }
@@ -144,7 +145,7 @@ class SqliteWorkbookStore internal constructor(
             val current = reader.loadWorkbookBundle()
             val updated = transform(current)
             validateModelMetadata(updated)
-            rejectCalculatedOverrides(current, updated)
+            calculatedAdmission(current, updated)
             if (expectedRevision != null) {
                 val currentSheet = current.findSheet(SheetId(expectedRevision.sheetId))
                 if (currentSheet != null && currentSheet.revision != expectedRevision.revision) {
@@ -169,56 +170,20 @@ class SqliteWorkbookStore internal constructor(
     private fun reader(conn: Connection) = SqliteWorkbookReader(conn, sheetReadObserver = sheetReadObserver)
 
     companion object {
-        internal fun inMemory(sheetReadObserver: ((SheetReadEvent) -> Unit)? = null): SqliteWorkbookStore {
+        internal fun inMemory(
+            sheetReadObserver: ((SheetReadEvent) -> Unit)? = null,
+            calculatedAdmission: (WorkbookState, WorkbookState) -> Unit = ::rejectCalculatedOverrides,
+        ): SqliteWorkbookStore {
             val jdbcUrl = "jdbc:sqlite:file:sheetspace-${UUID.randomUUID()}?mode=memory&cache=shared"
             return SqliteWorkbookStore(
                 jdbcUrl,
                 DriverManager.getConnection(jdbcUrl),
                 sheetReadObserver = sheetReadObserver,
+                calculatedAdmission = calculatedAdmission,
             )
         }
     }
 }
-
-private fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) {
-    current.documents.forEach { (id, before) ->
-        val sheet = updated.documents[id] ?: return@forEach
-        if (before.modelId == sheet.modelId) {
-            val beforeModel = before.modelId?.let(current.dataModels::get)
-            val updatedModel = sheet.modelId?.let(updated.dataModels::get)
-            beforeModel?.columns?.filterIsInstance<CalculatedModelColumn>()?.forEach { property ->
-                val column = before.modelColumnBindings[property.id] ?: return@forEach
-                val stillCalculated = updatedModel?.columns
-                    ?.filterIsInstance<CalculatedModelColumn>()
-                    ?.any { it.id == property.id } == true
-                if (stillCalculated && sheet.modelColumnBindings[property.id] != column) {
-                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-                }
-                if (stillCalculated && before.modelFormulaBindings?.containsKey(property.id) == true &&
-                    sheet.modelFormulaBindings?.containsKey(property.id) != true
-                ) {
-                    throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-                }
-            }
-        }
-    }
-    if (!calculatedTemplatesAreValid(updated)) {
-        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-    }
-    if (calculatedOverridesWereIntroduced(current, updated)) {
-        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-    }
-}
-
-/**
- * A whole-workbook save replaces every cell, so every calculated cell must be a derived instance.
- */
-private fun rejectInvalidCalculatedContents(workbook: WorkbookState) {
-    if (!calculatedContentsAreDerived(workbook)) {
-        throw WorkbookApplicationException(WorkbookApplicationError.CALCULATED_CELL_WRITE)
-    }
-}
-
 
 private fun validateModelMetadata(workbook: WorkbookState) {
     require(workbook.dataModels.keys.all { it.toUuidBytesOrNull() != null }) { "Model IDs must be UUIDs" }

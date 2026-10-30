@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef } from 'react';
 import { cellAddressOf, cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
-import { formulaRawForDisplay } from '@workbook/formula/reference';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import { isCalculatedOwnedColumn } from '@workbook/core/calculatedOwnership';
@@ -93,7 +93,7 @@ export function useCellEditing({
 
     const currentCell = cellRawContent(sheet, key);
     const currentRaw = currentCell ?? '';
-    const currentEditValue = decodeCellTextLiteral(currentRaw) ?? (currentCell ? formulaRawForDisplay(currentCell, workbook, sheet.id) : currentRaw);
+    const currentEditValue = decodeCellTextLiteral(currentRaw) ?? (currentCell?.startsWith('=') ? projectStoredFormula(currentCell, workbook, sheet.id).text : currentRaw);
     if (currentEditValue !== session.draft) {
       const draftSignature = draftKey(session);
       if (!committedDrafts.current.has(draftSignature)) {
@@ -135,7 +135,7 @@ export function useCellEditing({
     const session = {
       target,
       readOnly,
-      draft: initialValue ?? transfer?.draft ?? (raw ? decodeCellTextLiteral(raw) ?? formulaRawForDisplay(raw, workbook, sheet.id) : ''),
+      draft: initialValue ?? transfer?.draft ?? (raw ? decodeCellTextLiteral(raw) ?? (raw.startsWith('=') ? projectStoredFormula(raw, workbook, sheet.id).text : raw) : ''),
       selection: transfer?.selection,
       scrollTop: transfer?.scrollTop,
       sessionId: nextSessionId.current++,

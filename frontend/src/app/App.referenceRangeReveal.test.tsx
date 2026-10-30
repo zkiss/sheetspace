@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { measuredElementGeometry, virtualGridGeometry } from '@test-support/domGeometry';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import { App } from './App';
 
 describe('reference range reveal in the composed workspace', () => {
@@ -16,7 +16,7 @@ describe('reference range reveal in the composed workspace', () => {
       },
     });
     const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: `=SUM(@inputs!${reference})` } });
-    render(<App initialWorkbook={workbookWithSheets([inputs, outputs])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const body = within(frame).getByTestId('sheet-frame-body');
     act(() => {

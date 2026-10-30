@@ -6,8 +6,17 @@ import kotlinx.serialization.json.jsonObject
 
 /** Compare complete semantic snapshots so stale structural writes cannot erase concurrent edits. */
 internal fun reconcileModelLifecycle(current: WorkbookState, before: WorkbookState, after: WorkbookState): WorkbookState {
-    validateLifecycleWorkbook(before)
-    validateLifecycleWorkbook(after)
+    return reconcileModelLifecycle(current, before, after, ::validateLifecycleWorkbook)
+}
+
+internal fun reconcileModelLifecycle(
+    current: WorkbookState,
+    before: WorkbookState,
+    after: WorkbookState,
+    validate: (WorkbookState) -> Unit,
+): WorkbookState {
+    validate(before)
+    validate(after)
     requireLifecycle(before.manifest.sheetIds == after.manifest.sheetIds)
     if (sameWorkbookContent(current, after)) return current
     if (!sameWorkbookContent(current, before)) {
@@ -23,7 +32,27 @@ private fun sameWorkbookContent(left: WorkbookState, right: WorkbookState): Bool
     left.copy(manifest = left.manifest.copy(revision = 0), documents = left.documents.mapValues { (_, sheet) -> sheet.copy(revision = 0) }) ==
         right.copy(manifest = right.manifest.copy(revision = 0), documents = right.documents.mapValues { (_, sheet) -> sheet.copy(revision = 0) })
 
+internal fun <T> reconcileCalculatedLifecycle(
+    current: WorkbookState,
+    before: WorkbookState,
+    after: WorkbookState,
+    rules: CalculatedTemplates<T>,
+): WorkbookState {
+    val reconciled = reconcileModelLifecycle(current, before, after) { validateLifecycleWorkbook(it, rules) }
+    rejectCalculatedOverrides(current, reconciled, rules)
+    return reconciled
+}
+
 internal fun validateLifecycleWorkbook(workbook: WorkbookState) {
+    validateLifecycleWorkbook(workbook, StoredCalculatedTemplates)
+}
+
+internal fun <T> validateLifecycleWorkbook(workbook: WorkbookState, rules: CalculatedTemplates<T>) {
+    validateLifecycleStructure(workbook)
+    requireLifecycle(calculatedTemplatesAreValid(workbook, rules))
+}
+
+private fun validateLifecycleStructure(workbook: WorkbookState) {
     requireLifecycle(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
     requireLifecycle(workbook.documents.values.map { it.name.trim() }.distinct().size == workbook.documents.size)
     workbook.dataModels.values.forEach { model -> requireLifecycle(isValidDataModel(model)) }
@@ -38,20 +67,8 @@ internal fun validateLifecycleWorkbook(workbook: WorkbookState) {
         val formats = presentation.formatOverrides
         val writes = formats.rows.map { (id, value) -> appearanceWrite("row", id, value) } + formats.columns.map { (id, value) -> appearanceWrite("column", id, value) } + formats.cells.map { (id, value) -> appearanceWrite("cell", id, value) }
         if (writes.isNotEmpty()) validatedFormatWrites(sheet, writes)
-        sheet.modelFormulaBindings?.forEach { (propertyId, template) ->
-            val property = workbook.dataModels[sheet.modelId]?.columns?.find { it.id == propertyId }
-            requireLifecycle(property is CalculatedModelColumn && property.formula == template.raw)
-            template.references.forEach { reference ->
-                requireLifecycle(reference.sourceSpan.validIn(template.raw))
-                reference.qualifierSpan?.let { requireLifecycle(it.validIn(template.raw)) }
-                requireLifecycle(reference.endpoints.size in 1..2)
-                reference.endpoints.filterNotNull().forEach { endpoint -> requireLifecycle(endpoint.sourceSpan.validIn(template.raw) && endpoint.rowIndex.isFinite() && endpoint.rowIndex >= 0 && endpoint.columnId.toUuidBytesOrNull() != null) }
-            }
-        }
     }
 }
-
-private fun ModelFormulaSpan.validIn(raw: String) = start >= 0 && end > start && end <= raw.length
 
 private fun appearanceWrite(scope: String, id: String, value: CellFormat) = FormatWrite(scope, id, properties = Json.encodeToJsonElement(value).jsonObject)
 

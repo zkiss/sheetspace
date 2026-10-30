@@ -2,22 +2,19 @@ import type { AxisSizeWrite, FormatWrite } from '@workbook/core/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
-import {
-  workbookApi,
-  type WorkbookApi,
-} from '@infrastructure/persistence/workbookApi';
+import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
-import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
+import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { cellKey, type CellKey } from '@workbook/core/address';
 import type { StableCellIdentity } from '@workbook/core/model';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
-  applyWorkbookOperation,
-  preparePasteCellWrites,
-  prepareMoveCellWrites,
+  applyWorkbookOperation, applyStoredCellWrites,
+  prepareStoredPasteCellWrites,
+  prepareStoredMoveCellWrites,
   replayCellPersistenceWrites,
   type AppliedWorkbookOperation,
   type AffectedWorkbookEntities,
@@ -35,7 +32,8 @@ import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from 
 import { addDataModel, type ModelMutationResult } from '@workbook/mutations/dataModel';
 import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
-import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { prepareCellInput } from '@application/core/cellInputPreparation';
+import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
@@ -64,6 +62,8 @@ export type WorkbookCommands = {
   deleteSheet: (sheetId: string) => WorkbookOperationResult;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
+  pasteStoredCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
+  moveStoredCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
   renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
   retryFailedSaves: () => void;
@@ -72,7 +72,7 @@ export type WorkbookCommands = {
   resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
   setSheetVisualScale: (sheetId: string, visualScale: number) => WorkbookOperationResult;
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
-  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult;
+  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
 
 export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
@@ -238,8 +238,9 @@ export function useWorkbookController({
     () => {
       const nextCalculation = committedCalculation.current!.fork();
       calculationObserverRef.current?.(pendingCalculation.impact);
-      const results = nextCalculation.update(
+      const results = nextCalculation.updateStored(
         pendingCalculation.projection,
+        pendingCalculation.workbook,
         pendingCalculation.impact,
       );
       return { nextCalculation, results };
@@ -278,11 +279,11 @@ export function useWorkbookController({
     return result.value;
   }
 
-  function applyAction(action: WorkbookOperationInput, recordContentHistory = true): WorkbookOperationResult {
+  function applyAction(action: WorkbookOperationInput, recordContentHistory = true, stored = false): WorkbookOperationResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
-    const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
+    const result = stored && operation.kind === 'write-cells' ? applyStoredCellWrites(optimisticWorkbook.current, operation.writes) : applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
     if (result.ok) setMutationFailure(undefined);
     if (applied?.changed) {
@@ -406,13 +407,13 @@ export function useWorkbookController({
     if (!currentSheet) return { ok: false, reason: 'unknown-sheet' };
     const cell = cellIdentityAt(currentSheet.content, cellKey);
     if (!cell) return { ok: false, reason: 'invalid-cell' };
-    return writeCells([{ sheetId: localSheetId, ...cell, raw: decodeCellTextLiteral(raw) === undefined ? raw : encodeCellTextLiteral(raw) }]);
+    const stored = prepareCellInput(raw, optimisticWorkbook.current, localSheetId, cellRawContent(currentSheet, cellKey));
+    return storedWriteResult(applyAction({ kind: 'write-cells', writes: [{ sheetId: localSheetId, ...cell, raw: stored }] }, true, true));
   }
 
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]): CellWriteResult {
-    const result = applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] });
-    if (!result.ok) return { ok: false, reason: result.reason };
-    return { ok: true, changed: result.value.changed };
+    const result = applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] }, true, true);
+    return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
   function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult): PasteCellsResult {
@@ -422,11 +423,10 @@ export function useWorkbookController({
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
     if (!destination) return { ok: false, reason: 'invalid-destination' };
-    const prepared = preparePasteCellWrites(sourceWorkbook, sheetId, destination, clipboard);
+    const prepared = prepareStoredPasteCellWrites(sourceWorkbook, sheetId, destination, clipboard);
     if (!prepared.ok) return prepared;
-    const result = applyAction({ kind: 'write-cells', writes: prepared.writes });
-    if (!result.ok) return { ok: false, reason: result.reason };
-    return { ok: true, changed: result.value.changed };
+    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, true);
+    return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
   function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
@@ -436,11 +436,10 @@ export function useWorkbookController({
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
     if (!destination) return { ok: false, reason: 'invalid-destination' };
-    const prepared = prepareMoveCellWrites(sourceWorkbook, sheetId, destination, source);
+    const prepared = prepareStoredMoveCellWrites(sourceWorkbook, sheetId, destination, source);
     if (!prepared.ok) return prepared;
-    const result = applyAction({ kind: 'write-cells', writes: prepared.writes });
-    if (!result.ok) return { ok: false, reason: result.reason };
-    return { ok: true, changed: result.value.changed };
+    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, true);
+    return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
   function replayContentHistory(direction: 'undo' | 'redo') {
@@ -505,6 +504,8 @@ export function useWorkbookController({
       moveSheetFrame,
       moveCells,
       pasteCells,
+      pasteStoredCells: pasteCells,
+      moveStoredCells: moveCells,
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,
@@ -513,6 +514,7 @@ export function useWorkbookController({
       redo: () => replayContentHistory('redo'),
       updateCellContent,
       writeCells,
+      writeStoredCells: (writes) => storedWriteResult(applyAction({ kind: 'write-cells', writes }, true, true)),
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
     canUndo: !savedAutosave.hasModelTransition() && contentHistory.canUndo,
@@ -530,3 +532,5 @@ export function useWorkbookController({
     workbook,
   };
 }
+
+function storedWriteResult(result: WorkbookOperationResult): CellWriteResult { return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason }; }

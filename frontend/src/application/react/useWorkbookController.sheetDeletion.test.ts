@@ -138,7 +138,7 @@ describe('useWorkbookController sheet deletion', () => {
         name: outputs.name,
         position: outputs.frame.position,
         revision: 2,
-        cells: { A1: 'latest' },
+        cells: { A1: '"latest"' },
       }),
     ]);
   });

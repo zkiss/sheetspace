@@ -1,0 +1,30 @@
+[
+  {
+    "name": "relative and anchored",
+    "template": "=~F1[\"=@A[1]:B[2]+???😀\",[[\"o\",[1,11],\"s\",[[\"e1\",\"c1\",\"r1\",false,false],[\"e2\",\"c2\",\"r2\",false,true]],[[\"s\",\"sheet\",\"Inputs\",\"retained\",[\"sheet\"]],[\"c1\",\"column\",0,\"retained\",[\"col1\"]],[\"r1\",\"row\",1,\"retained\",[\"sheet:row:1\"]],[\"c2\",\"column\",1,\"retained\",[\"col2\"]],[\"r2\",\"row\",2,\"retained\",[\"sheet:row:2\"]]],[]]]]",
+    "rowIndex": 1,
+    "rows": [
+      "sheet:row:1",
+      "sheet:row:2",
+      "sheet:row:3"
+    ],
+    "expected": "=~F1[\"=@A[1]:B[2]+???😀\",[[\"o\",[1,11],\"s\",[[\"e1\",\"c1\",\"r1\",false,false],[\"e2\",\"c2\",\"r2\",false,true]],[[\"s\",\"sheet\",\"Inputs\",\"retained\",[\"sheet\"]],[\"c1\",\"column\",0,\"retained\",[\"col1\"]],[\"r1\",\"row\",1,\"retained\",[\"sheet:row:2\"]],[\"c2\",\"column\",1,\"retained\",[\"col2\"]],[\"r2\",\"row\",2,\"retained\",[\"sheet:row:2\"]]],[]]]]"
+  },
+  {
+    "name": "out of bounds",
+    "template": "=~F1[\"=@A[1]:B[2]+???😀\",[[\"o\",[1,11],\"s\",[[\"e1\",\"c1\",\"r1\",false,false],[\"e2\",\"c2\",\"r2\",false,true]],[[\"s\",\"sheet\",\"Inputs\",\"retained\",[\"sheet\"]],[\"c1\",\"column\",0,\"retained\",[\"col1\"]],[\"r1\",\"row\",1,\"retained\",[\"sheet:row:1\"]],[\"c2\",\"column\",1,\"retained\",[\"col2\"]],[\"r2\",\"row\",2,\"retained\",[\"sheet:row:2\"]]],[]]]]",
+    "rowIndex": 3,
+    "rows": [
+      "sheet:row:1",
+      "sheet:row:2"
+    ],
+    "expected": "=~F1[\"=@A[1]:B[2]+???😀\",[[\"o\",[1,11],\"s\",[[\"e1\",\"c1\",\"r1\",false,false],[\"e2\",\"c2\",\"r2\",false,true]],[[\"s\",\"sheet\",\"Inputs\",\"retained\",[\"sheet\"]],[\"c1\",\"column\",0,\"retained\",[\"col1\"]],[\"r1\",\"row\",1,\"unresolved\",[]],[\"c2\",\"column\",1,\"retained\",[\"col2\"]],[\"r2\",\"row\",2,\"retained\",[\"sheet:row:2\"]]],[]]]]"
+  },
+  {
+    "name": "deleted target",
+    "template": "=~F1[\"=@A[1]:B[2]+???😀\",[[\"o\",[1,11],\"s\",[[\"e1\",\"c1\",\"r1\",false,false],[\"e2\",\"c2\",\"r2\",false,true]],[[\"s\",\"sheet\",\"Inputs\",\"retained\",[\"sheet\"]],[\"c1\",\"column\",0,\"retained\",[\"col1\"]],[\"r1\",\"row\",1,\"retained\",[\"sheet:row:1\"]],[\"c2\",\"column\",1,\"retained\",[\"col2\"]],[\"r2\",\"row\",2,\"retained\",[\"sheet:row:2\"]]],[]]]]",
+    "rowIndex": 1,
+    "rows": null,
+    "expected": "=~F1[\"=@A[1]:B[2]+???😀\",[[\"o\",[1,11],\"s\",[[\"e1\",\"c1\",\"r1\",false,false],[\"e2\",\"c2\",\"r2\",false,true]],[[\"s\",\"sheet\",\"Inputs\",\"retained\",[\"sheet\"]],[\"c1\",\"column\",0,\"retained\",[\"col1\"]],[\"r1\",\"row\",1,\"retained\",[\"sheet:row:1\"]],[\"c2\",\"column\",1,\"retained\",[\"col2\"]],[\"r2\",\"row\",2,\"retained\",[\"sheet:row:2\"]]],[]]]]"
+  }
+]
