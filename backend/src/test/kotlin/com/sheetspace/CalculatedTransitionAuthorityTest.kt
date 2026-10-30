@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class CalculatedTransitionAuthorityTest {
     @Test
     fun `projected property and ordinary names preserve reordered calculated instances on save`() {
-        listOf(false, true).forEach { ordinary ->
+        listOf(false to false, false to true, true to false, true to true).forEach { (ordinary, anchoredColumn) ->
             withSqliteStore { store ->
                 val full = transitionWorkbook()
                 val base = if (ordinary) full.removeSheet(full.sheetsInOrder.last().id) else full
@@ -18,15 +18,16 @@ class CalculatedTransitionAuthorityTest {
                 val target = if (ordinary) ColumnId.generate() else input
                 val identity = if (ordinary) target.value else LIFECYCLE_INPUT
                 fun hex(value: String) = value.map { it.code.toString(16).padStart(4, '0') }.joinToString("")
-                val formula = "=@Input[$1]*2"
-                val template = BoundModelFormula("=@~${hex(identity)}~${hex(target.value)}[$${hex(sheet.tabularContent.rows.first().value)}]*2")
+                val anchor = if (anchoredColumn) "$" else ""
+                val formula = "=@${anchor}Input[$1]*2"
+                val template = BoundModelFormula("=@${anchor}~${hex(identity)}~${hex(target.value)}[$${hex(sheet.tabularContent.rows.first().value)}]*2")
                 val model = base.dataModels.getValue(LIFECYCLE_MODEL)
                 val prepared = base.copy(dataModels = base.dataModels + (model.id to model.copy(columns = model.columns.map {
                     if (it is CalculatedModelColumn) it.copy(formula = formula) else if (ordinary && it.id == LIFECYCLE_INPUT) (it as ManualModelColumn).copy(name = "Other") else it
                 })), documents = base.documents.mapValues { (_, document) ->
                     val column = if (document.id == sheet.id) target else document.modelColumnBindings.getValue(LIFECYCLE_INPUT)
                     val id = if (ordinary && document.id == sheet.id) column.value else LIFECYCLE_INPUT
-                    val binding = BoundModelFormula("=@~${hex(id)}~${hex(column.value)}[$${hex(document.tabularContent.rows.first().value)}]*2")
+                    val binding = BoundModelFormula("=@${anchor}~${hex(id)}~${hex(column.value)}[$${hex(document.tabularContent.rows.first().value)}]*2")
                     document.copy(modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to binding),
                         columnNames = if (ordinary && document.id == sheet.id) mapOf(target.value to "Input") else emptyMap(),
                         content = TabularContent(document.tabularContent.rows, document.tabularContent.columns + if (ordinary && document.id == sheet.id) listOf(target) else emptyList(), document.tabularContent.cellContents))
@@ -37,7 +38,7 @@ class CalculatedTransitionAuthorityTest {
                 )) })
                 val renamedModel = reordered.dataModels.getValue(LIFECYCLE_MODEL).copy(columns = reordered.dataModels.getValue(LIFECYCLE_MODEL).columns.map {
                     when {
-                        it is CalculatedModelColumn -> it.copy(formula = "=@Revenue[$1]*2")
+                        it is CalculatedModelColumn -> it.copy(formula = "=@${anchor}Revenue[$1]*2")
                         !ordinary && it.id == LIFECYCLE_INPUT -> (it as ManualModelColumn).copy(name = "Revenue")
                         else -> it
                     }
@@ -59,7 +60,7 @@ class CalculatedTransitionAuthorityTest {
                 assertFalse(calculatedTransitionIsValid(reordered, edited))
                 val quotedModel = renamedModel.copy(columns = renamedModel.columns.map {
                     when {
-                        it is CalculatedModelColumn -> it.copy(formula = "=@'O''Brien total'[$1]*2")
+                        it is CalculatedModelColumn -> it.copy(formula = "=@${anchor}'O''Brien total'[$1]*2")
                         !ordinary && it.id == LIFECYCLE_INPUT -> (it as ManualModelColumn).copy(name = "O'Brien total")
                         else -> it
                     }
@@ -69,7 +70,7 @@ class CalculatedTransitionAuthorityTest {
                 })
                 assertTrue(calculatedTransitionIsValid(renamed, quoted))
                 val forgedName = quoted.copy(dataModels = quoted.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
-                    if (it is CalculatedModelColumn) it.copy(formula = "=@'Not the target'[$1]*2") else it
+                    if (it is CalculatedModelColumn) it.copy(formula = "=@${anchor}'Not the target'[$1]*2") else it
                 }) })
                 assertFalse(calculatedTransitionIsValid(renamed, forgedName))
                 val forgedOperator = quoted.copy(dataModels = quoted.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {

@@ -45,4 +45,15 @@ class StoredModelFormulaInstanceTest {
             instantiateStoredModelFormula("=@col1[r1]+2", "=@A[1]+3", "sheet", 0) { listOf("r1") }
         }
     }
+
+    @Test
+    fun `association rejects changed qualifier range and anchor recipes`() {
+        assertNull(modelFormulaRecipes("=@col1[r1]", "=@Sheet!A[1]"))
+        assertNull(modelFormulaRecipes("=@sheet!col1[r1]", "=@A[1]"))
+        assertNull(modelFormulaRecipes("=@col1[r1]:col2[r2]", "=@A[1]"))
+        assertNull(modelFormulaRecipes("=@col1[r1]", "=@\$A[1]"))
+        assertNull(modelFormulaRecipes("=@\$col1[r1]", "=@A[1]"))
+        assertNull(modelFormulaRecipes("=@col1[r1]", "=@A[\$1]"))
+        assertNull(modelFormulaRecipes("=@col1[\$r1]", "=@A[1]"))
+    }
 }
