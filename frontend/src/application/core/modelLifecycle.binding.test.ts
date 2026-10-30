@@ -6,8 +6,13 @@ import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { classifyCellValue } from '@calculation/formulaValue';
 import type { DataModel } from '@workbook/core/model';
-import { commitCellRawContent, renameSheet } from '@workbook/mutations/operations';
+import { commitCellRawContent, commitStoredCellContent, renameSheet } from '@workbook/mutations/operations';
 import { decodeStoredFormula } from '@workbook/formula/storedFormula';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import type { Workbook } from '@workbook/core/model';
+
+const writeFormula = (workbook: Workbook, sheetId: string, key: string, formula: string) =>
+  commitStoredCellContent(workbook, sheetId, key, prepareUserFormula(formula, workbook, sheetId));
 
 const model = declaration([manualProperty('input'), calculatedProperty('result', '=@A[1]*2')]);
 const makeSheet = (columnCount = 2, rowCount = 2) => sheetDocument({ id: 'sheet', name: 'Sheet', columnCount, rowCount, cells: rowCount && columnCount ? { A1: '3', ...(columnCount > 1 ? { B1: 'overwritten' } : {}) } : {} });
@@ -33,11 +38,12 @@ describe('explicit positional binding', () => {
   });
 
   it('preserves manual formulas and ordinary inputs while calculating each independent sheet instance', () => {
-    const first = sheetDocument({ id: 'first', name: 'First', columnCount: 2, rowCount: 2, cells: { A1: '=1+2', A2: '4' } });
+    const first = sheetDocument({ id: 'first', name: 'First', columnCount: 2, rowCount: 2, cells: { A2: '4' } });
     const second = sheetDocument({ id: 'second', name: 'Second', columnCount: 2, rowCount: 1, cells: { A1: '11' } });
-    const bound = bindModelSheets(modelWorkbook(model, [first, second]), ['first', 'second']);
+    const workbook = modelWorkbook(model, [first, second]);
+    const bound = bindModelSheets(writeFormula(workbook, 'first', 'A1', '=1+2'), ['first', 'second']);
 
-    expect(storedModelCells(bound, 'first').A1).toBe('=1+2');
+    expect(decodeStoredFormula(storedModelCells(bound, 'first').A1!).text).toBe('=1+2');
     expect(storedModelCells(bound, 'first').A2).toBe('4');
     expect(calculatedModelCells(bound).first.B1).toMatchObject({ value: 6 });
     expect(calculatedModelCells(bound).first.B2).toMatchObject({ value: 8 });
@@ -75,9 +81,10 @@ describe('explicit positional binding', () => {
   });
 
   it('preserves parseable broken manual references without damaging valid conditional branches', () => {
-    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 2, cells: { A1: '=@Missing!A[1]', A2: '=IF(TRUE,7,@Missing!A[1])' } });
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 2 });
 
-    const bound = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']);
+    const workbook = writeFormula(modelWorkbook(model, [sheet]), 'sheet', 'A1', '=@Missing!A[1]');
+    const bound = bindModelSheets(writeFormula(workbook, 'sheet', 'A2', '=IF(TRUE,7,@Missing!A[1])'), ['sheet']);
     const unbound = successfulModelMutation(unbindSheetFromModel(bound, 'sheet'));
 
     expect(calculatedModelCells(bound).sheet.A1).toMatchObject({ error: '#REF!' });
@@ -120,13 +127,14 @@ describe('explicit unbinding and model switching', () => {
   });
 
   it('freezes from the complete old workbook and retains manual formulas and downstream calculations', () => {
-    const other = sheetDocument({ id: 'other', name: 'Other', columnCount: 1, rowCount: 1, cells: { A1: '=@Sheet!B[1]+1' } });
-    let bound = bindModelSheets(modelWorkbook(model, [makeSheet(), other]), ['sheet']);
-    bound = commitCellRawContent(bound, 'sheet', 'A1', '=2+3');
+    const other = sheetDocument({ id: 'other', name: 'Other', columnCount: 1, rowCount: 1 });
+    const workbook = writeFormula(modelWorkbook(model, [makeSheet(), other]), 'other', 'A1', '=@Sheet!B[1]+1');
+    let bound = bindModelSheets(workbook, ['sheet']);
+    bound = writeFormula(bound, 'sheet', 'A1', '=2+3');
 
     const unbound = successfulModelMutation(unbindSheetFromModel(bound, 'sheet'));
 
-    expect(storedModelCells(unbound).A1).toBe('=2+3');
+    expect(decodeStoredFormula(storedModelCells(unbound).A1!).text).toBe('=2+3');
     expect(storedModelCells(unbound).B1).toBe('10');
     expect(calculatedModelCells(unbound).other.A1).toMatchObject({ value: 11 });
     expect(calculatedModelCells(commitCellRawContent(unbound, 'sheet', 'A1', '20')).other.A1).toMatchObject({ value: 11 });
@@ -135,12 +143,12 @@ describe('explicit unbinding and model switching', () => {
   it('keeps external references to bound calculated properties after the sheet is renamed', () => {
     const consumer = sheetDocument({ id: 'consumer', name: 'Consumer', columnCount: 1, rowCount: 1 });
     const bound = bindModelSheets(modelWorkbook(model, [makeSheet(), consumer]), ['sheet']);
-    const withReference = commitCellRawContent(bound, 'consumer', 'A1', '=@Sheet!B[1]');
+    const withReference = writeFormula(bound, 'consumer', 'A1', '=@Sheet!B[1]');
     const renamed = renameSheet(withReference, 'sheet', 'Renamed sheet');
 
     expect(renamed).toMatchObject({ ok: true });
     if (!renamed.ok) return;
-    expect(storedModelCells(withReference, 'consumer').A1).toContain('@sheet!');
+    expect(decodeStoredFormula(storedModelCells(withReference, 'consumer').A1!).occurrences).toHaveLength(1);
     expect(calculatedModelCells(withReference).consumer.A1).toMatchObject({ value: 6 });
     expect(renamed.value.documents.sheet!.name).toBe('Renamed sheet');
     expect(calculatedModelCells(renamed.value).consumer.A1).toMatchObject({ value: 6 });

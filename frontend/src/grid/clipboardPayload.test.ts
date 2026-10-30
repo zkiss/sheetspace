@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { ClipboardPayloadStore, decodeTsv, encodeTsv } from '@grid/clipboardPayload';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
-import { formulaRawForStorage } from '@workbook/formula/reference';
 import { encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
@@ -105,7 +104,7 @@ describe('clipboard payload provenance', () => {
   it('exports raw content with formulas projected for people, while preserving canonical source raws privately', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: 'literal', B1: '' } });
     const workbook = workbookWithSheets([source]);
-    const canonical = formulaRawForStorage('=@A[1]', workbook, source.id);
+    const canonical = prepareUserFormula('=@A[1]', workbook, source.id);
     const formulaSheet = { ...source, content: { ...source.content, cells: { ...source.content.cells, [source.content.rows[1]! + '\u0000' + source.content.columns[0]!]: canonical } } };
     const model = workbookWithSheets([formulaSheet]);
     const a1 = cellTargetAt(formulaSheet, 'A1')!;
