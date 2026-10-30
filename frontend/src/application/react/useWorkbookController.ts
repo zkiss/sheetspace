@@ -5,7 +5,7 @@ import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
-import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
+import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { cellKey, type CellKey } from '@workbook/core/address';
 import type { StableCellIdentity } from '@workbook/core/model';
 import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
@@ -407,7 +407,7 @@ export function useWorkbookController({
     if (!currentSheet) return { ok: false, reason: 'unknown-sheet' };
     const cell = cellIdentityAt(currentSheet.content, cellKey);
     if (!cell) return { ok: false, reason: 'invalid-cell' };
-    const stored = prepareCellInput(raw, optimisticWorkbook.current, localSheetId);
+    const stored = prepareCellInput(raw, optimisticWorkbook.current, localSheetId, cellRawContent(currentSheet, cellKey));
     return storedWriteResult(applyAction({ kind: 'write-cells', writes: [{ sheetId: localSheetId, ...cell, raw: stored }] }, true, true));
   }
 

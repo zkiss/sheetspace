@@ -10,6 +10,16 @@ import { cellRawContent } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 
 describe('trusted controller writes', () => {
+  it('preserves an unchanged reference when an editor corrects another part of a formula', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '4' } });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
+    act(() => { result.current.commands.updateCellContent(sheet.id, 'B1', '=@A[1]+@Missing!A[1]'); });
+    const before = cellRawContent(result.current.workbook.documents.sheet, 'B1')!;
+    act(() => { result.current.commands.updateCellContent(sheet.id, 'B1', '=@A[1]+3'); });
+    const after = cellRawContent(result.current.workbook.documents.sheet, 'B1')!;
+    expect(decodeStoredFormula(after).occurrences[0].slots).toEqual(decodeStoredFormula(before).occurrences[0].slots);
+    expect(result.current.formulaResults.sheet.B1).toMatchObject({ value: 7 });
+  });
   it('calculates against the request workbook when a later rename advances the optimistic workbook', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '7' } });
     const target = sheetDocument({ id: 'target', name: 'Target', rowCount: 1, columnCount: 1 });

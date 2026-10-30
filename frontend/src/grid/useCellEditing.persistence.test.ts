@@ -17,6 +17,20 @@ function renderCellEditing(sheet = positionedSheet('sheet-inputs', 'Inputs', { x
 
 
 describe('useCellEditing edit persistence', () => {
+    it('retains an invalid formula draft through editor handoff and commits its correction', () => {
+      const base = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
+      const raw = prepareUserFormula('=@Missing!A[1]+3', workbookWithSheets([base]), base.id);
+      const sheet = sheetDocument({ id: base.id, name: base.name, rowCount: 2, columnCount: 2, cells: { B1: raw } });
+      const { commands, result } = renderCellEditing(sheet);
+      const target = cellTargetAt(sheet, 'B1')!;
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell?.draft).toBe('=@Missing!A[1]+3');
+      act(() => result.current.updateEditingCellValue('=@A[1]+3'));
+      act(() => result.current.startEditingCell(target));
+      expect(result.current.editingCell?.draft).toBe('=@A[1]+3');
+      act(() => result.current.commitActiveEdit());
+      expect(commands.updateCellContent).toHaveBeenCalledWith(sheet.id, 'B1', '=@A[1]+3');
+    });
     it('discards a changed draft on cancellation without writing or changing the saved content', () => {
       const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { B1: '2' } });
       const { commands, result } = renderCellEditing(sheet);
