@@ -149,4 +149,18 @@ class ModelFormulaProjectionPlanTest {
         assertEquals(content, projectOpaqueModelTemplate(content, declaration, listOf(outside)))
     }
 
+    @Test
+    fun `qualified projection uses only names actually bound on the target sheet`() {
+        val before = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val sheet = before.sheetsInOrder.first()
+        val model = before.dataModels.getValue(LIFECYCLE_MODEL)
+        val local = ColumnId.generate()
+        val detached = before.replaceSheet(sheet.copy(modelId = null, modelColumnBindings = emptyMap(), columnNames = mapOf(local.value to "Input")))
+        val renamed = detached.replaceSheet(detached.documents.getValue(sheet.id).copy(columnNames = mapOf(local.value to "Next")))
+        val formula = "=@'${sheet.name}'!Input[1]+@'${sheet.name}'!Unknown[1]"
+        assertEquals("=@'${sheet.name}'!Next[1]+@'${sheet.name}'!Unknown[1]", applyFormulaNameEdits(formula, renamedDeclarationEdits(detached, renamed, model, formula)))
+        val missing = before.replaceSheet(sheet.copy(modelId = "missing", columnNames = emptyMap()))
+        assertEquals(formula, applyFormulaNameEdits(formula, renamedDeclarationEdits(missing, missing, model, formula)))
+    }
+
 }

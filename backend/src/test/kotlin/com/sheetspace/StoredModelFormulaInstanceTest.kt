@@ -84,4 +84,16 @@ class StoredModelFormulaInstanceTest {
         assertNull(modelFormulaRecipes("=@col1[r1]", "=@A[\$1]"))
         assertNull(modelFormulaRecipes("=@col1[\$r1]", "=@A[1]"))
     }
+
+    @Test
+    fun `opaque association rejects incomplete and mismatched reference text`() {
+        val declaration = "=prefix+@Missing[1]+2"
+        val opaque = StoredFormulaCodec.escape("@Missing[1]")
+        assertNull(modelFormulaAssociations("=prefix+${StoredFormulaCodec.escape("@Other[1]")}+2", declaration))
+        assertNull(modelFormulaAssociations("=prefix+", declaration))
+        assertNull(modelFormulaAssociations("=wrong+$opaque+2", declaration))
+        assertNull(modelFormulaAssociations("=prefix+$opaque+3", declaration))
+        assertNull(modelFormulaAssociations("=prefix+$opaque+2+@col1[r1]", declaration))
+        assertEquals(1, requireNotNull(modelFormulaAssociations("=prefix+$opaque+2", declaration)).size)
+    }
 }
