@@ -70,7 +70,7 @@ describe('lifecycle HTTP mapping', () => {
     const reloaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(removed))));
     const reused = successful(replaceModelDeclaration(reloaded, { ...model, columns: [model.columns[1]!, { ...model.columns[0]!, id: 'replacement' }] }, () => 'replacement-column'));
     const roundTrip = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(reused))));
-    const results = new FormulaCalculation().update(calculationProjection(roundTrip), { kind: 'structure' });
+    const results = new FormulaCalculation().updateStored(calculationProjection(roundTrip), roundTrip, { kind: 'structure' });
 
     expect(roundTrip.documents.sheet!.modelColumnBindings?.output).toBe(workbook.documents.sheet!.modelColumnBindings?.output);
     expect(roundTrip.documents.sheet!.modelColumnBindings?.replacement).toBe('replacement-column');
