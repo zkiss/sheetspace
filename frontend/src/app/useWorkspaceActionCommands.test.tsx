@@ -7,7 +7,7 @@ type Props = Parameters<typeof useWorkspaceActionCommands>[0];
 function setup() {
   const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
   const cell = { sheetId: sheet.id, cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! } };
-  const commands = { appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn() };
+  const commands = { appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn() };
   const controller = { createSheetAtViewportCenter: vi.fn(), zoomWorkspaceBy: vi.fn(), resetViewport: vi.fn() };
   const clipboard = { canWrite: () => true, canRead: () => true, write: vi.fn().mockResolvedValue(undefined), read: vi.fn() };
   const props = {
@@ -51,6 +51,26 @@ describe('workspace palette actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     expect(commands.setSheetVisualScale).toHaveBeenCalledWith(sheet.id, 1.2);
     expect(props.closePalette).toHaveBeenCalledOnce();
+  });
+
+  it('renames a selected column only after persistence succeeds', async () => {
+    const { command, hook, commands, props, sheet, cell } = setup();
+    expect(command('rename-column').unavailable).toBe('Select one existing column first');
+    props.selection = { mode: 'columns', anchor: cell, extent: cell };
+    hook.rerender();
+    expect(command('rename-column').unavailable).toBeUndefined();
+    let finish!: (result: { ok: false; reason: 'persistence-failed' }) => void;
+    commands.renameColumn.mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    act(() => command('rename-column').run());
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.change(screen.getByLabelText('Column name'), { target: { value: 'Revenue' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(commands.renameColumn).toHaveBeenCalledWith(sheet.id, cell.cell.columnId, 'Revenue');
+    expect(hook.result.current.preventClose).toBe(true);
+    expect(props.closePalette).not.toHaveBeenCalled();
+    await act(async () => finish({ ok: false, reason: 'persistence-failed' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('persistence-failed');
+    expect(props.closePalette).not.toHaveBeenCalled();
   });
 
   it('preserves clipboard markers and cancels a failed cut', async () => {

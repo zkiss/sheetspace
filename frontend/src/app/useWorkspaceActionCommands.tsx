@@ -18,10 +18,13 @@ import type { FormattingSelectionProjection } from '@workspace/useFormattingSele
 import type { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { MIN_SHEET_FRAME_HEIGHT, MIN_SHEET_FRAME_WIDTH } from '@workspace/workspaceGeometry';
 import { CommandNumberForm, type CommandNumberField } from './CommandNumberForm';
+import { RenameColumnForm } from './RenameColumnForm';
+import { columnRenameTarget, type RenameColumnTarget } from '@application/core/renameColumn';
 import type { NavigationCommand } from './NavigationPalette';
 import { selectionAddressRange } from './workspaceSelection';
 
 type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; initialAction?: 'unbind' }
+  | { kind: 'rename-column'; title: string; target: RenameColumnTarget; initialName: string }
   | { kind: 'numbers'; title: string; fields: readonly CommandNumberField[]; apply: (values: number[]) => unknown };
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
@@ -44,6 +47,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
 }) {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [clipboardBusy, setClipboardBusy] = useState(false);
+  const [renameBusy, setRenameBusy] = useState(false);
   const clipboardOperation = useRef(0);
   useEffect(() => () => { clipboardOperation.current += 1; }, []);
   function show(next: Panel) { setPanel(next); openPanel(); }
@@ -80,6 +84,14 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('append-row', 'Append row', 'Sheet', run(() => sheet && commands.appendRow(sheet.id)), noSheet);
   add('append-column', 'Append column', 'Sheet', run(() => sheet && commands.appendColumn(sheet.id)), noSheet);
   add('rename-sheet', 'Rename sheet…', 'Sheet', run(() => sheet && onRename(sheet), false), noSheet);
+  const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
+    && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;
+  const renameTarget = sheet && columnId ? columnRenameTarget(workbook, sheet.id, columnId) : undefined;
+  add('rename-column', 'Rename column…', 'Sheet', () => {
+    if (!renameTarget || !sheet) return;
+    show({ kind: 'rename-column', title: 'Rename column', target: renameTarget,
+      initialName: renameTarget.kind === 'property' ? renameTarget.propertyName : sheet.columnNames?.[renameTarget.columnId] ?? '' });
+  }, renameTarget ? undefined : 'Select one existing column first');
   add('delete-sheet', 'Delete sheet', 'Sheet', run(() => sheet && onDelete(sheet)), noSheet);
   for (const [direction, label] of [['top', 'Bring to front'], ['up', 'Bring forward'], ['down', 'Send backward'], ['bottom', 'Send to back']] as const) {
     add(`sheet-order-${direction}`, label, 'Sheet', run(() => sheet && commands.changeSheetZOrder(sheet.id, direction)), noSheet);
@@ -185,10 +197,26 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     if (message) onFeedback(message);
   }} />;
   if (panel?.kind === 'model' && sheet) content = <SheetModelControls key={`${sheet.id}:${panel.initialAction}`} models={Object.values(workbook.dataModels ?? {})} sheet={sheet} initialAction={panel.initialAction} onBind={commands.bindSheetToModel} onUnbind={commands.unbindSheetFromModel} onOpenDataModels={(id) => run(() => onOpenDataModels?.(id), false)()} />;
+  if (panel?.kind === 'rename-column') content = <RenameColumnForm target={panel.target} initialName={panel.initialName} onCancel={() => { setPanel(null); closePalette(); }} onApply={async (name) => {
+    const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
+    if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target)) return 'The selected column has changed. Close and try again.';
+    const submission = commands.renameColumn(panel.target.sheetId, panel.target.columnId, name);
+    setRenameBusy(true);
+    let result;
+    try { result = submission.result.ok ? await submission.completion : submission.result; }
+    finally { setRenameBusy(false); }
+    if (!result.ok) {
+      if (result.reason === 'empty') return 'Enter a nonblank column name.';
+      if (result.reason === 'duplicate') return 'That column name is already in use.';
+      return `Could not rename the column: ${result.reason}.`;
+    }
+    setPanel(null); closePalette();
+    return undefined;
+  }} />;
   if (panel?.kind === 'numbers') content = <CommandNumberForm key={panel.title} fields={panel.fields} onApply={(values) => {
     const message = failure(panel.apply(values));
     if (!message) { setPanel(null); closePalette(); }
     return message;
   }} />;
-  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, panel: panel ? { title: panel.title, content } : undefined, resetPanel: () => { clipboardOperation.current += 1; if (clipboardBusy) onCancelCut(); setClipboardBusy(false); setPanel(null); } };
+  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, preventClose: renameBusy, panel: panel ? { title: panel.title, content } : undefined, resetPanel: () => { clipboardOperation.current += 1; if (clipboardBusy) onCancelCut(); setClipboardBusy(false); setPanel(null); } };
 }
