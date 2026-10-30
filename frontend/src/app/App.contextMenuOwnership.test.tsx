@@ -5,13 +5,16 @@ import { App } from './App';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { autosaveClient } from '@test-support/apiClients';
 import { panWorkspace, zoomWorkspace } from '@test-support/workspaceActions';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 
 afterEach(() => vi.useRealTimers());
 
 function setup(visualScale = 1) {
-  render(<App initialWorkbook={workbookWithSheets([
-    smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale, cells: { A1: '=@B[1]+1', B1: '2' } }),
-  ])} />);
+  const sheet = smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale, cells: { B1: '2' } });
+  const workbook = workbookWithSheets([sheet]);
+  sheet.content.cells[cellIdentityKey(cellIdentityAt(sheet.content, 'A1')!)] = prepareUserFormula('=@B[1]+1', workbook, sheet.id);
+  render(<App initialWorkbook={workbook} />);
   return { frame: screen.getByRole('article', { name: 'Sheet Inputs' }), surface: screen.getByTestId('workspace-surface') };
 }
 
