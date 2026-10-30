@@ -36,6 +36,7 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       const invalid = validateDataModel(model);
       if (invalid && !invalid.ok) return invalid;
       if (sheet.modelId === modelId) return { ok: true, value: state };
+      if (hasNameCollision(sheet, model, Object.fromEntries(model.columns.map((property, index) => [property.id, sheet.content.columns[index]])))) return { ok: false, reason: 'invalid-model' };
       const sourceState = adapter.source(state);
       const source = adapter.workbook(sourceState);
       const materialized = sheet.modelId ? freezeCalculatedColumns(source, source.documents[sheetId]!, adapter.calculate(source)) : source.documents[sheetId]!;
@@ -61,6 +62,8 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       if (!previous) return { ok: false, reason: 'unknown-model' };
       const invalid = validateDataModel(model);
       if (invalid && !invalid.ok) return invalid;
+      const affectedSheets = Object.values(workbook.documents).filter((sheet) => sheet.modelId === model.id);
+      if (affectedSheets.some((sheet) => hasNameCollision(sheet, model, sheet.modelColumnBindings ?? {}))) return { ok: false, reason: 'invalid-model' };
       if (JSON.stringify(previous) === JSON.stringify(model)) return { ok: true, value: state };
       if (namesOnly(previous, model)) {
         return { ok: true, value: adapter.rename(state, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } }) };
@@ -91,6 +94,15 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       return { ok: true, value: adapter.finish(sourceState, next, changes) };
     },
   };
+}
+
+function hasNameCollision(sheet: SheetDocument, model: DataModel, bindings: Readonly<Record<string, string | undefined>>): boolean {
+  return model.columns.some((property) => {
+    const bound = bindings[property.id];
+    return bound !== undefined && sheet.content.columns.includes(bound) && Object.entries(sheet.columnNames ?? {}).some(
+      ([columnId, name]) => columnId !== bound && sheet.content.columns.includes(columnId) && name === property.name,
+    );
+  });
 }
 
 function namesOnly(previous: DataModel, next: DataModel): boolean {
@@ -158,6 +170,7 @@ export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: st
     modelId: model.id,
     modelColumnBindings: Object.fromEntries(model.columns.map((property, index) => [property.id, columns[index]!])),
     modelFormulaBindings: undefined,
+    columnNames: filter(sheet.columnNames ?? {}, (id) => retained.has(id) && !columns.includes(id)),
     content: { ...sheet.content, columns, cells: filter(sheet.content.cells, keepCell) },
     presentation: {
       ...sheet.presentation,

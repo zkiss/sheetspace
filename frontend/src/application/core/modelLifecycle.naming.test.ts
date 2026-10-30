@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { bindModelSheets, calculatedProperty, declaration, freshColumns, manualProperty, modelWorkbook, successfulModelMutation } from '@test-support/modelLifecycleFixtures';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import { replaceModelDeclaration } from './modelLifecycle';
+import { bindSheetToModel, replaceModelDeclaration } from './modelLifecycle';
 import { bindPreparedSheet, replacePreparedDeclaration } from './preparedModelLifecycle';
 
 it('preserves stored and prepared sheets and bindings for a property-only rename', () => {
@@ -34,4 +34,25 @@ it('preserves stored and prepared sheets and bindings for a property-only rename
   expect(renamed.dataModels?.[model.id]).toEqual(renamedModel);
   expect(preparedResult.value.workbook.dataModels?.[model.id]).toEqual(renamedModel);
   expect(allocate).not.toHaveBeenCalled();
+});
+
+it('rejects a shared name colliding with a local name on a bound sheet without changing either sheet', () => {
+  const model = declaration([manualProperty('input', 'Input')]);
+  const sheets = ['one', 'two'].map((id) => sheetDocument({ id, name: id, rowCount: 1, columnCount: 1 }));
+  const bound = bindModelSheets(modelWorkbook(model, sheets), ['one', 'two']);
+  const second = bound.documents.two;
+  const workbook = { ...bound, documents: { ...bound.documents, two: { ...second, content: { ...second.content, columns: ['extra', ...second.content.columns] }, columnNames: { extra: 'Conflict' } } } };
+  const changed = { ...model, columns: [{ ...model.columns[0], name: 'Conflict' }] };
+
+  expect(replaceModelDeclaration(workbook, changed, freshColumns())).toEqual({ ok: false, reason: 'invalid-model' });
+  expect(workbook.dataModels?.[model.id]).toEqual(model);
+  expect(workbook.documents.two.columnNames).toEqual({ extra: 'Conflict' });
+});
+
+it('rejects binding when a property would collide with another retained local column name', () => {
+  const model = declaration([manualProperty('first', 'First'), manualProperty('second', 'Second')]);
+  const sheet = sheetDocument({ id: 'one', name: 'one', rowCount: 1, columnCount: 2 });
+  const workbook = modelWorkbook(model, [{ ...sheet, columnNames: { [sheet.content.columns[1]]: 'First' } }]);
+
+  expect(bindSheetToModel(workbook, 'one', model.id, freshColumns())).toEqual({ ok: false, reason: 'invalid-model' });
 });
