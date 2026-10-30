@@ -4,6 +4,7 @@ export type PendingSheetCreation = {
   position: WorkspacePosition;
   viewportScale: number;
   label: string;
+  confirm: () => void;
 };
 
 export type PendingSheetRename = {

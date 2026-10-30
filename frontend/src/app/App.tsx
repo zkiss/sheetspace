@@ -97,8 +97,8 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     return () => window.removeEventListener('keydown', handleHistoryShortcut);
   }, [canRedo, canUndo, commands, dataModelsOpen]);
 
-  function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string) {
-    setPendingCreation({ position, viewportScale, label });
+  function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string, confirm: () => void) {
+    setPendingCreation({ position, viewportScale, label, confirm });
     setSheetName('');
     setError('');
   }
@@ -122,6 +122,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
+    pendingCreation.confirm();
     closeDialog();
   }
 

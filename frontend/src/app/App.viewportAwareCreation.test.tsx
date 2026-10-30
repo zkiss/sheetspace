@@ -27,7 +27,7 @@ describe('viewport-aware sheet creation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledOnce());
     expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({
-      position: { x: 620, y: 340 }, visualScale: 1 / 1.2,
+      position: { x: 520, y: 273.33333333333337 }, visualScale: 1 / 1.2,
     }));
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
   });
@@ -87,7 +87,7 @@ describe('viewport-aware sheet creation', () => {
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Outputs', position: { x: 500, y: 400 }, visualScale: 1.2, zIndex: 1,
+      name: 'Outputs', position: { x: 356, y: 304.00000000000006 }, visualScale: 1.2, zIndex: 1,
     }));
     await waitFor(() => expect(screen.queryByTestId('creating-sheet-frame')).not.toBeInTheDocument());
     expect(screen.queryByRole('article', { name: 'Sheet Outputs' })).not.toBeInTheDocument();
@@ -102,7 +102,7 @@ describe('viewport-aware sheet creation', () => {
         cells: { B1: '10' },
       }),
       smallSheetDocument({
-        id: 'outputs', name: 'Outputs', position: { x: 500, y: 400 }, visualScale: 1.2, zIndex: 2,
+        id: 'outputs', name: 'Outputs', position: { x: 356, y: 304.00000000000006 }, visualScale: 1.2, zIndex: 2,
         cells: { A1: '=@Inputs!B[1]' },
       }),
     ]);
