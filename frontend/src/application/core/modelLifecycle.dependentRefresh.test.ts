@@ -5,6 +5,7 @@ import { bindSheetToModel, replaceModelDeclaration, unbindSheetFromModel } from 
 import { applyWorkbookOperation } from '@application/core/userActions';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { DataModel, Workbook } from '@workbook/core/model';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 
 const sourceModel: DataModel = {
   id: 'source-model',
@@ -46,7 +47,8 @@ describe('dependent derived instances', () => {
   it('derives the calculated cells of the referencing sheet from the referenced property', () => {
     const workbook = crossSheetWorkbook();
 
-    expect(totalCells(workbook).every((raw) => raw?.startsWith('=@source!'))).toBe(true);
+    expect(totalCells(workbook).map((raw) => projectStoredFormula(raw!, workbook, 'target').text))
+      .toEqual(['=@Source!Total[1]', '=@Source!Total[2]']);
   });
 
   it('retains the referencing instances when a referenced sheet is deleted', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import type { SheetDocument, Workbook } from '@workbook/core/model';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
+import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { usageQueries, type UsageCellTarget } from './usageQueries';
 
@@ -9,9 +10,9 @@ describe('usage queries', () => {
   it('returns deterministic direct usages and indirect dependents across sheets and ranges', () => {
     const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, cells: { A1: '1', A2: '2' } });
     const calculations = sheetDocument({ id: 'calculations', name: 'Calculations', rowCount: 2, cells: {
-      A1: '=SUM(@inputs!A[1]:A[2])', B1: '=@A[1]', A2: '=@inputs!A[1]',
+      A1: '=SUM(@Inputs!A[1]:A[2])', B1: '=@A[1]', A2: '=@Inputs!A[1]',
     } });
-    const queries = usageQueries(workbookWithSheets([inputs, calculations]));
+    const queries = usageQueries(prepareFixtures(workbookWithSheets([inputs, calculations])));
 
     expect(queries.forCell(target(inputs, 'A1'))).toEqual({
       available: true,
@@ -28,12 +29,12 @@ describe('usage queries', () => {
       A1: '1', B1: '=@A[1]+@C[1]', C1: '=@B[1]',
     } });
 
-    expect(usageQueries(workbookWithSheets([sheet])).forCell(target(sheet, 'A1'))).toEqual({
+    expect(usageQueries(prepareFixtures(workbookWithSheets([sheet]))).forCell(target(sheet, 'A1'))).toEqual({
       available: true,
       directUsages: [target(sheet, 'B1'), target(sheet, 'C1')],
       transitiveDependents: [target(sheet, 'D1'), target(sheet, 'E1')],
     });
-    expect(usageQueries(workbookWithSheets([cyclic])).forCell(target(cyclic, 'A1'))).toEqual({
+    expect(usageQueries(prepareFixtures(workbookWithSheets([cyclic]))).forCell(target(cyclic, 'A1'))).toEqual({
       available: true,
       directUsages: [target(cyclic, 'B1')],
       transitiveDependents: [target(cyclic, 'C1')],
@@ -43,7 +44,7 @@ describe('usage queries', () => {
   it('unions all currently bound sheets for a model property, including empty inputs', () => {
     const first = boundSheet('first', 'First', { B1: '=@A[1]' });
     const second = boundSheet('second', 'Second', { B1: '=@A[1]' });
-    const workbook = withModel(workbookWithSheets([first, second]));
+    const workbook = prepareFixtures(withModel(workbookWithSheets([first, second])));
 
     expect(usageQueries(workbook).forProperty({ modelId: 'budget', propertyId: 'input' })).toEqual({
       available: true,
@@ -83,8 +84,8 @@ describe('usage queries', () => {
       },
     };
 
-    expect(usageQueries(workbook).forProperty({ modelId: 'budget', propertyId: 'input' }).directUsages).toEqual([target(budget, 'B1')]);
-    expect(usageQueries(workbook).forProperty({ modelId: 'budget', propertyId: 'removed' })).toEqual({ available: false, directUsages: [], transitiveDependents: [] });
+    expect(usageQueries(prepareFixtures(workbook)).forProperty({ modelId: 'budget', propertyId: 'input' }).directUsages).toEqual([target(budget, 'B1')]);
+    expect(usageQueries(prepareFixtures(workbook)).forProperty({ modelId: 'budget', propertyId: 'removed' })).toEqual({ available: false, directUsages: [], transitiveDependents: [] });
   });
 
   it('uses the current workbook snapshot after formula and binding changes', () => {
@@ -93,11 +94,19 @@ describe('usage queries', () => {
     const changedSheet = { ...sheet, content: { ...sheet.content, cells: { ...sheet.content.cells, [key(sheet, 'B1')]: '=@C[1]' } } };
     const changed = { ...initial, documents: { [changedSheet.id]: changedSheet } };
 
-    expect(usageQueries(initial).forCell(target(sheet, 'A1')).directUsages).toEqual([target(sheet, 'B1')]);
-    expect(usageQueries(changed).forCell(target(changedSheet, 'A1')).directUsages).toEqual([]);
-    expect(usageQueries(changed).forCell({ sheetId: 'missing', cell: { rowId: 'row', columnId: 'column' } })).toEqual({ available: false, directUsages: [], transitiveDependents: [] });
+    expect(usageQueries(prepareFixtures(initial)).forCell(target(sheet, 'A1')).directUsages).toEqual([target(sheet, 'B1')]);
+    expect(usageQueries(prepareFixtures(changed)).forCell(target(changedSheet, 'A1')).directUsages).toEqual([]);
+    expect(usageQueries(prepareFixtures(changed)).forCell({ sheetId: 'missing', cell: { rowId: 'row', columnId: 'column' } })).toEqual({ available: false, directUsages: [], transitiveDependents: [] });
   });
 });
+
+function prepareFixtures(workbook: Workbook): Workbook {
+  return { ...workbook, documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => [id, {
+    ...sheet, content: { ...sheet.content, cells: Object.fromEntries(Object.entries(sheet.content.cells).map(([key, raw]) =>
+      [key, raw.startsWith('=') ? prepareCellInput(raw, workbook, id) : raw],
+    )) },
+  }])) };
+}
 
 function boundSheet(id: string, name: string, cells: Record<string, string>): SheetDocument {
   const sheet = sheetDocument({ id, name, cells, columnCount: 2 });
