@@ -109,13 +109,14 @@ internal class SqliteWorkbookWriter(
 
     private fun insertSheet(sheet: SheetDocument) {
         connection.prepareStatement(
-            "INSERT INTO sheet_documents (id, name, content_kind, revision, model_id, model_formula_bindings) VALUES (?, ?, 'TABULAR', ?, ?, ?)",
+            "INSERT INTO sheet_documents (id, name, content_kind, revision, model_id, model_formula_bindings, column_names) VALUES (?, ?, 'TABULAR', ?, ?, ?, ?)",
         ).use { statement ->
             statement.setBytes(1, sheet.id.value.toUuidBytes())
             statement.setString(2, sheet.name)
             statement.setLong(3, sheet.revision)
             statement.setBytes(4, sheet.modelId?.toUuidBytes())
             statement.setString(5, sheet.modelFormulaBindings?.let { Json.encodeToString(it) })
+            statement.setString(6, Json.encodeToString(sheet.columnNames))
             statement.executeUpdate()
         }
         insertFrame(sheet)
@@ -155,15 +156,16 @@ internal class SqliteWorkbookWriter(
         val updatedRows = connection.prepareStatement(
             """
             UPDATE sheet_documents
-            SET name = ?, content_kind = 'TABULAR', model_id = ?, model_formula_bindings = ?, revision = revision + 1
+            SET name = ?, content_kind = 'TABULAR', model_id = ?, model_formula_bindings = ?, column_names = ?, revision = revision + 1
             WHERE id = ? AND revision = ?
             """.trimIndent(),
         ).use { statement ->
             statement.setString(1, updated.name)
             statement.setBytes(2, updated.modelId?.toUuidBytes())
             statement.setString(3, updated.modelFormulaBindings?.let { Json.encodeToString(it) })
-            statement.setBytes(4, updated.id.value.toUuidBytes())
-            statement.setLong(5, current.revision)
+            statement.setString(4, Json.encodeToString(updated.columnNames))
+            statement.setBytes(5, updated.id.value.toUuidBytes())
+            statement.setLong(6, current.revision)
             statement.executeUpdate()
         }
         if (updatedRows == 0) {

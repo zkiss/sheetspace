@@ -40,6 +40,7 @@ export type SheetDocumentResponse = {
   };
   modelId?: string;
   modelColumnBindings?: Record<string, string>;
+  columnNames?: Record<string, string>;
   modelFormulaBindings?: ModelFormulaBindings;
 };
 
@@ -354,6 +355,14 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
   const columnIndices = uniqueIndices(document.content.columns, 'column');
   const cells: Record<string, string> = {};
 
+  if (document.columnNames !== undefined && (!document.columnNames || Array.isArray(document.columnNames)
+      || typeof document.columnNames !== 'object'
+      || Object.entries(document.columnNames).some(([id, name]) => !columnIndices.has(id) || typeof name !== 'string' || !name.trim() || name !== name.trim())
+      || new Set(Object.values(document.columnNames)).size !== Object.keys(document.columnNames).length
+      || Object.values(document.modelColumnBindings ?? {}).some((id) => Object.prototype.hasOwnProperty.call(document.columnNames, id)))) {
+    invalidReadContract('invalid column names');
+  }
+
   if (document.modelColumnBindings !== undefined && (!document.modelColumnBindings || Array.isArray(document.modelColumnBindings)
       || typeof document.modelColumnBindings !== 'object'
       || Object.entries(document.modelColumnBindings).some(([propertyId, columnId]) => !propertyId || typeof columnId !== 'string' || !columnId)
@@ -438,6 +447,7 @@ export function decodeSheetDocument(document: SheetDocumentResponse): SheetDocum
     },
     ...(document.modelId === undefined ? {} : { modelId: document.modelId }),
     ...(document.modelColumnBindings === undefined ? {} : { modelColumnBindings: { ...document.modelColumnBindings } }),
+    ...(document.columnNames === undefined || Object.keys(document.columnNames).length === 0 ? {} : { columnNames: { ...document.columnNames } }),
     ...(document.modelFormulaBindings === undefined ? {} : { modelFormulaBindings: structuredClone(document.modelFormulaBindings) }),
   };
 }

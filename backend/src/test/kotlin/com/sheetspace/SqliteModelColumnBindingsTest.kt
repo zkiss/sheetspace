@@ -24,6 +24,19 @@ class SqliteModelColumnBindingsTest {
     private val workbook = testWorkbookOf(boundSheet).copy(dataModels = mapOf(modelId to model))
 
     @Test
+    fun `aggregate save and update retain ordinary column names`() {
+        val column = sheet.tabularContent.columns[2].value
+        val named = boundSheet.copy(columnNames = mapOf(column to "Owner's cost"))
+        SqliteWorkbookStore.inMemory().use { store ->
+            store.saveWorkbook(workbook.replaceSheet(named))
+            assertEquals(named.columnNames, store.loadSheet(sheet.id)!!.columnNames)
+
+            store.updateWorkbook { current -> current.replaceSheet(current.findSheet(sheet.id)!!.copy(columnNames = mapOf(column to "Cost"))) }
+            assertEquals(mapOf(column to "Cost"), store.loadSheet(sheet.id)!!.columnNames)
+        }
+    }
+
+    @Test
     fun `aggregate save reloads bound identities and sheet reads retain them`() {
         SqliteWorkbookStore.inMemory().use { store ->
             store.saveWorkbook(workbook)
