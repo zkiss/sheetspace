@@ -12,6 +12,49 @@ import kotlin.test.assertFailsWith
 
 class PreparedCalculatedTransitionTest {
     @Test
+    fun `prepared partial binding rename retains historical cells and rejects unrelated template changes`() {
+        val initial = lifecycleBoundWorkbook(lifecycleWorkbook())
+        val base = initial.removeSheet(initial.sheetsInOrder.last().id)
+        val sheet = base.sheetsInOrder.first()
+        val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+        val oldDeclaration = "=@Input[1]*2"
+        val newDeclaration = "=@'New name'[1]*2"
+        val oldTemplate = PreparedModelFormula("=" + StoredFormulaCodec.escape("@Input[1]") + "*2")
+        val newTemplate = PreparedModelFormula("=" + StoredFormulaCodec.escape("@'New name'[1]") + "*2")
+        val beforeModel = model.copy(columns = model.columns.map {
+            if (it is CalculatedModelColumn) it.copy(formula = oldDeclaration) else it
+        })
+        val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+        val contents = sheet.tabularContent.rows.withIndex().associate { (index, row) ->
+            CellCoordinate(row, output) to derivedPreparedFormulaRaw(oldTemplate, base, index, oldDeclaration, sheet.id.value)
+        }
+        val beforeSheet = sheet.copy(modelColumnBindings = sheet.modelColumnBindings - LIFECYCLE_INPUT,
+            content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, contents))
+        val before = base.copy(dataModels = base.dataModels + (model.id to beforeModel)).replaceSheet(beforeSheet)
+        val afterModel = beforeModel.copy(columns = beforeModel.columns.map {
+            when (it) {
+                is CalculatedModelColumn -> it.copy(formula = newDeclaration)
+                is ManualModelColumn -> it.copy(name = "New name")
+            }
+        })
+        val after = before.copy(dataModels = before.dataModels + (model.id to afterModel))
+            .replaceSheet(beforeSheet.copy(name = "renamed"))
+        val rules = preparedCalculatedTemplates { candidate ->
+            mapOf(LIFECYCLE_OUTPUT to if (candidate.name == "renamed") newTemplate else oldTemplate)
+        }
+
+        assertTrue(calculatedTransitionIsValid(before, after, rules))
+        val forged = after.replaceSheet(after.sheetsInOrder.first().copy(content = TabularContent(
+            sheet.tabularContent.rows, sheet.tabularContent.columns,
+            contents + (CellCoordinate(sheet.tabularContent.rows.first(), output) to "forged"),
+        )))
+        assertFalse(calculatedTransitionIsValid(before, forged, rules))
+        val wrong = preparedCalculatedTemplates { candidate -> mapOf(LIFECYCLE_OUTPUT to
+            if (candidate.name == "renamed") PreparedModelFormula("=" + StoredFormulaCodec.escape("@Wrong[1]") + "*2") else oldTemplate) }
+        assertFalse(calculatedTransitionIsValid(before, after, wrong))
+    }
+
+    @Test
     fun `mixed fixture keeps dead target identity and historical bytes after replacement`() {
         val fixture = Json.parseToJsonElement(requireNotNull(javaClass.getResource("/stored-model-instances.json")).readText()).jsonArray.first().jsonObject
         val template = PreparedModelFormula(fixture.getValue("template").jsonPrimitive.content.replace("@col1[r1]", "@sheet!col1[sheet:row:1]").replace("[${'$'}r2]", "[${'$'}sheet:row:2]"))
