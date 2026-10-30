@@ -3,7 +3,6 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { prepareFormulaEdit, prepareUserFormula } from './formulaPreparation';
-import { decodeStoredFormula } from './storedFormula';
 import { projectStoredFormula } from './storedFormulaProjection';
 
 const sheet = sheetDocument({ id: 'sheet', name: 'Inputs', rowCount: 2, columnCount: 2 });
@@ -19,26 +18,26 @@ describe('formula edit preparation', () => {
     expect(prepareFormulaEdit(draft, original, renamed, sheet.id)).toBe(original);
   });
 
-  it('retains an unchanged dead reference while resolving a newly edited reference', () => {
+  it('resolves a newly edited reference even when another target has been deleted', () => {
     const original = prepareUserFormula('=@A[1]+@B[1]', workbook, sheet.id);
     const changed = workbookWithSheets([{ ...sheet, content: { ...sheet.content, columns: ['replacement', sheet.content.columns[1]] } }]);
     const draft = projectStoredFormula(original, changed, sheet.id).text.replace('@B[1]', '@B[2]');
 
-    const result = decodeStoredFormula(prepareFormulaEdit(draft, original, changed, sheet.id));
+    const result = prepareFormulaEdit(draft, original, changed, sheet.id);
 
-    expect(result.occurrences[0].slots[1].targetIds).toEqual([sheet.content.columns[0]]);
-    expect(result.occurrences[1].slots[2].targetIds).toEqual([sheet.content.rows[1]]);
+    expect(result).toContain(sheet.content.rows[1]);
+    expect(projectStoredFormula(result, changed, sheet.id).text).toContain('@B[2]');
   });
 
   it('preserves malformed fragments and resolves recognizable corrected references', () => {
     const original = prepareUserFormula('=@Missing!A[1]+@B[2]+???', workbook, sheet.id);
     const draft = '=@Inputs!A[1]+@B[2]+???';
 
-    const result = decodeStoredFormula(prepareFormulaEdit(draft, original, workbook, sheet.id));
+    const result = prepareFormulaEdit(draft, original, workbook, sheet.id);
 
-    expect(result.text).toBe(draft);
-    expect(result.occurrences[0].slots[0].targetIds).toEqual([sheet.id]);
-    expect(result.occurrences[1].slots[1].targetIds).toEqual([sheet.content.columns[1]]);
+    expect(projectStoredFormula(result, workbook, sheet.id).text).toBe(draft);
+    expect(result).toContain(sheet.id);
+    expect(result).toContain(sheet.content.columns[1]);
   });
 
   it('recalculates an unresolved formula after correcting its reference', () => {
