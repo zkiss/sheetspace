@@ -6,6 +6,23 @@ import { App } from './App';
 import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 
 describe('navigation palette composition', () => {
+  it('returns to the originating cell after cancellation and Escape', async () => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const workbook = workbookWithLegacyFormulaFixtures([sheet]);
+    workbook.dataModels = { invoice: { id: 'invoice', name: 'Invoice', columns: [] } };
+    render(<App initialWorkbook={workbook} />);
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(cell);
+    fireEvent.keyDown(cell, { ctrlKey: true, shiftKey: true, key: 'p' });
+    await user.click(screen.getByRole('button', { name: /Bind model…/ }));
+    await user.selectOptions(screen.getByLabelText('Model for Inputs'), 'invoice');
+    await user.click(screen.getByRole('button', { name: 'Bind model' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+    expect(cell).toHaveFocus();
+  });
   it('opens from the visible launcher, browses sheets, and returns focus on escape', async () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'alpha', name: 'Alpha' });
