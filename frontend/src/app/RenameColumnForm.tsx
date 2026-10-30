@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RenameColumnTarget } from '@application/core/renameColumn';
 
 export function RenameColumnForm({ target, initialName, onApply, onCancel }: {
@@ -12,6 +12,10 @@ export function RenameColumnForm({ target, initialName, onApply, onCancel }: {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (error && !busy) input.current?.focus();
+  }, [busy, error]);
   if (!confirmed && target.kind === 'property') return <div>
     <p>This column is defined by data model "{target.modelName}". Rename property "{target.propertyName}" in that model? This change will apply to all sheets bound to the model.</p>
     <button autoFocus type="button" onClick={() => setConfirmed(true)}>Continue</button>
@@ -27,7 +31,7 @@ export function RenameColumnForm({ target, initialName, onApply, onCancel }: {
       setBusy(false);
     });
   }}>
-    <label>Column name<input autoFocus disabled={busy} value={name} onChange={(event) => { setName(event.target.value); setError(''); }} /></label>
+    <label>Column name<input ref={input} autoFocus disabled={busy} value={name} onChange={(event) => { setName(event.target.value); setError(''); }} /></label>
     {error ? <p className="form-error" role="alert">{error}</p> : null}
     <button disabled={busy} type="submit">Apply</button>
     <button disabled={busy} type="button" onClick={onCancel}>Cancel</button>

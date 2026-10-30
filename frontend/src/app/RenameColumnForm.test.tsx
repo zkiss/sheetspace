@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { RenameColumnForm } from './RenameColumnForm';
 
@@ -17,8 +18,12 @@ describe('rename column form', () => {
     await screen.findByRole('alert');
     expect(input).toHaveValue('New');
     expect(screen.getByRole('alert')).toHaveTextContent('Name already exists');
-    fireEvent.change(input, { target: { value: 'Another' } });
+    expect(input).toHaveFocus();
+    const user = userEvent.setup();
+    await user.clear(input);
+    await user.type(input, 'Another{Enter}');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(apply).toHaveBeenLastCalledWith('Another');
   });
 
   it('requires consent before editing a shared property and allows cancellation', async () => {
