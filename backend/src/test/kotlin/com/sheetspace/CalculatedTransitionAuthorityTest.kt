@@ -37,6 +37,24 @@ class CalculatedTransitionAuthorityTest {
         val saved = DefaultWorkbookApplication(store).saveModelLifecycle(before, renamed)
         assertEquals(saved, store.loadWorkbookBundle())
         assertEquals(before.sheetsInOrder.first().tabularContent.cellContents, saved.sheetsInOrder.first().tabularContent.cellContents)
+        val twice = saved.copy(
+            dataModels = saved.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                when (it) {
+                    is CalculatedModelColumn -> it.copy(formula = "=@Again[1]*2")
+                    else -> (it as ManualModelColumn).copy(name = "Again")
+                }
+            }) },
+            documents = saved.documents.mapValues { (_, document) -> document.copy(modelFormulaBindings = mapOf(
+                LIFECYCLE_OUTPUT to BoundModelFormula("=" + StoredFormulaCodec.escape("@Again[1]") + "*2"),
+            )) },
+        )
+        val savedTwice = DefaultWorkbookApplication(store).saveModelLifecycle(saved, twice)
+        assertEquals(savedTwice, store.loadWorkbookBundle())
+        assertEquals(saved.sheetsInOrder.first().tabularContent.cellContents, savedTwice.sheetsInOrder.first().tabularContent.cellContents)
+        val forged = twice.copy(documents = twice.documents.mapValues { (_, document) -> document.copy(modelFormulaBindings = mapOf(
+            LIFECYCLE_OUTPUT to BoundModelFormula("=" + StoredFormulaCodec.escape("@Wrong[1]") + "*2"),
+        )) })
+        assertFalse(calculatedTransitionIsValid(saved, forged))
         val sheet = saved.sheetsInOrder.first()
         val row = RowId.generate()
         val appended = materializeDerivedContents(saved.replaceSheet(sheet.copy(content = TabularContent(
