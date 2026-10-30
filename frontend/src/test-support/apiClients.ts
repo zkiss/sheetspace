@@ -149,6 +149,7 @@ export function persistedWorkbookClient(initialWorkbook: Workbook = workbookWith
       }
       return { sheets: expectedRevisions.map(({ sheetId }) => revisionResponse(persistedWorkbook, sheetId)) };
     }),
+    admitRecord: vi.fn(),
     appendRow: vi.fn().mockImplementation(async (sheetId: string) => {
       const current = findSheetById(persistedWorkbook, sheetId)!;
       const rowId = `${sheetId}:row:${current.content.rows.length + 1}`;

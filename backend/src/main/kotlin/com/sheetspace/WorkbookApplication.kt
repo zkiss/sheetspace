@@ -60,6 +60,8 @@ enum class WorkbookApplicationError {
     UNKNOWN_DATA_MODEL,
     INVALID_MODEL_LIFECYCLE,
     MODEL_LIFECYCLE_CONFLICT,
+    BOUND_SHEET_STRUCTURE,
+    INVALID_MODEL_RECORD,
 }
 
 class WorkbookApplicationException(
@@ -90,6 +92,8 @@ interface WorkbookApplication {
     fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
+
+    fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult
 
     fun saveDataModel(model: DataModel): DataModel
 
@@ -258,6 +262,7 @@ class DefaultWorkbookApplication(
 
     override fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+            if (current.modelId != null) throw WorkbookApplicationException(WorkbookApplicationError.BOUND_SHEET_STRUCTURE)
             val appended = current.updateTabularContent(TabularContent::appendRow)
             val provisional = workbook.replaceSheet(appended)
             provisional.replaceSheet(materializeCalculatedRow(provisional, appended, appended.tabularContent.rows.last()))
@@ -267,9 +272,41 @@ class DefaultWorkbookApplication(
 
     override fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+            if (current.modelId != null) throw WorkbookApplicationException(WorkbookApplicationError.BOUND_SHEET_STRUCTURE)
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
+    }
+
+    override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult {
+        if (rowId.toUuidBytesOrNull() == null || expectedRevision < 0) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+        val id = SheetId(sheetId)
+        val row = RowId(rowId)
+        val updated = store.updateWorkbook { workbook ->
+            val sheet = workbook.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+            val model = sheet.modelId?.let(workbook.dataModels::get) ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+            val manual = model.columns.filterIsInstance<ManualModelColumn>()
+            if (values.keys != manual.map { it.id }.toSet() || model.columns.any { sheet.modelColumnBindings[it.id] !in sheet.tabularContent.columns } ||
+                manual.any { !validRecordValue(it.type, values.getValue(it.id)) }) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+            }
+            val contents = sheet.tabularContent.cellContents
+            if (row in sheet.tabularContent.rows) {
+                if (manual.any { (contents[CellCoordinate(row, sheet.modelColumnBindings.getValue(it.id))] ?: "") != values.getValue(it.id) }) {
+                    throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+                }
+                return@updateWorkbook workbook
+            }
+            if (sheet.revision != expectedRevision) throw SheetRevisionConflict(sheetId, expectedRevision, sheet.revision)
+            val writes = manual.mapNotNull { property ->
+                values.getValue(property.id).takeIf(String::isNotEmpty)?.let { CellCoordinate(row, sheet.modelColumnBindings.getValue(property.id)) to it }
+            }.toMap()
+            val content = TabularContent(sheet.tabularContent.rows + row, sheet.tabularContent.columns, contents + writes)
+            val appended = sheet.copy(content = content)
+            val provisional = workbook.replaceSheet(appended)
+            provisional.replaceSheet(materializeCalculatedRow(provisional, appended, row))
+        }
+        return RowAppendResult(updated.documents.getValue(id), row)
     }
 
     override fun saveDataModel(model: DataModel): DataModel {
@@ -345,6 +382,20 @@ class DefaultWorkbookApplication(
             transform(workbook, current)
         }
         return updated.documents.getValue(id)
+    }
+}
+
+private fun validRecordValue(type: ModelColumnType, value: String): Boolean {
+    if (value.isEmpty() || value.startsWith("=")) return true
+    val trimmed = value.trim()
+    val number = if (Regex("^-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$").matches(trimmed)) trimmed.toDoubleOrNull()?.takeIf { it.isFinite() } else null
+    val boolean = trimmed.equals("true", ignoreCase = true) || trimmed.equals("false", ignoreCase = true)
+    val quoted = Regex("^\"(?:[^\"]|\"\")*\"$", RegexOption.DOT_MATCHES_ALL).matches(value)
+    return when (type) {
+        ModelColumnType.STRING -> quoted || (number == null && !boolean)
+        ModelColumnType.INT -> !quoted && number != null && number % 1.0 == 0.0
+        ModelColumnType.FLOAT -> !quoted && number != null
+        ModelColumnType.BOOLEAN -> !quoted && boolean
     }
 }
 

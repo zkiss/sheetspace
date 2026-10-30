@@ -79,7 +79,7 @@ class CalculatedAggregateChangeRuleTest {
         val renamed = application.updateSheet(persisted.id.value, persisted.revision, UpdateSheetCommand(name = "Renamed"))
         assertEquals("Renamed", renamed.name)
 
-        val appended = application.appendRow(persisted.id.value, application.loadSheet(persisted.id.value).revision)
+        val appended = application.admitRecord(persisted.id.value, application.loadSheet(persisted.id.value).revision, RowId.generate().value, mapOf(TARGET_INPUT to "7"))
         assertEquals(4, appended.sheet.tabularContent.rows.size)
 
         val current = application.loadWorkbookBundle()

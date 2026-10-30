@@ -88,6 +88,12 @@ data class RowAppendResponse(
 )
 
 @Serializable
+data class RecordAdmissionRequest(val rowId: String, val values: Map<String, String>)
+
+@Serializable
+data class RecordAdmissionResponse(val rowId: String, val sheet: SheetDocumentResponse)
+
+@Serializable
 data class ColumnAppendResponse(
     val sheetId: String,
     val revision: Long,
@@ -273,6 +279,17 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
+        post("/api/sheets/{sheetId}/records") {
+            val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            if (!call.requireExistingSheet(workbookApplication, sheetId)) return@post
+            val expectedRevision = call.expectedSheetRevision() ?: return@post
+            val request = call.receiveRequest<RecordAdmissionRequest>() ?: return@post
+            call.respondApplicationResult {
+                val result = workbookApplication.admitRecord(sheetId, expectedRevision, request.rowId, request.values)
+                call.respond(RecordAdmissionResponse(result.rowId.value, WorkbookReadTransportAdapter.sheetDocument(result.sheet)))
+            }
+        }
+
         post("/api/sheets/{sheetId}/rows") {
             val sheetId = call.parameters["sheetId"] ?: return@post call.respondError(
                 HttpStatusCode.BadRequest,
@@ -369,6 +386,8 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.DUPLICATE_SHEET_REVISION -> HttpStatusCode.BadRequest to "duplicate-sheet-revision"
         WorkbookApplicationError.INVALID_CELL_COORDINATE -> HttpStatusCode.BadRequest to "invalid-cell-coordinate"
         WorkbookApplicationError.INVALID_CELL_PATCH -> HttpStatusCode.BadRequest to "invalid-cell-patch"
+        WorkbookApplicationError.BOUND_SHEET_STRUCTURE -> HttpStatusCode.BadRequest to "bound-sheet-structure"
+        WorkbookApplicationError.INVALID_MODEL_RECORD -> HttpStatusCode.BadRequest to "invalid-model-record"
     }
     respondError(status, code)
 }

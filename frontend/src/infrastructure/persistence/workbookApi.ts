@@ -271,6 +271,12 @@ export const workbookApi = {
     });
   },
 
+  admitRecord(sheetId: string, rowId: string, values: Readonly<Record<string, string>>, revision: number): Promise<{ rowId: string; sheet: SheetDocument }> {
+    return requestJson<{ rowId: string; sheet: SheetDocumentResponse }>(`/api/sheets/${encodePathSegment(sheetId)}/records`, {
+      method: 'POST', body: JSON.stringify({ rowId, values }), headers: revisionHeaders({ revision }),
+    }).then((result) => ({ rowId: result.rowId, sheet: decodeSheetDocument(result.sheet) }));
+  },
+
   appendColumn(sheetId: string, options: RevisionedMutationOptions = {}): Promise<ColumnAppendResponse> {
     return requestJson<ColumnAppendResponse>(`/api/sheets/${encodePathSegment(sheetId)}/columns`, {
       method: 'POST',

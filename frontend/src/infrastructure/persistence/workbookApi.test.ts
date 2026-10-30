@@ -454,4 +454,16 @@ describe('workbook API mutations', () => {
       name: 'WorkbookApiError', message: 'sheet-not-found', status: 404, code: 'sheet-not-found',
     } satisfies Partial<WorkbookApiError>);
   });
+
+  it('admits a record with its stable identity and decodes the persisted sheet', async () => {
+    const fetchMock = mockFetch({ rowId: 'row-1', sheet: inputsResponse });
+    const result = await workbookApi.admitRecord('sheet 1', 'row-1', { price: '12' }, 7);
+    expect(result).toEqual({ rowId: 'row-1', sheet: inputsDocument });
+    expect(fetchMock).toHaveBeenCalledWith('/api/sheets/sheet%201/records', {
+      method: 'POST', body: JSON.stringify({ rowId: 'row-1', values: { price: '12' } }),
+      headers: { 'Content-Type': 'application/json', 'If-Match': '7' },
+    });
+    mockFetch({ error: 'invalid-model-record' }, { status: 400 });
+    await expect(workbookApi.admitRecord('sheet', 'row', {}, 0)).rejects.toMatchObject({ status: 400, code: 'invalid-model-record' });
+  });
 });

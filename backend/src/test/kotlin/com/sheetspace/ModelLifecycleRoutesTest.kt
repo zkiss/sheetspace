@@ -46,17 +46,28 @@ class ModelLifecycleRoutesTest {
                 application { module(DefaultWorkbookApplication(store)) }
                 assertEquals(HttpStatusCode.OK, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, empty)) }.status)
                 val id = empty.sheetsInOrder.first().id
-                val inputColumn = empty.documents.getValue(id).tabularContent.columns[0]
                 val outputColumn = empty.documents.getValue(id).tabularContent.columns[1]
+                val revision = store.loadSheet(id)!!.revision
+                val invalid = client.post("/api/sheets/${id.value}/records") {
+                    header("If-Match", revision)
+                    jsonBody(Json.encodeToString(RecordAdmissionRequest(RowId.generate().value, mapOf(LIFECYCLE_INPUT to "invalid"))))
+                }
+                assertEquals(HttpStatusCode.BadRequest, invalid.status)
+                assertEquals(HttpStatusCode.BadRequest, client.post("/api/sheets/${id.value}/rows") { header("If-Match", revision) }.status)
+                assertEquals(HttpStatusCode.BadRequest, client.post("/api/sheets/${id.value}/columns") { header("If-Match", revision) }.status)
                 repeat(2) { index ->
                     val reloaded = store.loadSheet(id)!!
-                    val row = client.post("/api/sheets/${id.value}/rows") { header("If-Match", reloaded.revision) }.decodeBody<RowAppendResponse>()
+                    val rowId = RowId.generate().value
+                    val row = client.post("/api/sheets/${id.value}/records") {
+                        header("If-Match", reloaded.revision)
+                        jsonBody(Json.encodeToString(RecordAdmissionRequest(rowId, mapOf(LIFECYCLE_INPUT to "5"))))
+                    }.decodeBody<RecordAdmissionResponse>()
+                    val retry = client.post("/api/sheets/${id.value}/records") {
+                        header("If-Match", reloaded.revision)
+                        jsonBody(Json.encodeToString(RecordAdmissionRequest(rowId, mapOf(LIFECYCLE_INPUT to "5"))))
+                    }.decodeBody<RecordAdmissionResponse>()
+                    assertEquals(row, retry)
                     val formula = derivedFormulaRaw(empty.documents.getValue(id).modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT), store.loadWorkbookBundle(), index, "=@A[1]*2", id.value)
-                    val request = CellPatchRequest(
-                        listOf(CellRevisionRequest(id.value, row.revision)),
-                        listOf(CellWriteRequest(id.value, row.rowId, inputColumn.value, "5")),
-                    )
-                    assertEquals(HttpStatusCode.OK, client.patch("/api/cells") { jsonBody(Json.encodeToString(request)) }.status)
                     val saved = store.loadWorkbookBundle().documents.getValue(id)
                     assertEquals(index + 1, saved.tabularContent.rowCount)
                     assertEquals(formula, saved.tabularContent.cellContents[CellCoordinate(RowId(row.rowId), outputColumn)])
