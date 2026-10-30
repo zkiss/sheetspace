@@ -15,7 +15,7 @@ import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
 import { contextualReferences, projectReferenceGeometry, type GridReferenceViewport } from '@reference-navigation/contextualReferenceProjection';
 import { inspectStoredFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
-import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
@@ -168,8 +168,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const selectedRaw = selectedSheet && selectedCellKey
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
+  const editingCellKey = selectedSheet && editingCell ? cellKeyForTarget(selectedSheet, editingCell.target) : null;
   const inspectedRaw = editingCell && editingCell.target.sheetId === selectedSheet?.id
-    ? editingCell.draft.startsWith('=') ? prepareUserFormula(editingCell.draft, workbook, selectedSheet.id) : undefined
+    ? editingCell.draft.startsWith('=') ? prepareCellInput(editingCell.draft, workbook, selectedSheet.id, editingCellKey ? cellRawContent(selectedSheet, editingCellKey) : undefined) : undefined
     : selectedRaw;
   const formulaInspection = selectedSheet && inspectedRaw?.startsWith('=')
     ? inspectStoredFormula(inspectedRaw, workbook, selectedSheet)
@@ -319,17 +320,15 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     return property ? { modelId: sheet.modelId, propertyId: property.id, name: property.name } : undefined;
   }, [workbook]);
   const propertyReferenceChoices = useCallback(() => {
-    const raw = editingCell && selectedSheet ? editingCell.draft.startsWith('=') ? prepareUserFormula(editingCell.draft, workbook, selectedSheet.id) : undefined : selectedRaw;
-    const inspection = selectedSheet && raw?.startsWith('=') ? inspectStoredFormula(raw, workbook, selectedSheet) : undefined;
     const caret = editingCell?.selection?.start;
-    const references = inspection?.references.filter((reference) => reference.navigable) ?? [];
+    const references = formulaInspection?.references.filter((reference) => reference.navigable) ?? [];
     const atCaret = caret === undefined ? references : references.filter((reference) => caret >= reference.displaySpan.start && caret <= reference.displaySpan.end);
     const candidates = (atCaret.length ? atCaret : references).flatMap((reference) => {
       const property = propertyForReference(reference);
       return property ? [{ reference, property }] : [];
     });
     return [...new Map(candidates.map((candidate) => [`${candidate.property.modelId}:${candidate.property.propertyId}`, candidate])).values()];
-  }, [editingCell, propertyForReference, selectedRaw, selectedSheet, workbook]);
+  }, [editingCell, formulaInspection, propertyForReference]);
   const openPropertyDefinitionFor = useCallback((modelId: string, propertyId: string) => {
     const invoker = commandPaletteOpen ? paletteInvoker.current : propertyDefinitionInvoker.current;
     closeCommandPalette(false);
@@ -377,11 +376,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     openChoices([...cell, ...propertyChoices]);
   }, [activeCell, openChoices, propertyForActiveCell, selectedSheet, usageChoices, workbook]);
   const navigableReferencesForFollow = useCallback(() => {
-    const raw = editingCell && selectedSheet ? editingCell.draft.startsWith('=') ? prepareUserFormula(editingCell.draft, workbook, selectedSheet.id) : undefined : selectedRaw;
-    const inspection = selectedSheet && raw?.startsWith('=') ? inspectStoredFormula(raw, workbook, selectedSheet) : undefined;
     const caret = editingCell?.selection?.start;
-    return navigableReferencesAtCaret(inspection, caret);
-  }, [editingCell, selectedRaw, selectedSheet, workbook]);
+    return navigableReferencesAtCaret(formulaInspection, caret);
+  }, [editingCell, formulaInspection]);
   const openReferenceChoices = useCallback(() => {
     const choices = navigableReferencesForFollow();
     if (choices.length === 0) { setNavigationFeedback('No resolvable reference is available.'); return; }

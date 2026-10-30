@@ -9,6 +9,27 @@ import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('does not navigate to a same-name replacement when inspecting an unchanged or edited dead reference', () => {
+  const old = sheetDocument({ id: 'old', name: 'Inputs' });
+  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs' });
+  const original = workbookWithSheets([old, outputs]);
+  outputs.content.cells[cellIdentityKey(cellIdentityAt(outputs.content, 'A1')!)] = prepareCellInput('=@Inputs!B[2]', original, outputs.id);
+  const replacement = sheetDocument({ id: 'replacement', name: 'Inputs' });
+  render(<App initialWorkbook={workbookWithSheets([replacement, outputs])} />);
+  const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.click(source);
+  fireEvent.keyDown(source, { key: 'F2' });
+  const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+  expect(editor).toHaveValue('=@Inputs!B[2]');
+  editor.setSelectionRange(5, 5);
+  fireEvent.keyDown(editor, { key: 'F4' });
+  expect(editor).toHaveFocus();
+  fireEvent.change(editor, { target: { value: '=@Inputs!B[2]+1' } });
+  editor.setSelectionRange(5, 5);
+  fireEvent.keyDown(editor, { key: 'F4' });
+  expect(editor).toHaveFocus();
+});
+
 it('retains the outgoing offscreen sheet only for the normal selection fade', () => {
   vi.useFakeTimers();
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
