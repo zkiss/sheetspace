@@ -50,7 +50,15 @@ export function useCellEditing({
   commands: CellContentCommands;
   workbook: Workbook;
 }) {
-  const [state, dispatch] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
+  const [state, dispatchInteraction] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
+  const interactionRevision = useRef(0);
+  function dispatch(action: Parameters<typeof cellInteractionReducer>[1]) {
+    if (['select', 'extend-selection', 'select-axis', 'select-reference', 'restore-selection', 'clear-selection',
+      'activate-sheet', 'navigate', 'traverse-range', 'commit-tab', 'commit-enter', 'start-edit'].includes(action.type)) {
+      interactionRevision.current += 1;
+    }
+    dispatchInteraction(action);
+  }
   const stateRef = useRef(state);
   const activeSessionRef = useRef<CellEditSession | null>(state.editing);
   stateRef.current = state;
@@ -293,6 +301,7 @@ export function useCellEditing({
   }
 
   return {
+    interactionRevision: () => interactionRevision.current,
     activeCell: state.selection,
     activateSheet,
     cancelActiveEdit: (session = stateRef.current.editing ?? activeSessionRef.current) => {
