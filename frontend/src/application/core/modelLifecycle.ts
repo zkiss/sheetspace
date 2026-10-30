@@ -5,7 +5,8 @@ import { cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentit
 import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 import { bindModelFormula, bindModelFormulas, instantiateModelFormulas, refreshDerivedInstances } from '@workbook/formula/modelTemplate';
-import { validateDataModel } from '@workbook/mutations/dataModel';
+import { hasModelNameCollision, validateDataModel } from '@workbook/mutations/dataModel';
+import { projectRenamedModelFormulas, type ModelFormulaEditPlan } from '@workbook/formula/renamedModelFormulas';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 
 /** Must allocate globally fresh identities, including identities removed by earlier edits. */
@@ -19,6 +20,7 @@ export interface LifecycleAdapter<S, B> {
   prepare(workbook: Workbook, sheetId: string, formula: string): B;
   prepareAll(workbook: Workbook, sheetId: string): Readonly<Record<string, B>>;
   calculate(workbook: Workbook): FormulaEvaluationSnapshot;
+  rename(state: S, workbook: Workbook, plans: ModelFormulaEditPlan): S;
   finish(state: S, workbook: Workbook, changes: Readonly<Record<string, Readonly<Record<string, B>> | undefined>>): S;
 }
 
@@ -35,6 +37,7 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       const invalid = validateDataModel(model);
       if (invalid && !invalid.ok) return invalid;
       if (sheet.modelId === modelId) return { ok: true, value: state };
+      if (hasModelNameCollision(sheet, model, Object.fromEntries(model.columns.map((property, index) => [property.id, sheet.content.columns[index]])))) return { ok: false, reason: 'invalid-model' };
       const sourceState = adapter.source(state);
       const source = adapter.workbook(sourceState);
       const materialized = sheet.modelId ? freezeCalculatedColumns(source, source.documents[sheetId]!, adapter.calculate(source)) : source.documents[sheetId]!;
@@ -60,7 +63,20 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       if (!previous) return { ok: false, reason: 'unknown-model' };
       const invalid = validateDataModel(model);
       if (invalid && !invalid.ok) return invalid;
+      const affectedSheets = Object.values(workbook.documents).filter((sheet) => sheet.modelId === model.id);
+      if (affectedSheets.some((sheet) => hasModelNameCollision(sheet, model, sheet.modelColumnBindings ?? {}))) return { ok: false, reason: 'invalid-model' };
       if (JSON.stringify(previous) === JSON.stringify(model)) return { ok: true, value: state };
+      if (namesOnly(previous, model)) {
+        let plans: ModelFormulaEditPlan = {};
+        const projected = projectRenamedModelFormulas(workbook, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } }, (value) => { plans = value; });
+        return { ok: true, value: adapter.rename(state, projected, plans) };
+      }
+      if (affectedSheets.some((sheet) => model.columns.some((property) => {
+        const bound = sheet.modelColumnBindings?.[property.id];
+        return (!bound || !sheet.content.columns.includes(bound)) && Object.entries(sheet.columnNames ?? {}).some(
+          ([columnId, name]) => sheet.content.columns.includes(columnId) && name === property.name,
+        );
+      }))) return { ok: false, reason: 'invalid-model' };
       const sourceState = adapter.source(state);
       const source = adapter.workbook(sourceState);
       const affected = Object.values(source.documents).filter((sheet) => sheet.modelId === model.id);
@@ -89,6 +105,13 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
   };
 }
 
+function namesOnly(previous: DataModel, next: DataModel): boolean {
+  return previous.columns.length === next.columns.length && previous.columns.every((column, index) => {
+    const candidate = next.columns[index]!;
+    return column.id === candidate.id && column.kind === candidate.kind && column.type === candidate.type && column.formula === candidate.formula;
+  });
+}
+
 const storedLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[string]>({
   workbook: (workbook) => workbook,
   source: (workbook) => workbook,
@@ -96,6 +119,7 @@ const storedLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[strin
   prepare: (workbook, sheetId, formula) => bindModelFormula(formula, workbook, sheetId),
   prepareAll: bindModelFormulas,
   calculate,
+  rename: (_state, workbook) => workbook,
   finish: (source, structured, changes) => {
     let next = structured;
     for (const [sheetId, bindings] of Object.entries(changes)) {
@@ -137,7 +161,10 @@ export function freezeCalculatedColumns(workbook: Workbook, sheet: SheetDocument
 }
 
 export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: string[]): SheetDocument {
-  const retained = new Set(columns);
+  const oldBound = new Set(Object.values(sheet.modelColumnBindings ?? {}));
+  const extras = sheet.content.columns.filter((id) => !oldBound.has(id) && !columns.includes(id));
+  const finalColumns = [...columns, ...extras];
+  const retained = new Set(finalColumns);
   const keepCell = (key: string) => retained.has(cellIdentityFromKey(key)!.columnId);
   const filter = <T,>(values: Record<string, T>, keep: (key: string) => boolean) => Object.fromEntries(Object.entries(values).filter(([key]) => keep(key)));
   const formats = sheet.presentation.formatOverrides;
@@ -146,7 +173,8 @@ export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: st
     modelId: model.id,
     modelColumnBindings: Object.fromEntries(model.columns.map((property, index) => [property.id, columns[index]!])),
     modelFormulaBindings: undefined,
-    content: { ...sheet.content, columns, cells: filter(sheet.content.cells, keepCell) },
+    columnNames: sheet.columnNames && filter(sheet.columnNames, (id) => retained.has(id)),
+    content: { ...sheet.content, columns: finalColumns, cells: filter(sheet.content.cells, keepCell) },
     presentation: {
       ...sheet.presentation,
       columnWidths: filter(sheet.presentation.columnWidths, (id) => retained.has(id)),

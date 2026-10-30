@@ -13,7 +13,8 @@ CREATE TABLE sheet_documents (
     content_kind TEXT NOT NULL CHECK (content_kind = 'TABULAR'),
     revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
     model_id BLOB REFERENCES data_models(id),
-    model_formula_bindings TEXT
+    model_formula_bindings TEXT,
+    column_names TEXT NOT NULL DEFAULT '{}'
 );
 
 

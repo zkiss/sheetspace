@@ -1,4 +1,5 @@
 import { columnIndexToLabel, type CellAddress } from '../core/address';
+import { namedColumns } from '../core/columnNames';
 import type { SheetId, Workbook } from '../core/model';
 import { findSheetById, sheetsInOrder } from '../read/queries';
 import { formulaMoveGeometry } from './formulaMoveGeometry';
@@ -240,7 +241,7 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
 
 export function workbookFormulaReferenceResolver(workbook: Workbook, currentSheetId: SheetId): FormulaReferenceResolver {
   const sheet = (id: SheetId) => workbook.documents[id];
-  const namedAddressOf = (sheetId: SheetId, propertyId: string, coordinate: FormulaCoordinate) => { const document = sheet(sheetId); const model = document?.modelId ? workbook.dataModels?.[document.modelId] : undefined; const property = model?.columns.find((column) => column.id === propertyId); if (!document || !property || document.modelColumnBindings?.[propertyId] !== coordinate.columnId) return undefined; const rowIndex = document.content.rows.indexOf(coordinate.rowId); const columnIndex = document.content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { name: property.name, address: { rowIndex, columnIndex } }; };
+  const namedAddressOf = (sheetId: SheetId, propertyId: string, coordinate: FormulaCoordinate) => { const document = sheet(sheetId); const property = document && namedColumns(workbook, document).find((column) => column.id === propertyId && column.columnId === coordinate.columnId); if (!document || !property) return undefined; const rowIndex = document.content.rows.indexOf(coordinate.rowId); const columnIndex = document.content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { name: property.name, address: { rowIndex, columnIndex } }; };
   return { currentSheetId,
     sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((entry) => entry.id === qualifier || entry.name === qualifier)?.id,
     displaySheetQualifier: (sheetId) => { const name = sheet(sheetId)?.name; return name && (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`); },
@@ -248,12 +249,11 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
     addressOf: (sheetId, coordinate) => { const content = sheet(sheetId)?.content; if (!content) return undefined; const rowIndex = content.rows.indexOf(coordinate.rowId); const columnIndex = content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { rowIndex, columnIndex }; },
     hasNamedColumn: (sheetId, name) => {
       const document = sheet(sheetId);
-      const model = document?.modelId ? workbook.dataModels?.[document.modelId] : undefined;
-      return Boolean(model?.columns.some((property) => property.name === name && document?.modelColumnBindings?.[property.id]));
+      return Boolean(document && namedColumns(workbook, document).some((column) => column.name === name));
     },
-    namedCoordinateAt: (sheetId, name, row) => { const document = sheet(sheetId); const model = document?.modelId ? workbook.dataModels?.[document.modelId] : undefined; const property = model?.columns.find((column) => column.name === name); const columnId = property && document?.modelColumnBindings?.[property.id]; const rowId = document?.content.rows[row - 1]; return property && columnId && rowId && document.content.columns.includes(columnId) ? { propertyId: property.id, coordinate: { columnId, rowId } } : undefined; },
+    namedCoordinateAt: (sheetId, name, row) => { const document = sheet(sheetId); const property = document && namedColumns(workbook, document).find((column) => column.name === name); const rowId = document?.content.rows[row - 1]; return property && rowId ? { propertyId: property.id, coordinate: { columnId: property.columnId, rowId } } : undefined; },
     namedAddressOf,
-    namedAddressAt: (sheetId, coordinate) => { const document = sheet(sheetId); const model = document?.modelId ? workbook.dataModels?.[document.modelId] : undefined; const property = model?.columns.find((column) => document?.modelColumnBindings?.[column.id] === coordinate.columnId); const named = property && namedAddressOf(sheetId, property.id, coordinate); return named && property ? { propertyId: property.id, ...named } : undefined; },
+    namedAddressAt: (sheetId, coordinate) => { const document = sheet(sheetId); const property = document && namedColumns(workbook, document).find((column) => column.columnId === coordinate.columnId); const named = property && namedAddressOf(sheetId, property.id, coordinate); return named && property ? { propertyId: property.id, ...named } : undefined; },
   };
 }
 

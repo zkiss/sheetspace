@@ -63,7 +63,7 @@ internal class SqliteWorkbookReader(
     fun loadSheet(sheetId: SheetId): SheetDocument? {
         val document = connection.prepareStatement(
             """
-            SELECT d.id, d.name, d.revision, d.model_id, d.model_formula_bindings,
+            SELECT d.id, d.name, d.revision, d.model_id, d.model_formula_bindings, d.column_names,
                    f.position_x, f.position_y, f.frame_width, f.frame_height, f.visual_scale, f.z_index
             FROM sheet_documents d
             JOIN frame_state f ON f.sheet_id = d.id
@@ -80,6 +80,7 @@ internal class SqliteWorkbookReader(
                     revision = rs.getLong("revision"),
                     modelId = rs.getBytes("model_id")?.toUuidString(),
                     modelFormulaBindings = rs.getString("model_formula_bindings")?.let { Json.decodeFromString<Map<String, BoundModelFormula>>(it) },
+                    columnNames = Json.decodeFromString<Map<String, String>>(rs.getString("column_names")),
                     frame = FrameState(
                         position = WorkspacePosition(
                             rs.getDouble("position_x"),
@@ -102,6 +103,7 @@ internal class SqliteWorkbookReader(
             frame = document.frame,
             modelId = document.modelId,
             modelFormulaBindings = document.modelFormulaBindings,
+            columnNames = document.columnNames,
             modelColumnBindings = loadModelColumnBindings(sheetId),
             presentation = SheetPresentation(
                 rowHeights = loadSizes(sheetId, "row_presentation", "row_id", "height"),
@@ -249,6 +251,7 @@ internal data class SheetReadEvent(
 )
 
 private data class SheetRecord(
+    val columnNames: Map<String, String>,
     val modelFormulaBindings: Map<String, BoundModelFormula>?,
     val id: SheetId,
     val name: String,

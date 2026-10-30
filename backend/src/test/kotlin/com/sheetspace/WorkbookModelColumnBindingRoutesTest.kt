@@ -51,6 +51,48 @@ class WorkbookModelColumnBindingRoutesTest {
         }
     }
 
+    @Test
+    fun `attachment rejects named bound identities and collisions without changing stored workbook`() = testWorkbookApplication { application ->
+        val sheet = client.createSheet()
+        application.saveDataModel(model())
+        val beforeNaming = application.loadWorkbookBundle()
+        val document = beforeNaming.documents.getValue(SheetId(sheet.id))
+        val named = document.copy(columnNames = mapOf(sheet.content.columns[0] to "Revenue"))
+        application.saveModelLifecycle(beforeNaming, beforeNaming.replaceSheet(named))
+        val before = application.loadWorkbookBundle()
+
+        listOf(sheet.content.columns[0], sheet.content.columns[1]).forEach { column ->
+            val response = client.put("/api/sheets/${sheet.id}/model") {
+                jsonBody("""{"modelId":"$modelId","modelColumnBindings":{"$revenueId":"$column"}}""")
+            }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals(before, application.loadWorkbookBundle())
+        }
+        val accepted = client.put("/api/sheets/${sheet.id}/model") {
+            jsonBody("""{"modelId":"$modelId","modelColumnBindings":{"$costId":"${sheet.content.columns[1]}"}}""")
+        }
+        assertEquals(HttpStatusCode.OK, accepted.status)
+    }
+
+    @Test
+    fun `model declaration collision on a bound sheet is rejected atomically`() = testWorkbookApplication { application ->
+        val sheet = client.createSheet()
+        application.saveDataModel(model())
+        client.put("/api/sheets/${sheet.id}/model") {
+            jsonBody("""{"modelId":"$modelId","modelColumnBindings":{"$revenueId":"${sheet.content.columns[0]}"}}""")
+        }
+        val beforeNaming = application.loadWorkbookBundle()
+        val document = beforeNaming.documents.getValue(SheetId(sheet.id))
+        application.saveModelLifecycle(beforeNaming, beforeNaming.replaceSheet(document.copy(columnNames = mapOf(sheet.content.columns[1] to "Local"))))
+        val before = application.loadWorkbookBundle()
+
+        val response = client.put("/api/data-models/$modelId") {
+            jsonBody("""{"name":"Budget","columns":[{"id":"$revenueId","name":"Local","kind":"manual","type":"float"},{"id":"$costId","name":"Cost","kind":"manual","type":"float"}]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(before, application.loadWorkbookBundle())
+    }
+
     private fun model() = DataModel(modelId, "Budget", listOf(
         ManualModelColumn(revenueId, "Revenue", ModelColumnType.FLOAT),
         ManualModelColumn(costId, "Cost", ModelColumnType.FLOAT),

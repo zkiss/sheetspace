@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { bindModelSheets, calculatedModelCells, calculatedProperty, declaration, freshColumns, manualProperty, modelWorkbook, storedModelCells, successfulModelMutation } from '@test-support/modelLifecycleFixtures';
-import { replaceModelDeclaration } from './modelLifecycle';
+import { bindSheetToModel, replaceModelDeclaration } from './modelLifecycle';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { prepareCellInput } from './cellInputPreparation';
@@ -15,6 +15,18 @@ const setFormula = (workbook: Workbook, sheetId: string, address: string, formul
 };
 
 describe('stable-property model reconciliation', () => {
+  it('projects renamed declaration references for subsequently bound sheets', () => {
+    const named = declaration([manualProperty('input', 'Input'), calculatedProperty('result', '=@Input[1]*2', 'Result')]);
+    const first = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1, cells: { A1: '3' } });
+    const second = sheetDocument({ id: 'other', name: 'Other', columnCount: 2, rowCount: 1, cells: { A1: '7' } });
+    const bound = bindModelSheets(modelWorkbook(named, [first, second]), ['sheet']);
+    const renamed = successfulModelMutation(replaceModelDeclaration(bound, declaration([{ ...named.columns[0]!, name: 'Net Revenue' }, named.columns[1]!]), freshColumns()));
+    const result = renamed.dataModels!.model.columns[1]!;
+    expect(result.kind === 'calculated' && result.formula).toBe("=@'Net Revenue'[1]*2");
+    const attached = successfulModelMutation(bindSheetToModel(renamed, 'other', 'model', freshColumns()));
+    expect(calculatedModelCells(attached).sheet.B1).toMatchObject({ value: 6 });
+    expect(calculatedModelCells(attached).other.B1).toMatchObject({ value: 14 });
+  });
   it('atomically reorders, renames, adds and removes across independent bound instances', () => {
     const first = makeSheet();
     const second = makeSheet('other', 1);
@@ -180,9 +192,9 @@ describe('property kind transitions and empty declarations', () => {
     const sheet = workbook.documents.sheet!;
     workbook.documents.sheet = { ...sheet, modelId: model.id, modelColumnBindings: { input: 'missing-column' } };
 
-    const next = successfulModelMutation(replaceModelDeclaration(workbook, { ...model, name: 'Renamed' }, freshColumns()));
+    const next = successfulModelMutation(replaceModelDeclaration(workbook, { ...model, columns: [model.columns[1]!, model.columns[0]!, model.columns[2]!] }, freshColumns()));
 
-    expect(next.documents.sheet!.content.columns).toEqual(['fresh-1', 'fresh-2', 'fresh-3']);
+    expect(next.documents.sheet!.content.columns).toEqual(['fresh-1', 'fresh-2', 'fresh-3', ...sheet.content.columns]);
     expect(storedModelCells(next).A1).toBeUndefined();
   });
 

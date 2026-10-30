@@ -1,9 +1,16 @@
 package com.sheetspace
 
 internal data class ModelReferenceRecipe(val declaration: InlineFormulaReference, val stored: InlineFormulaReference)
+internal data class ModelReferenceAssociation(val declaration: InlineFormulaReference, val stored: InlineFormulaReference?, val start: Int, val end: Int)
 
 /** Unchanged expression gaps and endpoint shapes associate canonical tokens with row recipes. */
 internal fun modelFormulaRecipes(content: String, declaration: String): List<ModelReferenceRecipe>? {
+    return modelFormulaAssociations(content, declaration)?.mapNotNull { association ->
+        association.stored?.let { ModelReferenceRecipe(association.declaration, it) }
+    }
+}
+
+internal fun modelFormulaAssociations(content: String, declaration: String): List<ModelReferenceAssociation>? {
     StoredFormulaCodec.require(content)
     val canonical = inlineFormulaReferences(content, true)
     val raw = StoredFormulaCodec.opaqueText(content)
@@ -14,7 +21,7 @@ internal fun modelFormulaRecipes(content: String, declaration: String): List<Mod
         }
         return text
     }
-    val recipes = mutableListOf<ModelReferenceRecipe>()
+    val associations = mutableListOf<ModelReferenceAssociation>()
     var sourceCursor = 0
     var storedCursor = 0
     var canonicalIndex = 0
@@ -23,7 +30,7 @@ internal fun modelFormulaRecipes(content: String, declaration: String): List<Mod
         val next = canonical.getOrNull(canonicalIndex)
         if (next != null && decode(storedCursor, next.start) == gap) {
             if (reference.endpoints.size != next.endpoints.size || (reference.qualifier == null) != (next.qualifier == null) || reference.endpoints.zip(next.endpoints).any { (source, target) -> source.columnAnchor != target.columnAnchor || source.rowAnchor != target.rowAnchor }) return null
-            recipes.add(ModelReferenceRecipe(reference, next))
+            associations.add(ModelReferenceAssociation(reference, next, next.start, next.end))
             storedCursor = next.end
             canonicalIndex++
         } else {
@@ -33,11 +40,17 @@ internal fun modelFormulaRecipes(content: String, declaration: String): List<Mod
                 end = raw.firstOrNull { it.start == end }?.end ?: (end + 1)
             }
             if (end > content.length || decode(storedCursor, end) != expected) return null
+            var referenceStart = storedCursor
+            while (referenceStart < end && decode(storedCursor, referenceStart).length < gap.length) {
+                referenceStart = raw.firstOrNull { it.start == referenceStart }?.end ?: (referenceStart + 1)
+            }
+            if (decode(storedCursor, referenceStart) != gap) return null
+            associations.add(ModelReferenceAssociation(reference, null, referenceStart, end))
             storedCursor = end
         }
         sourceCursor = reference.end
     }
-    return if (canonicalIndex == canonical.size && decode(storedCursor, content.length) == declaration.substring(sourceCursor)) recipes else null
+    return if (canonicalIndex == canonical.size && decode(storedCursor, content.length) == declaration.substring(sourceCursor)) associations else null
 }
 
 internal fun instantiateStoredModelFormula(template: String, declaration: String, currentSheetId: String, rowIndex: Int, rowsForSheet: (String) -> List<String>?): String {

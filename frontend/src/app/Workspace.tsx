@@ -644,7 +644,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       />
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
-       {commandPaletteOpen ? <NavigationPalette key={paletteView} panel={actionPalette.panel} commands={(paletteChoices ?? allPaletteCommands).map((command) => actionPalette.busy ? { ...command, unavailable: 'Waiting for clipboard access' } : command)} onClose={() => { actionPalette.resetPanel(); closeCommandPalette(); }} rowPicker={rowPickerOpen && selectedSheet ? {
+       {commandPaletteOpen ? <NavigationPalette key={paletteView} panel={actionPalette.panel} commands={(paletteChoices ?? allPaletteCommands).map((command) => actionPalette.busy ? { ...command, unavailable: 'Waiting for clipboard access' } : command)} onClose={() => { if (!actionPalette.preventClose) { actionPalette.resetPanel(); closeCommandPalette(); } }} rowPicker={rowPickerOpen && selectedSheet ? {
          sheetName: selectedSheet.name,
          rowCount: selectedSheet.content.rows.length,
          onNavigate: (row) => {
@@ -829,7 +829,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       formulaContext: {
                         resolver: formulaResolver,
                         sheetNames: sheets.map((entry) => entry.name),
-                        propertyNames: sheet.modelId ? workbook.dataModels?.[sheet.modelId]?.columns.map((property) => property.name) : [],
+                    propertyNames: [...modelColumnPresentation(sheet, workbook.dataModels).columnLabels.values()],
                         referenceValues: (identity) => formulaPanelReferenceValues(identity, formulaResolver, formulaResults),
                         inspectionReferences: sheetEditingCell ? formulaInspection?.references : undefined,
                         referenceColors: formulaReferenceColors,

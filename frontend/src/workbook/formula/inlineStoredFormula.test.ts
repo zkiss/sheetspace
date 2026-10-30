@@ -8,7 +8,8 @@ import { requireStoredFormula } from './storedFormula';
 import { copyStoredFormula } from './storedFormulaCopy';
 import { moveStoredFormula } from './storedFormulaMove';
 import { instantiateStoredModelFormula } from './modelFormulaInstance';
-import { modelFormulaRecipes } from './modelFormulaAssociation';
+import { modelFormulaAssociations, modelFormulaRecipes } from './modelFormulaAssociation';
+import { applyFormulaNameEdits, projectOpaqueModelTemplate } from './renamedModelFormulas';
 
 const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 3, columnCount: 3 });
 const workbook = workbookWithSheets([sheet]);
@@ -88,6 +89,35 @@ describe('inline authoritative formula content', () => {
     expect(display(instance)).toBe(declaration);
     expect(analyzeStoredFormula(instance, workbook, sheet.id).references).toHaveLength(0);
     expect(() => instantiateStoredModelFormula(template, workbook, 1, '=1', sheet.id)).toThrow();
+  });
+
+  it('associates canonical and opaque references without losing their source spans', () => {
+    const declaration = '=@A[1]+@Missing!A[1]:B[2]+"@Missing!A[1]"';
+    const template = prepareUserFormula(declaration, workbook, sheet.id);
+    const associations = modelFormulaAssociations(template, declaration)!;
+
+    expect(associations).toHaveLength(2);
+    expect(associations[0].stored).toBeDefined();
+    const span = associations[1].opaque!;
+    expect(opaqueFormulaText(template.slice(span.start, span.end))[0].text).toBe('@Missing!A[1]:B[2]');
+    expect(modelFormulaAssociations(template, declaration.replace('+"', '*"'))).toBeUndefined();
+  });
+
+  it('projects only edited opaque references while retaining canonical tokens and literals', () => {
+    const declaration = '=@A[1]+@Missing!A[1]:B[2]+"A"';
+    const template = prepareUserFormula(declaration, workbook, sheet.id);
+    const start = declaration.indexOf('A[1]', declaration.indexOf('Missing'));
+    const edits = [{ start, end: start + 1, text: "'New name'" }];
+
+    const projected = projectOpaqueModelTemplate(template, declaration, edits);
+    const next = applyFormulaNameEdits(declaration, edits);
+    const oldAssociations = modelFormulaAssociations(template, declaration)!;
+    const newAssociations = modelFormulaAssociations(projected, next)!;
+    expect(projected.slice(newAssociations[0].stored!.sourceSpan.start, newAssociations[0].stored!.sourceSpan.end))
+      .toBe(template.slice(oldAssociations[0].stored!.sourceSpan.start, oldAssociations[0].stored!.sourceSpan.end));
+    expect(opaqueFormulaText(projected.slice(newAssociations[1].opaque!.start, newAssociations[1].opaque!.end))[0].text).toBe("@Missing!'New name'[1]:B[2]");
+    expect(projected.endsWith('+"A"')).toBe(true);
+    expect(() => projectOpaqueModelTemplate(template, '=1', edits)).toThrow('Invalid model formula association');
   });
 
   it('binds template columns before rows exist and instantiates only from the declaration recipe', () => {

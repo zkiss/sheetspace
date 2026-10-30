@@ -10,7 +10,7 @@ import type { Workspace } from '@app/Workspace';
 export function formattingCommands(): WorkbookCommands {
   return {
     addDataModel: vi.fn(),
-  bindSheetToModel: vi.fn(), unbindSheetFromModel: vi.fn(), replaceModelDeclaration: vi.fn(),
+    bindSheetToModel: vi.fn(), unbindSheetFromModel: vi.fn(), replaceModelDeclaration: vi.fn(), renameColumn: vi.fn(),
     writeNumberFormats: vi.fn(), writeAxisSizes: vi.fn(), appendColumn: vi.fn(), appendRow: vi.fn(),
     changeSheetZOrder: vi.fn(), createSheet: vi.fn(), deleteSheet: vi.fn(), moveSheetFrame: vi.fn(),
     pasteCells: vi.fn(), pasteStoredCells: vi.fn(), moveCells: vi.fn(), moveStoredCells: vi.fn(), renameSheet: vi.fn(), retryFailedSaves: vi.fn(),

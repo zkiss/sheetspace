@@ -51,4 +51,9 @@ class InlineFormulaReferencesTest {
         }
         assertEquals("9007199254740991", inlineFormulaReferences("=@A[9007199254740991]", false).single().endpoints.single().row)
     }
+
+    @Test
+    fun `scanner does not consume later qualifier or endpoint as part of malformed reference`() {
+        assertEquals("Later", inlineFormulaReferences("=@? @Later!A[1]", false).single().qualifier)
+    }
 }

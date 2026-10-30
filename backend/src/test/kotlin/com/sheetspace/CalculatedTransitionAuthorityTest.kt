@@ -8,6 +8,135 @@ import kotlin.test.assertTrue
 
 class CalculatedTransitionAuthorityTest {
     @Test
+    fun `partial binding rename persists associated opaque template and retains historical cells`() = withSqliteStore { store ->
+        val base = transitionWorkbook().let { it.removeSheet(it.sheetsInOrder.last().id) }
+        val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+        val declaration = "=@Input[1]*2"
+        val template = BoundModelFormula("=" + StoredFormulaCodec.escape("@Input[1]") + "*2")
+        val before = freshlyInstantiated(base.copy(
+            dataModels = base.dataModels + (model.id to model.copy(columns = model.columns.map {
+                if (it is CalculatedModelColumn) it.copy(formula = declaration) else it
+            })),
+            documents = base.documents.mapValues { (_, sheet) -> sheet.copy(
+                modelColumnBindings = sheet.modelColumnBindings - LIFECYCLE_INPUT,
+                modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template),
+            ) },
+        ))
+        store.saveWorkbook(before)
+        val renamed = before.copy(
+            dataModels = before.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                when (it) {
+                    is CalculatedModelColumn -> it.copy(formula = "=@'O''Brien total'[1]*2")
+                    else -> (it as ManualModelColumn).copy(name = "O'Brien total")
+                }
+            }) },
+            documents = before.documents.mapValues { (_, sheet) -> sheet.copy(modelFormulaBindings = mapOf(
+                LIFECYCLE_OUTPUT to BoundModelFormula("=" + StoredFormulaCodec.escape("@'O''Brien total'[1]") + "*2"),
+            )) },
+        )
+        val saved = DefaultWorkbookApplication(store).saveModelLifecycle(before, renamed)
+        assertEquals(saved, store.loadWorkbookBundle())
+        assertEquals(before.sheetsInOrder.first().tabularContent.cellContents, saved.sheetsInOrder.first().tabularContent.cellContents)
+        val twice = saved.copy(
+            dataModels = saved.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                when (it) {
+                    is CalculatedModelColumn -> it.copy(formula = "=@Again[1]*2")
+                    else -> (it as ManualModelColumn).copy(name = "Again")
+                }
+            }) },
+            documents = saved.documents.mapValues { (_, document) -> document.copy(modelFormulaBindings = mapOf(
+                LIFECYCLE_OUTPUT to BoundModelFormula("=" + StoredFormulaCodec.escape("@Again[1]") + "*2"),
+            )) },
+        )
+        val savedTwice = DefaultWorkbookApplication(store).saveModelLifecycle(saved, twice)
+        assertEquals(savedTwice, store.loadWorkbookBundle())
+        assertEquals(saved.sheetsInOrder.first().tabularContent.cellContents, savedTwice.sheetsInOrder.first().tabularContent.cellContents)
+        val forged = twice.copy(documents = twice.documents.mapValues { (_, document) -> document.copy(modelFormulaBindings = mapOf(
+            LIFECYCLE_OUTPUT to BoundModelFormula("=" + StoredFormulaCodec.escape("@Wrong[1]") + "*2"),
+        )) })
+        assertFalse(calculatedTransitionIsValid(saved, forged))
+        val sheet = saved.sheetsInOrder.first()
+        val row = RowId.generate()
+        val appended = materializeDerivedContents(saved.replaceSheet(sheet.copy(content = TabularContent(
+            sheet.tabularContent.rows + row, sheet.tabularContent.columns, sheet.tabularContent.cellContents,
+        ))))
+        assertTrue(calculatedTransitionIsValid(saved, appended))
+    }
+
+    @Test
+    fun `projected property and ordinary names preserve reordered calculated instances on save`() {
+        listOf(false to false, false to true, true to false, true to true).forEach { (ordinary, anchoredColumn) ->
+            withSqliteStore { store ->
+                val full = transitionWorkbook()
+                val base = if (ordinary) full.removeSheet(full.sheetsInOrder.last().id) else full
+                val sheet = base.sheetsInOrder.first()
+                val input = sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT)
+                val target = if (ordinary) ColumnId.generate() else input
+                val identity = if (ordinary) target.value else LIFECYCLE_INPUT
+                fun hex(value: String) = value.map { it.code.toString(16).padStart(4, '0') }.joinToString("")
+                val anchor = if (anchoredColumn) "$" else ""
+                val formula = "=@${anchor}Input[$1]*2"
+                val template = BoundModelFormula("=@${anchor}~${hex(identity)}~${hex(target.value)}[$${hex(sheet.tabularContent.rows.first().value)}]*2")
+                val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+                val prepared = base.copy(dataModels = base.dataModels + (model.id to model.copy(columns = model.columns.map {
+                    if (it is CalculatedModelColumn) it.copy(formula = formula) else if (ordinary && it.id == LIFECYCLE_INPUT) (it as ManualModelColumn).copy(name = "Other") else it
+                })), documents = base.documents.mapValues { (_, document) ->
+                    val column = if (document.id == sheet.id) target else document.modelColumnBindings.getValue(LIFECYCLE_INPUT)
+                    val id = if (ordinary && document.id == sheet.id) column.value else LIFECYCLE_INPUT
+                    val binding = BoundModelFormula("=@${anchor}~${hex(id)}~${hex(column.value)}[$${hex(document.tabularContent.rows.first().value)}]*2")
+                    document.copy(modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to binding),
+                        columnNames = if (ordinary && document.id == sheet.id) mapOf(target.value to "Input") else emptyMap(),
+                        content = TabularContent(document.tabularContent.rows, document.tabularContent.columns + if (ordinary && document.id == sheet.id) listOf(target) else emptyList(), document.tabularContent.cellContents))
+                })
+                val instantiated = freshlyInstantiated(prepared)
+                val reordered = instantiated.copy(documents = instantiated.documents.mapValues { (_, document) -> document.copy(content = TabularContent(
+                    document.tabularContent.rows.reversed(), document.tabularContent.columns, document.tabularContent.cellContents,
+                )) })
+                val renamedModel = reordered.dataModels.getValue(LIFECYCLE_MODEL).copy(columns = reordered.dataModels.getValue(LIFECYCLE_MODEL).columns.map {
+                    when {
+                        it is CalculatedModelColumn -> it.copy(formula = "=@${anchor}Revenue[$1]*2")
+                        !ordinary && it.id == LIFECYCLE_INPUT -> (it as ManualModelColumn).copy(name = "Revenue")
+                        else -> it
+                    }
+                })
+                val renamed = reordered.copy(dataModels = reordered.dataModels + (model.id to renamedModel), documents = reordered.documents.mapValues { (_, document) ->
+                    document.copy(columnNames = if (ordinary && document.id == sheet.id) mapOf(target.value to "Revenue") else document.columnNames)
+                })
+                store.saveWorkbook(instantiated)
+                val application = DefaultWorkbookApplication(store)
+                application.saveModelLifecycle(instantiated, reordered)
+                val saved = application.saveModelLifecycle(reordered, renamed)
+                assertEquals(saved, store.loadWorkbookBundle())
+                assertEquals(renamed.documents.mapValues { it.value.tabularContent }, saved.documents.mapValues { it.value.tabularContent })
+                assertFalse(calculatedTransitionIsValid(reordered, freshlyInstantiated(renamed)))
+                assertEquals(template, prepared.documents.getValue(sheet.id).modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT))
+                val edited = renamed.copy(dataModels = renamed.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                    if (it is CalculatedModelColumn) it.copy(formula = it.formula.replace("[$1]", "[$3]")) else it
+                }) })
+                assertFalse(calculatedTransitionIsValid(reordered, edited))
+                val quotedModel = renamedModel.copy(columns = renamedModel.columns.map {
+                    when {
+                        it is CalculatedModelColumn -> it.copy(formula = "=@${anchor}'O''Brien total'[$1]*2")
+                        !ordinary && it.id == LIFECYCLE_INPUT -> (it as ManualModelColumn).copy(name = "O'Brien total")
+                        else -> it
+                    }
+                })
+                val quoted = renamed.copy(dataModels = renamed.dataModels + (model.id to quotedModel), documents = renamed.documents.mapValues { (_, document) ->
+                    document.copy(columnNames = if (ordinary && document.id == sheet.id) mapOf(target.value to "O'Brien total") else document.columnNames)
+                })
+                assertTrue(calculatedTransitionIsValid(renamed, quoted))
+                val forgedName = quoted.copy(dataModels = quoted.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                    if (it is CalculatedModelColumn) it.copy(formula = "=@${anchor}'Not the target'[$1]*2") else it
+                }) })
+                assertFalse(calculatedTransitionIsValid(renamed, forgedName))
+                val forgedOperator = quoted.copy(dataModels = quoted.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                    if (it is CalculatedModelColumn) it.copy(formula = it.formula.replace("*2", "+2")) else it
+                }) })
+                assertFalse(calculatedTransitionIsValid(renamed, forgedOperator))
+            }
+        }
+    }
+    @Test
     fun `row reorder retains prior instances and rejects freshly rebound existing rows`() {
         val before = transitionWorkbook(anchored = true)
         val sheet = before.sheetsInOrder.first()

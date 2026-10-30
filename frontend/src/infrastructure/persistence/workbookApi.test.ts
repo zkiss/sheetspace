@@ -66,6 +66,14 @@ function mockFetch(body: unknown, init?: ResponseInit) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('workbook API read decoding', () => {
+  it('loads names by stable column identity and rejects malformed names', () => {
+    const column = inputsResponse.content.columns[0];
+    expect(decodeSheetDocument({ ...inputsResponse, columnNames: { [column]: "Owner's cost" } }).columnNames)
+      .toEqual({ [column]: "Owner's cost" });
+    for (const columnNames of [{ missing: 'Cost' }, { [column]: '  ' }, { [column]: ' Cost ' }]) {
+      expect(() => decodeSheetDocument({ ...inputsResponse, columnNames })).toThrow();
+    }
+  });
   it.each([
     ['non-JSON', 'not json'],
     ['JSON without an error code', '{}'],

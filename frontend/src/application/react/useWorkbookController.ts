@@ -13,22 +13,16 @@ import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, ty
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation, applyStoredCellWrites,
-  prepareStoredPasteCellWrites,
-  prepareStoredMoveCellWrites,
+  prepareStoredPasteCellWrites, prepareStoredMoveCellWrites,
   replayCellPersistenceWrites,
-  type AppliedWorkbookOperation,
-  type AffectedWorkbookEntities,
-  type CellPersistenceWrite,
-  type CellWriteResult,
-  type MovePreparationFailureReason,
-  type PastePreparationFailureReason,
-  type WorkbookOperation,
-  type WorkbookOperationFailureReason,
-  type WorkbookOperationResult,
+  type AppliedWorkbookOperation, type AffectedWorkbookEntities, type CellPersistenceWrite,
+  type CellWriteResult, type MovePreparationFailureReason, type PastePreparationFailureReason,
+  type WorkbookOperation, type WorkbookOperationFailureReason, type WorkbookOperationResult,
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
+import { renameColumn } from '@application/core/renameColumn';
 import { addDataModel, type ModelMutationResult } from '@workbook/mutations/dataModel';
 import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
@@ -53,6 +47,7 @@ export type WorkbookCommands = {
   unbindSheetFromModel: (sheetId: string) => DataModelCommandSubmission;
   addDataModel: (model: DataModel) => DataModelCommandSubmission;
   replaceModelDeclaration: (model: DataModel) => DataModelCommandSubmission;
+  renameColumn: (sheetId: string, columnId: string, name: string) => RenameColumnSubmission;
   writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => WorkbookOperationResult;
   writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => WorkbookOperationResult;
   appendColumn: (sheetId: string) => void;
@@ -77,6 +72,9 @@ export type WorkbookCommands = {
 
 export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
 export type DataModelCommandSubmission = Readonly<{ result: ModelCommandResult; completion: Promise<ModelCommandResult> }>;
+type TransitionFailure = Exclude<ModelCommandResult, ModelMutationResult>;
+export type RenameColumnResult = ReturnType<typeof renameColumn> | TransitionFailure;
+export type RenameColumnSubmission = Readonly<{ result: RenameColumnResult; completion: Promise<RenameColumnResult> }>;
 
 export type PasteCellsResult =
   | { ok: true; changed: boolean }
@@ -317,7 +315,7 @@ export function useWorkbookController({
     return applied;
   }
 
-  function applyModelLifecycleTransition(transform: (source: Workbook) => ModelMutationResult): DataModelCommandSubmission {
+  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
@@ -494,6 +492,7 @@ export function useWorkbookController({
       unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)),
       addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
       replaceModelDeclaration: (model) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
+      renameColumn: (sheetId, columnId, name) => applyModelLifecycleTransition((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
       appendColumn: axisCreation.appendColumn,

@@ -3,9 +3,32 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { analyzeStoredFormula } from '@workbook/formula/storedFormulaAnalysis';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
-import { inspectStoredFormula } from './formulaInspection';
+import { inspectFormula, inspectStoredFormula, navigableReferencesAtCaret } from './formulaInspection';
 
 describe('stored formula inspection', () => {
+  it('navigates local and qualified ordinary named cells and ranges after renaming', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2 });
+    const named = { ...source, columnNames: { [source.content.columns[0]!]: 'First', [source.content.columns[1]!]: 'Second' } };
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([named, other]);
+    const local = prepareUserFormula("=@'First'[1] + SUM(@'First'[1]:'Second'[2])", workbook, named.id);
+    const qualified = prepareUserFormula("=@Source!'First'[1] + SUM(@Source!'First'[1]:'Second'[2])", workbook, other.id);
+    const renamed = { ...named, columnNames: { [source.content.columns[0]!]: 'New First', [source.content.columns[1]!]: 'New Second' } };
+    const updated = workbookWithSheets([renamed, other]);
+
+    for (const [content, current] of [[local, renamed], [qualified, other]] as const) {
+      for (const inspection of [inspectStoredFormula(content, updated, current), inspectFormula(content, updated, current)]) {
+        expect(inspection?.references).toHaveLength(2);
+        expect(navigableReferencesAtCaret(inspection, undefined)).toMatchObject([
+          { broken: false, target: { kind: 'cell', sheetId: source.id, identity: { columnId: source.content.columns[0], rowId: source.content.rows[0] } } },
+          { broken: false, target: { kind: 'range', sheetId: source.id, range: { start: { columnId: source.content.columns[0], rowId: source.content.rows[0] }, end: { columnId: source.content.columns[1], rowId: source.content.rows[1] } } } },
+        ]);
+        expect(inspection?.raw).toContain('New First');
+        expect(inspection?.raw).toContain('New Second');
+      }
+    }
+  });
+
   it('projects live identities while preserving unresolved text and diagnostics', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Inputs', rowCount: 2, columnCount: 2 });
     const content = prepareUserFormula('=@Inputs!A[1]+@Missing!B[2]', workbookWithSheets([sheet]), sheet.id);

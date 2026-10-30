@@ -284,7 +284,7 @@ class DefaultWorkbookApplication(
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE)
             }
             val propertyIds = model.columns.map(ModelColumn::id).toSet()
-            workbook.copy(
+            val updated = workbook.copy(
                 dataModels = workbook.dataModels + (model.id to model),
                 documents = workbook.documents.mapValues { (_, sheet) ->
                     if (sheet.modelId != model.id) sheet else sheet.copy(
@@ -295,6 +295,10 @@ class DefaultWorkbookApplication(
                     )
                 },
             )
+            if (updated.documents.values.any { !validColumnNames(it, updated.dataModels) }) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
+            }
+            updated
         }.dataModels.getValue(model.id)
     }
 
@@ -313,6 +317,9 @@ class DefaultWorkbookApplication(
             if (sheet.modelId == command.modelId && sheet.modelColumnBindings == bindings) return@updateWorkbook workbook
             val updated = sheet.copy(modelId = command.modelId, modelColumnBindings = bindings)
             if (!validModelColumnBindings(updated, workbook.dataModels)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
+            }
+            if (!validColumnNames(updated, workbook.dataModels)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_DATA_MODEL)
             }
             val model = command.modelId?.let(workbook.dataModels::get)

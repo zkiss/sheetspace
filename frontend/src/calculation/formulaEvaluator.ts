@@ -377,7 +377,7 @@ function resolveFormulaReferenceSheet(
 }
 
 function namedReferenceIsValid(reference: Extract<FormulaReference, { kind: 'canonical' }>, sheet: CalculationSheet): boolean {
-  const validProperty = (propertyId: string | undefined, columnId: string) => !propertyId || Boolean(sheet.modelColumnBindings?.[propertyId] === columnId && sheet.modelPropertyIds?.has(propertyId));
+  const validProperty = (propertyId: string | undefined, columnId: string) => !propertyId || Boolean((propertyId === columnId && sheet.ordinaryNamedColumnIds?.has(columnId)) || (sheet.modelColumnBindings?.[propertyId] === columnId && sheet.modelPropertyIds?.has(propertyId)));
   return validProperty(reference.propertyId, reference.coordinate.columnId)
     && validProperty(reference.range?.endPropertyId, reference.range?.end.columnId ?? '');
 }
