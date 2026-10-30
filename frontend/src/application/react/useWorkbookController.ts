@@ -13,18 +13,11 @@ import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, ty
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation, applyStoredCellWrites,
-  prepareStoredPasteCellWrites,
-  prepareStoredMoveCellWrites,
+  prepareStoredPasteCellWrites, prepareStoredMoveCellWrites,
   replayCellPersistenceWrites,
-  type AppliedWorkbookOperation,
-  type AffectedWorkbookEntities,
-  type CellPersistenceWrite,
-  type CellWriteResult,
-  type MovePreparationFailureReason,
-  type PastePreparationFailureReason,
-  type WorkbookOperation,
-  type WorkbookOperationFailureReason,
-  type WorkbookOperationResult,
+  type AppliedWorkbookOperation, type AffectedWorkbookEntities, type CellPersistenceWrite,
+  type CellWriteResult, type MovePreparationFailureReason, type PastePreparationFailureReason,
+  type WorkbookOperation, type WorkbookOperationFailureReason, type WorkbookOperationResult,
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';

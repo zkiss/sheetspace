@@ -170,7 +170,7 @@ export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: st
     modelId: model.id,
     modelColumnBindings: Object.fromEntries(model.columns.map((property, index) => [property.id, columns[index]!])),
     modelFormulaBindings: undefined,
-    columnNames: filter(sheet.columnNames ?? {}, (id) => retained.has(id) && !columns.includes(id)),
+    columnNames: undefined,
     content: { ...sheet.content, columns, cells: filter(sheet.content.cells, keepCell) },
     presentation: {
       ...sheet.presentation,

@@ -31,4 +31,20 @@ describe('ordinary column names', () => {
     expect(projectStoredFormula(stored, second.value, 's').text).toBe("=@'New cost'[1]+@Sheet!'New cost'[1]");
     expect(stored).toBe(prepareUserFormula("=@'New cost'[1]+@Sheet!'New cost'[1]", second.value, 's'));
   });
+
+  it('keeps cross-sheet references and A1 addresses stable while names change independently', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source sheet', rowCount: 1, columnCount: 2 });
+    const target = sheetDocument({ id: 'target', name: 'Target', rowCount: 1, columnCount: 1 });
+    const book = workbookWithSheets([source, target]);
+    const first = renameOrdinaryColumn(book, source.id, source.content.columns[1], "Owner's cost");
+    if (!first.ok) throw new Error(first.reason);
+    const other = renameOrdinaryColumn(first.value, target.id, target.content.columns[0], "Owner's cost");
+    if (!other.ok) throw new Error(other.reason);
+    const stored = prepareUserFormula("=@'Source sheet'!'Owner''s cost'[1]+@'Source sheet'!B1", other.value, target.id);
+    const renamed = renameOrdinaryColumn(other.value, source.id, source.content.columns[1], 'New cost');
+    if (!renamed.ok) throw new Error(renamed.reason);
+    expect(projectStoredFormula(stored, renamed.value, target.id).text).toBe("=@'Source sheet'!'New cost'[1]+@'Source sheet'!B1");
+    expect(prepareUserFormula("=@'Source sheet'!'New cost'[1]+@'Source sheet'!B1", renamed.value, target.id)).toBe(stored);
+    expect(renamed.value.documents.target.columnNames).toEqual({ [target.content.columns[0]]: "Owner's cost" });
+  });
 });

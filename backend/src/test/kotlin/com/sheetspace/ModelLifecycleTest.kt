@@ -8,6 +8,29 @@ import kotlinx.serialization.json.Json
 
 class ModelLifecycleTest {
     @Test
+    fun `column names reject invalid identities normalization duplicates and bound columns`() {
+        val before = lifecycleWorkbook()
+        val sheet = before.sheetsInOrder.first()
+        val columns = sheet.tabularContent.columns.map { it.value }
+        val invalid = listOf(
+            mapOf("missing" to "Name"),
+            mapOf(columns[0] to " "),
+            mapOf(columns[0] to " Name "),
+            mapOf(columns[0] to "Same", columns[1] to "Same"),
+        )
+        invalid.forEach { names ->
+            val changed = before.copy(documents = before.documents + (sheet.id to sheet.copy(columnNames = names)))
+            assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, assertFailsWith<WorkbookApplicationException> { validateLifecycleWorkbook(changed) }.error)
+        }
+        val bound = lifecycleBoundWorkbook(before)
+        val boundSheet = bound.sheetsInOrder.first()
+        val namedBinding = boundSheet.copy(columnNames = mapOf(boundSheet.modelColumnBindings.values.first().value to "Name"))
+        assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, assertFailsWith<WorkbookApplicationException> {
+            validateLifecycleWorkbook(bound.copy(documents = bound.documents + (boundSheet.id to namedBinding)))
+        }.error)
+    }
+
+    @Test
     fun `template-free declaration writes reject calculated formula changes while lifecycle reconciles every bound sheet`() {
         val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore(bound))
