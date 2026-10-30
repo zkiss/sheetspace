@@ -5,6 +5,7 @@ import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { cellTargetAt } from '@grid/cellInteraction';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { autosaveClient, persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
@@ -52,7 +53,7 @@ describe('useWorkbookController calculated writes', () => {
 
     act(() => expect(result.current.commands.updateCellContent('sheet', 'B1', '9')).toEqual({ ok: false, reason: 'calculated-cell-write' }));
 
-    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B1')).toBe('=SUM(@sheet:column:1[sheet:row:1])');
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B1')).toBe(cellRawContent(boundWorkbook().documents.sheet!, 'B1'));
     expect(result.current.canUndo).toBe(false);
     await waitFor(() => expect(apiClient.writeCells).not.toHaveBeenCalled());
   });
@@ -67,7 +68,7 @@ describe('useWorkbookController calculated writes', () => {
     ])).toEqual({ ok: false, reason: 'calculated-cell-write' }));
 
     expect(cellRawContent(result.current.workbook.documents.sheet!, 'C1')).toBe('text');
-    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B1')).toBe('=SUM(@sheet:column:1[sheet:row:1])');
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B1')).toBe(cellRawContent(boundWorkbook().documents.sheet!, 'B1'));
     await waitFor(() => expect(apiClient.writeCells).not.toHaveBeenCalled());
   });
 
@@ -79,10 +80,10 @@ describe('useWorkbookController calculated writes', () => {
     const manualSource = clipboardFor(workbook, 'sheet', 'A1', 'copy');
 
     act(() => expect(result.current.commands.pasteCells('sheet', 'B2', manualSource)).toEqual({ ok: false, reason: 'calculated-cell-write' }));
-    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B2')).toBe('=SUM(@sheet:column:1[sheet:row:2])');
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B2')).toBe(cellRawContent(boundWorkbook().documents.sheet!, 'B2'));
 
     act(() => expect(result.current.commands.pasteCells('sheet', 'C2', calculatedSource)).toEqual({ ok: true, changed: true }));
-    expect(cellRawContent(result.current.workbook.documents.sheet!, 'C2')).toBe('=SUM(@sheet:column:2[sheet:row:2])');
+    expect(projectStoredFormula(cellRawContent(result.current.workbook.documents.sheet!, 'C2')!, result.current.workbook, 'sheet').text).toBe('=SUM(@B[2])');
   });
 
   it('rejects an external paste into a calculated destination and keeps a manual destination', async () => {
@@ -91,7 +92,7 @@ describe('useWorkbookController calculated writes', () => {
     const external = { ok: true as const, value: { kind: 'external' as const, grid: { rows: [['pasted']], rowCount: 1, columnCount: 1 } } };
 
     act(() => expect(result.current.commands.pasteCells('sheet', 'B2', external)).toEqual({ ok: false, reason: 'calculated-cell-write' }));
-    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B2')).toBe('=SUM(@sheet:column:1[sheet:row:2])');
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B2')).toBe(cellRawContent(boundWorkbook().documents.sheet!, 'B2'));
 
     act(() => expect(result.current.commands.pasteCells('sheet', 'C2', external)).toEqual({ ok: true, changed: true }));
     expect(cellRawContent(result.current.workbook.documents.sheet!, 'C2')).toBe('"pasted"');
@@ -110,7 +111,7 @@ describe('useWorkbookController calculated writes', () => {
     act(() => expect(result.current.commands.moveCells('sheet', 'B2', manualCut.value.kind === 'cut' ? manualCut.value.source : neverCut()))
       .toEqual({ ok: false, reason: 'calculated-cell-write' }));
 
-    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B1')).toBe('=SUM(@sheet:column:1[sheet:row:1])');
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'B1')).toBe(cellRawContent(boundWorkbook().documents.sheet!, 'B1'));
     expect(cellRawContent(result.current.workbook.documents.sheet!, 'A1')).toBe('3');
     await waitFor(() => expect(apiClient.writeCells).not.toHaveBeenCalled());
   });
