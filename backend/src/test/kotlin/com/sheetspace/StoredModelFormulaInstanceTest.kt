@@ -52,6 +52,21 @@ class StoredModelFormulaInstanceTest {
     }
 
     @Test
+    fun `projection edits opaque references without changing canonical tokens or literals`() {
+        val declaration = "=@Old[1]+@Old[1]:Missing[1]+\"Old\""
+        val opaque = StoredFormulaCodec.escape("@Old[1]:Missing[1]")
+        val template = "=@col1[r1]+$opaque+\"Old\""
+        val first = declaration.indexOf("Old")
+        val second = declaration.indexOf("Old", first + 1)
+        val edits = listOf(FormulaNameEdit(first, first + 3, "'New name'"), FormulaNameEdit(second, second + 3, "'New name'"))
+        val projected = requireNotNull(projectOpaqueModelTemplate(template, declaration, edits))
+        val renamed = applyFormulaNameEdits(declaration, edits)
+        assertEquals("=@col1[r1]+${StoredFormulaCodec.escape("@'New name'[1]:Missing[1]")}+\"Old\"", projected)
+        assertEquals(2, requireNotNull(modelFormulaAssociations(projected, renamed)).size)
+        assertNull(projectOpaqueModelTemplate(template, "=$declaration", edits))
+    }
+
+    @Test
     fun `changed expression is rejected rather than associated with the template`() {
         assertNull(modelFormulaRecipes("=@col1[r1]+2", "=@A[1]+3"))
         assertFailsWith<IllegalArgumentException> {
