@@ -14,9 +14,10 @@ import type { SaveStatus } from '@application/core/state';
 import { cellKeyForTarget, type CellFocusRequest } from '@grid/cellInteraction';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
 import { contextualReferences, projectReferenceGeometry, type GridReferenceViewport } from '@reference-navigation/contextualReferenceProjection';
-import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
+import { inspectStoredFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { formulaPanelReferenceValues } from './formulaPanelValues';
-import { formulaRawForStorage, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
+import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
 import { SheetOverview } from '@workspace/SheetOverview';
@@ -168,10 +169,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     ? cellRawContent(selectedSheet, selectedCellKey)
     : undefined;
   const inspectedRaw = editingCell && editingCell.target.sheetId === selectedSheet?.id
-    ? formulaRawForStorage(editingCell.draft, workbook, selectedSheet.id)
+    ? editingCell.draft.startsWith('=') ? prepareUserFormula(editingCell.draft, workbook, selectedSheet.id) : undefined
     : selectedRaw;
-  const formulaInspection = selectedSheet && inspectedRaw
-    ? inspectFormula(inspectedRaw, workbook, selectedSheet)
+  const formulaInspection = selectedSheet && inspectedRaw?.startsWith('=')
+    ? inspectStoredFormula(inspectedRaw, workbook, selectedSheet)
     : undefined;
   // A sheet dialog takes ownership from all background transient sessions.
   const interactionsEnabled = !sheetDialogOpen && !commandPaletteOpen;
@@ -318,8 +319,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     return property ? { modelId: sheet.modelId, propertyId: property.id, name: property.name } : undefined;
   }, [workbook]);
   const propertyReferenceChoices = useCallback(() => {
-    const raw = editingCell?.draft ?? selectedRaw;
-    const inspection = selectedSheet && raw ? inspectFormula(raw, workbook, selectedSheet) : undefined;
+    const raw = editingCell && selectedSheet ? editingCell.draft.startsWith('=') ? prepareUserFormula(editingCell.draft, workbook, selectedSheet.id) : undefined : selectedRaw;
+    const inspection = selectedSheet && raw?.startsWith('=') ? inspectStoredFormula(raw, workbook, selectedSheet) : undefined;
     const caret = editingCell?.selection?.start;
     const references = inspection?.references.filter((reference) => reference.navigable) ?? [];
     const atCaret = caret === undefined ? references : references.filter((reference) => caret >= reference.displaySpan.start && caret <= reference.displaySpan.end);
@@ -376,8 +377,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     openChoices([...cell, ...propertyChoices]);
   }, [activeCell, openChoices, propertyForActiveCell, selectedSheet, usageChoices, workbook]);
   const navigableReferencesForFollow = useCallback(() => {
-    const raw = editingCell?.draft ?? selectedRaw;
-    const inspection = selectedSheet && raw ? inspectFormula(raw, workbook, selectedSheet) : undefined;
+    const raw = editingCell && selectedSheet ? editingCell.draft.startsWith('=') ? prepareUserFormula(editingCell.draft, workbook, selectedSheet.id) : undefined : selectedRaw;
+    const inspection = selectedSheet && raw?.startsWith('=') ? inspectStoredFormula(raw, workbook, selectedSheet) : undefined;
     const caret = editingCell?.selection?.start;
     return navigableReferencesAtCaret(inspection, caret);
   }, [editingCell, selectedRaw, selectedSheet, workbook]);
@@ -578,13 +579,13 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const parsed = clipboard.current.parse(workbook, clipboardData);
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);
     if (parsed.ok && parsed.value.kind === 'cut') {
-      const moved = commands.moveCells(destination.id, destinationKey, parsed.value.source);
+      const moved = commands.moveStoredCells(destination.id, destinationKey, parsed.value.source);
       if (moved.ok || moved.reason === 'stale-move-source' || moved.reason === 'invalid-move-source' || moved.reason === 'calculated-cell-write') cancelPendingCut();
       if (!moved.ok && moved.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       if (!moved.ok && moved.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');
       if (!moved.ok && moved.reason === 'unrepresentable-range') setCalculatedCellFeedback('The move did not happen because it would split a referenced range. Move the entire referenced range or choose another destination.');
     } else {
-      const pasted = commands.pasteCells(destination.id, destinationKey, parsed);
+      const pasted = commands.pasteStoredCells(destination.id, destinationKey, parsed);
       if (!pasted.ok && pasted.reason === 'malformed-tsv') setCalculatedCellFeedback('The clipboard contains malformed tabular text. Check quoted fields and try again. No cells were changed.');
       if (!pasted.ok && pasted.reason === 'calculated-cell-write') setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
       if (!pasted.ok && pasted.reason === 'invalid-cell-type') setCalculatedCellFeedback('The value does not match the data model column type. No cells were changed.');

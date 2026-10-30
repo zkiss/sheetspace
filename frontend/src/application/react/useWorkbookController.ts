@@ -8,13 +8,13 @@ import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/oper
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { cellKey, type CellKey } from '@workbook/core/address';
 import type { StableCellIdentity } from '@workbook/core/model';
-import { classifyCellValue, type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
+import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation, applyStoredCellWrites,
-  preparePasteCellWrites, prepareStoredPasteCellWrites,
-  prepareMoveCellWrites, prepareStoredMoveCellWrites,
+  prepareStoredPasteCellWrites,
+  prepareStoredMoveCellWrites,
   replayCellPersistenceWrites,
   type AppliedWorkbookOperation,
   type AffectedWorkbookEntities,
@@ -32,7 +32,8 @@ import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from 
 import { addDataModel, type ModelMutationResult } from '@workbook/mutations/dataModel';
 import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
-import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { prepareCellInput } from '@application/core/cellInputPreparation';
+import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
@@ -237,8 +238,9 @@ export function useWorkbookController({
     () => {
       const nextCalculation = committedCalculation.current!.fork();
       calculationObserverRef.current?.(pendingCalculation.impact);
-      const results = nextCalculation.update(
+      const results = nextCalculation.updateStored(
         pendingCalculation.projection,
+        pendingCalculation.workbook,
         pendingCalculation.impact,
       );
       return { nextCalculation, results };
@@ -405,39 +407,38 @@ export function useWorkbookController({
     if (!currentSheet) return { ok: false, reason: 'unknown-sheet' };
     const cell = cellIdentityAt(currentSheet.content, cellKey);
     if (!cell) return { ok: false, reason: 'invalid-cell' };
-    const stored = raw && !raw.startsWith('=') && (decodeCellTextLiteral(raw) !== undefined || classifyCellValue(raw).kind === 'text')
-      ? encodeCellTextLiteral(raw) : raw;
-    return writeCells([{ sheetId: localSheetId, ...cell, raw: stored }]);
+    const stored = prepareCellInput(raw, optimisticWorkbook.current, localSheetId);
+    return storedWriteResult(applyAction({ kind: 'write-cells', writes: [{ sheetId: localSheetId, ...cell, raw: stored }] }, true, true));
   }
 
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]): CellWriteResult {
-    const result = applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] });
+    const result = applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] }, true, true);
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
-  function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult, stored = false): PasteCellsResult {
+  function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult): PasteCellsResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
     if (!destination) return { ok: false, reason: 'invalid-destination' };
-    const prepared = (stored ? prepareStoredPasteCellWrites : preparePasteCellWrites)(sourceWorkbook, sheetId, destination, clipboard);
+    const prepared = prepareStoredPasteCellWrites(sourceWorkbook, sheetId, destination, clipboard);
     if (!prepared.ok) return prepared;
-    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, stored);
+    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, true);
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
-  function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot, stored = false): MoveCellsResult {
+  function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
     const sourceWorkbook = optimisticWorkbook.current;
     const sheet = findSheetById(sourceWorkbook, sheetId);
     const destination = sheet && cellIdentityAt(sheet.content, destinationKey);
     if (!destination) return { ok: false, reason: 'invalid-destination' };
-    const prepared = (stored ? prepareStoredMoveCellWrites : prepareMoveCellWrites)(sourceWorkbook, sheetId, destination, source);
+    const prepared = prepareStoredMoveCellWrites(sourceWorkbook, sheetId, destination, source);
     if (!prepared.ok) return prepared;
-    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, stored);
+    const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, true);
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
@@ -503,8 +504,8 @@ export function useWorkbookController({
       moveSheetFrame,
       moveCells,
       pasteCells,
-      pasteStoredCells: (sheetId, destination, clipboard) => pasteCells(sheetId, destination, clipboard, true),
-      moveStoredCells: (sheetId, destination, source) => moveCells(sheetId, destination, source, true),
+      pasteStoredCells: pasteCells,
+      moveStoredCells: moveCells,
       renameSheet: renameSheetCommand,
       retryFailedSaves: savedAutosave.retryFailedSaves,
       resizeSheetFrame,

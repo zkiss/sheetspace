@@ -1,4 +1,5 @@
 import type { DataModel, SheetDocument, SheetId, Workbook } from '../core/model';
+import { modelFormulaDeclaration } from '../formula/preparedModelTemplate';
 
 export type ModelMutationResult = { ok: true; value: Workbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'invalid-model' };
 
@@ -88,7 +89,7 @@ function retainPropertyBindings(sheet: SheetDocument, model: DataModel): SheetDo
   return {
     ...sheet,
     ...(sheet.modelColumnBindings === undefined ? {} : { modelColumnBindings: Object.fromEntries(Object.entries(sheet.modelColumnBindings).filter(([propertyId]) => propertyIds.has(propertyId))) }),
-    ...(sheet.modelFormulaBindings === undefined ? {} : { modelFormulaBindings: Object.fromEntries(Object.entries(sheet.modelFormulaBindings).filter(([propertyId, template]) => model.columns.some((property) => property.id === propertyId && property.kind === 'calculated' && property.formula === template.raw))) }),
+    ...(sheet.modelFormulaBindings === undefined ? {} : { modelFormulaBindings: Object.fromEntries(Object.entries(sheet.modelFormulaBindings).filter(([propertyId, template]) => model.columns.some((property) => property.id === propertyId && property.kind === 'calculated' && property.formula === modelFormulaDeclaration(template)))) }),
   };
 }
 

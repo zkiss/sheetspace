@@ -290,7 +290,7 @@ class DefaultWorkbookApplication(
                     if (sheet.modelId != model.id) sheet else sheet.copy(
                         modelColumnBindings = sheet.modelColumnBindings.filterKeys(propertyIds::contains),
                         modelFormulaBindings = retainDeclaredCalculatedTemplates(model, sheet.modelFormulaBindings) { template, declaration ->
-                            template.raw == declaration
+                            preparedModelTemplateIsValid(template, declaration)
                         },
                     )
                 },

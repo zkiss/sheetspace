@@ -44,19 +44,7 @@ internal fun <T> reconcileCalculatedLifecycle(
 }
 
 internal fun validateLifecycleWorkbook(workbook: WorkbookState) {
-    validateLifecycleStructure(workbook)
-    workbook.documents.values.forEach { sheet ->
-        sheet.modelFormulaBindings?.forEach { (propertyId, template) ->
-            val property = workbook.dataModels[sheet.modelId]?.columns?.find { it.id == propertyId }
-            requireLifecycle(property is CalculatedModelColumn && property.formula == template.raw)
-            template.references.forEach { reference ->
-                requireLifecycle(reference.sourceSpan.validIn(template.raw))
-                reference.qualifierSpan?.let { requireLifecycle(it.validIn(template.raw)) }
-                requireLifecycle(reference.endpoints.size in 1..2)
-                reference.endpoints.filterNotNull().forEach { endpoint -> requireLifecycle(endpoint.sourceSpan.validIn(template.raw) && endpoint.rowIndex.isFinite() && endpoint.rowIndex >= 0 && endpoint.columnId.toUuidBytesOrNull() != null) }
-            }
-        }
-    }
+    validateLifecycleWorkbook(workbook, StoredCalculatedTemplates)
 }
 
 internal fun <T> validateLifecycleWorkbook(workbook: WorkbookState, rules: CalculatedTemplates<T>) {
@@ -81,8 +69,6 @@ private fun validateLifecycleStructure(workbook: WorkbookState) {
         if (writes.isNotEmpty()) validatedFormatWrites(sheet, writes)
     }
 }
-
-private fun ModelFormulaSpan.validIn(raw: String) = start >= 0 && end > start && end <= raw.length
 
 private fun appearanceWrite(scope: String, id: String, value: CellFormat) = FormatWrite(scope, id, properties = Json.encodeToJsonElement(value).jsonObject)
 

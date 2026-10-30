@@ -7,6 +7,7 @@ import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { classifyCellValue } from '@calculation/formulaValue';
 import type { DataModel } from '@workbook/core/model';
 import { commitCellRawContent, renameSheet } from '@workbook/mutations/operations';
+import { decodeStoredFormula } from '@workbook/formula/storedFormula';
 
 const model = declaration([manualProperty('input'), calculatedProperty('result', '=@A[1]*2')]);
 const makeSheet = (columnCount = 2, rowCount = 2) => sheetDocument({ id: 'sheet', name: 'Sheet', columnCount, rowCount, cells: rowCount && columnCount ? { A1: '3', ...(columnCount > 1 ? { B1: 'overwritten' } : {}) } : {} });
@@ -23,7 +24,7 @@ describe('explicit positional binding', () => {
     expect(next.content.columns.slice(0, Math.min(width, 2))).toEqual(sheet.content.columns.slice(0, 2));
     expect(next.content.rows).toBe(sheet.content.rows);
     expect(next.modelColumnBindings).toEqual({ input: next.content.columns[0], result: next.content.columns[1] });
-    expect(next.modelFormulaBindings?.result.raw).toBe('=@A[1]*2');
+    expect(decodeStoredFormula(next.modelFormulaBindings!.result.content).text).toBe('=@A[1]*2');
     expect(storedModelCells(bound).A1).toBe(width ? '3' : undefined);
     expect(calculatedModelCells(bound).sheet.B1).toMatchObject(width ? { kind: 'number', value: 6 } : { error: '#VALUE!' });
     expect(calculatedModelCells(bound).sheet.B2).toMatchObject({ error: '#VALUE!' });

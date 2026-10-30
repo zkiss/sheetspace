@@ -9,7 +9,7 @@ import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { cellAddressOf, cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
-import { formulaRawForStorage } from '@workbook/formula/reference';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { copyCanonicalFormula, moveCanonicalFormula, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { copyStoredFormula } from '@workbook/formula/storedFormulaCopy';
@@ -462,7 +462,7 @@ function applyCellWrites(workbook: Workbook, operation: Extract<WorkbookOperatio
     const cells = cellsBySheet.get(sheet.id) ?? { ...sheet.content.cells };
     cellsBySheet.set(sheet.id, cells);
     const before = cells[identityKey];
-    const raw = stored || entry.write.raw.length === 0 ? entry.write.raw : formulaRawForStorage(entry.write.raw, workbook, sheet.id);
+    const raw = !stored && entry.write.raw.startsWith('=') ? prepareUserFormula(entry.write.raw, workbook, sheet.id) : entry.write.raw;
     if ((raw.length === 0 && before === undefined) || (raw.length > 0 && before === raw)) continue;
     inverseWrites.push({ ...entry.write, raw: before ?? '' });
     persistenceWrites.push({

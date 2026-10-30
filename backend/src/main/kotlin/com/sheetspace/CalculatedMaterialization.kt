@@ -7,7 +7,7 @@ package com.sheetspace
  * calculated property, so a row never carries a user-supplied calculation override.
  */
 internal fun materializeCalculatedRow(workbook: WorkbookState, sheet: SheetDocument, row: RowId): SheetDocument =
-    materializeCalculatedRow(workbook, sheet, row, LegacyCalculatedTemplates)
+    materializeCalculatedRow(workbook, sheet, row, StoredCalculatedTemplates)
 
 internal fun <T> materializeCalculatedRow(workbook: WorkbookState, sheet: SheetDocument, row: RowId, rules: CalculatedTemplates<T>): SheetDocument {
     val model = sheet.modelId?.let(workbook.dataModels::get) ?: return sheet
@@ -28,7 +28,7 @@ internal fun <T> materializeCalculatedRow(workbook: WorkbookState, sheet: SheetD
  * Structural changes never rebind surviving instances to replacement targets. Only missing output
  * coordinates receive new row-recipe instances.
  */
-internal fun materializeDerivedContents(workbook: WorkbookState): WorkbookState = materializeDerivedContents(workbook, LegacyCalculatedTemplates)
+internal fun materializeDerivedContents(workbook: WorkbookState): WorkbookState = materializeDerivedContents(workbook, StoredCalculatedTemplates)
 
 internal fun <T> materializeDerivedContents(workbook: WorkbookState, rules: CalculatedTemplates<T>): WorkbookState {
     val documents = workbook.documents.mapValues { (_, sheet) ->

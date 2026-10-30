@@ -5,7 +5,7 @@ import { instantiateModelFormulaBindings } from './modelTemplate';
 import { decodeStoredFormula, type StoredFormulaContent } from './storedFormula';
 
 /** The complete template transport: one expression plus its persistent binding provenance. */
-export type PreparedModelFormula = { content: StoredFormulaContent };
+export type PreparedModelFormula = import('../core/modelFormula').BoundModelFormula;
 
 /** Declaration text is fresh input, never a serialized formula or a source of trusted IDs. */
 export function prepareModelFormula(text: string, workbook: Workbook, sheetId: string): PreparedModelFormula {

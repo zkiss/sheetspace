@@ -5,7 +5,7 @@ import { cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentit
 import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 import { bindModelFormula, bindModelFormulas, instantiateModelFormulas, refreshDerivedInstances } from '@workbook/formula/modelTemplate';
-import { formulaRawForStorage, formulaReferenceTokens } from '@workbook/formula/reference';
+import { modelFormulaDeclaration } from '@workbook/formula/preparedModelTemplate';
 import { validateDataModel } from '@workbook/mutations/dataModel';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 
@@ -90,13 +90,13 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
   };
 }
 
-const legacyLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[string]>({
+const storedLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[string]>({
   workbook: (workbook) => workbook,
-  source: canonicalizeWorkbookReferences,
+  source: (workbook) => workbook,
   bindings: (workbook, sheetId) => workbook.documents[sheetId]!.modelFormulaBindings ?? bindModelFormulas(workbook, sheetId),
   prepare: (workbook, sheetId, formula) => bindModelFormula(formula, workbook, sheetId),
   prepareAll: bindModelFormulas,
-  declaration: (binding) => binding.raw,
+  declaration: modelFormulaDeclaration,
   calculate,
   finish: (source, structured, changes) => {
     let next = structured;
@@ -107,16 +107,16 @@ const legacyLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[strin
   },
 });
 
-export const bindSheetToModel = legacyLifecycle.bind;
-export const unbindSheetFromModel = legacyLifecycle.unbind;
-export const replaceModelDeclaration = legacyLifecycle.replace;
+export const bindSheetToModel = storedLifecycle.bind;
+export const unbindSheetFromModel = storedLifecycle.unbind;
+export const replaceModelDeclaration = storedLifecycle.replace;
 
 function refreshModelSheet(workbook: Workbook, sheetId: string, bindings: ModelFormulaBindings, previous = workbook.documents[sheetId]): Workbook {
   return withSheet(workbook, { ...instantiateModelFormulas(workbook, sheetId, bindings, previous), modelFormulaBindings: bindings });
 }
 
 function calculate(workbook: Workbook): FormulaEvaluationSnapshot {
-  return new FormulaCalculation().update(calculationProjection(workbook), { kind: 'structure' });
+  return new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' });
 }
 
 export function freezeCalculatedColumns(workbook: Workbook, sheet: SheetDocument, snapshot: FormulaEvaluationSnapshot, propertyIds?: ReadonlySet<string>): SheetDocument {
@@ -159,24 +159,4 @@ export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: st
 
 export function withSheet(workbook: Workbook, sheet: SheetDocument): Workbook {
   return { ...workbook, documents: { ...workbook.documents, [sheet.id]: sheet } };
-}
-
-function canonicalizeWorkbookReferences(workbook: Workbook): Workbook {
-  let next = workbook;
-  for (const sheet of Object.values(workbook.documents)) {
-    const cells = Object.fromEntries(Object.entries(sheet.content.cells).map(([key, raw]) => [key, canonicalizeCellReferences(raw, workbook, sheet.id)]));
-    if (Object.keys(cells).some((key) => cells[key] !== sheet.content.cells[key])) next = withSheet(next, { ...sheet, content: { ...sheet.content, cells } });
-  }
-  return next;
-}
-
-function canonicalizeCellReferences(raw: string, workbook: Workbook, sheetId: string): string {
-  // The ordinary input converter renders unresolved references as bare #REF!, which
-  // is not executable reference syntax. Keep lifecycle errors parseable instead.
-  return formulaReferenceTokens(raw).sort((a, b) => b.sourceSpan.start - a.sourceSpan.start).reduce((value, reference) => {
-    const { start, end } = reference.sourceSpan;
-    if (reference.qualifier.kind === 'broken') return value;
-    const canonical = formulaRawForStorage(`=${raw.slice(start, end)}`, workbook, sheetId).slice(1);
-    return value.slice(0, start) + (canonical === '#REF!' ? '@#REF!A[1]' : canonical) + value.slice(end);
-  }, raw);
 }

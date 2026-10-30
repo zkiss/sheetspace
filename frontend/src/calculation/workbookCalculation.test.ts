@@ -41,6 +41,7 @@ describe('workbook calculation boundary', () => {
       kind: 'cells',
       cells: [{ sheetId: 'sheet-1', key: 'A1' }],
     });
+    expect(request.workbook).toBe(next);
     expect(request.projection.sheets[0].cells[
       cellIdentityKey({ rowId: 'sheet-1:row:1', columnId: 'sheet-1:column:1' })
     ]).toBe('2');

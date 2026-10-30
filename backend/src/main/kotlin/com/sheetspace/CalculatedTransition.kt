@@ -2,7 +2,7 @@ package com.sheetspace
 
 /** Persisted instances, not current positions, authorize surviving calculated cells. */
 internal fun calculatedTransitionIsValid(current: WorkbookState, updated: WorkbookState): Boolean =
-    calculatedTransitionIsValid(current, updated, LegacyCalculatedTemplates)
+    calculatedTransitionIsValid(current, updated, StoredCalculatedTemplates)
 
 internal interface CalculatedTemplates<T> {
     fun templates(sheet: SheetDocument): Map<String, T>?
@@ -10,14 +10,14 @@ internal interface CalculatedTemplates<T> {
     fun derive(template: T, workbook: WorkbookState, rowIndex: Int): String
 }
 
-internal object LegacyCalculatedTemplates : CalculatedTemplates<BoundModelFormula> {
+internal object StoredCalculatedTemplates : CalculatedTemplates<BoundModelFormula> {
     override fun templates(sheet: SheetDocument) = sheet.modelFormulaBindings
-    override fun valid(template: BoundModelFormula, declaration: String) = template.raw == declaration
+    override fun valid(template: BoundModelFormula, declaration: String) = preparedModelTemplateIsValid(template, declaration)
     override fun derive(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int) = derivedFormulaRaw(template, workbook, rowIndex)
 }
 
 internal fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) =
-    rejectCalculatedOverrides(current, updated, LegacyCalculatedTemplates)
+    rejectCalculatedOverrides(current, updated, StoredCalculatedTemplates)
 
 internal fun <T> calculatedTransitionIsValid(current: WorkbookState, updated: WorkbookState, rules: CalculatedTemplates<T>): Boolean =
     calculatedTemplatesAreValid(updated, rules) && calculatedOwnershipIsPreserved(current, updated) && updated.documents.values.all { sheet ->

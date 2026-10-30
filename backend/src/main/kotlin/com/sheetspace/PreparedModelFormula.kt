@@ -1,10 +1,7 @@
 package com.sheetspace
 
-import kotlinx.serialization.Serializable
-
 /** One expression and its provenance, shared with the frontend template transport. */
-@Serializable
-data class PreparedModelFormula(val content: String)
+typealias PreparedModelFormula = BoundModelFormula
 
 /** Declaration association is independent of the current existence of retained targets. */
 internal fun preparedModelTemplateIsValid(template: PreparedModelFormula, declaration: String): Boolean = try {

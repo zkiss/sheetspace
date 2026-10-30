@@ -1,3 +1,6 @@
+import type { StoredFormulaContent as FormulaContent } from '../core/storedFormulaContent';
+export type StoredFormulaContent = FormulaContent;
+
 export type FormulaSpan = { start: number; end: number };
 export type FormulaSlot = {
   id: string;
@@ -22,9 +25,6 @@ export type FormulaOccurrence = {
   origins: FormulaOrigin[];
 };
 export type StoredFormula = { text: string; occurrences: FormulaOccurrence[] };
-
-declare const storedFormulaContent: unique symbol;
-export type StoredFormulaContent = string & { readonly [storedFormulaContent]: true };
 
 const marker = '=~F1';
 const invalid = (): never => { throw new Error('Invalid stored formula'); };

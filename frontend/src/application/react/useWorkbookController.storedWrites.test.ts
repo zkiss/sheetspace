@@ -5,8 +5,42 @@ import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { decodeStoredFormula } from '@workbook/formula/storedFormula';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
+import { cellRawContent } from '@workbook/read/queries';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 
 describe('trusted controller writes', () => {
+  it('prepares fresh mixed invalid input once and calculates diagnostics without erasing it', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '4' } });
+    const workbook = workbookWithSheets([sheet]);
+    const text = '=@A[1]+@Missing!A[1]+@A[bad]';
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+
+    act(() => { result.current.commands.updateCellContent(sheet.id, 'B1', text); });
+
+    const stored = cellRawContent(result.current.workbook.documents.sheet, 'B1')!;
+    const decoded = decodeStoredFormula(stored);
+    expect(decoded.text).toBe(text);
+    expect(decoded.occurrences[0].slots.find((slot) => slot.kind === 'column')?.targetIds).toEqual([sheet.content.columns[0]]);
+    expect(projectStoredFormula(stored, result.current.workbook, sheet.id).text).toBe(text);
+    expect(result.current.formulaResults.sheet.B1).toMatchObject({ kind: 'error' });
+    act(() => { result.current.commands.undo(); result.current.commands.redo(); });
+    expect(cellRawContent(result.current.workbook.documents.sheet, 'B1')).toBe(stored);
+  });
+
+  it('treats an exact envelope entered through the editor as literal fresh formula text', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const envelope = prepareUserFormula('=@A[1]', workbook, sheet.id);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+
+    act(() => { result.current.commands.updateCellContent(sheet.id, 'B1', envelope); });
+
+    const stored = cellRawContent(result.current.workbook.documents.sheet, 'B1')!;
+    expect(decodeStoredFormula(stored)).toEqual({ text: envelope, occurrences: [] });
+    expect(projectStoredFormula(stored, result.current.workbook, sheet.id).text).toBe(envelope);
+    expect(result.current.formulaResults.sheet.B1).toMatchObject({ error: '#PARSE!' });
+  });
+
   it('moves stored content and dependent bindings atomically through undo and redo', () => {
     const base = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 4 });
     const initial = workbookWithSheets([base]);
