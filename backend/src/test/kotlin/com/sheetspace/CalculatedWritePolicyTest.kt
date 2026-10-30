@@ -27,7 +27,7 @@ class CalculatedWritePolicyTest {
 
         assertEquals(setOf(output), calculatedModelColumns(sheet, base.dataModels))
         assertEquals(
-            "=@${sheet.tabularContent.columns[0].value}[${row.value}]*2",
+            instantiateStoredModelFormula(sheet.modelFormulaBindings!!.getValue(outputId).content, 0) { sheet.tabularContent.rows.map { it.value } },
             sheet.tabularContent.cellContents.getValue(CellCoordinate(row, output)),
         )
         assertTrue(calculatedContentsAreDerived(base))
@@ -64,9 +64,12 @@ class CalculatedWritePolicyTest {
         val materialized = materializeCalculatedRow(base.replaceSheet(appended), appended, appendedRow)
 
         assertEquals(
-            "=@${appended.tabularContent.columns[0].value}[${appendedRow.value}]*2",
+            instantiateStoredModelFormula(appended.modelFormulaBindings!!.getValue(outputId).content, 1) { appended.tabularContent.rows.map { it.value } },
             materialized.tabularContent.cellContents.getValue(CellCoordinate(appendedRow, appended.modelColumnBindings.getValue(outputId))),
         )
+        val instance = StoredFormulaCodec.decode(materialized.tabularContent.cellContents.getValue(CellCoordinate(appendedRow, appended.modelColumnBindings.getValue(outputId))))
+        assertEquals("=@A[1]*2", instance.text)
+        assertEquals(listOf(appendedRow.value), instance.occurrences.single().slots.single { it.id == "r" }.targetIds)
         assertTrue(calculatedContentsAreDerived(base.replaceSheet(materialized)))
 
         val withoutTemplate = base.replaceSheet(appended.copy(modelFormulaBindings = null))
@@ -165,13 +168,10 @@ class CalculatedWritePolicyTest {
             content = content,
             modelId = modelId,
             modelColumnBindings = mapOf(inputId to content.columns[0], outputId to content.columns[1]),
-            modelFormulaBindings = mapOf(outputId to BoundModelFormula(
-                "=@A[1]*2",
-                listOf(ModelFormulaReference(ModelFormulaSpan(1, 6), sheetId, endpoints = listOf(ModelFormulaEndpoint(ModelFormulaSpan(2, 6), content.columns[0].value, 0.0, ModelFormulaAnchors(false, false))))),
-            )),
         )
-        val derived = sheet.updateTabularContent {
-            it.updateCell("B1", "=@${content.columns[0].value}[${content.rows[0].value}]*2")
+        val template = lifecycleTemplate(sheet, content.columns[0], "=@A[1]*2")
+        val derived = sheet.copy(modelFormulaBindings = mapOf(outputId to template)).updateTabularContent {
+            it.updateCell("B1", instantiateStoredModelFormula(template.content, 0) { content.rows.map { row -> row.value } })
         }
         return emptyWorkbookState().addSheet(derived).copy(dataModels = mapOf(modelId to DataModel(
             modelId,
