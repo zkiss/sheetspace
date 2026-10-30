@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { FormulaCalculation } from '@calculation/formulaCalculation';
+import { calculationProjection } from '@workbook/read/calculationProjection';
 import { prepareFormulaEdit, prepareUserFormula } from './formulaPreparation';
 import { decodeStoredFormula } from './storedFormula';
 import { projectStoredFormula } from './storedFormulaProjection';
@@ -37,5 +39,22 @@ describe('formula edit preparation', () => {
     expect(result.text).toBe(draft);
     expect(result.occurrences[0].slots[0].targetIds).toEqual([sheet.id]);
     expect(result.occurrences[1].slots[1].targetIds).toEqual([sheet.content.columns[1]]);
+  });
+
+  it('recalculates an unresolved formula after correcting its reference', () => {
+    const source = sheetDocument({ id: 'source', name: 'Inputs', rowCount: 1, columnCount: 1, cells: { A1: '4' } });
+    const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1 });
+    const initial = workbookWithSheets([source, output]);
+    const original = prepareUserFormula('=@Missing!A[1]+3', initial, output.id);
+    const target = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1, cells: { A1: original } });
+    const before = workbookWithSheets([source, target]);
+    const calculation = new FormulaCalculation();
+    expect(calculation.updateStored(calculationProjection(before), before, { kind: 'structure' }).output.A1).toMatchObject({ display: '#REF!' });
+
+    const corrected = prepareFormulaEdit('=@Inputs!A[1]+3', original, before, output.id);
+    const key = Object.keys(target.content.cells)[0];
+    const after = workbookWithSheets([source, { ...target, content: { ...target.content, cells: { [key]: corrected } } }]);
+
+    expect(calculation.updateStored(calculationProjection(after), after, { kind: 'cells', cells: [{ sheetId: output.id, key: 'A1' }] }).output.A1).toMatchObject({ value: 7 });
   });
 });
