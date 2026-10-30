@@ -1,4 +1,5 @@
 import type { SheetDocument, Workbook } from '../core/model';
+import { namedColumns } from '../core/columnNames';
 import { parseUserFormulaSyntax, type FormulaReferenceLexeme, type FormulaSourceSpan } from './syntax';
 import { requireStoredFormula } from './storedFormula';
 import type { StoredFormulaContent } from '../core/storedFormulaContent';
@@ -38,8 +39,8 @@ function prepare(text: string, workbook: Workbook, currentSheetId: string | unde
   const sheetFor = (qualifier?: string) => qualifier === undefined
     ? currentSheetId === undefined ? undefined : workbook.documents[currentSheetId]
     : Object.values(workbook.documents).find((sheet) => sheet.name === qualifier);
-  const propertiesFor = (sheet?: SheetDocument) => sheet?.modelId ? workbook.dataModels?.[sheet.modelId]?.columns : undefined;
-  const syntax = parseUserFormulaSyntax(text, (qualifier, name) => Boolean(propertiesFor(sheetFor(qualifier))?.some((property) => property.name === name)));
+  const propertiesFor = (sheet?: SheetDocument) => sheet ? namedColumns(workbook, sheet) : [];
+  const syntax = parseUserFormulaSyntax(text, (qualifier, name) => propertiesFor(sheetFor(qualifier)).some((property) => property.name === name));
   retained = retained.filter((span) => syntax.referenceLexemes.some((lexeme) => lexeme.sourceSpan.start === span.start && lexeme.sourceSpan.end === span.end));
   const replacements = [...retained];
   for (const lexeme of syntax.referenceLexemes) {
@@ -69,8 +70,8 @@ function prepare(text: string, workbook: Workbook, currentSheetId: string | unde
 function bindEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number], sheet: SheetDocument | undefined, workbook: Workbook, modelTemplate: boolean): string | undefined {
   if (!sheet || endpoint.kind !== 'a1' && endpoint.kind !== 'named') return undefined;
   if ((endpoint.kind === 'a1' ? endpoint.value.rowIndex : endpoint.value.row - 1) >= 2147483647) return undefined;
-  const property = endpoint.kind === 'named' && sheet.modelId ? workbook.dataModels?.[sheet.modelId]?.columns.find((property) => property.name === (endpoint.value as { propertyName: string }).propertyName) : undefined;
-  const columnId = endpoint.kind === 'a1' ? sheet.content.columns[endpoint.value.columnIndex] : property && sheet.modelColumnBindings?.[property.id];
+  const property = endpoint.kind === 'named' ? namedColumns(workbook, sheet).find((property) => property.name === (endpoint.value as { propertyName: string }).propertyName) : undefined;
+  const columnId = endpoint.kind === 'a1' ? sheet.content.columns[endpoint.value.columnIndex] : property?.columnId;
   const rowId = sheet.content.rows[endpoint.kind === 'a1' ? endpoint.value.rowIndex : endpoint.value.row - 1] ?? (modelTemplate ? 'unavailable-model-row' : undefined);
   if (!columnId || !rowId || !sheet.content.columns.includes(columnId)) return undefined;
   return formatCanonicalFormulaEndpoint({ columnId, rowId }, endpoint.anchors, property?.id);
