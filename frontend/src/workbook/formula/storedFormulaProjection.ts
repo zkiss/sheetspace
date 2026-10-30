@@ -7,6 +7,7 @@ import type { FormulaSourceSpan } from './syntax';
 export type StoredFormulaProjection = {
   text: string;
   references: { sourceSpan: FormulaSourceSpan; displaySpan: FormulaSourceSpan }[];
+  displaySpan: (span: FormulaSourceSpan) => FormulaSourceSpan;
   analysis: StoredFormulaAnalysis;
 };
 
@@ -20,13 +21,24 @@ export function projectStoredFormula(content: string, workbook: Workbook, curren
     })),
   ].sort((left, right) => left.start - right.start);
   const references: StoredFormulaProjection['references'] = [];
+  const mappings: StoredFormulaProjection['references'] = [];
   let text = '', cursor = 0;
   for (const edit of edits) {
     text += content.slice(cursor, edit.start);
     const start = text.length;
     text += edit.text;
+    mappings.push({ sourceSpan: { start: edit.start, end: edit.end }, displaySpan: { start, end: text.length } });
     if (edit.reference) references.push({ sourceSpan: { start: edit.start, end: edit.end }, displaySpan: { start, end: text.length } });
     cursor = edit.end;
   }
-  return { text: text + content.slice(cursor), references, analysis };
+  const position = (offset: number, end: boolean) => {
+    let shift = 0;
+    for (const mapping of mappings) {
+      if (offset < mapping.sourceSpan.start) break;
+      if (offset < mapping.sourceSpan.end) return end ? mapping.displaySpan.end : mapping.displaySpan.start;
+      shift = mapping.displaySpan.end - mapping.sourceSpan.end;
+    }
+    return offset + shift;
+  };
+  return { text: text + content.slice(cursor), references, analysis, displaySpan: (span) => ({ start: position(span.start, false), end: position(span.end, true) }) };
 }

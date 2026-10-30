@@ -36,7 +36,7 @@ export function inspectStoredFormula(content: string, workbook: Workbook, curren
       broken: true, navigable: false,
     };
   });
-  return { raw: projection.text, references, parts: inspectionParts(projection.text, references), diagnostics: analysis.diagnostics };
+  return { raw: projection.text, references, parts: inspectionParts(projection.text, references), diagnostics: analysis.diagnostics.map((diagnostic) => ({ ...diagnostic, sourceSpan: projection.displaySpan(diagnostic.sourceSpan) })) };
 }
 
 export function inspectFormula(

@@ -141,7 +141,7 @@ describe('single-content model templates', () => {
     expect(projectStoredFormula(second, appended, 'one').text).toBe('=@A[3]');
   });
 
-  it.each([ `=@'Owner''s input'[${'9'.repeat(400)}]`, '=@Missing!A[1]', '=@A[bad]', '=1+', '=@Z[1]'])('retains invalid declaration %s through serialization and derivation', (raw) => {
+  it.each([ `=@'Owner''s input'[${'9'.repeat(400)}]`, '=@A[3000000000]', '=@Missing!A[1]', '=@A[bad]', '=1+', '=@Z[1]'])('retains invalid declaration %s through serialization and derivation', (raw) => {
     const workbook = instances();
     const template = JSON.parse(JSON.stringify(bindModelFormula(raw, workbook, 'one')));
     const instance = instantiateModelFormula(template, workbook, 0, raw, 'one');
