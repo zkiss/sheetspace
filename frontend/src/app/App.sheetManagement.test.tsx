@@ -23,7 +23,7 @@ describe('App sheet management integration', () => {
 
     const frame = screen.getByTestId('sheet-frame');
     expect(within(frame).getByRole('heading', { name: 'Assumptions' })).toBeInTheDocument();
-    expect(frame).toHaveStyle({ left: '500px', top: '400px' });
+    expect(frame).toHaveStyle({ left: '400px', top: '333.33333333333337px' });
   });
 
   it('renders validation feedback in the create dialog', async () => {

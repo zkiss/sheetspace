@@ -38,7 +38,7 @@ describe('App MVP workflow', () => {
       fireEvent(inputHeader, new MouseEvent('pointermove', { bubbles: true, clientX: 172, clientY: 264 }));
       fireEvent(inputHeader, new MouseEvent('pointerup', { bubbles: true, clientX: 172, clientY: 264 }));
       await waitFor(() =>
-        expect(apiClient.updateSheetPosition).toHaveBeenCalledWith(inputSheetId, { x: 72, y: 144 }, { revision: 0 }),
+        expect(apiClient.updateSheetPosition).toHaveBeenCalledWith(inputSheetId, { x: -48, y: 64 }, { revision: 0 }),
       );
 
       fireEvent.click(within(openSheetContextMenu(inputFrame)).getByRole('menuitem', { name: 'Rename' }));
@@ -83,13 +83,13 @@ describe('App MVP workflow', () => {
       measureGrid(reloadedInputFrame);
       measureGrid(reloadedOutputFrame);
       expect(reloadedInputFrame).toHaveAttribute('data-sheet-id', inputSheetId);
-      expect(reloadedInputFrame).toHaveAttribute('data-position-x', '72');
-      expect(reloadedInputFrame).toHaveAttribute('data-position-y', '144');
+      expect(reloadedInputFrame).toHaveAttribute('data-position-x', '-48');
+      expect(reloadedInputFrame).toHaveAttribute('data-position-y', '64');
       expect(reloadedInputFrame).toHaveAttribute('data-row-count', '21');
       expect(reloadedInputFrame).toHaveAttribute('data-column-count', '11');
       expect(reloadedOutputFrame).toHaveAttribute('data-sheet-id', outputSheetId);
-      expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '500');
-      expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '400');
+      expect(reloadedOutputFrame).toHaveAttribute('data-position-x', '-84');
+      expect(reloadedOutputFrame).toHaveAttribute('data-position-y', '-44');
       expect(cellAt(reloadedInputFrame, 'C1')).toHaveTextContent('15');
       expect(cellAt(reloadedOutputFrame, 'A1')).toHaveTextContent('15');
 

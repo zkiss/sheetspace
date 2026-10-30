@@ -1,5 +1,5 @@
 import { createElement, useLayoutEffect } from 'react';
-import { act, render, renderHook } from '@testing-library/react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
 import { measuredElementGeometry } from '@test-support/domGeometry';
@@ -114,11 +114,11 @@ describe('useWorkspaceController', () => {
       result.current.createSheetAtViewportCenter();
     });
 
-    expect(onCreateSheet).toHaveBeenCalledWith({ x: 400, y: 350 }, 1, 'Create sheet at viewport center');
+    expect(onCreateSheet).toHaveBeenCalledWith({ x: 280, y: 270 }, 1, 'Create sheet at viewport center', expect.any(Function));
     expect(result.current.pendingSheetMenu).toBeNull();
   });
 
-  it('rounds sheet frame placement after fractional viewport geometry is resolved', () => {
+  it('preserves fractional placement after viewport geometry is resolved', () => {
     const onCreateSheet = vi.fn();
     const { result } = renderHook(() => useWorkspaceController({ onCreateSheet, onClearSelection: vi.fn() }));
 
@@ -128,6 +128,57 @@ describe('useWorkspaceController', () => {
       result.current.createSheetAtViewportCenter();
     });
 
-    expect(onCreateSheet).toHaveBeenCalledWith({ x: 501, y: 401 }, 1.2, 'Create sheet at viewport center');
+    expect(onCreateSheet).toHaveBeenCalledWith({ x: 400.50000000000006, y: 333.8333333333333 }, 1.2, 'Create sheet at viewport center', expect.any(Function));
   });
+  it('continues confirmed creations but resets after movement away and back', () => {
+    const onCreateSheet = vi.fn();
+    const { result, rerender } = renderHook(() => useWorkspaceController({ onCreateSheet, onClearSelection: vi.fn() }));
+    result.current.workspaceSurfaceRef.current = workspaceElement(1000, 800);
+    act(() => result.current.createSheetAtViewportCenter());
+    act(() => onCreateSheet.mock.calls[0][3]());
+    rerender();
+    act(() => result.current.createSheetAtViewportCenter());
+    expect(onCreateSheet.mock.calls[1][0]).toEqual({ x: 416, y: 356 });
+    act(() => onCreateSheet.mock.calls[1][3]());
+    act(() => result.current.panWorkspace(30, 0));
+    act(() => result.current.panWorkspace(-30, 0));
+    act(() => result.current.createSheetAtViewportCenter());
+    expect(onCreateSheet.mock.calls[2][0]).toEqual({ x: 380, y: 320 });
+  });
+
+  it('does not advance a cancelled intent and resets after zoom preview', () => {
+    const onCreateSheet = vi.fn();
+    const { result } = renderHook(() => useWorkspaceController({ onCreateSheet, onClearSelection: vi.fn() }));
+    result.current.workspaceSurfaceRef.current = workspaceElement(1000, 800);
+    act(() => result.current.createSheetAtViewportCenter());
+    act(() => result.current.createSheetAtViewportCenter());
+    expect(onCreateSheet.mock.calls[1][0]).toEqual(onCreateSheet.mock.calls[0][0]);
+    act(() => onCreateSheet.mock.calls[1][3]());
+    act(() => result.current.zoomWorkspaceBy(1.2));
+    act(() => result.current.createSheetAtViewportCenter());
+    expect(onCreateSheet.mock.calls[2][0]).toEqual({ x: 400, y: 333.33333333333337 });
+  });
+
+  it('captures a painted pan preview before it is published to React', () => {
+    vi.useFakeTimers();
+    const onCreateSheet = vi.fn();
+    let controller: ReturnType<typeof useWorkspaceController>;
+    function Harness() {
+      controller = useWorkspaceController({ onCreateSheet, onClearSelection: vi.fn() });
+      return createElement('section', { ref: controller.workspaceSurfaceRef }, createElement('div', { ref: controller.workspacePlaneRef }));
+    }
+    const { container } = render(createElement(Harness));
+    const surface = container.querySelector('section')!;
+    measuredElementGeometry(surface, { width: 1000, height: 800 });
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 1, buttons: 4, clientX: 100, clientY: 80 });
+    Object.defineProperty(down, 'pointerId', { value: 7 });
+    fireEvent(surface, down);
+    act(() => controller.panWorkspace(30, 20));
+    act(() => vi.advanceTimersByTime(16));
+    expect(controller!.viewport).toEqual({ x: 0, y: 0, scale: 1 });
+    expect(controller!.workspacePlaneRef.current?.style.transform).toContain('30px');
+    act(() => controller.createSheetAtViewportCenter());
+    expect(onCreateSheet.mock.calls[0][0]).toEqual({ x: 350, y: 300 });
+  });
+
 });

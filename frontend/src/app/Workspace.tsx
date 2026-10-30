@@ -110,7 +110,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onCommitEdit: (session?: CellEditSession) => CellWriteResult | undefined;
   onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | undefined;
   onSuspendEdit?: (session: CellEditSession) => void;
-  onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string) => void;
+  onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string, confirm: () => void) => void;
   onEditValueChange: (value: string) => void;
   onUpdateEditView?: (selection: { start: number; end: number }, scrollTop: number) => void;
   onNavigateCell: (target: CellTarget, direction: CellNavigationDirection) => void;

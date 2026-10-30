@@ -61,6 +61,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     focusSelection,
     settleSelectionGesture,
     focusCurrentSelection,
+    interactionRevision,
     acknowledgeKeyboardFocusRequest,
     activateSheet,
     cancelKeyboardFocusRequest,
@@ -97,8 +98,8 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     return () => window.removeEventListener('keydown', handleHistoryShortcut);
   }, [canRedo, canUndo, commands, dataModelsOpen]);
 
-  function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string) {
-    setPendingCreation({ position, viewportScale, label });
+  function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string, confirm: () => void) {
+    setPendingCreation({ position, viewportScale, label, confirm });
     setSheetName('');
     setError('');
   }
@@ -115,13 +116,20 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    const result = commands.createSheet(sheetName, pendingCreation.position, pendingCreation.viewportScale);
+    const revision = interactionRevision();
+    const result = commands.createSheet(sheetName, pendingCreation.position, pendingCreation.viewportScale, (sheet) => {
+      if (interactionRevision() !== revision) return;
+      const rowId = sheet.content.rows[0];
+      const columnId = sheet.content.columns[0];
+      if (rowId && columnId) selectCell({ sheetId: sheet.id, cell: { rowId, columnId } });
+    });
 
     if (!result.ok) {
       setError(validationMessage(result.reason));
       return;
     }
 
+    pendingCreation.confirm();
     closeDialog();
   }
 

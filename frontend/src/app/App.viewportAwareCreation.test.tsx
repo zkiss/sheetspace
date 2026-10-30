@@ -27,7 +27,7 @@ describe('viewport-aware sheet creation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledOnce());
     expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({
-      position: { x: 620, y: 340 }, visualScale: 1 / 1.2,
+      position: { x: 520, y: 273.33333333333337 }, visualScale: 1 / 1.2,
     }));
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
   });
@@ -43,6 +43,9 @@ describe('viewport-aware sheet creation', () => {
       { ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }), frame: { ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }).frame, zIndex: 9 } },
     ])} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
+    const existing = screen.getByRole('article', { name: 'Sheet Existing' });
+    fireEvent.click(cellAt(existing, 'A1'));
+    expect(existing).toHaveClass('sheet-frame-active');
 
     zoomWorkspace('in');
     fireEvent.click(screen.getByRole('button', { name: /new sheet/i }));
@@ -68,7 +71,34 @@ describe('viewport-aware sheet creation', () => {
     const saved = await screen.findByRole('article', { name: 'Sheet Inputs' });
     expect(saved).toHaveAttribute('data-visual-scale', String(expectedScale));
     expect(saved).toHaveAttribute('data-z-index', '10');
+    expect(saved).toHaveClass('sheet-frame-active');
+    expect(existing).not.toHaveClass('sheet-frame-active');
     expect(updateSheetVisualScale).not.toHaveBeenCalled();
+  });
+
+  it('preserves a later selection and edit when a pending creation resolves', async () => {
+    const create = deferred<SheetDocument>();
+    const apiClient = autosaveClient({ createSheet: vi.fn().mockReturnValue(create.promise) });
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithLegacyFormulaFixtures([
+      positionedSheet('existing', 'Existing', { x: 0, y: 0 }),
+    ])} />);
+    workspaceSurface().getBoundingClientRect = workspaceRect;
+    fireEvent.click(screen.getByRole('button', { name: /new sheet/i }));
+    fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Inputs' } });
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    const existing = screen.getByRole('article', { name: 'Sheet Existing' });
+    const user = userEvent.setup();
+    const editor = await openCellEditor(user, cellAt(existing, 'A1'));
+    await user.type(editor, 'draft');
+    await act(async () => {
+      create.resolve(sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 500, y: 400 } }));
+      await create.promise;
+    });
+
+    expect(existing).toHaveClass('sheet-frame-active');
+    expect(screen.getByRole('article', { name: 'Sheet Inputs' })).not.toHaveClass('sheet-frame-active');
+    expect(editor).toHaveValue('draft');
   });
 
   it('uses the empty-workspace action zoom captured before the dialog and removes a rejected pending frame', async () => {
@@ -87,7 +117,7 @@ describe('viewport-aware sheet creation', () => {
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
 
     expect(apiClient.createSheet).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'Outputs', position: { x: 500, y: 400 }, visualScale: 1.2, zIndex: 1,
+      name: 'Outputs', position: { x: 356, y: 304.00000000000006 }, visualScale: 1.2, zIndex: 1,
     }));
     await waitFor(() => expect(screen.queryByTestId('creating-sheet-frame')).not.toBeInTheDocument());
     expect(screen.queryByRole('article', { name: 'Sheet Outputs' })).not.toBeInTheDocument();
@@ -102,7 +132,7 @@ describe('viewport-aware sheet creation', () => {
         cells: { B1: '10' },
       }),
       smallSheetDocument({
-        id: 'outputs', name: 'Outputs', position: { x: 500, y: 400 }, visualScale: 1.2, zIndex: 2,
+        id: 'outputs', name: 'Outputs', position: { x: 356, y: 304.00000000000006 }, visualScale: 1.2, zIndex: 2,
         cells: { A1: '=@Inputs!B[1]' },
       }),
     ]);
