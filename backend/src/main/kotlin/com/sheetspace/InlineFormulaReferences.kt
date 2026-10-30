@@ -55,6 +55,7 @@ private fun readInlineEndpoint(text: String, start: Int, stored: Boolean): Inlin
         InlineFormulaEndpoint(start, match.range.last + 1, groups[1].isNotEmpty(), groups[5].isNotEmpty(), column, row, if (named) decode(groups[2]) ?: return null else null)
     } else {
         if (groups[5].isNotEmpty() && (groups[5].toLongOrNull()?.let { it <= 9007199254740991L } != true)) return null
-        InlineFormulaEndpoint(start, match.range.last + 1, groups[1].isNotEmpty(), groups[4].isNotEmpty(), groups[2].ifEmpty { groups[3] }, groups[5].ifEmpty { "1" }, if (groups[2].isNotEmpty() || groups[5].isEmpty()) groups[2].ifEmpty { groups[3] } else null)
+        val column = groups[2].replace("''", "'").ifEmpty { groups[3] }
+        InlineFormulaEndpoint(start, match.range.last + 1, groups[1].isNotEmpty(), groups[4].isNotEmpty(), column, groups[5].ifEmpty { "1" }, if (groups[2].isNotEmpty() || groups[5].isEmpty()) column else null)
     }
 }

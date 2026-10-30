@@ -57,6 +57,25 @@ class CalculatedTransitionAuthorityTest {
                     if (it is CalculatedModelColumn) it.copy(formula = it.formula.replace("[$1]", "[$3]")) else it
                 }) })
                 assertFalse(calculatedTransitionIsValid(reordered, edited))
+                val quotedModel = renamedModel.copy(columns = renamedModel.columns.map {
+                    when {
+                        it is CalculatedModelColumn -> it.copy(formula = "=@'O''Brien total'[$1]*2")
+                        !ordinary && it.id == LIFECYCLE_INPUT -> (it as ManualModelColumn).copy(name = "O'Brien total")
+                        else -> it
+                    }
+                })
+                val quoted = renamed.copy(dataModels = renamed.dataModels + (model.id to quotedModel), documents = renamed.documents.mapValues { (_, document) ->
+                    document.copy(columnNames = if (ordinary && document.id == sheet.id) mapOf(target.value to "O'Brien total") else document.columnNames)
+                })
+                assertTrue(calculatedTransitionIsValid(renamed, quoted))
+                val forgedName = quoted.copy(dataModels = quoted.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                    if (it is CalculatedModelColumn) it.copy(formula = "=@'Not the target'[$1]*2") else it
+                }) })
+                assertFalse(calculatedTransitionIsValid(renamed, forgedName))
+                val forgedOperator = quoted.copy(dataModels = quoted.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                    if (it is CalculatedModelColumn) it.copy(formula = it.formula.replace("*2", "+2")) else it
+                }) })
+                assertFalse(calculatedTransitionIsValid(renamed, forgedOperator))
             }
         }
     }
