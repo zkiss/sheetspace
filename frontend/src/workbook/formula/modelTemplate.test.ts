@@ -79,6 +79,45 @@ describe('single-content model templates', () => {
     expect(decodeStoredFormula(formula).text).toBe(raw);
   });
 
+  it('calculates cross-sheet dependencies against the complete expanded workbook', () => {
+    const workbook = instances();
+    const one = instantiateModelFormulas(workbook, 'one', {
+      result: bindModelFormula('=@Two!B[1]+1', workbook, 'one'),
+      total: bindModelFormula("=SUM(@'Owner''s input'[1]:'Result'[1])", workbook, 'one'),
+    });
+    const two = instantiateModelFormulas(workbook, 'two');
+    const expanded = { ...workbook, documents: { one, two } };
+    const results = calculate(expanded);
+
+    expect(projectStoredFormula(cellRawContent(one, 'B2')!, expanded, 'one').text).toBe('=@Two!B[2]+1');
+    expect(results.one.B1).toMatchObject({ value: 5 });
+    expect(results.one.B2).toMatchObject({ value: 9 });
+    expect(results.one.C2).toMatchObject({ value: 12 });
+  });
+
+  it('resolves a future row recipe after append and leaves the next offset out of bounds', () => {
+    const workbook = instances();
+    const template = JSON.parse(JSON.stringify(bindModelFormula('=@A[3]', workbook, 'one')));
+    const sheet = workbook.documents.one;
+    const beforeAppend = instantiateModelFormulas(workbook, 'one', { result: template });
+    const appended = { ...workbook, documents: { ...workbook.documents, one: {
+      ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, 'third'], cells: {
+        ...sheet.content.cells, [cellIdentityKey({ columnId: sheet.content.columns[0], rowId: 'third' })]: '11',
+      } },
+    } } };
+    const first = instantiateModelFormula(template, appended, 0);
+    const second = instantiateModelFormula(template, appended, 1);
+    const expanded = instantiateModelFormulas(appended, 'one', { result: template });
+    const results = calculate({ ...appended, documents: { ...appended.documents, one: expanded } });
+
+    expect(calculate({ ...workbook, documents: { ...workbook.documents, one: beforeAppend } }).one.B1).toMatchObject({ error: '#REF!' });
+    expect(projectStoredFormula(first, appended, 'one').text).toBe('=@A[3]');
+    expect(decodeStoredFormula(first).occurrences[0].slots.find((slot) => slot.kind === 'row')!.targetIds).toEqual(['third']);
+    expect(results.one.B1).toMatchObject({ value: 11 });
+    expect(results.one.B2).toMatchObject({ error: '#REF!' });
+    expect(decodeStoredFormula(second).text).toBe('=@A[3]');
+  });
+
   it.each(['=@A[3000000000]', `=@'Owner''s input'[${'9'.repeat(400)}]`, '=@Missing!A[1]', '=@A[bad]', '=1+', '=@Z[1]'])('retains invalid declaration %s through serialization and derivation', (raw) => {
     const workbook = instances();
     const template = JSON.parse(JSON.stringify(bindModelFormula(raw, workbook, 'one')));
