@@ -2,12 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { bindModelSheets, calculatedModelCells, calculatedProperty, declaration, freshColumns, manualProperty, modelWorkbook, storedModelCells, successfulModelMutation } from '@test-support/modelLifecycleFixtures';
 import { replaceModelDeclaration } from './modelLifecycle';
-import { commitCellRawContent } from '@workbook/mutations/operations';
-import { cellIdentityKey } from '@workbook/core/cellIdentity';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
+import { prepareCellInput } from './cellInputPreparation';
+import type { Workbook } from '@workbook/core/model';
 
 const model = declaration([manualProperty('input', 'Input'), manualProperty('extra', 'Extra'), calculatedProperty('result', '=@A[1]+@B[1]', 'Result')]);
 const makeSheet = (id = 'sheet', rowCount = 2) => sheetDocument({ id, name: id === 'sheet' ? 'Sheet' : 'Other', columnCount: 3, rowCount, cells: rowCount ? { A1: id === 'sheet' ? '3' : '20', B1: '7', ...(rowCount > 1 ? { A2: '4', B2: '8' } : {}) } : {} });
+const setFormula = (workbook: Workbook, sheetId: string, address: string, formula: string) => {
+  const sheet = workbook.documents[sheetId]!;
+  sheet.content.cells[cellIdentityKey(cellIdentityAt(sheet.content, address)!)] = prepareCellInput(formula, workbook, sheetId);
+};
 
 describe('stable-property model reconciliation', () => {
   it('atomically reorders, renames, adds and removes across independent bound instances', () => {
@@ -40,10 +45,12 @@ describe('stable-property model reconciliation', () => {
 
   it('preserves A1, named and cross-sheet reference identities and unchanged template targets on reorder', () => {
     const named = declaration([manualProperty('input', 'Input'), manualProperty('extra', 'Extra'), calculatedProperty('result', "=@'Input'[1]+@B[1]", 'Result')]);
-    const external = sheetDocument({ id: 'external', name: 'External', rowCount: 1, columnCount: 3, cells: { A1: '=@Sheet!A[1]', C1: '=@Sheet!C[1]' } });
-    let bound = bindModelSheets(modelWorkbook(named, [makeSheet(), external]), ['sheet']);
-    bound = commitCellRawContent(bound, 'external', 'B1', "=@Sheet!'Input'[1]");
-    bound = commitCellRawContent(bound, 'sheet', 'B1', '=@A[1]*3');
+    const external = sheetDocument({ id: 'external', name: 'External', rowCount: 1, columnCount: 3 });
+    const bound = bindModelSheets(modelWorkbook(named, [makeSheet(), external]), ['sheet']);
+    setFormula(bound, 'external', 'A1', '=@Sheet!A[1]');
+    setFormula(bound, 'external', 'C1', '=@Sheet!C[1]');
+    setFormula(bound, 'external', 'B1', "=@Sheet!'Input'[1]");
+    setFormula(bound, 'sheet', 'B1', '=@A[1]*3');
     const changed = declaration([{ ...named.columns[2]!, name: 'Output' }, { ...named.columns[1]!, name: 'Input' }, { ...named.columns[0]!, name: 'Original' }]);
 
     const next = successfulModelMutation(replaceModelDeclaration(bound, changed, freshColumns()));
@@ -72,8 +79,10 @@ describe('stable-property model reconciliation', () => {
   });
 
   it('keeps removed A1 and named references broken through removal and later same-name reuse', () => {
-    const external = sheetDocument({ id: 'external', name: 'External', columnCount: 2, rowCount: 1, cells: { A1: '=@Sheet!A[1]' } });
-    const bound = commitCellRawContent(bindModelSheets(modelWorkbook(model, [makeSheet(), external]), ['sheet']), 'external', 'B1', "=@Sheet!'Input'[1]");
+    const external = sheetDocument({ id: 'external', name: 'External', columnCount: 2, rowCount: 1 });
+    const bound = bindModelSheets(modelWorkbook(model, [makeSheet(), external]), ['sheet']);
+    setFormula(bound, 'external', 'A1', '=@Sheet!A[1]');
+    setFormula(bound, 'external', 'B1', "=@Sheet!'Input'[1]");
     const createId = freshColumns();
     const removed = successfulModelMutation(replaceModelDeclaration(bound, declaration([model.columns[1]!, model.columns[2]!]), createId));
     const reused = successfulModelMutation(replaceModelDeclaration(removed, declaration([manualProperty('fresh', 'Input'), model.columns[1]!, model.columns[2]!]), createId));
