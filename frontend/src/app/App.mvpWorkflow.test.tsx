@@ -1,10 +1,10 @@
 import { activateCellEditor } from '@test-support/appScreen';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { deterministicSheetId, persistedWorkbookClient } from '@test-support/apiClients';
 import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen';
-import { workspaceRect } from '@test-support/domGeometry';
+import { virtualGridGeometry, workspaceRect } from '@test-support/domGeometry';
 import { workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('App MVP workflow', () => {
@@ -24,12 +24,14 @@ describe('App MVP workflow', () => {
       fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(1));
 
+      measureGrid(screen.getByRole('article', { name: 'Sheet Inputs' }));
       workspaceSurface().getBoundingClientRect = workspaceRect;
       fireEvent.keyDown(document.body, { key: 'N', shiftKey: true });
       fireEvent.change(screen.getByLabelText(/sheet name/i), { target: { value: 'Outputs' } });
       fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
       await waitFor(() => expect(apiClient.createSheet).toHaveBeenCalledTimes(2));
 
+      measureGrid(screen.getByRole('article', { name: 'Sheet Outputs' }));
       let inputFrame = screen.getByRole('article', { name: 'Sheet Inputs' });
       const inputHeader = within(inputFrame).getByTestId('sheet-frame-header');
       fireEvent(inputHeader, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 100, clientY: 120 }));
@@ -78,6 +80,8 @@ describe('App MVP workflow', () => {
       const reloadedInputFrame = await screen.findByRole('article', { name: 'Sheet Renamed Inputs' });
       const reloadedOutputFrame = screen.getByRole('article', { name: 'Sheet Outputs' });
 
+      measureGrid(reloadedInputFrame);
+      measureGrid(reloadedOutputFrame);
       expect(reloadedInputFrame).toHaveAttribute('data-sheet-id', inputSheetId);
       expect(reloadedInputFrame).toHaveAttribute('data-position-x', '72');
       expect(reloadedInputFrame).toHaveAttribute('data-position-y', '144');
@@ -111,4 +115,8 @@ function cellAt(frame: HTMLElement, cellKey: string) {
   const cell = frame.querySelector<HTMLElement>(`[data-cell-key="${cellKey}"]`);
   if (!cell) throw new Error(`Missing cell ${cellKey}`);
   return cell;
+}
+
+function measureGrid(frame: HTMLElement) {
+  act(() => virtualGridGeometry(within(frame).getByTestId('sheet-frame-body'), { width: 238, height: 126 }));
 }
