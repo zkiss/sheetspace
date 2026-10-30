@@ -130,8 +130,8 @@ it('projects unresolved templates in stored and prepared lifecycles without chan
   expect(preparedResult.value.workbook.documents.one.content.cells).toBe(partial.documents.one.content.cells);
 });
 
-it('projects an opaque qualified reference in prepared bindings when an ordinary column is renamed', () => {
-  const formula = '=@Source!Old[2]';
+it.each(['', ':Missing[1]'])('projects an opaque qualified reference%s when an ordinary column is renamed', (suffix) => {
+  const formula = `=@Source!Old[2]${suffix}`;
   const model = declaration([calculatedProperty('result', formula, 'Total')]);
   const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
   const consumer = sheetDocument({ id: 'consumer', name: 'Consumer', rowCount: 1, columnCount: 1 });
@@ -142,7 +142,7 @@ it('projects an opaque qualified reference in prepared bindings when an ordinary
   const result = renamePreparedOrdinaryColumn(bound.value, 'source', source.content.columns[0], "Owner's cost");
   if (!result.ok) throw new Error(result.reason);
   const declarationText = result.value.workbook.dataModels!.model.columns[0].formula!;
-  expect(declarationText).toBe("=@Source!'Owner''s cost'[2]");
+  expect(declarationText).toBe(`=@Source!'Owner''s cost'[2]${suffix}`);
   expect(modelFormulaAssociations(result.value.bindings.consumer.result.content, declarationText)).toBeDefined();
   expect(result.value.workbook.documents.consumer.content.cells).toBe(bound.value.workbook.documents.consumer.content.cells);
 });

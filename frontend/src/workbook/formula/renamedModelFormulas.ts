@@ -47,7 +47,7 @@ export function projectRenamedModelFormulas(before: Workbook, after: Workbook, r
       if (property.kind !== 'calculated') return property;
       const old = previous?.columns.find((item) => item.id === property.id);
       if (old?.kind !== 'calculated' || old.formula !== property.formula) return property;
-      const syntax = parseUserFormulaSyntax(old.formula, (qualifier, name) => resolve(qualifier, name) !== undefined);
+      const syntax = parseUserFormulaSyntax(old.formula, () => true);
       const edits = syntax.referenceLexemes.flatMap((lexeme) => lexeme.endpoints.flatMap((endpoint) => {
         if (endpoint.kind !== 'named') return [];
         const name = resolve(lexeme.qualifier?.value, endpoint.value.propertyName);
