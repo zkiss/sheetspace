@@ -3,6 +3,8 @@ import { namedColumns } from '../core/columnNames';
 import { formatPropertyReferenceToken, parseUserFormulaSyntax } from './syntax';
 import { modelFormulaAssociations } from './modelFormulaAssociation';
 import { escapeFormulaText } from './opaqueFormulaText';
+import type { ModelFormulaBindings } from '../core/modelFormula';
+import type { StoredFormulaContent } from '../core/storedFormulaContent';
 
 export type FormulaNameEdit = { start: number; end: number; text: string };
 
@@ -25,7 +27,10 @@ export function projectOpaqueModelTemplate(content: string, declaration: string,
   return applyFormulaNameEdits(content, replacements);
 }
 
-export function projectRenamedModelFormulas(before: Workbook, after: Workbook): Workbook {
+export type ModelFormulaEditPlan = Readonly<Record<string, Readonly<Record<string, { declaration: string; edits: readonly FormulaNameEdit[] }>>>>;
+
+export function projectRenamedModelFormulas(before: Workbook, after: Workbook, receivePlans?: (plans: ModelFormulaEditPlan) => void): Workbook {
+  const plans: Record<string, Record<string, { declaration: string; edits: FormulaNameEdit[] }>> = {};
   const models = Object.fromEntries(Object.entries(after.dataModels ?? {}).map(([id, model]) => {
     const previous = before.dataModels?.[id];
     const resolve = (qualifier: string | undefined, name: string) => {
@@ -40,14 +45,37 @@ export function projectRenamedModelFormulas(before: Workbook, after: Workbook): 
     };
     return [id, { ...model, columns: model.columns.map((property) => {
       if (property.kind !== 'calculated') return property;
-      const syntax = parseUserFormulaSyntax(property.formula, (qualifier, name) => resolve(qualifier, name) !== undefined);
+      const old = previous?.columns.find((item) => item.id === property.id);
+      if (old?.kind !== 'calculated' || old.formula !== property.formula) return property;
+      const syntax = parseUserFormulaSyntax(old.formula, (qualifier, name) => resolve(qualifier, name) !== undefined);
       const edits = syntax.referenceLexemes.flatMap((lexeme) => lexeme.endpoints.flatMap((endpoint) => {
         if (endpoint.kind !== 'named') return [];
         const name = resolve(lexeme.qualifier?.value, endpoint.value.propertyName);
         return name && name !== endpoint.value.propertyName ? [{ ...endpoint.payloadSpans.column, text: formatPropertyReferenceToken(name) }] : [];
       }));
-      return { ...property, formula: applyFormulaNameEdits(property.formula, edits) };
+      if (!edits.length) return property;
+      (plans[id] ??= {})[property.id] = { declaration: old.formula, edits };
+      return { ...property, formula: applyFormulaNameEdits(old.formula, edits) };
     }) }];
   }));
-  return { ...after, dataModels: models };
+  receivePlans?.(plans);
+  let documents = after.documents;
+  for (const sheet of Object.values(after.documents)) {
+    if (!sheet.modelId || !sheet.modelFormulaBindings) continue;
+    const bindings = projectRenamedBindings(sheet.modelFormulaBindings, plans[sheet.modelId]);
+    if (bindings !== sheet.modelFormulaBindings) documents = { ...documents, [sheet.id]: { ...sheet, modelFormulaBindings: bindings } };
+  }
+  return { ...after, dataModels: models, documents };
+}
+
+export function projectRenamedBindings(bindings: ModelFormulaBindings, plans: ModelFormulaEditPlan[string] | undefined): ModelFormulaBindings {
+  if (!plans) return bindings;
+  let result = bindings;
+  for (const [id, plan] of Object.entries(plans)) {
+    const binding = bindings[id];
+    if (!binding) continue;
+    const content = projectOpaqueModelTemplate(binding.content, plan.declaration, plan.edits) as StoredFormulaContent;
+    if (content !== binding.content) result = { ...result, [id]: { ...binding, content } };
+  }
+  return result;
 }

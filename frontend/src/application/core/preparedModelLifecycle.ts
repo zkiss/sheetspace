@@ -1,6 +1,7 @@
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import type { Workbook } from '@workbook/core/model';
 import { instantiatePreparedModelFormulas, prepareModelFormula, prepareModelFormulas, type PreparedModelFormula } from '@workbook/formula/preparedModelTemplate';
+import { projectRenamedBindings } from '@workbook/formula/renamedModelFormulas';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { lifecycleOperations, withSheet } from './modelLifecycle';
 
@@ -22,7 +23,15 @@ const preparedLifecycle = lifecycleOperations<PreparedLifecycle, PreparedModelFo
   prepare: (workbook, sheetId, formula) => prepareModelFormula(formula, workbook, sheetId),
   prepareAll: prepareModelFormulas,
   calculate: (workbook) => new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }),
-  rename: (state, workbook) => ({ ...state, workbook }),
+  rename: (state, workbook, plans) => {
+    let bindings = state.bindings;
+    for (const [sheetId, current] of Object.entries(state.bindings)) {
+      const modelId = workbook.documents[sheetId]?.modelId;
+      const updated = projectRenamedBindings(current, modelId ? plans[modelId] : undefined);
+      if (updated !== current) bindings = { ...bindings, [sheetId]: updated };
+    }
+    return { ...state, workbook, bindings };
+  },
   finish: (state, workbook, changes) => {
     const bindings = { ...state.bindings };
     for (const [sheetId, value] of Object.entries(changes)) {

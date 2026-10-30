@@ -6,7 +6,7 @@ import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 import { bindModelFormula, bindModelFormulas, instantiateModelFormulas, refreshDerivedInstances } from '@workbook/formula/modelTemplate';
 import { hasModelNameCollision, validateDataModel } from '@workbook/mutations/dataModel';
-import { projectRenamedModelFormulas } from '@workbook/formula/renamedModelFormulas';
+import { projectRenamedModelFormulas, type ModelFormulaEditPlan } from '@workbook/formula/renamedModelFormulas';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 
 /** Must allocate globally fresh identities, including identities removed by earlier edits. */
@@ -20,7 +20,7 @@ export interface LifecycleAdapter<S, B> {
   prepare(workbook: Workbook, sheetId: string, formula: string): B;
   prepareAll(workbook: Workbook, sheetId: string): Readonly<Record<string, B>>;
   calculate(workbook: Workbook): FormulaEvaluationSnapshot;
-  rename(state: S, workbook: Workbook): S;
+  rename(state: S, workbook: Workbook, plans: ModelFormulaEditPlan): S;
   finish(state: S, workbook: Workbook, changes: Readonly<Record<string, Readonly<Record<string, B>> | undefined>>): S;
 }
 
@@ -67,8 +67,9 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       if (affectedSheets.some((sheet) => hasModelNameCollision(sheet, model, sheet.modelColumnBindings ?? {}))) return { ok: false, reason: 'invalid-model' };
       if (JSON.stringify(previous) === JSON.stringify(model)) return { ok: true, value: state };
       if (namesOnly(previous, model)) {
-        const projected = projectRenamedModelFormulas(workbook, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } });
-        return { ok: true, value: adapter.rename(state, projected) };
+        let plans: ModelFormulaEditPlan = {};
+        const projected = projectRenamedModelFormulas(workbook, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } }, (value) => { plans = value; });
+        return { ok: true, value: adapter.rename(state, projected, plans) };
       }
       if (affectedSheets.some((sheet) => model.columns.some((property) => {
         const bound = sheet.modelColumnBindings?.[property.id];

@@ -5,6 +5,8 @@ import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { bindSheetToModel, replaceModelDeclaration } from './modelLifecycle';
 import { bindPreparedSheet, replacePreparedDeclaration } from './preparedModelLifecycle';
 import { renameOrdinaryColumn } from '@workbook/mutations/renameOrdinaryColumn';
+import { bindModelFormula } from '@workbook/formula/modelTemplate';
+import { modelFormulaAssociations } from '@workbook/formula/modelFormulaAssociation';
 
 it('preserves stored and prepared sheets and bindings for a property-only rename', () => {
   const model = declaration([manualProperty('input', 'Input'), calculatedProperty('result', '=@A[1]*2', 'Result')]);
@@ -103,4 +105,27 @@ it('binds a new consumer to a renamed ordinary column without changing existing 
   const attached = bindModelSheets(result.value, ['second']);
   expect(calculatedModelCells(attached).first.A1?.display).toBe('14');
   expect(calculatedModelCells(attached).second.A1?.display).toBe('14');
+});
+
+it('projects unresolved templates in stored and prepared lifecycles without changing historical cells', () => {
+  const model = declaration([manualProperty('input', 'Old'), calculatedProperty('result', '=@Old[1]', 'Total')]);
+  const sheet = sheetDocument({ id: 'one', name: 'one', rowCount: 1, columnCount: 2 });
+  const initial = modelWorkbook(model, [sheet]);
+  const bound = bindModelSheets(initial, ['one']);
+  const originalSheet = bound.documents.one;
+  const partial = { ...bound, documents: { ...bound.documents, one: { ...originalSheet, modelColumnBindings: { result: originalSheet.modelColumnBindings!.result } } } };
+  const template = bindModelFormula('=@Old[1]', partial, 'one');
+  const stored = { ...partial, documents: { ...partial.documents, one: { ...partial.documents.one, modelFormulaBindings: { result: template } } } };
+  const prepared = { workbook: partial, bindings: { one: { result: template } } };
+  const changed = { ...model, columns: [{ ...model.columns[0], name: "Owner's cost" }, model.columns[1]] };
+
+  const renamed = successfulModelMutation(replaceModelDeclaration(stored, changed, freshColumns()));
+  const preparedResult = replacePreparedDeclaration(prepared, changed, freshColumns());
+  if (!preparedResult.ok) throw new Error(preparedResult.reason);
+  const declarationText = renamed.dataModels!.model.columns[1].formula!;
+  expect(declarationText).toBe("=@'Owner''s cost'[1]");
+  expect(modelFormulaAssociations(renamed.documents.one.modelFormulaBindings!.result.content, declarationText)).toBeDefined();
+  expect(preparedResult.value.bindings.one.result).toEqual(renamed.documents.one.modelFormulaBindings!.result);
+  expect(renamed.documents.one.content.cells).toBe(stored.documents.one.content.cells);
+  expect(preparedResult.value.workbook.documents.one.content.cells).toBe(partial.documents.one.content.cells);
 });
