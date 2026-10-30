@@ -22,6 +22,7 @@ const preparedLifecycle = lifecycleOperations<PreparedLifecycle, PreparedModelFo
   prepare: (workbook, sheetId, formula) => prepareModelFormula(formula, workbook, sheetId),
   prepareAll: prepareModelFormulas,
   calculate: (workbook) => new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }),
+  rename: (state, workbook) => ({ ...state, workbook }),
   finish: (state, workbook, changes) => {
     const bindings = { ...state.bindings };
     for (const [sheetId, value] of Object.entries(changes)) {

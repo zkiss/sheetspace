@@ -19,6 +19,7 @@ export interface LifecycleAdapter<S, B> {
   prepare(workbook: Workbook, sheetId: string, formula: string): B;
   prepareAll(workbook: Workbook, sheetId: string): Readonly<Record<string, B>>;
   calculate(workbook: Workbook): FormulaEvaluationSnapshot;
+  rename(state: S, workbook: Workbook): S;
   finish(state: S, workbook: Workbook, changes: Readonly<Record<string, Readonly<Record<string, B>> | undefined>>): S;
 }
 
@@ -61,6 +62,9 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       const invalid = validateDataModel(model);
       if (invalid && !invalid.ok) return invalid;
       if (JSON.stringify(previous) === JSON.stringify(model)) return { ok: true, value: state };
+      if (namesOnly(previous, model)) {
+        return { ok: true, value: adapter.rename(state, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } }) };
+      }
       const sourceState = adapter.source(state);
       const source = adapter.workbook(sourceState);
       const affected = Object.values(source.documents).filter((sheet) => sheet.modelId === model.id);
@@ -89,6 +93,13 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
   };
 }
 
+function namesOnly(previous: DataModel, next: DataModel): boolean {
+  return previous.columns.length === next.columns.length && previous.columns.every((column, index) => {
+    const candidate = next.columns[index]!;
+    return column.id === candidate.id && column.kind === candidate.kind && column.type === candidate.type && column.formula === candidate.formula;
+  });
+}
+
 const storedLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[string]>({
   workbook: (workbook) => workbook,
   source: (workbook) => workbook,
@@ -96,6 +107,7 @@ const storedLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[strin
   prepare: (workbook, sheetId, formula) => bindModelFormula(formula, workbook, sheetId),
   prepareAll: bindModelFormulas,
   calculate,
+  rename: (_state, workbook) => workbook,
   finish: (source, structured, changes) => {
     let next = structured;
     for (const [sheetId, bindings] of Object.entries(changes)) {

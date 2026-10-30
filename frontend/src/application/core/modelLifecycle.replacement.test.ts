@@ -180,7 +180,7 @@ describe('property kind transitions and empty declarations', () => {
     const sheet = workbook.documents.sheet!;
     workbook.documents.sheet = { ...sheet, modelId: model.id, modelColumnBindings: { input: 'missing-column' } };
 
-    const next = successfulModelMutation(replaceModelDeclaration(workbook, { ...model, name: 'Renamed' }, freshColumns()));
+    const next = successfulModelMutation(replaceModelDeclaration(workbook, { ...model, columns: [model.columns[1]!, model.columns[0]!, model.columns[2]!] }, freshColumns()));
 
     expect(next.documents.sheet!.content.columns).toEqual(['fresh-1', 'fresh-2', 'fresh-3']);
     expect(storedModelCells(next).A1).toBeUndefined();
