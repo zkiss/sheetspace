@@ -5,7 +5,8 @@ import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellTargetAt } from '@grid/cellInteraction';
-import { formulaRawForStorage } from '@workbook/formula/reference';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { cellRawContent, findSheetById } from '@workbook/read/queries';
 import { autosaveClient } from '@test-support/apiClients';
@@ -41,7 +42,7 @@ describe('useWorkbookController paste', () => {
   it('retains the entire optimistic move and retries it as one operation after a save failure', async () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2, cells: { A1: '10' } });
     const workbook = workbookWithSheets([sheet]);
-    sheet.content.cells[cellIdentityKey(cellIdentityAt(sheet.content, 'B1')!)] = formulaRawForStorage('=@A[1]', workbook, sheet.id);
+    sheet.content.cells[cellIdentityKey(cellIdentityAt(sheet.content, 'B1')!)] = prepareUserFormula('=@A[1]', workbook, sheet.id);
     const store = new ClipboardPayloadStore();
     const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(sheet, 'A1')!, extent: cellTargetAt(sheet, 'A1')! });
     if (!cut.ok) throw new Error('cut failed');
@@ -67,8 +68,8 @@ describe('useWorkbookController paste', () => {
     const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 2, columnCount: 2 });
     const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([source, destination, dependent]);
-    source.content.cells[cellIdentityKey(cellIdentityAt(source.content, 'B1')!)] = formulaRawForStorage('=@A[1]', workbook, source.id);
-    dependent.content.cells[cellIdentityKey(cellIdentityAt(dependent.content, 'A1')!)] = formulaRawForStorage('=@Source!A[1]', workbook, dependent.id);
+    source.content.cells[cellIdentityKey(cellIdentityAt(source.content, 'B1')!)] = prepareUserFormula('=@A[1]', workbook, source.id);
+    dependent.content.cells[cellIdentityKey(cellIdentityAt(dependent.content, 'A1')!)] = prepareUserFormula('=@Source!A[1]', workbook, dependent.id);
     const store = new ClipboardPayloadStore();
     const cut = store.cut(workbook, { mode: 'cells', anchor: cellTargetAt(source, 'A1')!, extent: cellTargetAt(source, 'B1')! });
     if (!cut.ok) throw new Error('cut failed');
@@ -186,7 +187,7 @@ describe('useWorkbookController paste', () => {
     const seededWorkbook = workbookWithSheets([seed]);
     const sheet = {
       ...seed,
-      content: { ...seed.content, cells: { ...seed.content.cells, [seed.content.rows[0]! + '\u0000' + seed.content.columns[0]!]: formulaRawForStorage('=@B[1]', seededWorkbook, seed.id) } },
+      content: { ...seed.content, cells: { ...seed.content.cells, [seed.content.rows[0]! + '\u0000' + seed.content.columns[0]!]: prepareUserFormula('=@B[1]', seededWorkbook, seed.id) } },
     };
     const workbook = workbookWithSheets([sheet]);
     const clipboard = parsedInternalClipboard(workbook, sheet);
@@ -201,7 +202,8 @@ describe('useWorkbookController paste', () => {
     });
 
     const pasted = findSheetById(result.current.workbook, sheet.id)!;
-    expect(cellRawContent(pasted, 'B2')).toBe('=@sheet:column:3[sheet:row:2]');
+    const pastedFormula = cellRawContent(pasted, 'B2')!;
+    expect(projectStoredFormula(pastedFormula, result.current.workbook).text).toBe('=@C[2]');
     expect(cellRawContent(pasted, 'C2')).toBeUndefined();
     expect(pasted.presentation).toBe(presentation);
     expect(calculate).toHaveBeenCalledTimes(1);
@@ -210,7 +212,7 @@ describe('useWorkbookController paste', () => {
     expect(apiClient.writeCells).toHaveBeenCalledWith(
       [{ sheetId: sheet.id, revision: 0 }],
       expect.arrayContaining([
-        expect.objectContaining({ rowId: 'sheet:row:2', columnId: 'sheet:column:2', raw: '=@sheet:column:3[sheet:row:2]' }),
+        expect.objectContaining({ rowId: 'sheet:row:2', columnId: 'sheet:column:2', raw: pastedFormula }),
         expect.objectContaining({ rowId: 'sheet:row:2', columnId: 'sheet:column:3', raw: '' }),
       ]),
     );
@@ -220,7 +222,7 @@ describe('useWorkbookController paste', () => {
     expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B2')).toBe('old');
     expect(result.current.canRedo).toBe(true);
     act(() => result.current.commands.redo());
-    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B2')).toBe('=@sheet:column:3[sheet:row:2]');
+    expect(cellRawContent(findSheetById(result.current.workbook, sheet.id)!, 'B2')).toBe(pastedFormula);
     await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(3));
   });
 
@@ -284,7 +286,7 @@ describe('useWorkbookController paste', () => {
           dimensions: { rowCount: 1, columnCount: 2 },
           cells: [[
             { identity: cellIdentityAt(source.content, 'A1')!, raw: 'first' },
-            { identity: cellIdentityAt(source.content, 'B1')!, raw: '=@#REF!source:column:1[source:row:1]' },
+            { identity: cellIdentityAt(source.content, 'B1')!, raw: prepareUserFormula('=@J[20]', workbook, source.id) },
           ]],
         },
       },
