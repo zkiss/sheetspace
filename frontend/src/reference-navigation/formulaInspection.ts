@@ -1,5 +1,6 @@
 import type { FormulaInspectionReference, FormulaReferenceTarget } from '@workbook/formula/formulaInspectionContracts';
 import { cellIdentityAt, stableRangeAt } from '@workbook/core/cellIdentity';
+import { namedColumns } from '@workbook/core/columnNames';
 import { findSheetById } from '@workbook/read/queries';
 import { analyzeFormulaSyntax, formulaRawForDisplay, formulaRawToDisplayProjection, formulaReferenceTokens, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
@@ -151,7 +152,7 @@ function inspectionReference(
     const identity = !reference.range
       ? { rowId: reference.coordinate.rowId, columnId: reference.coordinate.columnId }
       : undefined;
-    const hasProperty = (propertyId: string | undefined, columnId: string) => !propertyId || (targetSheet?.modelColumnBindings?.[propertyId] === columnId && Boolean(targetSheet.modelId && workbook.dataModels?.[targetSheet.modelId]?.columns.some((column) => column.id === propertyId)));
+    const hasProperty = (propertyId: string | undefined, columnId: string) => !propertyId || Boolean(targetSheet && namedColumns(workbook, targetSheet).some((column) => column.id === propertyId && column.columnId === columnId));
     const propertyValid = hasProperty(reference.propertyId, reference.coordinate.columnId)
       && hasProperty(reference.range?.endPropertyId, reference.range?.end.columnId ?? '');
     const valid = propertyValid && targetSheet && (range
