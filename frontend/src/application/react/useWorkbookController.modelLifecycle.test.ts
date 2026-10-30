@@ -30,6 +30,22 @@ function bind(workbook: Workbook, sheetId: string): Workbook {
 }
 
 describe('model lifecycle controller wiring', () => {
+  it('persists column renames and rolls back a failed save', async () => {
+    const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const column = workbook.documents.one!.content.columns[0]!;
+    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (_before, after) => after) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    let first: ReturnType<typeof result.current.commands.renameColumn>;
+    act(() => { first = result.current.commands.renameColumn('one', column, ' Revenue '); });
+    await expect(first!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
+    await waitFor(() => expect(result.current.workbook.documents.one!.columnNames).toBeUndefined());
+    let retry: ReturnType<typeof result.current.commands.renameColumn>;
+    act(() => { retry = result.current.commands.renameColumn('one', column, ' Revenue '); });
+    await expect(retry!.completion).resolves.toMatchObject({ ok: true });
+    expect(result.current.workbook.documents.one!.columnNames).toEqual({ [column]: 'Revenue' });
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
+  });
+
   it('creates and persists an unbound model through the lifecycle boundary', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const api = persistedWorkbookClient(workbook);

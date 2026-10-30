@@ -61,6 +61,12 @@ private fun validateLifecycleStructure(workbook: WorkbookState) {
         requireLifecycle(sheet.tabularContent.rows.all { it.value.toUuidBytesOrNull() != null } && sheet.tabularContent.columns.all { it.value.toUuidBytesOrNull() != null })
         requireLifecycle(sheet.frame.position.isValid() && sheet.frame.size.isValid() && isValidSheetVisualScale(sheet.frame.visualScale) && sheet.frame.zIndex >= 1)
         requireLifecycle(validModelColumnBindings(sheet, workbook.dataModels))
+        val names = sheet.columnNames
+        requireLifecycle(names.keys.all { id -> sheet.tabularContent.columns.any { it.value == id } && sheet.modelColumnBindings.values.none { it.value == id } })
+        requireLifecycle(names.values.all { it.isNotBlank() && it == it.trim() } && names.values.distinct().size == names.size)
+        val model = sheet.modelId?.let { workbook.dataModels[it] }
+        val boundNames = model?.columns?.filter { sheet.modelColumnBindings.containsKey(it.id) }?.map { it.name.trim() }.orEmpty()
+        requireLifecycle(names.values.none { it in boundNames })
         val presentation = sheet.presentation
         val sizes = presentation.rowHeights.map { (id, size) -> AxisSizeWrite("row", id, size) } + presentation.columnWidths.map { (id, size) -> AxisSizeWrite("column", id, size) }
         if (sizes.isNotEmpty()) validatedPresentationWrites(sheet, sizes)

@@ -20,6 +20,7 @@ internal fun WorkbookBundleResponse.toLifecycleWorkbook(): WorkbookState = try {
                 modelId = document.modelId,
                 modelColumnBindings = document.modelColumnBindings.mapValues { ColumnId(it.value) },
                 modelFormulaBindings = document.modelFormulaBindings,
+                columnNames = document.columnNames,
             )
             sheet.id to sheet
         },

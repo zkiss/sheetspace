@@ -16,6 +16,26 @@ import kotlin.test.assertNotEquals
 
 class ModelLifecycleRoutesTest {
     @Test
+    fun `column names survive lifecycle writes and stale snapshots conflict`() {
+        SqliteWorkbookStore.inMemory().use { store ->
+            val before = lifecycleWorkbook()
+            store.saveWorkbook(before)
+            val sheet = before.sheetsInOrder.first()
+            val column = sheet.tabularContent.columns.first().value
+            val after = before.replaceSheet(sheet.copy(columnNames = mapOf(column to "Revenue")))
+            testApplication {
+                application { module(DefaultWorkbookApplication(store)) }
+                val response = client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, after)) }
+                assertEquals(HttpStatusCode.OK, response.status)
+                assertEquals(mapOf(column to "Revenue"), response.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook().documents.getValue(sheet.id).columnNames)
+                assertEquals(mapOf(column to "Revenue"), store.loadWorkbookBundle().documents.getValue(sheet.id).columnNames)
+                val stale = before.replaceSheet(sheet.copy(columnNames = mapOf(column to "Other")))
+                assertEquals(HttpStatusCode.Conflict, client.put("/api/workbook/model-lifecycle") { jsonBody(lifecycleBody(before, stale)) }.status)
+            }
+        }
+    }
+
+    @Test
     fun `empty bound sheets retain templates while authoritative appended rows and frontend formulas survive reload`() {
         SqliteWorkbookStore.inMemory().use { store ->
             val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
