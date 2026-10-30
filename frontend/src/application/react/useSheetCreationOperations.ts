@@ -23,16 +23,18 @@ export function useSheetCreationOperations({
   const [creatingFrames, setCreatingFrames] = useState<CreatingSheetFrame[]>([]);
   const [failed, setFailed] = useState(false);
   const reservedNames = useRef(new Set<string>());
+  const latestCreation = useRef<string | null>(null);
   const creatingFramesRef = useRef(creatingFrames);
   creatingFramesRef.current = creatingFrames;
 
-  const createSheet = useCallback((name: string, position: WorkspacePosition, viewportScale = 1) => {
+  const createSheet = useCallback((name: string, position: WorkspacePosition, viewportScale = 1, onCreated?: (sheet: SheetDocument) => void) => {
     const workbook = currentWorkbook();
     const validation = validateSheetName(name, sheetsInOrder(workbook));
     if (!validation.ok) return validation;
     if (reservedNames.current.has(validation.name)) return { ok: false as const, reason: 'duplicate' as const };
 
     const operationKey = crypto.randomUUID();
+    latestCreation.current = operationKey;
     reservedNames.current.add(validation.name);
     const zIndex = Math.max(0, ...sheetsInOrder(workbook).map((sheet) => sheet.frame.zIndex), ...creatingFramesRef.current.map((frame) => frame.zIndex)) + 1;
     const visualScale = clampSheetVisualScale(1 / viewportScale);
@@ -61,6 +63,7 @@ export function useSheetCreationOperations({
             documents: { ...current.documents, [sheet.id]: sheet },
           };
         }, { kind: 'structure' });
+        if (latestCreation.current === operationKey) onCreated?.(sheet);
       }).catch(() => {
         creatingFramesRef.current = creatingFramesRef.current.filter((frame) => frame.operationKey !== operationKey);
         setCreatingFrames((frames) => frames.filter((frame) => frame.operationKey !== operationKey));

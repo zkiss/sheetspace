@@ -115,7 +115,11 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
       return;
     }
 
-    const result = commands.createSheet(sheetName, pendingCreation.position, pendingCreation.viewportScale);
+    const result = commands.createSheet(sheetName, pendingCreation.position, pendingCreation.viewportScale, (sheet) => {
+      const rowId = sheet.content.rows[0];
+      const columnId = sheet.content.columns[0];
+      if (rowId && columnId) selectCell({ sheetId: sheet.id, cell: { rowId, columnId } });
+    });
 
     if (!result.ok) {
       setError(validationMessage(result.reason));

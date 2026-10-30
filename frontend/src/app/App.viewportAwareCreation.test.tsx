@@ -43,6 +43,9 @@ describe('viewport-aware sheet creation', () => {
       { ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }), frame: { ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }).frame, zIndex: 9 } },
     ])} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
+    const existing = screen.getByRole('article', { name: 'Sheet Existing' });
+    fireEvent.click(cellAt(existing, 'A1'));
+    expect(existing).toHaveClass('sheet-frame-active');
 
     zoomWorkspace('in');
     fireEvent.click(screen.getByRole('button', { name: /new sheet/i }));
@@ -68,6 +71,8 @@ describe('viewport-aware sheet creation', () => {
     const saved = await screen.findByRole('article', { name: 'Sheet Inputs' });
     expect(saved).toHaveAttribute('data-visual-scale', String(expectedScale));
     expect(saved).toHaveAttribute('data-z-index', '10');
+    expect(saved).toHaveClass('sheet-frame-active');
+    expect(existing).not.toHaveClass('sheet-frame-active');
     expect(updateSheetVisualScale).not.toHaveBeenCalled();
   });
 

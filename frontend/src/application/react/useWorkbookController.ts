@@ -1,4 +1,4 @@
-import type { AxisSizeWrite, FormatWrite } from '@workbook/core/model';
+import type { AxisSizeWrite, FormatWrite, SheetDocument } from '@workbook/core/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
@@ -58,7 +58,7 @@ export type WorkbookCommands = {
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
-  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number) => ValidationResult;
+  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult;
   deleteSheet: (sheetId: string) => WorkbookOperationResult;
   moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
   pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
