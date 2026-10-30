@@ -1,6 +1,7 @@
 package com.sheetspace
 
 import java.nio.file.Files
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -67,8 +68,10 @@ class CalculatedTransitionAuthorityTest {
         store.saveWorkbook(before)
         val sheet = before.sheetsInOrder.first()
         val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
-        val reference = template.references.single()
-        val forged = template.copy(references = listOf(reference.copy(endpoints = reference.endpoints.map { it!!.copy(rowIndex = 1.0) })))
+        val stored = StoredFormulaCodec.decode(template.content)
+        val forged = template.copy(content = StoredFormulaCodec.encode(stored.copy(occurrences = stored.occurrences.map { occurrence ->
+            occurrence.copy(slots = occurrence.slots.map { slot -> if (slot.kind == "row") slot.copy(key = JsonPrimitive(1)) else slot })
+        })))
         val tampered = freshlyInstantiated(before.replaceSheet(sheet.copy(modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to forged))))
 
         listOf(tampered, tampered.replaceSheet(tampered.documents.getValue(sheet.id).copy(
@@ -90,7 +93,8 @@ class CalculatedTransitionAuthorityTest {
         val changed = renamed.copy(dataModels = renamed.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
             if (it is CalculatedModelColumn) it.copy(formula = "=@A[1]*3") else it
         }) }, documents = renamed.documents.mapValues { (_, sheet) -> sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) ->
-            template.copy(raw = "=@A[1]*3")
+            val stored = StoredFormulaCodec.decode(template.content)
+            template.copy(content = StoredFormulaCodec.encode(stored.copy(text = "=@A[1]*3")))
         }) })
 
         assertTrue(calculatedTransitionIsValid(before, renamed))
