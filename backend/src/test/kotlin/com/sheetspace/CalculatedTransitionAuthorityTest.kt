@@ -8,6 +8,44 @@ import kotlin.test.assertTrue
 
 class CalculatedTransitionAuthorityTest {
     @Test
+    fun `partial binding rename persists associated opaque template and retains historical cells`() = withSqliteStore { store ->
+        val base = transitionWorkbook().let { it.removeSheet(it.sheetsInOrder.last().id) }
+        val model = base.dataModels.getValue(LIFECYCLE_MODEL)
+        val declaration = "=@Input[1]*2"
+        val template = BoundModelFormula("=" + StoredFormulaCodec.escape("@Input[1]") + "*2")
+        val before = freshlyInstantiated(base.copy(
+            dataModels = base.dataModels + (model.id to model.copy(columns = model.columns.map {
+                if (it is CalculatedModelColumn) it.copy(formula = declaration) else it
+            })),
+            documents = base.documents.mapValues { (_, sheet) -> sheet.copy(
+                modelColumnBindings = sheet.modelColumnBindings - LIFECYCLE_INPUT,
+                modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template),
+            ) },
+        ))
+        store.saveWorkbook(before)
+        val renamed = before.copy(
+            dataModels = before.dataModels.mapValues { (_, value) -> value.copy(columns = value.columns.map {
+                when (it) {
+                    is CalculatedModelColumn -> it.copy(formula = "=@'O''Brien total'[1]*2")
+                    else -> (it as ManualModelColumn).copy(name = "O'Brien total")
+                }
+            }) },
+            documents = before.documents.mapValues { (_, sheet) -> sheet.copy(modelFormulaBindings = mapOf(
+                LIFECYCLE_OUTPUT to BoundModelFormula("=" + StoredFormulaCodec.escape("@'O''Brien total'[1]") + "*2"),
+            )) },
+        )
+        val saved = DefaultWorkbookApplication(store).saveModelLifecycle(before, renamed)
+        assertEquals(saved, store.loadWorkbookBundle())
+        assertEquals(before.sheetsInOrder.first().tabularContent.cellContents, saved.sheetsInOrder.first().tabularContent.cellContents)
+        val sheet = saved.sheetsInOrder.first()
+        val row = RowId.generate()
+        val appended = materializeDerivedContents(saved.replaceSheet(sheet.copy(content = TabularContent(
+            sheet.tabularContent.rows + row, sheet.tabularContent.columns, sheet.tabularContent.cellContents,
+        ))))
+        assertTrue(calculatedTransitionIsValid(saved, appended))
+    }
+
+    @Test
     fun `projected property and ordinary names preserve reordered calculated instances on save`() {
         listOf(false to false, false to true, true to false, true to true).forEach { (ordinary, anchoredColumn) ->
             withSqliteStore { store ->

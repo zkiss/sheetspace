@@ -28,7 +28,8 @@ internal fun <T> calculatedTransitionIsValid(current: WorkbookState, updated: Wo
             val column = sheet.modelColumnBindings[property.id] ?: return@propertyCheck true
             val template = rules.templates(sheet).orEmpty().getValue(property.id)
             val previous = continuingCalculatedSheet(current, updated, sheet, property, column, template, rules)
-            if (previous != null && rules.templates(previous).orEmpty()[property.id] != template) return@propertyCheck false
+            val oldProperty = current.dataModels[sheet.modelId]?.columns?.find { it.id == property.id } as? CalculatedModelColumn
+            if (previous != null && oldProperty?.formula == property.formula && rules.templates(previous).orEmpty()[property.id] != template) return@propertyCheck false
             sheet.tabularContent.rows.withIndex().all { (rowIndex, row) ->
                 val coordinate = CellCoordinate(row, column)
                 val expected = if (previous != null && row in previous.tabularContent.rows) {
@@ -100,7 +101,14 @@ private fun <T> continuingCalculatedSheet(
     val model = current.dataModels[sheet.modelId] ?: return null
     val declaration = model.columns.find { it.id == property.id }
     if (declaration !is CalculatedModelColumn) return null
-    return if (declaration.formula == property.formula || projectedDeclaration(current, updated, sheet, rules.content(template), declaration.formula, property.formula)) previous else null
+    if (declaration.formula == property.formula) return previous
+    val oldTemplate = rules.templates(previous).orEmpty()[property.id] ?: return null
+    val edits = renamedDeclarationEdits(current, updated, model, declaration.formula)
+    val projected = applyFormulaNameEdits(declaration.formula, edits) == property.formula &&
+        rules.valid(oldTemplate, declaration.formula) &&
+        projectOpaqueModelTemplate(rules.content(oldTemplate), declaration.formula, edits) == rules.content(template)
+    val canonicalProjection = oldTemplate == template && projectedDeclaration(current, updated, sheet, rules.content(template), declaration.formula, property.formula)
+    return if (projected || canonicalProjection) previous else null
 }
 
 private fun projectedDeclaration(before: WorkbookState, after: WorkbookState, sheet: SheetDocument, content: String, old: String, new: String): Boolean {
