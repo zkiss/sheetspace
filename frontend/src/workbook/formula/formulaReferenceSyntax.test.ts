@@ -69,6 +69,22 @@ describe('UUID reference components and projections', () => {
     );
   });
 
+  it('preserves unresolved ranges and quoted reference-like text while binding a valid anchored range', () => {
+    const raw = `=SUM("@A[1]", @Missing!A[1]:B[2], @$B[$2]:A[1], ???)`;
+
+    expect(formulaRawToCanonicalBestEffort(raw, resolver)).toBe(
+      `=SUM("@A[1]", @Missing!A[1]:B[2], @$${otherColumnId}[$${otherRowId}]:${columnId}[${rowId}], ???)`,
+    );
+  });
+
+  it('does not treat a user-entered canonical reference as a reference to bind', () => {
+    const raw = `=@${sheetId}!${columnId}[${rowId}] + @A[1]`;
+
+    expect(formulaRawToCanonicalBestEffort(raw, resolver)).toBe(
+      `=@${sheetId}!${columnId}[${rowId}] + @${columnId}[${rowId}]`,
+    );
+  });
+
   it('round trips independent range anchors and projects exact component and whole-reference spans', () => {
     const raw = "= sUm(\n @'Owner''s Plan' \t! $B[$2] : A[1], @A[$1] )";
     const canonical = `= sUm(\n @${sheetId} \t! $${otherColumnId}[$${otherRowId}] : ${columnId}[${rowId}], @${columnId}[$${rowId}] )`;
