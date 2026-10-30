@@ -30,6 +30,28 @@ function calculate(workbook: Workbook) {
 }
 
 describe('single-content model templates', () => {
+  it('instantiates implicit rows for unquoted and escaped property names', () => {
+    const workbook = instances();
+    for (const [raw, expected] of [['=@Result', '=@Result[2]'], ["=@'Owner''s input'", "=@'Owner''s input'[2]"]] as const) {
+      const instance = instantiateModelFormula(bindModelFormula(raw, workbook, 'one'), workbook, 1);
+      expect(projectStoredFormula(instance, workbook, 'one').text).toBe(expected);
+    }
+  });
+
+  it('leaves unbound sheets unchanged and does not repair a missing model target', () => {
+    const workbook = instances();
+    const sheet = workbook.documents.one;
+    const ordinary = { ...workbook, documents: { ...workbook.documents, one: { ...sheet, modelId: undefined } } };
+    expect(bindModelFormulas(ordinary, 'one')).toEqual({});
+    expect(bindModelFormulas(ordinary, 'missing')).toEqual({});
+    expect(instantiateModelFormulas(ordinary, 'one', { missing: bindModelFormula('=1', ordinary, 'one') }).content.cells).toEqual(sheet.content.cells);
+    const template = bindModelFormula("=@'Owner''s input'[1]", workbook, 'one');
+    const noModel = { ...workbook, dataModels: {} };
+    const instance = instantiateModelFormula(template, noModel, 0);
+    expect(decodeStoredFormula(instance).occurrences[0].slots.find((slot) => slot.kind === 'property')!.targetIds).toEqual(['input', sheet.content.columns[0]]);
+    const output = instantiateModelFormulas(noModel, 'one', { result: template });
+    expect(calculate({ ...noModel, documents: { ...noModel.documents, one: output } }).one.B1).toMatchObject({ error: '#REF!' });
+  });
   it('serializes one expression and derives independent instances from declarations, not first-row cells', () => {
     const workbook = instances();
     const bindings = JSON.parse(JSON.stringify(bindModelFormulas(workbook, 'one')));
@@ -164,7 +186,7 @@ describe('single-content model templates', () => {
 
   it('evaluates errors and conditional branches without destructively replacing invalid text', () => {
     const workbook = instances();
-    for (const [raw, error] of [['=1+', '#PARSE!'], ['=@Missing!A[1]', '#REF!'], ['=@A[3]', '#REF!'], ['=@B[1]', '#CYCLE!'], ['=IF(TRUE, 7, @A[999])', undefined]] as const) {
+    for (const [raw, error] of [['=1+', '#PARSE!'], ['=@Missing!A[1]', '#REF!'], ["=@'Missing'[1]", '#REF!'], ['=@Z[1]', '#REF!'], ['=@A[3]', '#REF!'], ['=@B[1]', '#CYCLE!'], ['=IF(TRUE, 7, @A[999])', undefined]] as const) {
       const one = instantiateModelFormulas(workbook, 'one', { result: bindModelFormula(raw, workbook, 'one') });
       const updated = { ...workbook, documents: { ...workbook.documents, one } };
 

@@ -242,6 +242,46 @@ class ModelLifecycleTest {
     }
 
     @Test
+    fun `qualified templates derive rows from the referenced sheet and survive lifecycle transport`() {
+        val before = lifecycleWorkbook()
+        val bound = lifecycleBoundWorkbook(before)
+        val target = bound.sheetsInOrder.first()
+        val source = bound.sheetsInOrder.last()
+        val declaration = "=One!@A[1]"
+        val occurrence = FormulaOccurrence(
+            "o", FormulaSpan(1, 10), "s", listOf(FormulaEndpoint("e", "c", "r", false, false)),
+            listOf(
+                FormulaSlot("s", "sheet", JsonPrimitive("One"), "retained", listOf(target.id.value)),
+                FormulaSlot("c", "column", JsonPrimitive(0), "retained", listOf(target.tabularContent.columns[0].value)),
+                FormulaSlot("r", "row", JsonPrimitive(1), "retained", listOf(target.tabularContent.rows[0].value)),
+            ), emptyList(),
+        )
+        val template = BoundModelFormula(StoredFormulaCodec.encode(StoredFormula(declaration, listOf(occurrence))))
+        val model = bound.dataModels.getValue(LIFECYCLE_MODEL)
+        val changedModel = model.copy(columns = listOf(model.columns[0], (model.columns[1] as CalculatedModelColumn).copy(formula = declaration)))
+        val changed = bound.copy(dataModels = bound.dataModels + (model.id to changedModel), documents = bound.documents.mapValues { (_, sheet) ->
+            val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+            val content = sheet.tabularContent.rows.foldIndexed(sheet.tabularContent) { index, current, row ->
+                current.updateCell(current.addressOf(CellCoordinate(row, output))!!, derivedFormulaRaw(template, bound, index))
+            }
+            sheet.copy(modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template), content = content)
+        })
+
+        val saved = DefaultWorkbookApplication(InMemoryWorkbookStore(before)).saveModelLifecycle(before, changed)
+        val reloaded = Json.decodeFromString<WorkbookBundleResponse>(Json.encodeToString(WorkbookReadTransportAdapter.bundle(saved))).toLifecycleWorkbook()
+        val savedSource = reloaded.documents.getValue(source.id)
+        assertEquals(template, savedSource.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT))
+        savedSource.tabularContent.rows.forEachIndexed { index, row ->
+            val content = savedSource.tabularContent.cellContents.getValue(CellCoordinate(row, savedSource.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)))
+            val instance = StoredFormulaCodec.decode(content)
+            assertEquals(declaration, instance.text)
+            assertEquals(occurrence.slots[0], instance.occurrences.single().slots[0])
+            assertEquals(occurrence.slots[1], instance.occurrences.single().slots[1])
+            assertEquals(listOf(target.tabularContent.rows[index].value), instance.occurrences.single().slots[2].targetIds)
+        }
+    }
+
+    @Test
     fun `template-free declaration edits remain available before a calculated model is bound`() {
         val before = lifecycleWorkbook()
         val application = DefaultWorkbookApplication(InMemoryWorkbookStore(before))
