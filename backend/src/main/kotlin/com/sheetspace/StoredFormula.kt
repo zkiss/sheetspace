@@ -95,7 +95,7 @@ internal object StoredFormulaCodec {
         val kind = string(values[1])
         val status = string(values[3])
         requireValid(kind in setOf("sheet", "column", "property", "row"))
-        requireValid(status in setOf("retained", "unresolved", "replaced"))
+        requireValid(status in setOf("retained", "unresolved"))
         var key = values[2] as? JsonPrimitive ?: invalid()
         if (key != JsonNull) {
             if (kind == "sheet" || kind == "property") {

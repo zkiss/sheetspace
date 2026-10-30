@@ -6,7 +6,7 @@ export type FormulaSlot = {
   id: string;
   kind: 'sheet' | 'column' | 'property' | 'row';
   key: string | number | null;
-  status: 'retained' | 'unresolved' | 'replaced';
+  status: 'retained' | 'unresolved';
   targetIds: string[];
 };
 export type FormulaEndpoint = {
@@ -94,7 +94,7 @@ function readEndpoint(value: unknown): FormulaEndpoint {
 function readSlot(value: unknown): FormulaSlot {
   const [id, kind, key, status, targets] = tuple(value, 5);
   if (kind !== 'sheet' && kind !== 'column' && kind !== 'property' && kind !== 'row') return invalid();
-  if (status !== 'retained' && status !== 'unresolved' && status !== 'replaced') return invalid();
+  if (status !== 'retained' && status !== 'unresolved') return invalid();
   if (key !== null) {
     if (kind === 'sheet' || kind === 'property') { if (typeof key !== 'string') return invalid(); }
     else if (typeof key !== 'number' || !Number.isSafeInteger(key) || key < (kind === 'row' ? 1 : 0)) return invalid();

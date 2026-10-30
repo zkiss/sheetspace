@@ -1,6 +1,30 @@
 import type { SheetDocument, Workbook } from '../core/model';
 import { parseUserFormulaSyntax, type FormulaReferenceLexeme, type FormulaSourceSpan } from './syntax';
-import { encodeStoredFormula, type FormulaOccurrence, type FormulaOrigin, type FormulaSlot, type StoredFormulaContent } from './storedFormula';
+import { decodeStoredFormula, encodeStoredFormula, type FormulaOccurrence, type FormulaOrigin, type FormulaSlot, type StoredFormulaContent } from './storedFormula';
+import { projectStoredFormula } from './storedFormulaProjection';
+
+/** Prepare an editor draft, retaining unchanged projected reference occurrences where possible. */
+export function prepareFormulaEdit(text: string, original: StoredFormulaContent, workbook: Workbook, currentSheetId?: string): StoredFormulaContent {
+  const projected = projectStoredFormula(original, workbook, currentSheetId);
+  if (text === projected.text) return original;
+  const prepared = decodeStoredFormula(prepareUserFormula(text, workbook, currentSheetId));
+  let prefix = 0;
+  while (prefix < text.length && prefix < projected.text.length && text[prefix] === projected.text[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < text.length - prefix && suffix < projected.text.length - prefix
+    && text[text.length - suffix - 1] === projected.text[projected.text.length - suffix - 1]) suffix++;
+  const delta = text.length - projected.text.length;
+  prepared.occurrences = prepared.occurrences.map((occurrence) => {
+    const { start, end } = occurrence.guard;
+    const oldStart = end <= prefix ? start : start >= text.length - suffix ? start - delta : -1;
+    const oldEnd = oldStart + end - start;
+    const previous = projected.formula.occurrences.find((candidate) => candidate.guard.start === oldStart && candidate.guard.end === oldEnd);
+    if (!previous || previous.slots.length !== occurrence.slots.length
+      || previous.slots.some((slot, index) => slot.id !== occurrence.slots[index].id || slot.kind !== occurrence.slots[index].kind)) return occurrence;
+    return { ...occurrence, slots: previous.slots.map((slot) => ({ ...slot, targetIds: [...slot.targetIds] })) };
+  });
+  return encodeStoredFormula(prepared);
+}
 
 /** A fresh-input boundary. Even exact serialized spellings are treated as user text. */
 export function prepareUserFormula(text: string, workbook: Workbook, currentSheetId?: string): StoredFormulaContent {
