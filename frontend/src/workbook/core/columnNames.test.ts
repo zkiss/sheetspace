@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { prepareUserFormula } from '../formula/formulaPreparation';
 import { projectStoredFormula } from '../formula/storedFormulaProjection';
-import { renameOrdinaryColumn } from './columnNames';
+import { renameOrdinaryColumn } from '../mutations/renameOrdinaryColumn';
 
 describe('ordinary column names', () => {
   it('validates names against actual bound columns while preserving identities', () => {
@@ -46,5 +46,15 @@ describe('ordinary column names', () => {
     expect(projectStoredFormula(stored, renamed.value, target.id).text).toBe("=@'Source sheet'!'New cost'[1]+@'Source sheet'!B1");
     expect(prepareUserFormula("=@'Source sheet'!'New cost'[1]+@'Source sheet'!B1", renamed.value, target.id)).toBe(stored);
     expect(renamed.value.documents.target.columnNames).toEqual({ [target.content.columns[0]]: "Owner's cost" });
+  });
+  it('updates qualified declarations in unbound models when an ordinary column is renamed', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1 });
+    const column = sheet.content.columns[0];
+    const book = { ...workbookWithSheets([{ ...sheet, columnNames: { [column]: 'Old' } }]), dataModels: {
+      consumer: { id: 'consumer', name: 'Consumer', columns: [{ id: 'calc', name: 'Calc', kind: 'calculated' as const, type: 'float' as const, formula: '=@Source!Old[1]+@Old[1]' }] },
+    } };
+    const result = renameOrdinaryColumn(book, 's', column, "Owner's cost");
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.value.dataModels!.consumer.columns[0]).toMatchObject({ formula: "=@Source!'Owner''s cost'[1]+@Old[1]" });
   });
 });

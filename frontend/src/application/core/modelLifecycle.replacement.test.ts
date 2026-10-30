@@ -194,7 +194,7 @@ describe('property kind transitions and empty declarations', () => {
 
     const next = successfulModelMutation(replaceModelDeclaration(workbook, { ...model, columns: [model.columns[1]!, model.columns[0]!, model.columns[2]!] }, freshColumns()));
 
-    expect(next.documents.sheet!.content.columns).toEqual(['fresh-1', 'fresh-2', 'fresh-3']);
+    expect(next.documents.sheet!.content.columns).toEqual(['fresh-1', 'fresh-2', 'fresh-3', ...sheet.content.columns]);
     expect(storedModelCells(next).A1).toBeUndefined();
   });
 

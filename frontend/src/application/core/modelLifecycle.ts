@@ -67,8 +67,8 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       if (affectedSheets.some((sheet) => hasModelNameCollision(sheet, model, sheet.modelColumnBindings ?? {}))) return { ok: false, reason: 'invalid-model' };
       if (JSON.stringify(previous) === JSON.stringify(model)) return { ok: true, value: state };
       if (namesOnly(previous, model)) {
-        const projected = projectRenamedModelFormulas(workbook, previous, model);
-        return { ok: true, value: adapter.rename(state, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: projected } }) };
+        const projected = projectRenamedModelFormulas(workbook, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } });
+        return { ok: true, value: adapter.rename(state, projected) };
       }
       const sourceState = adapter.source(state);
       const source = adapter.workbook(sourceState);
@@ -154,7 +154,10 @@ export function freezeCalculatedColumns(workbook: Workbook, sheet: SheetDocument
 }
 
 export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: string[]): SheetDocument {
-  const retained = new Set(columns);
+  const oldBound = new Set(Object.values(sheet.modelColumnBindings ?? {}));
+  const extras = sheet.content.columns.filter((id) => !oldBound.has(id) && !columns.includes(id));
+  const finalColumns = [...columns, ...extras];
+  const retained = new Set(finalColumns);
   const keepCell = (key: string) => retained.has(cellIdentityFromKey(key)!.columnId);
   const filter = <T,>(values: Record<string, T>, keep: (key: string) => boolean) => Object.fromEntries(Object.entries(values).filter(([key]) => keep(key)));
   const formats = sheet.presentation.formatOverrides;
@@ -163,8 +166,8 @@ export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: st
     modelId: model.id,
     modelColumnBindings: Object.fromEntries(model.columns.map((property, index) => [property.id, columns[index]!])),
     modelFormulaBindings: undefined,
-    columnNames: undefined,
-    content: { ...sheet.content, columns, cells: filter(sheet.content.cells, keepCell) },
+    columnNames: sheet.columnNames && filter(sheet.columnNames, (id) => retained.has(id)),
+    content: { ...sheet.content, columns: finalColumns, cells: filter(sheet.content.cells, keepCell) },
     presentation: {
       ...sheet.presentation,
       columnWidths: filter(sheet.presentation.columnWidths, (id) => retained.has(id)),

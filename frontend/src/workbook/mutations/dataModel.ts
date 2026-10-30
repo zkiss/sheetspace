@@ -1,4 +1,5 @@
 import type { DataModel, SheetDocument, SheetId, Workbook } from '../core/model';
+import { projectRenamedModelFormulas } from '../formula/renamedModelFormulas';
 
 export type ModelMutationResult = { ok: true; value: Workbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'invalid-model' };
 
@@ -24,13 +25,13 @@ export function replaceDataModel(workbook: Workbook, model: DataModel): ModelMut
   if (Object.values(workbook.documents).some((sheet) => sheet.modelId === model.id && hasModelNameCollision(sheet, model, sheet.modelColumnBindings ?? {}))) return { ok: false, reason: 'invalid-model' };
   return {
     ok: true,
-    value: {
+    value: projectRenamedModelFormulas(workbook, {
       ...workbook,
       dataModels: { ...workbook.dataModels, [model.id]: model },
       documents: Object.fromEntries(Object.entries(workbook.documents).map(([sheetId, sheet]) => [
         sheetId, retainPropertyBindings(sheet, model, workbook.dataModels![model.id]),
       ])),
-    },
+    }),
   };
 }
 

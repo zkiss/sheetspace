@@ -1,4 +1,5 @@
-import { namedColumns, renameOrdinaryColumn } from '@workbook/core/columnNames';
+import { namedColumns } from '@workbook/core/columnNames';
+import { renameOrdinaryColumn } from '@workbook/mutations/renameOrdinaryColumn';
 import type { Workbook } from '@workbook/core/model';
 import { replaceModelDeclaration } from './modelLifecycle';
 
