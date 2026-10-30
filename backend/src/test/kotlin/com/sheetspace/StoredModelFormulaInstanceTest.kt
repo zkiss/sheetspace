@@ -39,6 +39,19 @@ class StoredModelFormulaInstanceTest {
     }
 
     @Test
+    fun `association identifies opaque and canonical spans without rebinding`() {
+        val declaration = "=2+@Missing!A[1]+@A[1]"
+        val opaque = StoredFormulaCodec.escape("@Missing!A[1]")
+        val template = "=2+$opaque+@col1[r1]"
+        val associations = requireNotNull(modelFormulaAssociations(template, declaration))
+        assertEquals(2, associations.size)
+        assertNull(associations[0].stored)
+        assertEquals(opaque, template.substring(associations[0].start, associations[0].end))
+        assertEquals("@col1[r1]", template.substring(associations[1].start, associations[1].end))
+        assertEquals(1, requireNotNull(modelFormulaRecipes(template, declaration)).size)
+    }
+
+    @Test
     fun `changed expression is rejected rather than associated with the template`() {
         assertNull(modelFormulaRecipes("=@col1[r1]+2", "=@A[1]+3"))
         assertFailsWith<IllegalArgumentException> {
