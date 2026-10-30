@@ -73,6 +73,39 @@ describe('workspace palette actions', () => {
     expect(props.closePalette).not.toHaveBeenCalled();
   });
 
+  it('closes and restores focus only after a successful rename', async () => {
+    const { command, hook, commands, props, cell } = setup();
+    props.selection = { mode: 'columns', anchor: cell, extent: cell };
+    hook.rerender();
+    commands.renameColumn.mockReturnValue({ result: { ok: true }, completion: Promise.resolve({ ok: true }) });
+    act(() => command('rename-column').run());
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.change(screen.getByLabelText('Column name'), { target: { value: 'Revenue' } });
+    fireEvent.submit(screen.getByLabelText('Column name').closest('form')!);
+    await waitFor(() => expect(props.closePalette).toHaveBeenCalledOnce());
+    expect(hook.result.current.panel).toBeUndefined();
+  });
+
+  it('disables rename for missing or cross-sheet columns and rejects a stale target', async () => {
+    const { command, hook, commands, props, cell } = setup();
+    const missing = { ...cell, cell: { ...cell.cell, columnId: 'missing' } };
+    props.selection = { mode: 'columns', anchor: missing, extent: missing };
+    hook.rerender();
+    expect(command('rename-column').unavailable).toBeDefined();
+    props.selection = { mode: 'columns', anchor: cell, extent: { ...cell, sheetId: 'other' } };
+    hook.rerender();
+    expect(command('rename-column').unavailable).toBeDefined();
+    props.selection = { mode: 'columns', anchor: cell, extent: cell };
+    hook.rerender();
+    act(() => command('rename-column').run());
+    props.sheet = undefined;
+    hook.rerender();
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.submit(screen.getByLabelText('Column name').closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent('selected column has changed');
+    expect(commands.renameColumn).not.toHaveBeenCalled();
+  });
+
   it('preserves clipboard markers and cancels a failed cut', async () => {
     const { command, props, clipboard } = setup();
     const content = { text: '=A1', marker: 'cut-token' };
