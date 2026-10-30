@@ -8,7 +8,7 @@ import { requireStoredFormula } from './storedFormula';
 import { copyStoredFormula } from './storedFormulaCopy';
 import { moveStoredFormula } from './storedFormulaMove';
 import { instantiateStoredModelFormula } from './modelFormulaInstance';
-import { modelFormulaRecipes } from './modelFormulaAssociation';
+import { modelFormulaAssociations, modelFormulaRecipes } from './modelFormulaAssociation';
 
 const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 3, columnCount: 3 });
 const workbook = workbookWithSheets([sheet]);
@@ -88,6 +88,18 @@ describe('inline authoritative formula content', () => {
     expect(display(instance)).toBe(declaration);
     expect(analyzeStoredFormula(instance, workbook, sheet.id).references).toHaveLength(0);
     expect(() => instantiateStoredModelFormula(template, workbook, 1, '=1', sheet.id)).toThrow();
+  });
+
+  it('associates canonical and opaque references without losing their source spans', () => {
+    const declaration = '=@A[1]+@Missing!A[1]:B[2]+"@Missing!A[1]"';
+    const template = prepareUserFormula(declaration, workbook, sheet.id);
+    const associations = modelFormulaAssociations(template, declaration)!;
+
+    expect(associations).toHaveLength(2);
+    expect(associations[0].stored).toBeDefined();
+    const span = associations[1].opaque!;
+    expect(opaqueFormulaText(template.slice(span.start, span.end))[0].text).toBe('@Missing!A[1]:B[2]');
+    expect(modelFormulaAssociations(template, declaration.replace('+"', '*"'))).toBeUndefined();
   });
 
   it('binds template columns before rows exist and instantiates only from the declaration recipe', () => {
