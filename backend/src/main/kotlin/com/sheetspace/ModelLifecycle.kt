@@ -61,12 +61,7 @@ private fun validateLifecycleStructure(workbook: WorkbookState) {
         requireLifecycle(sheet.tabularContent.rows.all { it.value.toUuidBytesOrNull() != null } && sheet.tabularContent.columns.all { it.value.toUuidBytesOrNull() != null })
         requireLifecycle(sheet.frame.position.isValid() && sheet.frame.size.isValid() && isValidSheetVisualScale(sheet.frame.visualScale) && sheet.frame.zIndex >= 1)
         requireLifecycle(validModelColumnBindings(sheet, workbook.dataModels))
-        val names = sheet.columnNames
-        requireLifecycle(names.keys.all { id -> sheet.tabularContent.columns.any { it.value == id } && sheet.modelColumnBindings.values.none { it.value == id } })
-        requireLifecycle(names.values.all { it.isNotBlank() && it == it.trim() } && names.values.distinct().size == names.size)
-        val model = sheet.modelId?.let { workbook.dataModels[it] }
-        val boundNames = model?.columns?.filter { sheet.modelColumnBindings.containsKey(it.id) }?.map { it.name.trim() }.orEmpty()
-        requireLifecycle(names.values.none { it in boundNames })
+        requireLifecycle(validColumnNames(sheet, workbook.dataModels))
         val presentation = sheet.presentation
         val sizes = presentation.rowHeights.map { (id, size) -> AxisSizeWrite("row", id, size) } + presentation.columnWidths.map { (id, size) -> AxisSizeWrite("column", id, size) }
         if (sizes.isNotEmpty()) validatedPresentationWrites(sheet, sizes)
@@ -74,6 +69,15 @@ private fun validateLifecycleStructure(workbook: WorkbookState) {
         val writes = formats.rows.map { (id, value) -> appearanceWrite("row", id, value) } + formats.columns.map { (id, value) -> appearanceWrite("column", id, value) } + formats.cells.map { (id, value) -> appearanceWrite("cell", id, value) }
         if (writes.isNotEmpty()) validatedFormatWrites(sheet, writes)
     }
+}
+
+internal fun validColumnNames(sheet: SheetDocument, models: Map<String, DataModel>): Boolean {
+    val names = sheet.columnNames
+    val boundNames = sheet.modelId?.let { models[it] }?.columns
+        ?.filter { sheet.modelColumnBindings.containsKey(it.id) }?.map { it.name.trim() }.orEmpty()
+    return names.keys.all { id -> sheet.tabularContent.columns.any { it.value == id } && sheet.modelColumnBindings.values.none { it.value == id } } &&
+        names.values.all { it.isNotBlank() && it == it.trim() } && names.values.distinct().size == names.size &&
+        names.values.none { it in boundNames }
 }
 
 private fun appearanceWrite(scope: String, id: String, value: CellFormat) = FormatWrite(scope, id, properties = Json.encodeToJsonElement(value).jsonObject)
