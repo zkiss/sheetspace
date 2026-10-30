@@ -127,6 +127,7 @@ export function useWorkspaceController({
   function interruptNavigation() {
     finishZoomPreview();
     finishPanPreview();
+    sampleCreationMotion();
     // History restoration may have pending grid work. Retire it before sampling
     // or changing the viewport so a newly mounted grid cannot restore over this
     // gesture.
