@@ -230,7 +230,7 @@ class ModelLifecycleRoutesTest {
                 saved.sheetsInOrder.forEach { sheet ->
                     assertEquals("=@A[1]*3", StoredFormulaCodec.decode(sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).content).text)
                     assertEquals(
-                        sheet.tabularContent.rows.map { row -> "=@${sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT).value}[${row.value}]*3" },
+                        sheet.tabularContent.rows.indices.map { index -> instantiateStoredModelFormula(sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).content, index) { sheet.tabularContent.rows.map { it.value } } },
                         sheet.tabularContent.rows.map { row -> sheet.tabularContent.cellContents.getValue(CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT))) },
                     )
                 }

@@ -70,7 +70,7 @@ class CalculatedTransitionAuthorityTest {
         val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
         val stored = StoredFormulaCodec.decode(template.content)
         val forged = template.copy(content = StoredFormulaCodec.encode(stored.copy(occurrences = stored.occurrences.map { occurrence ->
-            occurrence.copy(slots = occurrence.slots.map { slot -> if (slot.kind == "row") slot.copy(key = JsonPrimitive(1)) else slot })
+            occurrence.copy(slots = occurrence.slots.map { slot -> if (slot.kind == "row") slot.copy(key = JsonPrimitive(2)) else slot })
         })))
         val tampered = freshlyInstantiated(before.replaceSheet(sheet.copy(modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to forged))))
 

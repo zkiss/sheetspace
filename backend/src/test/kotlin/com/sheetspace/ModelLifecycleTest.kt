@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 
 class ModelLifecycleTest {
     @Test
@@ -107,9 +108,21 @@ class ModelLifecycleTest {
         val bound = lifecycleBoundWorkbook(before)
         val changed = bound.copy(documents = bound.documents.mapValues { (_, sheet) ->
             val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
-            val reference = template.references.first()
+            val formula = StoredFormulaCodec.decode(template.content)
+            val occurrence = formula.occurrences.single()
+            val changedTemplate = BoundModelFormula(StoredFormulaCodec.encode(formula.copy(occurrences = listOf(
+                occurrence.copy(slots = occurrence.slots.map { slot ->
+                    if (slot.id == "r") slot.copy(key = JsonPrimitive(3000000000L), status = "unresolved", targetIds = emptyList()) else slot
+                }),
+            ))))
+            val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
+            val content = sheet.tabularContent.rows.foldIndexed(sheet.tabularContent) { index, updated, row ->
+                updated.updateCell(updated.addressOf(CellCoordinate(row, output))!!,
+                    instantiateStoredModelFormula(changedTemplate.content, index) { sheet.tabularContent.rows.map { it.value } })
+            }
             sheet.copy(
-                modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to template.copy(references = listOf(reference.copy(qualifierSpan = ModelFormulaSpan(1, 2), endpoints = listOf(null)), reference.copy(endpoints = reference.endpoints.map { it!!.copy(rowIndex = 3e9) })))),
+                modelFormulaBindings = mapOf(LIFECYCLE_OUTPUT to changedTemplate),
+                content = content,
                 presentation = sheet.presentation.copy(formatOverrides = SheetFormatOverrides(
                     rows = mapOf(sheet.tabularContent.rows[0].value to CellFormat(fontWeight = "bold")),
                     columns = mapOf(sheet.tabularContent.columns[0].value to CellFormat(numberFormat = NumberFormat("number", 2))),
@@ -129,17 +142,11 @@ class ModelLifecycleTest {
         val before = lifecycleWorkbook()
         val bound = lifecycleBoundWorkbook(before)
         val invalidTemplates: List<(BoundModelFormula) -> BoundModelFormula> = listOf(
-            { it.copy(raw = "=different") },
-            { it.copy(references = it.references.map { reference -> reference.copy(sourceSpan = ModelFormulaSpan(-1, 3)) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(sourceSpan = ModelFormulaSpan(3, 3)) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(sourceSpan = ModelFormulaSpan(0, 100)) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(qualifierSpan = ModelFormulaSpan(-1, 3)) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(endpoints = emptyList()) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(endpoints = List(3) { null }) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(sourceSpan = ModelFormulaSpan(-1, 3)) }) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(rowIndex = -1.0) }) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(rowIndex = Double.POSITIVE_INFINITY) }) }) },
-            { it.copy(references = it.references.map { reference -> reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(columnId = "invalid") }) }) },
+            { BoundModelFormula(StoredFormulaCodec.encode(StoredFormula("=different", emptyList()))) },
+            { it.copy(content = "=~F1[\"=@A[1]*2\",[[\"o\",[-1,6],\"s\",[],[],[]]]]") },
+            { it.copy(content = "=~F1[\"=@A[1]*2\",[[\"o\",[1,99],\"s\",[],[],[]]]]") },
+            { it.copy(content = "=~F1[\"=@A[1]*2\",[[\"o\",[1,6],\"s\",[[\"e\",\"missing\",\"r\",false,false]],[],[]]]]") },
+            { it.copy(content = "=~F1[\"=@A[1]*2\",[[\"o\",[1,6],\"s\",[],[[\"s\",\"sheet\",null,\"retained\",[]]],[]]]]") },
         )
         invalidTemplates.forEach { transform ->
             val invalid = bound.copy(documents = bound.documents.mapValues { (_, sheet) -> sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { transform(it.value) }) })
@@ -195,138 +202,43 @@ class ModelLifecycleTest {
     }
 
     @Test
-    fun `derived formulas preserve valid references and replace unresolved bindings with ref errors`() {
+    fun `derived formulas preserve text and identity provenance while refreshing row recipes`() {
         val bound = lifecycleBoundWorkbook(lifecycleWorkbook())
         val sheet = bound.sheetsInOrder.first()
         val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
-        val input = sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT)
         val output = sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT)
-        val expected = "=@${input.value}[${sheet.tabularContent.rows[1].value}]*2"
+        val original = StoredFormulaCodec.decode(template.content)
+        val instance = StoredFormulaCodec.decode(derivedFormulaRaw(template, bound, 1))
 
-        assertEquals(expected, derivedFormulaRaw(template, bound, 1))
+        assertEquals(original.text, instance.text)
+        assertEquals(original.occurrences.single().slots.single { it.id == "c" }, instance.occurrences.single().slots.single { it.id == "c" })
+        assertEquals(listOf(sheet.tabularContent.rows[1].value), instance.occurrences.single().slots.single { it.id == "r" }.targetIds)
         assertEquals(true, calculatedContentsAreDerived(bound))
-        val staleContent = bound.replaceSheet(
-            sheet.updateTabularContent { content ->
-                content.updateCell(content.addressOf(CellCoordinate(sheet.tabularContent.rows[1], output))!!, "=stale")
-            },
-        )
+        val staleContent = bound.replaceSheet(sheet.updateTabularContent { content ->
+            content.updateCell(content.addressOf(CellCoordinate(sheet.tabularContent.rows[1], output))!!, "=stale")
+        })
         assertEquals(false, calculatedContentsAreDerived(staleContent))
-        val extraCalculatedProperty = "31000000-0000-0000-0000-000000000098"
-        val modelWithLeadingCalculatedProperty = bound.dataModels.getValue(LIFECYCLE_MODEL).copy(
-            columns = listOf(CalculatedModelColumn(extraCalculatedProperty, "Earlier", ModelColumnType.FLOAT, "=1")) + bound.dataModels.getValue(LIFECYCLE_MODEL).columns,
-        )
-        val workbookWithLeadingCalculatedProperty = bound.copy(dataModels = bound.dataModels + (LIFECYCLE_MODEL to modelWithLeadingCalculatedProperty)).replaceSheet(
-            sheet.copy(modelColumnBindings = sheet.modelColumnBindings + (extraCalculatedProperty to input)),
-        )
-        assertEquals(expected, derivedFormulaRaw(template, workbookWithLeadingCalculatedProperty, 1))
-        assertEquals(
-            "=@${namedCanonicalEndpoint(LIFECYCLE_INPUT, input.value, sheet.tabularContent.rows[1].value)}*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = LIFECYCLE_INPUT) })
-                }),
-                bound,
-                1,
-            ),
-        )
-        assertEquals(
-            "=@${namedCanonicalEndpoint(LIFECYCLE_OUTPUT, output.value, sheet.tabularContent.rows[1].value)}*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(columnId = output.value, propertyId = LIFECYCLE_OUTPUT) })
-                }),
-                bound,
-                1,
-            ),
-        )
-        assertEquals("=@#REF!A[1]*2", derivedFormulaRaw(template.copy(references = template.references.map { it.copy(sheetId = "missing") }), bound, 0))
-        assertEquals("=@#REF!A[1]*2", derivedFormulaRaw(template.copy(references = template.references.map { it.copy(sheetId = null) }), bound, 0))
-        assertEquals(
-            "=@#REF!A[1]*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(sheetId = "missing", endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = LIFECYCLE_INPUT) })
-                }),
-                bound,
-                0,
-            ),
-        )
-        val missingPropertyBinding = bound.replaceSheet(sheet.copy(modelColumnBindings = sheet.modelColumnBindings - LIFECYCLE_INPUT))
-        assertEquals(
-            "=@#REF!A[1]*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = LIFECYCLE_INPUT) })
-                }),
-                missingPropertyBinding,
-                0,
-            ),
-        )
-        assertEquals(
-            "=@#REF!A[1]*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = "missing") })
-                }),
-                bound,
-                0,
-            ),
-        )
-        val undeclaredProperty = "31000000-0000-0000-0000-000000000099"
-        val sheetWithUndeclaredBinding = sheet.copy(modelColumnBindings = sheet.modelColumnBindings + (undeclaredProperty to input))
-        val workbookWithUndeclaredBinding = bound.replaceSheet(sheetWithUndeclaredBinding)
-        assertEquals(
-            "=@#REF!A[1]*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(propertyId = undeclaredProperty) })
-                }),
-                workbookWithUndeclaredBinding,
-                0,
-            ),
-        )
-        assertEquals(
-            "=@#REF!A[1]*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(columnId = ColumnId.generate().value) })
-                }),
-                bound,
-                0,
-            ),
-        )
-        assertEquals(
-            "=@#REF!A[1]*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = reference.endpoints.map { endpoint -> endpoint!!.copy(rowIndex = 100.0) })
-                }),
-                bound,
-                0,
-            ),
-        )
-        assertEquals(
-            "=@#REF!A[1]*2",
-            derivedFormulaRaw(
-                template.copy(references = template.references.map { reference ->
-                    reference.copy(endpoints = listOf(null))
-                }),
-                bound,
-                0,
-            ),
-        )
-        val qualified = BoundModelFormula(
-            "=One!@A[1]",
-            listOf(
-                ModelFormulaReference(
-                    ModelFormulaSpan(5, 10),
-                    sheet.id.value,
-                    ModelFormulaSpan(1, 4),
-                    listOf(ModelFormulaEndpoint(ModelFormulaSpan(6, 10), input.value, 0.0, ModelFormulaAnchors(false, false))),
-                ),
-            ),
-        )
-        assertEquals("=${sheet.id.value}!@${input.value}[${sheet.tabularContent.rows[0].value}]", derivedFormulaRaw(qualified, bound, 0))
+
+        val occurrence = original.occurrences.single()
+        val property = occurrence.copy(slots = occurrence.slots.map { slot ->
+            if (slot.id == "c") slot.copy(kind = "property", key = JsonPrimitive("Missing"), targetIds = listOf("missing-property", "missing-column")) else slot
+        })
+        val propertyTemplate = BoundModelFormula(StoredFormulaCodec.encode(original.copy(occurrences = listOf(property))))
+        val retained = StoredFormulaCodec.decode(derivedFormulaRaw(propertyTemplate, bound, 1)).occurrences.single()
+        assertEquals(listOf("missing-property", "missing-column"), retained.slots.single { it.id == "c" }.targetIds)
+        assertEquals(listOf(sheet.tabularContent.rows[1].value), retained.slots.single { it.id == "r" }.targetIds)
+
+        val missingSheet = occurrence.copy(slots = occurrence.slots.map { slot ->
+            if (slot.id == "s") slot.copy(targetIds = listOf("missing-sheet")) else slot
+        })
+        val missingTemplate = BoundModelFormula(StoredFormulaCodec.encode(original.copy(occurrences = listOf(missingSheet))))
+        assertEquals(missingTemplate.content, derivedFormulaRaw(missingTemplate, bound, 1))
+        val unavailableRow = StoredFormulaCodec.decode(derivedFormulaRaw(template, bound, 100)).occurrences.single().slots.single { it.id == "r" }
+        assertEquals("unresolved", unavailableRow.status)
+        assertEquals(emptyList(), unavailableRow.targetIds)
+        val anchored = lifecycleTemplate(sheet, sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT), "=@A[$1]*2", anchored = true)
+        val anchoredRow = StoredFormulaCodec.decode(derivedFormulaRaw(anchored, bound, 1)).occurrences.single().slots.single { it.id == "r" }
+        assertEquals(listOf(sheet.tabularContent.rows[0].value), anchoredRow.targetIds)
     }
 
     @Test

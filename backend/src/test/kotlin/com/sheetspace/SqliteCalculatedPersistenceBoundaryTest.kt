@@ -67,7 +67,7 @@ class SqliteCalculatedPersistenceBoundaryTest {
             DefaultWorkbookApplication(store).saveModelLifecycle(before, after)
         }
 
-        assertEquals(WorkbookApplicationError.CALCULATED_CELL_WRITE, rejected.error)
+        assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, rejected.error)
         assertEquals(before, store.loadWorkbookBundle())
     }
 
@@ -117,14 +117,5 @@ class SqliteCalculatedPersistenceBoundaryTest {
         assertEquals(workbook, store.loadWorkbookBundle())
     }
 
-    private fun derivedLifecycleWorkbook(): WorkbookState {
-        val base = lifecycleBoundWorkbook(lifecycleWorkbook())
-        return base.copy(documents = base.documents.mapValues { (_, sheet) ->
-            sheet.updateTabularContent { content ->
-                content.rows.foldIndexed(content) { index, updated, row ->
-                    updated.updateCell("B${index + 1}", "=@${content.columns[0].value}[${row.value}]*2")
-                }
-            }
-        })
-    }
+    private fun derivedLifecycleWorkbook(): WorkbookState = lifecycleBoundWorkbook(lifecycleWorkbook())
 }
