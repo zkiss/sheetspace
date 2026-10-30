@@ -28,9 +28,10 @@ class ModelLifecycleTest {
 
         assertEquals(formulaChanged, saved.dataModels.getValue(LIFECYCLE_MODEL))
         saved.sheetsInOrder.forEach { sheet ->
-            assertEquals("=@A[1]*3", sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT).raw)
+            val template = sheet.modelFormulaBindings!!.getValue(LIFECYCLE_OUTPUT)
+            assertEquals("=@A[1]*3", StoredFormulaCodec.decode(template.content).text)
             assertEquals(
-                sheet.tabularContent.rows.map { row -> "=@${sheet.modelColumnBindings.getValue(LIFECYCLE_INPUT).value}[${row.value}]*3" },
+                sheet.tabularContent.rows.indices.map { index -> instantiateStoredModelFormula(template.content, index) { sheet.tabularContent.rows.map { it.value } } },
                 sheet.tabularContent.rows.map { row -> sheet.tabularContent.cellContents.getValue(CellCoordinate(row, sheet.modelColumnBindings.getValue(LIFECYCLE_OUTPUT))) },
             )
         }
@@ -180,7 +181,7 @@ class ModelLifecycleTest {
             sheet.copy(content = TabularContent(sheet.tabularContent.rows, sheet.tabularContent.columns, sheet.tabularContent.cellContents - CellCoordinate(sheet.tabularContent.rows.first(), output))),
         )
         val staleTemplate = bound.replaceSheet(
-            sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, template) -> template.copy(raw = "=stale") }),
+            sheet.copy(modelFormulaBindings = sheet.modelFormulaBindings!!.mapValues { (_, _) -> BoundModelFormula(StoredFormulaCodec.encode(StoredFormula("=stale", emptyList()))) }),
         )
         val missingTemplates = bound.replaceSheet(sheet.copy(modelFormulaBindings = null))
         val incompleteTemplates = bound.replaceSheet(sheet.copy(modelFormulaBindings = emptyMap()))
