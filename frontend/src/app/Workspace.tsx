@@ -829,7 +829,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       formulaContext: {
                         resolver: formulaResolver,
                         sheetNames: sheets.map((entry) => entry.name),
-                        propertyNames: sheet.modelId ? workbook.dataModels?.[sheet.modelId]?.columns.map((property) => property.name) : [],
+                    propertyNames: [...modelColumnPresentation(sheet, workbook.dataModels).columnLabels.values()],
                         referenceValues: (identity) => formulaPanelReferenceValues(identity, formulaResolver, formulaResults),
                         inspectionReferences: sheetEditingCell ? formulaInspection?.references : undefined,
                         referenceColors: formulaReferenceColors,

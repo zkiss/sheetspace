@@ -12,10 +12,11 @@ import { selectionAddressRange } from './workspaceSelection';
  */
 export function modelColumnPresentation(sheet: SheetDocument, models: Workbook['dataModels']) {
   const model = sheet.modelId ? models?.[sheet.modelId] : undefined;
-  const columnLabels = new Map(model?.columns.flatMap((property) => {
+  const columnLabels = new Map(Object.entries(sheet.columnNames ?? {}).filter(([id]) => sheet.content.columns.includes(id)));
+  for (const [columnId, name] of model?.columns.flatMap((property) => {
     const columnId = sheet.modelColumnBindings?.[property.id];
     return columnId ? [[columnId, property.name] as const] : [];
-  }) ?? []);
+  }) ?? []) columnLabels.set(columnId, name);
   const calculatedColumnIds = new Set(model?.columns.flatMap((property) => property.kind === 'calculated'
     ? [sheet.modelColumnBindings?.[property.id]].filter((columnId): columnId is string => Boolean(columnId))
     : []) ?? []);
