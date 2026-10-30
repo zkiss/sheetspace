@@ -21,6 +21,7 @@ export function replaceDataModel(workbook: Workbook, model: DataModel): ModelMut
   if (!workbook.dataModels?.[model.id]) return { ok: false, reason: 'unknown-model' };
   const invalid = validateDataModel(model);
   if (invalid) return invalid;
+  if (Object.values(workbook.documents).some((sheet) => sheet.modelId === model.id && hasModelNameCollision(sheet, model, sheet.modelColumnBindings ?? {}))) return { ok: false, reason: 'invalid-model' };
   return {
     ok: true,
     value: {
@@ -55,11 +56,21 @@ export function setSheetModelId(
   if (model !== undefined && bindings && !validModelColumnBindings(model, sheet, bindings)) {
     return { ok: false, reason: 'invalid-model' };
   }
+  if (model && bindings && hasModelNameCollision(sheet, model, bindings)) return { ok: false, reason: 'invalid-model' };
   if (sheet.modelId === modelId && sameModelColumnBindings(sheet.modelColumnBindings, bindings)) {
     return { ok: true, value: workbook };
   }
   const updatedSheet = { ...sheet, modelId, modelColumnBindings: bindings, modelFormulaBindings: undefined };
   return { ok: true, value: { ...workbook, documents: { ...workbook.documents, [sheetId]: updatedSheet } } };
+}
+
+export function hasModelNameCollision(sheet: SheetDocument, model: DataModel, bindings: Readonly<Record<string, string | undefined>>): boolean {
+  return model.columns.some((property) => {
+    const bound = bindings[property.id];
+    return bound !== undefined && sheet.content.columns.includes(bound) && Object.entries(sheet.columnNames ?? {}).some(
+      ([columnId, name]) => sheet.content.columns.includes(columnId) && (columnId === bound || name === property.name),
+    );
+  });
 }
 
 /** Declaration order binds the first properties to the first columns of the sheet. */

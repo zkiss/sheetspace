@@ -26,6 +26,15 @@ function successful(result: ModelMutationResult): Workbook {
 }
 
 describe('property identity associations', () => {
+  it('rejects colliding declarations and explicit attachments without changing the workbook', () => {
+    const namedSheet = { ...sheet, columnNames: { [sheet.content.columns[1]!]: 'Local' } };
+    const source = { ...workbook, documents: { ...workbook.documents, [sheet.id]: namedSheet } };
+    expect(setSheetModelId(source, sheet.id, model.id, { revenue: sheet.content.columns[1]! })).toEqual({ ok: false, reason: 'invalid-model' });
+    const bound = successful(setSheetModelId(source, sheet.id, model.id, { revenue: sheet.content.columns[0]! }));
+    expect(replaceDataModel(bound, { ...model, columns: [{ ...model.columns[0]!, name: 'Local' }, ...model.columns.slice(1)] })).toEqual({ ok: false, reason: 'invalid-model' });
+    expect(successful(replaceDataModel(bound, model))).toEqual(bound);
+    expect(bound.documents[sheet.id]!.columnNames).toEqual(namedSheet.columnNames);
+  });
   it('attaches existing columns in declaration order without reshaping or evaluating formulas', () => {
     const bound = successful(setSheetModelId(workbook, sheet.id, model.id));
 
