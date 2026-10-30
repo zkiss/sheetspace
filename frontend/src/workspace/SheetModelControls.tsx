@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { DataModel, SheetDocument } from '@workbook/core/model';
 
 type ModelCommandResult = { ok: true } | { ok: false; reason: string };
@@ -22,9 +22,23 @@ export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind,
   const [feedback, setFeedback] = useState('');
   const [pending, setPending] = useState(false);
   const [confirmation, setConfirmation] = useState<'bind' | 'rebind' | 'unbind' | null>(initialAction ?? null);
+  const selector = useRef<HTMLSelectElement>(null);
+  const restoreFocus = useRef(false);
   const boundModelId = sheet.modelId;
   const currentModel = models.find((model) => model.id === boundModelId);
   const selectedId = selectedModelId || boundModelId || '';
+
+  useLayoutEffect(() => {
+    if (!restoreFocus.current) return;
+    const control = selector.current;
+    const dialog = control?.closest('[role="dialog"]');
+    if (pending) {
+      (dialog?.querySelector<HTMLElement>('button:not(:disabled)') ?? control?.parentElement?.parentElement?.querySelector<HTMLElement>('button:not(:disabled)'))?.focus();
+    } else {
+      if (!dialog || dialog.contains(document.activeElement) || document.activeElement === document.body) control?.focus();
+      restoreFocus.current = false;
+    }
+  }, [confirmation, pending]);
 
   // A submission reports its outcome through completion, so a rejected persistence
   // never reaches the user as a success.
@@ -46,7 +60,7 @@ export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind,
   }
 
   return <span className="workspace-model-controls">
-    <label>Model for {sheet.name}<select aria-label={`Model for ${sheet.name}`} disabled={pending} value={selectedId} onChange={(event) => { setSelectedModelId(event.target.value); setFeedback(''); setConfirmation(null); }}>
+    <label>Model for {sheet.name}<select ref={selector} aria-label={`Model for ${sheet.name}`} disabled={pending} value={selectedId} onChange={(event) => { setSelectedModelId(event.target.value); setFeedback(''); setConfirmation(null); }}>
       <option value="">No model</option>{models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
     {boundModelId ? <><span aria-label={`Bound to ${currentModel?.name ?? 'data model'}`} role="status">Bound: {currentModel?.name ?? 'data model'}</span>
       <button data-workspace-navigation onClick={() => onOpenDataModels(boundModelId)} type="button">Edit model</button>
@@ -55,7 +69,8 @@ export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind,
     </> : <button disabled={!selectedId || pending} onClick={() => setConfirmation('bind')} type="button">Bind model</button>}
     {confirmation ? <span className="sheet-model-confirmation" role="group" aria-label="Confirm model change">
       <span>{confirmation === 'unbind' ? 'Unbinding makes calculated results editable materialized values.' : `${confirmation === 'bind' ? 'Binding' : 'Rebinding'} maps properties in declaration order, keeps manual inputs where possible, and replaces calculated columns.`}</span>
-      <span className="sheet-model-confirmation-actions"><button onClick={() => setConfirmation(null)} type="button">Cancel</button><button onClick={() => {
+      <span className="sheet-model-confirmation-actions"><button onClick={() => { restoreFocus.current = true; setConfirmation(null); }} type="button">Cancel</button><button onClick={() => {
+        restoreFocus.current = true;
         if (confirmation === 'unbind') report(onUnbind(sheet.id));
         else if (selectedId) bindModel(selectedId);
         setConfirmation(null);

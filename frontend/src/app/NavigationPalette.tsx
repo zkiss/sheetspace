@@ -29,7 +29,7 @@ export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
   const matchAvailability = matches.map((command) => command.unavailable ? '0' : '1').join('');
   const activeId = matches[index] ? `navigation-command-${matches[index]!.id}` : undefined;
   useEffect(() => { input.current?.focus(); }, []);
-  useEffect(() => { if (panelTitle) panelRef.current?.querySelector<HTMLElement>('input, select, button:not(:disabled)')?.focus(); }, [panelTitle]);
+  useEffect(() => { if (panelTitle) panelRef.current?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), button:not(:disabled)')?.focus(); }, [panelTitle]);
   useEffect(() => {
     setIndex((current) => matchAvailability[current] === '1'
       ? current : Math.max(0, matchAvailability.indexOf('1')));
@@ -74,7 +74,7 @@ export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
       if (command && !command.unavailable) { event.preventDefault(); command.run(); }
     }
     if (event.key === 'Tab') {
-      const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+      const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"]):not(:disabled)')];
       const current = focusable.indexOf(document.activeElement as HTMLElement);
       const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current >= focusable.length - 1 ? 0 : current + 1);
       event.preventDefault();
