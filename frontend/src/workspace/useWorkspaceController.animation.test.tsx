@@ -94,3 +94,39 @@ it('cancels the active animation and its settlement when a pan interrupts naviga
   expect(controller!.viewport).toEqual(interruptedViewport);
   expect(controller!.navigationInterrupted).toBe(true);
 });
+
+it('starts a fresh creation sequence after navigation continues and settles', () => {
+  vi.stubGlobal('KeyframeEffect', class {});
+  Object.defineProperty(document, 'timeline', { configurable: true, value: { currentTime: 1000 } });
+  const animation = { cancel: vi.fn(), currentTime: 40, effect: null, onfinish: null as (() => void) | null };
+  const onCreateSheet = vi.fn();
+  let controller: ReturnType<typeof useWorkspaceController>;
+  function Harness() {
+    controller = useWorkspaceController({ onCreateSheet, onClearSelection: vi.fn() });
+    return <WorkspaceSurface hasSheets isPanningWorkspace={controller.isPanningWorkspace}
+      navigationMotion={controller.navigationMotion} onContextMenu={controller.handleWorkspaceContextMenu}
+      viewport={controller.viewport} workspacePlaneRef={controller.workspacePlaneRef}
+      workspaceSurfaceRef={controller.workspaceSurfaceRef}>{null}</WorkspaceSurface>;
+  }
+  render(<Harness />);
+  const surface = screen.getByTestId('workspace-surface');
+  const plane = screen.getByTestId('workspace-plane');
+  measuredElementGeometry(surface, { width: 800, height: 600 });
+  Object.defineProperty(plane, 'animate', { configurable: true, value: () => animation });
+  Object.defineProperty(plane, 'getAnimations', { configurable: true, value: () => [animation] });
+  act(() => controller.restoreViewport({ x: -300, y: -100, scale: 1 }));
+  act(() => controller.createSheetAtViewportCenter());
+  act(() => onCreateSheet.mock.calls[0][3]());
+  animation.currentTime = 80;
+  act(() => controller.createSheetAtViewportCenter());
+  expect(onCreateSheet.mock.calls[1][0]).toEqual(onCreateSheet.mock.calls[0][0]);
+  animation.currentTime = 100;
+  act(() => onCreateSheet.mock.calls[1][3]());
+  act(() => controller.createSheetAtViewportCenter());
+  expect(onCreateSheet.mock.calls[2][0]).toEqual(onCreateSheet.mock.calls[0][0]);
+  act(() => onCreateSheet.mock.calls[2][3]());
+  animation.currentTime = 120;
+  act(() => animation.onfinish!());
+  act(() => controller.createSheetAtViewportCenter());
+  expect(onCreateSheet.mock.calls[3][0]).toEqual({ x: 580, y: 320 });
+});

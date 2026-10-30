@@ -44,6 +44,7 @@ export function useWorkspaceController({
   const zoomTimer = useRef<number>();
   const zoomPublication = useRef(0);
   const creationSequence = useRef<{ position?: WorkspacePosition; revision: number }>({ revision: 0 });
+  const creationMotionSample = useRef<{ animation: Animation; time: CSSNumberish | null } | undefined>(undefined);
   const viewportRef = useRef(viewport);
   viewportRef.current = zoomPreview.current ?? panPreview.current ?? viewport;
   const displayedViewport = useDisplayedWorkspaceViewport(workspacePlaneRef, viewport);
@@ -148,6 +149,15 @@ export function useWorkspaceController({
 
   function invalidateCreationSequence() {
     creationSequence.current = { revision: creationSequence.current.revision + 1 };
+  }
+
+  function sampleCreationMotion() {
+    const animation = activeViewportMotion.current?.animation;
+    if (!animation) return;
+    const previous = creationMotionSample.current;
+    const time = animation.currentTime;
+    if (previous?.animation === animation && previous.time !== time) invalidateCreationSequence();
+    creationMotionSample.current = { animation, time };
   }
 
   function panWorkspace(deltaX: number, deltaY: number) {
@@ -354,6 +364,8 @@ export function useWorkspaceController({
       activeViewportMotion.current = { animation, motion };
       animation.onfinish = () => {
         if (activeViewportMotion.current?.animation !== animation || pendingViewportRestore.current?.id !== id) return;
+        sampleCreationMotion();
+        invalidateCreationSequence();
         activeViewportMotion.current = undefined;
         navigationMayBeMoving.current = false;
         setNavigationMotion(false);
@@ -385,12 +397,14 @@ export function useWorkspaceController({
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();
+    sampleCreationMotion();
     const current = navigationMayBeMoving.current
       ? displayedWorkspaceViewport(workspacePlaneRef.current) ?? viewportRef.current
-      : viewportRef.current;
+      : zoomPreview.current ?? panPreview.current ?? viewportRef.current;
     const sequence = creationSequence.current;
     const position = sheetCreationPlacement(measureSurfaceSize(workspace), current, sequence.position);
     onCreateSheet(position, current.scale, 'Create sheet at viewport center', () => {
+      sampleCreationMotion();
       if (creationSequence.current.revision === sequence.revision) creationSequence.current.position = position;
     });
   }
