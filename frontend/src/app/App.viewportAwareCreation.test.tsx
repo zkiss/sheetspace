@@ -4,7 +4,7 @@ import { App } from './App';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { openCellEditor, workspaceSurface } from '@test-support/appScreen';
 import { workspaceRect } from '@test-support/domGeometry';
-import { positionedSheet, sheetDocument, smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { positionedSheet, sheetDocument, smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import type { SheetDocument } from '@workbook/core/model';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import userEvent from '@testing-library/user-event';
@@ -14,7 +14,7 @@ import { navigateFirstReference } from '@test-support/referenceNavigation';
 describe('viewport-aware sheet creation', () => {
   it.each(['toolbar', 'empty action', 'Shift+N'])('creates only once at the visible center via %s after pan/zoom', async (intent) => {
     const apiClient = persistedWorkbookClient();
-    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([])} />);
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithLegacyFormulaFixtures([])} />);
     const surface = workspaceSurface();
     surface.getBoundingClientRect = workspaceRect;
     panWorkspace(-120, 60);
@@ -39,7 +39,7 @@ describe('viewport-aware sheet creation', () => {
       createSheet: vi.fn().mockReturnValue(create.promise),
       updateSheetVisualScale,
     });
-    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithLegacyFormulaFixtures([
       { ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }), frame: { ...positionedSheet('existing', 'Existing', { x: 0, y: 0 }).frame, zIndex: 9 } },
     ])} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
@@ -77,7 +77,7 @@ describe('viewport-aware sheet creation', () => {
       createSheet: vi.fn().mockRejectedValue(new Error('create failed')),
       updateSheetVisualScale,
     });
-    render(<App apiClient={apiClient} initialWorkbook={workbookWithSheets([])} />);
+    render(<App apiClient={apiClient} initialWorkbook={workbookWithLegacyFormulaFixtures([])} />);
     workspaceSurface().getBoundingClientRect = workspaceRect;
 
     zoomWorkspace('out');
@@ -96,7 +96,7 @@ describe('viewport-aware sheet creation', () => {
 
   it('keeps independently created scales while editing, arranging, navigating, and reloading a multiscale workbook', async () => {
     const user = userEvent.setup();
-    const initialWorkbook = workbookWithSheets([
+    const initialWorkbook = workbookWithLegacyFormulaFixtures([
       smallSheetDocument({
         id: 'inputs', name: 'Inputs', position: { x: 500, y: 400 }, visualScale: 1 / 1.2, zIndex: 1,
         cells: { B1: '10' },

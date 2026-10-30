@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { persistedWorkbookClient } from '@test-support/apiClients';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import { App } from './App';
 import { applyCustomColour } from '@test-support/workspaceActions';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
@@ -23,7 +23,7 @@ describe('App number formatting workflow', () => {
   it('formats a whole column including blanks, restores grid focus, and persists reset and inheritance', async () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { A1: '1.23', B1: '=@A[1]*2' } });
-    const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
+    const apiClient = persistedWorkbookClient(workbookWithLegacyFormulaFixtures([sheet]));
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
 
     selectColumn(screen.getByRole('columnheader', { name: /^A / }), 50, 10);
@@ -59,7 +59,7 @@ describe('App number formatting workflow', () => {
     const blankCellId = cellIdentityKey({ rowId: baseSheet.content.rows[1]!, columnId: baseSheet.content.columns[0]! });
     const cellExceptions = { [blankCellId]: { textColor: '#d84b4b' as const, fillColor: '#c99c00' as const } };
     const sheet = { ...baseSheet, presentation: { ...baseSheet.presentation, formatOverrides: { rows: {}, columns: {}, cells: cellExceptions } } };
-    const apiClient = persistedWorkbookClient(workbookWithSheets([sheet]));
+    const apiClient = persistedWorkbookClient(workbookWithLegacyFormulaFixtures([sheet]));
     const view = render(<App initialWorkbook={await apiClient.loadWorkbook()} apiClient={apiClient} />);
 
     selectColumn(screen.getByRole('columnheader', { name: /^A / }), 50, 10);

@@ -2,7 +2,7 @@ import { activateCellEditor } from '@test-support/appScreen';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { smallSheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -15,7 +15,7 @@ describe('content history application integration', () => {
       name: 'Inputs',
       cells: { A1: '=1+1' },
     });
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
     fireEvent.keyDown(a1, { key: 'z', ctrlKey: true });
@@ -53,7 +53,7 @@ describe('content history application integration', () => {
   it('expires feedback and clears it immediately when a new edit supersedes the transition', () => {
     vi.useFakeTimers();
     const sheet = smallSheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: 'old' } });
-    render(<App initialWorkbook={workbookWithSheets([sheet])} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const a1 = within(frame).getByRole('cell', { name: 'Inputs A1 cell' });
     const b1 = within(frame).getByRole('cell', { name: 'Inputs B1 empty cell' });

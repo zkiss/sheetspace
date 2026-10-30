@@ -3,10 +3,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { autosaveClient } from '@test-support/apiClients';
-import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import { positionedSheet, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
-import { formulaRawForStorage } from '@workbook/formula/reference';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 
 function clipboardData(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -21,7 +21,7 @@ describe('App grid clipboard integration', () => {
   it('reports malformed tabular paste without changing existing cells', () => {
     const sheet = { ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }), cells: { A1: 'original' } };
     const apiClient = autosaveClient();
-    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} apiClient={apiClient} />);
     const cell = screen.getByRole('article', { name: 'Sheet Inputs' }).querySelector<HTMLElement>('[data-cell-key="A1"]')!;
     fireEvent.click(cell);
     fireEvent.paste(cell, { clipboardData: clipboardData({ 'text/plain': '"unterminated' }) });
@@ -33,9 +33,9 @@ describe('App grid clipboard integration', () => {
     const sheet = { ...positionedSheet('inputs', 'Inputs', { x: 48, y: 96 }), columnCount: 3, rowCount: 4,
       cells: { A1: '10', B1: '20' } };
     const apiClient = autosaveClient();
-    const workbook = workbookWithSheets([sheet]);
+    const workbook = workbookWithLegacyFormulaFixtures([sheet]);
     const document = workbook.documents.inputs!;
-    document.content.cells[cellIdentityKey(cellIdentityAt(document.content, 'C1')!)] = formulaRawForStorage('=SUM(@A[1]:B[1])', workbook, document.id);
+    document.content.cells[cellIdentityKey(cellIdentityAt(document.content, 'C1')!)] = prepareUserFormula('=SUM(@A[1]:B[1])', workbook, document.id);
     render(<App initialWorkbook={workbook} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
@@ -104,7 +104,7 @@ describe('App grid clipboard integration', () => {
       cells: { A1: '2', B1: '=@A[1] * 3' },
     };
     const apiClient = autosaveClient();
-    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
     const copied = clipboardData();
@@ -117,7 +117,7 @@ describe('App grid clipboard integration', () => {
     fireEvent.click(cell('C1'));
     expect(fireEvent.paste(cell('C1'), { clipboardData: copied })).toBe(false);
     await waitFor(() => expect(apiClient.writeCells).toHaveBeenCalledTimes(1));
-    expect(cell('C1')).toHaveTextContent('6');
+    expect(cell('C1')).toHaveTextContent('18');
     expect(vi.mocked(apiClient.writeCells).mock.calls[0]?.[1]).toHaveLength(1);
   });
 
@@ -127,7 +127,7 @@ describe('App grid clipboard integration', () => {
       cells: { A1: 'Retained' },
     };
     const apiClient = autosaveClient();
-    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} apiClient={apiClient} />);
     const cell = within(screen.getByRole('article', { name: 'Sheet Inputs' })).getByRole('cell', { name: 'Inputs A1 cell' });
     activateCellEditor(cell);
     const editor = screen.getByRole('textbox');
@@ -146,7 +146,7 @@ describe('App grid clipboard integration', () => {
       cells: { A1: 'move me' },
     };
     const apiClient = autosaveClient();
-    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
     const cut = clipboardData();
@@ -174,7 +174,7 @@ describe('App grid clipboard integration', () => {
       cells: { A1: 'move me', B1: '"outside"' },
     };
     const apiClient = autosaveClient();
-    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={apiClient} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} apiClient={apiClient} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
 
@@ -195,7 +195,7 @@ describe('App grid clipboard integration', () => {
       columnCount: 2,
       cells: { A1: 'move me', B1: 'copy me' },
     };
-    render(<App initialWorkbook={workbookWithSheets([sheet])} apiClient={autosaveClient()} />);
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} apiClient={autosaveClient()} />);
     const frame = screen.getByRole('article', { name: 'Sheet Inputs' });
     const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-cell-key="${key}"]`)!;
 
@@ -219,7 +219,7 @@ function calculatedWorkbook(): Workbook {
     ],
   };
   return {
-    ...workbookWithSheets([{
+    ...workbookWithLegacyFormulaFixtures([{
       ...sheet,
       modelId: model.id,
       modelColumnBindings: { input: sheet.content.columns[0]!, result: sheet.content.columns[1]! },
