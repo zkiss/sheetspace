@@ -142,6 +142,26 @@ describe('single-content model templates', () => {
     expect(calculate({ ...removed, documents: { ...removed.documents, one: output } }).one.B1).toMatchObject({ error: '#REF!' });
   });
 
+  it('retains named and positional targets through property rename and column reorder', () => {
+    const workbook = instances();
+    const named = bindModelFormula("=@'Owner''s input'[1]", workbook, 'one');
+    const positional = bindModelFormula('=@A[1]', workbook, 'one');
+    const sheet = workbook.documents.one;
+    const renamedModel = { ...model, columns: model.columns.map((column) => column.id === 'input' ? { ...column, name: 'Renamed' } : column) };
+    const changed = { ...workbook, dataModels: { [model.id]: renamedModel }, documents: { ...workbook.documents, one: {
+      ...sheet, content: { ...sheet.content, columns: [sheet.content.columns[1], sheet.content.columns[0], sheet.content.columns[2]] },
+    } } };
+    const namedInstance = instantiateModelFormula(named, changed, 0);
+    const positionalInstance = instantiateModelFormula(positional, changed, 0);
+    const output = instantiateModelFormulas(changed, 'one', { result: named, total: positional });
+    const results = calculate({ ...changed, documents: { ...changed.documents, one: output } });
+
+    expect(projectStoredFormula(namedInstance, changed, 'one').text).toBe('=@Renamed[1]');
+    expect(projectStoredFormula(positionalInstance, changed, 'one').text).toBe('=@B[1]');
+    expect(results.one.A1).toMatchObject({ value: 1 });
+    expect(results.one.C1).toMatchObject({ value: 1 });
+  });
+
   it('evaluates errors and conditional branches without destructively replacing invalid text', () => {
     const workbook = instances();
     for (const [raw, error] of [['=1+', '#PARSE!'], ['=@Missing!A[1]', '#REF!'], ['=@A[3]', '#REF!'], ['=@B[1]', '#CYCLE!'], ['=IF(TRUE, 7, @A[999])', undefined]] as const) {

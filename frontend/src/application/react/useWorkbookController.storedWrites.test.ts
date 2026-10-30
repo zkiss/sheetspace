@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { decodeStoredFormula } from '@workbook/formula/storedFormula';
@@ -9,6 +10,26 @@ import { cellRawContent } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 
 describe('trusted controller writes', () => {
+  it('calculates against the request workbook when a later rename advances the optimistic workbook', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '7' } });
+    const target = sheetDocument({ id: 'target', name: 'Target', rowCount: 1, columnCount: 1 });
+    const workbook = workbookWithSheets([source, target]);
+    const update = vi.spyOn(FormulaCalculation.prototype, 'updateStored');
+    const { result, unmount } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+    update.mockClear();
+
+    act(() => {
+      result.current.commands.updateCellContent('target', 'A1', '=@Source!A[1]');
+      result.current.commands.renameSheet('source', 'Renamed');
+    });
+
+    expect(result.current.workbook.documents.source.name).toBe('Renamed');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][1].documents.source.name).toBe('Source');
+    expect(result.current.formulaResults.target.A1).toMatchObject({ value: 7 });
+    unmount();
+    update.mockRestore();
+  });
   it('prepares fresh mixed invalid input once and calculates diagnostics without erasing it', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '4' } });
     const workbook = workbookWithSheets([sheet]);
