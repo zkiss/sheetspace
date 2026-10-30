@@ -10,6 +10,10 @@ import {
 import { useWorkbookController } from '@application/react/useWorkbookController';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+
+const inputFixture = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
+const storedInputFormula = (formula: string) => prepareUserFormula(formula, workbookWithSheets([inputFixture]), inputFixture.id);
 
 function documentWithCells(
   document: SheetDocument,
@@ -125,7 +129,7 @@ describe('useWorkbookController content mutations', () => {
 
   it('undoes and redoes content with fresh feedback while leaving presentation outside history', async () => {
     const apiClient = autosaveClient();
-    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: '=SUM(@A[1])' } });
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { B1: storedInputFormula('=SUM(@A[1])') } });
     const { result } = renderHook(() => useWorkbookController({
       apiClient,
       initialWorkbook: workbookWithSheets([sheet]),
@@ -166,7 +170,7 @@ describe('useWorkbookController content mutations', () => {
       id: 'sheet-inputs',
       name: 'Inputs',
       position: { x: 10, y: 20 },
-      cells: { A1: '=1' },
+      cells: { A1: storedInputFormula('=1') },
     });
     const calculate = vi.fn();
     const { result } = renderHook(() =>
@@ -210,7 +214,7 @@ describe('useWorkbookController content mutations', () => {
     const sheet = sheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
-      cells: { B1: '=SUM(@A[1])' },
+      cells: { B1: storedInputFormula('=SUM(@A[1])') },
     });
     const { result } = renderHook(() =>
       useWorkbookController({
@@ -239,7 +243,7 @@ describe('useWorkbookController content mutations', () => {
     const sheet = sheetDocument({
       id: 'sheet-inputs',
       name: 'Inputs',
-      cells: { B1: '=SUM(@A[1])' },
+      cells: { B1: storedInputFormula('=SUM(@A[1])') },
     });
     const { result } = renderHook(() =>
       useWorkbookController({

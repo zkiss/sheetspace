@@ -4,8 +4,10 @@ import { useWorkbookController } from './useWorkbookController';
 import { autosaveClient, deferred, persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import type { RowAppendResponse, SheetRevisionResponse } from '@infrastructure/persistence/workbookApi';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 
-const sheet = sheetDocument({ id: 'sizes', name: 'Sizes', cells: { A1: '3', B1: '=@A[1]+2' }, revision: 2 });
+const fixture = sheetDocument({ id: 'sizes', name: 'Sizes', cells: { A1: '3' }, revision: 2 });
+const sheet = sheetDocument({ id: 'sizes', name: 'Sizes', cells: { A1: '3', B1: prepareUserFormula('=@A[1]+2', workbookWithSheets([fixture]), fixture.id) }, revision: 2 });
 const row = sheet.content.rows[0], column = sheet.content.columns[0];
 
 describe('workbook axis size commands', () => {

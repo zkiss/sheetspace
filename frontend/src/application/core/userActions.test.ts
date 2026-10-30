@@ -3,6 +3,7 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation,
+  applyStoredCellWrites,
 
 
   replayCellPersistenceWrites,
@@ -13,6 +14,7 @@ import {
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { cellRawContent } from '@workbook/read/queries';
 import { type Workbook } from '@workbook/core/model';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 
 const alpha = sheetDocument({ id: 'alpha', name: 'Alpha', revision: 4, zIndex: 1 });
 const beta = sheetDocument({ id: 'beta', name: 'Beta', revision: 7, zIndex: 2 });
@@ -87,7 +89,7 @@ describe('workbook operations', () => {
     expect(result.value.calculationImpact.kind).toBe(impact);
   });
 
-  it('stores a canonical formula and reports its exact calculation target', () => {
+  it('stores a bound formula and reports its exact calculation target', () => {
     const cell = cellIdentityAt(alpha.content, 'B2')!;
     const result = applyWorkbookOperation(workbook, {
       kind: 'write-cells', operationId: 'formula-write', writes: [write('alpha', cell, '=@Beta!A[1]')],
@@ -100,7 +102,7 @@ describe('workbook operations', () => {
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'B2' }] },
       },
     });
-    if (result.ok) expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=@beta!beta:column:1[beta:row:1]');
+    if (result.ok) expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe(prepareUserFormula('=@Beta!A[1]', workbook, 'alpha'));
   });
 
   it('applies resize position and size in one state transition', () => {
@@ -239,13 +241,13 @@ describe('workbook operations', () => {
       value: {
         changed: true,
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'alpha', key: 'B2' }] },
-        persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', a1, 'old', null), persistenceWrite('alpha', b2, null, '=@beta!beta:column:1[beta:row:1]')] },
+        persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', a1, 'old', null), persistenceWrite('alpha', b2, null, prepareUserFormula('=@Beta!A[1]', workbook, 'alpha'))] },
         inverse: { kind: 'write-cells', writes: [write('alpha', a1, 'old'), write('alpha', b2, '')] },
       },
     });
     if (result.ok) {
       expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'A1')).toBeUndefined();
-      expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe('=@beta!beta:column:1[beta:row:1]');
+      expect(cellRawContent(result.value.nextWorkbook.documents.alpha, 'B2')).toBe(prepareUserFormula('=@Beta!A[1]', workbook, 'alpha'));
     }
   });
 
@@ -276,9 +278,14 @@ describe('workbook operations', () => {
   });
 
   it('applies changed cells across sheets in one transaction and its inverse restores exact raw content', () => {
-    const source = workbookWithSheets([
+    const fixture = workbookWithSheets([
       sheetDocument({ id: 'alpha', name: 'Alpha', cells: { A1: ' old value ' } }),
-      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: '=@alpha!alpha:column:1[alpha:row:1]' } }),
+      sheetDocument({ id: 'beta', name: 'Beta' }),
+    ]);
+    const existing = prepareUserFormula('=@Alpha!A[1]', fixture, 'beta');
+    const source = workbookWithSheets([
+      fixture.documents.alpha,
+      sheetDocument({ id: 'beta', name: 'Beta', cells: { B2: existing } }),
     ]);
     const alphaA1 = cellIdentityAt(source.documents.alpha.content, 'A1')!;
     const betaB2 = cellIdentityAt(source.documents.beta.content, 'B2')!;
@@ -293,20 +300,18 @@ describe('workbook operations', () => {
         calculationImpact: { kind: 'cells', cells: [{ sheetId: 'alpha', key: 'A1' }, { sheetId: 'beta', key: 'B2' }] },
         affected: { sheetIds: ['alpha', 'beta'], cells: [{ sheetId: 'alpha', cell: alphaA1 }, { sheetId: 'beta', cell: betaB2 }] },
         persistence: { kind: 'write-cells', writes: [
-          persistenceWrite('alpha', alphaA1, ' old value ', '=@beta!beta:column:2[beta:row:2]'),
-          persistenceWrite('beta', betaB2, '=@alpha!alpha:column:1[alpha:row:1]', null),
+          persistenceWrite('alpha', alphaA1, ' old value ', prepareUserFormula('=@Beta!B[2]', source, 'alpha')),
+          persistenceWrite('beta', betaB2, existing, null),
         ] },
         inverse: { kind: 'write-cells', writes: [
           write('alpha', alphaA1, ' old value '),
-          write('beta', betaB2, '=@alpha!alpha:column:1[alpha:row:1]'),
+          write('beta', betaB2, existing),
         ] },
       },
     });
     if (!result.ok || result.value.inverse?.kind !== 'write-cells') return;
 
-    const restored = applyWorkbookOperation(result.value.nextWorkbook, {
-      ...result.value.inverse, operationId: 'restore-cross-sheet',
-    });
+    const restored = applyStoredCellWrites(result.value.nextWorkbook, result.value.inverse.writes);
     expect(restored).toMatchObject({ ok: true, value: { nextWorkbook: source } });
   });
 
@@ -319,7 +324,7 @@ describe('workbook operations', () => {
     const second = applyWorkbookOperation(first.value.nextWorkbook, { kind: 'write-cells', operationId: 'second', writes: [write('alpha', cell, '')] });
 
     expect(first.value.persistence).toEqual(firstPersistence);
-    expect(second).toMatchObject({ ok: true, value: { persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', cell, '=1+1', null)] } } });
+    expect(second).toMatchObject({ ok: true, value: { persistence: { kind: 'write-cells', writes: [persistenceWrite('alpha', cell, prepareUserFormula('=1+1', source, 'alpha'), null)] } } });
     expect(JSON.parse(JSON.stringify(first.value.persistence))).toEqual(first.value.persistence);
   });
 

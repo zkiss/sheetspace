@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { decodeCellTextLiteral, encodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { decodeWorkbookBundle, encodeWorkbookBundle, WorkbookApiError } from '@infrastructure/persistence/workbookApi';
@@ -17,7 +18,8 @@ const model: DataModel = { id: 'model', name: 'Invoice', columns: [
 function initialWorkbook(): Workbook {
   const first = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 3, cells: { A1: '3', A2: '5' } });
   const second = sheetDocument({ id: 'two', name: 'Two', rowCount: 1, columnCount: 1, cells: { A1: '7' } });
-  const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 1, columnCount: 1, cells: { A1: "=@'One'!A[1]+@'Two'!A[1]" } });
+  const context = workbookWithSheets([first, second]);
+  const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 1, columnCount: 1, cells: { A1: prepareUserFormula("=@'One'!A[1]+@'Two'!A[1]", context, 'dependent') } });
   return { ...workbookWithSheets([first, second, dependent]), dataModels: { model } };
 }
 
