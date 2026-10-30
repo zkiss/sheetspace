@@ -18,6 +18,12 @@ describe('fresh cell input preparation', () => {
     expect(decodeStoredFormula(prepareCellInput(text, workbook, sheet.id)).text).toBe(text);
   });
 
+  it('validates persisted formulas and preserves their bytes for an unchanged draft', () => {
+    const original = prepareCellInput('=@A[1]', workbook, sheet.id);
+    expect(prepareCellInput('=@A[1]', workbook, sheet.id, original)).toBe(original);
+    expect(() => prepareCellInput('=2', workbook, sheet.id, '=not stored')).toThrow('Invalid stored formula');
+  });
+
   it('encodes text while preserving typed scalars and blank input', () => {
     expect(prepareCellInput('hello', workbook, sheet.id)).toBe('"hello"');
     expect(prepareCellInput('"hello"', workbook, sheet.id)).toBe('"""hello"""');

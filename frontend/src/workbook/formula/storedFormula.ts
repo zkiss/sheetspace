@@ -37,6 +37,12 @@ export function decodeStoredFormula(content: string): StoredFormula {
   return readFormula(payload);
 }
 
+/** Validate persisted content before using it as a trusted formula. */
+export function requireStoredFormula(content: string): StoredFormulaContent {
+  decodeStoredFormula(content);
+  return content as StoredFormulaContent;
+}
+
 function readFormula(payload: unknown): StoredFormula {
   const [text, occurrences] = tuple(payload, 2);
   if (typeof text !== 'string' || !text.startsWith('=')) return invalid();
