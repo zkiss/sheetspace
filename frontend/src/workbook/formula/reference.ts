@@ -34,17 +34,17 @@ function namedColumnPredicate(resolver?: FormulaReferenceResolver) {
  * Syntax recognition remains exclusively owned by formulaSyntax; this only asks
  * the existing resolver for stable named targets and target validity.
  */
-export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver): FormulaSyntaxResult {
-  const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn: namedColumnPredicate(resolver) });
+export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver, stored = false): FormulaSyntaxResult {
+  const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn: stored ? undefined : namedColumnPredicate(resolver), stored });
   const diagnostics = analysis.referenceLexemes.map(matchFromLexeme)
-    .filter((match) => !referenceMatchResolves(match, resolver))
+    .filter((match) => stored && !match.canonical || !referenceMatchResolves(match, resolver))
     .map((match) => ({ kind: 'reference' as const, code: '#REF!' as const, sourceSpan: match.sourceSpan }));
-  const references = analysis.references.map((reference) => resolveNamedReference(reference, resolver));
+  const references = analysis.references.map((reference) => stored ? reference : resolveNamedReference(reference, resolver));
   const resolvedByStart = new Map(references.map((reference) => [reference.sourceSpan.start, reference]));
   return {
     ...analysis,
     result: analysis.result.kind === 'formula'
-      ? { ...analysis.result, expression: resolveExpressionReferences(analysis.result.expression, resolvedByStart) }
+      ? { ...analysis.result, expression: resolveExpressionReferences(analysis.result.expression, resolvedByStart, stored) }
       : analysis.result,
     references,
     diagnostics: mergeFormulaDiagnostics(analysis.diagnostics, diagnostics),
@@ -70,21 +70,21 @@ function resolveNamedReference(reference: FormulaReference, resolver: FormulaRef
   };
 }
 
-function resolveExpressionReferences(expression: FormulaExpression, references: ReadonlyMap<number, FormulaReference>): FormulaExpression {
+function resolveExpressionReferences(expression: FormulaExpression, references: ReadonlyMap<number, FormulaReference>, canonicalOnly = false): FormulaExpression {
   switch (expression.kind) {
     case 'cell':
     case 'range':
     case 'canonical':
     case 'named':
-      return references.get(expression.sourceSpan.start)!;
+      return canonicalOnly && expression.kind !== 'canonical' ? { kind: 'invalid-reference', sourceSpan: expression.sourceSpan } : references.get(expression.sourceSpan.start)!;
     case 'group':
-      return { ...expression, expression: resolveExpressionReferences(expression.expression, references) };
+      return { ...expression, expression: resolveExpressionReferences(expression.expression, references, canonicalOnly) };
     case 'unary':
-      return { ...expression, operand: resolveExpressionReferences(expression.operand, references) };
+      return { ...expression, operand: resolveExpressionReferences(expression.operand, references, canonicalOnly) };
     case 'binary':
-      return { ...expression, left: resolveExpressionReferences(expression.left, references), right: resolveExpressionReferences(expression.right, references) };
+      return { ...expression, left: resolveExpressionReferences(expression.left, references, canonicalOnly), right: resolveExpressionReferences(expression.right, references, canonicalOnly) };
     case 'function':
-      return { ...expression, arguments: expression.arguments.map((argument) => resolveExpressionReferences(argument, references)) };
+      return { ...expression, arguments: expression.arguments.map((argument) => resolveExpressionReferences(argument, references, canonicalOnly)) };
     default:
       return expression;
   }

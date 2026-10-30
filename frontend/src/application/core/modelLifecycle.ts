@@ -5,7 +5,6 @@ import { cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentit
 import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import type { ModelFormulaBindings } from '@workbook/core/modelFormula';
 import { bindModelFormula, bindModelFormulas, instantiateModelFormulas, refreshDerivedInstances } from '@workbook/formula/modelTemplate';
-import { modelFormulaDeclaration } from '@workbook/formula/preparedModelTemplate';
 import { validateDataModel } from '@workbook/mutations/dataModel';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 
@@ -19,7 +18,6 @@ export interface LifecycleAdapter<S, B> {
   bindings(state: S, sheetId: string): Readonly<Record<string, B>>;
   prepare(workbook: Workbook, sheetId: string, formula: string): B;
   prepareAll(workbook: Workbook, sheetId: string): Readonly<Record<string, B>>;
-  declaration(binding: B): string;
   calculate(workbook: Workbook): FormulaEvaluationSnapshot;
   finish(state: S, workbook: Workbook, changes: Readonly<Record<string, Readonly<Record<string, B>> | undefined>>): S;
 }
@@ -82,7 +80,8 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
         changes[sheet.id] = Object.fromEntries(model.columns.flatMap((property) => {
           if (property.kind !== 'calculated') return [];
           const old = oldBindings.get(sheet.id)![property.id];
-          return [[property.id, old && adapter.declaration(old) === property.formula ? old : adapter.prepare(next, sheet.id, property.formula)]];
+          const oldProperty = previous.columns.find((candidate) => candidate.id === property.id);
+          return [[property.id, old && oldProperty?.kind === 'calculated' && oldProperty.formula === property.formula ? old : adapter.prepare(next, sheet.id, property.formula)]];
         }));
       }
       return { ok: true, value: adapter.finish(sourceState, next, changes) };
@@ -96,7 +95,6 @@ const storedLifecycle = lifecycleOperations<Workbook, ModelFormulaBindings[strin
   bindings: (workbook, sheetId) => workbook.documents[sheetId]!.modelFormulaBindings ?? bindModelFormulas(workbook, sheetId),
   prepare: (workbook, sheetId, formula) => bindModelFormula(formula, workbook, sheetId),
   prepareAll: bindModelFormulas,
-  declaration: modelFormulaDeclaration,
   calculate,
   finish: (source, structured, changes) => {
     let next = structured;

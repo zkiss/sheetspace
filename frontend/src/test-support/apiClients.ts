@@ -206,7 +206,7 @@ function materializeCalculatedRow(workbook: Workbook, sheet: SheetDocument, rowI
     const columnId = sheet.modelColumnBindings?.[property.id];
     const template = templates[property.id];
     if (!columnId || !template) continue;
-    cells[cellIdentityKey({ rowId, columnId })] = instantiateModelFormula(template, workbook, rowIndex);
+    cells[cellIdentityKey({ rowId, columnId })] = instantiateModelFormula(template, workbook, rowIndex, property.formula, sheet.id);
   }
   return { ...sheet, content: { ...sheet.content, cells } };
 }

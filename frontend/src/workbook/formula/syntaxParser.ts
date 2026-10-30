@@ -16,7 +16,7 @@ import type {
 import { mergeFormulaDiagnostics } from './diagnostics';
 import { decodeStableId } from './stableId';
 import { completeUserReferenceStart, makeFormulaReference, qualifierPayloadSpan, referencePayloadSpans } from './syntaxReference';
-import { completeFormulaTokens } from './syntaxTokens';
+import { completeFormulaTokens, skipFormulaTextLiteral } from './syntaxTokens';
 
 type ReadResult<T> =
   | { ok: true; value: T }
@@ -35,6 +35,7 @@ export class FormulaParser {
     private readonly input: string,
     private readonly isNamedColumn?: FormulaNamedColumnPredicate,
     private readonly userReferences = false,
+    private readonly stored = false,
   ) {}
 
   parse(raw: string): FormulaSyntaxResult {
@@ -97,17 +98,7 @@ export class FormulaParser {
   }
 
   private skipTextLiteral(): void {
-    this.index += 1;
-    while (!this.atEnd()) {
-      if (this.peek() !== '"') {
-        this.index += 1;
-      } else if (this.input[this.index + 1] === '"') {
-        this.index += 2;
-      } else {
-        this.index += 1;
-        return;
-      }
-    }
+    this.index = skipFormulaTextLiteral(this.input, this.index);
   }
 
   private readComparison(): ReadResult<FormulaExpression> {
@@ -225,6 +216,15 @@ export class FormulaParser {
       };
     }
     if (this.peek() === '"') return this.readText();
+    if (this.stored && this.input.startsWith('~{', this.index)) {
+      const opaque = /^~\{(?:[0-9a-f]{4})+\}/.exec(this.input.slice(this.index));
+      if (!opaque) return this.error();
+      this.index += opaque[0].length;
+      const sourceSpan = this.span(start);
+      this.recordToken('invalid', start, this.index);
+      this.diagnostics.push({ kind: 'reference', code: '#REF!', sourceSpan });
+      return { ok: true, value: { kind: 'invalid-reference', sourceSpan } };
+    }
     if (this.peek() === '@') return this.readReference();
     const number = this.readNumber();
     if (number) return { ok: true, value: number };

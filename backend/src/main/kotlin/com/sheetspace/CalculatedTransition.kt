@@ -7,13 +7,13 @@ internal fun calculatedTransitionIsValid(current: WorkbookState, updated: Workbo
 internal interface CalculatedTemplates<T> {
     fun templates(sheet: SheetDocument): Map<String, T>?
     fun valid(template: T, declaration: String): Boolean
-    fun derive(template: T, workbook: WorkbookState, rowIndex: Int): String
+    fun derive(template: T, workbook: WorkbookState, rowIndex: Int, declaration: String, sheetId: String): String
 }
 
 internal object StoredCalculatedTemplates : CalculatedTemplates<BoundModelFormula> {
     override fun templates(sheet: SheetDocument) = sheet.modelFormulaBindings
     override fun valid(template: BoundModelFormula, declaration: String) = preparedModelTemplateIsValid(template, declaration)
-    override fun derive(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int) = derivedFormulaRaw(template, workbook, rowIndex)
+    override fun derive(template: BoundModelFormula, workbook: WorkbookState, rowIndex: Int, declaration: String, sheetId: String) = derivedFormulaRaw(template, workbook, rowIndex, declaration, sheetId)
 }
 
 internal fun rejectCalculatedOverrides(current: WorkbookState, updated: WorkbookState) =
@@ -32,7 +32,7 @@ internal fun <T> calculatedTransitionIsValid(current: WorkbookState, updated: Wo
                 val expected = if (previous != null && row in previous.tabularContent.rows) {
                     previous.tabularContent.cellContents[coordinate]
                 } else {
-                    rules.derive(template, updated, rowIndex)
+                    rules.derive(template, updated, rowIndex, property.formula, sheet.id.value)
                 }
                 expected != null && sheet.tabularContent.cellContents[coordinate] == expected
             }
@@ -52,8 +52,8 @@ internal fun preparedCalculatedTemplates(templates: (SheetDocument) -> Map<Strin
     object : CalculatedTemplates<PreparedModelFormula> {
         override fun templates(sheet: SheetDocument) = templates(sheet)
         override fun valid(template: PreparedModelFormula, declaration: String) = preparedModelTemplateIsValid(template, declaration)
-        override fun derive(template: PreparedModelFormula, workbook: WorkbookState, rowIndex: Int) =
-            derivedPreparedFormulaRaw(template, workbook, rowIndex)
+        override fun derive(template: PreparedModelFormula, workbook: WorkbookState, rowIndex: Int, declaration: String, sheetId: String) =
+            derivedPreparedFormulaRaw(template, workbook, rowIndex, declaration, sheetId)
     }
 
 internal fun <T> retainDeclaredCalculatedTemplates(

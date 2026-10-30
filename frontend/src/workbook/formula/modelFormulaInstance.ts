@@ -1,21 +1,26 @@
 import type { Workbook } from '../core/model';
-import { decodeStoredFormula, encodeStoredFormula, type StoredFormulaContent } from './storedFormula';
+import { requireStoredFormula, type StoredFormulaContent } from './storedFormula';
+import { formatCanonicalFormulaEndpoint } from './reference';
+import { escapeFormulaText } from './opaqueFormulaText';
+import { modelFormulaRecipes } from './modelFormulaAssociation';
 
-/** Instantiate positional row recipes without changing the template's expression or other identities. */
-export function instantiateStoredModelFormula(template: StoredFormulaContent, workbook: Workbook, rowIndex: number): StoredFormulaContent {
-  const formula = decodeStoredFormula(template);
-  for (const occurrence of formula.occurrences) {
-    const sheetSlot = occurrence.slots.find((slot) => slot.id === occurrence.sheetSlotId)!;
-    const sheet = sheetSlot.status === 'retained' ? workbook.documents[sheetSlot.targetIds[0]] : undefined;
-    if (!sheet) continue;
-    for (const endpoint of occurrence.endpoints) {
-      const rowSlot = occurrence.slots.find((slot) => slot.id === endpoint.rowSlotId)!;
-      if (typeof rowSlot.key !== 'number') continue;
-      const index = rowSlot.key - 1 + (endpoint.anchors.row ? 0 : rowIndex);
-      const rowId = sheet.content.rows[index];
-      rowSlot.status = rowId ? 'retained' : 'unresolved';
-      rowSlot.targetIds = rowId ? [rowId] : [];
-    }
-  }
-  return encodeStoredFormula(formula);
+/** Positional row recipes belong to the existing declaration, not current row positions. */
+export function instantiateStoredModelFormula(template: StoredFormulaContent, workbook: Workbook, rowIndex: number, declaration: string, currentSheetId: string): StoredFormulaContent {
+  const recipes = modelFormulaRecipes(template, declaration);
+  if (!recipes) throw new Error('Stored model formula does not match declaration');
+  const edits = recipes.map(({ declaration: source, stored }) => {
+    const sheet = workbook.documents[stored.qualifier?.value ?? currentSheetId];
+    if (!sheet) return { ...stored.sourceSpan, text: template.slice(stored.sourceSpan.start, stored.sourceSpan.end) };
+    const endpoints = stored.endpoints.map((endpoint, index) => {
+      const recipe = source.endpoints[index];
+      if ((endpoint.kind !== 'canonical' && endpoint.kind !== 'stored-named') || (recipe.kind !== 'a1' && recipe.kind !== 'named')) throw new Error('Invalid model reference recipe');
+      const baseRow = recipe.kind === 'a1' ? recipe.value.rowIndex : recipe.value.row - 1;
+      const rowId = sheet.content.rows[baseRow + (recipe.anchors.row ? 0 : rowIndex)];
+      return rowId ? formatCanonicalFormulaEndpoint({ columnId: endpoint.value.columnId, rowId }, endpoint.anchors, endpoint.kind === 'stored-named' ? endpoint.value.propertyId : undefined) : undefined;
+    });
+    return { ...stored.sourceSpan, text: endpoints.every(Boolean)
+      ? `@${stored.qualifier ? `${stored.qualifier.value}!` : ''}${endpoints.join(':')}`
+      : escapeFormulaText(declaration.slice(source.sourceSpan.start, source.sourceSpan.end)) };
+  });
+  return requireStoredFormula(edits.reverse().reduce<string>((content, span) => content.slice(0, span.start) + span.text + content.slice(span.end), template));
 }

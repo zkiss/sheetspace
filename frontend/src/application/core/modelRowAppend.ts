@@ -24,7 +24,7 @@ export function materializeAppendedModelRow(workbook: Workbook, sheetId: SheetId
     const template = templates[property.id];
     if (!columnId || !template || !sheet.content.columns.includes(columnId)) continue;
     const key = cellIdentityKey({ rowId, columnId });
-    const raw = instantiateModelFormula(template, workbook, rowIndex);
+    const raw = instantiateModelFormula(template, workbook, rowIndex, property.formula, sheetId);
     if (cells[key] === raw) continue;
     cells[key] = raw;
     changed = true;
