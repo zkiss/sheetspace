@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import {
   prepareMoveCellWrites,
-  applyWorkbookOperation,
+  prepareStoredMoveCellWrites,
+  applyStoredCellWrites,
   type CellWrite,
 } from '@application/core/userActions';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import type { ClipboardSourceSnapshot } from '@application/core/clipboardPayload';
 import { formulaRawToCanonical, workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { bindModelSheets, calculatedModelCells, calculatedProperty, declaration, modelWorkbook } from '@test-support/modelLifecycleFixtures';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 
 type Sheet = ReturnType<typeof sheetDocument>;
 const write = (sheetId: string, cell: { rowId: string; columnId: string }, raw: string): CellWrite => ({ sheetId, ...cell, raw });
@@ -93,15 +95,14 @@ describe('range move preparation', () => {
   it('applies a move and evaluates both the dependent and moved formula against their intended targets', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 4, columnCount: 4, cells: { A1: '10', B1: '20', D1: '7' } });
     const workbook = workbookWithSheets([sheet]);
-    const resolver = workbookFormulaReferenceResolver(workbook, sheet.id);
     for (const [address, formula] of [['C3', '=@A[1]+@B[1]'], ['C1', '=@A[1]+@D[1]']]) {
       const cell = cellIdentityAt(sheet.content, address)!;
-      sheet.content.cells[`${cell.rowId}\u0000${cell.columnId}`] = formulaRawToCanonical(formula!, resolver);
+      sheet.content.cells[`${cell.rowId}\u0000${cell.columnId}`] = prepareUserFormula(formula!, workbook, sheet.id);
     }
-    const prepared = prepareMoveCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'A4')!, snapshot(sheet, 'A1', 1, 3));
+    const prepared = prepareStoredMoveCellWrites(workbook, sheet.id, cellIdentityAt(sheet.content, 'A4')!, snapshot(sheet, 'A1', 1, 3));
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) throw new Error(prepared.reason);
-    const applied = applyWorkbookOperation(workbook, { kind: 'write-cells', operationId: 'move', writes: prepared.writes });
+    const applied = applyStoredCellWrites(workbook, prepared.writes);
     expect(applied.ok).toBe(true);
     if (!applied.ok) throw new Error(applied.reason);
     expect(calculatedModelCells(applied.value.nextWorkbook).sheet.C3).toMatchObject({ value: 30 });
@@ -128,11 +129,11 @@ describe('range move preparation', () => {
     const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 2, columnCount: 1 });
     const workbook = bindModelSheets(modelWorkbook(declaration([calculatedProperty('result', '=@Source!A[1]*2')]), [source, dependent]), ['dependent']);
     const before = structuredClone(workbook);
-    const prepared = prepareMoveCellWrites(workbook, source.id, cellIdentityAt(source.content, 'A2')!, snapshot(source, 'A1'));
+    const prepared = prepareStoredMoveCellWrites(workbook, source.id, cellIdentityAt(source.content, 'A2')!, snapshot(source, 'A1'));
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) throw new Error(prepared.reason);
     expect(prepared.writes.some((item) => item.sheetId === dependent.id)).toBe(true);
-    expect(applyWorkbookOperation(workbook, { kind: 'write-cells', operationId: 'move', writes: prepared.writes })).toEqual({ ok: false, reason: 'calculated-cell-write' });
+    expect(applyStoredCellWrites(workbook, prepared.writes)).toEqual({ ok: false, reason: 'calculated-cell-write' });
     expect(workbook).toEqual(before);
   });
 

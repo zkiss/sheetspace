@@ -8,6 +8,7 @@ import { openSheetContextMenu, workspaceSurface } from '@test-support/appScreen'
 import { testRect } from '@test-support/domGeometry';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
 import { navigateFirstReference } from '@test-support/referenceNavigation';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 
 describe('Phase 2 acceptance workflow', () => {
   it(
@@ -24,18 +25,24 @@ describe('Phase 2 acceptance workflow', () => {
       const outputs = {
         ...positionedSheet('sheet-outputs', 'Outputs', { x: 40, y: 40 }),
         cells: {
-          A1: '=SUMIF(@sheet-inputs!B[1]:B[3], "open", @sheet-inputs!C[1]:C[3])',
-          A2: '=@sheet-inputs!A[1] + 1',
+          A1: '=SUMIF(@Inputs!B[1]:B[3], "open", @Inputs!C[1]:C[3])',
+          A2: '=@Inputs!A[1] + 1',
         },
       };
       const errors = {
         ...positionedSheet('sheet-errors', 'Errors', { x: 400, y: 40 }),
         cells: {
           A1: '=SUM(,)',
-          C1: '=@sheet-inputs!A[1] + 1',
+          C1: '=@Inputs!A[1] + 1',
         },
       };
-      const apiClient = persistedWorkbookClient(workbookWithSheets([inputs, outputs, errors]));
+      const workbook = workbookWithSheets([inputs, outputs, errors]);
+      for (const sheet of Object.values(workbook.documents)) {
+        for (const [cell, raw] of Object.entries(sheet.content.cells)) {
+          if (raw.startsWith('=')) sheet.content.cells[cell] = prepareUserFormula(raw, workbook, sheet.id);
+        }
+      }
+      const apiClient = persistedWorkbookClient(workbook);
 
       render(<App apiClient={apiClient} />);
 
