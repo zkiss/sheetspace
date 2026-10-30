@@ -1,11 +1,35 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { App } from './App';
 import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
+import { deferred, persistedWorkbookClient } from '@test-support/apiClients';
+import type { Workbook } from '@workbook/core/model';
 
 describe('navigation palette composition', () => {
+  it('restores the originating cell after confirming and escaping while persistence is pending', async () => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const workbook = workbookWithLegacyFormulaFixtures([sheet]);
+    workbook.dataModels = { invoice: { id: 'invoice', name: 'Invoice', columns: [{ id: 'amount', name: 'Amount', kind: 'manual', type: 'float' }] } };
+    const completion = deferred<Workbook>();
+    const apiClient = persistedWorkbookClient(workbook);
+    apiClient.saveModelLifecycle.mockReturnValue(completion.promise);
+    render(<App initialWorkbook={workbook} apiClient={apiClient} />);
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    await user.click(cell);
+    fireEvent.keyDown(cell, { ctrlKey: true, shiftKey: true, key: 'p' });
+    await user.click(screen.getByRole('button', { name: /Bind model…/ }));
+    await user.selectOptions(screen.getByLabelText('Model for Inputs'), 'invoice');
+    await user.click(screen.getByRole('button', { name: 'Bind model' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus();
+    await act(async () => { completion.resolve(workbook); await completion.promise; });
+    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus();
+  });
   it('returns to the originating cell after cancellation and Escape', async () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });

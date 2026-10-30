@@ -56,7 +56,7 @@ it.each(['bind', 'rebind', 'unbind'] as const)('restores selector focus after co
   const confirm = screen.getByRole('button', { name: `Confirm ${action}` });
   confirm.focus();
   fireEvent.click(confirm);
-  expect(screen.getByRole('dialog')).toContainElement(document.activeElement);
+  expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
   expect(document.activeElement).not.toBeDisabled();
   await act(async () => { completion.resolve({ ok: true }); });
   expect(selector).toHaveFocus();
