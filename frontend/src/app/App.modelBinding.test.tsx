@@ -178,7 +178,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
 
     await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
-    await waitFor(() => expect(columnLabels()).toEqual(['Amount', 'Tax']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Amount', 'Tax', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
 
     openSheetContextMenu(frame());
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
@@ -188,8 +188,8 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(edit).getByLabelText('Property 1 name'), { target: { value: 'Total' } });
     fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax']));
-    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
 
     openSheetContextMenu(frame());
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
@@ -197,7 +197,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(reorder).getByRole('button', { name: 'Move property 2 up' }));
     fireEvent.click(within(reorder).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Total']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Total', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
   });
 
   it('reports a rejected binding persistence and restores the unbound sheet with its selection', async () => {
@@ -256,7 +256,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(reorder).getByRole('button', { name: 'Move property 2 up' }));
     fireEvent.click(within(reorder).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Amount']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Amount', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
     expect(cellAt('A1')).toHaveAttribute('aria-readonly', 'true');
     expect(cellAt('B1')).not.toHaveAttribute('aria-readonly');
   });

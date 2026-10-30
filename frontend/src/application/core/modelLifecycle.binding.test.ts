@@ -25,7 +25,7 @@ describe('explicit positional binding', () => {
     const bound = bindModelSheets(workbook, ['sheet']);
     const next = bound.documents.sheet!;
 
-    expect(next.content.columns).toHaveLength(2);
+    expect(next.content.columns).toHaveLength(Math.max(width, 2));
     expect(next.content.columns.slice(0, Math.min(width, 2))).toEqual(sheet.content.columns.slice(0, 2));
     expect(next.content.rows).toBe(sheet.content.rows);
     expect(next.modelColumnBindings).toEqual({ input: next.content.columns[0], result: next.content.columns[1] });
@@ -50,7 +50,7 @@ describe('explicit positional binding', () => {
     expect(calculatedModelCells(bound).second.B1).toMatchObject({ value: 22 });
   });
 
-  it('prunes deleted column presentation and data without changing frame or retained row/cell presentation', () => {
+  it('preserves extra column presentation and data without changing frame or retained row/cell presentation', () => {
     const base = makeSheet(3);
     const [a, b, c] = base.content.columns;
     const row = base.content.rows[0]!;
@@ -64,9 +64,9 @@ describe('explicit positional binding', () => {
 
     expect(next.frame).toBe(sheet.frame);
     expect(next.presentation.rowHeights).toBe(sheet.presentation.rowHeights);
-    expect(next.presentation.columnWidths).toEqual({ [a!]: 81, [b!]: 99 });
-    expect(next.presentation.formatOverrides).toEqual({ ...sheet.presentation.formatOverrides, columns: { [a!]: { fillColor: '#123456' } }, cells: { [firstCell]: { horizontalAlignment: 'right' } } });
-    expect(next.content.cells[removedCell]).toBeUndefined();
+    expect(next.presentation.columnWidths).toEqual(sheet.presentation.columnWidths);
+    expect(next.presentation.formatOverrides).toEqual(sheet.presentation.formatOverrides);
+    expect(next.content.cells[removedCell]).toBe('discard');
   });
 
   it('allows empty rows and zero properties without deleting row identities', () => {
@@ -77,7 +77,7 @@ describe('explicit positional binding', () => {
     expect(emptyRows.documents.sheet!.content.rows).toEqual([]);
     expect(emptyRows.documents.sheet!.content.cells).toEqual({});
     expect(emptyRows.documents.sheet!.modelFormulaBindings?.result).toBeDefined();
-    expect(emptyProperties.documents.sheet!.content).toEqual({ ...sheet.content, columns: [], cells: {} });
+    expect(emptyProperties.documents.sheet!.content).toEqual(sheet.content);
   });
 
   it('preserves parseable broken manual references without damaging valid conditional branches', () => {

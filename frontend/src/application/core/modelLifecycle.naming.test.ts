@@ -1,9 +1,10 @@
 import { expect, it, vi } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
-import { bindModelSheets, calculatedProperty, declaration, freshColumns, manualProperty, modelWorkbook, successfulModelMutation } from '@test-support/modelLifecycleFixtures';
+import { bindModelSheets, calculatedModelCells, calculatedProperty, declaration, freshColumns, manualProperty, modelWorkbook, successfulModelMutation } from '@test-support/modelLifecycleFixtures';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { bindSheetToModel, replaceModelDeclaration } from './modelLifecycle';
 import { bindPreparedSheet, replacePreparedDeclaration } from './preparedModelLifecycle';
+import { renameOrdinaryColumn } from '@workbook/mutations/renameOrdinaryColumn';
 
 it('preserves stored and prepared sheets and bindings for a property-only rename', () => {
   const model = declaration([manualProperty('input', 'Input'), calculatedProperty('result', '=@A[1]*2', 'Result')]);
@@ -55,4 +56,34 @@ it('rejects binding when a property would collide with another retained local co
   const workbook = modelWorkbook(model, [{ ...sheet, columnNames: { [sheet.content.columns[1]]: 'First' } }]);
 
   expect(bindSheetToModel(workbook, 'one', model.id, freshColumns())).toEqual({ ok: false, reason: 'invalid-model' });
+});
+
+it('projects qualified references in another model before binding a new consumer', () => {
+  const model = declaration([manualProperty('input', 'Input')]);
+  const consumer = { id: 'consumer', name: 'Consumer', columns: [calculatedProperty('result', '=@Source!Input[1]*2', 'Result')] };
+  const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '4' } });
+  const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 1, columnCount: 1 });
+  const initial = { ...modelWorkbook(model, [source, destination]), dataModels: { model, consumer } };
+  const bound = successfulModelMutation(bindSheetToModel(initial, source.id, model.id, freshColumns()));
+  const renamed = successfulModelMutation(replaceModelDeclaration(bound, { ...model, columns: [manualProperty('input', "Owner's cost")] }, freshColumns()));
+  expect(renamed.dataModels!.consumer.columns[0].formula).toBe("=@Source!'Owner''s cost'[1]*2");
+  expect(renamed.documents.source.modelColumnBindings).toEqual(bound.documents.source.modelColumnBindings);
+  const attached = successfulModelMutation(bindSheetToModel(renamed, destination.id, consumer.id, freshColumns()));
+  expect(calculatedModelCells(attached).destination.A1?.display).toBe('8');
+});
+
+it('binds a new consumer to a renamed ordinary column without changing existing bindings', () => {
+  const consumer = declaration([calculatedProperty('result', '=@Source!Old[1]*2', 'Result')]);
+  const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '7' } });
+  const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 1 });
+  const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 1 });
+  const initial = modelWorkbook(consumer, [{ ...source, columnNames: { [source.content.columns[0]]: 'Old' } }, first, second]);
+  const bound = bindModelSheets(initial, ['first']);
+  const result = renameOrdinaryColumn(bound, source.id, source.content.columns[0], 'New name');
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.documents.first.modelFormulaBindings).toBe(bound.documents.first.modelFormulaBindings);
+  expect(result.value.dataModels!.model.columns[0].formula).toBe("=@Source!'New name'[1]*2");
+  const attached = bindModelSheets(result.value, ['second']);
+  expect(calculatedModelCells(attached).first.A1?.display).toBe('14');
+  expect(calculatedModelCells(attached).second.A1?.display).toBe('14');
 });

@@ -20,6 +20,20 @@ function successful(result: ModelMutationResult): Workbook {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('lifecycle HTTP mapping', () => {
+  it('retains an extra named ordinary column through binding, structural replacement and reload', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { B1: '42' } });
+    const extra = sheet.content.columns[1];
+    const model: DataModel = { id: 'model', name: 'Model', columns: [{ id: 'input', name: 'Input', kind: 'manual', type: 'float' }] };
+    const initial = { ...workbookWithSheets([{ ...sheet, columnNames: { [extra]: 'Extra' }, presentation: { ...sheet.presentation, columnWidths: { [extra]: 125 } } }]), dataModels: { model } };
+    const bound = successful(bindSheetToModel(initial, sheet.id, model.id, () => 'new'));
+    const changed = successful(replaceModelDeclaration(bound, { ...model, columns: [...model.columns, { id: 'new', name: 'New', kind: 'manual', type: 'float' }] }, () => 'new'));
+    const reloaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(changed))));
+
+    expect(reloaded.documents.sheet.content.columns).toEqual([sheet.content.columns[0], 'new', extra]);
+    expect(reloaded.documents.sheet.columnNames).toEqual({ [extra]: 'Extra' });
+    expect(reloaded.documents.sheet.presentation.columnWidths[extra]).toBe(125);
+    expect(cellRawContent(reloaded.documents.sheet, 'C1')).toBe('42');
+  });
   it('preserves a grid-pasted formula-like literal through workbook serialization', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
     const workbook = workbookWithSheets([sheet]);

@@ -156,8 +156,9 @@ function referenceDependencies(
     for (let row = Math.min(reference.range.start.rowIndex, reference.range.end.rowIndex); row <= Math.max(reference.range.start.rowIndex, reference.range.end.rowIndex); row += 1) for (let column = Math.min(reference.range.start.columnIndex, reference.range.end.columnIndex); column <= Math.max(reference.range.start.columnIndex, reference.range.end.columnIndex); column += 1) dependencies.add(sheetCellNodeId(targetSheet.id, legacyKey(targetSheet, row, column)));
     return dependencies;
   }
-  if (reference.propertyId && (targetSheet.modelColumnBindings?.[reference.propertyId] !== reference.coordinate.columnId || !targetSheet.modelPropertyIds?.has(reference.propertyId))) return new Set();
-  if (reference.range?.endPropertyId && (targetSheet.modelColumnBindings?.[reference.range.endPropertyId] !== reference.range.end.columnId || !targetSheet.modelPropertyIds?.has(reference.range.endPropertyId))) return new Set();
+  const validNamed = (id: string, column: string) => (id === column && targetSheet.ordinaryNamedColumnIds?.has(column)) || (targetSheet.modelColumnBindings?.[id] === column && targetSheet.modelPropertyIds?.has(id));
+  if (reference.propertyId && !validNamed(reference.propertyId, reference.coordinate.columnId)) return new Set();
+  if (reference.range?.endPropertyId && !validNamed(reference.range.endPropertyId, reference.range.end.columnId)) return new Set();
   if (!reference.range) {
     const key = calculationCellKey(targetSheet, reference.coordinate);
     return key ? new Set([sheetCellNodeId(targetSheet.id, key)]) : new Set();
