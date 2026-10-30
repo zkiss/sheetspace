@@ -136,7 +136,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       setCompletionRequest({ selection: selection(), automatic: false });
       setCompletionIndex(0); setCompletionChosen(false); return;
     }
-    if (completionOpen && completionChosen && event.key === 'Enter' && !event.shiftKey && !event.altKey) { event.preventDefault(); event.stopPropagation(); acceptCompletion(); return; }
+    if (completionOpen && completionChosen && (event.key === 'Enter' || event.key === 'Tab') && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); event.stopPropagation(); acceptCompletion(); return; }
     if (cellMode === 'light' && onCommitAndNavigate && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
       event.preventDefault(); event.stopPropagation();
       onCommitAndNavigate({ key: event.key, shift: event.shiftKey }); return;
@@ -151,7 +151,8 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation();
       setHoveredReference(undefined);
-      if (cellMode === 'light') onCancel();
+      if (completionOpen && !event.shiftKey && !event.altKey) setCompletionRequest(null);
+      else if (cellMode === 'light') onCancel();
       else if (completionRequest) setCompletionRequest(null);
       return;
     }
@@ -239,7 +240,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     </FormulaEditorPopover> : null}
     {completionOpen ? <FormulaEditorPopover anchor={() => input.current ? formulaEditorCaret(input.current) : undefined} className="formula-editor-completion-popover">
       <ul aria-label="Formula completions" className="formula-editor-completions" id={completionsId} ref={completionsList} role="listbox">{completions.map((completion, index) => <li aria-selected={completionChosen && index === completionIndex} id={`${completionsId}-${index}`} key={`${completion.kind}-${completion.label}`} onMouseDown={(event) => { event.preventDefault(); acceptCompletion(index); }} role="option">{completion.label}</li>)}</ul>
-      <div className="formula-editor-completion-hint">↑↓ select · Enter accepts selection · Esc dismisses</div>
+      <div className="formula-editor-completion-hint">↑↓ select · Enter/Tab accepts selection · Esc dismisses</div>
     </FormulaEditorPopover> : null}
     {!cellMode && analysis.diagnostics.length > 0 ? <ul className="formula-editor-diagnostics" role="status">{analysis.diagnostics.map((diagnostic, index) => <li key={`${diagnostic.sourceSpan.start}-${index}`}>{diagnostic.code} at {diagnostic.sourceSpan.start + 1}–{diagnostic.sourceSpan.end}</li>)}</ul> : null}
     {cellMode !== 'light' ? <div className="formula-editor-actions" onMouseDown={(event) => event.preventDefault()}>
