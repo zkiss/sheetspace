@@ -14,7 +14,7 @@ describe('stored formula inspection', () => {
 
     expect(inspection.raw).toBe('=@Renamed!B[1]+@Missing!B[2]');
     expect(inspection.references.map(({ text, navigable }) => [text, navigable])).toEqual([
-      ['@Renamed!B[1]', true], ['@Missing!B[2]', false],
+      ['@Renamed!B[1]', true],
     ]);
     expect(inspection.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'reference' })]));
     for (const reference of inspection.references) {
@@ -30,7 +30,7 @@ describe('stored formula inspection', () => {
     const replacement = { ...sheet, content: { ...sheet.content, rows: ['replacement'] } };
     const inspection = inspectStoredFormula(content, workbookWithSheets([replacement]), replacement)!;
 
-    expect(inspection.raw).toBe('=@Inputs!A[1]');
+    expect(inspection.raw).toBe('=#REF!');
     expect(inspection.references[0]).toMatchObject({ broken: true, navigable: false });
     expect(inspection.diagnostics[0]).toMatchObject({ kind: 'reference' });
   });

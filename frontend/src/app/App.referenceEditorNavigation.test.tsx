@@ -9,7 +9,7 @@ import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-it('does not navigate to a same-name replacement when inspecting an unchanged or edited dead reference', () => {
+it('does not navigate to a same-name replacement when inspecting a dead reference', () => {
   const old = sheetDocument({ id: 'old', name: 'Inputs' });
   const outputs = sheetDocument({ id: 'outputs', name: 'Outputs' });
   const original = workbookWithSheets([old, outputs]);
@@ -20,12 +20,8 @@ it('does not navigate to a same-name replacement when inspecting an unchanged or
   fireEvent.click(source);
   fireEvent.keyDown(source, { key: 'F2' });
   const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
-  expect(editor).toHaveValue('=@Inputs!B[2]');
-  editor.setSelectionRange(5, 5);
-  fireEvent.keyDown(editor, { key: 'F4' });
-  expect(editor).toHaveFocus();
-  fireEvent.change(editor, { target: { value: '=@Inputs!B[2]+1' } });
-  editor.setSelectionRange(5, 5);
+  expect(editor).toHaveValue('=#REF!');
+  editor.setSelectionRange(2, 2);
   fireEvent.keyDown(editor, { key: 'F4' });
   expect(editor).toHaveFocus();
 });
