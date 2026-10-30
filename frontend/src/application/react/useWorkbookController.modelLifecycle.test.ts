@@ -30,6 +30,19 @@ function bind(workbook: Workbook, sheetId: string): Workbook {
 }
 
 describe('model lifecycle controller wiring', () => {
+  it('rejects a new property conflicting with an ordinary extra before persistence', () => {
+    const bound = bind(bind(initialWorkbook(), 'one'), 'two');
+    const second = bound.documents.two!;
+    const workbook = { ...bound, documents: { ...bound.documents, two: { ...second, content: { ...second.content, columns: [...second.content.columns, 'extra'] }, columnNames: { extra: 'Conflict' } } } };
+    const api = autosaveClient();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const changed: DataModel = { ...model, columns: [...model.columns, { id: 'new', name: 'Conflict', kind: 'manual', type: 'float' }] };
+
+    act(() => expect(result.current.commands.replaceModelDeclaration(changed).result).toEqual({ ok: false, reason: 'invalid-model' }));
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(result.current.workbook.dataModels?.model).toEqual(model);
+  });
+
   it('persists column renames and rolls back a failed save', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const column = workbook.documents.one!.content.columns[0]!;

@@ -50,6 +50,23 @@ it('rejects a shared name colliding with a local name on a bound sheet without c
   expect(workbook.documents.two.columnNames).toEqual({ extra: 'Conflict' });
 });
 
+it('rejects a new property colliding with an ordinary extra on the second sheet in both lifecycles', () => {
+  const model = declaration([manualProperty('input', 'Input')]);
+  const sheets = ['one', 'two'].map((id) => sheetDocument({ id, name: id, rowCount: 1, columnCount: 1 }));
+  const bound = bindModelSheets(modelWorkbook(model, sheets), ['one', 'two']);
+  const second = bound.documents.two;
+  const workbook = { ...bound, documents: { ...bound.documents, two: { ...second, content: { ...second.content, columns: [...second.content.columns, 'extra'] }, columnNames: { extra: 'Conflict' } } } };
+  const changed = { ...model, columns: [...model.columns, manualProperty('new', 'Conflict')] };
+  const allocate = vi.fn(() => 'fresh');
+  const prepared = { workbook, bindings: {} };
+
+  expect(replaceModelDeclaration(workbook, changed, allocate)).toEqual({ ok: false, reason: 'invalid-model' });
+  expect(replacePreparedDeclaration(prepared, changed, allocate)).toEqual({ ok: false, reason: 'invalid-model' });
+  expect(allocate).not.toHaveBeenCalled();
+  expect(workbook.dataModels?.[model.id]).toEqual(model);
+  expect(workbook.documents.two.columnNames).toEqual({ extra: 'Conflict' });
+});
+
 it('rejects binding when a property would collide with another retained local column name', () => {
   const model = declaration([manualProperty('first', 'First'), manualProperty('second', 'Second')]);
   const sheet = sheetDocument({ id: 'one', name: 'one', rowCount: 1, columnCount: 2 });

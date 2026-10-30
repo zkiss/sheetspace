@@ -70,6 +70,12 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
         const projected = projectRenamedModelFormulas(workbook, { ...workbook, dataModels: { ...workbook.dataModels, [model.id]: model } });
         return { ok: true, value: adapter.rename(state, projected) };
       }
+      if (affectedSheets.some((sheet) => model.columns.some((property) => {
+        const bound = sheet.modelColumnBindings?.[property.id];
+        return (!bound || !sheet.content.columns.includes(bound)) && Object.entries(sheet.columnNames ?? {}).some(
+          ([columnId, name]) => sheet.content.columns.includes(columnId) && name === property.name,
+        );
+      }))) return { ok: false, reason: 'invalid-model' };
       const sourceState = adapter.source(state);
       const source = adapter.workbook(sourceState);
       const affected = Object.values(source.documents).filter((sheet) => sheet.modelId === model.id);
