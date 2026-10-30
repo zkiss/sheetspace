@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formulaReferenceLexemes, parseFormula } from './syntax';
-import { formulaRawToCanonical, formulaRawToDisplayProjection, workbookFormulaReferenceResolver } from './reference';
+import { formulaRawToCanonical, formulaRawToCanonicalBestEffort, formulaRawToDisplayProjection, workbookFormulaReferenceResolver } from './reference';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('mandatory reference syntax', () => {
@@ -60,6 +60,14 @@ describe('UUID reference components and projections', () => {
     content: { ...original.content, columns: [columnId, otherColumnId], rows: [rowId, otherRowId] },
   };
   const resolver = workbookFormulaReferenceResolver(workbookWithSheets([sheet]), sheetId);
+
+  it('binds resolvable references while leaving unrelated malformed input intact', () => {
+    const raw = "=SUM(@'Owner''s Plan'!A[1], @Missing!B[2], ???)";
+
+    expect(formulaRawToCanonicalBestEffort(raw, resolver)).toBe(
+      `=SUM(@${sheetId}!${columnId}[${rowId}], @Missing!B[2], ???)`,
+    );
+  });
 
   it('round trips independent range anchors and projects exact component and whole-reference spans', () => {
     const raw = "= sUm(\n @'Owner''s Plan' \t! $B[$2] : A[1], @A[$1] )";

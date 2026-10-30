@@ -91,13 +91,25 @@ function resolveExpressionReferences(expression: FormulaExpression, references: 
 }
 
 export function formulaRawToCanonical(raw: string, resolver: FormulaReferenceResolver): string {
+  return canonicalizeRawReferences(raw, resolver, false);
+}
+
+/** Bind recognizable references without replacing unresolved input with an error. */
+export function formulaRawToCanonicalBestEffort(raw: string, resolver: FormulaReferenceResolver): string {
+  return canonicalizeRawReferences(raw, resolver, true);
+}
+
+function canonicalizeRawReferences(raw: string, resolver: FormulaReferenceResolver, preserveUnresolved: boolean): string {
   const edits: Edit[] = [];
   for (const match of rawMatches(raw, resolver)) {
     const sheetId = rawTargetSheet(match.qualifier, resolver);
     const resolved = sheetId && match.endpoints.map((endpoint) => endpoint.kind === 'named'
       ? resolver.namedCoordinateAt?.(sheetId, endpoint.propertyName!, endpoint.row!)
       : { coordinate: resolver.coordinateAt(sheetId, endpoint.address!) });
-    if (!sheetId || !resolved || resolved.some((item) => !item?.coordinate)) { edits.push({ ...match.sourceSpan, value: '#REF!' }); continue; }
+    if (!sheetId || !resolved || resolved.some((item) => !item?.coordinate)) {
+      if (!preserveUnresolved) edits.push({ ...match.sourceSpan, value: '#REF!' });
+      continue;
+    }
     if (match.qualifier.kind === 'explicit') edits.push({ ...match.qualifier.sourceSpan, value: sheetId });
     match.endpoints.forEach((endpoint, index) => {
       const item = resolved[index]!;
