@@ -1,5 +1,6 @@
 package com.sheetspace
 
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -236,7 +237,7 @@ private fun crossSheetWorkbook(): WorkbookState {
         ),
         modelId = TARGET_MODEL,
         modelColumnBindings = mapOf(TARGET_INPUT to targetColumns[0], TARGET_TOTAL to targetColumns[1]),
-        modelFormulaBindings = mapOf(TARGET_TOTAL to sourceTemplate(sourceColumn.value)),
+        modelFormulaBindings = mapOf(TARGET_TOTAL to sourceTemplate(sourceColumn.value, sourceRows[0].value)),
     )
     return emptyWorkbookState().addSheet(source).addSheet(target).copy(
         dataModels = mapOf(
@@ -254,17 +255,22 @@ private fun crossSheetWorkbook(): WorkbookState {
 }
 
 /** The template the frontend produces for a named property target of another sheet. */
-private fun sourceTemplate(sourceColumnId: String): BoundModelFormula = BoundModelFormula(
-    TARGET_FORMULA,
-    listOf(
-        ModelFormulaReference(
-            ModelFormulaSpan(1, 19),
-            SOURCE_SHEET,
-            ModelFormulaSpan(2, 8),
-            listOf(ModelFormulaEndpoint(ModelFormulaSpan(9, 19), sourceColumnId, 0.0, ModelFormulaAnchors(false, false), SOURCE_TOTAL)),
+private fun sourceTemplate(sourceColumnId: String, sourceRowId: String): BoundModelFormula = BoundModelFormula(
+    StoredFormulaCodec.encode(StoredFormula(TARGET_FORMULA, listOf(FormulaOccurrence(
+        "o", FormulaSpan(1, 19), "s",
+        listOf(FormulaEndpoint("e", "c", "r", false, false)),
+        listOf(
+            FormulaSlot("s", "sheet", JsonPrimitive("Source"), "retained", listOf(SOURCE_SHEET)),
+            FormulaSlot("c", "property", JsonPrimitive("Total"), "retained", listOf(SOURCE_TOTAL, sourceColumnId)),
+            FormulaSlot("r", "row", JsonPrimitive(1), "retained", listOf(sourceRowId)),
+        ), listOf(
+            FormulaOrigin(1, 2, null), FormulaOrigin(2, 8, "s"), FormulaOrigin(8, 10, null),
+            FormulaOrigin(10, 15, "c"), FormulaOrigin(15, 17, null), FormulaOrigin(17, 18, "r"),
+            FormulaOrigin(18, 19, null),
         ),
-    ),
+    )))),
 )
 
 private fun derivedInstance(source: SheetDocument, sourceColumn: ColumnId, sourceRow: RowId): String =
-    "=@${source.id.value}!${namedCanonicalEndpoint(SOURCE_TOTAL, sourceColumn.value, sourceRow.value)}"
+    instantiateStoredModelFormula(sourceTemplate(sourceColumn.value, source.tabularContent.rows[0].value).content,
+        source.tabularContent.rows.indexOf(sourceRow)) { source.tabularContent.rows.map { it.value } }
