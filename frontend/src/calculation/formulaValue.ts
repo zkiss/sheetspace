@@ -63,7 +63,9 @@ export function formulaErrorValue(error: FormulaErrorCode): FormulaScalarValue {
 }
 
 export function formulaScalarValue(value: FormulaValue): FormulaScalarValue {
-  return value.kind === 'range' ? formulaErrorValue('#VALUE!') : value;
+  return value.kind === 'range'
+    ? diagnosticError('#VALUE!', `Expected a scalar value, got a ${value.rowCount} by ${value.columnCount} range.`)
+    : value;
 }
 
 export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaScalarValue> {

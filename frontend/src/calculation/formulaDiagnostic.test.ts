@@ -7,6 +7,14 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('calculation diagnostics', () => {
+  it('explains a range used where a scalar is required without evaluating its cells', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', A2: '=2/0' } });
+    const evaluated: string[] = [];
+    const evaluator = new FormulaEvaluator(calculationProjection(workbookWithSheets([sheet])), new Map(), (_sheet, key) => evaluated.push(key));
+    const result = evaluator.evaluateExpressionContent('=@A[1]:A[2]+1', 'inputs');
+    expect(formulaDiagnostic(result)).toEqual({ message: 'Expected a scalar value, got a 2 by 1 range.', causes: [] });
+    expect(evaluated).toEqual([]);
+  });
   it('preserves independent errors encountered while materializing conditional criteria', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', A2: '=2/0', B1: '=COUNTIF(@A[1]:A[2],">0")' } });
     const calculation = new FormulaCalculation();
