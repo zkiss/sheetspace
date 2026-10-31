@@ -7,6 +7,25 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('calculation diagnostics', () => {
+  it('preserves independent errors encountered while materializing conditional criteria', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', A2: '=2/0', B1: '=COUNTIF(@A[1]:A[2],">0")' } });
+    const calculation = new FormulaCalculation();
+    calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[1] });
+    expect(calculation.diagnostic(sheet.id, key)).toMatchObject({
+      message: 'Multiple criteria cells failed.',
+      causes: [{ message: 'Cannot divide 1 by zero.' }, { message: 'Cannot divide 2 by zero.' }],
+    });
+  });
+  it('reports the actual operands that overflow a conditional sum', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '1e308', A2: '1e308', B1: '=SUMIF(@A[1]:A[2],">0")' } });
+    const calculation = new FormulaCalculation();
+    calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[1] });
+    expect(calculation.diagnostic(sheet.id, key)).toMatchObject({
+      message: 'SUMIF produced a nonfinite result adding 1e+308 to 1e+308.',
+    });
+  });
   it('preserves the evaluated operand and stable identity through a propagated error', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=@A[1]' } });
     const calculation = new FormulaCalculation();

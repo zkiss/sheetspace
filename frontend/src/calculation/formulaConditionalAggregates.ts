@@ -5,7 +5,7 @@ import type {
   FormulaReferenceArgument,
 } from '@calculation/formulaFunctions';
 import type { FormulaExpression } from '@workbook/formula/syntax';
-import { formulaErrorValue, formulaScalarValue, type FormulaScalarValue } from '@calculation/formulaValue';
+import { diagnosticError, formulaDiagnostic, formulaErrorValue, formulaScalarValue, type FormulaScalarValue } from '@calculation/formulaValue';
 
 const conditionalArgumentKind = (index: number) => index === 1 ? 'scalar' as const : 'reference' as const;
 
@@ -76,14 +76,19 @@ const sumIf: LazyFormulaFunction = {
     }
 
     let total = 0;
+    let overflow: string | undefined;
     for (const index of matchingIndexes) {
       const value = sumValues[index];
       if (value.kind === 'error') return value;
-      if (value.kind === 'number') total += value.value;
+      if (value.kind === 'number') {
+        const next = total + value.value;
+        if (!Number.isFinite(next) && overflow === undefined) overflow = `SUMIF produced a nonfinite result adding ${value.value} to ${total}.`;
+        total = next;
+      }
     }
     return Number.isFinite(total)
       ? { kind: 'number', value: total }
-      : formulaErrorValue('#VALUE!');
+      : diagnosticError('#VALUE!', overflow!);
   },
 };
 
@@ -96,8 +101,11 @@ function materializeCriteria(
   input: FormulaReferenceArgument,
 ): { ok: true; value: FormulaScalarValue[] } | { ok: false; error: FormulaScalarValue & { kind: 'error' } } {
   const values = [...input.values];
-  const error = values.find((value): value is FormulaScalarValue & { kind: 'error' } => value.kind === 'error');
-  return error ? { ok: false, error } : { ok: true, value: values };
+  const errors = values.filter((value): value is FormulaScalarValue & { kind: 'error' } => value.kind === 'error');
+  if (errors.length > 1) {
+    return { ok: false, error: diagnosticError(errors[0].error, 'Multiple criteria cells failed.', errors.map((error) => formulaDiagnostic(error) ?? { message: error.error, causes: [] })) as FormulaScalarValue & { kind: 'error' } };
+  }
+  return errors.length ? { ok: false, error: errors[0] } : { ok: true, value: values };
 }
 
 function sameShape(
