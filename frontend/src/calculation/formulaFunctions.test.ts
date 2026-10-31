@@ -7,9 +7,38 @@ import {
   type LazyFormulaFunction,
 } from '@calculation/formulaFunctions';
 import { parseFormula, type FormulaExpression, type FunctionFormula } from '@workbook/formula/syntax';
-import { formulaScalarValue, type FormulaValue } from '@calculation/formulaValue';
+import { formulaDiagnostic, formulaScalarValue, type FormulaValue } from '@calculation/formulaValue';
+import { conditionalAggregateFunctions } from '@calculation/formulaConditionalAggregates';
 
 describe('formula function protocol', () => {
+  it('explains missing injected reference resolution and bare eager failures', () => {
+    const context = { evaluateExpression: () => ({ kind: 'error' as const, error: '#REF!' as const }) };
+    expect(formulaDiagnostic(evaluateFunctionCall(functionExpression('=COUNTIF(@A[1],1)'), context, conditionalAggregateFunctions))?.message).toBe('Cannot resolve criteria reference.');
+    expect(formulaDiagnostic(evaluateFunctionCall(functionExpression('=SUMIF(@A[1],1)'), context, conditionalAggregateFunctions))?.message).toBe('Cannot resolve criteria reference.');
+    const multiple = evaluateFunctionCall(functionExpression('=TEST(1,2)'), context, registry('TEST', eager({ min: 2 }, vi.fn())));
+    expect(formulaDiagnostic(multiple)).toMatchObject({ causes: [{ message: '#REF!' }, { message: '#REF!' }] });
+  });
+
+  it('explains bare errors from injected conditional aggregate references', () => {
+    const expression = functionExpression('=SUMIF(@A[1]:A[2],1,@B[1]:B[2])');
+    const error = { kind: 'error' as const, error: '#REF!' as const };
+    const evaluateExpression = () => ({ kind: 'number' as const, value: 1 });
+    const unresolved = evaluateFunctionCall(expression, {
+      evaluateExpression,
+      evaluateReferenceArgument: (() => {
+        let calls = 0;
+        return () => ++calls === 1
+          ? { ok: true as const, value: { values: [], rowCount: 2, columnCount: 1 } }
+          : { ok: false as const, error: '#REF!' as const };
+      })(),
+    }, conditionalAggregateFunctions);
+    expect(formulaDiagnostic(unresolved)?.message).toBe('Cannot resolve sum reference.');
+    const failures = evaluateFunctionCall(functionExpression('=COUNTIF(@A[1]:A[2],1)'), {
+      evaluateExpression,
+      evaluateReferenceArgument: () => ({ ok: true, value: { values: [error, error], rowCount: 2, columnCount: 1 } }),
+    }, conditionalAggregateFunctions);
+    expect(formulaDiagnostic(failures)).toMatchObject({ message: 'Multiple criteria cells failed.', causes: [{ message: '#REF!' }, { message: '#REF!' }] });
+  });
   it('evaluates eager arguments left to right and returns the first error', () => {
     const invoke = vi.fn();
     const expression = functionExpression('=TEST(1, 2, 3)');

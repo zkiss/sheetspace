@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { FormulaEvaluator } from '@calculation/formulaEvaluator';
-import { formulaDiagnostic } from '@calculation/formulaValue';
+import { diagnosticAtCell, diagnosticError, formulaDiagnostic, formulaErrorValue } from '@calculation/formulaValue';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('calculation diagnostics', () => {
+  it('attaches a stable cell to bare errors without duplicating an existing frame', () => {
+    const cell = { sheetId: 'sheet', rowId: 'row', columnId: 'column' };
+    const bare = formulaErrorValue('#VALUE!');
+    expect(diagnosticAtCell(bare, undefined)).toBe(bare);
+    const attached = diagnosticAtCell(bare, cell);
+    expect(formulaDiagnostic(attached)).toEqual({ message: '#VALUE!', cell, causes: [] });
+    expect(diagnosticAtCell(attached, cell)).toBe(attached);
+    const explained = diagnosticError('#REF!', 'Missing target.');
+    expect(formulaDiagnostic(diagnosticAtCell(explained, cell))).toEqual({ message: 'Missing target.', cell, causes: [] });
+  });
   it('explains parse, function and operand validation failures with evaluated values', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const evaluator = new FormulaEvaluator(calculationProjection(workbookWithSheets([sheet])));
@@ -15,6 +25,15 @@ describe('calculation diagnostics', () => {
     expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=ABS(1,2)', 'inputs'))?.message).toBe('ABS expected 1 arguments, got 2.');
     expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=1+"three"', 'inputs'))?.message).toBe('Cannot apply + to number 1 and text "three": expected numbers.');
     expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=1="one"', 'inputs'))?.message).toBe('Cannot compare number 1 with text "one": expected matching types.');
+  });
+  it('preserves failures from unary and right-hand operands and explains invalid ranges', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0' } });
+    const evaluator = new FormulaEvaluator(calculationProjection(workbookWithSheets([sheet])));
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=-@A[1]', 'inputs'))?.message).toBe('Cannot divide 1 by zero.');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=1+@A[1]', 'inputs'))?.message).toBe('Cannot divide 1 by zero.');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=-"bad"', 'inputs'))?.message).toBe('Expected a number, got text "bad".');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=@A[1]:A[999]', 'inputs'))?.message).toBe('Referenced range does not exist.');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=1e308*1e308', 'inputs'))?.message).toContain('Nonfinite result');
   });
   it('explains a parser returning a non-formula for a formula cell', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1' } });
@@ -32,6 +51,19 @@ describe('calculation diagnostics', () => {
     expect(formulaDiagnostic(snapshot.inputs.B1)?.message).toContain('criteria shape 2x1 does not match sum shape 1x1');
     expect(formulaDiagnostic(snapshot.inputs.B2)?.message).toContain('Invalid criterion ">"');
     expect(formulaDiagnostic(snapshot.inputs.B3)?.message).toContain('Referenced sheet does not exist');
+  });
+  it('explains conditional aggregate failures at each evaluated boundary', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', A2: '1' } });
+    const evaluator = new FormulaEvaluator(calculationProjection(workbookWithSheets([sheet])));
+    const message = (expression: string) => formulaDiagnostic(evaluator.evaluateExpressionContent(expression, 'inputs'))?.message;
+    expect(message('=SUMIF(@A[1],1)')).toBe('Cannot divide 1 by zero.');
+    expect(message('=SUMIF(@A[2],@A[1])')).toBe('Cannot divide 1 by zero.');
+    expect(message('=SUMIF(@A[2],">")')).toContain('Invalid criterion');
+    expect(message('=SUMIF(@Missing!A[1],1)')).toContain('Referenced sheet does not exist');
+    expect(message('=SUMIF(@A[2],1,@Missing!A[1])')).toContain('Referenced sheet does not exist');
+    expect(message('=COUNTIF(@A[2],@A[1])')).toBe('Cannot divide 1 by zero.');
+    expect(message('=COUNTIF(@A[1],1)')).toBe('Cannot divide 1 by zero.');
+    expect(message('=SUMIF(@A[1]:A[2],1,@A[2])')).toContain('does not match');
   });
   it('explains blank logical inputs and overflowing aggregate operands', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { B1: '=AND(@A[1])', B2: '=SUM(1e308,1e308)', B3: '=AVERAGE(1e308,1e308)' } });
@@ -244,6 +276,20 @@ describe('calculation diagnostics', () => {
         { cell: { columnId: sheet.content.columns[0] }, message: 'Structural dependency cycle detected; expression blocked before evaluation.' },
         { cell: { columnId: sheet.content.columns[1] }, message: 'Structural dependency cycle detected; expression blocked before evaluation.' },
       ],
+    });
+  });
+
+  it('reports a cross-sheet range cycle as bounded structural evidence', () => {
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=SUM(@summary!A[1]:A[2])' } });
+    const summary = sheetDocument({ id: 'summary', name: 'Summary', cells: { A1: '=@inputs!A[1]', B1: '=@A[1]' } });
+    const evaluated: string[] = [];
+    const calculation = new FormulaCalculation();
+    const result = calculation.update(calculationProjection(workbookWithSheets([inputs, summary])), { kind: 'structure' }, (_sheet, key) => evaluated.push(key));
+    expect(evaluated).toEqual([]);
+    expect(formulaDiagnostic(result.summary.B1)).toMatchObject({
+      message: 'Structural dependency on a cycle; expression blocked before evaluation.',
+      causes: [{ cell: { sheetId: 'summary', rowId: summary.content.rows[0], columnId: summary.content.columns[0] },
+        message: 'Structural dependency cycle detected; expression blocked before evaluation.', causes: [] }],
     });
   });
 
