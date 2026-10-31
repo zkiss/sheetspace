@@ -117,7 +117,7 @@ describe('stable-property model reconciliation', () => {
 
     const next = successfulModelMutation(replaceModelDeclaration(bound, declaration([model.columns[2]!, model.columns[0]!]), freshColumns())).documents.sheet!;
 
-    expect(next.presentation.rowHeights).toBe(sheet.presentation.rowHeights);
+    expect(next.presentation.rowHeights).toEqual(sheet.presentation.rowHeights);
     expect(next.presentation.columnWidths).toEqual({ [a!]: 81, [c!]: 99 });
     expect(next.presentation.formatOverrides).toEqual({ rows: {}, columns: { [a!]: { fontWeight: 'bold' } }, cells: { [retainedCell]: { fillColor: '#123456' } } });
     expect(next.content.cells[removedCell]).toBeUndefined();
@@ -194,7 +194,7 @@ describe('property kind transitions and empty declarations', () => {
 
     const next = successfulModelMutation(replaceModelDeclaration(workbook, { ...model, columns: [model.columns[1]!, model.columns[0]!, model.columns[2]!] }, freshColumns()));
 
-    expect(next.documents.sheet!.content.columns).toEqual(['fresh-1', 'fresh-2', 'fresh-3', ...sheet.content.columns]);
+    expect(next.documents.sheet!.content.columns).toEqual(['fresh-1', 'fresh-2', 'fresh-3']);
     expect(storedModelCells(next).A1).toBeUndefined();
   });
 

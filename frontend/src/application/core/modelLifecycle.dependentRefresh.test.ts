@@ -25,7 +25,7 @@ const targetModel: DataModel = {
 /** A workbook whose calculated property of the target sheet references a property of the source sheet. */
 function crossSheetWorkbook(): Workbook {
   const source = sheetDocument({ id: 'source', name: 'Source', columnCount: 1, rowCount: 2, cells: { A1: '10', A2: '20' } });
-  const target = sheetDocument({ id: 'target', name: 'Target', columnCount: 2, rowCount: 2, cells: { A1: '5' } });
+  const target = sheetDocument({ id: 'target', name: 'Target', columnCount: 2, rowCount: 2, cells: { A1: '5', A2: '6' } });
   const workbook: Workbook = {
     ...workbookWithSheets([source, target]),
     dataModels: { [sourceModel.id]: sourceModel, [targetModel.id]: targetModel },

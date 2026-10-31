@@ -28,21 +28,22 @@ describe('explicit positional binding', () => {
     expect(bound.presentation.rowHeights).toEqual({});
     expect(bound.content.columns).toHaveLength(2);
   });
-  it.each([0, 1, 2, 4])('reconciles width %i to the declaration while keeping rows and surviving identities', (width) => {
+  it.each([0, 1, 2, 4])('reconciles width %i to the declaration and retains populated rows', (width) => {
     const sheet = makeSheet(width);
     const workbook = modelWorkbook(model, [sheet]);
 
     const bound = bindModelSheets(workbook, ['sheet']);
     const next = bound.documents.sheet!;
 
-    expect(next.content.columns).toHaveLength(Math.max(width, 2));
+    expect(next.content.columns).toHaveLength(2);
     expect(next.content.columns.slice(0, Math.min(width, 2))).toEqual(sheet.content.columns.slice(0, 2));
-    expect(next.content.rows).toBe(sheet.content.rows);
+    expect(next.content.rows).toEqual(width ? [sheet.content.rows[0]] : []);
     expect(next.modelColumnBindings).toEqual({ input: next.content.columns[0], result: next.content.columns[1] });
     expect(projectStoredFormula(next.modelFormulaBindings!.result.content, bound, 'sheet').text).toBe('=@A[1]*2');
     expect(storedModelCells(bound).A1).toBe(width ? '3' : undefined);
-    expect(calculatedModelCells(bound).sheet.B1).toMatchObject(width ? { kind: 'number', value: 6 } : { error: '#VALUE!' });
-    expect(calculatedModelCells(bound).sheet.B2).toMatchObject({ error: '#VALUE!' });
+    if (width) expect(calculatedModelCells(bound).sheet.B1).toMatchObject({ kind: 'number', value: 6 });
+    else expect(calculatedModelCells(bound).sheet.B1).toBeUndefined();
+    expect(calculatedModelCells(bound).sheet.B2).toBeUndefined();
     expect(workbook.documents.sheet).toBe(sheet);
     expect(sheet.modelId).toBeUndefined();
   });
@@ -60,7 +61,7 @@ describe('explicit positional binding', () => {
     expect(calculatedModelCells(bound).second.B1).toMatchObject({ value: 22 });
   });
 
-  it('preserves extra column presentation and data without changing frame or retained row/cell presentation', () => {
+  it('prunes extra column data and presentation while retaining surviving presentation', () => {
     const base = makeSheet(3);
     const [a, b, c] = base.content.columns;
     const row = base.content.rows[0]!;
@@ -73,13 +74,13 @@ describe('explicit positional binding', () => {
     const next = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']).documents.sheet!;
 
     expect(next.frame).toBe(sheet.frame);
-    expect(next.presentation.rowHeights).toBe(sheet.presentation.rowHeights);
-    expect(next.presentation.columnWidths).toEqual(sheet.presentation.columnWidths);
-    expect(next.presentation.formatOverrides).toEqual(sheet.presentation.formatOverrides);
-    expect(next.content.cells[removedCell]).toBe('discard');
+    expect(next.presentation.rowHeights).toEqual(sheet.presentation.rowHeights);
+    expect(next.presentation.columnWidths).toEqual({ [a!]: 81, [b!]: 99 });
+    expect(next.presentation.formatOverrides).toEqual({ rows: sheet.presentation.formatOverrides.rows, columns: { [a!]: { fillColor: '#123456' } }, cells: { [firstCell]: { horizontalAlignment: 'right' } } });
+    expect(next.content.cells[removedCell]).toBeUndefined();
   });
 
-  it('allows empty rows and zero properties without deleting row identities', () => {
+  it('allows empty sheets and zero properties without retaining unused allocation', () => {
     const emptyRows = bindModelSheets(modelWorkbook(model, [makeSheet(1, 0)]), ['sheet']);
     const sheet = makeSheet(2);
     const emptyProperties = bindModelSheets(modelWorkbook(declaration([]), [sheet]), ['sheet']);
@@ -87,7 +88,7 @@ describe('explicit positional binding', () => {
     expect(emptyRows.documents.sheet!.content.rows).toEqual([]);
     expect(emptyRows.documents.sheet!.content.cells).toEqual({});
     expect(emptyRows.documents.sheet!.modelFormulaBindings?.result).toBeDefined();
-    expect(emptyProperties.documents.sheet!.content).toEqual(sheet.content);
+    expect(emptyProperties.documents.sheet!.content).toEqual({ kind: 'tabular', rows: [], columns: [], cells: {} });
   });
 
   it('preserves parseable broken manual references without damaging valid conditional branches', () => {
@@ -117,7 +118,7 @@ describe('explicit unbinding and model switching', () => {
     ['=@B[1]', { kind: 'text', value: '#CYCLE!' }],
     ['=@A[1]', { kind: 'blank' }],
   ] as const)('freezes %s as a non-executable underlying value', (formula, expected) => {
-    const blankInput = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1 });
+    const blankInput = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1, cells: { B1: 'existing' } });
     const type = expected.kind === 'boolean' ? 'boolean' : expected.kind === 'text' && !expected.value.startsWith('#') ? 'string' : 'float';
     const bound = bindModelSheets(modelWorkbook(declaration([manualProperty('input'), { ...calculatedProperty('result', formula), type }]), [blankInput]), ['sheet']);
 
