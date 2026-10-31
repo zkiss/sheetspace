@@ -12,8 +12,8 @@ it('projects ordered branches using current identities and leaves missing origin
     { message: 'second', causes: [{ message: 'cycle', cell, causes: [] }] },
   ] });
   expect(trace.map(({ key, depth, message, target }) => [key, depth, message, target?.reference])).toEqual([
-    ['0', 0, 'outer', "@'Named sheet'!%A[2]"], ['0.0', 1, 'first', undefined],
-    ['0.1', 1, 'second', undefined], ['0.1.0', 2, 'cycle', "@'Named sheet'!%A[2]"],
+    ['0', 0, 'outer', "@'Named sheet'!%A[2]"], ['1', 1, 'first', undefined],
+    ['2', 1, 'second', undefined], ['3', 2, 'cycle', "@'Named sheet'!%A[2]"],
   ]);
   sheet.name = 'Renamed';
   sheet.content.rows.reverse();
