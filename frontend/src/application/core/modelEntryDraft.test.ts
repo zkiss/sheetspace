@@ -33,4 +33,16 @@ describe('model entry drafts', () => {
     expect(result.firstInvalid).toBe('number');
     expect(result.draft.fields.text?.invalid).toBe(true);
   });
+
+  it.each([
+    ['int', '42', false], ['int', '1.5', true], ['int', '1e', true],
+    ['float', '1.5', false], ['float', '1e', true],
+    ['boolean', 'TRUE', false], ['boolean', 'maybe', true],
+    ['string', 'hello', false], ['string', '42', true],
+    ['int', '', false], ['float', '', false], ['boolean', '', false], ['string', '', false],
+  ] as const)('validates %s input %j', (type, raw, invalid) => {
+    const typedModel: DataModel = { ...model, columns: [{ id: 'value', name: 'Value', kind: 'manual', type }] };
+    const draft = changeEntryField(createModelEntryDraft(typedModel), typedModel, 'value', raw, workbook, 'sheet');
+    expect(leaveEntryField(draft, typedModel, 'value', workbook, 'sheet').fields.value?.invalid).toBe(invalid);
+  });
 });
