@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { createModelEntryDraft } from '@application/core/modelEntryDraft';
@@ -53,6 +54,18 @@ describe('model entry row', () => {
     const corrected = { ...dismissed, draft: { ...dismissed.draft, fields: { ...dismissed.draft.fields, price: { raw: '2', invalid: false } } } };
     rerender(<ModelEntryRow model={model} session={corrected} commands={commands} />);
     expect(screen.getByRole('textbox', { name: 'Price new record' })).not.toHaveClass('model-entry-invalid');
+  });
+
+  it('allows keyboard dismissal without submitting the draft', async () => {
+    const user = userEvent.setup();
+    const { commands, session, rerender } = setup();
+    const flagged = { ...session, draft: { ...session.draft, fields: { ...session.draft.fields, price: { raw: 'bad', invalid: true, message: 'Invalid' } } } };
+    rerender(<ModelEntryRow model={model} session={flagged} commands={commands} />);
+    screen.getByRole('button', { name: 'Dismiss Price validation' }).focus();
+    await user.keyboard('{Enter}');
+    expect(commands.dismiss).toHaveBeenCalledWith('price');
+    expect(commands.submit).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'Price new record' })).toHaveValue('bad');
   });
 
   it('offers a retry when an admission outcome is uncertain', async () => {

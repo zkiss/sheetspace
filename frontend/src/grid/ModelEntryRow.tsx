@@ -42,7 +42,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths }:
         next.focus();
       }
     }
-    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+    if (event.key === 'Enter' && event.target instanceof HTMLInputElement && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submit();
     }
