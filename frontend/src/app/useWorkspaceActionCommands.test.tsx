@@ -40,6 +40,17 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it('hides structural commands for a bound sheet and restores them when unbound', () => {
+    const { hook, props, sheet } = setup();
+    expect(hook.result.current.commands.map((item) => item.id)).toEqual(expect.arrayContaining(['append-row', 'append-column']));
+    props.sheet = { ...sheet, modelId: 'model' };
+    hook.rerender();
+    expect(hook.result.current.commands.map((item) => item.id)).not.toEqual(expect.arrayContaining(['append-row']));
+    expect(hook.result.current.commands.map((item) => item.id)).not.toEqual(expect.arrayContaining(['append-column']));
+    props.sheet = sheet;
+    hook.rerender();
+    expect(hook.result.current.commands.map((item) => item.id)).toEqual(expect.arrayContaining(['append-row', 'append-column']));
+  });
   it.each(['Escape', 'Cancel'])('cancels an ordinary rename with %s and restores the selection focus', (method) => {
     const { props, commands, cell } = setup();
     props.selection = { mode: 'columns', anchor: cell, extent: cell };

@@ -127,7 +127,9 @@ describe('App model binding workflow', () => {
     expect(cellInFrame(firstFrame, 'A1')).toHaveTextContent('6');
     expect(cellInFrame(secondFrame, 'A1')).toHaveTextContent('14');
 
-    fireEvent.click(within(openSheetContextMenu(firstFrame)).getByRole('menuitem', { name: 'Append row' }));
+    const boundMenu = within(openSheetContextMenu(firstFrame));
+    expect(boundMenu.queryByRole('menuitem', { name: 'Append row' })).not.toBeInTheDocument();
+    expect(boundMenu.queryByRole('menuitem', { name: 'Append column' })).not.toBeInTheDocument();
     expect(apiClient.appendRow).not.toHaveBeenCalled();
 
     cleanup();
