@@ -24,6 +24,20 @@ function boundWorkbook(): Workbook {
 }
 
 describe('calculated row persistence', () => {
+  it('admits complete records locally without persistence and starts a fresh draft', async () => {
+    const workbook = boundWorkbook();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+
+    const local = result.current.workbook;
+    expect(local.documents.sheet!.content.rows).toHaveLength(2);
+    expect(cellRawContent(local.documents.sheet!, 'A2')).toBe('5');
+    expect(projectStoredFormula(cellRawContent(local.documents.sheet!, 'B2')!, local, 'sheet').text).toBe('=SUM(@A[2])');
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+  });
   it('persists the two-sheet model workflow through editing, reload, append, and unbind', async () => {
     const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 2, cells: { A1: '3' }, presentation: { rowHeights: { 'first:row:1': 31 }, columnWidths: {} } });
     const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 2, cells: { A1: '7' }, presentation: { rowHeights: {}, columnWidths: { 'second:column:1': 123 } } });

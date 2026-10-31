@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
-import { cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
+import { cellAddressOf, cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { cellKey, type CellKey } from '@workbook/core/address';
@@ -519,11 +519,26 @@ export function useWorkbookController({
         if (!model || entrySessions.get(sheetId, model).pending) return {};
         const result = entrySessions.submit(sheetId, model, optimisticWorkbook.current, () => crypto.randomUUID(), async (submission) => {
           admissionLocks.current.add(sheetId);
-          if (!autosaveEnabled) throw new Error('Record entry is unavailable without persistence.');
+          if (!autosaveEnabled) {
+            const current = optimisticWorkbook.current;
+            const sheet = current.documents[sheetId];
+            if (!sheet || sheet.modelId !== model.id) throw new Error('The sheet is no longer available.');
+            const cells = { ...sheet.content.cells };
+            for (const [propertyId, value] of Object.entries(submission.values)) {
+              const columnId = sheet.modelColumnBindings?.[propertyId];
+              if (!columnId || !sheet.content.columns.includes(columnId)) throw new Error('The model bindings changed.');
+              if (value !== '') cells[cellIdentityKey({ rowId: submission.rowId, columnId })] = value;
+            }
+            const nextSheet = { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, submission.rowId], cells } };
+            const next = materializeAppendedModelRow({ ...current, documents: { ...current.documents, [sheetId]: nextSheet } }, sheetId, submission.rowId);
+            optimisticWorkbook.current = next;
+            setWorkbook(next, { kind: 'structure' });
+            return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
+          }
           return admitEntryRecord({
             sheetId, submission, coordinator: persistenceCoordinator,
             waitForPredecessors: async () => {
-              for (const entry of savedAutosave.outboxSnapshot) {
+              for (const entry of savedAutosave.currentOutboxSnapshot()) {
                 const settled = entry.status === 'queued' || entry.status === 'running' ? await savedAutosave.waitFor(entry.operationId) : entry;
                 if (settled.status === 'failed' || settled.status === 'blocked') throw new Error('Resolve failed saves before adding a record.');
               }
