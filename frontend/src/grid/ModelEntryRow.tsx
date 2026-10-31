@@ -65,6 +65,9 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths }:
         </div>}
       </div>;
     })}
+    {!model.columns.some((column) => column.kind === 'manual') && !session.retryRequired && <div role="cell" className="model-entry-submit">
+      <button type="button" disabled={session.pending || session.stale} onClick={() => void submit()}>Save record</button>
+    </div>}
     {session.failure && <div className="model-entry-failure" role="alert">{session.failure}{session.retryRequired && <button type="button" onClick={() => void submit()}>Retry saving record</button>}</div>}
   </div>;
 }

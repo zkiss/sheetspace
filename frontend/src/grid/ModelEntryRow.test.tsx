@@ -19,6 +19,23 @@ function setup() {
 }
 
 describe('model entry row', () => {
+  it.each([
+    ['calculated-only', [model.columns[1]]],
+    ['empty', []],
+  ])('submits a %s model using the keyboard-accessible save control', async (_name, columns) => {
+    const user = userEvent.setup();
+    const entryModel = { ...model, columns };
+    const commands = { change: vi.fn(), leave: vi.fn(), dismiss: vi.fn(), submit: vi.fn().mockResolvedValue({}) };
+    const session = { draft: createModelEntryDraft(entryModel), pending: false };
+    const { rerender } = render(<ModelEntryRow model={entryModel} session={session} commands={commands} />);
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Save record' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(commands.submit).toHaveBeenCalledOnce();
+    rerender(<ModelEntryRow model={entryModel} session={{ ...session, pending: true }} commands={commands} />);
+    expect(screen.getByRole('button', { name: 'Save record' })).toBeDisabled();
+  });
+
   it('renders editable manual fields and a noneditable calculated cell', () => {
     setup();
     expect(screen.getByRole('row', { name: 'New record' })).toBeInTheDocument();
