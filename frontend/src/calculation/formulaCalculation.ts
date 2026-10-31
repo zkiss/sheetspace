@@ -11,7 +11,7 @@ import {
   storedFormulaParser,
   type FormulaDependencyGraph,
 } from '@calculation/formulaDependencies';
-import { cycleFormulaComponents } from '@calculation/formulaCycles';
+import { cycleAffectedFormulaNodes, cycleFormulaNodes } from '@calculation/formulaCycles';
 import {
   FormulaEvaluator,
   type FormulaEvaluationObserver,
@@ -97,48 +97,36 @@ export class FormulaCalculation {
         nextFormulaNodes.has(nodeId) && !impacted.has(nodeId),
       ),
     );
-    const components = cycleFormulaComponents(nextGraph);
+    const cycleMembers = cycleFormulaNodes(nextGraph);
+    const affected = cycleAffectedFormulaNodes(nextGraph);
     const cycleResults = new Map<string, FormulaScalarValue>();
-    const witnesses = new Map<string, FormulaDiagnostic[]>();
-    for (const component of components) {
-      const pending = [...component];
-      const seen = new Set(pending);
-      const paths = new Map<string, FormulaDiagnostic>();
-      for (const nodeId of pending) {
-      const separator = nodeId.indexOf('\u0000');
-      const sheetId = nodeId.slice(0, separator);
-      const key = nodeId.slice(separator + 1);
-      const identity = cellIdentityFromKey(key);
-        paths.set(nodeId, formulaDiagnostic(diagnosticAtCell(diagnosticError('#CYCLE!', 'Structural dependency cycle detected; expression blocked before evaluation.'), identity ? { sheetId, ...identity } : undefined))!);
-      }
-      for (let index = 0; index < pending.length; index += 1) {
-        const nodeId = pending[index];
-        for (const dependent of [...(nextGraph.dependents.get(nodeId) ?? [])].sort()) {
-          if (!nextFormulaNodes.has(dependent) || seen.has(dependent)) continue;
-          seen.add(dependent);
-          pending.push(dependent);
-          const separator = dependent.indexOf('\u0000');
-          const identity = cellIdentityFromKey(dependent.slice(separator + 1));
-          paths.set(dependent, formulaDiagnostic(diagnosticAtCell(
-            diagnosticError('#CYCLE!', 'Structural dependency on a cycle; expression blocked before evaluation.', [paths.get(nodeId)!]),
-            identity ? { sheetId: dependent.slice(0, separator), ...identity } : undefined,
-          ))!);
+    for (const root of affected) {
+      const path = new Set([root]);
+      const stack = [{ nodeId: root, neighbors: cycleDependencies(root), index: 0, causes: [] as FormulaDiagnostic[] }];
+      while (stack.length) {
+        const frame = stack[stack.length - 1];
+        const neighbor = frame.neighbors[frame.index++];
+        if (neighbor !== undefined) {
+          if (!path.has(neighbor)) {
+            path.add(neighbor);
+            stack.push({ nodeId: neighbor, neighbors: cycleDependencies(neighbor), index: 0, causes: [] });
+          }
+          continue;
         }
-      }
-      for (const [nodeId, path] of paths) {
-        const entries = witnesses.get(nodeId) ?? [];
-        entries.push(path);
-        witnesses.set(nodeId, entries);
+        const separator = frame.nodeId.indexOf('\u0000');
+        const identity = cellIdentityFromKey(frame.nodeId.slice(separator + 1));
+        const value = diagnosticAtCell(diagnosticError('#CYCLE!', cycleMembers.has(frame.nodeId)
+          ? 'Structural dependency cycle detected; expression blocked before evaluation.'
+          : 'Structural dependency on a cycle; expression blocked before evaluation.', frame.causes),
+        identity ? { sheetId: frame.nodeId.slice(0, separator), ...identity } : undefined);
+        stack.pop();
+        path.delete(frame.nodeId);
+        if (stack.length) stack[stack.length - 1].causes.push(formulaDiagnostic(value)!);
+        else cycleResults.set(root, value);
       }
     }
-    for (const [nodeId, paths] of witnesses) {
-      const separator = nodeId.indexOf('\u0000');
-      const sheetId = nodeId.slice(0, separator);
-      const identity = cellIdentityFromKey(nodeId.slice(separator + 1));
-      cycleResults.set(nodeId, diagnosticAtCell(
-        diagnosticError('#CYCLE!', paths.length === 1 ? paths[0].message : 'Structural dependency on a cycle; expression blocked before evaluation.', paths.length === 1 ? paths[0].causes : paths.flatMap((path) => path.causes.length ? path.causes : [path])),
-        identity ? { sheetId, ...identity } : undefined,
-      ));
+    function cycleDependencies(nodeId: string): string[] {
+      return [...(nextGraph.dependencies.get(nodeId) ?? [])].filter((dependency) => affected.has(dependency)).sort();
     }
     for (const [nodeId, value] of cycleResults) reusableResults.set(nodeId, value);
     const evaluator = new FormulaEvaluator(projection, reusableResults, onEvaluate, builtInFormulaFunctions, parse);

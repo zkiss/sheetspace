@@ -260,9 +260,26 @@ describe('calculation diagnostics', () => {
     expect(calculation.diagnostic('inputs', key)).toMatchObject({
       message: 'Structural dependency on a cycle; expression blocked before evaluation.', cell: { columnId: sheet.content.columns[3] },
       causes: [{ message: 'Structural dependency on a cycle; expression blocked before evaluation.', cell: { columnId: sheet.content.columns[2] }, causes: [
-        { message: 'Structural dependency cycle detected; expression blocked before evaluation.', cell: { columnId: sheet.content.columns[0] }, causes: [] },
+        { message: 'Structural dependency cycle detected; expression blocked before evaluation.', cell: { columnId: sheet.content.columns[0] }, causes: [{ cell: { columnId: sheet.content.columns[1] }, causes: [] }] },
       ] }],
     });
+  });
+
+  it('preserves converging branches to a cycle and exposes every cycle member', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@B[1]', B1: '=@A[1]', C1: '=@A[1]', D1: '=@A[1]', E1: '=@C[1]+@D[1]' } });
+    const calculation = new FormulaCalculation();
+    const evaluated: string[] = [];
+    calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' }, (_sheet, key) => evaluated.push(key));
+    const diagnostic = (column: number) => calculation.diagnostic('inputs', cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[column] }));
+    const cycle = { cell: { columnId: sheet.content.columns[0] }, causes: [
+      { cell: { columnId: sheet.content.columns[1] }, causes: [] },
+    ] };
+    expect(diagnostic(0)).toMatchObject(cycle);
+    expect(diagnostic(4)).toMatchObject({ causes: [
+      { cell: { columnId: sheet.content.columns[2] }, causes: [cycle] },
+      { cell: { columnId: sheet.content.columns[3] }, causes: [cycle] },
+    ] });
+    expect(evaluated).toEqual([]);
   });
 
   it('keeps separate dependency paths to independent cycles', () => {
@@ -289,7 +306,7 @@ describe('calculation diagnostics', () => {
     expect(formulaDiagnostic(result.summary.B1)).toMatchObject({
       message: 'Structural dependency on a cycle; expression blocked before evaluation.',
       causes: [{ cell: { sheetId: 'summary', rowId: summary.content.rows[0], columnId: summary.content.columns[0] },
-        message: 'Structural dependency cycle detected; expression blocked before evaluation.', causes: [] }],
+        message: 'Structural dependency cycle detected; expression blocked before evaluation.', causes: [{ cell: { sheetId: 'inputs' }, causes: [] }] }],
     });
   });
 
