@@ -98,6 +98,34 @@ describe('calculated row persistence', () => {
     expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
   });
+  it('waits for a preceding cell save before capturing the admission revision', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    const write = api.writeCells.getMockImplementation()!;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    api.writeCells.mockImplementationOnce(async (...args) => {
+      await held;
+      const response = await write(...args);
+      return { sheets: response.sheets.map((sheet: { sheetId: string; revision: number }) => ({ ...sheet, revision: sheet.revision + 1 })) };
+    });
+    api.admitRecord.mockImplementationOnce(async (_sheetId, rowId) => {
+      const saved = await api.loadWorkbook();
+      const sheet = saved.documents.sheet!;
+      return { rowId, sheet: { ...sheet, revision: sheet.revision + 1, content: { ...sheet.content, rows: [...sheet.content.rows, rowId] } } };
+    });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => { result.current.commands.updateCellContent('sheet', 'A1', '8'); });
+    await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(1));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    let submission!: Promise<unknown>;
+    act(() => { submission = result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).not.toHaveBeenCalled();
+    await act(async () => { release(); await submission; });
+    expect(api.admitRecord).toHaveBeenCalledWith('sheet', expect.any(String), expect.anything(), workbook.documents.sheet!.revision + 1);
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'A1')).toBe('8');
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+  });
   it('persists the two-sheet model workflow through editing, reload, and unbind', async () => {
     const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 2, cells: { A1: '3' }, presentation: { rowHeights: { 'first:row:1': 31 }, columnWidths: {} } });
     const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 2, cells: { A1: '7' }, presentation: { rowHeights: {}, columnWidths: { 'second:column:1': 123 } } });
