@@ -12,3 +12,4 @@ This file is temporary. Delete it before merging this branch into `main`.
 
 - Focus newly added property names. Add shortcuts while editing a name: Alt+Shift+Enter adds below, Alt+Shift+Delete removes, and Alt+Shift+Up/Down moves the property.
 - Use Up and Down in a property name field to focus the adjacent property name.
+- Save the entire data model form with Ctrl+Enter, including from a formula editor.

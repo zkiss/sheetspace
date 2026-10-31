@@ -155,7 +155,13 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
           {models.map((model) => <li key={model.id}><span><strong>{model.name}</strong><small>{model.columns.length} properties</small></span><button onClick={() => openEdit(model)} type="button">Edit</button></li>)}
         </ul>}
         <div className="dialog-actions"><button onClick={close} type="button">Close</button></div>
-      </> : <form aria-label={isNew ? 'Create data model' : 'Edit data model'} onSubmit={submit}>
+      </> : <form aria-label={isNew ? 'Create data model' : 'Edit data model'} onKeyDownCapture={(event) => {
+        if (event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key === 'Enter') {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!saving) event.currentTarget.requestSubmit();
+        }
+      }} onSubmit={submit}>
         <div className="data-model-header"><h2>{isNew ? 'Create data model' : 'Edit data model'}</h2></div>
         <label>Model name<input autoFocus disabled={saving} onChange={(event) => setDraft({ ...draft, name: event.target.value })} value={draft.name} /></label>
         <fieldset><legend>Properties</legend>
