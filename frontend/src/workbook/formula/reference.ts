@@ -253,6 +253,7 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
   const sheet = (id: SheetId) => workbook.documents[id];
   const namedAddressOf = (sheetId: SheetId, propertyId: string, coordinate: FormulaCoordinate) => { const document = sheet(sheetId); const property = document && namedColumns(workbook, document).find((column) => column.id === propertyId && column.columnId === coordinate.columnId); if (!document || !property) return undefined; const rowIndex = document.content.rows.indexOf(coordinate.rowId); const columnIndex = document.content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { name: property.name, address: { rowIndex, columnIndex } }; };
   return { currentSheetId,
+    lastRowId: (sheetId) => sheet(sheetId)?.content.rows.slice(-1)[0],
     sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((entry) => entry.id === qualifier || entry.name === qualifier)?.id,
     displaySheetQualifier: (sheetId) => { const name = sheet(sheetId)?.name; return name && (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`); },
     coordinateAt: (sheetId, address) => { const content = sheet(sheetId)?.content; const rowId = content?.rows[address.rowIndex]; const columnId = content?.columns[address.columnIndex]; return rowId && columnId ? { rowId, columnId } : undefined; },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
+import { inspectFormula, inspectStoredFormula, navigableReferencesAtCaret } from '@reference-navigation/formulaInspection';
 import { cellAddressOf, cellIdentityKey } from '@workbook/core/cellIdentity';
 import type { Workbook } from '@workbook/core/model';
 import { commitCellRawContent } from '@workbook/mutations/operations';
@@ -10,6 +10,28 @@ const sheet = (id: string, name: string, cells: Record<string, string> = {}) =>
 const workbook = workbookWithSheets;
 
 describe('formula inspection', () => {
+  it('inspects the whole open range and resolves its current committed extent', () => {
+    const source = sheet('source', "Owner's Plan");
+    const output = sheet('output', 'Output');
+    let model = workbook([source, output]);
+    model = commitCellRawContent(model, output.id, 'A1', "=SUM(@'Owner''s Plan'!A[2]:B)");
+    const storedOutput = model.documents[output.id]!;
+    const raw = storedOutput.content.cells[cellIdentityKey({ rowId: storedOutput.content.rows[0]!, columnId: storedOutput.content.columns[0]! })]!;
+    const inspect = () => inspectStoredFormula(raw, model, storedOutput)!;
+    const first = inspect().references[0]!;
+    expect(first.text).toBe("@'Owner''s Plan'!A[2]:B");
+    expect(navigableReferencesAtCaret(inspect(), first.displaySpan.end - 1)).toEqual([first]);
+    expect(first.target).toEqual({ kind: 'range', sheetId: source.id, range: {
+      start: { rowId: source.content.rows[1], columnId: source.content.columns[0] },
+      end: { rowId: source.content.rows.slice(-1)[0], columnId: source.content.columns[1] },
+    } });
+    model = { ...model, documents: { ...model.documents, [source.id]: { ...source, name: 'Renamed', content: { ...source.content, rows: [...source.content.rows, 'new-row'] } } } };
+    const updated = inspect().references[0]!;
+    expect(updated.text).toBe('@Renamed!A[2]:B');
+    expect(updated.target.kind === 'range' && updated.target.range?.end.rowId).toBe('new-row');
+    expect(inspectFormula('=@A[2]:B', model, model.documents[source.id]!)?.references[0]?.target).toEqual(updated.target);
+    expect(inspectFormula('=@Missing!A[2]:B', model, storedOutput)?.references[0]?.navigable).toBe(false);
+  });
   it('preserves raw formula spelling and exposes repeated same-sheet cells and ranges', () => {
     const inputs = sheet('sheet-inputs', 'Inputs');
     const result = inspectFormula('= sUm(@A[1], @A[1]:B[2]) + @A[1]', workbook([inputs]), inputs);

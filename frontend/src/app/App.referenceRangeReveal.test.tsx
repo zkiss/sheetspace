@@ -5,6 +5,19 @@ import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/
 import { App } from './App';
 
 describe('reference range reveal in the composed workspace', () => {
+  it('navigates an open range from its terminal column to the current last row', () => {
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 5, columnCount: 3 });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!B[3]:C)' } });
+    render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
+    const source = screen.getByRole('cell', { name: 'Outputs A1 cell' });
+    fireEvent.click(source);
+    fireEvent.keyDown(source, { key: 'F2' });
+    const editor = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Outputs A1 editor' });
+    editor.setSelectionRange(editor.value.indexOf(':C') + 1, editor.value.indexOf(':C') + 1);
+    fireEvent.keyDown(editor, { key: 'F4' });
+    expect(screen.getByRole('cell', { name: 'Inputs B3 empty cell' })).toHaveFocus();
+    expect(screen.getByRole('cell', { name: 'Inputs C5 empty cell' })).toHaveAttribute('data-reference-selected', 'true');
+  });
   it('reveals a variable-metric range on both axes when its anchor is already visible', () => {
     const reference = 'B[3]:C[5]'; const anchor = 'B3'; const end = 'C5';
     const inputs = sheetDocument({
