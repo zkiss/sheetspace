@@ -158,11 +158,19 @@ function evaluateArgument(
   }
 
   const values: FormulaScalarValue[] = [];
+  const failures: FormulaScalarValue[] = [];
   for (const item of value.values) {
     if (item.kind === 'error') {
-      return item;
+      failures.push(item);
     }
     values.push(item);
+  }
+  if (failures.length === 1) return failures[0];
+  if (failures.length > 1) {
+    const first = failures[0];
+    if (first.kind === 'error') {
+      return diagnosticError(first.error, 'Multiple cells in the range failed.', failures.map((failure) => formulaDiagnostic(failure) ?? { message: failure.kind === 'error' ? failure.error : 'Invalid value.', causes: [] }));
+    }
   }
   const materialized: FormulaRangeValue = { ...value, values };
   return materialized;
