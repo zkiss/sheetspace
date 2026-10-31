@@ -38,6 +38,27 @@ describe('calculated row persistence', () => {
     expect(projectStoredFormula(cellRawContent(local.documents.sheet!, 'B2')!, local, 'sheet').text).toBe('=SUM(@A[2])');
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
   });
+  it('protects the admitting sheet while allowing edits to another sheet', async () => {
+    const bound = boundWorkbook();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    const workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: [...bound.manifest.sheetIds, other.id] }, documents: { ...bound.documents, other } };
+    const api = persistedWorkbookClient(workbook);
+    let reject!: (error: Error) => void;
+    api.admitRecord.mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    let submission!: Promise<unknown>;
+    act(() => { submission = result.current.commands.submitEntryDraft('sheet'); });
+    await waitFor(() => expect(api.admitRecord).toHaveBeenCalledTimes(1));
+    act(() => {
+      expect(result.current.commands.updateCellContent('sheet', 'A1', '8')).toMatchObject({ ok: false });
+      expect(result.current.commands.updateCellContent('other', 'A1', '9')).toMatchObject({ ok: true });
+      expect(result.current.commands.deleteSheet('sheet')).toMatchObject({ ok: false });
+    });
+    await act(async () => { reject(new Error('connection lost')); await submission; });
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
+  });
   it('persists the two-sheet model workflow through editing, reload, append, and unbind', async () => {
     const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 2, cells: { A1: '3' }, presentation: { rowHeights: { 'first:row:1': 31 }, columnWidths: {} } });
     const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 2, cells: { A1: '7' }, presentation: { rowHeights: {}, columnWidths: { 'second:column:1': 123 } } });

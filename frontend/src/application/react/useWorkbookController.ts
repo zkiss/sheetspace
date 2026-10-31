@@ -300,6 +300,10 @@ export function useWorkbookController({
     if (pendingRejection) return pendingRejection;
     const operation = { ...action, operationId: crypto.randomUUID() } as WorkbookOperation;
     const result = stored && operation.kind === 'write-cells' ? applyStoredCellWrites(optimisticWorkbook.current, operation.writes) : applyWorkbookOperation(optimisticWorkbook.current, operation);
+    if (result.ok && result.value.affected.sheetIds.some((id) => admissionLocks.current.has(id))) {
+      setMutationFailure('pending-model-transition');
+      return { ok: false, reason: 'pending-model-transition' };
+    }
     const applied = applyResult(result);
     if (result.ok) setMutationFailure(undefined);
     if (applied?.changed) {
@@ -314,7 +318,7 @@ export function useWorkbookController({
   }
 
   function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
-    if (!savedAutosave.hasModelTransition() && admissionLocks.current.size === 0) return undefined;
+    if (!savedAutosave.hasModelTransition()) return undefined;
     setMutationFailure('pending-model-transition');
     return { ok: false, reason: 'pending-model-transition' };
   }
@@ -380,6 +384,10 @@ export function useWorkbookController({
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
+    if (admissionLocks.current.has(sheetId)) {
+      setMutationFailure('pending-model-transition');
+      return { ok: false, reason: 'pending-model-transition' };
+    }
 
     const operation = { kind: 'delete-sheet', operationId: crypto.randomUUID(), sheetId } as const;
     const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
@@ -539,6 +547,7 @@ export function useWorkbookController({
             sheetId, submission, coordinator: persistenceCoordinator,
             waitForPredecessors: async () => {
               for (const entry of savedAutosave.currentOutboxSnapshot()) {
+                if (entry.intent.kind !== 'model-lifecycle' && !entry.affectedSheetIds.includes(sheetId)) continue;
                 const settled = entry.status === 'queued' || entry.status === 'running' ? await savedAutosave.waitFor(entry.operationId) : entry;
                 if (settled.status === 'failed' || settled.status === 'blocked') throw new Error('Resolve failed saves before adding a record.');
               }
@@ -581,8 +590,8 @@ export function useWorkbookController({
       renameColumn: (sheetId, columnId, name) => applyModelLifecycleTransition((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
-      appendColumn: axisCreation.appendColumn,
-      appendRow: axisCreation.appendRow,
+      appendColumn: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
+      appendRow: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
       changeSheetZOrder,
       createSheet,
       deleteSheet: deleteSheetCommand,
