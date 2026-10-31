@@ -28,6 +28,35 @@ describe('calculation diagnostics', () => {
     expect(formulaDiagnostic(snapshot.inputs.B1)).toMatchObject({ causes: [{ message: 'Cannot divide 1 by zero.' }] });
   });
 
+  it('retains ordered stable identities across sheets and reuses unaffected diagnostics', () => {
+    const inputs = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', cells: { A1: '=1/0' } });
+    const summary = sheetDocument({ id: 'sheet-summary', name: 'Summary', cells: { A1: '=@sheet-inputs!A[1]', B1: '=@A[1]', C1: '=1' } });
+    const calculation = new FormulaCalculation();
+    const projection = calculationProjection(workbookWithSheets([inputs, summary]));
+    calculation.update(projection, { kind: 'structure' });
+    const key = cellIdentityKey({ rowId: summary.content.rows[0], columnId: summary.content.columns[1] });
+    const diagnostic = calculation.diagnostic(summary.id, key);
+    expect(diagnostic).toMatchObject({
+      cell: { sheetId: summary.id, columnId: summary.content.columns[1] },
+      causes: [{ cell: { sheetId: summary.id, columnId: summary.content.columns[0] }, causes: [
+        { cell: { sheetId: inputs.id, columnId: inputs.content.columns[0] }, message: 'Cannot divide 1 by zero.' },
+      ] }],
+    });
+    const evaluated: string[] = [];
+    calculation.update(projection, { kind: 'cells', cells: [{ sheetId: summary.id, key: 'C1' }] }, (_sheet, cell) => evaluated.push(cell));
+    expect(calculation.diagnostic(summary.id, key)).toBe(diagnostic);
+    expect(evaluated).toEqual(['C1']);
+  });
+
+  it('does not report failures from an inactive conditional expression', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=IF(TRUE,1,1/0)' } });
+    const calculation = new FormulaCalculation();
+    const snapshot = calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] });
+    expect(snapshot.inputs.A1).toMatchObject({ kind: 'number', value: 1 });
+    expect(calculation.diagnostic(sheet.id, key)).toBeUndefined();
+  });
+
   it('keeps independent evaluated failures in separate branches', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=2/0', C1: '=@A[1]+@B[1]' } });
     const calculation = new FormulaCalculation();
