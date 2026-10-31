@@ -23,6 +23,7 @@ import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
 import { deleteRow } from '@application/core/deleteRow';
+import { deleteColumn } from '@application/core/deleteColumn';
 import { addDataModel } from '@workbook/mutations/dataModel';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
@@ -491,6 +492,7 @@ export function useWorkbookController({
       appendColumn: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
       appendRow: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
       deleteRow: (sheetId, rowId) => applyModelLifecycleTransition((source) => deleteRow(source, sheetId, rowId)),
+      deleteColumn: (sheetId, columnId) => applyModelLifecycleTransition((source) => deleteColumn(source, sheetId, columnId)),
       changeSheetZOrder,
       createSheet,
       deleteSheet: deleteSheetCommand,

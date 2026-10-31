@@ -12,7 +12,7 @@ export function formattingCommands(): WorkbookCommands {
     submitEntryDraft: vi.fn(), changeEntryField: vi.fn(), leaveEntryField: vi.fn(), dismissEntryFeedback: vi.fn(),
     addDataModel: vi.fn(),
     bindSheetToModel: vi.fn(), unbindSheetFromModel: vi.fn(), replaceModelDeclaration: vi.fn(), renameColumn: vi.fn(),
-    writeNumberFormats: vi.fn(), writeAxisSizes: vi.fn(), appendColumn: vi.fn(), appendRow: vi.fn(), deleteRow: vi.fn(),
+    writeNumberFormats: vi.fn(), writeAxisSizes: vi.fn(), appendColumn: vi.fn(), appendRow: vi.fn(), deleteRow: vi.fn(), deleteColumn: vi.fn(),
     changeSheetZOrder: vi.fn(), createSheet: vi.fn(), deleteSheet: vi.fn(), moveSheetFrame: vi.fn(),
     pasteCells: vi.fn(), pasteStoredCells: vi.fn(), moveCells: vi.fn(), moveStoredCells: vi.fn(), renameSheet: vi.fn(), retryFailedSaves: vi.fn(),
     undo: vi.fn(), redo: vi.fn(), resizeSheetFrame: vi.fn(), setSheetVisualScale: vi.fn(),

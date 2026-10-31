@@ -634,6 +634,19 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         });
       }
     },
+    onColumnDeleted: (sheet, target) => {
+      const index = sheet.content.columns.indexOf(target.cell.columnId);
+      const remaining = sheet.content.columns.filter((columnId) => columnId !== target.cell.columnId);
+      const columnId = remaining[Math.min(index, remaining.length - 1)];
+      if (columnId) {
+        const next = { sheetId: sheet.id, cell: { ...target.cell, columnId } };
+        onSelectCell(next);
+        onFocusSelection(next);
+      } else {
+        onClearSelection();
+        requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"] .sheet-grid`)?.focus());
+      }
+    },
     onSelectAll: (sheet) => {
       const first = cellIdentityAt(sheet.content, { rowIndex: 0, columnIndex: 0 });
       const last = cellIdentityAt(sheet.content, { rowIndex: sheet.content.rows.length - 1, columnIndex: sheet.content.columns.length - 1 });

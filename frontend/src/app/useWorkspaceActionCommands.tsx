@@ -29,7 +29,7 @@ type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
   canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onOpenDataModels, onRename, onDelete, onEdit, onClear,
-  onSelectAxis, onSelectAll, onRowDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
+  onSelectAxis, onSelectAll, onRowDeleted, onColumnDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
@@ -41,6 +41,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   onDelete: (sheet: SheetDocument) => void; onEdit: (target: CellTarget) => void; onClear: (target: CellTarget) => void;
   onSelectAxis: (axis: 'rows' | 'columns', target: CellTarget) => void; onSelectAll: (sheet: SheetDocument) => void;
   onRowDeleted: (sheet: SheetDocument, target: CellTarget) => void;
+  onColumnDeleted: (sheet: SheetDocument, target: CellTarget) => void;
   onToggleReferences: () => void; onFeedback: (message: string) => void;
   onCopy: () => SystemClipboardContent | undefined; onCut: () => SystemClipboardContent | undefined;
   onPaste: (content: SystemClipboardContent) => void; onCancelCut: () => void; hasPendingCut: boolean;
@@ -96,6 +97,15 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     onRowDeleted(sheet, activeCell);
     void submission.completion.then((result) => { const error = failure(result); if (error) onFeedback(error); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.rows.includes(activeCell.cell.rowId) ? undefined : 'Select a saved row first');
+  add('delete-column', 'Delete column', 'Sheet', () => {
+    if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
+    const submission = commands.deleteColumn(sheet.id, activeCell.cell.columnId);
+    const message = failure(submission.result);
+    if (message) { closePalette(); onFeedback(message); return; }
+    closePalette(false);
+    onColumnDeleted(sheet, activeCell);
+    void submission.completion.then((result) => { const error = failure(result); if (error) onFeedback(error); });
+  }, sheet?.modelId ? 'Edit the data model to remove a property' : sheet && activeCell?.sheetId === sheet.id && sheet.content.columns.includes(activeCell.cell.columnId) ? undefined : 'Select a saved column first');
   const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
     && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;
   const renameTarget = sheet && columnId ? columnRenameTarget(workbook, sheet.id, columnId) : undefined;
