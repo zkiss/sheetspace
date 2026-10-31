@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WorkbookError } from './workbookErrors';
+import { ErrorTrace } from './ErrorTrace';
 
-export function ErrorList({ errors, open, focusRequest, onClose, onActivate }: {
+export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onNavigate }: {
   errors: readonly WorkbookError[];
   open: boolean;
   focusRequest: number;
   onClose: () => void;
   onActivate: (error: WorkbookError) => void;
+  onNavigate?: (target: { sheetId: string; cell: WorkbookError['cell'] }) => void;
 }) {
   const [selectedKey, setSelectedKey] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
@@ -32,5 +34,6 @@ export function ErrorList({ errors, open, focusRequest, onClose, onActivate }: {
         {errors.map((error, index) => <tr id={`error-row-${index}`} key={error.key} aria-selected={error.key === selected?.key} onClick={() => { setSelectedKey(error.key); onActivate(error); }} style={{ background: error.key === selected?.key ? '#dbeafe' : undefined, cursor: 'pointer' }}><td>{error.reference}</td><td>{error.code}</td><td>{error.text}</td></tr>)}
       </tbody></table>}
     </div>
+    {selected && onNavigate ? <ErrorTrace key={selected.key} error={selected} onNavigate={onNavigate} /> : null}
   </section>;
 }

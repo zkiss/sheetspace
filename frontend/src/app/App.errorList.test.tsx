@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
@@ -21,12 +21,12 @@ it('opens errors from the shortcut and palette and navigates through the current
   await user.click(screen.getByRole('button', { name: 'Command palette' }));
   await user.click(screen.getByRole('button', { name: /Open error list/ }));
   expect(screen.getByRole('grid', { name: 'Error list' })).toHaveFocus();
-  expect(screen.getByText('@Inputs!B[1]').closest('tr')).toHaveAttribute('aria-selected', 'true');
+  expect(within(screen.getByRole('grid', { name: 'Error list' })).getByText('@Inputs!B[1]').closest('tr')).toHaveAttribute('aria-selected', 'true');
   await user.keyboard('{F4}');
   expect(screen.queryByRole('grid', { name: 'Error list' })).not.toBeInTheDocument();
   await waitFor(() => expect(destination).toHaveFocus());
   fireEvent.keyDown(destination, { altKey: true, shiftKey: true, key: 'E' });
-  await user.click(screen.getByText('@Inputs!A[1]'));
+  await user.click(within(screen.getByRole('grid', { name: 'Error list' })).getByText('@Inputs!A[1]'));
   expect(screen.queryByRole('grid', { name: 'Error list' })).not.toBeInTheDocument();
   await waitFor(() => expect(cell).toHaveFocus());
   expect(cell).toHaveAttribute('data-active-cell', 'true');
@@ -56,7 +56,7 @@ it('refreshes errors after correction, undo and redo', async () => {
   await user.click(screen.getByRole('button', { name: 'Close errors' }));
   await user.keyboard('{Control>}z{/Control}');
   await user.click(screen.getByRole('button', { name: /Errors \(1\)/ }));
-  expect(screen.getByText('@Inputs!A[1]')).toBeInTheDocument();
+  expect(within(screen.getByRole('grid', { name: 'Error list' })).getByText('@Inputs!A[1]')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Close errors' }));
   await user.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
   await user.click(screen.getByRole('button', { name: /Errors \(0\)/ }));
