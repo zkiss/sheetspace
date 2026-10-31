@@ -2,9 +2,9 @@ import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
 import { prepareCellInput } from './cellInputPreparation';
 import { changeEntryField, createModelEntryDraft, dismissEntryFeedback, leaveEntryField, validateEntryDraft, type ModelEntryDraft } from './modelEntryDraft';
 
-type Submission = { rowId: string; revision: number; values: Readonly<Record<string, string>> };
-export type EntrySessionState = { draft: ModelEntryDraft; pending: boolean; failure?: string };
-type Session = EntrySessionState & { signature: string; submission?: Submission };
+export type EntrySubmission = { rowId: string; revision?: number; values: Readonly<Record<string, string>> };
+export type EntrySessionState = { draft: ModelEntryDraft; pending: boolean; failure?: string; retryRequired?: boolean; stale?: boolean };
+type Session = EntrySessionState & { signature: string; submission?: EntrySubmission };
 
 /** Session-only entry state; callers own persistence serialization and reconciliation. */
 export class ModelEntrySessions {
@@ -17,10 +17,19 @@ export class ModelEntrySessions {
   get(sheetId: string, model: DataModel): EntrySessionState {
     const signature = this.signature(model);
     let session = this.sessions.get(sheetId);
-    if (!session || session.draft.modelId !== model.id || session.signature !== signature) {
+    if (session && (session.draft.modelId !== model.id || session.signature !== signature)) {
+      if (session.submission || Object.values(session.draft.fields).some((field) => field.raw !== '')) {
+        session.stale = true;
+        session.failure = 'The model changed while this draft was unfinished.';
+        return session;
+      }
+      session = undefined;
+    }
+    if (!session) {
       session = { draft: createModelEntryDraft(model), signature, pending: false };
       this.sessions.set(sheetId, session);
     }
+    delete session.stale;
     return session;
   }
 
@@ -28,13 +37,13 @@ export class ModelEntrySessions {
 
   change(sheetId: string, model: DataModel, propertyId: string, raw: string, workbook: Workbook) {
     const session = this.get(sheetId, model) as Session;
-    if (!session.pending && !session.submission) session.draft = changeEntryField(session.draft, model, propertyId, raw, workbook, sheetId);
+    if (!session.pending && !session.submission && !session.stale) session.draft = changeEntryField(session.draft, model, propertyId, raw, workbook, sheetId);
     return session;
   }
 
   leave(sheetId: string, model: DataModel, propertyId: string, workbook: Workbook) {
     const session = this.get(sheetId, model) as Session;
-    session.draft = leaveEntryField(session.draft, model, propertyId, workbook, sheetId);
+    if (!session.stale) session.draft = leaveEntryField(session.draft, model, propertyId, workbook, sheetId);
     return session;
   }
 
@@ -44,19 +53,20 @@ export class ModelEntrySessions {
     return session;
   }
 
-  async submit(sheetId: string, model: DataModel, workbook: Workbook, revision: number, createId: () => string,
-    admit: (submission: Submission) => Promise<{ rowId: string; sheet: SheetDocument }>,
+  async submit(sheetId: string, model: DataModel, workbook: Workbook, createId: () => string,
+    admit: (submission: EntrySubmission) => Promise<{ rowId: string; sheet: SheetDocument }>,
   ): Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }> {
     const session = this.get(sheetId, model) as Session;
-    if (session.pending) return {};
+    if (session.pending || session.stale) return {};
     const validation = validateEntryDraft(session.draft, model, workbook, sheetId);
     session.draft = validation.draft;
     if (validation.firstInvalid) return { firstInvalid: validation.firstInvalid };
     session.submission ??= {
-      rowId: createId(), revision,
+      rowId: createId(),
       values: Object.fromEntries(model.columns.filter((column) => column.kind === 'manual').map((column) => [column.id, prepareCellInput(session.draft.fields[column.id]!.raw, workbook, sheetId)])),
     };
     session.pending = true;
+    session.retryRequired = true;
     delete session.failure;
     try {
       const result = await admit(session.submission);

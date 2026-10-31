@@ -9,6 +9,7 @@ import type { Workspace } from '@app/Workspace';
 /** Non-mutating commands isolate action-time reads from a post-write refresh. */
 export function formattingCommands(): WorkbookCommands {
   return {
+    changeEntryField: vi.fn(), leaveEntryField: vi.fn(), dismissEntryFeedback: vi.fn(),
     addDataModel: vi.fn(),
     bindSheetToModel: vi.fn(), unbindSheetFromModel: vi.fn(), replaceModelDeclaration: vi.fn(), renameColumn: vi.fn(),
     writeNumberFormats: vi.fn(), writeAxisSizes: vi.fn(), appendColumn: vi.fn(), appendRow: vi.fn(),

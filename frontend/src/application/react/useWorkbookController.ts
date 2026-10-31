@@ -27,6 +27,7 @@ import { addDataModel, type ModelMutationResult } from '@workbook/mutations/data
 import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
+import { ModelEntrySessions, type EntrySessionState } from '@application/core/modelEntrySession';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
@@ -43,6 +44,9 @@ import {
 } from '@calculation/workbookCalculation';
 
 export type WorkbookCommands = {
+  changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
+  leaveEntryField: (sheetId: string, propertyId: string) => void;
+  dismissEntryFeedback: (sheetId: string, propertyId: string) => void;
   bindSheetToModel: (sheetId: string, modelId: string) => DataModelCommandSubmission;
   unbindSheetFromModel: (sheetId: string) => DataModelCommandSubmission;
   addDataModel: (model: DataModel) => DataModelCommandSubmission;
@@ -91,6 +95,7 @@ export type ContentHistoryFeedback = Readonly<{
 }>;
 
 export type WorkbookController = {
+  entrySessions: Readonly<Record<string, EntrySessionState>>;
   commands: WorkbookCommands;
   canRetryFailedSaves: boolean;
   canUndo: boolean;
@@ -165,6 +170,16 @@ export function useWorkbookController({
   const { calculationRequest: pendingCalculation, workbook } = controllerState;
   const optimisticWorkbook = useRef(workbook);
   optimisticWorkbook.current = workbook;
+  const entrySessionsRef = useRef<ModelEntrySessions | undefined>(undefined);
+  entrySessionsRef.current ??= new ModelEntrySessions();
+  const entrySessions = entrySessionsRef.current;
+  const [, setEntryRevision] = useState(0);
+  const publishEntries = () => setEntryRevision((revision) => revision + 1);
+  function entryModel(sheetId: string): DataModel | undefined {
+    const current = optimisticWorkbook.current;
+    const modelId = current.documents[sheetId]?.modelId;
+    return modelId ? current.dataModels?.[modelId] : undefined;
+  }
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
   const contentHistoryRef = useRef<ContentHistory | undefined>(undefined);
   contentHistoryRef.current ??= new ContentHistory();
@@ -487,7 +502,23 @@ export function useWorkbookController({
   const creationSaving = creationSaveStatus === 'saving' || axisCreation.saveStatus === 'saving';
 
   return {
+    entrySessions: Object.fromEntries(Object.values(workbook.documents).flatMap((sheet) => {
+      const model = sheet.modelId && workbook.dataModels?.[sheet.modelId];
+      return model ? [[sheet.id, entrySessions.get(sheet.id, model)]] : [];
+    })),
     commands: {
+      changeEntryField: (sheetId, propertyId, raw) => {
+        const model = entryModel(sheetId);
+        if (model) { entrySessions.change(sheetId, model, propertyId, raw, optimisticWorkbook.current); publishEntries(); }
+      },
+      leaveEntryField: (sheetId, propertyId) => {
+        const model = entryModel(sheetId);
+        if (model) { entrySessions.leave(sheetId, model, propertyId, optimisticWorkbook.current); publishEntries(); }
+      },
+      dismissEntryFeedback: (sheetId, propertyId) => {
+        const model = entryModel(sheetId);
+        if (model) { entrySessions.dismiss(sheetId, model, propertyId); publishEntries(); }
+      },
       bindSheetToModel: (sheetId, modelId) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
       unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)),
       addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
