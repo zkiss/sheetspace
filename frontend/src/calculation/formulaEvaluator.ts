@@ -277,10 +277,11 @@ export class FormulaEvaluator {
       const key = calculationCellKey(sheet, { rowId: sheet.rows[reference.address.rowIndex]!, columnId: sheet.columns[reference.address.columnIndex]! });
       return key ? this.evaluateReferencedCell(sheet, key) : formulaErrorValue('#REF!');
     }
-    const range = expandRange(reference.range, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
+    const materialized = reference.open ? { start: reference.range.start, end: { ...reference.range.end, rowIndex: sheet.rows.length - 1 } } : reference.range;
+    const range = expandRange(materialized, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
     if (!range.ok) return formulaErrorValue('#REF!');
     const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
-    return { kind: 'range', values: this.evaluateRangeCells(sheet, keys), rowCount: reference.range.end.rowIndex - reference.range.start.rowIndex + 1, columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1 };
+    return { kind: 'range', values: this.evaluateRangeCells(sheet, keys), rowCount: materialized.end.rowIndex - materialized.start.rowIndex + 1, columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1 };
   }
 
   private evaluateFunctionReferenceArgument(
@@ -301,10 +302,11 @@ export class FormulaEvaluator {
       return key ? { ok: true, value: { values: this.evaluateRangeCells(sheet, [key]), rowCount: 1, columnCount: 1 } } : { ok: false, error: '#REF!' };
     }
     if (expression.kind === 'range') {
-      const range = expandRange(expression.range, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
+      const materialized = expression.open ? { start: expression.range.start, end: { ...expression.range.end, rowIndex: sheet.rows.length - 1 } } : expression.range;
+      const range = expandRange(materialized, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
       if (!range.ok) return { ok: false, error: '#REF!' };
       const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
-      return { ok: true, value: { values: this.evaluateRangeCells(sheet, keys), rowCount: expression.range.end.rowIndex - expression.range.start.rowIndex + 1, columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1 } };
+      return { ok: true, value: { values: this.evaluateRangeCells(sheet, keys), rowCount: materialized.end.rowIndex - materialized.start.rowIndex + 1, columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1 } };
     }
     if (!namedReferenceIsValid(expression, sheet)) return { ok: false, error: '#REF!' };
     const key = calculationCellKey(sheet, expression.coordinate);
@@ -363,7 +365,7 @@ export class FormulaEvaluator {
 }
 
 function canonicalRangeAddresses(sheet: CalculationSheet, range: NonNullable<Extract<FormulaReference, { kind: 'canonical' }>['range']>): string[] | undefined {
-  const startRow = sheet.rows.indexOf(range.start.rowId), endRow = sheet.rows.indexOf(range.end.rowId);
+  const startRow = sheet.rows.indexOf(range.start.rowId), endRow = range.open ? sheet.rows.length - 1 : sheet.rows.indexOf(range.end.rowId);
   const startColumn = sheet.columns.indexOf(range.start.columnId), endColumn = sheet.columns.indexOf(range.end.columnId);
   if (Math.min(startRow, endRow, startColumn, endColumn) < 0) return undefined;
   const addresses: string[] = [];

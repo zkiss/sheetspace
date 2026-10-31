@@ -1,5 +1,6 @@
-import { normalizeRange, type CellAddress } from '../core/address';
-import type { FormulaReference, FormulaReferenceLexeme, FormulaSourceSpan } from './syntaxTypes';
+import { columnLabelToIndex, normalizeRange, type CellAddress } from '../core/address';
+import { decodeStableId } from './stableId';
+import type { FormulaReference, FormulaReferenceLexeme, FormulaSourceSpan, FormulaNamedColumnPredicate } from './syntaxTypes';
 
 type Endpoint = FormulaReferenceLexeme['endpoints'][number];
 
@@ -22,7 +23,7 @@ export function makeFormulaReference(
   base: { sheetId?: string; sourceSpan: FormulaSourceSpan; sheetReferenceSpan?: FormulaSourceSpan },
 ): FormulaReference {
   if (first.kind === 'named') {
-    return { kind: 'named', ...base, endpoint: first.value, ...(second?.kind === 'named' ? { end: second.value } : {}) };
+    return { kind: 'named', ...base, endpoint: first.value, ...(second?.kind === 'named' ? { end: second.value, ...(second.open ? { open: true } : {}) } : {}) };
   }
   if (first.kind === 'canonical' || first.kind === 'stored-named') {
     const named = first.kind === 'stored-named';
@@ -33,11 +34,38 @@ export function makeFormulaReference(
       kind: 'canonical', ...base, coordinate,
       ...(named ? { propertyId: value.propertyId } : {}),
       ...(second ? { range: {
-        start: coordinate, end: { columnId: endValue!.columnId, rowId: endValue!.rowId },
+        ...(second.open ? { open: true } : {}), start: coordinate, end: { columnId: endValue!.columnId, rowId: endValue!.rowId },
         ...(named ? { startPropertyId: value.propertyId, endPropertyId: endValue!.propertyId } : {}),
       } } : {}),
     };
   }
   if (!second) return { kind: 'cell', ...base, address: first.value as CellAddress };
-  return { kind: 'range', ...base, range: normalizeRange({ start: first.value as CellAddress, end: second.value as CellAddress }) };
+  return { kind: 'range', ...base, range: normalizeRange({ start: first.value as CellAddress, end: second.value as CellAddress }), ...(second.open ? { open: true } : {}) };
+}
+
+export function parseOpenEndpoint(input: string, start: number, first: Endpoint, qualifier: string | undefined, isNamedColumn: FormulaNamedColumnPredicate | undefined, userReferences: boolean): { endpoint: Endpoint; end: number } | undefined {
+  const text = input.slice(start);
+  const anchor = text.startsWith('$');
+  const rest = text.slice(Number(anchor));
+  const stable = !userReferences && (first.kind === 'canonical' || first.kind === 'stored-named') && /^~([0-9a-f]+)~([0-9a-f]+)/i.exec(rest);
+  const named = /^(?:'((?:[^']|'')+)'|([A-Za-z][A-Za-z0-9_]*))/.exec(rest);
+  const length = stable ? stable[0].length : named?.[0].length;
+  if (!length || (!stable && rest[length] === '[')) return undefined;
+  const end = start + Number(anchor) + length;
+  const base = { open: true, anchors: { column: anchor, row: false }, sourceSpan: { start: start + 1, end: end + 1 }, payloadSpans: referencePayloadSpans(start + Number(anchor), end, end, end) };
+  if (stable && (first.kind === 'canonical' || first.kind === 'stored-named')) {
+    const left = decodeStableId(stable[1]), columnId = decodeStableId(stable[2]);
+    if (!left || !columnId) return undefined;
+    return { end, endpoint: first.kind === 'canonical'
+      ? { ...base, kind: 'canonical', value: { columnId, rowId: first.value.rowId } }
+      : { ...base, kind: 'stored-named', value: { propertyId: left, columnId, rowId: first.value.rowId } } };
+  }
+  const name = named?.[1]?.replace(/''/g, "'") ?? named?.[2];
+  if (!name) return undefined;
+  if (first.kind === 'named') return { end, endpoint: { ...base, kind: 'named', value: { propertyName: name, row: first.value.row } } };
+  if (first.kind === 'a1' && !isNamedColumn?.(qualifier, name, base.payloadSpans.column)) {
+    const column = columnLabelToIndex(name);
+    if (column.ok) return { end, endpoint: { ...base, kind: 'a1', value: { columnIndex: column.value, rowIndex: first.value.rowIndex } } };
+  }
+  return undefined;
 }

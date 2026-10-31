@@ -124,20 +124,23 @@ export function stableReferenceIdentity(reference: FormulaReference, resolver: F
   if (!sheetId) return undefined;
   if (reference.kind === 'canonical') {
     if (!reference.range) return { kind: 'cell', sheetId, ...reference.coordinate };
-    return rangeReferenceIdentity(sheetId, reference.range.start, reference.range.end);
+    const lastRow = reference.range.open ? resolver.lastRowId?.(sheetId) : reference.range.end.rowId;
+    return lastRow ? rangeReferenceIdentity(sheetId, reference.range.start, { ...reference.range.end, rowId: lastRow }) : undefined;
   }
   if (reference.kind === 'named') {
     const coordinate = resolver.namedCoordinateAt?.(sheetId, reference.endpoint.propertyName, reference.endpoint.row)?.coordinate;
     if (!coordinate) return undefined;
     if (!reference.end) return { kind: 'cell', sheetId, ...coordinate };
     const end = resolver.namedCoordinateAt?.(sheetId, reference.end!.propertyName, reference.end!.row)?.coordinate;
-    return end ? rangeReferenceIdentity(sheetId, coordinate, end) : undefined;
+    const lastRow = reference.open ? resolver.lastRowId?.(sheetId) : end?.rowId;
+    return end && lastRow ? rangeReferenceIdentity(sheetId, coordinate, { ...end, rowId: lastRow }) : undefined;
   }
   const coordinate = resolver.coordinateAt(sheetId, reference.kind === 'cell' ? reference.address : reference.range.start);
   if (!coordinate) return undefined;
   if (reference.kind === 'cell') return { kind: 'cell', sheetId, ...coordinate };
   const end = resolver.coordinateAt(sheetId, reference.range.end);
-  return end ? rangeReferenceIdentity(sheetId, coordinate, end) : undefined;
+  const lastRow = reference.open ? resolver.lastRowId?.(sheetId) : end?.rowId;
+  return end && lastRow ? rangeReferenceIdentity(sheetId, coordinate, { ...end, rowId: lastRow }) : undefined;
 }
 
 export function formulaReferenceHover(

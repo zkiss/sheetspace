@@ -12,12 +12,14 @@ export function instantiateStoredModelFormula(template: StoredFormulaContent, wo
   const edits = recipes.map(({ declaration: source, stored }) => {
     const sheet = workbook.documents[stored.qualifier?.value ?? currentSheetId];
     if (!sheet) return { ...stored.sourceSpan, text: template.slice(stored.sourceSpan.start, stored.sourceSpan.end) };
+    let startRowId: string | undefined;
     const endpoints = stored.endpoints.map((endpoint, index) => {
       const recipe = source.endpoints[index];
       if ((endpoint.kind !== 'canonical' && endpoint.kind !== 'stored-named') || (recipe.kind !== 'a1' && recipe.kind !== 'named')) throw new Error('Invalid model reference recipe');
       const baseRow = recipe.kind === 'a1' ? recipe.value.rowIndex : recipe.value.row - 1;
-      const rowId = sheet.content.rows[baseRow + (recipe.anchors.row ? 0 : rowIndex)];
-      return rowId ? formatCanonicalFormulaEndpoint({ columnId: endpoint.value.columnId, rowId }, endpoint.anchors, endpoint.kind === 'stored-named' ? endpoint.value.propertyId : undefined) : undefined;
+      const rowId = endpoint.open ? startRowId : sheet.content.rows[baseRow + (recipe.anchors.row ? 0 : rowIndex)];
+      if (index === 0) startRowId = rowId;
+      return rowId ? formatCanonicalFormulaEndpoint({ columnId: endpoint.value.columnId, rowId }, endpoint.anchors, endpoint.kind === 'stored-named' ? endpoint.value.propertyId : undefined, endpoint.open) : undefined;
     });
     return { ...stored.sourceSpan, text: endpoints.every(Boolean)
       ? `@${stored.qualifier ? `${stored.qualifier.value}!` : ''}${endpoints.join(':')}`

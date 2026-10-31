@@ -153,7 +153,7 @@ function referenceDependencies(
   if (reference.kind === 'cell') return new Set([sheetCellNodeId(targetSheet.id, reference.address.columnIndex >= 0 ? legacyKey(targetSheet, reference.address.rowIndex, reference.address.columnIndex) : '')]);
   if (reference.kind === 'range') {
     const dependencies = new Set<string>();
-    for (let row = Math.min(reference.range.start.rowIndex, reference.range.end.rowIndex); row <= Math.max(reference.range.start.rowIndex, reference.range.end.rowIndex); row += 1) for (let column = Math.min(reference.range.start.columnIndex, reference.range.end.columnIndex); column <= Math.max(reference.range.start.columnIndex, reference.range.end.columnIndex); column += 1) dependencies.add(sheetCellNodeId(targetSheet.id, legacyKey(targetSheet, row, column)));
+    for (let row = Math.min(reference.range.start.rowIndex, reference.range.end.rowIndex); row <= (reference.open ? targetSheet.rows.length - 1 : Math.max(reference.range.start.rowIndex, reference.range.end.rowIndex)); row += 1) for (let column = Math.min(reference.range.start.columnIndex, reference.range.end.columnIndex); column <= Math.max(reference.range.start.columnIndex, reference.range.end.columnIndex); column += 1) dependencies.add(sheetCellNodeId(targetSheet.id, legacyKey(targetSheet, row, column)));
     return dependencies;
   }
   const validNamed = (id: string, column: string) => (id === column && targetSheet.ordinaryNamedColumnIds?.has(column)) || (targetSheet.modelColumnBindings?.[id] === column && targetSheet.modelPropertyIds?.has(id));
@@ -163,7 +163,7 @@ function referenceDependencies(
     const key = calculationCellKey(targetSheet, reference.coordinate);
     return key ? new Set([sheetCellNodeId(targetSheet.id, key)]) : new Set();
   }
-  const startRow = targetSheet.rows.indexOf(reference.range.start.rowId), endRow = targetSheet.rows.indexOf(reference.range.end.rowId);
+  const startRow = targetSheet.rows.indexOf(reference.range.start.rowId), endRow = reference.range.open ? targetSheet.rows.length - 1 : targetSheet.rows.indexOf(reference.range.end.rowId);
   const startColumn = targetSheet.columns.indexOf(reference.range.start.columnId), endColumn = targetSheet.columns.indexOf(reference.range.end.columnId);
   if (Math.min(startRow, endRow, startColumn, endColumn) < 0) return new Set();
   const dependencies = new Set<string>();

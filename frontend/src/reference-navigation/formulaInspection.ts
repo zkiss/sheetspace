@@ -147,7 +147,7 @@ function inspectionReference(
     const sheetId = reference.sheetId ?? currentSheet.id;
     const targetSheet = findSheetById(workbook, sheetId);
     const range = reference.range
-      ? { start: { rowId: reference.range.start.rowId, columnId: reference.range.start.columnId }, end: { rowId: reference.range.end.rowId, columnId: reference.range.end.columnId } }
+      ? { start: { rowId: reference.range.start.rowId, columnId: reference.range.start.columnId }, end: { rowId: reference.range.open ? targetSheet?.content.rows.slice(-1)[0] ?? '' : reference.range.end.rowId, columnId: reference.range.end.columnId } }
       : undefined;
     const identity = !reference.range
       ? { rowId: reference.coordinate.rowId, columnId: reference.coordinate.columnId }
@@ -180,7 +180,7 @@ function inspectionReference(
     : {
         kind: 'range',
         sheetId,
-        range: targetSheet ? stableRangeAt(targetSheet.content, reference.range) : undefined,
+        range: targetSheet ? stableRangeAt(targetSheet.content, reference.open ? { ...reference.range, end: { ...reference.range.end, rowIndex: targetSheet.content.rows.length - 1 } } : reference.range) : undefined,
       };
   const broken = hasReferenceDiagnostic || !targetSheet || (target.kind === 'cell' ? !target.identity : !target.range);
 

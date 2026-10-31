@@ -35,6 +35,21 @@ const workbook = {
 const resolver = workbookFormulaReferenceResolver(workbook, budget.id);
 
 describe('formula editor logic', () => {
+  it('highlights and hovers the full open named range through the current last row', () => {
+    const raw = '=SUM(@Budget!Revenue[1]:Cost)';
+    const analysis = analyzeFormulaEditor(raw, resolver);
+    const reference = analysis.references[0]!;
+    expect(analysis.tokens.filter((token) => token.kind === 'reference').map((token) => raw.slice(token.sourceSpan.start, token.sourceSpan.end))).toEqual(['@Budget!Revenue[1]:Cost']);
+    const identity = stableReferenceIdentity(reference, resolver);
+    expect(identity).toEqual({ kind: 'range', sheetId: budget.id,
+      start: { rowId: budget.content.rows[0], columnId: budget.content.columns[0] },
+      end: { rowId: budget.content.rows.slice(-1)[0], columnId: budget.content.columns[1] } });
+    const values = [{ kind: 'number' as const, value: 1 }, { kind: 'number' as const, value: 2 }];
+    expect(formulaReferenceHover(reference, resolver, () => values)).toMatchObject({ kind: 'range', identity, values });
+    const extended = { ...budget, content: { ...budget.content, rows: [...budget.content.rows, 'zz-new-row'] } };
+    const extendedResolver = workbookFormulaReferenceResolver({ ...workbook, documents: { ...workbook.documents, [budget.id]: extended } }, budget.id);
+    expect(stableReferenceIdentity(reference, extendedResolver)).toMatchObject({ end: { rowId: 'zz-new-row' } });
+  });
   it('handles completion within qualified references and escaped strings', () => {
     expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [] })).toEqual([]);
     expect(formulaCompletions('=@Budget!Re', { start: 11, end: 11 }, { sheetNames: [], propertyNames: ['Revenue'] }))
