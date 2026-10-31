@@ -9,6 +9,7 @@ import type { DataModel } from '@workbook/core/model';
 import { commitCellRawContent, commitStoredCellContent, renameSheet } from '@workbook/mutations/operations';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { instantiateModelFormula } from '@workbook/formula/modelTemplate';
 import type { Workbook } from '@workbook/core/model';
 
 const writeFormula = (workbook: Workbook, sheetId: string, key: string, formula: string) =>
@@ -39,7 +40,9 @@ describe('explicit positional binding', () => {
     expect(next.content.columns.slice(0, Math.min(width, 2))).toEqual(sheet.content.columns.slice(0, 2));
     expect(next.content.rows).toEqual(width ? [sheet.content.rows[0]] : []);
     expect(next.modelColumnBindings).toEqual({ input: next.content.columns[0], result: next.content.columns[1] });
-    expect(projectStoredFormula(next.modelFormulaBindings!.result.content, bound, 'sheet').text).toBe('=@A[1]*2');
+    const withRow = width ? bound : { ...bound, documents: { ...bound.documents, sheet: { ...next, content: { ...next.content, rows: ['new-row'] } } } };
+    const instance = instantiateModelFormula(next.modelFormulaBindings!.result, withRow, 0, '=@A[1]*2', 'sheet');
+    expect(projectStoredFormula(instance, withRow, 'sheet').text).toBe('=@A[1]*2');
     expect(storedModelCells(bound).A1).toBe(width ? '3' : undefined);
     if (width) expect(calculatedModelCells(bound).sheet.B1).toMatchObject({ kind: 'number', value: 6 });
     else expect(calculatedModelCells(bound).sheet.B1).toBeUndefined();
