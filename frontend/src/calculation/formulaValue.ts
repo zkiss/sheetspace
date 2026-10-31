@@ -26,9 +26,9 @@ export type FormulaDiagnostic = {
   causes: readonly FormulaDiagnostic[];
 };
 
-const diagnostics = new WeakMap<FormulaScalarValue, FormulaDiagnostic>();
+const diagnostics = new WeakMap<object, FormulaDiagnostic>();
 
-export function formulaDiagnostic(value: FormulaScalarValue): FormulaDiagnostic | undefined {
+export function formulaDiagnostic(value: FormulaScalarValue | FormulaDisplayResult): FormulaDiagnostic | undefined {
   return diagnostics.get(value);
 }
 
@@ -132,8 +132,12 @@ export function displayFormulaValue(
       return { ...value, display: value.value ? 'TRUE' : 'FALSE' };
     case 'blank':
       return { kind: 'blank', display: '' };
-    case 'error':
-      return { ...value, display: value.error };
+    case 'error': {
+      const result: FormulaDisplayResult = { ...value, display: value.error };
+      const diagnostic = formulaDiagnostic(value);
+      if (diagnostic) diagnostics.set(result, diagnostic);
+      return result;
+    }
   }
 }
 

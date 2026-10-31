@@ -19,6 +19,15 @@ describe('calculation diagnostics', () => {
     });
   });
 
+  it('exposes the same diagnostic on workbook-facing display results', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=@A[1]' } });
+    const calculation = new FormulaCalculation();
+    const snapshot = calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[1] });
+    expect(formulaDiagnostic(snapshot.inputs.B1)).toEqual(calculation.diagnostic('inputs', key));
+    expect(formulaDiagnostic(snapshot.inputs.B1)).toMatchObject({ causes: [{ message: 'Cannot divide 1 by zero.' }] });
+  });
+
   it('keeps independent evaluated failures in separate branches', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=2/0', C1: '=@A[1]+@B[1]' } });
     const calculation = new FormulaCalculation();
