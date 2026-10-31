@@ -29,7 +29,7 @@ type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
   canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onOpenDataModels, onRename, onDelete, onEdit, onClear,
-  onSelectAxis, onSelectAll, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
+  onSelectAxis, onSelectAll, onRowDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
@@ -40,6 +40,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   onOpenDataModels?: (modelId?: string) => void; onRename: (sheet: SheetDocument) => void;
   onDelete: (sheet: SheetDocument) => void; onEdit: (target: CellTarget) => void; onClear: (target: CellTarget) => void;
   onSelectAxis: (axis: 'rows' | 'columns', target: CellTarget) => void; onSelectAll: (sheet: SheetDocument) => void;
+  onRowDeleted: (sheet: SheetDocument, target: CellTarget) => void;
   onToggleReferences: () => void; onFeedback: (message: string) => void;
   onCopy: () => SystemClipboardContent | undefined; onCut: () => SystemClipboardContent | undefined;
   onPaste: (content: SystemClipboardContent) => void; onCancelCut: () => void; hasPendingCut: boolean;
@@ -90,8 +91,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
     const submission = commands.deleteRow(sheet.id, activeCell.cell.rowId);
     const message = failure(submission.result);
-    closePalette();
-    if (message) { onFeedback(message); return; }
+    if (message) { closePalette(); onFeedback(message); return; }
+    closePalette(false);
+    onRowDeleted(sheet, activeCell);
     void submission.completion.then((result) => { const error = failure(result); if (error) onFeedback(error); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.rows.includes(activeCell.cell.rowId) ? undefined : 'Select a saved row first');
   const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'

@@ -17,3 +17,4 @@ This file is temporary. Delete it before merging this branch into `main`.
 - Focus the first entry cell when entering an empty model-bound sheet.
 - Match entry-row selection to normal sheet cells and clear the previous sheet selection when entering the row.
 - Add a Delete row command to the command palette for the row containing the selected cell.
+- After deleting a row, keep focus in the same column on the next row, or the preceding row when deleting the last one.

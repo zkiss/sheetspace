@@ -615,6 +615,22 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     onDelete: (sheet) => { if (editingCell?.target.sheetId === sheet.id) onCancelEdit(); return commands.deleteSheet(sheet.id); },
     onEdit: onStartEdit, onClear: (target) => reportWriteOutcome(onClearCell(target)),
     onSelectAxis: (axis, target) => onSelectAxis(axis, target, false),
+    onRowDeleted: (sheet, target) => {
+      const index = sheet.content.rows.indexOf(target.cell.rowId);
+      const remaining = sheet.content.rows.filter((rowId) => rowId !== target.cell.rowId);
+      const rowId = remaining[Math.min(index, remaining.length - 1)];
+      if (rowId) {
+        const next = { sheetId: sheet.id, cell: { ...target.cell, rowId } };
+        onSelectCell(next);
+        onFocusSelection(next);
+      } else {
+        onClearSelection();
+        requestAnimationFrame(() => {
+          const frame = document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"]`);
+          (frame?.querySelector<HTMLElement>('.model-entry-cell') ?? frame?.querySelector<HTMLElement>('.sheet-grid'))?.focus();
+        });
+      }
+    },
     onSelectAll: (sheet) => {
       const first = cellIdentityAt(sheet.content, { rowIndex: 0, columnIndex: 0 });
       const last = cellIdentityAt(sheet.content, { rowIndex: sheet.content.rows.length - 1, columnIndex: sheet.content.columns.length - 1 });
