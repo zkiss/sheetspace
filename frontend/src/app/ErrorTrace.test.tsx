@@ -59,9 +59,12 @@ it('shows keyboard selection and activates a focused nonselected reference', asy
   render(<ErrorTrace error={error} onNavigate={navigate} />);
   const list = screen.getByRole('listbox');
   const options = screen.getAllByRole('option');
+  const scroll = vi.fn();
+  options[1].scrollIntoView = scroll;
   expect(options[0]).toHaveStyle({ background: '#dbeafe' });
   list.focus();
   await user.keyboard('{ArrowDown}');
+  expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
   expect(options[1]).toHaveStyle({ background: '#dbeafe' });
   expect(options[0]).not.toHaveStyle({ background: '#dbeafe' });
   await user.tab();

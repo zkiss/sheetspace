@@ -18,7 +18,10 @@ export function ErrorTrace({ error, onNavigate }: {
         event.preventDefault(); event.stopPropagation();
         const index = lines.indexOf(selected);
         const next = lines[Math.max(0, Math.min(lines.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))];
-        if (next) setSelectedKey(selectionKey(next));
+        if (next) {
+          setSelectedKey(selectionKey(next));
+          event.currentTarget.children.item(lines.indexOf(next))?.scrollIntoView?.({ block: 'nearest' });
+        }
       } else if (event.key === 'Enter' || event.key === 'F4') {
         event.preventDefault(); event.stopPropagation(); activate(selected);
       }
