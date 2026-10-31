@@ -11,7 +11,7 @@ export class ModelEntrySessions {
   private readonly sessions = new Map<string, Session>();
 
   private signature(model: DataModel) {
-    return JSON.stringify(model.columns.map(({ id, kind, type }) => [id, kind, type]));
+    return JSON.stringify(model.columns.map(({ id, kind, type }) => [id, kind, type]).sort((a, b) => a[0]!.localeCompare(b[0]!)));
   }
 
   get(sheetId: string, model: DataModel): EntrySessionState {

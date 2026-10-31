@@ -58,4 +58,12 @@ describe('entry sessions', () => {
     sessions.change('a', changed, 'n', '8', workbook);
     expect(sessions.get('a', model).draft.fields.n?.raw).toBe('7');
   });
+
+  it('preserves drafts by property identity when columns are reordered or renamed', () => {
+    const sessions = new ModelEntrySessions();
+    sessions.change('a', model, 'n', '7', workbook);
+    const reordered = { ...model, columns: [...model.columns].reverse().map((column) => ({ ...column, name: 'Renamed' })) };
+    expect(sessions.get('a', reordered).draft.fields.n?.raw).toBe('7');
+    expect(sessions.get('a', reordered).stale).toBeUndefined();
+  });
 });
