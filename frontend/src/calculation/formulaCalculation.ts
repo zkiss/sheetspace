@@ -11,7 +11,7 @@ import {
   storedFormulaParser,
   type FormulaDependencyGraph,
 } from '@calculation/formulaDependencies';
-import { cycleFormulaNodes } from '@calculation/formulaCycles';
+import { cycleFormulaComponents } from '@calculation/formulaCycles';
 import {
   FormulaEvaluator,
   type FormulaEvaluationObserver,
@@ -97,34 +97,46 @@ export class FormulaCalculation {
         nextFormulaNodes.has(nodeId) && !impacted.has(nodeId),
       ),
     );
-    const cycleMembers = cycleFormulaNodes(nextGraph);
-    const pending = [...cycleMembers].sort();
+    const components = cycleFormulaComponents(nextGraph);
     const cycleResults = new Map<string, FormulaScalarValue>();
-    const cycleDistance = new Map(pending.map((nodeId) => [nodeId, 0]));
-    for (const nodeId of pending) {
+    const witnesses = new Map<string, FormulaDiagnostic[]>();
+    for (const component of components) {
+      const pending = [...component];
+      const seen = new Set(pending);
+      const paths = new Map<string, FormulaDiagnostic>();
+      for (const nodeId of pending) {
       const separator = nodeId.indexOf('\u0000');
       const sheetId = nodeId.slice(0, separator);
       const key = nodeId.slice(separator + 1);
       const identity = cellIdentityFromKey(key);
-      cycleResults.set(nodeId, diagnosticAtCell(diagnosticError('#CYCLE!', 'Structural dependency cycle detected; expression blocked before evaluation.'), identity ? { sheetId, ...identity } : undefined));
-    }
-    for (let index = 0; index < pending.length; index += 1) {
-      const nodeId = pending[index];
-      for (const dependent of [...(nextGraph.dependents.get(nodeId) ?? [])].sort()) {
-        if (!nextFormulaNodes.has(dependent) || cycleDistance.has(dependent)) continue;
-        cycleDistance.set(dependent, cycleDistance.get(nodeId)! + 1);
-        pending.push(dependent);
+        paths.set(nodeId, formulaDiagnostic(diagnosticAtCell(diagnosticError('#CYCLE!', 'Structural dependency cycle detected; expression blocked before evaluation.'), identity ? { sheetId, ...identity } : undefined))!);
+      }
+      for (let index = 0; index < pending.length; index += 1) {
+        const nodeId = pending[index];
+        for (const dependent of [...(nextGraph.dependents.get(nodeId) ?? [])].sort()) {
+          if (!nextFormulaNodes.has(dependent) || seen.has(dependent)) continue;
+          seen.add(dependent);
+          pending.push(dependent);
+          const separator = dependent.indexOf('\u0000');
+          const identity = cellIdentityFromKey(dependent.slice(separator + 1));
+          paths.set(dependent, formulaDiagnostic(diagnosticAtCell(
+            diagnosticError('#CYCLE!', 'Structural dependency on a cycle; expression blocked before evaluation.', [paths.get(nodeId)!]),
+            identity ? { sheetId: dependent.slice(0, separator), ...identity } : undefined,
+          ))!);
+        }
+      }
+      for (const [nodeId, path] of paths) {
+        const entries = witnesses.get(nodeId) ?? [];
+        entries.push(path);
+        witnesses.set(nodeId, entries);
       }
     }
-    for (const nodeId of pending.slice(cycleMembers.size)) {
-      const causes = [...(nextGraph.dependencies.get(nodeId) ?? [])].sort()
-        .filter((dependency) => (cycleDistance.get(dependency) ?? Infinity) < cycleDistance.get(nodeId)!)
-        .map((dependency) => formulaDiagnostic(cycleResults.get(dependency)!)!);
+    for (const [nodeId, paths] of witnesses) {
       const separator = nodeId.indexOf('\u0000');
       const sheetId = nodeId.slice(0, separator);
       const identity = cellIdentityFromKey(nodeId.slice(separator + 1));
       cycleResults.set(nodeId, diagnosticAtCell(
-        diagnosticError('#CYCLE!', 'Structural dependency on a cycle; expression blocked before evaluation.', causes),
+        diagnosticError('#CYCLE!', paths.length === 1 ? paths[0].message : 'Structural dependency on a cycle; expression blocked before evaluation.', paths.length === 1 ? paths[0].causes : paths.flatMap((path) => path.causes.length ? path.causes : [path])),
         identity ? { sheetId, ...identity } : undefined,
       ));
     }

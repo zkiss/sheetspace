@@ -13,9 +13,13 @@ export function cycleAffectedFormulaNodes(
 }
 
 export function cycleFormulaNodes(graph: FormulaDependencyGraph): Set<string> {
+  return new Set(cycleFormulaComponents(graph).flat());
+}
+
+export function cycleFormulaComponents(graph: FormulaDependencyGraph): string[][] {
   const formulas = new Set(graph.dependencies.keys());
   const finishOrder = dependencyFinishOrder(graph, formulas);
-  const cycleMembers = new Set<string>();
+  const cycles: string[][] = [];
   const assigned = new Set<string>();
 
   for (let index = finishOrder.length - 1; index >= 0; index -= 1) {
@@ -44,11 +48,11 @@ export function cycleFormulaNodes(graph: FormulaDependencyGraph): Set<string> {
     const isCycle = component.length > 1
       || (graph.dependencies.get(component[0])?.has(component[0]) ?? false);
     if (isCycle) {
-      component.forEach((nodeId) => cycleMembers.add(nodeId));
+      cycles.push(component.sort());
     }
   }
 
-  return cycleMembers;
+  return cycles.sort((left, right) => left[0].localeCompare(right[0]));
 }
 
 function dependencyFinishOrder(
