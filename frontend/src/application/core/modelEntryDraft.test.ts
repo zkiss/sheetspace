@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyWorkbook } from '@workbook/mutations/operations';
 import type { DataModel } from '@workbook/core/model';
+import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { changeEntryField, createModelEntryDraft, dismissEntryFeedback, leaveEntryField, validateEntryDraft } from './modelEntryDraft';
 
 const model: DataModel = { id: 'model', name: 'Model', columns: [
@@ -49,7 +50,21 @@ describe('model entry drafts', () => {
   it.each([
     ['=', true], ['=1+', true], ['=1/0', true], ['="text"', true], ['=1.5', true], ['=1+2', false],
   ])('validates formula result %s before admission', (raw, invalid) => {
-    const draft = changeEntryField(createModelEntryDraft(model), model, 'number', raw, workbook, 'sheet');
-    expect(validateEntryDraft(draft, model, workbook, 'sheet').firstInvalid).toBe(invalid ? 'number' : undefined);
+    const committed = workbookWithSheets([sheetDocument({ id: 'sheet', name: 'Sheet' })]);
+    const draft = changeEntryField(createModelEntryDraft(model), model, 'number', raw, committed, 'sheet');
+    expect(validateEntryDraft(draft, model, committed, 'sheet').firstInvalid).toBe(invalid ? 'number' : undefined);
+  });
+
+  it('validates references and ranges against committed rows without adding draft coordinates', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 1, cells: { A1: '2', A2: '4' } });
+    sheet.modelId = model.id;
+    sheet.modelColumnBindings = { number: sheet.content.columns[0] };
+    const committed = { ...workbookWithSheets([sheet]), dataModels: { [model.id]: model } };
+    const before = structuredClone(committed);
+    for (const [raw, invalid] of [['=SUM(@A[1]:A[2])', false], ['=@A[3]', true], ['=SUM(@A[1]:A[3])', true], ['=@B[1]', true]] as const) {
+      const draft = changeEntryField(createModelEntryDraft(model), model, 'number', raw, committed, sheet.id);
+      expect(validateEntryDraft(draft, model, committed, sheet.id).firstInvalid).toBe(invalid ? 'number' : undefined);
+    }
+    expect(committed).toEqual(before);
   });
 });

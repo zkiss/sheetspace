@@ -1,9 +1,5 @@
-import { classifyCellValue, matchesModelColumnType } from '@calculation/formulaValue';
+import { validRecordValue } from '@calculation/recordValidation';
 import { prepareCellInput } from './cellInputPreparation';
-import { evaluateStoredFormulaCells } from '@calculation/formulaEvaluator';
-import { calculationProjection } from '@workbook/read/calculationProjection';
-import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import { cellKey } from '@workbook/core/address';
 import type { DataModel, Workbook } from '@workbook/core/model';
 
 export type EntryField = { raw: string; invalid: boolean; message?: string };
@@ -17,19 +13,7 @@ function fieldError(model: DataModel, propertyId: string, raw: string, workbook:
   const property = model.columns.find((column) => column.id === propertyId && column.kind === 'manual');
   if (!property) return undefined;
   const stored = prepareCellInput(raw, workbook, sheetId);
-  let value = classifyCellValue(stored);
-  if (stored.startsWith('=')) {
-    const projection = calculationProjection(workbook);
-    const existing = projection.sheets.find((sheet) => sheet.id === sheetId);
-    const sheet = existing ?? { id: sheetId, rows: [], columns: [], cells: {} };
-    const rowId = crypto.randomUUID();
-    const columnId = crypto.randomUUID();
-    const candidate = { ...sheet, rows: [...sheet.rows, rowId], columns: [...sheet.columns, columnId], cells: { ...sheet.cells, [cellIdentityKey({ rowId, columnId })]: stored } };
-    const sheets = [...projection.sheets.filter((item) => item.id !== sheetId), candidate];
-    const result = evaluateStoredFormulaCells({ sheets }, workbook)[sheetId]?.[cellKey({ rowIndex: sheet.rows.length, columnIndex: sheet.columns.length })];
-    value = result ?? { kind: 'error', error: '#VALUE!' };
-  }
-  if (value.kind !== 'error' && matchesModelColumnType(value, property.type)) return undefined;
+  if (validRecordValue(workbook, sheetId, stored, property.type)) return undefined;
   return `Enter a valid ${property.type} value.`;
 }
 
