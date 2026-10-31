@@ -76,3 +76,19 @@ it('shows keyboard selection and activates a focused nonselected reference', asy
   await user.keyboard('{F4}');
   expect(navigate).toHaveBeenLastCalledWith(first);
 });
+
+it('navigates an explicit repeated cause by click and keyboard', async () => {
+  const user = userEvent.setup();
+  const navigate = vi.fn();
+  const target = { sheetId: 'other', cell: { rowId: 'r', columnId: 'c' }, reference: '@Other!A[1]' };
+  const error: WorkbookError = { key: 'a', sheetId: 's', cell: { rowId: 'r', columnId: 'c' }, reference: '@Sheet!A[1]', code: '#CYCLE!', text: 'Cycle', trace: [
+    { key: '0', depth: 0, message: 'root' },
+    { key: '1', depth: 1, message: 'Already shown: cycle', target },
+  ] };
+  render(<ErrorTrace error={error} onNavigate={navigate} />);
+  await user.click(screen.getByRole('button', { name: target.reference }));
+  screen.getByRole('listbox').focus();
+  await user.keyboard('{ArrowDown}{F4}');
+  expect(navigate).toHaveBeenCalledTimes(2);
+  expect(navigate).toHaveBeenLastCalledWith(target);
+});

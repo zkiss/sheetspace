@@ -24,6 +24,11 @@ export type FormulaDiagnostic = {
   message: string;
   cell?: { sheetId: string; rowId: string; columnId: string };
   causes: readonly FormulaDiagnostic[];
+  structural?: { graph: StructuralDiagnosticGraph; root: string };
+};
+
+export type StructuralDiagnosticGraph = {
+  nodes: ReadonlyMap<string, { cell?: FormulaDiagnostic['cell']; message: string; dependencies: readonly string[] }>;
 };
 
 const diagnostics = new WeakMap<object, FormulaDiagnostic>();
@@ -35,6 +40,13 @@ export function formulaDiagnostic(value: FormulaScalarValue | FormulaDisplayResu
 export function diagnosticError(error: FormulaErrorCode, message: string, causes: readonly FormulaDiagnostic[] = []): FormulaScalarValue {
   const value = formulaErrorValue(error);
   diagnostics.set(value, { message, causes });
+  return value;
+}
+
+export function structuralDiagnosticError(graph: StructuralDiagnosticGraph, root: string): FormulaScalarValue {
+  const value = formulaErrorValue('#CYCLE!');
+  const node = graph.nodes.get(root)!;
+  diagnostics.set(value, { message: node.message, cell: node.cell, causes: [], structural: { graph, root } });
   return value;
 }
 
