@@ -74,6 +74,53 @@ describe('calculated row persistence', () => {
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
   });
+  it('retains a rejected draft for correction and submits it with a new identity', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('invalid', 400, 'invalid-model-record'))
+      .mockImplementationOnce(async (_sheetId, rowId) => ({ rowId, sheet: { ...workbook.documents.sheet!, revision: 2 } }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(result.current.entrySessions.sheet).toMatchObject({ draft: { fields: { input: { raw: '5' } } }, failure: expect.stringContaining('Correct') });
+    expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[1]![1]).not.toBe(api.admitRecord.mock.calls[0]![1]);
+    expect(api.admitRecord.mock.calls[1]![2]).toEqual({ input: '8' });
+  });
+
+  it('reloads a revision conflict before allowing a fresh submission', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.loadSheet.mockResolvedValue({ ...workbook.documents.sheet!, revision: 7 });
+    api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'))
+      .mockImplementationOnce(async (_sheetId, rowId) => ({ rowId, sheet: { ...workbook.documents.sheet!, revision: 8 } }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.loadSheet).toHaveBeenCalledWith('sheet');
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[1]![1]).not.toBe(api.admitRecord.mock.calls[0]![1]);
+    expect(api.admitRecord.mock.calls[1]![3]).toBe(7);
+  });
+
+  it('keeps the original retry locked if conflict recovery cannot reload the sheet', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.loadSheet.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...workbook.documents.sheet!, revision: 7 });
+    api.admitRecord.mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: expect.stringContaining('could not be reloaded') });
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
+  });
   it('retries the captured formula after a cross-sheet dependency becomes invalid', async () => {
     const bound = boundWorkbook();
     const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1, cells: { A1: '5' } });

@@ -3,6 +3,7 @@ import { prepareCellInput } from './cellInputPreparation';
 import { changeEntryField, createModelEntryDraft, dismissEntryFeedback, leaveEntryField, validateEntryDraft, type ModelEntryDraft } from './modelEntryDraft';
 
 export type EntrySubmission = { rowId: string; revision?: number; values: Readonly<Record<string, string>> };
+export class EntryAdmissionRejected extends Error {}
 export type EntrySessionState = { draft: ModelEntryDraft; pending: boolean; failure?: string; retryRequired?: boolean; stale?: boolean };
 type Session = EntrySessionState & { signature: string; submission?: EntrySubmission };
 
@@ -91,6 +92,10 @@ export class ModelEntrySessions {
       if (this.sessions.get(sheetId) === session) this.sessions.set(sheetId, { draft: createModelEntryDraft(model), signature: session.signature, pending: false });
       return { result };
     } catch (error) {
+      if (error instanceof EntryAdmissionRejected) {
+        delete session.submission;
+        delete session.retryRequired;
+      }
       session.failure = error instanceof Error ? error.message : 'Could not save record. Retry the submission.';
       return {};
     } finally {

@@ -1,4 +1,4 @@
-import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel } from '@workbook/core/model';
+import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel, SheetDocument } from '@workbook/core/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
@@ -440,6 +440,11 @@ export function useWorkbookController({
             setWorkbook(next, { kind: 'structure' });
             return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
           }
+          const reconcile = (sheet: SheetDocument) => {
+            const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheetId]: sheet } };
+            optimisticWorkbook.current = next;
+            setWorkbook(next, { kind: 'structure' });
+          };
           return admitEntryRecord({
             sheetId, submission, coordinator: persistenceCoordinator,
             waitForPredecessors: async () => {
@@ -453,18 +458,13 @@ export function useWorkbookController({
               const sheet = optimisticWorkbook.current.documents[sheetId];
               return sheet?.modelId === model.id ? sheet : undefined;
             },
-            admit: admitRecordConfirmingMissing(resolvedApiClient.admitRecord ?? workbookApi.admitRecord, persistenceCoordinator),
-            reconcile: (sheet) => {
-              const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheetId]: sheet } };
-              optimisticWorkbook.current = next;
-              setWorkbook(next, { kind: 'structure' });
-            },
-          });
+            admit: admitRecordConfirmingMissing(resolvedApiClient.admitRecord ?? workbookApi.admitRecord, persistenceCoordinator, resolvedApiClient.loadSheet ?? workbookApi.loadSheet, reconcile),
+            reconcile });
         });
         publishEntries();
         try {
           const settled = await result;
-          if (settled.result) admissionLocks.current.delete(sheetId);
+          if (settled.result || !entrySessions.get(sheetId, model).retryRequired) admissionLocks.current.delete(sheetId);
           return settled;
         } finally { publishEntries(); }
       },
