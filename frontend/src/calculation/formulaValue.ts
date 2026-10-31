@@ -20,6 +20,35 @@ export type FormulaRangeValue = {
 
 export type FormulaValue = FormulaScalarValue | FormulaRangeValue;
 
+export type FormulaDiagnostic = {
+  message: string;
+  cell?: { sheetId: string; rowId: string; columnId: string };
+  causes: readonly FormulaDiagnostic[];
+};
+
+const diagnostics = new WeakMap<FormulaScalarValue, FormulaDiagnostic>();
+
+export function formulaDiagnostic(value: FormulaScalarValue): FormulaDiagnostic | undefined {
+  return diagnostics.get(value);
+}
+
+export function diagnosticError(error: FormulaErrorCode, message: string, causes: readonly FormulaDiagnostic[] = []): FormulaScalarValue {
+  const value = formulaErrorValue(error);
+  diagnostics.set(value, { message, causes });
+  return value;
+}
+
+export function diagnosticAtCell(value: FormulaScalarValue, cell: FormulaDiagnostic['cell']): FormulaScalarValue {
+  if (value.kind !== 'error') return value;
+  const diagnostic = formulaDiagnostic(value) ?? { message: value.error, causes: [] };
+  if (!cell || (diagnostic.cell?.sheetId === cell.sheetId && diagnostic.cell.rowId === cell.rowId && diagnostic.cell.columnId === cell.columnId)) return value;
+  const result = formulaErrorValue(value.error);
+  diagnostics.set(result, diagnostic.cell
+    ? { message: `Propagated ${value.error}`, cell, causes: [diagnostic] }
+    : { ...diagnostic, cell });
+  return result;
+}
+
 export type FormulaDisplayResult =
   | { kind: 'number'; value: number; display: string }
   | { kind: 'text'; value: string; display: string }

@@ -21,8 +21,9 @@ import type {
   FormulaEvaluationSnapshot,
   FormulaScalarValue,
 } from '@calculation/formulaValue';
-import { formulaErrorValue } from '@calculation/formulaValue';
+import { diagnosticAtCell, diagnosticError, formulaDiagnostic, type FormulaDiagnostic } from '@calculation/formulaValue';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import type { Workbook } from '@workbook/core/model';
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 
@@ -35,6 +36,11 @@ export class FormulaCalculation {
   private graph: FormulaDependencyGraph = emptyFormulaDependencyGraph();
   private results = new Map<string, FormulaScalarValue>();
   private snapshot: FormulaEvaluationSnapshot = {};
+
+  diagnostic(sheetId: string, key: string): FormulaDiagnostic | undefined {
+    const value = this.results.get(sheetCellNodeId(sheetId, key));
+    return value && formulaDiagnostic(value);
+  }
 
   fork(): FormulaCalculation {
     const calculation = new FormulaCalculation();
@@ -92,7 +98,9 @@ export class FormulaCalculation {
       ),
     );
     for (const nodeId of cycleAffectedFormulaNodes(nextGraph)) {
-      reusableResults.set(nodeId, formulaErrorValue('#CYCLE!'));
+      const [sheetId, key] = nodeId.split('\u0000');
+      const identity = cellIdentityFromKey(key);
+      reusableResults.set(nodeId, diagnosticAtCell(diagnosticError('#CYCLE!', 'Cycle detected; the dependency path cannot be evaluated.'), identity ? { sheetId, ...identity } : undefined));
     }
     const evaluator = new FormulaEvaluator(projection, reusableResults, onEvaluate, builtInFormulaFunctions, parse);
 

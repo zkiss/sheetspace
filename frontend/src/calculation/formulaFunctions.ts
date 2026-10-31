@@ -1,6 +1,7 @@
 import type { FormulaErrorCode, FormulaExpression, FunctionFormula } from '@workbook/formula/syntax';
 import {
   formulaErrorValue,
+  diagnosticError,
   type FormulaRangeValue,
   type FormulaScalarValue,
   type FormulaValue,
@@ -66,19 +67,20 @@ export function evaluateFunctionCall(
 ): FormulaScalarValue {
   const definition = registry.get(expression.functionName.toUpperCase());
   if (!definition) {
-    return formulaErrorValue('#NAME!');
+    return diagnosticError('#NAME!', `Unknown function ${expression.functionName}.`);
   }
   if (!acceptsArity(definition.arity, expression.arguments.length)) {
-    return formulaErrorValue('#VALUE!');
+    const expected = definition.arity.max === definition.arity.min ? `${definition.arity.min}` : `${definition.arity.min} to ${definition.arity.max ?? 'unlimited'}`;
+    return diagnosticError('#VALUE!', `${expression.functionName} expected ${expected} arguments, got ${expression.arguments.length}.`);
   }
 
   for (let index = 0; index < expression.arguments.length; index += 1) {
     const kind = definition.argumentKind(index);
     if (kind === 'scalar' && isSyntacticRange(expression.arguments[index])) {
-      return formulaErrorValue('#VALUE!');
+      return diagnosticError('#VALUE!', `${expression.functionName} argument ${index + 1} expected a scalar, got a range.`);
     }
     if (kind === 'reference' && !isSyntacticReference(expression.arguments[index])) {
-      return formulaErrorValue('#VALUE!');
+      return diagnosticError('#VALUE!', `${expression.functionName} argument ${index + 1} expected a reference.`);
     }
   }
   const validationError = definition.validateArguments?.(expression.arguments);

@@ -23,6 +23,9 @@ import {
 } from '@workbook/formula/syntax';
 import {
   classifyCellValue,
+  diagnosticAtCell,
+  diagnosticError,
+  formulaDiagnostic,
   displayFormulaValue,
   formulaErrorValue,
   formulaScalarValue,
@@ -78,11 +81,11 @@ export class FormulaEvaluator {
   /** Evaluates a detached expression without adding a reference target to the workbook. */
   evaluateExpressionContent(content: string, sheetId: string): FormulaScalarValue {
     const sheet = this.workbook.sheets.find((candidate) => candidate.id === sheetId);
-    if (!sheet) return formulaErrorValue('#REF!');
+    if (!sheet) return diagnosticError('#REF!', 'Sheet does not exist.');
     const parsed = this.parse(content, sheetId);
     return parsed.kind === 'formula'
       ? formulaScalarValue(this.evaluateExpression(parsed.expression, sheet))
-      : formulaErrorValue(parsed.kind === 'error' ? parsed.error : '#PARSE!');
+      : diagnosticError(parsed.kind === 'error' ? parsed.error : '#PARSE!', 'Could not parse formula.');
   }
 
   evaluate(): FormulaEvaluationSnapshot {
@@ -124,9 +127,9 @@ export class FormulaEvaluator {
     if (this.visiting.has(nodeId)) {
       const cycleStart = this.stack.findIndex((entry) => entry.nodeId === nodeId);
       for (const entry of this.stack.slice(cycleStart)) {
-        this.results.set(entry.nodeId, formulaErrorValue('#CYCLE!'));
+        this.results.set(entry.nodeId, this.atCell(entry.sheet, entry.key, diagnosticError('#CYCLE!', 'Cycle detected.')));
       }
-      return formulaErrorValue('#CYCLE!');
+      return diagnosticError('#CYCLE!', 'Cycle detected.');
     }
 
     const cell = sheet.cells[key];
@@ -144,7 +147,7 @@ export class FormulaEvaluator {
     const parsed = this.parse(cell, sheet.id);
     let result: FormulaScalarValue;
     if (parsed.kind === 'error') {
-      result = formulaErrorValue(parsed.error);
+      result = diagnosticError(parsed.error, `Could not parse formula (${parsed.error}).`);
     } else if (parsed.kind === 'formula') {
       result = formulaScalarValue(this.evaluateExpression(parsed.expression, sheet));
     } else {
@@ -159,13 +162,13 @@ export class FormulaEvaluator {
       return cycleResult;
     }
 
-    const checked = this.checkColumnType(sheet, key, result);
+    const checked = this.atCell(sheet, key, this.checkColumnType(sheet, key, result));
     this.results.set(nodeId, checked);
     return checked;
   }
 
   private evaluateExpression(expression: FormulaExpression, currentSheet: CalculationSheet): FormulaValue {
-    if (expression.kind === 'invalid-reference') return formulaErrorValue('#REF!');
+    if (expression.kind === 'invalid-reference') return diagnosticError('#REF!', 'Invalid reference.');
     if (expression.kind === 'number') {
       return Number.isFinite(expression.value)
         ? { kind: 'number', value: expression.value }
@@ -206,7 +209,7 @@ export class FormulaEvaluator {
       return operand;
     }
     if (operand.kind !== 'number') {
-      return formulaErrorValue('#VALUE!');
+      return diagnosticError('#VALUE!', `Expected a number, got ${describeValue(operand)}.`);
     }
 
     const value = expression.operator === '-' ? -operand.value : operand.value;
@@ -217,18 +220,17 @@ export class FormulaEvaluator {
 
   private evaluateBinary(expression: BinaryFormula, currentSheet: CalculationSheet): FormulaScalarValue {
     const left = formulaScalarValue(this.evaluateExpression(expression.left, currentSheet));
-    if (left.kind === 'error') {
-      return left;
-    }
-
     const right = formulaScalarValue(this.evaluateExpression(expression.right, currentSheet));
-    if (right.kind === 'error') {
-      return right;
+    if (left.kind === 'error' && right.kind === 'error') {
+      const causes = [formulaDiagnostic(left), formulaDiagnostic(right)].filter((cause) => cause !== undefined);
+      return diagnosticError(left.error, `Multiple operands failed (${left.error}, ${right.error}).`, causes);
     }
+    if (left.kind === 'error') return left;
+    if (right.kind === 'error') return right;
 
     if (isComparisonOperator(expression.operator)) {
       if (left.kind !== right.kind) {
-        return formulaErrorValue('#VALUE!');
+        return diagnosticError('#VALUE!', `Cannot compare ${describeValue(left)} with ${describeValue(right)}: expected matching types.`);
       }
       const comparison = compareFormulaScalars(left, right);
       return comparison === undefined
@@ -237,10 +239,10 @@ export class FormulaEvaluator {
     }
 
     if (left.kind !== 'number' || right.kind !== 'number') {
-      return formulaErrorValue('#VALUE!');
+      return diagnosticError('#VALUE!', `Cannot apply ${expression.operator} to ${describeValue(left)} and ${describeValue(right)}: expected numbers.`);
     }
     if (expression.operator === '/' && right.value === 0) {
-      return formulaErrorValue('#DIV/0!');
+      return diagnosticError('#DIV/0!', `Cannot divide ${left.value} by zero.`);
     }
 
     const value =
@@ -253,14 +255,14 @@ export class FormulaEvaluator {
             : left.value / right.value;
     return Number.isFinite(value)
       ? { kind: 'number', value }
-      : formulaErrorValue('#VALUE!');
+      : diagnosticError('#VALUE!', `Nonfinite result applying ${expression.operator} to ${left.value} and ${right.value}.`);
   }
 
   private evaluateReference(reference: FormulaReference, currentSheet: CalculationSheet): FormulaValue {
-    if (reference.kind === 'named') return formulaErrorValue('#REF!');
+    if (reference.kind === 'named') return diagnosticError('#REF!', 'Unresolved name.');
     const sheet = resolveFormulaReferenceSheet(reference, this.workbook, currentSheet);
     if (!sheet) {
-      return formulaErrorValue('#REF!');
+      return diagnosticError('#REF!', 'Referenced sheet does not exist.');
     }
 
     if (reference.kind === 'canonical') {
@@ -354,14 +356,25 @@ export class FormulaEvaluator {
   }
 
   private evaluateLiteralCell(sheet: CalculationSheet, key: CellKey): FormulaScalarValue {
-    return this.checkColumnType(sheet, key, classifyCellValue(sheet.cells[key] ?? ''));
+    return this.atCell(sheet, key, this.checkColumnType(sheet, key, classifyCellValue(sheet.cells[key] ?? '')));
   }
 
   private checkColumnType(sheet: CalculationSheet, key: CellKey, value: FormulaScalarValue): FormulaScalarValue {
     const identity = cellIdentityFromKey(key);
     const type = identity && sheet.columnTypes?.[identity.columnId];
-    return type && !matchesModelColumnType(value, type) ? formulaErrorValue('#VALUE!') : value;
+    return type && !matchesModelColumnType(value, type) ? diagnosticError('#VALUE!', `Expected ${type}, got ${describeValue(value)}.`) : value;
   }
+
+  private atCell(sheet: CalculationSheet, key: CellKey, value: FormulaScalarValue): FormulaScalarValue {
+    const identity = cellIdentityFromKey(key);
+    return diagnosticAtCell(value, identity ? { sheetId: sheet.id, ...identity } : undefined);
+  }
+}
+
+function describeValue(value: FormulaScalarValue): string {
+  if (value.kind === 'blank') return 'blank';
+  if (value.kind === 'error') return value.error;
+  return `${value.kind} ${JSON.stringify(value.value)}`;
 }
 
 function canonicalRangeAddresses(sheet: CalculationSheet, range: NonNullable<Extract<FormulaReference, { kind: 'canonical' }>['range']>): string[] | undefined {
