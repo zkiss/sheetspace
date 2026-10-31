@@ -59,6 +59,14 @@ CREATE TABLE sheet_rows (
     FOREIGN KEY (sheet_id) REFERENCES sheet_documents(id) ON DELETE CASCADE
 );
 
+CREATE TABLE record_admissions (
+    sheet_id BLOB NOT NULL,
+    row_id BLOB NOT NULL,
+    fingerprint TEXT NOT NULL,
+    PRIMARY KEY (sheet_id, row_id),
+    FOREIGN KEY (sheet_id, row_id) REFERENCES sheet_rows(sheet_id, row_id) ON DELETE CASCADE
+);
+
 CREATE TABLE sheet_columns (
     sheet_id BLOB NOT NULL,
     column_id BLOB NOT NULL CHECK (typeof(column_id) = 'blob' AND length(column_id) = 16),

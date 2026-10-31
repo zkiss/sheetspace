@@ -4,6 +4,19 @@ class InMemoryWorkbookStore(
     initialWorkbook: WorkbookState = emptyWorkbookState(),
 ) : WorkbookStore {
     private var workbook = initialWorkbook
+    private val admissions = mutableMapOf<Pair<SheetId, RowId>, String>()
+
+    override fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> WorkbookState): WorkbookState = synchronized(this) {
+        val key = sheetId to rowId
+        val existing = admissions[key]
+        if (existing != null) {
+            if (existing != fingerprint) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+        } else {
+            workbook = applyRevisions(workbook, transform(workbook), null)
+            admissions[key] = fingerprint
+        }
+        workbook
+    }
 
     override fun loadManifest(): WorkbookManifest = synchronized(this) { workbook.manifest }
 

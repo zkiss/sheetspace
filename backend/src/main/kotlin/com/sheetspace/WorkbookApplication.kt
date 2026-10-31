@@ -1,5 +1,7 @@
 package com.sheetspace
 
+import java.security.MessageDigest
+
 data class CreateSheetCommand(
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
@@ -280,9 +282,11 @@ class DefaultWorkbookApplication(
 
     override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult {
         if (rowId.toUuidBytesOrNull() == null || expectedRevision < 0) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+        if (sheetId.toUuidBytesOrNull() == null) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
         val id = SheetId(sheetId)
-        val row = RowId(rowId)
-        val updated = store.updateWorkbook { workbook ->
+        val row = RowId(rowId.toUuidBytesOrNull()!!.toUuidString())
+        val fingerprint = recordFingerprint(expectedRevision, values)
+        val updated = store.admitRecord(id, row, fingerprint) { workbook ->
             val sheet = workbook.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
             val model = sheet.modelId?.let(workbook.dataModels::get) ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
             val manual = model.columns.filterIsInstance<ManualModelColumn>()
@@ -291,12 +295,7 @@ class DefaultWorkbookApplication(
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
             }
             val contents = sheet.tabularContent.cellContents
-            if (row in sheet.tabularContent.rows) {
-                if (manual.any { (contents[CellCoordinate(row, sheet.modelColumnBindings.getValue(it.id))] ?: "") != values.getValue(it.id) }) {
-                    throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
-                }
-                return@updateWorkbook workbook
-            }
+            if (row in sheet.tabularContent.rows) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
             if (sheet.revision != expectedRevision) throw SheetRevisionConflict(sheetId, expectedRevision, sheet.revision)
             val writes = manual.mapNotNull { property ->
                 values.getValue(property.id).takeIf(String::isNotEmpty)?.let { CellCoordinate(row, sheet.modelColumnBindings.getValue(property.id)) to it }
@@ -383,6 +382,14 @@ class DefaultWorkbookApplication(
         }
         return updated.documents.getValue(id)
     }
+}
+
+private fun recordFingerprint(revision: Long, values: Map<String, String>): String {
+    val payload = buildString {
+        append(revision).append(':')
+        values.toSortedMap().forEach { (key, value) -> append(key.length).append(':').append(key).append(value.length).append(':').append(value) }
+    }
+    return MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
 
 private fun validRecordValue(type: ModelColumnType, value: String): Boolean {

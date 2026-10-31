@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import java.nio.file.Files
 
 class RecordAdmissionTest {
     private val modelId = "10000000-0000-0000-0000-000000000001"
@@ -29,6 +30,51 @@ class RecordAdmissionTest {
         val second = app.admitRecord(sheetId.value, first.sheet.revision, RowId.generate().value, mapOf(propertyId to ""))
         assertEquals(2, second.sheet.tabularContent.rowCount)
         assertEquals(second.sheet, store.loadSheet(sheetId))
+    }
+
+    @Test
+    fun `existing matching row is not evidence of admission`() = withSqliteStore { store ->
+        val initial = workbook()
+        val sheet = initial.documents.getValue(sheetId)
+        val row = RowId.generate()
+        val column = sheet.tabularContent.columns.single()
+        val content = TabularContent(listOf(row), listOf(column), mapOf(CellCoordinate(row, column) to "42"))
+        store.saveWorkbook(initial.replaceSheet(sheet.copy(content = content)))
+        val app = DefaultWorkbookApplication(store)
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 0, row.value, mapOf(propertyId to "42")) }
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, 99, row.value, mapOf(propertyId to "42")) }
+        assertEquals(1, app.loadSheet(sheetId.value).tabularContent.rowCount)
+    }
+
+    @Test
+    fun `noncanonical row identity is normalized and retried using original revision and payload`() = withSqliteStore { store ->
+        store.saveWorkbook(workbook())
+        val app = DefaultWorkbookApplication(store)
+        val row = "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF"
+        val first = app.admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
+        assertEquals(row.lowercase(), first.rowId.value)
+        assertEquals(first.rowId, first.sheet.tabularContent.rows.single())
+        assertEquals(first.sheet, app.admitRecord(sheetId.value, 0, row.lowercase(), mapOf(propertyId to "42")).sheet)
+        assertFailsWith<WorkbookApplicationException> { app.admitRecord(sheetId.value, first.sheet.revision, row, mapOf(propertyId to "42")) }
+    }
+
+    @Test
+    fun `admission receipt survives reopening the database`() {
+        val directory = Files.createTempDirectory("record-admission")
+        val path = directory.resolve("workbook.db")
+        val row = RowId.generate().value
+        try {
+            SqliteWorkbookStore(path).use { store ->
+                store.saveWorkbook(workbook())
+                DefaultWorkbookApplication(store).admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
+            }
+            SqliteWorkbookStore(path).use { store ->
+                val result = DefaultWorkbookApplication(store).admitRecord(sheetId.value, 0, row, mapOf(propertyId to "42"))
+                assertEquals(listOf(RowId(row)), result.sheet.tabularContent.rows)
+            }
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
     }
 
     @Test
