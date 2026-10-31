@@ -11,6 +11,7 @@ import { useWorkbookController } from '@application/react/useWorkbookController'
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { formulaDiagnostic } from '@calculation/formulaValue';
 
 const inputFixture = sheetDocument({ id: 'sheet-inputs', name: 'Inputs' });
 const storedInputFormula = (formula: string) => prepareUserFormula(formula, workbookWithSheets([inputFixture]), inputFixture.id);
@@ -93,6 +94,18 @@ async function expectQueuedAxisReconciliation(axis: 'row' | 'column') {
 }
 
 describe('useWorkbookController content mutations', () => {
+  it('refreshes causal diagnostics through correction, undo and redo', () => {
+    const sheet = documentWithCells(inputFixture, { A1: '=1/0', B1: storedInputFormula('=@A[1]') });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient() }));
+    const diagnostic = () => formulaDiagnostic(result.current.formulaResults[sheet.id].B1);
+    expect(diagnostic()).toMatchObject({ causes: [{ message: 'Cannot divide 1 by zero.' }] });
+    act(() => result.current.commands.updateCellContent(sheet.id, 'A1', '7'));
+    expect(diagnostic()).toBeUndefined();
+    act(() => result.current.commands.undo());
+    expect(diagnostic()).toMatchObject({ causes: [{ message: 'Cannot divide 1 by zero.' }] });
+    act(() => result.current.commands.redo());
+    expect(diagnostic()).toBeUndefined();
+  });
   it('holds an undo save behind its delayed original content save', async () => {
     const firstSave = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
     const writeCells = vi.fn().mockReturnValueOnce(firstSave.promise).mockResolvedValue({ sheets: [{ sheetId: 'sheet-inputs', revision: 2 }] });

@@ -4,8 +4,8 @@ import type {
   LazyFormulaFunction,
   FormulaReferenceArgument,
 } from '@calculation/formulaFunctions';
-import type { FormulaErrorCode, FormulaExpression } from '@workbook/formula/syntax';
-import { formulaErrorValue, formulaScalarValue, type FormulaScalarValue } from '@calculation/formulaValue';
+import type { FormulaExpression } from '@workbook/formula/syntax';
+import { diagnosticError, formulaDiagnostic, formulaErrorValue, formulaScalarValue, type FormulaScalarValue } from '@calculation/formulaValue';
 
 const conditionalArgumentKind = (index: number) => index === 1 ? 'scalar' as const : 'reference' as const;
 
@@ -15,14 +15,15 @@ const countIf: LazyFormulaFunction = {
   argumentKind: conditionalArgumentKind,
   invoke: (arguments_, context) => {
     const criteriaInput = context.evaluateReferenceArgument(arguments_[0]);
-    if (!criteriaInput.ok) return formulaErrorValue(criteriaInput.error);
+    if (!criteriaInput.ok) return diagnosticError(criteriaInput.error, criteriaInput.message ?? 'Cannot resolve criteria reference.');
 
     const candidates = materializeCriteria(criteriaInput.value);
-    if (!candidates.ok) return formulaErrorValue(candidates.error);
+    if (!candidates.ok) return candidates.error;
 
     const criterionValue = formulaScalarValue(context.evaluateArgument(arguments_[1], 'scalar'));
+    if (criterionValue.kind === 'error') return criterionValue;
     const criterion = parseFormulaCriterion(criterionValue);
-    if (!criterion.ok) return formulaErrorValue(criterion.error);
+    if (!criterion.ok) return diagnosticError(criterion.error, `Invalid criterion ${JSON.stringify(criterionValue.kind === 'text' ? criterionValue.value : criterionValue)}.`);
 
     let count = 0;
     for (const candidate of candidates.value) {
@@ -41,24 +42,25 @@ const sumIf: LazyFormulaFunction = {
   validateArguments: validateSumIfShapes,
   invoke: (arguments_, context) => {
     const criteriaInput = context.evaluateReferenceArgument(arguments_[0]);
-    if (!criteriaInput.ok) return formulaErrorValue(criteriaInput.error);
+    if (!criteriaInput.ok) return diagnosticError(criteriaInput.error, criteriaInput.message ?? 'Cannot resolve criteria reference.');
 
     let sumInput: FormulaReferenceArgument | undefined;
     if (arguments_.length === 3) {
       const evaluatedSumInput = context.evaluateReferenceArgument(arguments_[2]);
-      if (!evaluatedSumInput.ok) return formulaErrorValue(evaluatedSumInput.error);
+      if (!evaluatedSumInput.ok) return diagnosticError(evaluatedSumInput.error, evaluatedSumInput.message ?? 'Cannot resolve sum reference.');
       if (!sameShape(criteriaInput.value, evaluatedSumInput.value)) {
-        return formulaErrorValue('#VALUE!');
+        return diagnosticError('#VALUE!', `SUMIF criteria shape ${shapeText(criteriaInput.value)} does not match sum shape ${shapeText(evaluatedSumInput.value)}.`);
       }
       sumInput = evaluatedSumInput.value;
     }
 
     const candidates = materializeCriteria(criteriaInput.value);
-    if (!candidates.ok) return formulaErrorValue(candidates.error);
+    if (!candidates.ok) return candidates.error;
 
     const criterionValue = formulaScalarValue(context.evaluateArgument(arguments_[1], 'scalar'));
+    if (criterionValue.kind === 'error') return criterionValue;
     const criterion = parseFormulaCriterion(criterionValue);
-    if (!criterion.ok) return formulaErrorValue(criterion.error);
+    if (!criterion.ok) return diagnosticError(criterion.error, `Invalid criterion ${JSON.stringify(criterionValue.kind === 'text' ? criterionValue.value : criterionValue)}.`);
 
     const matchingIndexes: number[] = [];
     for (let index = 0; index < candidates.value.length; index += 1) {
@@ -73,15 +75,22 @@ const sumIf: LazyFormulaFunction = {
       sumValues = [...sumInput.values];
     }
 
+    const errors = matchingIndexes.map((index) => sumValues[index]).filter((value): value is FormulaScalarValue & { kind: 'error' } => value.kind === 'error');
+    if (errors.length > 1) return diagnosticError(errors[0].error, 'Multiple matched sum cells failed.', errors.map((error) => formulaDiagnostic(error) ?? { message: error.error, causes: [] }));
+    if (errors.length === 1) return errors[0];
     let total = 0;
+    let overflow: string | undefined;
     for (const index of matchingIndexes) {
       const value = sumValues[index];
-      if (value.kind === 'error') return value;
-      if (value.kind === 'number') total += value.value;
+      if (value.kind === 'number') {
+        const next = total + value.value;
+        if (!Number.isFinite(next) && overflow === undefined) overflow = `SUMIF produced a nonfinite result adding ${value.value} to ${total}.`;
+        total = next;
+      }
     }
     return Number.isFinite(total)
       ? { kind: 'number', value: total }
-      : formulaErrorValue('#VALUE!');
+      : diagnosticError('#VALUE!', overflow!);
   },
 };
 
@@ -92,10 +101,13 @@ export const conditionalAggregateFunctions: FormulaFunctionRegistry = new Map([
 
 function materializeCriteria(
   input: FormulaReferenceArgument,
-): { ok: true; value: FormulaScalarValue[] } | { ok: false; error: FormulaErrorCode } {
+): { ok: true; value: FormulaScalarValue[] } | { ok: false; error: FormulaScalarValue & { kind: 'error' } } {
   const values = [...input.values];
-  const error = values.find((value): value is FormulaScalarValue & { kind: 'error' } => value.kind === 'error');
-  return error ? { ok: false, error: error.error } : { ok: true, value: values };
+  const errors = values.filter((value): value is FormulaScalarValue & { kind: 'error' } => value.kind === 'error');
+  if (errors.length > 1) {
+    return { ok: false, error: diagnosticError(errors[0].error, 'Multiple criteria cells failed.', errors.map((error) => formulaDiagnostic(error) ?? { message: error.error, causes: [] })) as FormulaScalarValue & { kind: 'error' } };
+  }
+  return errors.length ? { ok: false, error: errors[0] } : { ok: true, value: values };
 }
 
 function sameShape(
@@ -103,6 +115,10 @@ function sameShape(
   second: FormulaReferenceArgument,
 ): boolean {
   return first.rowCount === second.rowCount && first.columnCount === second.columnCount;
+}
+
+function shapeText(shape: Pick<FormulaReferenceArgument, 'rowCount' | 'columnCount'>): string {
+  return `${shape.rowCount}x${shape.columnCount}`;
 }
 
 function validateSumIfShapes(arguments_: readonly FormulaExpression[]) {
@@ -117,7 +133,9 @@ function validateSumIfShapes(arguments_: readonly FormulaExpression[]) {
     && criteriaShape.rowCount === sumShape.rowCount
     && criteriaShape.columnCount === sumShape.columnCount
     ? undefined
-    : '#VALUE!' as const;
+    : { error: '#VALUE!' as const, message: criteriaShape && sumShape
+      ? `SUMIF criteria shape ${shapeText(criteriaShape)} does not match sum shape ${shapeText(sumShape)}.`
+      : 'SUMIF requires criteria and sum references.' };
 }
 
 function containsCanonicalReference(expression: FormulaExpression): boolean {

@@ -1,6 +1,7 @@
 import type { FormulaErrorCode, FormulaExpression, FunctionFormula } from '@workbook/formula/syntax';
 import {
-  formulaErrorValue,
+  diagnosticError,
+  formulaDiagnostic,
   type FormulaRangeValue,
   type FormulaScalarValue,
   type FormulaValue,
@@ -16,7 +17,7 @@ export type FormulaFunctionArity = {
 type FormulaFunctionDefinitionBase = {
   arity: FormulaFunctionArity;
   argumentKind: (index: number) => FormulaFunctionArgumentKind;
-  validateArguments?: (arguments_: readonly FormulaExpression[]) => FormulaErrorCode | undefined;
+  validateArguments?: (arguments_: readonly FormulaExpression[]) => { error: FormulaErrorCode; message: string } | undefined;
 };
 
 export type FormulaReferenceArgument = {
@@ -27,7 +28,7 @@ export type FormulaReferenceArgument = {
 
 export type FormulaReferenceArgumentResult =
   | { ok: true; value: FormulaReferenceArgument }
-  | { ok: false; error: FormulaErrorCode };
+  | { ok: false; error: FormulaErrorCode; message?: string };
 
 export type EagerFormulaFunction = FormulaFunctionDefinitionBase & {
   evaluation: 'eager';
@@ -66,24 +67,25 @@ export function evaluateFunctionCall(
 ): FormulaScalarValue {
   const definition = registry.get(expression.functionName.toUpperCase());
   if (!definition) {
-    return formulaErrorValue('#NAME!');
+    return diagnosticError('#NAME!', `Unknown function ${expression.functionName}.`);
   }
   if (!acceptsArity(definition.arity, expression.arguments.length)) {
-    return formulaErrorValue('#VALUE!');
+    const expected = definition.arity.max === definition.arity.min ? `${definition.arity.min}` : `${definition.arity.min} to ${definition.arity.max ?? 'unlimited'}`;
+    return diagnosticError('#VALUE!', `${expression.functionName} expected ${expected} arguments, got ${expression.arguments.length}.`);
   }
 
   for (let index = 0; index < expression.arguments.length; index += 1) {
     const kind = definition.argumentKind(index);
     if (kind === 'scalar' && isSyntacticRange(expression.arguments[index])) {
-      return formulaErrorValue('#VALUE!');
+      return diagnosticError('#VALUE!', `${expression.functionName} argument ${index + 1} expected a scalar, got a range.`);
     }
     if (kind === 'reference' && !isSyntacticReference(expression.arguments[index])) {
-      return formulaErrorValue('#VALUE!');
+      return diagnosticError('#VALUE!', `${expression.functionName} argument ${index + 1} expected a reference.`);
     }
   }
   const validationError = definition.validateArguments?.(expression.arguments);
   if (validationError) {
-    return formulaErrorValue(validationError);
+    return diagnosticError(validationError.error, validationError.message);
   }
 
   const invocationContext: LazyFormulaFunctionContext = {
@@ -97,15 +99,23 @@ export function evaluateFunctionCall(
   }
 
   const values: FormulaValue[] = [];
+  const failures: FormulaScalarValue[] = [];
   for (let index = 0; index < expression.arguments.length; index += 1) {
     const value = invocationContext.evaluateArgument(
       expression.arguments[index],
       definition.argumentKind(index),
     );
     if (value.kind === 'error') {
-      return value;
+      failures.push(value);
     }
     values.push(value);
+  }
+  if (failures.length === 1) return failures[0];
+  if (failures.length > 1) {
+    const first = failures[0];
+    if (first.kind === 'error') {
+      return diagnosticError(first.error, `${expression.functionName} has multiple failing arguments.`, failures.map((failure) => formulaDiagnostic(failure) ?? { message: failure.kind === 'error' ? failure.error : 'Invalid argument.', causes: [] }));
+    }
   }
   return definition.invoke(values);
 }
@@ -133,25 +143,33 @@ function evaluateArgument(
   context: FormulaFunctionEvaluationContext,
 ): FormulaValue {
   if (kind === 'reference') {
-    return formulaErrorValue('#VALUE!');
+    return diagnosticError('#VALUE!', 'A reference argument cannot be evaluated as a scalar.');
   }
   const value = context.evaluateExpression(expression);
   if (value.kind === 'error') {
     return value;
   }
   if (kind === 'scalar') {
-    return value.kind === 'range' ? formulaErrorValue('#VALUE!') : value;
+    return value.kind === 'range' ? diagnosticError('#VALUE!', 'Expected a scalar, got a range.') : value;
   }
   if (value.kind !== 'range') {
     return value;
   }
 
   const values: FormulaScalarValue[] = [];
+  const failures: FormulaScalarValue[] = [];
   for (const item of value.values) {
     if (item.kind === 'error') {
-      return item;
+      failures.push(item);
     }
     values.push(item);
+  }
+  if (failures.length === 1) return failures[0];
+  if (failures.length > 1) {
+    const first = failures[0];
+    if (first.kind === 'error') {
+      return diagnosticError(first.error, 'Multiple cells in the range failed.', failures.map((failure) => formulaDiagnostic(failure) ?? { message: failure.kind === 'error' ? failure.error : 'Invalid value.', causes: [] }));
+    }
   }
   const materialized: FormulaRangeValue = { ...value, values };
   return materialized;

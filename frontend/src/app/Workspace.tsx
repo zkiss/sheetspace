@@ -653,7 +653,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         canRetryFailedSaves={canRetryFailedSaves}
       />
       <button type="button" disabled={!interactionsEnabled} onClick={openErrors}>Errors ({errors.length}) · Alt+Shift+E</button>
-      <ErrorList errors={errors} open={errorsOpen && !sheetDialogOpen} focusRequest={errorsFocusRequest} onClose={() => { setErrorsOpen(false); onRestoreGridFocus(); }} onActivate={(error) => {
+      <ErrorList errors={errors} open={errorsOpen && !sheetDialogOpen} focusRequest={errorsFocusRequest} onClose={() => { setErrorsOpen(false); onRestoreGridFocus(); }} onNavigate={(target) => {
+        const sheet = findSheetById(workbook, target.sheetId);
+        if (sheet && sheet.content.rows.includes(target.cell.rowId) && sheet.content.columns.includes(target.cell.columnId) && navigateTarget({ kind: 'cell', target }, sheet)) setErrorsOpen(false);
+      }} onActivate={(error) => {
         const current = errors.find((item) => item.key === error.key);
         const sheet = current && findSheetById(workbook, current.sheetId);
         if (current && sheet && navigateTarget({ kind: 'cell', target: { sheetId: current.sheetId, cell: current.cell } }, sheet)) setErrorsOpen(false);

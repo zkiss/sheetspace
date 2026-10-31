@@ -11,7 +11,7 @@ import {
   storedFormulaParser,
   type FormulaDependencyGraph,
 } from '@calculation/formulaDependencies';
-import { cycleAffectedFormulaNodes } from '@calculation/formulaCycles';
+import { cycleAffectedFormulaNodes, cycleFormulaNodes } from '@calculation/formulaCycles';
 import {
   FormulaEvaluator,
   type FormulaEvaluationObserver,
@@ -21,8 +21,9 @@ import type {
   FormulaEvaluationSnapshot,
   FormulaScalarValue,
 } from '@calculation/formulaValue';
-import { formulaErrorValue } from '@calculation/formulaValue';
+import { formulaDiagnostic, structuralDiagnosticError, type FormulaDiagnostic } from '@calculation/formulaValue';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import type { Workbook } from '@workbook/core/model';
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
 
@@ -35,6 +36,11 @@ export class FormulaCalculation {
   private graph: FormulaDependencyGraph = emptyFormulaDependencyGraph();
   private results = new Map<string, FormulaScalarValue>();
   private snapshot: FormulaEvaluationSnapshot = {};
+
+  diagnostic(sheetId: string, key: string): FormulaDiagnostic | undefined {
+    const value = this.results.get(sheetCellNodeId(sheetId, key));
+    return value && formulaDiagnostic(value);
+  }
 
   fork(): FormulaCalculation {
     const calculation = new FormulaCalculation();
@@ -91,9 +97,21 @@ export class FormulaCalculation {
         nextFormulaNodes.has(nodeId) && !impacted.has(nodeId),
       ),
     );
-    for (const nodeId of cycleAffectedFormulaNodes(nextGraph)) {
-      reusableResults.set(nodeId, formulaErrorValue('#CYCLE!'));
-    }
+    const cycleMembers = cycleFormulaNodes(nextGraph);
+    const affected = cycleAffectedFormulaNodes(nextGraph);
+    const nodes = new Map([...affected].map((nodeId) => {
+      const separator = nodeId.indexOf('\u0000');
+      const identity = cellIdentityFromKey(nodeId.slice(separator + 1));
+      return [nodeId, {
+        cell: identity ? { sheetId: nodeId.slice(0, separator), ...identity } : undefined,
+        message: cycleMembers.has(nodeId)
+          ? 'Structural dependency cycle detected; expression blocked before evaluation.'
+          : 'Structural dependency on a cycle; expression blocked before evaluation.',
+        dependencies: [...(nextGraph.dependencies.get(nodeId) ?? [])].filter((dependency) => affected.has(dependency)).sort(),
+      }] as const;
+    }));
+    const structuralGraph = { nodes };
+    for (const nodeId of affected) reusableResults.set(nodeId, structuralDiagnosticError(structuralGraph, nodeId));
     const evaluator = new FormulaEvaluator(projection, reusableResults, onEvaluate, builtInFormulaFunctions, parse);
 
     this.snapshot = evaluator.evaluate();

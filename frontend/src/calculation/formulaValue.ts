@@ -20,6 +20,47 @@ export type FormulaRangeValue = {
 
 export type FormulaValue = FormulaScalarValue | FormulaRangeValue;
 
+export type FormulaDiagnostic = {
+  message: string;
+  cell?: { sheetId: string; rowId: string; columnId: string };
+  causes: readonly FormulaDiagnostic[];
+  structural?: { graph: StructuralDiagnosticGraph; root: string };
+};
+
+export type StructuralDiagnosticGraph = {
+  nodes: ReadonlyMap<string, { cell?: FormulaDiagnostic['cell']; message: string; dependencies: readonly string[] }>;
+};
+
+const diagnostics = new WeakMap<object, FormulaDiagnostic>();
+
+export function formulaDiagnostic(value: FormulaScalarValue | FormulaDisplayResult): FormulaDiagnostic | undefined {
+  return diagnostics.get(value);
+}
+
+export function diagnosticError(error: FormulaErrorCode, message: string, causes: readonly FormulaDiagnostic[] = []): FormulaScalarValue {
+  const value = formulaErrorValue(error);
+  diagnostics.set(value, { message, causes });
+  return value;
+}
+
+export function structuralDiagnosticError(graph: StructuralDiagnosticGraph, root: string): FormulaScalarValue {
+  const value = formulaErrorValue('#CYCLE!');
+  const node = graph.nodes.get(root)!;
+  diagnostics.set(value, { message: node.message, cell: node.cell, causes: [], structural: { graph, root } });
+  return value;
+}
+
+export function diagnosticAtCell(value: FormulaScalarValue, cell: FormulaDiagnostic['cell']): FormulaScalarValue {
+  if (value.kind !== 'error') return value;
+  const diagnostic = formulaDiagnostic(value) ?? { message: value.error, causes: [] };
+  if (!cell || (diagnostic.cell?.sheetId === cell.sheetId && diagnostic.cell.rowId === cell.rowId && diagnostic.cell.columnId === cell.columnId)) return value;
+  const result = formulaErrorValue(value.error);
+  diagnostics.set(result, diagnostic.cell
+    ? { message: `Propagated ${value.error}`, cell, causes: [diagnostic] }
+    : { ...diagnostic, cell });
+  return result;
+}
+
 export type FormulaDisplayResult =
   | { kind: 'number'; value: number; display: string }
   | { kind: 'text'; value: string; display: string }
@@ -34,7 +75,9 @@ export function formulaErrorValue(error: FormulaErrorCode): FormulaScalarValue {
 }
 
 export function formulaScalarValue(value: FormulaValue): FormulaScalarValue {
-  return value.kind === 'range' ? formulaErrorValue('#VALUE!') : value;
+  return value.kind === 'range'
+    ? diagnosticError('#VALUE!', `Expected a scalar value, got a ${value.rowCount} by ${value.columnCount} range.`)
+    : value;
 }
 
 export function formulaCollectionValues(value: FormulaValue): Iterable<FormulaScalarValue> {
@@ -103,8 +146,12 @@ export function displayFormulaValue(
       return { ...value, display: value.value ? 'TRUE' : 'FALSE' };
     case 'blank':
       return { kind: 'blank', display: '' };
-    case 'error':
-      return { ...value, display: value.error };
+    case 'error': {
+      const result: FormulaDisplayResult = { ...value, display: value.error };
+      const diagnostic = formulaDiagnostic(value);
+      if (diagnostic) diagnostics.set(result, diagnostic);
+      return result;
+    }
   }
 }
 

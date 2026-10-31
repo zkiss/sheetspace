@@ -5,8 +5,8 @@ import {
 } from '@calculation/formulaFunctions';
 import {
   formulaCollectionValues,
-  formulaErrorValue,
   formulaScalarValue,
+  diagnosticError,
   type FormulaScalarValue,
   type FormulaValue,
 } from '@calculation/formulaValue';
@@ -20,26 +20,24 @@ const sum: EagerFormulaFunction = {
   evaluation: 'eager',
   arity: { min: 0 },
   argumentKind: collectionArgument,
-  invoke: (arguments_) => finiteNumber(
-    collectNumbers(arguments_).reduce((total, value) => total + value, 0),
-  ),
+  invoke: (arguments_) => sumNumbers(collectNumbers(arguments_), 'SUM'),
 };
 
 const average: EagerFormulaFunction = numericAggregate(
   (values) => values.length === 0
-    ? formulaErrorValue('#DIV/0!')
-    : finiteNumber(values.reduce((total, value) => total + value, 0) / values.length),
+    ? diagnosticError('#DIV/0!', 'AVERAGE requires at least one number.')
+    : averageNumbers(values),
 );
 
 const minimum: EagerFormulaFunction = numericAggregate(
   (values) => values.length === 0
-    ? formulaErrorValue('#VALUE!')
+    ? diagnosticError('#VALUE!', 'MIN requires at least one number.')
     : { kind: 'number', value: values.reduce((result, value) => Math.min(result, value)) },
 );
 
 const maximum: EagerFormulaFunction = numericAggregate(
   (values) => values.length === 0
-    ? formulaErrorValue('#VALUE!')
+    ? diagnosticError('#VALUE!', 'MAX requires at least one number.')
     : { kind: 'number', value: values.reduce((result, value) => Math.max(result, value)) },
 );
 
@@ -106,10 +104,11 @@ function numericScalar(
     invoke: (arguments_) => {
       const value = formulaScalarValue(arguments_[0]);
       if (value.kind !== 'number') {
-        return formulaErrorValue('#VALUE!');
+        const actual = value.kind === 'blank' ? 'blank' : value.kind === 'error' ? value.error : `${value.kind} ${JSON.stringify(value.value)}`;
+        return diagnosticError('#VALUE!', `Expected a number, got ${actual}.`);
       }
       const result = calculate(value.value);
-      return result === undefined ? formulaErrorValue('#VALUE!') : finiteNumber(result);
+      return result === undefined ? diagnosticError('#VALUE!', `Invalid numeric argument ${value.value}.`) : finiteNumber(result);
     },
   };
 }
@@ -126,6 +125,22 @@ function collectNumbers(arguments_: readonly FormulaValue[]): number[] {
   return values;
 }
 
+function sumNumbers(values: readonly number[], name: string): FormulaScalarValue {
+  let total = 0;
+  let overflow: string | undefined;
+  for (const value of values) {
+    const next = total + value;
+    if (!Number.isFinite(next) && overflow === undefined) overflow = `${name} produced a nonfinite result adding ${value} to ${total}.`;
+    total = next;
+  }
+  return Number.isFinite(total) ? { kind: 'number', value: total } : diagnosticError('#VALUE!', overflow!);
+}
+
+function averageNumbers(values: readonly number[]): FormulaScalarValue {
+  const total = sumNumbers(values, 'AVERAGE');
+  return total.kind === 'number' ? finiteNumber(total.value / values.length) : total;
+}
+
 function finiteNumber(value: number): FormulaScalarValue {
-  return Number.isFinite(value) ? { kind: 'number', value } : formulaErrorValue('#VALUE!');
+  return Number.isFinite(value) ? { kind: 'number', value } : diagnosticError('#VALUE!', `Numeric result ${value} is not finite.`);
 }

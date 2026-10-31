@@ -8,9 +8,18 @@ import type { FormulaDependencyGraph } from '@calculation/formulaDependencies';
 export function cycleAffectedFormulaNodes(
   graph: FormulaDependencyGraph,
 ): Set<string> {
+  const cycleMembers = cycleFormulaNodes(graph);
+  return dependentFormulaClosure(cycleMembers, graph, new Set(graph.dependencies.keys()));
+}
+
+export function cycleFormulaNodes(graph: FormulaDependencyGraph): Set<string> {
+  return new Set(cycleFormulaComponents(graph).flat());
+}
+
+export function cycleFormulaComponents(graph: FormulaDependencyGraph): string[][] {
   const formulas = new Set(graph.dependencies.keys());
   const finishOrder = dependencyFinishOrder(graph, formulas);
-  const cycleMembers = new Set<string>();
+  const cycles: string[][] = [];
   const assigned = new Set<string>();
 
   for (let index = finishOrder.length - 1; index >= 0; index -= 1) {
@@ -39,11 +48,11 @@ export function cycleAffectedFormulaNodes(
     const isCycle = component.length > 1
       || (graph.dependencies.get(component[0])?.has(component[0]) ?? false);
     if (isCycle) {
-      component.forEach((nodeId) => cycleMembers.add(nodeId));
+      cycles.push(component.sort());
     }
   }
 
-  return dependentFormulaClosure(cycleMembers, graph, formulas);
+  return cycles.sort((left, right) => left[0].localeCompare(right[0]));
 }
 
 function dependencyFinishOrder(

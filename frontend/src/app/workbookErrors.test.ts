@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithLegacyFormulaFixtures, workbookWithSheets } from '@test-support/workbookFactories';
-import { workbookErrors } from './workbookErrors';
+import { errorTrace, workbookErrors } from './workbookErrors';
+import { formulaDiagnostic, type FormulaDiagnostic } from '@calculation/formulaValue';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { calculationProjection } from '@workbook/read/calculationProjection';
@@ -8,6 +9,89 @@ import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { formulaRawForDisplay, formulaReferenceTokens } from '@workbook/formula/reference';
 
 describe('workbook errors', () => {
+  it('does not scan row or column identities for each error in a large sheet', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Sheet', rowCount: 1000, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const rowScan = vi.spyOn(sheet.content.rows, 'indexOf');
+    const columnScan = vi.spyOn(sheet.content.columns, 'indexOf');
+    const errors = Object.fromEntries(Array.from({ length: 1000 }, (_, index) => [`A${index + 1}`, { kind: 'error' as const, error: '#REF!' as const, display: '#REF!' as const }]));
+    const rows = workbookErrors(workbook, { s: errors });
+    expect(rows).toHaveLength(1000);
+    expect(rows[999].reference).toBe('@Sheet!A[1000]');
+    expect(rowScan).not.toHaveBeenCalled();
+    expect(columnScan).not.toHaveBeenCalled();
+    rowScan.mockRestore();
+    columnScan.mockRestore();
+  });
+
+  it('shares a bounded graph for layered converging cycle dependencies and projects every edge', () => {
+    const cells: Record<string, string> = { A1: '=@A[1]' };
+    for (let row = 2; row <= 22; row++) {
+      cells[`A${row}`] = `=@A[${row - 1}]+@B[${row - 1}]`;
+      cells[`B${row}`] = `=@A[${row - 1}]+@B[${row - 1}]`;
+    }
+    cells.B1 = '=@A[1]';
+    const sheet = sheetDocument({ id: 's', name: 'Sheet', rowCount: 22, columnCount: 2, cells });
+    const workbook = workbookWithSheets([sheet]);
+    const snapshot = new FormulaCalculation().update(calculationProjection(workbook), { kind: 'structure' });
+    const root = formulaDiagnostic(snapshot.s.A22)!;
+    const graph = root.structural!.graph;
+    expect(formulaDiagnostic(snapshot.s.B22)!.structural!.graph).toBe(graph);
+    expect(graph.nodes.size).toBe(44);
+    const edges = [...graph.nodes.values()].reduce((sum, node) => sum + node.dependencies.length, 0);
+    expect(edges).toBe(86);
+    const lines = errorTrace(workbook, root);
+    expect(lines.length).toBeLessThanOrEqual(edges + 1);
+    expect(lines.some((line) => line.message.startsWith('Already shown:') && line.target)).toBe(true);
+    expect(lines.some((line) => line.message.startsWith('Cycle reference:') && line.target)).toBe(true);
+  });
+
+  it('projects dense cycles from every root with navigable cycle and shared references', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Sheet', rowCount: 4, columnCount: 1, cells: Object.fromEntries(Array.from({ length: 4 }, (_, i) => [`A${i + 1}`, '=SUM(@A[1]:A[4])'])) });
+    const workbook = workbookWithSheets([sheet]);
+    const snapshot = new FormulaCalculation().update(calculationProjection(workbook), { kind: 'structure' });
+    const diagnostics = Object.values(snapshot.s).map((value) => formulaDiagnostic(value)!);
+    const graph = diagnostics[0].structural!.graph;
+    expect(graph.nodes.size).toBe(4);
+    expect([...graph.nodes.values()].reduce((sum, node) => sum + node.dependencies.length, 0)).toBe(16);
+    for (const diagnostic of diagnostics) {
+      expect(diagnostic.structural!.graph).toBe(graph);
+      const lines = errorTrace(workbook, diagnostic);
+      expect(lines).toHaveLength(17);
+      expect(new Set(lines.map((line) => line.target?.cell.rowId)).size).toBe(4);
+      expect(lines.some((line) => line.message.startsWith('Cycle reference:'))).toBe(true);
+      expect(lines.every((line) => line.target)).toBe(true);
+    }
+  });
+
+  it('projects shared evaluated causes and long chains iteratively', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Sheet' });
+    const workbook = workbookWithSheets([sheet]);
+    const leaf: FormulaDiagnostic = { message: 'leaf', causes: [] };
+    const branch: FormulaDiagnostic = { message: 'branch', causes: [leaf] };
+    const shared: FormulaDiagnostic = { message: 'root', causes: [branch, branch] };
+    expect(errorTrace(workbook, shared).map((line) => line.message)).toEqual(['root', 'branch', 'leaf', 'Already shown: branch']);
+    let chain = leaf;
+    for (let i = 0; i < 10000; i++) chain = { message: 'step', causes: [chain] };
+    expect(errorTrace(workbook, chain)).toHaveLength(10001);
+  });
+
+  it('retains old cycle graphs in snapshots and forks after correction', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Sheet', cells: { A1: '=@B[1]', B1: '=@A[1]' } });
+    const workbook = workbookWithSheets([sheet]);
+    const calculation = new FormulaCalculation();
+    const original = calculation.update(calculationProjection(workbook), { kind: 'structure' });
+    const fork = calculation.fork();
+    const diagnostic = formulaDiagnostic(original.s.A1)!;
+    const before = errorTrace(workbook, diagnostic);
+    const corrected = structuredClone(workbook);
+    const key = Object.keys(corrected.documents.s.content.cells)[0];
+    corrected.documents.s.content.cells[key] = '1';
+    const next = calculation.update(calculationProjection(corrected), { kind: 'structure' });
+    expect(next.s.B1.kind).not.toBe('error');
+    expect(errorTrace(workbook, formulaDiagnostic(original.s.A1)!)).toEqual(before);
+    expect(formulaDiagnostic(fork.update(calculationProjection(workbook), { kind: 'none' }).s.A1)!.structural!.graph).toBe(diagnostic.structural!.graph);
+  });
   it('disambiguates positional labels from named columns and round trips references', () => {
     const sheet = sheetDocument({ id: 's', name: 'Sheet', columnCount: 2 });
     sheet.columnNames = { [sheet.content.columns[1]]: 'A' };
