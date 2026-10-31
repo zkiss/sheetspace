@@ -42,7 +42,7 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       const source = adapter.workbook(sourceState);
       const materialized = sheet.modelId ? freezeCalculatedColumns(source, source.documents[sheetId]!, adapter.calculate(source)) : source.documents[sheetId]!;
       const columns = model.columns.map((_, index) => materialized.content.columns[index] ?? createColumnId());
-      const structured = withSheet(source, reshapeSheet(materialized, model, columns));
+      const structured = withSheet(source, reshapeSheet(materialized, model, columns, !sheet.modelId));
       return { ok: true, value: adapter.finish(sourceState, structured, { [sheetId]: adapter.prepareAll(structured, sheetId) }) };
     },
     unbind(state: S, sheetId: string): LifecycleResult<S> {
@@ -160,12 +160,18 @@ export function freezeCalculatedColumns(workbook: Workbook, sheet: SheetDocument
   return { ...sheet, content: { ...sheet.content, cells } };
 }
 
-export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: string[]): SheetDocument {
-  const oldBound = new Set(Object.values(sheet.modelColumnBindings ?? {}));
-  const extras = sheet.content.columns.filter((id) => !oldBound.has(id) && !columns.includes(id));
-  const finalColumns = [...columns, ...extras];
-  const retained = new Set(finalColumns);
-  const keepCell = (key: string) => retained.has(cellIdentityFromKey(key)!.columnId);
+export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: string[], pruneUnusedRows = false): SheetDocument {
+  const retained = new Set(columns);
+  const populatedRows = new Set(Object.entries(sheet.content.cells).flatMap(([key, value]) => {
+    const cell = cellIdentityFromKey(key)!;
+    return retained.has(cell.columnId) && value !== '' ? [cell.rowId] : [];
+  }));
+  const rows = pruneUnusedRows ? sheet.content.rows.filter((id) => populatedRows.has(id)) : sheet.content.rows;
+  const retainedRows = new Set(rows);
+  const keepCell = (key: string) => {
+    const cell = cellIdentityFromKey(key)!;
+    return retained.has(cell.columnId) && retainedRows.has(cell.rowId);
+  };
   const filter = <T,>(values: Record<string, T>, keep: (key: string) => boolean) => Object.fromEntries(Object.entries(values).filter(([key]) => keep(key)));
   const formats = sheet.presentation.formatOverrides;
   return {
@@ -174,11 +180,12 @@ export function reshapeSheet(sheet: SheetDocument, model: DataModel, columns: st
     modelColumnBindings: Object.fromEntries(model.columns.map((property, index) => [property.id, columns[index]!])),
     modelFormulaBindings: undefined,
     columnNames: sheet.columnNames && filter(sheet.columnNames, (id) => retained.has(id)),
-    content: { ...sheet.content, columns: finalColumns, cells: filter(sheet.content.cells, keepCell) },
+    content: { ...sheet.content, rows, columns, cells: filter(sheet.content.cells, keepCell) },
     presentation: {
       ...sheet.presentation,
+      rowHeights: filter(sheet.presentation.rowHeights, (id) => retainedRows.has(id)),
       columnWidths: filter(sheet.presentation.columnWidths, (id) => retained.has(id)),
-      ...(formats ? { formatOverrides: { ...formats, columns: filter(formats.columns, (id) => retained.has(id)), cells: filter(formats.cells, keepCell) } } : {}),
+      ...(formats ? { formatOverrides: { ...formats, rows: filter(formats.rows, (id) => retainedRows.has(id)), columns: filter(formats.columns, (id) => retained.has(id)), cells: filter(formats.cells, keepCell) } } : {}),
     },
   };
 }

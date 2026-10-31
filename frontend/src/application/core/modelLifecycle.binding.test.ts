@@ -18,6 +18,16 @@ const model = declaration([manualProperty('input'), calculatedProperty('result',
 const makeSheet = (columnCount = 2, rowCount = 2) => sheetDocument({ id: 'sheet', name: 'Sheet', columnCount, rowCount, cells: rowCount && columnCount ? { A1: '3', ...(columnCount > 1 ? { B1: 'overwritten' } : {}) } : {} });
 
 describe('explicit positional binding', () => {
+  it('removes unused rows and their presentation while retaining populated row identity', () => {
+    const base = makeSheet();
+    const [first, second] = base.content.rows;
+    const sheet = { ...base, presentation: { ...base.presentation, rowHeights: { [second!]: 42 } } };
+    const bound = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']).documents.sheet!;
+
+    expect(bound.content.rows).toEqual([first]);
+    expect(bound.presentation.rowHeights).toEqual({});
+    expect(bound.content.columns).toHaveLength(2);
+  });
   it.each([0, 1, 2, 4])('reconciles width %i to the declaration while keeping rows and surviving identities', (width) => {
     const sheet = makeSheet(width);
     const workbook = modelWorkbook(model, [sheet]);
