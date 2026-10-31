@@ -144,6 +144,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [, setClipboardRevision] = useState(0);
   const [calculatedCellFeedback, setCalculatedCellFeedback] = useState('');
   const [navigationFeedback, setNavigationFeedback] = useState('');
+  const [entrySheetId, setEntrySheetId] = useState<string | null>(null);
+  useEffect(() => { if (activeCell) setEntrySheetId(null); }, [activeCell]);
   const [referenceLinksVisible, setReferenceLinksVisible] = useState(false);
   const selectionTransition = useSelectionTransition(activeCell);
   const [hoveredReferenceSpan, setHoveredReferenceSpan] = useState<{ start: number; end: number } | null>(null);
@@ -170,7 +172,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     gridHistoryReveals.current.sheetIds.add(sheetId);
   }, []);
   const sheets = sheetsInOrder(workbook);
-  const selectedSheet = activeCell ? findSheetById(workbook, activeCell.sheetId) : undefined;
+  const activeSheetId = entrySheetId ?? activeCell?.sheetId;
+  const selectedSheet = activeSheetId ? findSheetById(workbook, activeSheetId) : undefined;
   const dataModels = Object.values(workbook.dataModels ?? {});
   const selectedCellKey = selectedSheet ? cellKeyForTarget(selectedSheet, activeCell) : null;
   const selectedRaw = selectedSheet && selectedCellKey
@@ -780,7 +783,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             <SheetFrame
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
-              isActiveSheet={activeCell?.sheetId === sheet.id}
+              isActiveSheet={activeSheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
                 : navigationHighlight?.sheetId === sheet.id}
@@ -796,7 +799,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               onRenderingModeChange={reportReferenceRenderingMode}
               overview={(
                 <SheetOverview
-                  isActive={activeCell?.sheetId === sheet.id}
+                  isActive={activeSheetId === sheet.id}
                   onSelect={() => {
                     const target = onActivateSheet(sheet.id, false);
                     if (target) beginPendingGridFocus(target);
@@ -828,7 +831,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                 const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
                 return (
                   <SheetGrid
-                    entryRow={entryModel && entrySession ? { model: entryModel, session: entrySession, onEntryFocus: onClearSelection, commands: {
+                    entryRow={entryModel && entrySession ? { model: entryModel, session: entrySession, onEntryFocus: () => { setEntrySheetId(sheet.id); onClearSelection(); }, commands: {
                       change: (id, raw) => commands.changeEntryField(sheet.id, id, raw),
                       leave: (id) => commands.leaveEntryField(sheet.id, id),
                       dismiss: (id) => commands.dismissEntryFeedback(sheet.id, id),
@@ -837,7 +840,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     interactionsEnabled={interactionsEnabled}
                     activeCellKey={cellKeyForTarget(sheet, activeCell)}
                     selectionTransition={selectionTransition}
-                    activeSheetId={activeCell?.sheetId ?? null}
+                    activeSheetId={activeSheetId ?? null}
                     selectionOwner={selectionOwner}
                     axisProjection={axisProjection}
                     presentation={sheet.presentation}

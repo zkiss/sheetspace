@@ -1,4 +1,5 @@
 .model-entry-row { display: flex; background: var(--surface, white); }
+.model-entry-row-header { position: sticky; flex: none; font-size: .68rem; }
 .model-entry-cell { position: relative; box-sizing: border-box; flex: 1; min-width: 0; overflow: hidden; border: 1px solid #d9e1e6; padding: 0 .35rem; white-space: nowrap; line-height: var(--grid-cell-height); outline: none; }
 .model-entry-cell.model-entry-selected, .model-entry-cell.model-entry-selected:focus-visible { z-index: 2; outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 0 999px var(--accent-selection); }
 .model-entry-cell.model-entry-invalid { background: #fff1f1; box-shadow: inset 0 0 0 2px #bd3535; }

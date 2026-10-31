@@ -660,7 +660,7 @@ export function SheetGrid({
         if (!target) return;
         cellInteraction.select(target);
         setGridEntryFocusIntent({ id: `entry-${nextGridFocusRequestId.current++}`, targetKey: key });
-      }} columnWidths={entryRow.model.columns.map((_, index) => columnMetrics.itemSize(index) ?? GRID_CELL_WIDTH)} style={{ position: 'absolute', top: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize, left: GRID_ROW_HEADER_WIDTH, height: GRID_CELL_HEIGHT }} />}
+      }} columnWidths={entryRow.model.columns.map((_, index) => columnMetrics.itemSize(index) ?? GRID_CELL_WIDTH)} style={{ position: 'absolute', top: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize, left: 0, height: GRID_CELL_HEIGHT }} />}
     </div>
   );
 }

@@ -99,6 +99,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
 
   return <div aria-label="New record" className="model-entry-row" role="row" style={style} onPointerDown={(event) => event.stopPropagation()}
     onCopy={(event) => event.stopPropagation()} onCut={(event) => event.stopPropagation()} onPaste={(event) => event.stopPropagation()}>
+    <div aria-label="New record row" className="sheet-grid-row-header model-entry-row-header" role="rowheader">+ New</div>
     {model.columns.map((column, index) => {
       const cellStyle = columnWidths ? { flex: `0 0 ${columnWidths[index]}px` } : undefined;
       const field = session.draft.fields[column.id];

@@ -19,3 +19,4 @@ This file is temporary. Delete it before merging this branch into `main`.
 - Add a Delete row command to the command palette for the row containing the selected cell.
 - After deleting a row, keep focus in the same column on the next row, or the preceding row when deleting the last one.
 - Fix SQLite row-order collisions that caused some row deletions to roll back.
+- Keep the sheet active while its entry row is selected, and label that row with a “+ New” row header.
