@@ -23,3 +23,4 @@ This file is temporary. Delete it before merging this branch into `main`.
 - Shorten the entry-row header to “+” so it fits on one line.
 - Add a Delete column command for ordinary sheets, retaining selection on an adjacent column. Model properties remain managed in Data models.
 - Confirm deleting a model-bound column, then remove the shared property and its data from every bound sheet.
+- Replace the error bar with a yellow warning button beside the save indicator when workbook errors exist; clicking it opens the error list.
