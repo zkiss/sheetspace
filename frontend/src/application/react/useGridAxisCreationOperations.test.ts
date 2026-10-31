@@ -11,12 +11,14 @@ function renderAxisOperations({
   autosaveEnabled = true,
   apiClient = {},
   useDefaultApi = false,
+  bound = false,
 }: {
   autosaveEnabled?: boolean;
   apiClient?: Partial<WorkbookApi>;
   useDefaultApi?: boolean;
+  bound?: boolean;
 } = {}) {
-  const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 3 };
+  const sheet = { ...positionedSheet('sheet-inputs', 'Inputs', { x: 10, y: 20 }), revision: 3, ...(bound ? { modelId: 'model' } : {}) };
   const coordinator = new WorkbookPersistenceCoordinator();
   const appendRow = apiClient.appendRow ?? vi.fn().mockResolvedValue({ sheetId: sheet.id, revision: 4, rowCount: 21, rowId: 'server-row' });
   const reconcile = vi.fn();
@@ -40,6 +42,19 @@ function renderAxisOperations({
 }
 
 describe('useGridAxisCreationOperations', () => {
+  it('does not create rows or columns on a bound sheet', () => {
+    const appendColumn = vi.fn();
+    const { appendRow, hook, sheet } = renderAxisOperations({ bound: true, apiClient: { appendColumn } });
+
+    act(() => {
+      hook.result.current.appendRow(sheet.id);
+      hook.result.current.appendColumn(sheet.id);
+    });
+
+    expect(appendRow).not.toHaveBeenCalled();
+    expect(appendColumn).not.toHaveBeenCalled();
+    expect(hook.result.current.creatingAxes).toEqual({});
+  });
   it('uses the default row and column APIs when callers do not override them', async () => {
     const appendRow = vi.spyOn(workbookApi, 'appendRow')
       .mockResolvedValue({ sheetId: 'sheet-inputs', revision: 4, rowCount: 21, rowId: 'default-row' });
