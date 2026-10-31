@@ -4,8 +4,22 @@ import { workbookErrors } from './workbookErrors';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { calculationProjection } from '@workbook/read/calculationProjection';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { formulaRawForDisplay, formulaReferenceTokens } from '@workbook/formula/reference';
 
 describe('workbook errors', () => {
+  it('disambiguates positional labels from named columns and round trips references', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Sheet', columnCount: 2 });
+    sheet.columnNames = { [sheet.content.columns[1]]: 'A' };
+    const workbook = workbookWithSheets([sheet]);
+    const errors = workbookErrors(workbook, { s: { A1: { kind: 'error', error: '#REF!', display: '#REF!' }, B1: { kind: 'error', error: '#REF!', display: '#REF!' } } });
+    expect(errors.map((error) => error.reference)).toEqual(['@Sheet!%A[1]', '@Sheet!A[1]']);
+    for (const error of errors) {
+      const stored = prepareUserFormula(`=${error.reference}`, workbook, 's');
+      expect(formulaReferenceTokens(stored)[0].endpoints[0]).toMatchObject({ kind: 'canonical', coordinate: error.cell });
+      expect(formulaRawForDisplay(stored, workbook, 's')).toBe(`=${error.reference}`);
+    }
+  });
   it('collects typed errors across sheets in workbook order with current names and stable identities', () => {
     const first = sheetDocument({ id: 'a', name: "Bob's sheet", rowCount: 50 });
     first.columnNames = { [first.content.columns[1]]: 'Net profit' };
@@ -32,6 +46,18 @@ describe('workbook errors', () => {
     if (!bound.ok) throw new Error('Could not bind model');
     const results = new FormulaCalculation().updateStored(calculationProjection(bound.value), bound.value, { kind: 'structure' });
     expect(workbookErrors(bound.value, results).map((error) => error.reference)).toEqual(['@Bound!Total[1]', '@Bound!Total[2]']);
+  });
+
+  it('disambiguates positional references from model property names', () => {
+    const sheet = sheetDocument({ id: 'bound', name: 'Bound', rowCount: 1, columnCount: 2, cells: { A1: '1' } });
+    const workbook = { ...workbookWithSheets([sheet]), dataModels: { model: { id: 'model', name: 'Model', columns: [{ id: 'input', name: 'Input', kind: 'manual' as const, type: 'float' as const }, { id: 'other', name: 'A', kind: 'manual' as const, type: 'float' as const }] } } };
+    const bound = bindSheetToModel(workbook, 'bound', 'model', () => 'new-column');
+    if (!bound.ok) throw new Error('Could not bind model');
+    // An unbound third column can coexist with the model's named columns.
+    bound.value.documents.bound.content.columns.unshift('extra-column');
+    const [error] = workbookErrors(bound.value, { bound: { A1: { kind: 'error', error: '#REF!', display: '#REF!' } } });
+    expect(error.reference).toBe('@Bound!%A[1]');
+    expect(formulaReferenceTokens(prepareUserFormula(`=${error.reference}`, bound.value, 'bound'))[0].endpoints[0]).toMatchObject({ kind: 'canonical', coordinate: error.cell });
   });
 
   it('tracks identities through inserted, reordered and deleted rows and columns using fresh evaluations', () => {

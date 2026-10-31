@@ -34,7 +34,8 @@ export function workbookErrors(workbook: Workbook, snapshot: FormulaEvaluationSn
       const { rowIndex, columnIndex } = parsed.value;
       const cell = { rowId: sheet.content.rows[rowIndex], columnId: sheet.content.columns[columnIndex] };
       const name = names.find((column) => column.columnId === cell.columnId)?.name;
-      const address = `${name ? formatPropertyReferenceToken(name) : columnIndexToLabel(columnIndex)}[${rowIndex + 1}]`;
+      const label = columnIndexToLabel(columnIndex);
+      const address = `${name ? formatPropertyReferenceToken(name) : `${names.some((column) => column.name === label) ? '%' : ''}${label}`}[${rowIndex + 1}]`;
       return [{ key: JSON.stringify([sheet.id, cell.rowId, cell.columnId]), sheetId: sheet.id, cell, reference: `@${formatSheetReferenceToken(sheet.name)}!${address}`, code: result.error, text: errorDescriptions[result.error], rowIndex, columnIndex }];
     }).sort((a, b) => a.rowIndex - b.rowIndex || a.columnIndex - b.columnIndex);
   });

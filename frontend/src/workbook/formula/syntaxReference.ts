@@ -1,8 +1,17 @@
-import { columnLabelToIndex, normalizeRange, type CellAddress } from '../core/address';
+import { columnLabelToIndex, normalizeRange, parseA1Address, type CellAddress } from '../core/address';
 import { decodeStableId } from './stableId';
 import type { FormulaReference, FormulaReferenceLexeme, FormulaSourceSpan, FormulaNamedColumnPredicate } from './syntaxTypes';
 
 type Endpoint = FormulaReferenceLexeme['endpoints'][number];
+
+export function parsePositionalEndpoint(input: string, start: number): { endpoint: Endpoint; end: number } | undefined {
+  const match = /^%(\$?[A-Za-z]+\[\$?[1-9][0-9]*\])/.exec(input.slice(start));
+  if (!match || /[A-Za-z0-9]/.test(input[start + match[0].length] ?? '')) return undefined;
+  const token = match[1], end = start + match[0].length;
+  const address = parseA1Address(token.replace(/[$[\]]/g, ''), { columnCount: Number.MAX_SAFE_INTEGER, rowCount: Number.MAX_SAFE_INTEGER });
+  if (!address.ok) return undefined;
+  return { end, endpoint: { kind: 'a1', value: address.value, anchors: { column: token.startsWith('$'), row: /\$[0-9]/.test(token) }, sourceSpan: { start: start + 1, end: end + 1 }, payloadSpans: referencePayloadSpans(start + 1 + Number(token.startsWith('$')), start + 1 + token.indexOf('['), start + 2 + token.indexOf('[') + Number(/\[\$/.test(token)), end - 1) } };
+}
 
 export function completeUserReferenceStart(input: string, start: number): boolean {
   const before = input.slice(0, start).trimEnd();
@@ -44,6 +53,13 @@ export function makeFormulaReference(
 }
 
 export function parseOpenEndpoint(input: string, start: number, first: Endpoint, qualifier: string | undefined, isNamedColumn: FormulaNamedColumnPredicate | undefined, userReferences: boolean): { endpoint: Endpoint; end: number } | undefined {
+  if (input[start] === '%' && first.kind === 'a1') {
+    const match = /^%(\$?)([A-Za-z]+)/.exec(input.slice(start));
+    const column = match && columnLabelToIndex(match[2]);
+    if (!match || !column || !column.ok || input[start + match[0].length] === '[') return undefined;
+    const end = start + match[0].length;
+    return { end, endpoint: { kind: 'a1', open: true, anchors: { column: Boolean(match[1]), row: false }, value: { columnIndex: column.value, rowIndex: first.value.rowIndex }, sourceSpan: { start: start + 1, end: end + 1 }, payloadSpans: referencePayloadSpans(start + 1 + match[1].length, end, end, end) } };
+  }
   const text = input.slice(start);
   const anchor = text.startsWith('$');
   const rest = text.slice(Number(anchor));
