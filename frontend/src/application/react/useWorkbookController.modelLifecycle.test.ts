@@ -310,27 +310,25 @@ describe('model lifecycle controller wiring', () => {
     expect(save.mock.calls[1]?.[0]).toEqual(workbook);
   });
 
-  it('appends declaration formulas to empty bound sheets, reloads and leaves changed-to-manual appends empty', async () => {
+  it('rejects generic row appends to empty bound sheets across reload and model changes', async () => {
     const empty = sheetDocument({ id: 'empty', name: 'Empty', rowCount: 0, columnCount: 1 });
     const workbook = bind({ ...workbookWithSheets([empty]), dataModels: { model: { ...model, columns: [model.columns[0]!, { ...model.columns[1]!, kind: 'calculated', formula: '=SUM(@A[1])' }] } } }, 'empty');
     const api = persistedWorkbookClient(workbook);
     const first = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => { first.result.current.commands.appendRow('empty'); });
     await waitFor(() => expect(first.result.current.saveStatus).toBe('saved'));
-    expect(first.result.current.workbook.documents.empty!.content.rows).toEqual(['empty:row:1']);
-    expect(first.result.current.formulaResults.empty.B1?.display).toBe('0');
+    expect(first.result.current.workbook.documents.empty!.content.rows).toEqual([]);
     const reloaded = await api.loadWorkbook();
     first.unmount();
     const second = renderHook(() => useWorkbookController({ initialWorkbook: reloaded, apiClient: api }));
     act(() => { second.result.current.commands.appendRow('empty'); });
     await waitFor(() => expect(second.result.current.saveStatus).toBe('saved'));
-    expect(second.result.current.formulaResults.empty.B2?.display).toBe('0');
+    expect(second.result.current.workbook.documents.empty!.content.rows).toEqual([]);
     act(() => second.result.current.commands.replaceModelDeclaration({ ...model, columns: [model.columns[0]!, { id: 'output', name: 'Output', kind: 'manual', type: 'float' }] }));
     await waitFor(() => expect(second.result.current.saveStatus).toBe('saved'));
     act(() => { second.result.current.commands.appendRow('empty'); });
     await waitFor(() => expect(second.result.current.saveStatus).toBe('saved'));
-    expect(cellRawContent(second.result.current.workbook.documents.empty!, 'B2')).toBe('0');
-    expect(cellRawContent(second.result.current.workbook.documents.empty!, 'B3')).toBeUndefined();
+    expect(second.result.current.workbook.documents.empty!.content.rows).toEqual([]);
   });
 
   it('preserves history for no-ops and rejected commands and freezes literal text and errors on unbind', () => {

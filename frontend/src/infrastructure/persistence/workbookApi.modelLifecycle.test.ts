@@ -20,7 +20,7 @@ function successful(result: ModelMutationResult): Workbook {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('lifecycle HTTP mapping', () => {
-  it('retains an extra named ordinary column through binding, structural replacement and reload', () => {
+  it('removes extra ordinary columns through binding, structural replacement and reload', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { B1: '42' } });
     const extra = sheet.content.columns[1];
     const model: DataModel = { id: 'model', name: 'Model', columns: [{ id: 'input', name: 'Input', kind: 'manual', type: 'float' }] };
@@ -29,10 +29,10 @@ describe('lifecycle HTTP mapping', () => {
     const changed = successful(replaceModelDeclaration(bound, { ...model, columns: [...model.columns, { id: 'new', name: 'New', kind: 'manual', type: 'float' }] }, () => 'new'));
     const reloaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(changed))));
 
-    expect(reloaded.documents.sheet.content.columns).toEqual([sheet.content.columns[0], 'new', extra]);
-    expect(reloaded.documents.sheet.columnNames).toEqual({ [extra]: 'Extra' });
-    expect(reloaded.documents.sheet.presentation.columnWidths[extra]).toBe(125);
-    expect(cellRawContent(reloaded.documents.sheet, 'C1')).toBe('42');
+    expect(reloaded.documents.sheet.content.columns).toEqual([sheet.content.columns[0], 'new']);
+    expect(reloaded.documents.sheet.columnNames).toBeUndefined();
+    expect(reloaded.documents.sheet.presentation.columnWidths[extra]).toBeUndefined();
+    expect(cellRawContent(reloaded.documents.sheet, 'C1')).toBeUndefined();
   });
   it('preserves a grid-pasted formula-like literal through workbook serialization', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 1 });
@@ -52,7 +52,7 @@ describe('lifecycle HTTP mapping', () => {
   });
 
   it('sends complete compare-and-swap snapshots and keeps frozen errors and formula-looking text non-executable on reload', async () => {
-    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2 });
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '1' } });
     const model: DataModel = { id: 'model', name: 'Model', columns: [
       { id: 'text', name: 'Text', kind: 'calculated', type: 'string', formula: '="=1+2"' },
       { id: 'error', name: 'Error', kind: 'calculated', type: 'float', formula: '=1/0' },
