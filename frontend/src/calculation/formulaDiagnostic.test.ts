@@ -7,6 +7,15 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('calculation diagnostics', () => {
+  it('explains parse, function and operand validation failures with evaluated values', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const evaluator = new FormulaEvaluator(calculationProjection(workbookWithSheets([sheet])));
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=1+', 'inputs'))?.message).toContain('parse');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=MISSING(1)', 'inputs'))?.message).toBe('Unknown function MISSING.');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=ABS(1,2)', 'inputs'))?.message).toBe('ABS expected 1 arguments, got 2.');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=1+"three"', 'inputs'))?.message).toBe('Cannot apply + to number 1 and text "three": expected numbers.');
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=1="one"', 'inputs'))?.message).toBe('Cannot compare number 1 with text "one": expected matching types.');
+  });
   it('explains a parser returning a non-formula for a formula cell', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1' } });
     const evaluator = new FormulaEvaluator(
@@ -114,6 +123,18 @@ describe('calculation diagnostics', () => {
     const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] });
     expect(snapshot.inputs.A1).toMatchObject({ kind: 'number', value: 1 });
     expect(calculation.diagnostic(sheet.id, key)).toBeUndefined();
+  });
+
+  it('reports an inactive cycle reference as structural blocking without evaluating either expression', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@A[1]', B1: '=IF(FALSE,@A[1],7)' } });
+    const evaluated: string[] = [];
+    const calculation = new FormulaCalculation();
+    const snapshot = calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' }, (_sheet, key) => evaluated.push(key));
+    expect(evaluated).toEqual([]);
+    expect(formulaDiagnostic(snapshot.inputs.B1)).toMatchObject({
+      message: 'Structural dependency on a cycle; expression blocked before evaluation.',
+      causes: [{ message: 'Structural dependency cycle detected; expression blocked before evaluation.', causes: [] }],
+    });
   });
 
   it('keeps independent evaluated failures in separate branches', () => {

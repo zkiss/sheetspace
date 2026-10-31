@@ -7,6 +7,7 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { evaluateStoredFormulaCells } from './formulaEvaluator';
 import { FormulaCalculation } from './formulaCalculation';
 import { buildFormulaDependencyGraph, storedFormulaParser } from './formulaDependencies';
+import { formulaDiagnostic } from './formulaValue';
 
 describe('stored formula evaluation', () => {
   it.each([
@@ -90,7 +91,13 @@ describe('stored formula evaluation', () => {
     const graph = buildFormulaDependencyGraph(calculationProjection(changed), storedFormulaParser(changed));
     expect([...graph.dependencies.values()].map((dependencies) => [...dependencies])).toEqual([[]]);
     const calculation = new FormulaCalculation();
-    expect(calculation.updateStored(calculationProjection(changed), changed, { kind: 'structure' }).output.A1).toMatchObject({ display: '#REF!' });
+    const result = calculation.updateStored(calculationProjection(changed), changed, { kind: 'structure' }).output.A1;
+    expect(result).toMatchObject({ display: '#REF!' });
+    expect(formulaDiagnostic(result)).toEqual({
+      message: 'Referenced sheet does not exist.',
+      cell: { sheetId: output.id, rowId: target.content.rows[0], columnId: target.content.columns[0] },
+      causes: [],
+    });
     expect(calculation.updateStored(calculationProjection(changed), changed, { kind: 'cells', cells: [{ sheetId: replacement.id, key: 'A1' }] }).output.A1).toMatchObject({ display: '#REF!' });
   });
 

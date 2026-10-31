@@ -3,8 +3,43 @@ import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { bindSheetToModel } from '@application/core/modelLifecycle';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { formulaDiagnostic } from '@calculation/formulaValue';
 
 describe('diagnostic lifecycle', () => {
+  it('retains stored model and cross-sheet identities through rename and clears them after correction', () => {
+    const input = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: 1, columnCount: 2, cells: { A1: 'three' } });
+    const output = sheetDocument({ id: 'summary', name: 'Summary', rowCount: 1, columnCount: 1 });
+    const model = { id: 'model', name: 'Model', columns: [
+      { id: 'input', name: 'Input', kind: 'manual' as const, type: 'int' as const },
+      { id: 'total', name: 'Total', kind: 'calculated' as const, type: 'int' as const, formula: '=@A[1]*2' },
+    ] };
+    const initial = { ...workbookWithSheets([input, output]), dataModels: { model } };
+    const binding = bindSheetToModel(initial, input.id, model.id, () => 'new-column');
+    if (!binding.ok) throw new Error(binding.reason);
+    const bound = binding.value;
+    const formula = prepareUserFormula('=@Inputs!B[1]', bound, output.id);
+    const target = sheetDocument({ id: 'summary', name: 'Summary', rowCount: 1, columnCount: 1, cells: { A1: formula } });
+    const workbook = { ...bound, documents: { ...bound.documents, summary: target } };
+    const calculation = new FormulaCalculation();
+    const snapshot = calculation.updateStored(calculationProjection(workbook), workbook, { kind: 'structure' });
+    const source = bound.documents.inputs!;
+    expect(formulaDiagnostic(snapshot.summary.A1)).toMatchObject({
+      cell: { sheetId: 'summary', rowId: target.content.rows[0], columnId: target.content.columns[0] },
+      causes: [{ cell: { sheetId: 'inputs', rowId: source.content.rows[0], columnId: source.content.columns[1] }, causes: [
+        { message: 'Expected int, got text "three".', cell: { sheetId: 'inputs', rowId: source.content.rows[0], columnId: source.content.columns[0] } },
+      ] }],
+    });
+    const renamed = { ...workbook, documents: { ...workbook.documents, inputs: { ...source, name: 'Renamed' } } };
+    const renamedResult = calculation.updateStored(calculationProjection(renamed), renamed, { kind: 'structure' });
+    expect(formulaDiagnostic(renamedResult.summary.A1)).toEqual(formulaDiagnostic(snapshot.summary.A1));
+    const inputKey = cellIdentityKey({ rowId: source.content.rows[0], columnId: source.content.columns[0] });
+    const corrected = { ...renamed, documents: { ...renamed.documents, inputs: { ...source, name: 'Renamed', content: { ...source.content, cells: { ...source.content.cells, [inputKey]: '3' } } } } };
+    const result = calculation.updateStored(calculationProjection(corrected), corrected, { kind: 'cells', cells: [{ sheetId: input.id, key: 'A1' }] });
+    expect(result.summary.A1).toMatchObject({ kind: 'number', value: 6 });
+    expect(formulaDiagnostic(result.summary.A1)).toBeUndefined();
+  });
   it('preserves typed input provenance through a calculated model column and clears it after correction', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: 'three', B1: '=@A[1]*2' } });
     const projection = calculationProjection(workbookWithSheets([sheet]));
