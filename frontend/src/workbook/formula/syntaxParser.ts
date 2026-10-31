@@ -15,7 +15,7 @@ import type {
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
 import { decodeStableId } from './stableId';
-import { completeUserReferenceStart, makeFormulaReference, parseOpenEndpoint, qualifierPayloadSpan, referencePayloadSpans } from './syntaxReference';
+import { completeUserReferenceStart, makeFormulaReference, parseOpenEndpoint, parsePositionalEndpoint, qualifierPayloadSpan, referencePayloadSpans } from './syntaxReference';
 import { completeFormulaTokens, skipFormulaTextLiteral } from './syntaxTokens';
 
 type ReadResult<T> =
@@ -354,6 +354,7 @@ export class FormulaParser {
 
   private readReferenceEndpoint(qualifier?: string): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;
+    const positional = !this.stored && parsePositionalEndpoint(this.input, start); if (positional) { this.index = positional.end; return positional.endpoint; }
     const named = /^(\$?)~([0-9a-f]+)~([0-9a-f]+)\[(\$?)([0-9a-f]+)\]/i.exec(this.input.slice(this.index));
     if (named && !this.userReferences) {
       const propertyId = decodeStableId(named[2]);
