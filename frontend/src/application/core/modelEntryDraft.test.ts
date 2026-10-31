@@ -45,4 +45,11 @@ describe('model entry drafts', () => {
     const draft = changeEntryField(createModelEntryDraft(typedModel), typedModel, 'value', raw, workbook, 'sheet');
     expect(leaveEntryField(draft, typedModel, 'value', workbook, 'sheet').fields.value?.invalid).toBe(invalid);
   });
+
+  it.each([
+    ['=', true], ['=1+', true], ['=1/0', true], ['="text"', true], ['=1.5', true], ['=1+2', false],
+  ])('validates formula result %s before admission', (raw, invalid) => {
+    const draft = changeEntryField(createModelEntryDraft(model), model, 'number', raw, workbook, 'sheet');
+    expect(validateEntryDraft(draft, model, workbook, 'sheet').firstInvalid).toBe(invalid ? 'number' : undefined);
+  });
 });

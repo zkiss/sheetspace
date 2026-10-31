@@ -40,6 +40,17 @@ describe('calculated row persistence', () => {
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
   });
 
+  it('does not dispatch incomplete, erroneous or type-incompatible formulas', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    for (const raw of ['=', '=1+', '=1/0', '="text"']) {
+      act(() => result.current.commands.changeEntryField('sheet', 'input', raw));
+      await act(async () => expect(await result.current.commands.submitEntryDraft('sheet')).toMatchObject({ firstInvalid: 'input' }));
+    }
+    expect(api.admitRecord).not.toHaveBeenCalled();
+  });
+
   it('retries an ambiguous admission with the same identity and reconciles only on success', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
@@ -94,8 +105,16 @@ describe('calculated row persistence', () => {
       expect(result.current.commands.updateCellContent('other', 'A1', '9')).toMatchObject({ ok: true });
       expect(result.current.commands.deleteSheet('sheet')).toMatchObject({ ok: false });
     });
+    act(() => result.current.commands.undo());
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
+    act(() => result.current.commands.redo());
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
     await act(async () => { reject(new Error('connection lost')); await submission; });
     expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
+    act(() => result.current.commands.undo());
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
+    act(() => result.current.commands.redo());
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
   });
   it('waits for a preceding cell save before capturing the admission revision', async () => {

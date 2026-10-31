@@ -337,12 +337,10 @@ export function useWorkbookController({
     const stored = prepareCellInput(raw, optimisticWorkbook.current, localSheetId, cellRawContent(currentSheet, cellKey));
     return storedWriteResult(applyAction({ kind: 'write-cells', writes: [{ sheetId: localSheetId, ...cell, raw: stored }] }, true, true));
   }
-
   function writeCells(writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]): CellWriteResult {
     const result = applyAction({ kind: 'write-cells', writes: writes as ({ sheetId: string; raw: string } & StableCellIdentity)[] }, true, true);
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
-
   function pasteCells(sheetId: string, destinationKey: CellKey, clipboard: ClipboardParseResult): PasteCellsResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
@@ -355,7 +353,6 @@ export function useWorkbookController({
     const result = applyAction({ kind: 'write-cells', writes: prepared.writes }, true, true);
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
-
   function moveCells(sheetId: string, destinationKey: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot): MoveCellsResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
@@ -370,9 +367,10 @@ export function useWorkbookController({
   }
 
   function replayContentHistory(direction: 'undo' | 'redo') {
-    if (savedAutosave.hasModelTransition() || admissionLocks.current.size) return;
+    if (savedAutosave.hasModelTransition()) return;
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
+    if (transaction.writes.some((write) => admissionLocks.current.has(write.sheetId))) { setMutationFailure('pending-model-transition'); return; }
     const sourceWorkbook = optimisticWorkbook.current;
     const expected = direction === 'undo' ? 'after' : 'before';
     const applied = applyResult(replayCellPersistenceWrites(sourceWorkbook, transaction.writes, expected));
