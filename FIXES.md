@@ -16,3 +16,4 @@ This file is temporary. Delete it before merging this branch into `main`.
 - Show entry-row validation in a readable floating error attached to the selected cell. Use spreadsheet-style cell navigation and the shared light/heavy editor for entry drafts, and allow navigation between the draft and saved rows without submitting it.
 - Focus the first entry cell when entering an empty model-bound sheet.
 - Match entry-row selection to normal sheet cells and clear the previous sheet selection when entering the row.
+- Add a Delete row command to the command palette for the row containing the selected cell.

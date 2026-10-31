@@ -86,6 +86,14 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     add('append-column', 'Append column', 'Sheet', run(() => sheet && commands.appendColumn(sheet.id)), noSheet);
   }
   add('rename-sheet', 'Rename sheet…', 'Sheet', run(() => sheet && onRename(sheet), false), noSheet);
+  add('delete-row', 'Delete row', 'Sheet', () => {
+    if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
+    const submission = commands.deleteRow(sheet.id, activeCell.cell.rowId);
+    const message = failure(submission.result);
+    closePalette();
+    if (message) { onFeedback(message); return; }
+    void submission.completion.then((result) => { const error = failure(result); if (error) onFeedback(error); });
+  }, sheet && activeCell?.sheetId === sheet.id && sheet.content.rows.includes(activeCell.cell.rowId) ? undefined : 'Select a saved row first');
   const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
     && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;
   const renameTarget = sheet && columnId ? columnRenameTarget(workbook, sheet.id, columnId) : undefined;

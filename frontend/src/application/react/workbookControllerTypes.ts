@@ -29,6 +29,7 @@ export type WorkbookCommands = {
   writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => WorkbookOperationResult;
   appendColumn: (sheetId: string) => void;
   appendRow: (sheetId: string) => void;
+  deleteRow: (sheetId: string, rowId: string) => Readonly<{ result: ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure; completion: Promise<ReturnType<typeof import('@application/core/deleteRow').deleteRow> | TransitionFailure> }>;
   changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
   createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult;
   deleteSheet: (sheetId: string) => WorkbookOperationResult;
@@ -119,4 +120,3 @@ export function contentHistoryAffectedSnapshot(affected: AffectedWorkbookEntitie
     }))),
   });
 }
-
