@@ -40,6 +40,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
 }) {
   const formulaWorkbook = workbook ?? { documents: {}, dataModels: {} } as Workbook;
   const dialogRef = useRef<HTMLElement>(null);
+  const propertyToFocus = useRef<string | null>(null);
   const submissionPending = useRef(false);
   const closing = useRef(false);
   const initialModel = initialModelId ? models.find((candidate) => candidate.id === initialModelId) : undefined;
@@ -69,6 +70,19 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
       const properties = [...(dialog?.querySelectorAll<HTMLElement>('.model-property input') ?? [])];
       const property = properties[Math.min(index, properties.length - 1)];
       (property ?? dialog?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)'))?.focus();
+    });
+  }
+  function addColumn(index: number) {
+    const column = newColumn();
+    propertyToFocus.current = column.id;
+    setDraft((current) => current && { ...current, columns: [...current.columns.slice(0, index), column, ...current.columns.slice(index)] });
+  }
+  function moveColumn(index: number, direction: -1 | 1) {
+    setDraft((current) => {
+      if (!current || index + direction < 0 || index + direction >= current.columns.length) return current;
+      const columns = [...current.columns];
+      [columns[index], columns[index + direction]] = [columns[index + direction]!, columns[index]!];
+      return { ...current, columns };
     });
   }
   async function submit(event: FormEvent) {
@@ -107,7 +121,12 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
   useEffect(() => {
     if (!initialPropertyId || !draft) return;
     dialogRef.current?.querySelector<HTMLElement>(`[data-property-id="${initialPropertyId}"] input`)?.focus();
-  }, [draft, initialPropertyId]);
+  }, [draft?.id, initialPropertyId]);
+  useEffect(() => {
+    if (!propertyToFocus.current) return;
+    dialogRef.current?.querySelector<HTMLElement>(`[data-property-id="${propertyToFocus.current}"] input`)?.focus();
+    propertyToFocus.current = null;
+  }, [draft]);
   function containFocus(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -142,7 +161,19 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
         <fieldset><legend>Properties</legend>
           {draft.columns.map((column, index) => <div className="model-property" data-property-id={column.id} key={column.id}>
             <div className={`model-property-row${editingFormula === column.id && formulaMode === 'heavy' ? ' model-property-row-expanded' : ''}`}>
-            <input aria-label={`Property ${index + 1} name`} placeholder="Property name" disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} value={column.name} />
+            <input aria-label={`Property ${index + 1} name`} placeholder="Property name" disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} onKeyDown={(event) => {
+              if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return;
+              if (event.key === 'Enter') addColumn(index + 1);
+              else if (event.key === 'Delete') removeColumn(index);
+              else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                const direction = event.key === 'ArrowUp' ? -1 : 1;
+                if (index + direction >= 0 && index + direction < draft.columns.length) propertyToFocus.current = column.id;
+                moveColumn(index, direction);
+              }
+              else return;
+              event.preventDefault();
+              event.stopPropagation();
+            }} value={column.name} />
             <select aria-label={`Property ${index + 1} type`} disabled={saving} onChange={(event) => {
               const type = event.target.value;
               updateColumn(index, type === 'function' ? { kind: 'calculated' } : { kind: 'manual', type: type as ModelColumnType });
@@ -164,10 +195,10 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
               setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
               setEditingFormula(null);
             }} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} referenceValues={(identity) => formulaPanelReferenceValues(identity, modelDraftReferenceResolver(formulaWorkbook, draft), formulaResults)} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /></div>}</div> : <span className="model-property-manual" />}
-            <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} title="Move up" disabled={saving || index === 0} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index - 1]! : target === index - 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">↑</button><button aria-label={`Move property ${index + 1} down`} title="Move down" disabled={saving || index === draft.columns.length - 1} onClick={() => setDraft({ ...draft, columns: draft.columns.map((_, target) => target === index ? draft.columns[index + 1]! : target === index + 1 ? draft.columns[index]! : draft.columns[target]! ) })} type="button">↓</button><button aria-label={`Remove property ${index + 1}`} title="Remove" disabled={saving} onClick={() => removeColumn(index)} type="button">×</button></div>
+            <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} title="Move up (Alt+Shift+Up)" disabled={saving || index === 0} onClick={() => moveColumn(index, -1)} type="button">↑</button><button aria-label={`Move property ${index + 1} down`} title="Move down (Alt+Shift+Down)" disabled={saving || index === draft.columns.length - 1} onClick={() => moveColumn(index, 1)} type="button">↓</button><button aria-label={`Remove property ${index + 1}`} title="Remove (Alt+Shift+Delete)" disabled={saving} onClick={() => removeColumn(index)} type="button">×</button></div>
             </div>
           </div>)}
-          <button disabled={saving} onClick={() => setDraft({ ...draft, columns: [...draft.columns, newColumn()] })} type="button">Add property</button>
+          <button disabled={saving} onClick={() => addColumn(draft.columns.length)} title="Add below the current property with Alt+Shift+Enter" type="button">Add property</button>
         </fieldset>
         {!isNew && (draft.columns.some((column) => !savedPropertyIds.has(column.id)) || [...savedPropertyIds].some((id) => !draft.columns.some((column) => column.id === id))) ? <p className="data-model-warning">Removing a property can discard bound data. New replacement properties start empty, even when they reuse a name. Renaming and reordering retain existing property identity.</p> : null}
         {error ? <div className="form-error" role="alert"><p>{error}</p>{error.includes('need to be retried') ? <button onClick={onRetryFailedSaves} type="button">Retry earlier changes</button> : null}</div> : null}

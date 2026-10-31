@@ -10,4 +10,4 @@ This file is temporary. Delete it before merging this branch into `main`.
 
 ## Fixes
 
-No fixes yet.
+- Focus newly added property names. Add shortcuts while editing a name: Alt+Shift+Enter adds below, Alt+Shift+Delete removes, and Alt+Shift+Up/Down moves the property.
