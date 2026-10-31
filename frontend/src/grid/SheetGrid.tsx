@@ -537,6 +537,10 @@ export function SheetGrid({
     }
     const firstRow = rows.find((row) => row.kind === 'saved');
     const firstColumn = columns.find((column) => column.kind === 'saved');
+    if (!firstRow && entryRow) {
+      gridRef.current?.querySelector<HTMLElement>('.model-entry-cell')?.focus();
+      return;
+    }
     if (!firstRow || !firstColumn) return;
     const key = cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: firstRow.durableIndex });
     const target = cellTargetAt(sheet, key);

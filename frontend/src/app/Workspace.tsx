@@ -799,7 +799,12 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               onSheetFrameDragMove={handleSheetFrameDragMove}
               onSheetFrameDragStart={handleSheetFrameDragStart}
               onSheetFrameDragStop={stopSheetFrameDrag}
-              onSelectSheet={() => { onActivateSheet(sheet.id); }}
+              onSelectSheet={() => {
+                const target = onActivateSheet(sheet.id);
+                if (!target && entryModel && tabular.rows.length === 0) {
+                  document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"] .model-entry-cell`)?.focus();
+                }
+              }}
               rowCount={tabular.rows.length + (creatingSheetAxes?.rows.length ?? 0)}
               viewportScale={workspaceController.viewport.scale}
             >
