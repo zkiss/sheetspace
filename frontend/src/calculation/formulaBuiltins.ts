@@ -7,6 +7,7 @@ import {
   formulaCollectionValues,
   formulaErrorValue,
   formulaScalarValue,
+  diagnosticError,
   type FormulaScalarValue,
   type FormulaValue,
 } from '@calculation/formulaValue';
@@ -106,10 +107,11 @@ function numericScalar(
     invoke: (arguments_) => {
       const value = formulaScalarValue(arguments_[0]);
       if (value.kind !== 'number') {
-        return formulaErrorValue('#VALUE!');
+        const actual = value.kind === 'blank' ? 'blank' : value.kind === 'error' ? value.error : `${value.kind} ${JSON.stringify(value.value)}`;
+        return diagnosticError('#VALUE!', `Expected a number, got ${actual}.`);
       }
       const result = calculate(value.value);
-      return result === undefined ? formulaErrorValue('#VALUE!') : finiteNumber(result);
+      return result === undefined ? diagnosticError('#VALUE!', `Invalid numeric argument ${value.value}.`) : finiteNumber(result);
     },
   };
 }

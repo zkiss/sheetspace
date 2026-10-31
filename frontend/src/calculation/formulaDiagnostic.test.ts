@@ -37,4 +37,24 @@ describe('calculation diagnostics', () => {
     expect(result).toEqual({ kind: 'error', error: '#REF!' });
     expect(formulaDiagnostic(result)).toEqual({ message: 'Referenced cell does not exist.', causes: [] });
   });
+
+  it('records independent eager function argument failures without reevaluating cells', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=2/0', C1: '=SUM(@A[1],@B[1])' } });
+    const evaluated: string[] = [];
+    const calculation = new FormulaCalculation();
+    calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' }, (_sheet, key) => evaluated.push(key));
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[2] });
+    expect(calculation.diagnostic('inputs', key)).toMatchObject({
+      message: 'SUM has multiple failing arguments.',
+      causes: [{ message: 'Cannot divide 1 by zero.' }, { message: 'Cannot divide 2 by zero.' }],
+    });
+    expect(evaluated.sort()).toEqual(['A1', 'B1', 'C1']);
+  });
+
+  it('reports actual values at numeric function validation', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const evaluator = new FormulaEvaluator(calculationProjection(workbookWithSheets([sheet])));
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=ABS("three")', 'inputs'))).toMatchObject({ message: 'Expected a number, got text "three".' });
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=SQRT(-2)', 'inputs'))).toMatchObject({ message: 'Invalid numeric argument -2.' });
+  });
 });

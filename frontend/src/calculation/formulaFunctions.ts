@@ -2,6 +2,7 @@ import type { FormulaErrorCode, FormulaExpression, FunctionFormula } from '@work
 import {
   formulaErrorValue,
   diagnosticError,
+  formulaDiagnostic,
   type FormulaRangeValue,
   type FormulaScalarValue,
   type FormulaValue,
@@ -85,7 +86,7 @@ export function evaluateFunctionCall(
   }
   const validationError = definition.validateArguments?.(expression.arguments);
   if (validationError) {
-    return formulaErrorValue(validationError);
+    return diagnosticError(validationError, `${expression.functionName} has invalid arguments.`);
   }
 
   const invocationContext: LazyFormulaFunctionContext = {
@@ -99,15 +100,23 @@ export function evaluateFunctionCall(
   }
 
   const values: FormulaValue[] = [];
+  const failures: FormulaScalarValue[] = [];
   for (let index = 0; index < expression.arguments.length; index += 1) {
     const value = invocationContext.evaluateArgument(
       expression.arguments[index],
       definition.argumentKind(index),
     );
     if (value.kind === 'error') {
-      return value;
+      failures.push(value);
     }
     values.push(value);
+  }
+  if (failures.length === 1) return failures[0];
+  if (failures.length > 1) {
+    const first = failures[0];
+    if (first.kind === 'error') {
+      return diagnosticError(first.error, `${expression.functionName} has multiple failing arguments.`, failures.map((failure) => formulaDiagnostic(failure) ?? { message: failure.kind === 'error' ? failure.error : 'Invalid argument.', causes: [] }));
+    }
   }
   return definition.invoke(values);
 }
@@ -142,7 +151,7 @@ function evaluateArgument(
     return value;
   }
   if (kind === 'scalar') {
-    return value.kind === 'range' ? formulaErrorValue('#VALUE!') : value;
+    return value.kind === 'range' ? diagnosticError('#VALUE!', 'Expected a scalar, got a range.') : value;
   }
   if (value.kind !== 'range') {
     return value;

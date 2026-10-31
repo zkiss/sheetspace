@@ -10,7 +10,7 @@ import { parseFormula, type FormulaExpression, type FunctionFormula } from '@wor
 import { formulaScalarValue, type FormulaValue } from '@calculation/formulaValue';
 
 describe('formula function protocol', () => {
-  it('evaluates eager arguments left to right and stops at the first error', () => {
+  it('evaluates eager arguments left to right and returns the first error', () => {
     const invoke = vi.fn();
     const expression = functionExpression('=TEST(1, 2, 3)');
     const visited: number[] = [];
@@ -29,7 +29,7 @@ describe('formula function protocol', () => {
     );
 
     expect(result).toEqual({ kind: 'error', error: '#DIV/0!' });
-    expect(visited).toEqual([1, 2]);
+    expect(visited).toEqual([1, 2, 3]);
     expect(invoke).not.toHaveBeenCalled();
   });
 
