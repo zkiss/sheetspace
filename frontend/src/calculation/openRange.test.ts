@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
+import { instantiateStoredModelFormula } from '@workbook/formula/modelFormulaInstance';
 import { changeEntryField, createModelEntryDraft } from '@application/core/modelEntryDraft';
 import { applyBackendWorkbookReconciliation } from '@application/core/userActions';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
@@ -10,6 +11,20 @@ import { buildFormulaDependencyGraph, storedFormulaParser } from './formulaDepen
 import { FormulaCalculation } from './formulaCalculation';
 
 describe('open range calculation', () => {
+  it('instantiates an anchored open range on model rows beyond the target extent', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 1, cells: { A1: '4', A2: '7' } });
+    const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 4, columnCount: 1 });
+    const initial = workbookWithSheets([source, output]);
+    const declaration = '=SUM(@Source!$A[$1]:A)';
+    const template = prepareUserFormula(declaration, initial, output.id);
+    const instance = instantiateStoredModelFormula(template, initial, 3, declaration, output.id);
+    const target = sheetDocument({ id: output.id, name: output.name, rowCount: 4, columnCount: 1, cells: { A4: instance } });
+    const workbook = workbookWithSheets([source, target]);
+
+    expect(projectStoredFormula(instance, workbook, output.id).text).toBe(declaration);
+    expect(new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }).output.A4).toMatchObject({ value: 11 });
+  });
+
   it('retains an open end, includes both columns and recalculates appended rows', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: '1', B1: '2', A2: '3', B2: '4' } });
     const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1 });
