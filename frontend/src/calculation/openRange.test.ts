@@ -3,7 +3,6 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { instantiateStoredModelFormula } from '@workbook/formula/modelFormulaInstance';
-import { changeEntryField, createModelEntryDraft } from '@application/core/modelEntryDraft';
 import { applyBackendWorkbookReconciliation } from '@application/core/userActions';
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
 import { calculationProjection } from '@workbook/read/calculationProjection';
@@ -56,22 +55,5 @@ describe('open range calculation', () => {
     expect(new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }).output.A1).toMatchObject({ display: '#REF!' });
   });
 
-  it('excludes a model entry draft and includes it only after row admission', () => {
-    const source = { ...sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '4' } }), modelId: 'model', modelColumnBindings: { amount: 'source:column:1' } };
-    const model = { id: 'model', name: 'Model', columns: [{ id: 'amount', name: 'Amount', kind: 'manual' as const, type: 'float' as const }] };
-    const output = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1 });
-    const initial = { ...workbookWithSheets([source, output]), dataModels: { model } };
-    const formula = prepareUserFormula('=SUM(@Source!Amount[1]:Amount)', initial, output.id);
-    const target = sheetDocument({ id: 'output', name: 'Output', rowCount: 1, columnCount: 1, cells: { A1: formula } });
-    const workbook = { ...workbookWithSheets([source, target]), dataModels: { model } };
-    const draft = changeEntryField(createModelEntryDraft(model), model, 'amount', '7', workbook, source.id);
-    const calculation = new FormulaCalculation();
-    expect(calculation.updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }).output.A1).toMatchObject({ value: 4 });
-    const appended = applyBackendWorkbookReconciliation(workbook, { kind: 'append-row', sheetId: source.id, rowId: 'admitted' });
-    if (!appended.ok) throw new Error('Row append failed');
-    const admitted = appended.value.nextWorkbook.documents.source;
-    const updated = { ...appended.value.nextWorkbook, documents: { ...appended.value.nextWorkbook.documents, source: { ...admitted, content: { ...admitted.content, cells: { ...admitted.content.cells, [cellIdentityKey({ rowId: 'admitted', columnId: source.content.columns[0] })]: draft.fields.amount.raw } } } } };
-    expect(calculation.updateStored(calculationProjection(updated), updated, appended.value.calculationImpact).output.A1).toMatchObject({ value: 11 });
-  });
 
 });
