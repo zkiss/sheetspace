@@ -102,4 +102,18 @@ describe('calculation diagnostics', () => {
       ] }],
     });
   });
+
+  it('keeps separate dependency paths to independent cycles', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@A[1]', B1: '=@B[1]', C1: '=@A[1]+@B[1]' } });
+    const calculation = new FormulaCalculation();
+    calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[2] });
+    expect(calculation.diagnostic('inputs', key)).toMatchObject({
+      message: 'Propagated #CYCLE!',
+      causes: [
+        { cell: { columnId: sheet.content.columns[0] }, message: 'Cycle detected; the dependency path cannot be evaluated.' },
+        { cell: { columnId: sheet.content.columns[1] }, message: 'Cycle detected; the dependency path cannot be evaluated.' },
+      ],
+    });
+  });
 });

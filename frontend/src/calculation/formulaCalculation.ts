@@ -100,6 +100,7 @@ export class FormulaCalculation {
     const cycleMembers = cycleFormulaNodes(nextGraph);
     const pending = [...cycleMembers].sort();
     const cycleResults = new Map<string, FormulaScalarValue>();
+    const cycleDistance = new Map(pending.map((nodeId) => [nodeId, 0]));
     for (const nodeId of pending) {
       const separator = nodeId.indexOf('\u0000');
       const sheetId = nodeId.slice(0, separator);
@@ -110,14 +111,22 @@ export class FormulaCalculation {
     for (let index = 0; index < pending.length; index += 1) {
       const nodeId = pending[index];
       for (const dependent of [...(nextGraph.dependents.get(nodeId) ?? [])].sort()) {
-        if (!nextFormulaNodes.has(dependent) || cycleResults.has(dependent)) continue;
-        const separator = dependent.indexOf('\u0000');
-        const sheetId = dependent.slice(0, separator);
-        const key = dependent.slice(separator + 1);
-        const identity = cellIdentityFromKey(key);
-        cycleResults.set(dependent, diagnosticAtCell(cycleResults.get(nodeId)!, identity ? { sheetId, ...identity } : undefined));
+        if (!nextFormulaNodes.has(dependent) || cycleDistance.has(dependent)) continue;
+        cycleDistance.set(dependent, cycleDistance.get(nodeId)! + 1);
         pending.push(dependent);
       }
+    }
+    for (const nodeId of pending.slice(cycleMembers.size)) {
+      const causes = [...(nextGraph.dependencies.get(nodeId) ?? [])].sort()
+        .filter((dependency) => (cycleDistance.get(dependency) ?? Infinity) < cycleDistance.get(nodeId)!)
+        .map((dependency) => formulaDiagnostic(cycleResults.get(dependency)!)!);
+      const separator = nodeId.indexOf('\u0000');
+      const sheetId = nodeId.slice(0, separator);
+      const identity = cellIdentityFromKey(nodeId.slice(separator + 1));
+      cycleResults.set(nodeId, diagnosticAtCell(
+        diagnosticError('#CYCLE!', 'Propagated #CYCLE!', causes),
+        identity ? { sheetId, ...identity } : undefined,
+      ));
     }
     for (const [nodeId, value] of cycleResults) reusableResults.set(nodeId, value);
     const evaluator = new FormulaEvaluator(projection, reusableResults, onEvaluate, builtInFormulaFunctions, parse);
