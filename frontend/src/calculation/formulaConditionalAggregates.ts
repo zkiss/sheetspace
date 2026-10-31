@@ -15,7 +15,7 @@ const countIf: LazyFormulaFunction = {
   argumentKind: conditionalArgumentKind,
   invoke: (arguments_, context) => {
     const criteriaInput = context.evaluateReferenceArgument(arguments_[0]);
-    if (!criteriaInput.ok) return formulaErrorValue(criteriaInput.error);
+    if (!criteriaInput.ok) return diagnosticError(criteriaInput.error, criteriaInput.message ?? 'Cannot resolve criteria reference.');
 
     const candidates = materializeCriteria(criteriaInput.value);
     if (!candidates.ok) return candidates.error;
@@ -23,7 +23,7 @@ const countIf: LazyFormulaFunction = {
     const criterionValue = formulaScalarValue(context.evaluateArgument(arguments_[1], 'scalar'));
     if (criterionValue.kind === 'error') return criterionValue;
     const criterion = parseFormulaCriterion(criterionValue);
-    if (!criterion.ok) return formulaErrorValue(criterion.error);
+    if (!criterion.ok) return diagnosticError(criterion.error, `Invalid criterion ${JSON.stringify(criterionValue.kind === 'text' ? criterionValue.value : criterionValue)}.`);
 
     let count = 0;
     for (const candidate of candidates.value) {
@@ -42,14 +42,14 @@ const sumIf: LazyFormulaFunction = {
   validateArguments: validateSumIfShapes,
   invoke: (arguments_, context) => {
     const criteriaInput = context.evaluateReferenceArgument(arguments_[0]);
-    if (!criteriaInput.ok) return formulaErrorValue(criteriaInput.error);
+    if (!criteriaInput.ok) return diagnosticError(criteriaInput.error, criteriaInput.message ?? 'Cannot resolve criteria reference.');
 
     let sumInput: FormulaReferenceArgument | undefined;
     if (arguments_.length === 3) {
       const evaluatedSumInput = context.evaluateReferenceArgument(arguments_[2]);
-      if (!evaluatedSumInput.ok) return formulaErrorValue(evaluatedSumInput.error);
+      if (!evaluatedSumInput.ok) return diagnosticError(evaluatedSumInput.error, evaluatedSumInput.message ?? 'Cannot resolve sum reference.');
       if (!sameShape(criteriaInput.value, evaluatedSumInput.value)) {
-        return formulaErrorValue('#VALUE!');
+        return diagnosticError('#VALUE!', `SUMIF criteria shape ${shapeText(criteriaInput.value)} does not match sum shape ${shapeText(evaluatedSumInput.value)}.`);
       }
       sumInput = evaluatedSumInput.value;
     }
@@ -60,7 +60,7 @@ const sumIf: LazyFormulaFunction = {
     const criterionValue = formulaScalarValue(context.evaluateArgument(arguments_[1], 'scalar'));
     if (criterionValue.kind === 'error') return criterionValue;
     const criterion = parseFormulaCriterion(criterionValue);
-    if (!criterion.ok) return formulaErrorValue(criterion.error);
+    if (!criterion.ok) return diagnosticError(criterion.error, `Invalid criterion ${JSON.stringify(criterionValue.kind === 'text' ? criterionValue.value : criterionValue)}.`);
 
     const matchingIndexes: number[] = [];
     for (let index = 0; index < candidates.value.length; index += 1) {
@@ -117,6 +117,10 @@ function sameShape(
   return first.rowCount === second.rowCount && first.columnCount === second.columnCount;
 }
 
+function shapeText(shape: Pick<FormulaReferenceArgument, 'rowCount' | 'columnCount'>): string {
+  return `${shape.rowCount}x${shape.columnCount}`;
+}
+
 function validateSumIfShapes(arguments_: readonly FormulaExpression[]) {
   if (arguments_.length !== 3) return undefined;
   // Canonical coordinates have no intrinsic position; their current rectangle
@@ -129,7 +133,9 @@ function validateSumIfShapes(arguments_: readonly FormulaExpression[]) {
     && criteriaShape.rowCount === sumShape.rowCount
     && criteriaShape.columnCount === sumShape.columnCount
     ? undefined
-    : '#VALUE!' as const;
+    : { error: '#VALUE!' as const, message: criteriaShape && sumShape
+      ? `SUMIF criteria shape ${shapeText(criteriaShape)} does not match sum shape ${shapeText(sumShape)}.`
+      : 'SUMIF requires criteria and sum references.' };
 }
 
 function containsCanonicalReference(expression: FormulaExpression): boolean {

@@ -290,29 +290,29 @@ export class FormulaEvaluator {
     expression: FormulaExpression,
     currentSheet: CalculationSheet,
   ): FormulaReferenceArgumentResult {
-    if (expression.kind === 'invalid-reference') return { ok: false, error: '#REF!' };
+    if (expression.kind === 'invalid-reference') return { ok: false, error: '#REF!', message: 'Referenced target is invalid or deleted.' };
     if (expression.kind === 'group') {
       return this.evaluateFunctionReferenceArgument(expression.expression, currentSheet);
     }
     if (expression.kind !== 'cell' && expression.kind !== 'range' && expression.kind !== 'canonical') {
-      return { ok: false, error: '#VALUE!' };
+      return { ok: false, error: '#VALUE!', message: 'Expected a reference.' };
     }
     const sheet = resolveFormulaReferenceSheet(expression, this.workbook, currentSheet);
-    if (!sheet) return { ok: false, error: '#REF!' };
+    if (!sheet) return { ok: false, error: '#REF!', message: 'Referenced sheet does not exist.' };
     if (expression.kind === 'cell') {
       const key = isAddressWithinBounds(expression.address, { rowCount: sheet.rows.length, columnCount: sheet.columns.length }) ? calculationCellKey(sheet, { rowId: sheet.rows[expression.address.rowIndex]!, columnId: sheet.columns[expression.address.columnIndex]! }) : undefined;
-      return key ? { ok: true, value: { values: this.evaluateRangeCells(sheet, [key]), rowCount: 1, columnCount: 1 } } : { ok: false, error: '#REF!' };
+      return key ? { ok: true, value: { values: this.evaluateRangeCells(sheet, [key]), rowCount: 1, columnCount: 1 } } : { ok: false, error: '#REF!', message: 'Referenced cell does not exist.' };
     }
     if (expression.kind === 'range') {
       const materialized = expression.open ? { start: expression.range.start, end: { ...expression.range.end, rowIndex: sheet.rows.length - 1 } } : expression.range;
       const range = expandRange(materialized, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
-      if (!range.ok) return { ok: false, error: '#REF!' };
+      if (!range.ok) return { ok: false, error: '#REF!', message: 'Referenced range does not exist.' };
       const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
       return { ok: true, value: { values: this.evaluateRangeCells(sheet, keys), rowCount: materialized.end.rowIndex - materialized.start.rowIndex + 1, columnCount: expression.range.end.columnIndex - expression.range.start.columnIndex + 1 } };
     }
-    if (!namedReferenceIsValid(expression, sheet)) return { ok: false, error: '#REF!' };
+    if (!namedReferenceIsValid(expression, sheet)) return { ok: false, error: '#REF!', message: 'Referenced target is invalid or deleted.' };
     const key = calculationCellKey(sheet, expression.coordinate);
-    if (!key) return { ok: false, error: '#REF!' };
+    if (!key) return { ok: false, error: '#REF!', message: 'Referenced cell does not exist.' };
     if (!expression.range) {
       return {
         ok: true,
@@ -325,7 +325,7 @@ export class FormulaEvaluator {
     }
 
     const range = canonicalRangeAddresses(sheet, expression.range);
-    if (!range) return { ok: false, error: '#REF!' };
+    if (!range) return { ok: false, error: '#REF!', message: 'Referenced range does not exist.' };
     return {
       ok: true,
       value: {

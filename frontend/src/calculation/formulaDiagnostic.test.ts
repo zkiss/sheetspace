@@ -7,6 +7,14 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('calculation diagnostics', () => {
+  it('explains conditional aggregate validation without evaluating rejected ranges', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=SUMIF(@A[1]:A[2],">0",@A[1])', B2: '=COUNTIF(@A[3],">")', B3: '=COUNTIF(@Missing!A[1],1)' } });
+    const calculation = new FormulaCalculation();
+    const snapshot = calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    expect(formulaDiagnostic(snapshot.inputs.B1)?.message).toContain('criteria shape 2x1 does not match sum shape 1x1');
+    expect(formulaDiagnostic(snapshot.inputs.B2)?.message).toContain('Invalid criterion ">"');
+    expect(formulaDiagnostic(snapshot.inputs.B3)?.message).toContain('Referenced sheet does not exist');
+  });
   it('explains blank logical inputs and overflowing aggregate operands', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { B1: '=AND(@A[1])', B2: '=SUM(1e308,1e308)', B3: '=AVERAGE(1e308,1e308)' } });
     const calculation = new FormulaCalculation();

@@ -1,6 +1,5 @@
 import type { FormulaErrorCode, FormulaExpression, FunctionFormula } from '@workbook/formula/syntax';
 import {
-  formulaErrorValue,
   diagnosticError,
   formulaDiagnostic,
   type FormulaRangeValue,
@@ -18,7 +17,7 @@ export type FormulaFunctionArity = {
 type FormulaFunctionDefinitionBase = {
   arity: FormulaFunctionArity;
   argumentKind: (index: number) => FormulaFunctionArgumentKind;
-  validateArguments?: (arguments_: readonly FormulaExpression[]) => FormulaErrorCode | undefined;
+  validateArguments?: (arguments_: readonly FormulaExpression[]) => { error: FormulaErrorCode; message: string } | undefined;
 };
 
 export type FormulaReferenceArgument = {
@@ -29,7 +28,7 @@ export type FormulaReferenceArgument = {
 
 export type FormulaReferenceArgumentResult =
   | { ok: true; value: FormulaReferenceArgument }
-  | { ok: false; error: FormulaErrorCode };
+  | { ok: false; error: FormulaErrorCode; message?: string };
 
 export type EagerFormulaFunction = FormulaFunctionDefinitionBase & {
   evaluation: 'eager';
@@ -86,7 +85,7 @@ export function evaluateFunctionCall(
   }
   const validationError = definition.validateArguments?.(expression.arguments);
   if (validationError) {
-    return diagnosticError(validationError, `${expression.functionName} has invalid arguments.`);
+    return diagnosticError(validationError.error, validationError.message);
   }
 
   const invocationContext: LazyFormulaFunctionContext = {
@@ -144,7 +143,7 @@ function evaluateArgument(
   context: FormulaFunctionEvaluationContext,
 ): FormulaValue {
   if (kind === 'reference') {
-    return formulaErrorValue('#VALUE!');
+    return diagnosticError('#VALUE!', 'A reference argument cannot be evaluated as a scalar.');
   }
   const value = context.evaluateExpression(expression);
   if (value.kind === 'error') {
