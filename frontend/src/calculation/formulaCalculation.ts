@@ -11,7 +11,7 @@ import {
   storedFormulaParser,
   type FormulaDependencyGraph,
 } from '@calculation/formulaDependencies';
-import { cycleAffectedFormulaNodes } from '@calculation/formulaCycles';
+import { cycleFormulaNodes } from '@calculation/formulaCycles';
 import {
   FormulaEvaluator,
   type FormulaEvaluationObserver,
@@ -97,11 +97,29 @@ export class FormulaCalculation {
         nextFormulaNodes.has(nodeId) && !impacted.has(nodeId),
       ),
     );
-    for (const nodeId of cycleAffectedFormulaNodes(nextGraph)) {
-      const [sheetId, key] = nodeId.split('\u0000');
+    const cycleMembers = cycleFormulaNodes(nextGraph);
+    const pending = [...cycleMembers].sort();
+    const cycleResults = new Map<string, FormulaScalarValue>();
+    for (const nodeId of pending) {
+      const separator = nodeId.indexOf('\u0000');
+      const sheetId = nodeId.slice(0, separator);
+      const key = nodeId.slice(separator + 1);
       const identity = cellIdentityFromKey(key);
-      reusableResults.set(nodeId, diagnosticAtCell(diagnosticError('#CYCLE!', 'Cycle detected; the dependency path cannot be evaluated.'), identity ? { sheetId, ...identity } : undefined));
+      cycleResults.set(nodeId, diagnosticAtCell(diagnosticError('#CYCLE!', 'Cycle detected; the dependency path cannot be evaluated.'), identity ? { sheetId, ...identity } : undefined));
     }
+    for (let index = 0; index < pending.length; index += 1) {
+      const nodeId = pending[index];
+      for (const dependent of [...(nextGraph.dependents.get(nodeId) ?? [])].sort()) {
+        if (!nextFormulaNodes.has(dependent) || cycleResults.has(dependent)) continue;
+        const separator = dependent.indexOf('\u0000');
+        const sheetId = dependent.slice(0, separator);
+        const key = dependent.slice(separator + 1);
+        const identity = cellIdentityFromKey(key);
+        cycleResults.set(dependent, diagnosticAtCell(cycleResults.get(nodeId)!, identity ? { sheetId, ...identity } : undefined));
+        pending.push(dependent);
+      }
+    }
+    for (const [nodeId, value] of cycleResults) reusableResults.set(nodeId, value);
     const evaluator = new FormulaEvaluator(projection, reusableResults, onEvaluate, builtInFormulaFunctions, parse);
 
     this.snapshot = evaluator.evaluate();

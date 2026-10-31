@@ -8,6 +8,11 @@ import type { FormulaDependencyGraph } from '@calculation/formulaDependencies';
 export function cycleAffectedFormulaNodes(
   graph: FormulaDependencyGraph,
 ): Set<string> {
+  const cycleMembers = cycleFormulaNodes(graph);
+  return dependentFormulaClosure(cycleMembers, graph, new Set(graph.dependencies.keys()));
+}
+
+export function cycleFormulaNodes(graph: FormulaDependencyGraph): Set<string> {
   const formulas = new Set(graph.dependencies.keys());
   const finishOrder = dependencyFinishOrder(graph, formulas);
   const cycleMembers = new Set<string>();
@@ -43,7 +48,7 @@ export function cycleAffectedFormulaNodes(
     }
   }
 
-  return dependentFormulaClosure(cycleMembers, graph, formulas);
+  return cycleMembers;
 }
 
 function dependencyFinishOrder(

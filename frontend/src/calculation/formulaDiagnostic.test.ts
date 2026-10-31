@@ -57,4 +57,17 @@ describe('calculation diagnostics', () => {
     expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=ABS("three")', 'inputs'))).toMatchObject({ message: 'Expected a number, got text "three".' });
     expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=SQRT(-2)', 'inputs'))).toMatchObject({ message: 'Invalid numeric argument -2.' });
   });
+
+  it('retains the dependency path from a cycle-dependent cell to a bounded cycle marker', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=@B[1]', B1: '=@A[1]', C1: '=@A[1]', D1: '=@C[1]' } });
+    const calculation = new FormulaCalculation();
+    calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[3] });
+    expect(calculation.diagnostic('inputs', key)).toMatchObject({
+      message: 'Propagated #CYCLE!', cell: { columnId: sheet.content.columns[3] },
+      causes: [{ message: 'Propagated #CYCLE!', cell: { columnId: sheet.content.columns[2] }, causes: [
+        { message: 'Cycle detected; the dependency path cannot be evaluated.', cell: { columnId: sheet.content.columns[0] }, causes: [] },
+      ] }],
+    });
+  });
 });
