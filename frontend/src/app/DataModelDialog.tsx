@@ -162,6 +162,12 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
           {draft.columns.map((column, index) => <div className="model-property" data-property-id={column.id} key={column.id}>
             <div className={`model-property-row${editingFormula === column.id && formulaMode === 'heavy' ? ' model-property-row-expanded' : ''}`}>
             <input aria-label={`Property ${index + 1} name`} placeholder="Property name" disabled={saving} onChange={(event) => updateColumn(index, { name: event.target.value })} onKeyDown={(event) => {
+              if (!event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                const adjacent = draft.columns[index + (event.key === 'ArrowUp' ? -1 : 1)];
+                if (adjacent) dialogRef.current?.querySelector<HTMLInputElement>(`[data-property-id="${adjacent.id}"] input`)?.focus();
+                event.preventDefault();
+                return;
+              }
               if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return;
               if (event.key === 'Enter') addColumn(index + 1);
               else if (event.key === 'Delete') removeColumn(index);
