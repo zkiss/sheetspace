@@ -54,6 +54,33 @@ function modelSelect() {
 }
 
 describe('App model binding workflow', () => {
+  it('reconciles successive admitted records and clears the entry fields', async () => {
+    const { workbook } = inputsWorkbook();
+    const initial = { ...workbook, dataModels: { invoice: declaredModel } };
+    const apiClient = persistedWorkbookClient(initial);
+    let admitted = 0;
+    apiClient.admitRecord.mockImplementation(async (_sheetId, rowId) => {
+      const bound = apiClient.saveModelLifecycle.mock.calls[0]![1].documents.inputs!;
+      admitted += 1;
+      return { rowId, sheet: { ...bound, revision: bound.revision + admitted,
+        content: { ...bound.content, rows: Array.from({ length: admitted }, (_, index) => `row-${index}`) } } };
+    });
+    render(<App initialWorkbook={initial} apiClient={apiClient} />);
+    fireEvent.click(cellAt('A1'));
+    fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
+    const amount = screen.getByRole('textbox', { name: 'Amount new record' });
+    for (const value of ['3', '5']) {
+      fireEvent.change(amount, { target: { value } });
+      fireEvent.keyDown(amount, { key: 'Enter' });
+      await waitFor(() => expect(frame()).toHaveAttribute('data-row-count', value === '3' ? '1' : '2'));
+      expect(amount).toHaveValue('');
+    }
+    expect(apiClient.admitRecord).toHaveBeenCalledTimes(2);
+  });
+
   it('wires an empty bound sheet entry draft to validation and retains it after a failed save', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { workbook } = inputsWorkbook();
