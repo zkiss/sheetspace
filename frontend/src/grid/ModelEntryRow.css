@@ -1,0 +1,7 @@
+.model-entry-row { display: flex; background: var(--surface, white); }
+.model-entry-cell { position: relative; flex: 1; min-width: 0; border: 1px solid #ccc; }
+.model-entry-cell input { box-sizing: border-box; width: 100%; height: 100%; border: 0; background: transparent; }
+.model-entry-cell input.model-entry-invalid { background: #ffe5e5; outline: 2px solid #c32626; outline-offset: -2px; }
+.model-entry-calculated { background: #eee; }
+.model-entry-feedback { position: absolute; z-index: 5; top: 100%; background: white; color: #a00000; border: 1px solid #a00000; }
+.model-entry-failure { position: absolute; z-index: 5; background: white; color: #a00000; }
