@@ -4,6 +4,17 @@ import { sheetDocument } from '@test-support/workbookFactories';
 import { SheetContextMenu } from './SheetContextMenu';
 
 describe('context-menu percentage scaling', () => {
+  it('offers structural actions only for unbound sheets', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const props = { menu: { sheetId: sheet.id, x: 0, y: 0 }, sheet, onSetScale: vi.fn(),
+      onAppendColumn: vi.fn(), onAppendRow: vi.fn(), onChangeZOrder: vi.fn(), onDelete: vi.fn(), onRename: vi.fn() };
+    const { rerender } = render(<SheetContextMenu {...props} />);
+    expect(screen.getByRole('menuitem', { name: 'Append row' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Append column' })).toBeInTheDocument();
+    rerender(<SheetContextMenu {...props} sheet={{ ...sheet, modelId: 'model' }} />);
+    expect(screen.queryByRole('menuitem', { name: 'Append row' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Append column' })).not.toBeInTheDocument();
+  });
   it('preserves fractional percentages and resets the draft when the sheet changes', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.1234 });
     const onSetScale = vi.fn();

@@ -5,6 +5,7 @@ type ModelCommandResult = { ok: true } | { ok: false; reason: string };
 type ModelCommandSubmission = { result: ModelCommandResult; completion: Promise<ModelCommandResult> };
 
 function failureMessage(result: { ok: false; reason: string }) {
+  if (result.reason === 'data-outside-model') return 'Move or clear data outside the model columns before binding.';
   if (result.reason === 'persistence-failed') return 'The data model change was not saved. Try again.';
   if (result.reason.startsWith('pending-')) return 'Wait for the current data model change to finish.';
   return 'The data model change was not applied.';

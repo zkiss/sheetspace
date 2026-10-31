@@ -81,7 +81,7 @@ it('projects qualified references in another model before binding a new consumer
   const model = declaration([manualProperty('input', 'Input')]);
   const consumer = { id: 'consumer', name: 'Consumer', columns: [calculatedProperty('result', '=@Source!Input[1]*2', 'Result')] };
   const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '4' } });
-  const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 1, columnCount: 1 });
+  const destination = sheetDocument({ id: 'destination', name: 'Destination', rowCount: 1, columnCount: 1, cells: { A1: 'existing' } });
   const initial = { ...modelWorkbook(model, [source, destination]), dataModels: { model, consumer } };
   const bound = successfulModelMutation(bindSheetToModel(initial, source.id, model.id, freshColumns()));
   const renamed = successfulModelMutation(replaceModelDeclaration(bound, { ...model, columns: [manualProperty('input', "Owner's cost")] }, freshColumns()));
@@ -94,8 +94,8 @@ it('projects qualified references in another model before binding a new consumer
 it('binds a new consumer to a renamed ordinary column without changing existing bindings', () => {
   const consumer = declaration([calculatedProperty('result', '=@Source!Old[1]*2', 'Result')]);
   const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '7' } });
-  const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 1 });
-  const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 1 });
+  const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 1, cells: { A1: 'existing' } });
+  const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 1, cells: { A1: 'existing' } });
   const initial = modelWorkbook(consumer, [{ ...source, columnNames: { [source.content.columns[0]]: 'Old' } }, first, second]);
   const bound = bindModelSheets(initial, ['first']);
   const result = renameOrdinaryColumn(bound, source.id, source.content.columns[0], 'New name');

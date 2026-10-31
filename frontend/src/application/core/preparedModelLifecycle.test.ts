@@ -51,7 +51,7 @@ describe('prepared model lifecycle', () => {
   it('retains deleted target identity through replacement and declaration rename', () => {
     const model = declaration([calculatedProperty('result', '=@Source!A[1]', 'Result')]);
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '4' } });
-    const output = sheetDocument({ id: 'sheet', name: 'Output', rowCount: 1, columnCount: 1 });
+    const output = sheetDocument({ id: 'sheet', name: 'Output', rowCount: 1, columnCount: 1, cells: { A1: 'existing' } });
     const bound = success(bindPreparedSheet({ workbook: modelWorkbook(model, [source, output]), bindings: {} }, 'sheet', model.id, freshColumns()));
     const replacement = sheetDocument({ id: 'replacement', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '9' } });
     const changed = { ...bound, workbook: { ...bound.workbook, documents: { sheet: bound.workbook.documents.sheet, replacement } } };

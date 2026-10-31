@@ -144,6 +144,7 @@ export function useSavedSheetAutosave({
     hasRetryableFailures,
     markSaved: useCallback(() => undefined, []),
     outboxSnapshot: snapshot,
+    currentOutboxSnapshot: () => outbox.snapshot(),
     hasModelTransition: () => outbox.hasModelTransition(),
     hasFailedPrerequisiteForModelTransition: () => outbox.hasFailedPrerequisiteForModelTransition(),
     modelTransitionIsBlockedByFailedPrerequisite: (operationId: string) => outbox.modelTransitionIsBlockedByFailedPrerequisite(operationId),

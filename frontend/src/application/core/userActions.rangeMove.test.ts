@@ -126,7 +126,7 @@ describe('range move preparation', () => {
 
   it('rejects the entire prepared move when a calculated dependent is protected', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2, cells: { A1: '10' } });
-    const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 2, columnCount: 1 });
+    const dependent = sheetDocument({ id: 'dependent', name: 'Dependent', rowCount: 2, columnCount: 1, cells: { A1: '1' } });
     const workbook = bindModelSheets(modelWorkbook(declaration([calculatedProperty('result', '=@Source!A[1]*2')]), [source, dependent]), ['dependent']);
     const before = structuredClone(workbook);
     const prepared = prepareStoredMoveCellWrites(workbook, source.id, cellIdentityAt(source.content, 'A2')!, snapshot(source, 'A1'));

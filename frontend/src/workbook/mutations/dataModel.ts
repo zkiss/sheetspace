@@ -1,7 +1,7 @@
 import type { DataModel, SheetDocument, SheetId, Workbook } from '../core/model';
 import { projectRenamedModelFormulas } from '../formula/renamedModelFormulas';
 
-export type ModelMutationResult = { ok: true; value: Workbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'invalid-model' };
+export type ModelMutationResult = { ok: true; value: Workbook } | { ok: false; reason: 'unknown-model' | 'unknown-sheet' | 'duplicate-model' | 'invalid-model' | 'data-outside-model' };
 
 /** Validates declarations only: model metadata never changes sheet content. */
 export function validateDataModel(model: DataModel): ModelMutationResult | undefined {

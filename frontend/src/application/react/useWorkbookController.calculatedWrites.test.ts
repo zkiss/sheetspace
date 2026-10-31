@@ -18,7 +18,7 @@ const model: DataModel = { id: 'model', name: 'Model', columns: [
 
 /** A sheet whose middle column is owned by a calculated property of its model. */
 function boundWorkbook(): Workbook {
-  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 3, cells: { A1: '3', C1: 'text' } });
+  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 3, cells: { A1: '3', C1: 'text', B2: '1' } });
   const workbook: Workbook = { ...workbookWithSheets([sheet]), dataModels: { model } };
   const bound = bindSheetToModel(workbook, sheet.id, model.id, () => 'unused');
   if (!bound.ok) throw new Error(bound.reason);

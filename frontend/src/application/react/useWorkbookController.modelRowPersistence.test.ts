@@ -4,7 +4,7 @@ import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
-import { decodeWorkbookBundle, encodeWorkbookBundle, WorkbookApiError } from '@infrastructure/persistence/workbookApi';
+import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
@@ -24,7 +24,220 @@ function boundWorkbook(): Workbook {
 }
 
 describe('calculated row persistence', () => {
-  it('persists the two-sheet model workflow through editing, reload, append, and unbind', async () => {
+  it('rejects invalid drafts without dispatch and protects unfinished input from unbinding', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+
+    act(() => result.current.commands.changeEntryField('sheet', 'input', 'not a number'));
+    let submission: Awaited<ReturnType<typeof result.current.commands.submitEntryDraft>>;
+    await act(async () => { submission = await result.current.commands.submitEntryDraft('sheet'); });
+
+    expect(submission!.firstInvalid).toBe('input');
+    expect(api.admitRecord).not.toHaveBeenCalled();
+    act(() => { expect(result.current.commands.unbindSheetFromModel('sheet').result).toMatchObject({ ok: false }); });
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('not a number');
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
+  });
+
+  it('does not dispatch incomplete, erroneous or type-incompatible formulas', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    for (const raw of ['=', '=1+', '=1/0', '="text"']) {
+      act(() => result.current.commands.changeEntryField('sheet', 'input', raw));
+      await act(async () => expect(await result.current.commands.submitEntryDraft('sheet')).toMatchObject({ firstInvalid: 'input' }));
+    }
+    expect(api.admitRecord).not.toHaveBeenCalled();
+  });
+
+  it('retries an ambiguous admission with the same identity and reconciles only on success', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.admitRecord.mockRejectedValueOnce(new Error('connection lost')).mockImplementationOnce(async (_sheetId, rowId) => ({
+      rowId,
+      sheet: { ...workbook.documents.sheet!, revision: workbook.documents.sheet!.revision + 1,
+        content: { ...workbook.documents.sheet!.content, rows: [...workbook.documents.sheet!.content.rows, rowId] } },
+    }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
+
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).toHaveBeenCalledTimes(2);
+    expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+  });
+  it('retains a rejected draft for correction and submits it with a new identity', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('invalid', 400, 'invalid-model-record'))
+      .mockImplementationOnce(async (_sheetId, rowId) => ({ rowId, sheet: { ...workbook.documents.sheet!, revision: 2 } }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(result.current.entrySessions.sheet).toMatchObject({ draft: { fields: { input: { raw: '5' } } }, failure: expect.stringContaining('Correct') });
+    expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[1]![1]).not.toBe(api.admitRecord.mock.calls[0]![1]);
+    expect(api.admitRecord.mock.calls[1]![2]).toEqual({ input: '8' });
+  });
+
+  it('reloads a revision conflict before allowing a fresh submission', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.loadSheet.mockResolvedValue({ ...workbook.documents.sheet!, revision: 7 });
+    api.admitRecord.mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'))
+      .mockImplementationOnce(async (_sheetId, rowId) => ({ rowId, sheet: { ...workbook.documents.sheet!, revision: 8 } }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.loadSheet).toHaveBeenCalledWith('sheet');
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[1]![1]).not.toBe(api.admitRecord.mock.calls[0]![1]);
+    expect(api.admitRecord.mock.calls[1]![3]).toBe(7);
+  });
+
+  it('keeps the original retry locked if conflict recovery cannot reload the sheet', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.loadSheet.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...workbook.documents.sheet!, revision: 7 });
+    api.admitRecord.mockRejectedValue(new WorkbookApiError('conflict', 409, 'sheet-revision-conflict'));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: expect.stringContaining('could not be reloaded') });
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.entrySessions.sheet!.retryRequired).toBeUndefined();
+  });
+  it('retries the captured formula after a cross-sheet dependency becomes invalid', async () => {
+    const bound = boundWorkbook();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1, cells: { A1: '5' } });
+    const workbook: Workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: [...bound.manifest.sheetIds, other.id] }, documents: { ...bound.documents, other } };
+    const api = persistedWorkbookClient(workbook);
+    api.admitRecord.mockRejectedValueOnce(new Error('connection lost')).mockImplementationOnce(async (_sheetId, rowId) => ({
+      rowId,
+      sheet: { ...workbook.documents.sheet!, revision: workbook.documents.sheet!.revision + 1,
+        content: { ...workbook.documents.sheet!.content, rows: [...workbook.documents.sheet!.content.rows, rowId] } },
+    }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '=@Other!A[1]'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+
+    act(() => { expect(result.current.commands.updateCellContent('other', 'A1', 'text')).toMatchObject({ ok: true }); });
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+
+    expect(api.admitRecord).toHaveBeenCalledTimes(2);
+    expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+  });
+  it('admits complete records locally without persistence and starts a fresh draft', async () => {
+    const workbook = boundWorkbook();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
+
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+
+    const local = result.current.workbook;
+    expect(local.documents.sheet!.content.rows).toHaveLength(2);
+    expect(cellRawContent(local.documents.sheet!, 'A2')).toBe('5');
+    expect(projectStoredFormula(cellRawContent(local.documents.sheet!, 'B2')!, local, 'sheet').text).toBe('=SUM(@A[2])');
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+  });
+  it('protects the admitting sheet while allowing edits to another sheet', async () => {
+    const bound = boundWorkbook();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    const workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: [...bound.manifest.sheetIds, other.id] }, documents: { ...bound.documents, other } };
+    const api = persistedWorkbookClient(workbook);
+    let reject!: (error: Error) => void;
+    api.admitRecord.mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    let submission!: Promise<unknown>;
+    act(() => { submission = result.current.commands.submitEntryDraft('sheet'); });
+    await waitFor(() => expect(api.admitRecord).toHaveBeenCalledTimes(1));
+    act(() => {
+      expect(result.current.commands.updateCellContent('sheet', 'A1', '8')).toMatchObject({ ok: false });
+      expect(result.current.commands.updateCellContent('other', 'A1', '9')).toMatchObject({ ok: true });
+      expect(result.current.commands.deleteSheet('sheet')).toMatchObject({ ok: false });
+    });
+    act(() => result.current.commands.undo());
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
+    act(() => result.current.commands.redo());
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
+    await act(async () => { reject(new Error('connection lost')); await submission; });
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
+    act(() => result.current.commands.undo());
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBeUndefined();
+    act(() => result.current.commands.redo());
+    expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
+  });
+  it('removes an externally deleted sheet and its locked draft after a deferred admission returns missing', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    let reject!: (error: Error) => void;
+    api.admitRecord.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    let submission!: Promise<unknown>;
+    act(() => { submission = result.current.commands.submitEntryDraft('sheet'); });
+    await waitFor(() => expect(api.admitRecord).toHaveBeenCalledTimes(1));
+    expect(result.current.entrySessions.sheet).toMatchObject({ pending: true, retryRequired: true });
+
+    await act(async () => { reject(new WorkbookApiError('missing', 404, 'sheet-not-found')); await submission; });
+
+    expect(result.current.workbook.documents.sheet).toBeUndefined();
+    expect(result.current.workbook.manifest.sheetIds).not.toContain('sheet');
+    expect(result.current.entrySessions.sheet).toBeUndefined();
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(result.current.workbook.documents.sheet).toBeUndefined();
+  });
+  it('waits for a preceding cell save before capturing the admission revision', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    const write = api.writeCells.getMockImplementation()!;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    api.writeCells.mockImplementationOnce(async (...args) => {
+      await held;
+      const response = await write(...args);
+      return { sheets: response.sheets.map((sheet: { sheetId: string; revision: number }) => ({ ...sheet, revision: sheet.revision + 1 })) };
+    });
+    api.admitRecord.mockImplementationOnce(async (_sheetId, rowId) => {
+      const saved = await api.loadWorkbook();
+      const sheet = saved.documents.sheet!;
+      return { rowId, sheet: { ...sheet, revision: sheet.revision + 1, content: { ...sheet.content, rows: [...sheet.content.rows, rowId] } } };
+    });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => { result.current.commands.updateCellContent('sheet', 'A1', '8'); });
+    await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(1));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    let submission!: Promise<unknown>;
+    act(() => { submission = result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).not.toHaveBeenCalled();
+    await act(async () => { release(); await submission; });
+    expect(api.admitRecord).toHaveBeenCalledWith('sheet', expect.any(String), expect.anything(), workbook.documents.sheet!.revision + 1);
+    expect(cellRawContent(result.current.workbook.documents.sheet!, 'A1')).toBe('8');
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+  });
+  it('persists the two-sheet model workflow through editing, reload, and unbind', async () => {
     const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 2, cells: { A1: '3' }, presentation: { rowHeights: { 'first:row:1': 31 }, columnWidths: {} } });
     const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 2, cells: { A1: '7' }, presentation: { rowHeights: {}, columnWidths: { 'second:column:1': 123 } } });
     const workflowModel: DataModel = { id: 'model', name: 'Model', columns: [
@@ -58,7 +271,8 @@ describe('calculated row persistence', () => {
 
     expect(cellRawContent(result.current.workbook.documents.first!, 'B1')).toBe('3');
     expect(cellRawContent(result.current.workbook.documents.second!, 'B1')).toBe('7');
-    expect(projectStoredFormula(cellRawContent(result.current.workbook.documents.first!, 'A2')!, result.current.workbook, 'first').text).toMatch(/^=SUM\(/);
+    expect(result.current.workbook.documents.first!.content.rows).toHaveLength(1);
+    expect(api.appendRow).not.toHaveBeenCalled();
     expect(result.current.workbook.documents.first!.presentation.rowHeights['first:row:1']).toBe(31);
     expect(result.current.workbook.documents.second!.presentation.columnWidths['second:column:1']).toBe(123);
     unmount();
@@ -75,7 +289,7 @@ describe('calculated row persistence', () => {
     expect(reloaded.current.commands.updateCellContent('first', 'A1', '9')).toEqual({ ok: true, changed: true });
   });
 
-  it('materializes an appended calculated row through the append route without an ordinary protected write', async () => {
+  it('rejects generic append on a bound sheet without persistence or partial rows', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
@@ -83,13 +297,10 @@ describe('calculated row persistence', () => {
     act(() => { result.current.commands.appendRow('sheet'); });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
 
-    expect(api.appendRow).toHaveBeenCalledTimes(1);
+    expect(api.appendRow).not.toHaveBeenCalled();
     expect(api.writeCells).not.toHaveBeenCalled();
-    const local = result.current.workbook;
-    expect(projectStoredFormula(cellRawContent(local.documents.sheet!, 'B2')!, local, 'sheet').text).toBe('=SUM(@A[2])');
-    expect(cellRawContent(local.documents.sheet!, 'A1')).toBe('3');
-    const reloaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(await api.loadWorkbook()))));
-    expect(reloaded).toEqual(local);
+    expect(result.current.workbook).toEqual(workbook);
+    expect(await api.loadWorkbook()).toEqual(workbook);
   });
 
   it('persists the calculated bindings and derived contents atomically through the lifecycle route', async () => {

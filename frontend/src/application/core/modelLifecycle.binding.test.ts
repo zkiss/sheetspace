@@ -9,6 +9,7 @@ import type { DataModel } from '@workbook/core/model';
 import { commitCellRawContent, commitStoredCellContent, renameSheet } from '@workbook/mutations/operations';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { instantiateModelFormula } from '@workbook/formula/modelTemplate';
 import type { Workbook } from '@workbook/core/model';
 
 const writeFormula = (workbook: Workbook, sheetId: string, key: string, formula: string) =>
@@ -18,21 +19,34 @@ const model = declaration([manualProperty('input'), calculatedProperty('result',
 const makeSheet = (columnCount = 2, rowCount = 2) => sheetDocument({ id: 'sheet', name: 'Sheet', columnCount, rowCount, cells: rowCount && columnCount ? { A1: '3', ...(columnCount > 1 ? { B1: 'overwritten' } : {}) } : {} });
 
 describe('explicit positional binding', () => {
-  it.each([0, 1, 2, 4])('reconciles width %i to the declaration while keeping rows and surviving identities', (width) => {
+  it('removes unused rows and their presentation while retaining populated row identity', () => {
+    const base = makeSheet();
+    const [first, second] = base.content.rows;
+    const sheet = { ...base, presentation: { ...base.presentation, rowHeights: { [second!]: 42 } } };
+    const bound = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']).documents.sheet!;
+
+    expect(bound.content.rows).toEqual([first]);
+    expect(bound.presentation.rowHeights).toEqual({});
+    expect(bound.content.columns).toHaveLength(2);
+  });
+  it.each([0, 1, 2, 4])('reconciles width %i to the declaration and retains populated rows', (width) => {
     const sheet = makeSheet(width);
     const workbook = modelWorkbook(model, [sheet]);
 
     const bound = bindModelSheets(workbook, ['sheet']);
     const next = bound.documents.sheet!;
 
-    expect(next.content.columns).toHaveLength(Math.max(width, 2));
+    expect(next.content.columns).toHaveLength(2);
     expect(next.content.columns.slice(0, Math.min(width, 2))).toEqual(sheet.content.columns.slice(0, 2));
-    expect(next.content.rows).toBe(sheet.content.rows);
+    expect(next.content.rows).toEqual(width ? [sheet.content.rows[0]] : []);
     expect(next.modelColumnBindings).toEqual({ input: next.content.columns[0], result: next.content.columns[1] });
-    expect(projectStoredFormula(next.modelFormulaBindings!.result.content, bound, 'sheet').text).toBe('=@A[1]*2');
+    const withRow = width ? bound : { ...bound, documents: { ...bound.documents, sheet: { ...next, content: { ...next.content, rows: ['new-row'] } } } };
+    const instance = instantiateModelFormula(next.modelFormulaBindings!.result, withRow, 0, '=@A[1]*2', 'sheet');
+    expect(projectStoredFormula(instance, withRow, 'sheet').text).toBe('=@A[1]*2');
     expect(storedModelCells(bound).A1).toBe(width ? '3' : undefined);
-    expect(calculatedModelCells(bound).sheet.B1).toMatchObject(width ? { kind: 'number', value: 6 } : { error: '#VALUE!' });
-    expect(calculatedModelCells(bound).sheet.B2).toMatchObject({ error: '#VALUE!' });
+    if (width) expect(calculatedModelCells(bound).sheet.B1).toMatchObject({ kind: 'number', value: 6 });
+    else expect(calculatedModelCells(bound).sheet.B1).toBeUndefined();
+    expect(calculatedModelCells(bound).sheet.B2).toBeUndefined();
     expect(workbook.documents.sheet).toBe(sheet);
     expect(sheet.modelId).toBeUndefined();
   });
@@ -50,7 +64,7 @@ describe('explicit positional binding', () => {
     expect(calculatedModelCells(bound).second.B1).toMatchObject({ value: 22 });
   });
 
-  it('preserves extra column presentation and data without changing frame or retained row/cell presentation', () => {
+  it('prunes extra column presentation while retaining surviving presentation', () => {
     const base = makeSheet(3);
     const [a, b, c] = base.content.columns;
     const row = base.content.rows[0]!;
@@ -58,26 +72,47 @@ describe('explicit positional binding', () => {
     const removedCell = cellIdentityKey({ rowId: row, columnId: c! });
     const sheet = { ...base, presentation: { rowHeights: { [row]: 44 }, columnWidths: { [a!]: 81, [b!]: 99, [c!]: 105 }, formatOverrides: {
       rows: { [row]: { fontWeight: 'bold' as const } }, columns: { [a!]: { fillColor: '#123456' as const }, [c!]: { fontWeight: 'bold' as const } }, cells: { [firstCell]: { horizontalAlignment: 'right' as const }, [removedCell]: { fontWeight: 'bold' as const } },
-    } }, content: { ...base.content, cells: { ...base.content.cells, [removedCell]: 'discard' } } };
+    } } };
 
     const next = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']).documents.sheet!;
 
     expect(next.frame).toBe(sheet.frame);
-    expect(next.presentation.rowHeights).toBe(sheet.presentation.rowHeights);
-    expect(next.presentation.columnWidths).toEqual(sheet.presentation.columnWidths);
-    expect(next.presentation.formatOverrides).toEqual(sheet.presentation.formatOverrides);
-    expect(next.content.cells[removedCell]).toBe('discard');
+    expect(next.presentation.rowHeights).toEqual(sheet.presentation.rowHeights);
+    expect(next.presentation.columnWidths).toEqual({ [a!]: 81, [b!]: 99 });
+    expect(next.presentation.formatOverrides).toEqual({ rows: sheet.presentation.formatOverrides.rows, columns: { [a!]: { fillColor: '#123456' } }, cells: { [firstCell]: { horizontalAlignment: 'right' } } });
+    expect(next.content.cells[removedCell]).toBeUndefined();
   });
 
-  it('allows empty rows and zero properties without deleting row identities', () => {
+  it('rejects binding without changing data or row identities when excluded columns contain data', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 3, rowCount: 2, cells: { A1: 'kept', C1: 'also kept', C2: '=1+2' } });
+    const workbook = modelWorkbook(model, [sheet]);
+    const allocate = vi.fn(() => 'new-column');
+
+    expect(bindSheetToModel(workbook, 'sheet', model.id, allocate)).toEqual({ ok: false, reason: 'data-outside-model' });
+    expect(workbook.documents.sheet).toEqual(sheet);
+    expect(allocate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a narrower rebind and permits binding after the excluded data is cleared', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1, cells: { A1: '1' } });
+    const bound = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']);
+    const narrow = declaration([manualProperty('only')]);
+    const withNarrow = { ...bound, dataModels: { ...bound.dataModels, narrow: { ...narrow, id: 'narrow' } } };
+
+    expect(bindSheetToModel(withNarrow, 'sheet', 'narrow', freshColumns())).toEqual({ ok: false, reason: 'data-outside-model' });
+    const empty = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 3, rowCount: 2 });
+    expect(bindSheetToModel(modelWorkbook(model, [empty]), 'sheet', model.id, freshColumns()).ok).toBe(true);
+  });
+
+  it('allows empty sheets and zero properties without retaining unused allocation', () => {
     const emptyRows = bindModelSheets(modelWorkbook(model, [makeSheet(1, 0)]), ['sheet']);
-    const sheet = makeSheet(2);
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 2 });
     const emptyProperties = bindModelSheets(modelWorkbook(declaration([]), [sheet]), ['sheet']);
 
     expect(emptyRows.documents.sheet!.content.rows).toEqual([]);
     expect(emptyRows.documents.sheet!.content.cells).toEqual({});
     expect(emptyRows.documents.sheet!.modelFormulaBindings?.result).toBeDefined();
-    expect(emptyProperties.documents.sheet!.content).toEqual(sheet.content);
+    expect(emptyProperties.documents.sheet!.content).toEqual({ kind: 'tabular', rows: [], columns: [], cells: {} });
   });
 
   it('preserves parseable broken manual references without damaging valid conditional branches', () => {
@@ -107,7 +142,7 @@ describe('explicit unbinding and model switching', () => {
     ['=@B[1]', { kind: 'text', value: '#CYCLE!' }],
     ['=@A[1]', { kind: 'blank' }],
   ] as const)('freezes %s as a non-executable underlying value', (formula, expected) => {
-    const blankInput = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1 });
+    const blankInput = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1, cells: { B1: 'existing' } });
     const type = expected.kind === 'boolean' ? 'boolean' : expected.kind === 'text' && !expected.value.startsWith('#') ? 'string' : 'float';
     const bound = bindModelSheets(modelWorkbook(declaration([manualProperty('input'), { ...calculatedProperty('result', formula), type }]), [blankInput]), ['sheet']);
 

@@ -193,7 +193,8 @@ export function useGridAxisCreationOperations({
   }, [execute, queue]);
 
   const append = useCallback((sheetId: string, axis: AxisKind) => {
-    if (!autosaveEnabled || persistenceCoordinator.isSheetMissing(sheetId) || !findSheetById(currentWorkbook(), sheetId)) return;
+    const sheet = findSheetById(currentWorkbook(), sheetId);
+    if (!autosaveEnabled || persistenceCoordinator.isSheetMissing(sheetId) || !sheet || sheet.modelId) return;
     queue.enqueue({ operationId: crypto.randomUUID(), sheetId, axis });
     pump();
   }, [autosaveEnabled, currentWorkbook, persistenceCoordinator, pump, queue]);

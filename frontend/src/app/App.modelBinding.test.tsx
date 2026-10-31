@@ -54,6 +54,68 @@ function modelSelect() {
 }
 
 describe('App model binding workflow', () => {
+  it('reconciles successive admitted records and clears the entry fields', async () => {
+    const { workbook } = inputsWorkbook();
+    const initial = { ...workbook, dataModels: { invoice: declaredModel } };
+    const apiClient = persistedWorkbookClient(initial);
+    let admitted = 0;
+    apiClient.admitRecord.mockImplementation(async (_sheetId, rowId) => {
+      const bound = apiClient.saveModelLifecycle.mock.calls[0]![1].documents.inputs!;
+      admitted += 1;
+      return { rowId, sheet: { ...bound, revision: bound.revision + admitted,
+        content: { ...bound.content, rows: Array.from({ length: admitted }, (_, index) => `row-${index}`) } } };
+    });
+    render(<App initialWorkbook={initial} apiClient={apiClient} />);
+    fireEvent.click(cellAt('A1'));
+    fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
+    const amount = screen.getByRole('textbox', { name: 'Amount new record' });
+    for (const value of ['3', '5']) {
+      fireEvent.change(amount, { target: { value } });
+      fireEvent.keyDown(amount, { key: 'Enter' });
+      await waitFor(() => expect(frame()).toHaveAttribute('data-row-count', value === '3' ? '1' : '2'));
+      expect(amount).toHaveValue('');
+    }
+    expect(apiClient.admitRecord).toHaveBeenCalledTimes(2);
+  });
+
+  it('wires an empty bound sheet entry draft to validation and retains it after a failed save', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { workbook } = inputsWorkbook();
+    const initial = { ...workbook, dataModels: { invoice: declaredModel } };
+    const apiClient = persistedWorkbookClient(initial);
+    apiClient.admitRecord.mockRejectedValue(new Error('offline'));
+    render(<App initialWorkbook={initial} apiClient={apiClient} />);
+
+    fireEvent.click(cellAt('A1'));
+    fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
+    expect(frame()).toHaveAttribute('data-row-count', '0');
+    const amount = screen.getByRole('textbox', { name: 'Amount new record' });
+    const tax = screen.getByRole('textbox', { name: 'Tax new record' });
+    fireEvent.change(amount, { target: { value: 'bad' } });
+    expect(amount).toHaveAttribute('aria-invalid', 'false');
+    fireEvent.blur(amount);
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Amount validation' }));
+    expect(amount).toHaveValue('bad');
+    expect(amount).toHaveClass('model-entry-invalid');
+    fireEvent.keyDown(tax, { key: 'Enter' });
+    await waitFor(() => expect(amount).toHaveFocus());
+    expect(apiClient.admitRecord).not.toHaveBeenCalled();
+    fireEvent.change(amount, { target: { value: '3' } });
+    expect(amount).not.toHaveClass('model-entry-invalid');
+    fireEvent.keyDown(amount, { key: 'Enter' });
+    await waitFor(() => expect(apiClient.admitRecord).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry saving record' })).toBeInTheDocument());
+    expect(amount).toHaveValue('3');
+    expect(frame()).toHaveAttribute('data-row-count', '0');
+  });
+
   it('persists the bounded two-sheet product workflow and leaves a cancelled destructive draft unchanged', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const first = sheetDocument({
@@ -127,9 +189,10 @@ describe('App model binding workflow', () => {
     expect(cellInFrame(firstFrame, 'A1')).toHaveTextContent('6');
     expect(cellInFrame(secondFrame, 'A1')).toHaveTextContent('14');
 
-    fireEvent.click(within(openSheetContextMenu(firstFrame)).getByRole('menuitem', { name: 'Append row' }));
-    await waitFor(() => expect(apiClient.appendRow).toHaveBeenCalledTimes(1));
-    expect(cellInFrame(firstFrame, 'A2')).toHaveTextContent('0');
+    const boundMenu = within(openSheetContextMenu(firstFrame));
+    expect(boundMenu.queryByRole('menuitem', { name: 'Append row' })).not.toBeInTheDocument();
+    expect(boundMenu.queryByRole('menuitem', { name: 'Append column' })).not.toBeInTheDocument();
+    expect(apiClient.appendRow).not.toHaveBeenCalled();
 
     cleanup();
     render(<App apiClient={apiClient} />);
@@ -138,7 +201,7 @@ describe('App model binding workflow', () => {
     expect(columnLabelsFor(reloadedFirst)).toEqual(['Output', 'Input']);
     expect(cellInFrame(reloadedFirst, 'A1')).toHaveTextContent('6');
     expect(cellInFrame(reloadedSecond, 'A1')).toHaveTextContent('14');
-    expect(reloadedFirst).toHaveAttribute('data-row-count', '2');
+    expect(reloadedFirst).toHaveAttribute('data-row-count', '1');
     expect(cellInFrame(reloadedFirst, 'B1')).toHaveStyle({ height: '31px' });
     expect(cellInFrame(reloadedSecond, 'B1')).toHaveStyle({ width: '123px' });
 
@@ -148,7 +211,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm unbind' }));
     await waitFor(() => expect(screen.queryByLabelText('Bound to Receipt')).not.toBeInTheDocument());
     activateCellEditor(cellInFrame(reloadedFirst, 'A1'));
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'First A1 editor' });
     fireEvent.change(editor, { target: { value: '9' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
     await waitFor(() => expect(cellInFrame(reloadedFirst, 'A1')).toHaveTextContent('9'));
@@ -178,7 +241,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
 
     await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
-    await waitFor(() => expect(columnLabels()).toEqual(['Amount', 'Tax', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Amount', 'Tax']));
 
     openSheetContextMenu(frame());
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
@@ -188,8 +251,7 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(edit).getByLabelText('Property 1 name'), { target: { value: 'Total' } });
     fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
-    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Total', 'Tax']));
 
     openSheetContextMenu(frame());
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
@@ -197,7 +259,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(reorder).getByRole('button', { name: 'Move property 2 up' }));
     fireEvent.click(within(reorder).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Total', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Total']));
   });
 
   it('reports a rejected binding persistence and restores the unbound sheet with its selection', async () => {
@@ -219,7 +281,7 @@ describe('App model binding workflow', () => {
 
   it('renders calculated cells read-only from the live declaration and follows a property reorder', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const { workbook } = inputsWorkbook();
+    const workbook = workbookWithSheets([sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 48, y: 96 }, cells: { A1: '1' } })]);
     const apiClient = persistedWorkbookClient(workbook);
     render(<App initialWorkbook={workbook} apiClient={apiClient} />);
 
@@ -256,7 +318,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(reorder).getByRole('button', { name: 'Move property 2 up' }));
     fireEvent.click(within(reorder).getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Amount', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']));
+    await waitFor(() => expect(columnLabels()).toEqual(['Tax', 'Amount']));
     expect(cellAt('A1')).toHaveAttribute('aria-readonly', 'true');
     expect(cellAt('B1')).not.toHaveAttribute('aria-readonly');
   });

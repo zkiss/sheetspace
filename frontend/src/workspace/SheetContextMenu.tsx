@@ -50,12 +50,12 @@ export function SheetContextMenu({
         zIndex: FLOATING_OVERLAY_Z_INDEX,
       }}
     >
-      <button type="button" role="menuitem" onClick={() => onAppendRow(sheet.id)}>
+      {!sheet.modelId && <><button type="button" role="menuitem" onClick={() => onAppendRow(sheet.id)}>
         Append row
       </button>
       <button type="button" role="menuitem" onClick={() => onAppendColumn(sheet.id)}>
         Append column
-      </button>
+      </button></>}
       <div aria-label="Display scale" className="sheet-context-menu-scale">
         <span className="sheet-context-menu-scale-label">Display scale</span>
         <label>

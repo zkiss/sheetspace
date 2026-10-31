@@ -1,5 +1,7 @@
 package com.sheetspace
 
+import java.security.MessageDigest
+
 data class CreateSheetCommand(
     val name: String,
     val position: WorkspacePosition = WorkspacePosition(),
@@ -60,6 +62,8 @@ enum class WorkbookApplicationError {
     UNKNOWN_DATA_MODEL,
     INVALID_MODEL_LIFECYCLE,
     MODEL_LIFECYCLE_CONFLICT,
+    BOUND_SHEET_STRUCTURE,
+    INVALID_MODEL_RECORD,
 }
 
 class WorkbookApplicationException(
@@ -91,6 +95,8 @@ interface WorkbookApplication {
 
     fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult
 
+    fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult
+
     fun saveDataModel(model: DataModel): DataModel
 
     fun updateSheetModel(sheetId: String, command: UpdateSheetModelCommand): SheetDocument
@@ -98,6 +104,7 @@ interface WorkbookApplication {
 
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
+    private val recordValidation: RecordValueValidation = SharedRecordValueValidation,
 ) : WorkbookApplication {
     override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
         store.updateWorkbook { current ->
@@ -258,6 +265,7 @@ class DefaultWorkbookApplication(
 
     override fun appendRow(sheetId: String, expectedRevision: Long): RowAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+            if (current.modelId != null) throw WorkbookApplicationException(WorkbookApplicationError.BOUND_SHEET_STRUCTURE)
             val appended = current.updateTabularContent(TabularContent::appendRow)
             val provisional = workbook.replaceSheet(appended)
             provisional.replaceSheet(materializeCalculatedRow(provisional, appended, appended.tabularContent.rows.last()))
@@ -267,9 +275,38 @@ class DefaultWorkbookApplication(
 
     override fun appendColumn(sheetId: String, expectedRevision: Long): ColumnAppendResult {
         val sheet = updateExistingSheet(sheetId, expectedRevision) { workbook, current ->
+            if (current.modelId != null) throw WorkbookApplicationException(WorkbookApplicationError.BOUND_SHEET_STRUCTURE)
             workbook.replaceSheet(current.updateTabularContent(TabularContent::appendColumn))
         }
         return ColumnAppendResult(sheet, sheet.tabularContent.columns.last())
+    }
+
+    override fun admitRecord(sheetId: String, expectedRevision: Long, rowId: String, values: Map<String, String>): RowAppendResult {
+        if (rowId.toUuidBytesOrNull() == null || expectedRevision < 0) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+        if (sheetId.toUuidBytesOrNull() == null) throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+        val id = SheetId(sheetId)
+        val row = RowId(rowId.toUuidBytesOrNull()!!.toUuidString())
+        val fingerprint = recordFingerprint(expectedRevision, values)
+        val updated = store.admitRecord(id, row, fingerprint) { workbook ->
+            val sheet = workbook.findSheet(id) ?: throw WorkbookApplicationException(WorkbookApplicationError.SHEET_NOT_FOUND)
+            val model = sheet.modelId?.let(workbook.dataModels::get) ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+            val manual = model.columns.filterIsInstance<ManualModelColumn>()
+            if (values.keys != manual.map { it.id }.toSet() || model.columns.any { sheet.modelColumnBindings[it.id] !in sheet.tabularContent.columns } ||
+                !recordValidation.valid(workbook, id, values)) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+            }
+            val contents = sheet.tabularContent.cellContents
+            if (row in sheet.tabularContent.rows) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+            if (sheet.revision != expectedRevision) throw SheetRevisionConflict(sheetId, expectedRevision, sheet.revision)
+            val writes = manual.mapNotNull { property ->
+                values.getValue(property.id).takeIf(String::isNotEmpty)?.let { CellCoordinate(row, sheet.modelColumnBindings.getValue(property.id)) to it }
+            }.toMap()
+            val content = TabularContent(sheet.tabularContent.rows + row, sheet.tabularContent.columns, contents + writes)
+            val appended = sheet.copy(content = content)
+            val provisional = workbook.replaceSheet(appended)
+            provisional.replaceSheet(materializeCalculatedRow(provisional, appended, row))
+        }
+        return RowAppendResult(updated.documents.getValue(id), row)
     }
 
     override fun saveDataModel(model: DataModel): DataModel {
@@ -346,6 +383,14 @@ class DefaultWorkbookApplication(
         }
         return updated.documents.getValue(id)
     }
+}
+
+private fun recordFingerprint(revision: Long, values: Map<String, String>): String {
+    val payload = buildString {
+        append(revision).append(':')
+        values.toSortedMap().forEach { (key, value) -> append(key.length).append(':').append(key).append(value.length).append(':').append(value) }
+    }
+    return MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
 
 private fun DataModel.calculatedFormulasByProperty(): Map<String, String> =

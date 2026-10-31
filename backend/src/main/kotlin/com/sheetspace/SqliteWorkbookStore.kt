@@ -27,6 +27,35 @@ class SqliteWorkbookStore internal constructor(
 
     override fun close() = database.close()
 
+    override fun admitRecord(sheetId: SheetId, rowId: RowId, fingerprint: String, transform: (WorkbookState) -> WorkbookState): WorkbookState =
+        synchronized(updateLock) {
+            database.transaction { conn ->
+                val reader = reader(conn)
+                val existing = conn.prepareStatement("SELECT fingerprint FROM record_admissions WHERE sheet_id = ? AND row_id = ?").use { statement ->
+                    statement.setBytes(1, sheetId.value.toUuidBytes())
+                    statement.setBytes(2, rowId.value.toUuidBytes())
+                    statement.executeQuery().use { result -> if (result.next()) result.getString(1) else null }
+                }
+                if (existing != null) {
+                    if (existing != fingerprint) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
+                    reader.loadWorkbookBundle()
+                } else {
+                    val current = reader.loadWorkbookBundle()
+                    val updated = transform(current)
+                    validateModelMetadata(updated)
+                    calculatedAdmission(current, updated)
+                    SqliteWorkbookWriter(conn, reader).persistChanges(current, updated)
+                    conn.prepareStatement("INSERT INTO record_admissions (sheet_id, row_id, fingerprint) VALUES (?, ?, ?)").use { statement ->
+                        statement.setBytes(1, sheetId.value.toUuidBytes())
+                        statement.setBytes(2, rowId.value.toUuidBytes())
+                        statement.setString(3, fingerprint)
+                        statement.executeUpdate()
+                    }
+                    reader.loadWorkbookBundle()
+                }
+            }
+        }
+
     override fun loadManifest(): WorkbookManifest = database.transaction { conn ->
         reader(conn).loadManifest()
     }

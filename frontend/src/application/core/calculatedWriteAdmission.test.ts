@@ -20,7 +20,7 @@ const output = 'sheet:column:2';
 const firstRow = 'sheet:row:1';
 
 function boundWorkbook(): Workbook {
-  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
+  const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2, cells: { B1: '1', B2: '1' } });
   const workbook: Workbook = { ...workbookWithSheets([sheet]), dataModels: { model } };
   const bound = bindSheetToModel(workbook, sheet.id, model.id, () => 'unused');
   if (!bound.ok) throw new Error(bound.reason);

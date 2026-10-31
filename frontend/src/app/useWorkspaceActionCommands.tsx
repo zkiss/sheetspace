@@ -81,8 +81,10 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('zoom-out', 'Zoom out', 'View', run(() => controller.zoomWorkspaceBy(1 / 1.2)));
   add('reset-view', 'Reset workspace view', 'View', run(controller.resetViewport));
 
-  add('append-row', 'Append row', 'Sheet', run(() => sheet && commands.appendRow(sheet.id)), noSheet);
-  add('append-column', 'Append column', 'Sheet', run(() => sheet && commands.appendColumn(sheet.id)), noSheet);
+  if (!sheet?.modelId) {
+    add('append-row', 'Append row', 'Sheet', run(() => sheet && commands.appendRow(sheet.id)), noSheet);
+    add('append-column', 'Append column', 'Sheet', run(() => sheet && commands.appendColumn(sheet.id)), noSheet);
+  }
   add('rename-sheet', 'Rename sheet…', 'Sheet', run(() => sheet && onRename(sheet), false), noSheet);
   const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
     && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;

@@ -43,7 +43,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const dataModelCloseFocus = useRef<(() => void) | undefined>(undefined);
   const [sheetName, setSheetName] = useState('');
   const [error, setError] = useState('');
-  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
+  const { canRedo, canRetryFailedSaves, canUndo, commands, contentHistoryFeedback, creatingAxes, creatingFrames, entrySessions, formulaResults, mutationFailure, retryStartupLoad, saveStatus, startupLoad, workbook } =
     useWorkbookController({
       apiClient,
       initialWorkbook,
@@ -167,6 +167,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     <main className="workspace-shell">
       <Workspace
         activeCell={activeCell}
+        entrySessions={entrySessions}
         onActivateSheet={activateSheet}
         canRetryFailedSaves={canRetryFailedSaves}
         canUndo={canUndo}
