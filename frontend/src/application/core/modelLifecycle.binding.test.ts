@@ -64,7 +64,7 @@ describe('explicit positional binding', () => {
     expect(calculatedModelCells(bound).second.B1).toMatchObject({ value: 22 });
   });
 
-  it('prunes extra column data and presentation while retaining surviving presentation', () => {
+  it('prunes extra column presentation while retaining surviving presentation', () => {
     const base = makeSheet(3);
     const [a, b, c] = base.content.columns;
     const row = base.content.rows[0]!;
@@ -72,7 +72,7 @@ describe('explicit positional binding', () => {
     const removedCell = cellIdentityKey({ rowId: row, columnId: c! });
     const sheet = { ...base, presentation: { rowHeights: { [row]: 44 }, columnWidths: { [a!]: 81, [b!]: 99, [c!]: 105 }, formatOverrides: {
       rows: { [row]: { fontWeight: 'bold' as const } }, columns: { [a!]: { fillColor: '#123456' as const }, [c!]: { fontWeight: 'bold' as const } }, cells: { [firstCell]: { horizontalAlignment: 'right' as const }, [removedCell]: { fontWeight: 'bold' as const } },
-    } }, content: { ...base.content, cells: { ...base.content.cells, [removedCell]: 'discard' } } };
+    } } };
 
     const next = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']).documents.sheet!;
 
@@ -83,9 +83,30 @@ describe('explicit positional binding', () => {
     expect(next.content.cells[removedCell]).toBeUndefined();
   });
 
+  it('rejects binding without changing data or row identities when excluded columns contain data', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 3, rowCount: 2, cells: { A1: 'kept', C1: 'also kept', C2: '=1+2' } });
+    const workbook = modelWorkbook(model, [sheet]);
+    const allocate = vi.fn(() => 'new-column');
+
+    expect(bindSheetToModel(workbook, 'sheet', model.id, allocate)).toEqual({ ok: false, reason: 'data-outside-model' });
+    expect(workbook.documents.sheet).toEqual(sheet);
+    expect(allocate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a narrower rebind and permits binding after the excluded data is cleared', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 1, cells: { A1: '1' } });
+    const bound = bindModelSheets(modelWorkbook(model, [sheet]), ['sheet']);
+    const narrow = declaration([manualProperty('only')]);
+    const withNarrow = { ...bound, dataModels: { ...bound.dataModels, narrow: { ...narrow, id: 'narrow' } } };
+
+    expect(bindSheetToModel(withNarrow, 'sheet', 'narrow', freshColumns())).toEqual({ ok: false, reason: 'data-outside-model' });
+    const empty = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 3, rowCount: 2 });
+    expect(bindSheetToModel(modelWorkbook(model, [empty]), 'sheet', model.id, freshColumns()).ok).toBe(true);
+  });
+
   it('allows empty sheets and zero properties without retaining unused allocation', () => {
     const emptyRows = bindModelSheets(modelWorkbook(model, [makeSheet(1, 0)]), ['sheet']);
-    const sheet = makeSheet(2);
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', columnCount: 2, rowCount: 2 });
     const emptyProperties = bindModelSheets(modelWorkbook(declaration([]), [sheet]), ['sheet']);
 
     expect(emptyRows.documents.sheet!.content.rows).toEqual([]);

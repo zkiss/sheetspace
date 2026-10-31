@@ -24,6 +24,14 @@ function renderControls(overrides: Partial<Parameters<typeof SheetModelControls>
 }
 
 describe('SheetModelControls', () => {
+  it('explains how to resolve data outside the model width', () => {
+    renderControls({ onBind: () => submission({ ok: false, reason: 'data-outside-model' }) });
+    fireEvent.change(screen.getByLabelText('Model for Inputs'), { target: { value: 'first' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Move or clear data outside the model columns before binding.');
+  });
+
   it('confirms binding and surfaces a rejected command without changing selection', () => {
     const onBind = vi.fn(() => submission({ ok: false, reason: 'pending-model-transition' }));
     const { sheet } = renderControls({ onBind });

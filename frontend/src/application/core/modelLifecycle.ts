@@ -24,7 +24,7 @@ export interface LifecycleAdapter<S, B> {
   finish(state: S, workbook: Workbook, changes: Readonly<Record<string, Readonly<Record<string, B>> | undefined>>): S;
 }
 
-type LifecycleResult<S> = { ok: true; value: S } | { ok: false; reason: 'unknown-sheet' | 'unknown-model' | 'duplicate-model' | 'invalid-model' };
+type LifecycleResult<S> = { ok: true; value: S } | { ok: false; reason: 'unknown-sheet' | 'unknown-model' | 'duplicate-model' | 'invalid-model' | 'data-outside-model' };
 
 export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
   return {
@@ -37,6 +37,10 @@ export function lifecycleOperations<S, B>(adapter: LifecycleAdapter<S, B>) {
       const invalid = validateDataModel(model);
       if (invalid && !invalid.ok) return invalid;
       if (sheet.modelId === modelId) return { ok: true, value: state };
+      const excludedColumns = new Set(sheet.content.columns.slice(model.columns.length));
+      if (Object.entries(sheet.content.cells).some(([key, value]) => value !== '' && excludedColumns.has(cellIdentityFromKey(key)!.columnId))) {
+        return { ok: false, reason: 'data-outside-model' };
+      }
       if (hasModelNameCollision(sheet, model, Object.fromEntries(model.columns.map((property, index) => [property.id, sheet.content.columns[index]])))) return { ok: false, reason: 'invalid-model' };
       const sourceState = adapter.source(state);
       const source = adapter.workbook(sourceState);
