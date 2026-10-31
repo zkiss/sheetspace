@@ -24,6 +24,45 @@ function boundWorkbook(): Workbook {
 }
 
 describe('calculated row persistence', () => {
+  it('rejects invalid drafts without dispatch and protects unfinished input from unbinding', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+
+    act(() => result.current.commands.changeEntryField('sheet', 'input', 'not a number'));
+    let submission: Awaited<ReturnType<typeof result.current.commands.submitEntryDraft>>;
+    await act(async () => { submission = await result.current.commands.submitEntryDraft('sheet'); });
+
+    expect(submission!.firstInvalid).toBe('input');
+    expect(api.admitRecord).not.toHaveBeenCalled();
+    act(() => { expect(result.current.commands.unbindSheetFromModel('sheet').result).toMatchObject({ ok: false }); });
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('not a number');
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
+  });
+
+  it('retries an ambiguous admission with the same identity and reconciles only on success', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    api.admitRecord.mockRejectedValueOnce(new Error('connection lost')).mockImplementationOnce(async (_sheetId, rowId) => ({
+      rowId,
+      sheet: { ...workbook.documents.sheet!, revision: workbook.documents.sheet!.revision + 1,
+        content: { ...workbook.documents.sheet!.content, rows: [...workbook.documents.sheet!.content.rows, rowId] } },
+    }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(1);
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '8'));
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('5');
+
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).toHaveBeenCalledTimes(2);
+    expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+  });
   it('admits complete records locally without persistence and starts a fresh draft', async () => {
     const workbook = boundWorkbook();
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
