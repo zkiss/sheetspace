@@ -21,7 +21,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('lifecycle HTTP mapping', () => {
   it('removes extra ordinary columns through binding, structural replacement and reload', () => {
-    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { B1: '42' } });
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 2, cells: { A1: '42' } });
     const extra = sheet.content.columns[1];
     const model: DataModel = { id: 'model', name: 'Model', columns: [{ id: 'input', name: 'Input', kind: 'manual', type: 'float' }] };
     const initial = { ...workbookWithSheets([{ ...sheet, columnNames: { [extra]: 'Extra' }, presentation: { ...sheet.presentation, columnWidths: { [extra]: 125 } } }]), dataModels: { model } };
@@ -32,6 +32,7 @@ describe('lifecycle HTTP mapping', () => {
     expect(reloaded.documents.sheet.content.columns).toEqual([sheet.content.columns[0], 'new']);
     expect(reloaded.documents.sheet.columnNames).toBeUndefined();
     expect(reloaded.documents.sheet.presentation.columnWidths[extra]).toBeUndefined();
+    expect(cellRawContent(reloaded.documents.sheet, 'A1')).toBe('42');
     expect(cellRawContent(reloaded.documents.sheet, 'C1')).toBeUndefined();
   });
   it('preserves a grid-pasted formula-like literal through workbook serialization', () => {
