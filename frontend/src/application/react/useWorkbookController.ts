@@ -28,6 +28,7 @@ import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { ModelEntrySessions, type EntrySessionState } from '@application/core/modelEntrySession';
+import { admitEntryRecord } from '@application/core/admitEntryRecord';
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
@@ -44,6 +45,7 @@ import {
 } from '@calculation/workbookCalculation';
 
 export type WorkbookCommands = {
+  submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
   leaveEntryField: (sheetId: string, propertyId: string) => void;
   dismissEntryFeedback: (sheetId: string, propertyId: string) => void;
@@ -180,6 +182,7 @@ export function useWorkbookController({
     const modelId = current.documents[sheetId]?.modelId;
     return modelId ? current.dataModels?.[modelId] : undefined;
   }
+  const admissionLocks = useRef(new Set<string>());
   const appliedCalculation = useRef<CalculationRequest | undefined>(undefined);
   const contentHistoryRef = useRef<ContentHistory | undefined>(undefined);
   contentHistoryRef.current ??= new ContentHistory();
@@ -311,7 +314,7 @@ export function useWorkbookController({
   }
 
   function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
-    if (!savedAutosave.hasModelTransition()) return undefined;
+    if (!savedAutosave.hasModelTransition() && admissionLocks.current.size === 0) return undefined;
     setMutationFailure('pending-model-transition');
     return { ok: false, reason: 'pending-model-transition' };
   }
@@ -331,6 +334,10 @@ export function useWorkbookController({
   }
 
   function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
+    if (admissionLocks.current.size) {
+      const rejected = { ok: false, reason: 'pending-model-transition' } as const;
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
@@ -456,7 +463,7 @@ export function useWorkbookController({
   }
 
   function replayContentHistory(direction: 'undo' | 'redo') {
-    if (savedAutosave.hasModelTransition()) return;
+    if (savedAutosave.hasModelTransition() || admissionLocks.current.size) return;
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
     const sourceWorkbook = optimisticWorkbook.current;
@@ -507,6 +514,39 @@ export function useWorkbookController({
       return model ? [[sheet.id, entrySessions.get(sheet.id, model)]] : [];
     })),
     commands: {
+      submitEntryDraft: async (sheetId) => {
+        const model = entryModel(sheetId);
+        if (!model || entrySessions.get(sheetId, model).pending) return {};
+        const result = entrySessions.submit(sheetId, model, optimisticWorkbook.current, () => crypto.randomUUID(), async (submission) => {
+          admissionLocks.current.add(sheetId);
+          if (!autosaveEnabled) throw new Error('Record entry is unavailable without persistence.');
+          return admitEntryRecord({
+            sheetId, submission, coordinator: persistenceCoordinator,
+            waitForPredecessors: async () => {
+              for (const entry of savedAutosave.outboxSnapshot) {
+                const settled = entry.status === 'queued' || entry.status === 'running' ? await savedAutosave.waitFor(entry.operationId) : entry;
+                if (settled.status === 'failed' || settled.status === 'blocked') throw new Error('Resolve failed saves before adding a record.');
+              }
+            },
+            currentSheet: () => {
+              const sheet = optimisticWorkbook.current.documents[sheetId];
+              return sheet?.modelId === model.id ? sheet : undefined;
+            },
+            admit: resolvedApiClient.admitRecord ?? workbookApi.admitRecord,
+            reconcile: (sheet) => {
+              const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheetId]: sheet } };
+              optimisticWorkbook.current = next;
+              setWorkbook(next, { kind: 'structure' });
+            },
+          });
+        });
+        publishEntries();
+        try {
+          const settled = await result;
+          if (settled.result) admissionLocks.current.delete(sheetId);
+          return settled;
+        } finally { publishEntries(); }
+      },
       changeEntryField: (sheetId, propertyId, raw) => {
         const model = entryModel(sheetId);
         if (model) { entrySessions.change(sheetId, model, propertyId, raw, optimisticWorkbook.current); publishEntries(); }
