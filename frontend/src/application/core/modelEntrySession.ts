@@ -35,6 +35,22 @@ export class ModelEntrySessions {
 
   remove(sheetId: string) { this.sessions.delete(sheetId); }
 
+  hasUnfinished(sheetId: string) {
+    const session = this.sessions.get(sheetId);
+    return Boolean(session && (session.submission || Object.values(session.draft.fields).some((field) => field.raw !== '')));
+  }
+
+  protectsTransition(before: Workbook, after: Workbook, sheetId: string) {
+    if (!this.hasUnfinished(sheetId)) return false;
+    const previous = before.documents[sheetId];
+    const next = after.documents[sheetId];
+    if (!previous || !next || previous.modelId !== next.modelId) return true;
+    if (JSON.stringify(previous.modelColumnBindings) !== JSON.stringify(next.modelColumnBindings)) return true;
+    const oldModel = previous.modelId && before.dataModels?.[previous.modelId];
+    const newModel = next.modelId && after.dataModels?.[next.modelId];
+    return !oldModel || !newModel || this.signature(oldModel) !== this.signature(newModel);
+  }
+
   change(sheetId: string, model: DataModel, propertyId: string, raw: string, workbook: Workbook) {
     const session = this.get(sheetId, model) as Session;
     if (!session.pending && !session.submission && !session.stale) session.draft = changeEntryField(session.draft, model, propertyId, raw, workbook, sheetId);

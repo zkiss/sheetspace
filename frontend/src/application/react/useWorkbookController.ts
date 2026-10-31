@@ -338,13 +338,16 @@ export function useWorkbookController({
   }
 
   function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
-    if (admissionLocks.current.size) {
-      const rejected = { ok: false, reason: 'pending-model-transition' } as const;
-      return { result: rejected, completion: Promise.resolve(rejected) };
-    }
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
+    if (Object.keys(before.documents).some((id) =>
+      (admissionLocks.current.has(id) && before.documents[id] !== result.value.documents[id]) ||
+      entrySessions.protectsTransition(before, result.value, id))) {
+      const rejected = { ok: false, reason: 'pending-model-transition' } as const;
+      setMutationFailure('pending-model-transition');
+      return { result: rejected, completion: Promise.resolve(rejected) };
+    }
     if (axisCreation.hasUnsettled()) {
       const rejected = { ok: false, reason: 'pending-axis-creation' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
@@ -384,7 +387,7 @@ export function useWorkbookController({
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
-    if (admissionLocks.current.has(sheetId)) {
+    if (admissionLocks.current.has(sheetId) || entrySessions.hasUnfinished(sheetId)) {
       setMutationFailure('pending-model-transition');
       return { ok: false, reason: 'pending-model-transition' };
     }
@@ -393,6 +396,7 @@ export function useWorkbookController({
     const result = applyWorkbookOperation(optimisticWorkbook.current, operation);
     const applied = applyResult(result);
     if (result.ok) setMutationFailure(undefined);
+    if (applied?.changed) entrySessions.remove(sheetId);
     if (!applied?.changed || !applied.persistence) return result;
 
     savedAutosave.supersedeSheetOperations(sheetId);

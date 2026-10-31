@@ -66,4 +66,19 @@ describe('entry sessions', () => {
     expect(sessions.get('a', reordered).draft.fields.n?.raw).toBe('7');
     expect(sessions.get('a', reordered).stale).toBeUndefined();
   });
+
+  it('protects unfinished input from deletion, rebinding and incompatible model changes', () => {
+    const sessions = new ModelEntrySessions();
+    const bound = { ...sheet, id: 'a', modelId: 'm', modelColumnBindings: { n: 'col' } };
+    const before = { ...workbook, documents: { a: bound }, dataModels: { m: model } };
+    sessions.change('a', model, 'n', '7', before);
+    expect(sessions.protectsTransition(before, { ...before, documents: {} }, 'a')).toBe(true);
+    expect(sessions.protectsTransition(before, { ...before, documents: { a: { ...bound, modelColumnBindings: { n: 'other' } } } }, 'a')).toBe(true);
+    const changed: DataModel = { ...model, columns: [{ id: 'n', name: 'Number', kind: 'manual', type: 'string' }] };
+    expect(sessions.protectsTransition(before, { ...before, dataModels: { m: changed } }, 'a')).toBe(true);
+    const renamed = { ...model, name: 'Renamed', columns: [...model.columns].reverse() };
+    expect(sessions.protectsTransition(before, { ...before, dataModels: { m: renamed } }, 'a')).toBe(false);
+    sessions.remove('a');
+    expect(sessions.protectsTransition(before, { ...before, documents: {} }, 'a')).toBe(false);
+  });
 });
