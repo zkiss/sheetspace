@@ -17,7 +17,7 @@ export function instantiateStoredModelFormula(template: StoredFormulaContent, wo
       if ((endpoint.kind !== 'canonical' && endpoint.kind !== 'stored-named') || (recipe.kind !== 'a1' && recipe.kind !== 'named')) throw new Error('Invalid model reference recipe');
       const baseRow = recipe.kind === 'a1' ? recipe.value.rowIndex : recipe.value.row - 1;
       const rowId = sheet.content.rows[baseRow + (recipe.anchors.row ? 0 : rowIndex)];
-      return rowId ? formatCanonicalFormulaEndpoint({ columnId: endpoint.value.columnId, rowId }, endpoint.anchors, endpoint.kind === 'stored-named' ? endpoint.value.propertyId : undefined) : undefined;
+      return rowId ? formatCanonicalFormulaEndpoint({ columnId: endpoint.value.columnId, rowId }, endpoint.anchors, endpoint.kind === 'stored-named' ? endpoint.value.propertyId : undefined, endpoint.open) : undefined;
     });
     return { ...stored.sourceSpan, text: endpoints.every(Boolean)
       ? `@${stored.qualifier ? `${stored.qualifier.value}!` : ''}${endpoints.join(':')}`

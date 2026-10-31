@@ -74,5 +74,5 @@ function bindEndpoint(endpoint: FormulaReferenceLexeme['endpoints'][number], she
   const columnId = endpoint.kind === 'a1' ? sheet.content.columns[endpoint.value.columnIndex] : property?.columnId;
   const rowId = sheet.content.rows[endpoint.kind === 'a1' ? endpoint.value.rowIndex : endpoint.value.row - 1] ?? (modelTemplate ? 'unavailable-model-row' : undefined);
   if (!columnId || !rowId || !sheet.content.columns.includes(columnId)) return undefined;
-  return formatCanonicalFormulaEndpoint({ columnId, rowId }, endpoint.anchors, property?.id);
+  return formatCanonicalFormulaEndpoint({ columnId, rowId }, endpoint.anchors, property?.id, endpoint.open);
 }

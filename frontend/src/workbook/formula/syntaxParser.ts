@@ -15,7 +15,7 @@ import type {
 } from './syntaxTypes';
 import { mergeFormulaDiagnostics } from './diagnostics';
 import { decodeStableId } from './stableId';
-import { completeUserReferenceStart, makeFormulaReference, qualifierPayloadSpan, referencePayloadSpans } from './syntaxReference';
+import { completeUserReferenceStart, makeFormulaReference, parseOpenEndpoint, qualifierPayloadSpan, referencePayloadSpans } from './syntaxReference';
 import { completeFormulaTokens, skipFormulaTextLiteral } from './syntaxTokens';
 
 type ReadResult<T> =
@@ -74,7 +74,7 @@ export class FormulaParser {
       this.skipWhitespace();
       if (this.atEnd()) return;
       if (this.peek() === '"') {
-        this.skipTextLiteral();
+        this.index = skipFormulaTextLiteral(this.input, this.index);
         continue;
       }
 
@@ -95,10 +95,6 @@ export class FormulaParser {
       this.recordSyntaxDiagnostic(candidateStart, Math.max(candidateStart + 1, attemptedEnd));
       this.index = Math.max(candidateStart + 1, this.quotedFragmentEnd);
     }
-  }
-
-  private skipTextLiteral(): void {
-    this.index = skipFormulaTextLiteral(this.input, this.index);
   }
 
   private readComparison(): ReadResult<FormulaExpression> {
@@ -335,8 +331,15 @@ export class FormulaParser {
     }
 
     this.skipWhitespace();
-    const second = this.readReferenceEndpoint(qualifier.sheetId);
-    if (!second || !this.referenceEndpointsMatch(first, second)) {
+    const endpointStart = this.index;
+    let second = this.readReferenceEndpoint(qualifier.sheetId);
+    if (!second || second.kind === 'named' && this.input[second.sourceSpan.end - 2] !== ']') {
+      this.index = endpointStart;
+      const open = parseOpenEndpoint(this.input, this.index, first, qualifier.sheetId, this.isNamedColumn, this.userReferences);
+      second = open?.endpoint;
+      if (open) this.index = open.end;
+    }
+    if (!second || first.kind !== second.kind) {
       return this.error();
     }
     const secondEnd = this.index;
@@ -347,13 +350,7 @@ export class FormulaParser {
     return { ok: true, value: reference };
   }
 
-  private referenceEndpointsMatch(first: FormulaReferenceLexeme['endpoints'][number], second: FormulaReferenceLexeme['endpoints'][number]): boolean {
-    return first.kind === second.kind;
-  }
-
-  private completeReferenceEnd(): boolean {
-    return this.atEnd() || /[+\-*/=<>),]/.test(this.peek());
-  }
+  private completeReferenceEnd(): boolean { return this.atEnd() || /[+\-*/=<>),]/.test(this.peek()); }
 
   private readReferenceEndpoint(qualifier?: string): FormulaReferenceLexeme['endpoints'][number] | undefined {
     const start = this.index;

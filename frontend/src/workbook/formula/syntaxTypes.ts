@@ -18,6 +18,7 @@ export type FormulaReference =
       sheetId?: string;
       endpoint: { propertyName: string; row: number };
       end?: { propertyName: string; row: number };
+      open?: boolean;
       sourceSpan: FormulaSourceSpan;
       sheetReferenceSpan?: FormulaSourceSpan;
     }
@@ -32,6 +33,7 @@ export type FormulaReference =
       kind: 'range';
       sheetId?: string;
       range: CellRange;
+      open?: boolean;
       sourceSpan: FormulaSourceSpan;
       sheetReferenceSpan?: FormulaSourceSpan;
     }
@@ -41,7 +43,7 @@ export type FormulaReference =
       coordinate: { columnId: string; rowId: string };
       /** Present only for the parser-owned stable representation of a named property. */
       propertyId?: string;
-      range?: { start: { columnId: string; rowId: string }; end: { columnId: string; rowId: string }; startPropertyId?: string; endPropertyId?: string };
+      range?: { start: { columnId: string; rowId: string }; end: { columnId: string; rowId: string }; startPropertyId?: string; endPropertyId?: string; open?: boolean };
       sourceSpan: FormulaSourceSpan;
       sheetReferenceSpan?: FormulaSourceSpan;
     };
@@ -121,7 +123,7 @@ export type FormulaSyntaxResult = {
 export type FormulaReferenceLexeme = {
   sourceSpan: FormulaSourceSpan;
   qualifier?: { value: string; sourceSpan: FormulaSourceSpan; payloadSpan: FormulaSourceSpan; broken: boolean };
-  endpoints: readonly ({ anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan; payloadSpans: { column: FormulaSourceSpan; row: FormulaSourceSpan } } & (
+  endpoints: readonly ({ open?: boolean; anchors: { column: boolean; row: boolean }; sourceSpan: FormulaSourceSpan; payloadSpans: { column: FormulaSourceSpan; row: FormulaSourceSpan } } & (
     | { kind: 'a1'; value: CellAddress }
     | { kind: 'canonical'; value: { columnId: string; rowId: string } }
     | { kind: 'named'; value: { propertyName: string; row: number } }

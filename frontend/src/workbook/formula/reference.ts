@@ -10,13 +10,13 @@ import { formatPropertyReferenceToken, formatSheetReferenceToken, formulaReferen
 export type FormulaAxisAnchor = { column: boolean; row: boolean };
 export type FormulaSourceSpan = { start: number; end: number };
 export type FormulaQualifier = { kind: 'unqualified' } | { kind: 'explicit'; sheetId: SheetId; sourceSpan: FormulaSourceSpan } | { kind: 'broken'; sourceSpan: FormulaSourceSpan };
-export type FormulaReferenceEndpoint = { anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan } & ({ kind: 'canonical'; coordinate: FormulaCoordinate; propertyId?: string } | { kind: 'a1'; address: CellAddress } | { kind: 'named'; propertyName: string; row: number });
+export type FormulaReferenceEndpoint = { open?: boolean; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan } & ({ kind: 'canonical'; coordinate: FormulaCoordinate; propertyId?: string } | { kind: 'a1'; address: CellAddress } | { kind: 'named'; propertyName: string; row: number });
 export type FormulaReferenceToken = { kind: 'cell' | 'range'; qualifier: FormulaQualifier; endpoints: readonly [FormulaReferenceEndpoint, FormulaReferenceEndpoint?]; sourceSpan: FormulaSourceSpan };
 export type FormulaTransformResult = { ok: true; raw: string } | { ok: false; reason: 'unresolved-coordinate' };
 export type FormulaCopyContext = { sourceSheetId?: SheetId; destinationSheetId?: SheetId };
 export type FormulaDisplayProjection = { raw: string; referenceSpans: readonly FormulaSourceSpan[] };
 
-type Endpoint = { kind: 'a1' | 'canonical' | 'named'; address?: CellAddress; coordinate?: FormulaCoordinate; propertyId?: string; propertyName?: string; row?: number; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan };
+type Endpoint = { open?: boolean; kind: 'a1' | 'canonical' | 'named'; address?: CellAddress; coordinate?: FormulaCoordinate; propertyId?: string; propertyName?: string; row?: number; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan };
 type Match = { sourceSpan: FormulaSourceSpan; qualifier: FormulaQualifier; endpoints: Endpoint[]; canonical: boolean };
 type Edit = FormulaSourceSpan & { value: string };
 
@@ -65,7 +65,7 @@ function resolveNamedReference(reference: FormulaReference, resolver: FormulaRef
     ...(reference.sheetId === undefined ? {} : { sheetId }),
     coordinate: start.coordinate,
     propertyId: start.propertyId,
-    ...(end ? { range: { start: start.coordinate, end: end.coordinate, startPropertyId: start.propertyId, endPropertyId: end.propertyId } } : {}),
+    ...(end ? { range: { start: start.coordinate, end: end.coordinate, ...(reference.open ? { open: true } : {}), startPropertyId: start.propertyId, endPropertyId: end.propertyId } } : {}),
     sourceSpan: reference.sourceSpan,
     ...(reference.sheetReferenceSpan ? { sheetReferenceSpan: reference.sheetReferenceSpan } : {}),
   };
@@ -118,7 +118,7 @@ function canonicalizeRawReferences(raw: string, resolver: FormulaReferenceResolv
     match.endpoints.forEach((endpoint, index) => {
       const item = resolved[index]!;
       const coordinate = item.coordinate!;
-      edits.push({ ...endpoint.sourceSpan, value: endpoint.kind === 'named' ? formatNamedCanonical((item as { propertyId: string }).propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
+      edits.push({ ...endpoint.sourceSpan, value: endpoint.open ? formatOpenCanonical(coordinate, endpoint.anchors, endpoint.kind === 'named' ? (item as { propertyId: string }).propertyId : undefined) : endpoint.kind === 'named' ? formatNamedCanonical((item as { propertyId: string }).propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
     });
   }
   return applyEdits(raw, edits);
@@ -172,7 +172,7 @@ function displayProjection(raw: string, resolver: FormulaReferenceResolver): For
     }
     match.endpoints.forEach((endpoint, index) => {
       const named = endpoint.propertyId && endpoint.coordinate && resolver.namedAddressOf?.(sheetId!, endpoint.propertyId, endpoint.coordinate);
-      edits.push({ ...endpoint.sourceSpan, value: named ? formatNamed(named.name, addresses[index]!, endpoint.anchors) : formatA1(addresses[index]!, endpoint.anchors) });
+      edits.push({ ...endpoint.sourceSpan, value: endpoint.open ? `${endpoint.anchors.column ? '$' : ''}${named ? formatPropertyReferenceToken(named.name) : columnIndexToLabel(addresses[index]!.columnIndex)}` : named ? formatNamed(named.name, addresses[index]!, endpoint.anchors) : formatA1(addresses[index]!, endpoint.anchors) });
     });
   }
   return {
@@ -194,7 +194,9 @@ export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, des
     for (const endpoint of match.endpoints) {
       const address = endpoint.coordinate && resolver.addressOf(originalSheet, endpoint.coordinate);
       if (!address) return { ok: false, reason: 'unresolved-coordinate' };
-      const coordinate = resolver.coordinateAt(resultSheet, translateCopyAddress(address, endpoint.anchors, origin, target));
+      const translatedAddress = translateCopyAddress(address, endpoint.anchors, origin, target);
+      if (endpoint.open && translated[0]) translatedAddress.rowIndex = resolver.addressOf(resultSheet, translated[0].coordinate)!.rowIndex;
+      const coordinate = resolver.coordinateAt(resultSheet, translatedAddress);
       if (!coordinate) return { ok: false, reason: 'unresolved-coordinate' };
       if (endpoint.propertyId && !resolver.namedAddressOf?.(originalSheet, endpoint.propertyId, endpoint.coordinate!)) return { ok: false, reason: 'unresolved-coordinate' };
       translated.push({ endpoint, coordinate, named: endpoint.propertyId && resolver.namedAddressAt?.(resultSheet, coordinate) });
@@ -202,7 +204,7 @@ export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, des
     const useNamedRange = translated.length === 2 && translated.every(({ named }) => named);
     for (const { endpoint, coordinate, named } of translated) {
       const useNamedEndpoint = named && (translated.length === 1 || useNamedRange);
-      edits.push({ ...endpoint.sourceSpan, value: useNamedEndpoint ? formatNamedCanonical(named.propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
+      edits.push({ ...endpoint.sourceSpan, value: endpoint.open ? formatOpenCanonical(coordinate, endpoint.anchors, useNamedEndpoint ? named.propertyId : undefined) : useNamedEndpoint ? formatNamedCanonical(named.propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
     }
   }
   return { ok: true, raw: applyEdits(raw, edits) };
@@ -218,6 +220,14 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
     const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
     if (!sheetId || !referenceMatchResolves(match, resolver)) continue;
     const addresses = match.endpoints.map((endpoint) => resolver.addressOf(sheetId, endpoint.coordinate!)!);
+    if (match.endpoints[1]?.open) {
+      const lowColumn = Math.min(addresses[0].columnIndex, addresses[1].columnIndex);
+      const highColumn = Math.max(addresses[0].columnIndex, addresses[1].columnIndex);
+      if (mappings.some(({ source }) => {
+        const address = source.sheetId === sheetId && resolver.addressOf(sheetId, source.cell);
+        return address && address.rowIndex >= addresses[0].rowIndex && address.columnIndex >= lowColumn && address.columnIndex <= highColumn;
+      })) return { ok: false, reason: 'unrepresentable-range' };
+    }
     const moved = geometry(sheetId, addresses);
     if (!moved.ok) return moved;
     const { sheetId: finalSheet, changed } = moved;
@@ -228,7 +238,7 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
       const named = coordinates.map((coordinate) => resolver.namedAddressAt?.(finalSheet, coordinate!));
       match.endpoints.forEach((endpoint, index) => {
         const property = endpoint.propertyId && named[index] && (ends.length === 1 || named.every(Boolean)) ? named[index]!.propertyId : undefined;
-        edits.push({ ...endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(coordinates[index]!, endpoint.anchors, property) });
+        edits.push({ ...endpoint.sourceSpan, value: endpoint.open ? formatOpenCanonical(coordinates[index]!, endpoint.anchors, property) : formatCanonicalFormulaEndpoint(coordinates[index]!, endpoint.anchors, property) });
       });
     }
     if (match.qualifier.kind === 'explicit' && finalSheet !== sheetId) edits.push({ ...match.qualifier.sourceSpan, value: finalSheet });
@@ -274,7 +284,7 @@ function referenceMatchResolves(match: Match, resolver: FormulaReferenceResolver
 function matchFromLexeme(lexeme: FormulaReferenceLexeme): Match {
   const qualifier: FormulaQualifier = !lexeme.qualifier ? { kind: 'unqualified' } : lexeme.qualifier.broken ? { kind: 'broken', sourceSpan: lexeme.qualifier.sourceSpan } : { kind: 'explicit', sheetId: lexeme.qualifier.value, sourceSpan: lexeme.qualifier.sourceSpan };
   const endpoints = lexeme.endpoints.map((endpoint): Endpoint => {
-    const base = { anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan };
+    const base = { anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) };
     if (endpoint.kind === 'a1') return { ...base, kind: 'a1', address: endpoint.value };
     if (endpoint.kind === 'named') return { ...base, kind: 'named', ...endpoint.value };
     return { ...base, kind: 'canonical', coordinate: { columnId: endpoint.value.columnId, rowId: endpoint.value.rowId }, ...(endpoint.kind === 'stored-named' ? { propertyId: endpoint.value.propertyId } : {}) };
@@ -282,12 +292,14 @@ function matchFromLexeme(lexeme: FormulaReferenceLexeme): Match {
   return { sourceSpan: lexeme.sourceSpan, qualifier, endpoints, canonical: lexeme.endpoints[0]?.kind === 'canonical' || lexeme.endpoints[0]?.kind === 'stored-named' };
 }
 function canonicalMatches(raw: string): Match[] { return lexemeMatches(raw).filter((match) => match.canonical); }
-function toToken(match: Match): FormulaReferenceToken { return { kind: match.endpoints.length === 2 ? 'range' : 'cell', qualifier: match.qualifier, endpoints: match.endpoints.map((endpoint) => endpoint.kind === 'canonical' ? { kind: 'canonical', coordinate: endpoint.coordinate!, ...(endpoint.propertyId ? { propertyId: endpoint.propertyId } : {}), anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan } : endpoint.kind === 'named' ? { kind: 'named', propertyName: endpoint.propertyName!, row: endpoint.row!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan } : { kind: 'a1', address: endpoint.address!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan }) as [FormulaReferenceEndpoint, FormulaReferenceEndpoint?], sourceSpan: match.sourceSpan }; }
+function toToken(match: Match): FormulaReferenceToken { return { kind: match.endpoints.length === 2 ? 'range' : 'cell', qualifier: match.qualifier, endpoints: match.endpoints.map((endpoint) => endpoint.kind === 'canonical' ? { kind: 'canonical', coordinate: endpoint.coordinate!, ...(endpoint.propertyId ? { propertyId: endpoint.propertyId } : {}), anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) } : endpoint.kind === 'named' ? { kind: 'named', propertyName: endpoint.propertyName!, row: endpoint.row!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) } : { kind: 'a1', address: endpoint.address!, anchors: endpoint.anchors, sourceSpan: endpoint.sourceSpan, ...(endpoint.open ? { open: true } : {}) }) as [FormulaReferenceEndpoint, FormulaReferenceEndpoint?], sourceSpan: match.sourceSpan }; }
 function targetSheet(qualifier: FormulaQualifier, current: SheetId): SheetId | undefined { return qualifier.kind === 'broken' ? undefined : qualifier.kind === 'explicit' ? qualifier.sheetId : current; }
 function rawTargetSheet(qualifier: FormulaQualifier, resolver: FormulaReferenceResolver): SheetId | undefined { return qualifier.kind === 'explicit' ? resolver.sheetByQualifier(qualifier.sheetId) : targetSheet(qualifier, resolver.currentSheetId); }
-export function formatCanonicalFormulaEndpoint(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor, propertyId?: string): string {
+export function formatCanonicalFormulaEndpoint(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor, propertyId?: string, open = false): string {
+  if (open) return formatOpenCanonical(coordinate, anchors, propertyId);
   return propertyId === undefined ? formatCanonical(coordinate, anchors) : formatNamedCanonical(propertyId, coordinate, anchors);
 }
+function formatOpenCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor, propertyId?: string): string { return `${anchors.column ? '$' : ''}~${encodeStableId(propertyId ?? coordinate.columnId)}~${encodeStableId(coordinate.columnId)}`; }
 function formatCanonical(coordinate: FormulaCoordinate, anchors: FormulaAxisAnchor): string { return `${anchors.column ? '$' : ''}${coordinate.columnId}[${anchors.row ? '$' : ''}${coordinate.rowId}]`; }
 /**
  * Stable IDs admit every non-blank JavaScript string. Encode UTF-16 code units
