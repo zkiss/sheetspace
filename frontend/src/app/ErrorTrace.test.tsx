@@ -46,3 +46,30 @@ it('falls back to the remaining cause when selection disappears and tolerates an
   await user.keyboard('{ArrowDown}{F4}');
   expect(navigate).toHaveBeenCalledTimes(1);
 });
+
+it('shows keyboard selection and activates a focused nonselected reference', async () => {
+  const user = userEvent.setup();
+  const navigate = vi.fn();
+  const first = { sheetId: 's', cell: { rowId: 'r', columnId: 'a' }, reference: '@Sheet!A[1]' };
+  const second = { sheetId: 's', cell: { rowId: 'r', columnId: 'b' }, reference: '@Sheet!B[1]' };
+  const error: WorkbookError = { key: 'a', ...first, code: '#VALUE!', text: 'Invalid', trace: [
+    { key: '0', depth: 0, message: 'First', target: first },
+    { key: '1', depth: 0, message: 'Second', target: second },
+  ] };
+  render(<ErrorTrace error={error} onNavigate={navigate} />);
+  const list = screen.getByRole('listbox');
+  const options = screen.getAllByRole('option');
+  expect(options[0]).toHaveStyle({ background: '#dbeafe' });
+  list.focus();
+  await user.keyboard('{ArrowDown}');
+  expect(options[1]).toHaveStyle({ background: '#dbeafe' });
+  expect(options[0]).not.toHaveStyle({ background: '#dbeafe' });
+  await user.tab();
+  expect(screen.getAllByRole('button', { name: first.reference })[1]).toHaveFocus();
+  await user.keyboard('{Enter}');
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(navigate).toHaveBeenCalledWith(first);
+  list.focus();
+  await user.keyboard('{F4}');
+  expect(navigate).toHaveBeenLastCalledWith(first);
+});
