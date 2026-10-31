@@ -120,7 +120,7 @@ export function SheetGrid({
   onNavigationSettled,
   onReferenceViewport,
 }: {
-  entryRow?: { model: DataModel; session: EntrySessionState; commands: EntryCommands };
+  entryRow?: { model: DataModel; session: EntrySessionState; commands: EntryCommands; onEntryFocus?: () => void };
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;

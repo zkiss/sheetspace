@@ -812,7 +812,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                 const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
                 return (
                   <SheetGrid
-                    entryRow={entryModel && entrySession ? { model: entryModel, session: entrySession, commands: {
+                    entryRow={entryModel && entrySession ? { model: entryModel, session: entrySession, onEntryFocus: onClearSelection, commands: {
                       change: (id, raw) => commands.changeEntryField(sheet.id, id, raw),
                       leave: (id) => commands.leaveEntryField(sheet.id, id),
                       dismiss: (id) => commands.dismissEntryFeedback(sheet.id, id),

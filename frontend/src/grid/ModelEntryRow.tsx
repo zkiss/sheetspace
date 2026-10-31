@@ -13,7 +13,7 @@ export type EntryCommands = {
   submit: () => Promise<{ firstInvalid?: string }>;
 };
 
-export function ModelEntryRow({ model, session, commands, style, columnWidths, editorInteraction, sheetId = '', sheetName = '', onNavigateUp }: {
+export function ModelEntryRow({ model, session, commands, style, columnWidths, editorInteraction, sheetId = '', sheetName = '', onNavigateUp, onEntryFocus }: {
   model: DataModel;
   session: EntrySessionState;
   commands: EntryCommands;
@@ -23,6 +23,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
   sheetId?: string;
   sheetName?: string;
   onNavigateUp?: (columnIndex: number) => void;
+  onEntryFocus?: () => void;
 }) {
   const cells = useRef(new Map<string, HTMLDivElement>());
   const anchor = useRef<HTMLDivElement | null>(null);
@@ -106,7 +107,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
         aria-selected={selected === column.id || undefined} className={`model-entry-cell${!field ? ' model-entry-calculated' : ''}${field?.invalid ? ' model-entry-invalid' : ''}${selected === column.id ? ' model-entry-selected' : ''}`}
         style={cellStyle} key={column.id} role="cell" tabIndex={disabled ? -1 : 0}
         ref={(element) => { if (element) cells.current.set(column.id, element); else cells.current.delete(column.id); }}
-        onFocus={() => setSelected(column.id)} onBlur={(event) => {
+        onFocus={() => { setSelected(column.id); onEntryFocus?.(); }} onBlur={(event) => {
           if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
           setSelected((current) => current === column.id ? null : current);
           if (field && !isEditing) commands.leave(column.id);
