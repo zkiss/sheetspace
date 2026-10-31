@@ -172,7 +172,7 @@ export class FormulaEvaluator {
     if (expression.kind === 'number') {
       return Number.isFinite(expression.value)
         ? { kind: 'number', value: expression.value }
-        : formulaErrorValue('#VALUE!');
+        : diagnosticError('#VALUE!', `Nonfinite number ${expression.value}.`);
     }
     if (expression.kind === 'text') {
       return { kind: 'text', value: expression.value };
@@ -215,7 +215,7 @@ export class FormulaEvaluator {
     const value = expression.operator === '-' ? -operand.value : operand.value;
     return Number.isFinite(value)
       ? { kind: 'number', value }
-      : formulaErrorValue('#VALUE!');
+      : diagnosticError('#VALUE!', `Nonfinite result applying ${expression.operator} to ${operand.value}.`);
   }
 
   private evaluateBinary(expression: BinaryFormula, currentSheet: CalculationSheet): FormulaScalarValue {
@@ -266,22 +266,22 @@ export class FormulaEvaluator {
     }
 
     if (reference.kind === 'canonical') {
-      if (!namedReferenceIsValid(reference, sheet)) return formulaErrorValue('#REF!');
+      if (!namedReferenceIsValid(reference, sheet)) return diagnosticError('#REF!', 'Referenced property does not exist.');
       const key = calculationCellKey(sheet, reference.coordinate);
-      if (!key) return formulaErrorValue('#REF!');
+      if (!key) return diagnosticError('#REF!', 'Referenced cell does not exist.');
       if (!reference.range) return this.evaluateReferencedCell(sheet, key);
       const addresses = canonicalRangeAddresses(sheet, reference.range);
-      if (!addresses) return formulaErrorValue('#REF!');
+      if (!addresses) return diagnosticError('#REF!', 'Referenced range does not exist.');
       return { kind: 'range', values: this.evaluateRangeCells(sheet, addresses), rowCount: addresses.length / rangeColumnCount(sheet, reference.range), columnCount: rangeColumnCount(sheet, reference.range) };
     }
     if (reference.kind === 'cell') {
-      if (!isAddressWithinBounds(reference.address, { rowCount: sheet.rows.length, columnCount: sheet.columns.length })) return formulaErrorValue('#REF!');
+      if (!isAddressWithinBounds(reference.address, { rowCount: sheet.rows.length, columnCount: sheet.columns.length })) return diagnosticError('#REF!', 'Referenced cell does not exist.');
       const key = calculationCellKey(sheet, { rowId: sheet.rows[reference.address.rowIndex]!, columnId: sheet.columns[reference.address.columnIndex]! });
-      return key ? this.evaluateReferencedCell(sheet, key) : formulaErrorValue('#REF!');
+      return key ? this.evaluateReferencedCell(sheet, key) : diagnosticError('#REF!', 'Referenced cell does not exist.');
     }
     const materialized = reference.open ? { start: reference.range.start, end: { ...reference.range.end, rowIndex: sheet.rows.length - 1 } } : reference.range;
     const range = expandRange(materialized, { rowCount: sheet.rows.length, columnCount: sheet.columns.length });
-    if (!range.ok) return formulaErrorValue('#REF!');
+    if (!range.ok) return diagnosticError('#REF!', 'Referenced range does not exist.');
     const keys = range.value.map((address) => calculationCellKey(sheet, { rowId: sheet.rows[address.rowIndex]!, columnId: sheet.columns[address.columnIndex]! })!);
     return { kind: 'range', values: this.evaluateRangeCells(sheet, keys), rowCount: materialized.end.rowIndex - materialized.start.rowIndex + 1, columnCount: reference.range.end.columnIndex - reference.range.start.columnIndex + 1 };
   }
