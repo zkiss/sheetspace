@@ -104,6 +104,7 @@ interface WorkbookApplication {
 
 class DefaultWorkbookApplication(
     private val store: WorkbookStore,
+    private val recordValidation: RecordValueValidation = SharedRecordValueValidation,
 ) : WorkbookApplication {
     override fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState =
         store.updateWorkbook { current ->
@@ -291,7 +292,7 @@ class DefaultWorkbookApplication(
             val model = sheet.modelId?.let(workbook.dataModels::get) ?: throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
             val manual = model.columns.filterIsInstance<ManualModelColumn>()
             if (values.keys != manual.map { it.id }.toSet() || model.columns.any { sheet.modelColumnBindings[it.id] !in sheet.tabularContent.columns } ||
-                manual.any { !validRecordValue(it.type, values.getValue(it.id)) }) {
+                !recordValidation.valid(workbook, id, values)) {
                 throw WorkbookApplicationException(WorkbookApplicationError.INVALID_MODEL_RECORD)
             }
             val contents = sheet.tabularContent.cellContents
@@ -390,20 +391,6 @@ private fun recordFingerprint(revision: Long, values: Map<String, String>): Stri
         values.toSortedMap().forEach { (key, value) -> append(key.length).append(':').append(key).append(value.length).append(':').append(value) }
     }
     return MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
-}
-
-private fun validRecordValue(type: ModelColumnType, value: String): Boolean {
-    if (value.isEmpty() || value.startsWith("=")) return true
-    val trimmed = value.trim()
-    val number = if (Regex("^-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$").matches(trimmed)) trimmed.toDoubleOrNull()?.takeIf { it.isFinite() } else null
-    val boolean = trimmed.equals("true", ignoreCase = true) || trimmed.equals("false", ignoreCase = true)
-    val quoted = Regex("^\"(?:[^\"]|\"\")*\"$", RegexOption.DOT_MATCHES_ALL).matches(value)
-    return when (type) {
-        ModelColumnType.STRING -> quoted || (number == null && !boolean)
-        ModelColumnType.INT -> !quoted && number != null && number % 1.0 == 0.0
-        ModelColumnType.FLOAT -> !quoted && number != null
-        ModelColumnType.BOOLEAN -> !quoted && boolean
-    }
 }
 
 private fun DataModel.calculatedFormulasByProperty(): Map<String, String> =

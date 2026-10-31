@@ -6,7 +6,7 @@
 setup:
 	$(MAKE) -C frontend install
 
-build:
+build: setup
 	$(MAKE) -C backend test compile
 	$(MAKE) -C frontend test build
 	$(MAKE) -C backend sync-frontend

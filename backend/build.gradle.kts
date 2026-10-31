@@ -21,6 +21,8 @@ checkstyle {
 }
 
 dependencies {
+    implementation("org.graalvm.polyglot:polyglot:24.1.2")
+    runtimeOnly("org.graalvm.polyglot:js-community:24.1.2")
     implementation("io.ktor:ktor-server-core-jvm:2.3.13")
     implementation("io.ktor:ktor-server-netty-jvm:2.3.13")
     implementation("io.ktor:ktor-server-content-negotiation-jvm:2.3.13")
@@ -50,6 +52,27 @@ application {
 sourceSets.test {
     resources.srcDir(file("../test-fixtures"))
 }
+
+val checkCalculation by tasks.registering(Exec::class) {
+    commandLine("node", "../frontend/node_modules/typescript/bin/tsc", "--project", "src/main/typescript/tsconfig.json")
+}
+
+val bundleCalculation by tasks.registering(Exec::class) {
+    dependsOn(checkCalculation)
+    inputs.dir("../frontend/src/calculation")
+    inputs.dir("../frontend/src/workbook")
+    inputs.file("../frontend/tsconfig.json")
+    inputs.file("../frontend/package-lock.json")
+    inputs.dir("src/main/typescript")
+    val output = layout.buildDirectory.file("generated-resources/calculation/record-admission.js")
+    outputs.file(output)
+    commandLine("../frontend/node_modules/esbuild/bin/esbuild", "src/main/typescript/recordAdmission.ts",
+        "--bundle", "--format=iife", "--global-name=RecordAdmission", "--platform=neutral", "--target=es2022",
+        "--tsconfig=../frontend/tsconfig.json", "--outfile=${output.get().asFile}")
+}
+
+sourceSets.main { resources.srcDir(layout.buildDirectory.dir("generated-resources")) }
+tasks.processResources { dependsOn(bundleCalculation) }
 
 tasks.test {
     useJUnitPlatform()

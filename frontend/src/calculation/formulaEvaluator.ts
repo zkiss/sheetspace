@@ -75,6 +75,16 @@ export class FormulaEvaluator {
     return new Map(this.results);
   }
 
+  /** Evaluates a detached expression without adding a reference target to the workbook. */
+  evaluateExpressionContent(content: string, sheetId: string): FormulaScalarValue {
+    const sheet = this.workbook.sheets.find((candidate) => candidate.id === sheetId);
+    if (!sheet) return formulaErrorValue('#REF!');
+    const parsed = this.parse(content, sheetId);
+    return parsed.kind === 'formula'
+      ? formulaScalarValue(this.evaluateExpression(parsed.expression, sheet))
+      : formulaErrorValue(parsed.kind === 'error' ? parsed.error : '#PARSE!');
+  }
+
   evaluate(): FormulaEvaluationSnapshot {
     for (const sheet of this.workbook.sheets) {
       for (const key of Object.keys(sheet.cells).sort()) {
