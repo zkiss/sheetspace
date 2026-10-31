@@ -47,4 +47,12 @@ describe('model entry row', () => {
     expect(commands.dismiss).toHaveBeenCalledWith('price');
     expect(screen.getByRole('textbox', { name: 'Price new record' })).toHaveValue('bad');
   });
+
+  it('offers a retry when an admission outcome is uncertain', async () => {
+    const { commands, session, rerender } = setup();
+    rerender(<ModelEntryRow model={model} session={{ ...session, retryRequired: true, failure: 'Connection lost' }} commands={commands} />);
+    expect(screen.getByRole('textbox', { name: 'Price new record' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry saving record' }));
+    await waitFor(() => expect(commands.submit).toHaveBeenCalledOnce());
+  });
 });

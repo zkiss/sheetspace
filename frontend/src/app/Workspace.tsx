@@ -55,6 +55,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   commands,
   contentHistoryFeedback,
   editingCell,
+  entrySessions,
   formulaResults,
   keyboardFocusRequest,
   onKeyboardFocusRequestConsumed,
@@ -99,6 +100,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   commands: WorkbookCommands;
   contentHistoryFeedback: import('@application/react/useWorkbookController').ContentHistoryFeedback | undefined;
   editingCell: CellEditSession | null;
+  entrySessions?: Readonly<Record<string, import('@application/core/modelEntrySession').EntrySessionState>>;
   formulaResults: FormulaEvaluationSnapshot;
   keyboardFocusRequest: CellFocusRequest | null;
   onKeyboardFocusRequestConsumed: (requestId: number) => void;
@@ -702,6 +704,12 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           if (!mountedSheetIds.has(sheet.id)) return null;
           const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
+          const model = sheet.modelId ? workbook.dataModels?.[sheet.modelId] : undefined;
+          const entrySession = entrySessions?.[sheet.id];
+          const entryModel = model && { ...model, columns: tabular.columns.flatMap((columnId) => {
+            const column = model.columns.find((item) => sheet.modelColumnBindings?.[item.id] === columnId);
+            return column ? [column] : [];
+          }) };
           const { calculatedColumnIds, columnLabels } = modelColumnPresentation(sheet, workbook.dataModels);
           const creatingSheetAxes = creatingAxes[sheet.id];
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
@@ -782,6 +790,12 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                 const axisProjection = projectGridAxes(tabular, creatingSheetAxes);
                 return (
                   <SheetGrid
+                    entryRow={entryModel && entrySession ? { model: entryModel, session: entrySession, commands: {
+                      change: (id, raw) => commands.changeEntryField(sheet.id, id, raw),
+                      leave: (id) => commands.leaveEntryField(sheet.id, id),
+                      dismiss: (id) => commands.dismissEntryFeedback(sheet.id, id),
+                      submit: () => commands.submitEntryDraft(sheet.id),
+                    } } : undefined}
                     interactionsEnabled={interactionsEnabled}
                     activeCellKey={cellKeyForTarget(sheet, activeCell)}
                     selectionTransition={selectionTransition}

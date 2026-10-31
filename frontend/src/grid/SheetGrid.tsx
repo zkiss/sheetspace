@@ -26,6 +26,9 @@ import { cssRemFromPixels } from '@shared/styles/styleTokens';
 import { axisIndexForDurableIndex, hasDurableIndex, mergeVirtualIndexes, parseCellAddress, pinnedAxisIndices, virtualItemsOrTestFallback } from './sheetGridProjection';
 import { useGridPointerSelection } from './useGridPointerSelection';
 import { SheetGridRows } from './SheetGridRows';
+import { ModelEntryRow, type EntryCommands } from './ModelEntryRow';
+import type { DataModel } from '@workbook/core/model';
+import type { EntrySessionState } from '@application/core/modelEntrySession';
 import { useGridHistoryRestore } from './useGridHistoryRestore';
 import { isNativeEditorTarget, logicalUnitsPerRenderedPixel } from './gridScrollInput';
 import { clipboardHtml, clipboardMarkerFromHtml } from './clipboardHtml';
@@ -73,6 +76,7 @@ export type SheetGridAxisMetrics = {
   readonly rows: GridAxisMetrics;
 };
 export function SheetGrid({
+  entryRow,
   activeCellKey,
   selectionTransition,
   activeSheetId,
@@ -116,6 +120,7 @@ export function SheetGrid({
   onNavigationSettled,
   onReferenceViewport,
 }: {
+  entryRow?: { model: DataModel; session: EntrySessionState; commands: EntryCommands };
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
@@ -580,7 +585,7 @@ export function SheetGrid({
     <div
       aria-label={`${sheet.name} grid`}
       aria-colcount={columns.filter((column) => column.kind === 'saved').length + 1}
-      aria-rowcount={rows.filter((row) => row.kind === 'saved').length + 1}
+      aria-rowcount={rows.filter((row) => row.kind === 'saved').length + 1 + (entryRow ? 1 : 0)}
       className="sheet-grid"
       data-testid="sheet-grid"
       data-workspace-navigation
@@ -617,7 +622,7 @@ export function SheetGrid({
         '--grid-row-header-width': cssRemFromPixels(GRID_ROW_HEADER_WIDTH),
         // CSSOM scroll extents are integer pixels. Reserve the fractional tail
         // rather than letting browser rounding make the last cell unrevealable.
-        height: Math.ceil(GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize),
+        height: Math.ceil(GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize + (entryRow ? GRID_CELL_HEIGHT : 0)),
         width: Math.ceil(GRID_ROW_HEADER_WIDTH + columnMetrics.totalSize),
       } as CSSProperties}
       tabIndex={!activeCellKey || !activeIsMounted ? 0 : -1}
@@ -633,6 +638,7 @@ export function SheetGrid({
           : undefined}
       />
       <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
+      {entryRow && <ModelEntryRow {...entryRow} columnWidths={entryRow.model.columns.map((_, index) => columnMetrics.itemSize(index) ?? GRID_CELL_WIDTH)} style={{ position: 'absolute', top: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize, left: GRID_ROW_HEADER_WIDTH, height: GRID_CELL_HEIGHT }} />}
     </div>
   );
 }

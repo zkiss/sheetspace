@@ -149,7 +149,7 @@ describe('App model binding workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm unbind' }));
     await waitFor(() => expect(screen.queryByLabelText('Bound to Receipt')).not.toBeInTheDocument());
     activateCellEditor(cellInFrame(reloadedFirst, 'A1'));
-    const editor = screen.getByRole('textbox');
+    const editor = screen.getByRole('textbox', { name: 'First A1 editor' });
     fireEvent.change(editor, { target: { value: '9' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
     await waitFor(() => expect(cellInFrame(reloadedFirst, 'A1')).toHaveTextContent('9'));

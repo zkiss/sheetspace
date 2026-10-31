@@ -3,18 +3,19 @@ import type { DataModel } from '@workbook/core/model';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
 import './ModelEntryRow.css';
 
-type EntryCommands = {
+export type EntryCommands = {
   change: (propertyId: string, raw: string) => void;
   leave: (propertyId: string) => void;
   dismiss: (propertyId: string) => void;
   submit: () => Promise<{ firstInvalid?: string }>;
 };
 
-export function ModelEntryRow({ model, session, commands, style }: {
+export function ModelEntryRow({ model, session, commands, style, columnWidths }: {
   model: DataModel;
   session: EntrySessionState;
   commands: EntryCommands;
   style?: CSSProperties;
+  columnWidths?: readonly number[];
 }) {
   const inputs = useRef(new Map<string, HTMLInputElement>());
   const submitting = useRef(false);
@@ -39,11 +40,12 @@ export function ModelEntryRow({ model, session, commands, style }: {
   }
 
   return <div aria-label="New record" className="model-entry-row" role="row" style={style} onKeyDown={keyDown} onPointerDown={(event) => event.stopPropagation()}>
-    {model.columns.map((column) => {
-      if (column.kind === 'calculated') return <div className="model-entry-cell model-entry-calculated" key={column.id} role="cell" aria-label={`${column.name} calculated`} />;
+    {model.columns.map((column, index) => {
+      const cellStyle = columnWidths ? { flex: `0 0 ${columnWidths[index]}px` } : undefined;
+      if (column.kind === 'calculated') return <div className="model-entry-cell model-entry-calculated" style={cellStyle} key={column.id} role="cell" aria-label={`${column.name} calculated`} />;
       const field = session.draft.fields[column.id];
       if (!field) return null;
-      return <div className="model-entry-cell" key={column.id} role="cell">
+      return <div className="model-entry-cell" style={cellStyle} key={column.id} role="cell">
         <input aria-label={`${column.name} new record`} aria-invalid={field.invalid} className={field.invalid ? 'model-entry-invalid' : undefined}
           disabled={session.pending || session.stale || session.retryRequired} value={field.raw}
           ref={(element) => { if (element) inputs.current.set(column.id, element); else inputs.current.delete(column.id); }}
@@ -53,6 +55,6 @@ export function ModelEntryRow({ model, session, commands, style }: {
         </div>}
       </div>;
     })}
-    {session.failure && <div className="model-entry-failure" role="alert">{session.failure}</div>}
+    {session.failure && <div className="model-entry-failure" role="alert">{session.failure}{session.retryRequired && <button type="button" onClick={() => void submit()}>Retry saving record</button>}</div>}
   </div>;
 }
