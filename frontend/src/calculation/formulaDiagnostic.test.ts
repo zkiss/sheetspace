@@ -7,6 +7,15 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('calculation diagnostics', () => {
+  it('explains a parser returning a non-formula for a formula cell', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1' } });
+    const evaluator = new FormulaEvaluator(
+      calculationProjection(workbookWithSheets([sheet])),
+      new Map(), undefined, undefined,
+      () => ({ kind: 'not-formula', raw: '=1' }),
+    );
+    expect(formulaDiagnostic(evaluator.evaluate().inputs.A1)?.message).toBe('Parser did not return a formula.');
+  });
   it('explains conditional aggregate validation without evaluating rejected ranges', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=SUMIF(@A[1]:A[2],">0",@A[1])', B2: '=COUNTIF(@A[3],">")', B3: '=COUNTIF(@Missing!A[1],1)' } });
     const calculation = new FormulaCalculation();

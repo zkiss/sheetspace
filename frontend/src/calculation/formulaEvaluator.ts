@@ -27,7 +27,6 @@ import {
   diagnosticError,
   formulaDiagnostic,
   displayFormulaValue,
-  formulaErrorValue,
   formulaScalarValue,
   matchesModelColumnType,
   type FormulaEvaluationSnapshot,
@@ -151,7 +150,7 @@ export class FormulaEvaluator {
     } else if (parsed.kind === 'formula') {
       result = formulaScalarValue(this.evaluateExpression(parsed.expression, sheet));
     } else {
-      result = formulaErrorValue('#PARSE!');
+      result = diagnosticError('#PARSE!', 'Parser did not return a formula.');
     }
 
     this.stack.pop();
@@ -234,7 +233,7 @@ export class FormulaEvaluator {
       }
       const comparison = compareFormulaScalars(left, right);
       return comparison === undefined
-        ? formulaErrorValue('#VALUE!')
+        ? diagnosticError('#VALUE!', `Cannot compare ${describeValue(left)} with ${describeValue(right)}.`)
         : { kind: 'boolean', value: applyComparisonOperator(comparison, expression.operator) };
     }
 
