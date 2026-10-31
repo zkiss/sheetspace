@@ -5,7 +5,6 @@ import {
 } from '@calculation/formulaFunctions';
 import {
   formulaCollectionValues,
-  formulaErrorValue,
   formulaScalarValue,
   diagnosticError,
   type FormulaScalarValue,
@@ -28,19 +27,19 @@ const sum: EagerFormulaFunction = {
 
 const average: EagerFormulaFunction = numericAggregate(
   (values) => values.length === 0
-    ? formulaErrorValue('#DIV/0!')
+    ? diagnosticError('#DIV/0!', 'AVERAGE requires at least one number.')
     : finiteNumber(values.reduce((total, value) => total + value, 0) / values.length),
 );
 
 const minimum: EagerFormulaFunction = numericAggregate(
   (values) => values.length === 0
-    ? formulaErrorValue('#VALUE!')
+    ? diagnosticError('#VALUE!', 'MIN requires at least one number.')
     : { kind: 'number', value: values.reduce((result, value) => Math.min(result, value)) },
 );
 
 const maximum: EagerFormulaFunction = numericAggregate(
   (values) => values.length === 0
-    ? formulaErrorValue('#VALUE!')
+    ? diagnosticError('#VALUE!', 'MAX requires at least one number.')
     : { kind: 'number', value: values.reduce((result, value) => Math.max(result, value)) },
 );
 
@@ -129,5 +128,5 @@ function collectNumbers(arguments_: readonly FormulaValue[]): number[] {
 }
 
 function finiteNumber(value: number): FormulaScalarValue {
-  return Number.isFinite(value) ? { kind: 'number', value } : formulaErrorValue('#VALUE!');
+  return Number.isFinite(value) ? { kind: 'number', value } : diagnosticError('#VALUE!', `Numeric result ${value} is not finite.`);
 }

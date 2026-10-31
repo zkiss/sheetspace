@@ -78,6 +78,27 @@ describe('calculation diagnostics', () => {
     expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=SQRT(-2)', 'inputs'))).toMatchObject({ message: 'Invalid numeric argument -2.' });
   });
 
+  it('preserves referenced errors through conditional aggregate inputs', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: {
+      A1: '=1/0', B1: '=COUNTIF(@A[1]:A[2],1)', C1: '=SUMIF(@A[2]:A[2],@A[1])',
+    } });
+    const calculation = new FormulaCalculation();
+    calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    for (const column of [1, 2]) {
+      const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[column] });
+      expect(calculation.diagnostic('inputs', key)).toMatchObject({
+        message: 'Propagated #DIV/0!', causes: [{ message: 'Cannot divide 1 by zero.', cell: { columnId: sheet.content.columns[0] } }],
+      });
+    }
+  });
+
+  it('explains the actual invalid logical input', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const evaluator = new FormulaEvaluator(calculationProjection(workbookWithSheets([sheet])));
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=IF("no",1,2)', 'inputs'))).toMatchObject({ message: 'Expected a boolean, got text "no".' });
+    expect(formulaDiagnostic(evaluator.evaluateExpressionContent('=NOT(12)', 'inputs'))).toMatchObject({ message: 'Expected a boolean, got number 12.' });
+  });
+
   it('clears dependent diagnostics after an incremental correction without changing a fork', () => {
     const original = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', B1: '=@A[1]' } });
     const calculation = new FormulaCalculation();

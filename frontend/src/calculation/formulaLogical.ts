@@ -5,6 +5,7 @@ import type {
 } from '@calculation/formulaFunctions';
 import {
   formulaCollectionValues,
+  diagnosticError,
   formulaErrorValue,
   formulaScalarValue,
   type FormulaScalarValue,
@@ -20,7 +21,7 @@ const conditional: LazyFormulaFunction = {
       return condition;
     }
     if (condition.kind !== 'boolean') {
-      return formulaErrorValue('#VALUE!');
+      return expectedBoolean(condition);
     }
     return formulaScalarValue(context.evaluateArgument(
       arguments_[condition.value ? 1 : 2],
@@ -40,7 +41,7 @@ const not: EagerFormulaFunction = {
     const value = formulaScalarValue(arguments_[0]);
     return value.kind === 'boolean'
       ? { kind: 'boolean', value: !value.value }
-      : formulaErrorValue('#VALUE!');
+      : expectedBoolean(value);
   },
 };
 
@@ -88,10 +89,16 @@ function inspectLogicalValue(
     return value;
   }
   if (value.kind === 'number' || value.kind === 'text') {
-    return formulaErrorValue('#VALUE!');
+    return expectedBoolean(value);
   }
   if (value.kind === 'boolean' && value.value === decisiveValue) {
     return value;
   }
   return undefined;
+}
+
+function expectedBoolean(value: FormulaScalarValue): FormulaScalarValue {
+  const actual = value.kind === 'text' ? `text ${JSON.stringify(value.value)}`
+    : value.kind === 'number' ? `number ${value.value}` : value.kind;
+  return diagnosticError('#VALUE!', `Expected a boolean, got ${actual}.`);
 }

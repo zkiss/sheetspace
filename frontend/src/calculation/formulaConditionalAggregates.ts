@@ -4,7 +4,7 @@ import type {
   LazyFormulaFunction,
   FormulaReferenceArgument,
 } from '@calculation/formulaFunctions';
-import type { FormulaErrorCode, FormulaExpression } from '@workbook/formula/syntax';
+import type { FormulaExpression } from '@workbook/formula/syntax';
 import { formulaErrorValue, formulaScalarValue, type FormulaScalarValue } from '@calculation/formulaValue';
 
 const conditionalArgumentKind = (index: number) => index === 1 ? 'scalar' as const : 'reference' as const;
@@ -18,9 +18,10 @@ const countIf: LazyFormulaFunction = {
     if (!criteriaInput.ok) return formulaErrorValue(criteriaInput.error);
 
     const candidates = materializeCriteria(criteriaInput.value);
-    if (!candidates.ok) return formulaErrorValue(candidates.error);
+    if (!candidates.ok) return candidates.error;
 
     const criterionValue = formulaScalarValue(context.evaluateArgument(arguments_[1], 'scalar'));
+    if (criterionValue.kind === 'error') return criterionValue;
     const criterion = parseFormulaCriterion(criterionValue);
     if (!criterion.ok) return formulaErrorValue(criterion.error);
 
@@ -54,9 +55,10 @@ const sumIf: LazyFormulaFunction = {
     }
 
     const candidates = materializeCriteria(criteriaInput.value);
-    if (!candidates.ok) return formulaErrorValue(candidates.error);
+    if (!candidates.ok) return candidates.error;
 
     const criterionValue = formulaScalarValue(context.evaluateArgument(arguments_[1], 'scalar'));
+    if (criterionValue.kind === 'error') return criterionValue;
     const criterion = parseFormulaCriterion(criterionValue);
     if (!criterion.ok) return formulaErrorValue(criterion.error);
 
@@ -92,10 +94,10 @@ export const conditionalAggregateFunctions: FormulaFunctionRegistry = new Map([
 
 function materializeCriteria(
   input: FormulaReferenceArgument,
-): { ok: true; value: FormulaScalarValue[] } | { ok: false; error: FormulaErrorCode } {
+): { ok: true; value: FormulaScalarValue[] } | { ok: false; error: FormulaScalarValue & { kind: 'error' } } {
   const values = [...input.values];
   const error = values.find((value): value is FormulaScalarValue & { kind: 'error' } => value.kind === 'error');
-  return error ? { ok: false, error: error.error } : { ok: true, value: values };
+  return error ? { ok: false, error } : { ok: true, value: values };
 }
 
 function sameShape(

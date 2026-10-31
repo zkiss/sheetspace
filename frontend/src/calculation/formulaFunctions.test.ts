@@ -83,7 +83,7 @@ describe('formula function protocol', () => {
     expect(visited).toEqual([7]);
   });
 
-  it('materializes collection arguments in order and propagates the first cell error', () => {
+  it('materializes collection arguments in order and retains the first error code', () => {
     const invoke = vi.fn();
     const visited: string[] = [];
     const values = function* () {
@@ -108,7 +108,7 @@ describe('formula function protocol', () => {
     );
 
     expect(result).toEqual({ kind: 'error', error: '#REF!' });
-    expect(visited).toEqual(['A1', 'B1']);
+    expect(visited).toEqual(['A1', 'B1', 'C1']);
     expect(invoke).not.toHaveBeenCalled();
   });
 });
