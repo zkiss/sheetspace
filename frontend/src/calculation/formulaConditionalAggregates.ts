@@ -75,11 +75,13 @@ const sumIf: LazyFormulaFunction = {
       sumValues = [...sumInput.values];
     }
 
+    const errors = matchingIndexes.map((index) => sumValues[index]).filter((value): value is FormulaScalarValue & { kind: 'error' } => value.kind === 'error');
+    if (errors.length > 1) return diagnosticError(errors[0].error, 'Multiple matched sum cells failed.', errors.map((error) => formulaDiagnostic(error) ?? { message: error.error, causes: [] }));
+    if (errors.length === 1) return errors[0];
     let total = 0;
     let overflow: string | undefined;
     for (const index of matchingIndexes) {
       const value = sumValues[index];
-      if (value.kind === 'error') return value;
       if (value.kind === 'number') {
         const next = total + value.value;
         if (!Number.isFinite(next) && overflow === undefined) overflow = `SUMIF produced a nonfinite result adding ${value.value} to ${total}.`;

@@ -20,15 +20,13 @@ const sum: EagerFormulaFunction = {
   evaluation: 'eager',
   arity: { min: 0 },
   argumentKind: collectionArgument,
-  invoke: (arguments_) => finiteNumber(
-    collectNumbers(arguments_).reduce((total, value) => total + value, 0),
-  ),
+  invoke: (arguments_) => sumNumbers(collectNumbers(arguments_), 'SUM'),
 };
 
 const average: EagerFormulaFunction = numericAggregate(
   (values) => values.length === 0
     ? diagnosticError('#DIV/0!', 'AVERAGE requires at least one number.')
-    : finiteNumber(values.reduce((total, value) => total + value, 0) / values.length),
+    : averageNumbers(values),
 );
 
 const minimum: EagerFormulaFunction = numericAggregate(
@@ -125,6 +123,22 @@ function collectNumbers(arguments_: readonly FormulaValue[]): number[] {
     }
   }
   return values;
+}
+
+function sumNumbers(values: readonly number[], name: string): FormulaScalarValue {
+  let total = 0;
+  let overflow: string | undefined;
+  for (const value of values) {
+    const next = total + value;
+    if (!Number.isFinite(next) && overflow === undefined) overflow = `${name} produced a nonfinite result adding ${value} to ${total}.`;
+    total = next;
+  }
+  return Number.isFinite(total) ? { kind: 'number', value: total } : diagnosticError('#VALUE!', overflow!);
+}
+
+function averageNumbers(values: readonly number[]): FormulaScalarValue {
+  const total = sumNumbers(values, 'AVERAGE');
+  return total.kind === 'number' ? finiteNumber(total.value / values.length) : total;
 }
 
 function finiteNumber(value: number): FormulaScalarValue {

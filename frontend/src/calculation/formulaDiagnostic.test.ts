@@ -7,6 +7,21 @@ import { calculationProjection } from '@workbook/read/calculationProjection';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('calculation diagnostics', () => {
+  it('explains blank logical inputs and overflowing aggregate operands', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { B1: '=AND(@A[1])', B2: '=SUM(1e308,1e308)', B3: '=AVERAGE(1e308,1e308)' } });
+    const calculation = new FormulaCalculation();
+    const snapshot = calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    expect(formulaDiagnostic(snapshot.inputs.B1)?.message).toContain('at least one boolean');
+    expect(formulaDiagnostic(snapshot.inputs.B2)?.message).toContain('adding 1e+308 to 1e+308');
+    expect(formulaDiagnostic(snapshot.inputs.B3)?.message).toContain('adding 1e+308 to 1e+308');
+  });
+
+  it('retains only matched sum-range failures as sibling causes', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '1', A2: '1', A3: '0', B1: '=1/0', B2: '=2/0', B3: '=3/0', C1: '=SUMIF(@A[1]:A[3],">0",@B[1]:B[3])' } });
+    const calculation = new FormulaCalculation();
+    const snapshot = calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
+    expect(formulaDiagnostic(snapshot.inputs.C1)).toMatchObject({ message: 'Multiple matched sum cells failed.', causes: [{ message: 'Cannot divide 1 by zero.' }, { message: 'Cannot divide 2 by zero.' }] });
+  });
   it('explains a range used where a scalar is required without evaluating its cells', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '=1/0', A2: '=2/0' } });
     const evaluated: string[] = [];
@@ -173,9 +188,9 @@ describe('calculation diagnostics', () => {
     calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
     const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[3] });
     expect(calculation.diagnostic('inputs', key)).toMatchObject({
-      message: 'Propagated #CYCLE!', cell: { columnId: sheet.content.columns[3] },
-      causes: [{ message: 'Propagated #CYCLE!', cell: { columnId: sheet.content.columns[2] }, causes: [
-        { message: 'Cycle detected; the dependency path cannot be evaluated.', cell: { columnId: sheet.content.columns[0] }, causes: [] },
+      message: 'Structural dependency on a cycle; expression blocked before evaluation.', cell: { columnId: sheet.content.columns[3] },
+      causes: [{ message: 'Structural dependency on a cycle; expression blocked before evaluation.', cell: { columnId: sheet.content.columns[2] }, causes: [
+        { message: 'Structural dependency cycle detected; expression blocked before evaluation.', cell: { columnId: sheet.content.columns[0] }, causes: [] },
       ] }],
     });
   });
@@ -186,10 +201,10 @@ describe('calculation diagnostics', () => {
     calculation.update(calculationProjection(workbookWithSheets([sheet])), { kind: 'structure' });
     const key = cellIdentityKey({ rowId: sheet.content.rows[0], columnId: sheet.content.columns[2] });
     expect(calculation.diagnostic('inputs', key)).toMatchObject({
-      message: 'Propagated #CYCLE!',
+      message: 'Structural dependency on a cycle; expression blocked before evaluation.',
       causes: [
-        { cell: { columnId: sheet.content.columns[0] }, message: 'Cycle detected; the dependency path cannot be evaluated.' },
-        { cell: { columnId: sheet.content.columns[1] }, message: 'Cycle detected; the dependency path cannot be evaluated.' },
+        { cell: { columnId: sheet.content.columns[0] }, message: 'Structural dependency cycle detected; expression blocked before evaluation.' },
+        { cell: { columnId: sheet.content.columns[1] }, message: 'Structural dependency cycle detected; expression blocked before evaluation.' },
       ],
     });
   });

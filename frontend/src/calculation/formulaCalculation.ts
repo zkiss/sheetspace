@@ -106,7 +106,7 @@ export class FormulaCalculation {
       const sheetId = nodeId.slice(0, separator);
       const key = nodeId.slice(separator + 1);
       const identity = cellIdentityFromKey(key);
-      cycleResults.set(nodeId, diagnosticAtCell(diagnosticError('#CYCLE!', 'Cycle detected; the dependency path cannot be evaluated.'), identity ? { sheetId, ...identity } : undefined));
+      cycleResults.set(nodeId, diagnosticAtCell(diagnosticError('#CYCLE!', 'Structural dependency cycle detected; expression blocked before evaluation.'), identity ? { sheetId, ...identity } : undefined));
     }
     for (let index = 0; index < pending.length; index += 1) {
       const nodeId = pending[index];
@@ -124,7 +124,7 @@ export class FormulaCalculation {
       const sheetId = nodeId.slice(0, separator);
       const identity = cellIdentityFromKey(nodeId.slice(separator + 1));
       cycleResults.set(nodeId, diagnosticAtCell(
-        diagnosticError('#CYCLE!', 'Propagated #CYCLE!', causes),
+        diagnosticError('#CYCLE!', 'Structural dependency on a cycle; expression blocked before evaluation.', causes),
         identity ? { sheetId, ...identity } : undefined,
       ));
     }

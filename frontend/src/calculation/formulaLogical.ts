@@ -6,7 +6,6 @@ import type {
 import {
   formulaCollectionValues,
   diagnosticError,
-  formulaErrorValue,
   formulaScalarValue,
   type FormulaScalarValue,
 } from '@calculation/formulaValue';
@@ -76,7 +75,7 @@ function logicalCollectionFunction(decisiveValue: boolean): LazyFormulaFunction 
       }
       return foundBoolean
         ? { kind: 'boolean', value: !decisiveValue }
-        : formulaErrorValue('#VALUE!');
+        : diagnosticError('#VALUE!', 'Expected at least one boolean; all values were blank.');
     },
   };
 }
