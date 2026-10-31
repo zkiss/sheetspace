@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { sheetDocument, workbookWithLegacyFormulaFixtures, workbookWithSheets } from '@test-support/workbookFactories';
 import { workbookErrors } from './workbookErrors';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
@@ -32,5 +32,34 @@ describe('workbook errors', () => {
     if (!bound.ok) throw new Error('Could not bind model');
     const results = new FormulaCalculation().updateStored(calculationProjection(bound.value), bound.value, { kind: 'structure' });
     expect(workbookErrors(bound.value, results).map((error) => error.reference)).toEqual(['@Bound!Total[1]', '@Bound!Total[2]']);
+  });
+
+  it('tracks identities through inserted, reordered and deleted rows and columns using fresh evaluations', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Sheet', rowCount: 3, columnCount: 3, cells: { B2: '=1/0', C3: '=1/0' } });
+    const original = workbookWithLegacyFormulaFixtures([sheet]);
+    const evaluate = (workbook: typeof original) => workbookErrors(workbook, new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }));
+    const before = evaluate(original);
+    const changed = structuredClone(original);
+    const content = changed.documents.s.content;
+    content.rows = ['inserted-row', ...content.rows.slice(1)];
+    content.columns = [content.columns[2], 'inserted-column', content.columns[1]];
+    const moved = evaluate(changed);
+    expect(moved.map((error) => [error.key, error.reference])).toEqual([[before[0].key, '@Sheet!C[2]'], [before[1].key, '@Sheet!A[3]']]);
+    content.rows = content.rows.filter((id) => id !== before[0].cell.rowId);
+    content.columns = content.columns.filter((id) => id !== before[1].cell.columnId);
+    expect(evaluate(changed)).toEqual([]);
+    expect(evaluate(original).map((error) => error.key)).toEqual(before.map((error) => error.key));
+  });
+
+  it('refreshes after correction and restores the same identity on undo and removes it on redo', () => {
+    const original = workbookWithLegacyFormulaFixtures([sheetDocument({ id: 's', name: 'Sheet', cells: { A1: '=1/0' } })]);
+    const corrected = structuredClone(original);
+    const key = Object.keys(corrected.documents.s.content.cells)[0];
+    corrected.documents.s.content.cells[key] = '42';
+    const evaluate = (workbook: typeof original) => workbookErrors(workbook, new FormulaCalculation().updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }));
+    const error = evaluate(original)[0];
+    expect(evaluate(corrected)).toEqual([]);
+    expect(evaluate(original)[0].key).toBe(error.key);
+    expect(evaluate(corrected)).toEqual([]);
   });
 });
