@@ -74,13 +74,15 @@ export class ModelEntrySessions {
   ): Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }> {
     const session = this.get(sheetId, model) as Session;
     if (session.pending || session.stale) return {};
-    const validation = validateEntryDraft(session.draft, model, workbook, sheetId);
-    session.draft = validation.draft;
-    if (validation.firstInvalid) return { firstInvalid: validation.firstInvalid };
-    session.submission ??= {
-      rowId: createId(),
-      values: Object.fromEntries(model.columns.filter((column) => column.kind === 'manual').map((column) => [column.id, prepareCellInput(session.draft.fields[column.id]!.raw, workbook, sheetId)])),
-    };
+    if (!session.submission) {
+      const validation = validateEntryDraft(session.draft, model, workbook, sheetId);
+      session.draft = validation.draft;
+      if (validation.firstInvalid) return { firstInvalid: validation.firstInvalid };
+      session.submission = {
+        rowId: createId(),
+        values: Object.fromEntries(model.columns.filter((column) => column.kind === 'manual').map((column) => [column.id, prepareCellInput(session.draft.fields[column.id]!.raw, workbook, sheetId)])),
+      };
+    }
     session.pending = true;
     session.retryRequired = true;
     delete session.failure;

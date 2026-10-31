@@ -74,6 +74,30 @@ describe('calculated row persistence', () => {
     expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
     expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
   });
+  it('retries the captured formula after a cross-sheet dependency becomes invalid', async () => {
+    const bound = boundWorkbook();
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1, cells: { A1: '5' } });
+    const workbook: Workbook = { ...bound, manifest: { ...bound.manifest, sheetIds: [...bound.manifest.sheetIds, other.id] }, documents: { ...bound.documents, other } };
+    const api = persistedWorkbookClient(workbook);
+    api.admitRecord.mockRejectedValueOnce(new Error('connection lost')).mockImplementationOnce(async (_sheetId, rowId) => ({
+      rowId,
+      sheet: { ...workbook.documents.sheet!, revision: workbook.documents.sheet!.revision + 1,
+        content: { ...workbook.documents.sheet!.content, rows: [...workbook.documents.sheet!.content.rows, rowId] } },
+    }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '=@Other!A[1]'));
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
+
+    act(() => { expect(result.current.commands.updateCellContent('other', 'A1', 'text')).toMatchObject({ ok: true }); });
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+
+    expect(api.admitRecord).toHaveBeenCalledTimes(2);
+    expect(api.admitRecord.mock.calls[1]).toEqual(api.admitRecord.mock.calls[0]);
+    expect(result.current.workbook.documents.sheet!.content.rows).toHaveLength(2);
+    expect(result.current.entrySessions.sheet!.draft.fields.input!.raw).toBe('');
+  });
   it('admits complete records locally without persistence and starts a fresh draft', async () => {
     const workbook = boundWorkbook();
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook }));
