@@ -141,6 +141,27 @@ describe('calculated row persistence', () => {
     act(() => result.current.commands.redo());
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
   });
+  it('removes an externally deleted sheet and its locked draft after a deferred admission returns missing', async () => {
+    const workbook = boundWorkbook();
+    const api = persistedWorkbookClient(workbook);
+    let reject!: (error: Error) => void;
+    api.admitRecord.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    act(() => result.current.commands.changeEntryField('sheet', 'input', '5'));
+    let submission!: Promise<unknown>;
+    act(() => { submission = result.current.commands.submitEntryDraft('sheet'); });
+    await waitFor(() => expect(api.admitRecord).toHaveBeenCalledTimes(1));
+    expect(result.current.entrySessions.sheet).toMatchObject({ pending: true, retryRequired: true });
+
+    await act(async () => { reject(new WorkbookApiError('missing', 404, 'sheet-not-found')); await submission; });
+
+    expect(result.current.workbook.documents.sheet).toBeUndefined();
+    expect(result.current.workbook.manifest.sheetIds).not.toContain('sheet');
+    expect(result.current.entrySessions.sheet).toBeUndefined();
+    await act(async () => { await result.current.commands.submitEntryDraft('sheet'); });
+    expect(api.admitRecord).toHaveBeenCalledTimes(1);
+    expect(result.current.workbook.documents.sheet).toBeUndefined();
+  });
   it('waits for a preceding cell save before capturing the admission revision', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);

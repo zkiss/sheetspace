@@ -1,14 +1,14 @@
-import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection } from '@workbook/core/model';
+import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel } from '@workbook/core/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
+import { admitRecordConfirmingMissing } from '@infrastructure/persistence/admitRecordConfirmingMissing';
+import { useMissingEntrySessions } from './useMissingEntrySessions';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type CellKey } from '@workbook/core/address';
-import type { StableCellIdentity } from '@workbook/core/model';
-import { type Workbook } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation, applyStoredCellWrites,
@@ -23,7 +23,6 @@ import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
 import { addDataModel } from '@workbook/mutations/dataModel';
-import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
 import { ModelEntrySessions } from '@application/core/modelEntrySession';
@@ -122,6 +121,7 @@ export function useWorkbookController({
   const persistenceCoordinatorRef = useRef<WorkbookPersistenceCoordinator | undefined>(undefined);
   persistenceCoordinatorRef.current ??= new WorkbookPersistenceCoordinator();
   const persistenceCoordinator = persistenceCoordinatorRef.current;
+  useMissingEntrySessions(persistenceCoordinator, entrySessions, admissionLocks);
   const committedCalculation = useRef<FormulaCalculation | undefined>(undefined);
   committedCalculation.current ??= calculator ?? new FormulaCalculation();
   const calculationObserverRef = useRef(calculationObserver);
@@ -453,7 +453,7 @@ export function useWorkbookController({
               const sheet = optimisticWorkbook.current.documents[sheetId];
               return sheet?.modelId === model.id ? sheet : undefined;
             },
-            admit: resolvedApiClient.admitRecord ?? workbookApi.admitRecord,
+            admit: admitRecordConfirmingMissing(resolvedApiClient.admitRecord ?? workbookApi.admitRecord, persistenceCoordinator),
             reconcile: (sheet) => {
               const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheetId]: sheet } };
               optimisticWorkbook.current = next;
