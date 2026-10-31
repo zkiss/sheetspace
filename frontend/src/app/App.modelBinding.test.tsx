@@ -54,6 +54,41 @@ function modelSelect() {
 }
 
 describe('App model binding workflow', () => {
+  it('wires an empty bound sheet entry draft to validation and retains it after a failed save', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { workbook } = inputsWorkbook();
+    const initial = { ...workbook, dataModels: { invoice: declaredModel } };
+    const apiClient = persistedWorkbookClient(initial);
+    apiClient.admitRecord.mockRejectedValue(new Error('offline'));
+    render(<App initialWorkbook={initial} apiClient={apiClient} />);
+
+    fireEvent.click(cellAt('A1'));
+    fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
+    expect(frame()).toHaveAttribute('data-row-count', '0');
+    const amount = screen.getByRole('textbox', { name: 'Amount new record' });
+    const tax = screen.getByRole('textbox', { name: 'Tax new record' });
+    fireEvent.change(amount, { target: { value: 'bad' } });
+    expect(amount).toHaveAttribute('aria-invalid', 'false');
+    fireEvent.blur(amount);
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Amount validation' }));
+    expect(amount).toHaveValue('bad');
+    expect(amount).toHaveClass('model-entry-invalid');
+    fireEvent.keyDown(tax, { key: 'Enter' });
+    await waitFor(() => expect(amount).toHaveFocus());
+    expect(apiClient.admitRecord).not.toHaveBeenCalled();
+    fireEvent.change(amount, { target: { value: '3' } });
+    expect(amount).not.toHaveClass('model-entry-invalid');
+    fireEvent.keyDown(amount, { key: 'Enter' });
+    await waitFor(() => expect(apiClient.admitRecord).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry saving record' })).toBeInTheDocument());
+    expect(amount).toHaveValue('3');
+    expect(frame()).toHaveAttribute('data-row-count', '0');
+  });
+
   it('persists the bounded two-sheet product workflow and leaves a cancelled destructive draft unchanged', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const first = sheetDocument({
