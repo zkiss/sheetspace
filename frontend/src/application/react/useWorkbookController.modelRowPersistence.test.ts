@@ -4,7 +4,7 @@ import type { DataModel, Workbook } from '@workbook/core/model';
 import { cellRawContent } from '@workbook/read/queries';
 import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
-import { decodeWorkbookBundle, encodeWorkbookBundle, WorkbookApiError } from '@infrastructure/persistence/workbookApi';
+import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import { persistedWorkbookClient } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
@@ -59,7 +59,7 @@ describe('calculated row persistence', () => {
     expect(result.current.entrySessions.sheet).toMatchObject({ retryRequired: true, failure: 'connection lost' });
     expect(cellRawContent(result.current.workbook.documents.other!, 'A1')).toBe('9');
   });
-  it('persists the two-sheet model workflow through editing, reload, append, and unbind', async () => {
+  it('persists the two-sheet model workflow through editing, reload, and unbind', async () => {
     const first = sheetDocument({ id: 'first', name: 'First', rowCount: 1, columnCount: 2, cells: { A1: '3' }, presentation: { rowHeights: { 'first:row:1': 31 }, columnWidths: {} } });
     const second = sheetDocument({ id: 'second', name: 'Second', rowCount: 1, columnCount: 2, cells: { A1: '7' }, presentation: { rowHeights: {}, columnWidths: { 'second:column:1': 123 } } });
     const workflowModel: DataModel = { id: 'model', name: 'Model', columns: [
@@ -93,7 +93,8 @@ describe('calculated row persistence', () => {
 
     expect(cellRawContent(result.current.workbook.documents.first!, 'B1')).toBe('3');
     expect(cellRawContent(result.current.workbook.documents.second!, 'B1')).toBe('7');
-    expect(projectStoredFormula(cellRawContent(result.current.workbook.documents.first!, 'A2')!, result.current.workbook, 'first').text).toMatch(/^=SUM\(/);
+    expect(result.current.workbook.documents.first!.content.rows).toHaveLength(1);
+    expect(api.appendRow).not.toHaveBeenCalled();
     expect(result.current.workbook.documents.first!.presentation.rowHeights['first:row:1']).toBe(31);
     expect(result.current.workbook.documents.second!.presentation.columnWidths['second:column:1']).toBe(123);
     unmount();
@@ -110,7 +111,7 @@ describe('calculated row persistence', () => {
     expect(reloaded.current.commands.updateCellContent('first', 'A1', '9')).toEqual({ ok: true, changed: true });
   });
 
-  it('materializes an appended calculated row through the append route without an ordinary protected write', async () => {
+  it('rejects generic append on a bound sheet without persistence or partial rows', async () => {
     const workbook = boundWorkbook();
     const api = persistedWorkbookClient(workbook);
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
@@ -118,13 +119,10 @@ describe('calculated row persistence', () => {
     act(() => { result.current.commands.appendRow('sheet'); });
     await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
 
-    expect(api.appendRow).toHaveBeenCalledTimes(1);
+    expect(api.appendRow).not.toHaveBeenCalled();
     expect(api.writeCells).not.toHaveBeenCalled();
-    const local = result.current.workbook;
-    expect(projectStoredFormula(cellRawContent(local.documents.sheet!, 'B2')!, local, 'sheet').text).toBe('=SUM(@A[2])');
-    expect(cellRawContent(local.documents.sheet!, 'A1')).toBe('3');
-    const reloaded = decodeWorkbookBundle(JSON.parse(JSON.stringify(encodeWorkbookBundle(await api.loadWorkbook()))));
-    expect(reloaded).toEqual(local);
+    expect(result.current.workbook).toEqual(workbook);
+    expect(await api.loadWorkbook()).toEqual(workbook);
   });
 
   it('persists the calculated bindings and derived contents atomically through the lifecycle route', async () => {

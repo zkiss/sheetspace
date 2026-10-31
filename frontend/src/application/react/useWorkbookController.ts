@@ -1,40 +1,36 @@
-import type { AxisSizeWrite, FormatWrite, SheetDocument } from '@workbook/core/model';
+import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection } from '@workbook/core/model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
-import { cellAddressOf, cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
+import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
-import { cellKey, type CellKey } from '@workbook/core/address';
+import { type CellKey } from '@workbook/core/address';
 import type { StableCellIdentity } from '@workbook/core/model';
-import { type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
-import { type MutationResult, type SheetFrameSize, type SheetZOrderDirection, type Workbook, type WorkspacePosition, type ValidationResult } from '@workbook/core/model';
+import { type Workbook } from '@workbook/core/model';
 import {
   applyBackendWorkbookReconciliation,
   applyWorkbookOperation, applyStoredCellWrites,
   prepareStoredPasteCellWrites, prepareStoredMoveCellWrites,
   replayCellPersistenceWrites,
-  type AppliedWorkbookOperation, type AffectedWorkbookEntities, type CellPersistenceWrite,
-  type CellWriteResult, type MovePreparationFailureReason, type PastePreparationFailureReason,
-  type WorkbookOperation, type WorkbookOperationFailureReason, type WorkbookOperationResult,
+  type AppliedWorkbookOperation, type WorkbookOperationResult, type CellWriteResult,
+  
+  type WorkbookOperation,
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
-import { addDataModel, type ModelMutationResult } from '@workbook/mutations/dataModel';
+import { addDataModel } from '@workbook/mutations/dataModel';
 import type { DataModel } from '@workbook/core/model';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
-import { ModelEntrySessions, type EntrySessionState } from '@application/core/modelEntrySession';
+import { ModelEntrySessions } from '@application/core/modelEntrySession';
 import { admitEntryRecord } from '@application/core/admitEntryRecord';
-import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
 import { useSheetCreationOperations } from '@application/react/useSheetCreationOperations';
-import type { CreatingSheetFrame } from '@application/core/sheetCreationState';
-import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
 import {
@@ -44,110 +40,9 @@ import {
   type SetWorkbook,
 } from '@calculation/workbookCalculation';
 
-export type WorkbookCommands = {
-  submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
-  changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
-  leaveEntryField: (sheetId: string, propertyId: string) => void;
-  dismissEntryFeedback: (sheetId: string, propertyId: string) => void;
-  bindSheetToModel: (sheetId: string, modelId: string) => DataModelCommandSubmission;
-  unbindSheetFromModel: (sheetId: string) => DataModelCommandSubmission;
-  addDataModel: (model: DataModel) => DataModelCommandSubmission;
-  replaceModelDeclaration: (model: DataModel) => DataModelCommandSubmission;
-  renameColumn: (sheetId: string, columnId: string, name: string) => RenameColumnSubmission;
-  writeNumberFormats: (sheetId: string, writes: readonly FormatWrite[]) => WorkbookOperationResult;
-  writeAxisSizes: (sheetId: string, writes: readonly AxisSizeWrite[]) => WorkbookOperationResult;
-  appendColumn: (sheetId: string) => void;
-  appendRow: (sheetId: string) => void;
-  changeSheetZOrder: (sheetId: string, direction: SheetZOrderDirection) => WorkbookOperationResult;
-  createSheet: (name: string, position: WorkspacePosition, viewportScale?: number, onCreated?: (sheet: SheetDocument) => void) => ValidationResult;
-  deleteSheet: (sheetId: string) => WorkbookOperationResult;
-  moveSheetFrame: (sheetId: string, position: WorkspacePosition) => WorkbookOperationResult;
-  pasteCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
-  pasteStoredCells: (sheetId: string, destination: CellKey, clipboard: ClipboardParseResult) => PasteCellsResult;
-  moveStoredCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
-  moveCells: (sheetId: string, destination: CellKey, source: import('@application/core/clipboardPayload').ClipboardSourceSnapshot) => MoveCellsResult;
-  renameSheet: (sheetId: string, name: string) => MutationResult<Workbook> | { ok: false; reason: 'pending-model-transition' };
-  retryFailedSaves: () => void;
-  undo: () => void;
-  redo: () => void;
-  resizeSheetFrame: (sheetId: string, position: WorkspacePosition, frameSize: SheetFrameSize) => WorkbookOperationResult;
-  setSheetVisualScale: (sheetId: string, visualScale: number) => WorkbookOperationResult;
-  updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
-  writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
-};
-
-export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
-export type DataModelCommandSubmission = Readonly<{ result: ModelCommandResult; completion: Promise<ModelCommandResult> }>;
-type TransitionFailure = Exclude<ModelCommandResult, ModelMutationResult>;
-export type RenameColumnResult = ReturnType<typeof renameColumn> | TransitionFailure;
-export type RenameColumnSubmission = Readonly<{ result: RenameColumnResult; completion: Promise<RenameColumnResult> }>;
-
-export type PasteCellsResult =
-  | { ok: true; changed: boolean }
-  | { ok: false; reason: PastePreparationFailureReason | WorkbookOperationFailureReason };
-export type MoveCellsResult = { ok: true; changed: boolean } | { ok: false; reason: MovePreparationFailureReason | WorkbookOperationFailureReason };
-
-export type ContentHistoryCellSnapshot = Readonly<{ sheetId: string; rowId: string; columnId: string; raw: string | null; display: string | null }>;
-
-export type ContentHistoryFeedback = Readonly<{
-  identity: string;
-  affected: AffectedWorkbookEntities;
-  before: readonly ContentHistoryCellSnapshot[];
-  after: readonly ContentHistoryCellSnapshot[];
-}>;
-
-export type WorkbookController = {
-  entrySessions: Readonly<Record<string, EntrySessionState>>;
-  commands: WorkbookCommands;
-  canRetryFailedSaves: boolean;
-  canUndo: boolean;
-  canRedo: boolean;
-  contentHistoryFeedback: ContentHistoryFeedback | undefined;
-  mutationFailure: 'pending-model-transition' | undefined;
-  formulaResults: FormulaEvaluationSnapshot;
-  retryStartupLoad: () => void;
-  creatingFrames: CreatingSheetFrame[];
-  creatingAxes: Readonly<Record<string, CreatingGridAxes>>;
-  saveStatus: ReturnType<typeof useSavedSheetAutosave>['saveStatus'];
-  startupLoad: ReturnType<typeof useStartupWorkbookLoad>['startupLoad'];
-  workbook: Workbook;
-};
-
-type WorkbookControllerState = {
-  workbook: Workbook;
-  calculationRequest: CalculationRequest;
-};
-
-function contentHistorySnapshot(
-  writes: readonly CellPersistenceWrite[],
-  raw: 'beforeRaw' | 'afterRaw',
-  workbook?: Workbook,
-  formulaResults?: FormulaEvaluationSnapshot,
-): readonly ContentHistoryCellSnapshot[] {
-  return Object.freeze(writes.map((write) => {
-    const sheet = workbook && findSheetById(workbook, write.sheetId);
-    const address = sheet && cellAddressOf(sheet.content, write);
-    const value = write[raw];
-    const ordinaryValue = value === null ? null : decodeCellTextLiteral(value) ?? value;
-    return Object.freeze({
-      sheetId: write.sheetId,
-      rowId: write.rowId,
-      columnId: write.columnId,
-      raw: value,
-      display: address ? formulaResults?.[write.sheetId]?.[cellKey(address)]?.display ?? ordinaryValue : ordinaryValue,
-    });
-  }));
-}
-
-function contentHistoryAffectedSnapshot(affected: AffectedWorkbookEntities): AffectedWorkbookEntities {
-  return Object.freeze({
-    sheetIds: Object.freeze([...affected.sheetIds]),
-    cells: Object.freeze(affected.cells.map(({ sheetId, cell }) => Object.freeze({
-      sheetId,
-      cell: Object.freeze({ ...cell }),
-    }))),
-  });
-}
+export type { WorkbookCommands, ModelCommandResult, DataModelCommandSubmission, RenameColumnResult, RenameColumnSubmission, PasteCellsResult, MoveCellsResult, ContentHistoryCellSnapshot, ContentHistoryFeedback, WorkbookController } from './workbookControllerTypes';
+import { contentHistorySnapshot, contentHistoryAffectedSnapshot } from './workbookControllerTypes';
+import type { WorkbookController, WorkbookControllerState, TransitionFailure, PasteCellsResult, MoveCellsResult } from './workbookControllerTypes';
 
 export function useWorkbookController({
   apiClient,
