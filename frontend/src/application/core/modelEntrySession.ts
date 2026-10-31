@@ -1,0 +1,72 @@
+import type { DataModel, SheetDocument, Workbook } from '@workbook/core/model';
+import { prepareCellInput } from './cellInputPreparation';
+import { changeEntryField, createModelEntryDraft, dismissEntryFeedback, leaveEntryField, validateEntryDraft, type ModelEntryDraft } from './modelEntryDraft';
+
+type Submission = { rowId: string; revision: number; values: Readonly<Record<string, string>> };
+export type EntrySessionState = { draft: ModelEntryDraft; pending: boolean; failure?: string };
+type Session = EntrySessionState & { signature: string; submission?: Submission };
+
+/** Session-only entry state; callers own persistence serialization and reconciliation. */
+export class ModelEntrySessions {
+  private readonly sessions = new Map<string, Session>();
+
+  private signature(model: DataModel) {
+    return JSON.stringify(model.columns.map(({ id, kind, type }) => [id, kind, type]));
+  }
+
+  get(sheetId: string, model: DataModel): EntrySessionState {
+    const signature = this.signature(model);
+    let session = this.sessions.get(sheetId);
+    if (!session || session.draft.modelId !== model.id || session.signature !== signature) {
+      session = { draft: createModelEntryDraft(model), signature, pending: false };
+      this.sessions.set(sheetId, session);
+    }
+    return session;
+  }
+
+  remove(sheetId: string) { this.sessions.delete(sheetId); }
+
+  change(sheetId: string, model: DataModel, propertyId: string, raw: string, workbook: Workbook) {
+    const session = this.get(sheetId, model) as Session;
+    if (!session.pending && !session.submission) session.draft = changeEntryField(session.draft, model, propertyId, raw, workbook, sheetId);
+    return session;
+  }
+
+  leave(sheetId: string, model: DataModel, propertyId: string, workbook: Workbook) {
+    const session = this.get(sheetId, model) as Session;
+    session.draft = leaveEntryField(session.draft, model, propertyId, workbook, sheetId);
+    return session;
+  }
+
+  dismiss(sheetId: string, model: DataModel, propertyId: string) {
+    const session = this.get(sheetId, model) as Session;
+    session.draft = dismissEntryFeedback(session.draft, propertyId);
+    return session;
+  }
+
+  async submit(sheetId: string, model: DataModel, workbook: Workbook, revision: number, createId: () => string,
+    admit: (submission: Submission) => Promise<{ rowId: string; sheet: SheetDocument }>,
+  ): Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }> {
+    const session = this.get(sheetId, model) as Session;
+    if (session.pending) return {};
+    const validation = validateEntryDraft(session.draft, model, workbook, sheetId);
+    session.draft = validation.draft;
+    if (validation.firstInvalid) return { firstInvalid: validation.firstInvalid };
+    session.submission ??= {
+      rowId: createId(), revision,
+      values: Object.fromEntries(model.columns.filter((column) => column.kind === 'manual').map((column) => [column.id, prepareCellInput(session.draft.fields[column.id]!.raw, workbook, sheetId)])),
+    };
+    session.pending = true;
+    delete session.failure;
+    try {
+      const result = await admit(session.submission);
+      if (this.sessions.get(sheetId) === session) this.sessions.set(sheetId, { draft: createModelEntryDraft(model), signature: session.signature, pending: false });
+      return { result };
+    } catch (error) {
+      session.failure = error instanceof Error ? error.message : 'Could not save record. Retry the submission.';
+      return {};
+    } finally {
+      session.pending = false;
+    }
+  }
+}
