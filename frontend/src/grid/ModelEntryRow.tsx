@@ -33,13 +33,23 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths }:
 
   function keyDown(event: KeyboardEvent) {
     event.stopPropagation();
+    if (event.key === 'Tab' && event.target instanceof HTMLInputElement) {
+      const fields = Array.from(inputs.current.values()).filter((input) => !input.disabled);
+      const index = fields.indexOf(event.target);
+      const next = fields[index + (event.shiftKey ? -1 : 1)];
+      if (next) {
+        event.preventDefault();
+        next.focus();
+      }
+    }
     if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submit();
     }
   }
 
-  return <div aria-label="New record" className="model-entry-row" role="row" style={style} onKeyDown={keyDown} onPointerDown={(event) => event.stopPropagation()}>
+  return <div aria-label="New record" className="model-entry-row" role="row" style={style} onKeyDown={keyDown} onPointerDown={(event) => event.stopPropagation()}
+    onCopy={(event) => event.stopPropagation()} onCut={(event) => event.stopPropagation()} onPaste={(event) => event.stopPropagation()}>
     {model.columns.map((column, index) => {
       const cellStyle = columnWidths ? { flex: `0 0 ${columnWidths[index]}px` } : undefined;
       if (column.kind === 'calculated') return <div className="model-entry-cell model-entry-calculated" style={cellStyle} key={column.id} role="cell" aria-label={`${column.name} calculated`} />;
