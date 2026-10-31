@@ -5,6 +5,17 @@ import type { StableCellIdentity, Workbook } from '@workbook/core/model';
 import { formatPropertyReferenceToken, formatSheetReferenceToken, type FormulaErrorCode } from '@workbook/formula/syntax';
 import { sheetsInOrder } from '@workbook/read/queries';
 
+function columnReferences(workbook: Workbook, sheet: ReturnType<typeof sheetsInOrder>[number]): string[] {
+  const names = namedColumns(workbook, sheet);
+  const named = new Map(names.map((column) => [column.columnId, column.name]));
+  const usedNames = new Set(names.map((column) => column.name));
+  return sheet.content.columns.map((columnId, columnIndex) => {
+    const name = named.get(columnId);
+    const label = columnIndexToLabel(columnIndex);
+    return name ? formatPropertyReferenceToken(name) : `${usedNames.has(label) ? '%' : ''}${label}`;
+  });
+}
+
 export type WorkbookError = {
   key: string;
   sheetId: string;
@@ -39,16 +50,8 @@ export function errorTrace(workbook: Workbook, diagnostic: FormulaDiagnostic): E
   const lines: ErrorTraceLine[] = [];
   const references = new Map<string, { sheetName: string; rows: Map<string, number>; columns: Map<string, string> }>();
   for (const sheet of sheetsInOrder(workbook)) {
-    const names = namedColumns(workbook, sheet);
-    const named = new Map(names.map((column) => [column.columnId, column.name]));
-    const usedNames = new Set(names.map((column) => column.name));
-    const columns = new Map<string, string>();
-    sheet.content.columns.forEach((columnId, columnIndex) => {
-      const name = named.get(columnId);
-      const label = columnIndexToLabel(columnIndex);
-      const property = name ? formatPropertyReferenceToken(name) : `${usedNames.has(label) ? '%' : ''}${label}`;
-      columns.set(columnId, property);
-    });
+    const labels = columnReferences(workbook, sheet);
+    const columns = new Map(sheet.content.columns.map((columnId, index) => [columnId, labels[index]]));
     references.set(sheet.id, { sheetName: formatSheetReferenceToken(sheet.name), rows: new Map(sheet.content.rows.map((id, index) => [id, index + 1])), columns });
   }
   type Item = { node: FormulaDiagnostic; depth: number; exit?: boolean } | { graph: NonNullable<FormulaDiagnostic['structural']>['graph']; id: string; depth: number; exit?: boolean };
@@ -96,16 +99,18 @@ const errorDescriptions: Record<FormulaErrorCode, string> = {
 
 export function workbookErrors(workbook: Workbook, snapshot: FormulaEvaluationSnapshot): WorkbookError[] {
   return sheetsInOrder(workbook).flatMap((sheet) => {
+    const columns = columnReferences(workbook, sheet);
+    const sheetName = formatSheetReferenceToken(sheet.name);
     return Object.entries(snapshot[sheet.id] ?? {}).flatMap(([key, result]) => {
       if (result.kind !== 'error') return [];
       const parsed = parseA1Address(key, { rowCount: sheet.content.rows.length, columnCount: sheet.content.columns.length });
       if (!parsed.ok) return [];
       const { rowIndex, columnIndex } = parsed.value;
       const cell = { rowId: sheet.content.rows[rowIndex], columnId: sheet.content.columns[columnIndex] };
-      const target = cellReference(workbook, { sheetId: sheet.id, ...cell });
+      const reference = `@${sheetName}!${columns[columnIndex]}[${rowIndex + 1}]`;
       const diagnostic = formulaDiagnostic(result);
       let trace: readonly ErrorTraceLine[] | undefined;
-      return [{ key: JSON.stringify([sheet.id, cell.rowId, cell.columnId]), sheetId: sheet.id, cell, reference: target!.reference, code: result.error, text: errorDescriptions[result.error], get trace() { return diagnostic ? (trace ??= errorTrace(workbook, diagnostic)) : undefined; }, rowIndex, columnIndex }];
+      return [{ key: JSON.stringify([sheet.id, cell.rowId, cell.columnId]), sheetId: sheet.id, cell, reference, code: result.error, text: errorDescriptions[result.error], get trace() { return diagnostic ? (trace ??= errorTrace(workbook, diagnostic)) : undefined; }, rowIndex, columnIndex }];
     }).sort((a, b) => a.rowIndex - b.rowIndex || a.columnIndex - b.columnIndex);
   });
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithLegacyFormulaFixtures, workbookWithSheets } from '@test-support/workbookFactories';
 import { errorTrace, workbookErrors } from './workbookErrors';
 import { formulaDiagnostic, type FormulaDiagnostic } from '@calculation/formulaValue';
@@ -9,6 +9,21 @@ import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
 import { formulaRawForDisplay, formulaReferenceTokens } from '@workbook/formula/reference';
 
 describe('workbook errors', () => {
+  it('does not scan row or column identities for each error in a large sheet', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Sheet', rowCount: 1000, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const rowScan = vi.spyOn(sheet.content.rows, 'indexOf');
+    const columnScan = vi.spyOn(sheet.content.columns, 'indexOf');
+    const errors = Object.fromEntries(Array.from({ length: 1000 }, (_, index) => [`A${index + 1}`, { kind: 'error' as const, error: '#REF!' as const, display: '#REF!' as const }]));
+    const rows = workbookErrors(workbook, { s: errors });
+    expect(rows).toHaveLength(1000);
+    expect(rows[999].reference).toBe('@Sheet!A[1000]');
+    expect(rowScan).not.toHaveBeenCalled();
+    expect(columnScan).not.toHaveBeenCalled();
+    rowScan.mockRestore();
+    columnScan.mockRestore();
+  });
+
   it('shares a bounded graph for layered converging cycle dependencies and projects every edge', () => {
     const cells: Record<string, string> = { A1: '=@A[1]' };
     for (let row = 2; row <= 22; row++) {
