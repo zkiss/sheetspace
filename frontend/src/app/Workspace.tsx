@@ -45,6 +45,8 @@ import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './mo
 import type { CellWriteResult } from '@application/core/userActions';
 import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
 import { NavigationPalette, type NavigationCommand } from './NavigationPalette';
+import { ErrorList } from './ErrorList';
+import { workbookErrors } from './workbookErrors';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 import { clampWorkspaceZoom, workspaceRectForFrame } from '@workspace/workspaceGeometry';
 const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
@@ -148,6 +150,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [modifierReferenceSpan, setModifierReferenceSpan] = useState<{ start: number; end: number } | null>(null);
   const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [errorsOpen, setErrorsOpen] = useState(false);
+  const [errorsFocusRequest, setErrorsFocusRequest] = useState(0);
+  const openErrors = useCallback(() => { setErrorsOpen(true); setErrorsFocusRequest((value) => value + 1); }, []);
+  const errors = useMemo(() => workbookErrors(workbook, formulaResults), [workbook, formulaResults]);
   const [paletteChoices, setPaletteChoices] = useState<NavigationCommand[] | null>(null);
   const [rowPickerOpen, setRowPickerOpen] = useState(false);
   const [paletteView, setPaletteView] = useState(0);
@@ -230,6 +236,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         return;
       }
       if (event.altKey && event.shiftKey && !primaryModifier && navigationKeyboardEnabled) {
+        if (key === 'e' && !editingCell) { event.preventDefault(); openErrors(); return; }
         const commandId = ({ s: 'sheet', c: 'column', r: 'row' } as Record<string, string>)[key];
         if (commandId) {
           event.preventDefault();
@@ -267,7 +274,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
+  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, openErrors, workspaceController]);
   useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
   const {
     clearNavigationHighlight,
@@ -425,6 +432,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }, [activeCell, closeCommandPalette, navigateCellTarget, openChoices, selectedSheet, workbook.dataModels]);
   const paletteCommands = useMemo<NavigationCommand[]>(() => {
     const result: NavigationCommand[] = [];
+    result.unshift({ id: 'errors', label: 'Open error list', shortcut: 'Alt+Shift+E', run: () => { closeCommandPalette(false); openErrors(); } });
     result.unshift({ id: 'row', label: 'Go to row…', shortcut: 'Alt+Shift+R', unavailable: selectedSheet?.content.rows.length ? undefined : 'No current sheet rows', run: () => {
       setPaletteChoices(null);
       setRowPickerOpen(true);
@@ -437,7 +445,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     result.unshift({ id: 'reference', label: 'Follow reference', shortcut: 'Alt+Enter', unavailable: navigableReferencesForFollow().length ? undefined : 'No resolvable reference', run: openReferenceChoices });
     result.unshift({ id: 'usages', label: 'Find usages', shortcut: 'Alt+Shift+U', unavailable: activeCell ? undefined : 'Select a cell first', run: openUsages });
     return result;
-  }, [activeCell, navigableReferencesForFollow, openColumnChoices, openPropertyDefinition, openReferenceChoices, openSheetChoices, openUsages, propertyForActiveCell, propertyReferenceChoices, selectedSheet, sheets]);
+  }, [activeCell, closeCommandPalette, navigableReferencesForFollow, openColumnChoices, openErrors, openPropertyDefinition, openReferenceChoices, openSheetChoices, openUsages, propertyForActiveCell, propertyReferenceChoices, selectedSheet, sheets]);
   runPaletteCommandRef.current = (id) => {
     const command = paletteCommands.find((candidate) => candidate.id === id);
     if (command && !command.unavailable) command.run();
@@ -644,6 +652,12 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         saveStatus={saveStatus}
         canRetryFailedSaves={canRetryFailedSaves}
       />
+      <button type="button" disabled={!interactionsEnabled} onClick={openErrors}>Errors ({errors.length}) · Alt+Shift+E</button>
+      <ErrorList errors={errors} open={errorsOpen && !sheetDialogOpen} focusRequest={errorsFocusRequest} onClose={() => { setErrorsOpen(false); onRestoreGridFocus(); }} onActivate={(error) => {
+        const current = errors.find((item) => item.key === error.key);
+        const sheet = current && findSheetById(workbook, current.sheetId);
+        if (current && sheet && navigateTarget({ kind: 'cell', target: { sheetId: current.sheetId, cell: current.cell } }, sheet)) setErrorsOpen(false);
+      }} />
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
        {commandPaletteOpen ? <NavigationPalette key={paletteView} panel={actionPalette.panel} commands={(paletteChoices ?? allPaletteCommands).map((command) => actionPalette.busy ? { ...command, unavailable: 'Waiting for clipboard access' } : command)} onClose={() => { if (!actionPalette.preventClose) { actionPalette.resetPanel(); closeCommandPalette(); } }} rowPicker={rowPickerOpen && selectedSheet ? {
