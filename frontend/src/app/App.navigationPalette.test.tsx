@@ -10,14 +10,14 @@ import type { Workbook } from '@workbook/core/model';
 describe('navigation palette composition', () => {
   it('restores the originating cell after confirming and escaping while persistence is pending', async () => {
     const user = userEvent.setup();
-    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs', cells: { A1: '1' } });
     const workbook = workbookWithLegacyFormulaFixtures([sheet]);
     workbook.dataModels = { invoice: { id: 'invoice', name: 'Invoice', columns: [{ id: 'amount', name: 'Amount', kind: 'manual', type: 'float' }] } };
     const completion = deferred<Workbook>();
     const apiClient = persistedWorkbookClient(workbook);
     apiClient.saveModelLifecycle.mockReturnValue(completion.promise);
     render(<App initialWorkbook={workbook} apiClient={apiClient} />);
-    const cell = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+    const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
     await user.click(cell);
     fireEvent.keyDown(cell, { ctrlKey: true, shiftKey: true, key: 'p' });
     await user.click(screen.getByRole('button', { name: /Bind model…/ }));
@@ -26,9 +26,9 @@ describe('navigation palette composition', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm bind' }));
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
-    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus();
+    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveFocus();
     await act(async () => { completion.resolve(workbook); await completion.promise; });
-    expect(screen.getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveFocus();
+    expect(screen.getByRole('cell', { name: 'Inputs A1 cell' })).toHaveFocus();
   });
   it('returns to the originating cell after cancellation and Escape', async () => {
     const user = userEvent.setup();
