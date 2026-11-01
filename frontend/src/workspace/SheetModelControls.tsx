@@ -70,7 +70,7 @@ export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind,
     </> : <button disabled={!selectedId || pending} onClick={() => setConfirmation('bind')} type="button">Bind model</button>}
     {confirmation ? <span className="sheet-model-confirmation" role="group" aria-label="Confirm model change">
       <span>{confirmation === 'unbind' ? 'Unbinding makes calculated results editable materialized values.' : `${confirmation === 'bind' ? 'Binding' : 'Rebinding'} maps properties in declaration order, keeps manual inputs where possible, and replaces calculated columns.`}</span>
-      <span className="sheet-model-confirmation-actions"><button onClick={() => { restoreFocus.current = true; setConfirmation(null); }} type="button">Cancel</button><button onClick={() => {
+      <span className="sheet-model-confirmation-actions"><button className="button-secondary" onClick={() => { restoreFocus.current = true; setConfirmation(null); }} type="button">Cancel</button><button className="button-primary" onClick={() => {
         restoreFocus.current = true;
         if (confirmation === 'unbind') report(onUnbind(sheet.id));
         else if (selectedId) bindModel(selectedId);

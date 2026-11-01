@@ -154,7 +154,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
         {models.length === 0 ? <p>No data models yet. Create one to define reusable sheet properties.</p> : <ul className="data-model-list">
           {models.map((model) => <li key={model.id}><span><strong>{model.name}</strong><small>{model.columns.length} properties</small></span><button onClick={() => openEdit(model)} type="button">Edit</button></li>)}
         </ul>}
-        <div className="dialog-actions"><button onClick={close} type="button">Close</button></div>
+        <div className="dialog-actions"><button className="button-secondary" onClick={close} type="button">Close</button></div>
       </> : <form aria-label={isNew ? 'Create data model' : 'Edit data model'} onKeyDownCapture={(event) => {
         if (event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key === 'Enter') {
           event.preventDefault();
@@ -215,7 +215,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
         {!isNew && (draft.columns.some((column) => !savedPropertyIds.has(column.id)) || [...savedPropertyIds].some((id) => !draft.columns.some((column) => column.id === id))) ? <p className="data-model-warning">Removing a property can discard bound data. New replacement properties start empty, even when they reuse a name. Renaming and reordering retain existing property identity.</p> : null}
         {error ? <div className="form-error" role="alert"><p>{error}</p>{error.includes('need to be retried') ? <button onClick={onRetryFailedSaves} type="button">Retry earlier changes</button> : null}</div> : null}
         {saving ? <p data-dialog-focus-target role="status" tabIndex={0}>Saving model…</p> : null}
-        <div className="dialog-actions"><button disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
+        <div className="dialog-actions"><button className="button-secondary" disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</button><button disabled={saving} type="submit">Save</button></div>
       </form>}
     </section>
   </div>;

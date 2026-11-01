@@ -48,7 +48,7 @@ export function SheetDialog({
           </p>
         ) : null}
         <div className="dialog-actions">
-          <button type="button" onClick={onCancel}>
+          <button className="button-secondary" type="button" onClick={onCancel}>
             Cancel
           </button>
           <button type="submit">{submitLabel}</button>

@@ -56,10 +56,3 @@
   justify-content: flex-end;
   gap: 0.5rem;
 }
-
-.dialog-actions button:first-child {
-  color: var(--accent-text);
-  background: #ffffff;
-}
-
-.dialog-actions button:first-child:hover:not(:disabled) { background: var(--accent-soft-hover); }
