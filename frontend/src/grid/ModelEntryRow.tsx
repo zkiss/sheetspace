@@ -87,6 +87,8 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
     } else if (event.key === 'Tab') {
       const next = index + (event.shiftKey ? -1 : 1);
       if (next >= 0 && next < model.columns.length) { event.preventDefault(); focusColumn(next); }
+    } else if (event.key === 'Escape' && selected === id && session.draft.fields[id]?.message) {
+      event.preventDefault(); commands.dismiss(id);
     } else if (event.key === 'Enter') {
       event.preventDefault(); void submit();
     } else if (event.key === 'F2') {
@@ -141,7 +143,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
       setSelected((current) => current === focusedProperty ? null : current);
     }}>
       {session.draft.fields[focusedProperty]?.message}
-      <button type="button" onClick={() => { commands.dismiss(focusedProperty); cells.current.get(focusedProperty)?.focus(); }}>Dismiss</button>
+      <button type="button" aria-keyshortcuts="Escape" onClick={() => { commands.dismiss(focusedProperty); cells.current.get(focusedProperty)?.focus(); }}>Dismiss (Esc)</button>
     </div>, document.body)}
     {!model.columns.some((column) => column.kind === 'manual') && !session.retryRequired && <div role="cell" className="model-entry-submit"><button type="button" disabled={session.pending || session.stale} onClick={() => void submit()}>Save record</button></div>}
     {session.failure && <div className="model-entry-failure" role="alert">{session.failure}{session.retryRequired && <button type="button" onClick={() => void submit()}>Retry saving record</button>}</div>}
