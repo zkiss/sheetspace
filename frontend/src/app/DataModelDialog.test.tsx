@@ -32,7 +32,7 @@ describe('DataModelDialog', () => {
     fireEvent.change(within(form).getByLabelText('Property 1 name'), { target: { value: 'Total' } });
     fireEvent.change(within(form).getByLabelText('Property 1 type'), { target: { value: 'function' } });
     fireEvent.change(within(form).getByLabelText('Property 1 formula'), { target: { value: '=1+2' } });
-    fireEvent.keyDown(within(form).getByLabelText('Property 1 formula'), { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(within(form).getByLabelText('Property 1 formula'), { key: 'Enter' });
     fireEvent.click(within(form).getByRole('button', { name: 'Add property' }));
     fireEvent.change(within(form).getByLabelText('Property 2 name'), { target: { value: 'Paid' } });
     fireEvent.change(within(form).getByLabelText('Property 2 type'), { target: { value: 'boolean' } });
@@ -95,7 +95,7 @@ describe('DataModelDialog', () => {
     fireEvent.click(within(form).getByRole('button', { name: /@Amount/ }));
     formula = within(form).getByLabelText('Property 2 formula');
     fireEvent.change(formula, { target: { value: '=9' } });
-    fireEvent.keyDown(formula, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(formula, { key: 'Enter' });
     expect(within(form).getByRole('button', { name: /=9/ })).toBeInTheDocument();
   });
 

@@ -31,6 +31,9 @@ describe('rename column form', () => {
     const target = { kind: 'property' as const, sheetId: 's', columnId: 'c', modelId: 'm', modelName: 'Model', propertyId: 'p', propertyName: 'Price' };
     const { unmount } = render(<RenameColumnForm target={target} initialName="Price" onApply={vi.fn()} onCancel={cancel} />);
     expect(screen.getByText(/all sheets bound to the model/)).toHaveTextContent('Model');
+    expect(screen.getByText('Model').tagName).toBe('CODE');
+    expect(screen.getByRole('button', { name: 'Continue' })).toHaveClass('button-primary');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('button-secondary');
     expect(screen.queryByLabelText('Column name')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(cancel).toHaveBeenCalledOnce();

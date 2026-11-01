@@ -41,10 +41,12 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
   const formulaWorkbook = workbook ?? { documents: {}, dataModels: {} } as Workbook;
   const dialogRef = useRef<HTMLElement>(null);
   const propertyToFocus = useRef<string | null>(null);
+  const focusAfterRemoval = useRef<number | null>(null);
   const submissionPending = useRef(false);
   const closing = useRef(false);
   const initialModel = initialModelId ? models.find((candidate) => candidate.id === initialModelId) : undefined;
   const [draft, setDraft] = useState<Draft | null>(() => (initialModel ? copy(initialModel) : null));
+  const draftId = draft?.id;
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -64,13 +66,8 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
     }) });
   }
   function removeColumn(index: number) {
+    focusAfterRemoval.current = index;
     setDraft((current) => current && { ...current, columns: current.columns.filter((_, target) => target !== index) });
-    queueMicrotask(() => {
-      const dialog = dialogRef.current;
-      const properties = [...(dialog?.querySelectorAll<HTMLElement>('.model-property input') ?? [])];
-      const property = properties[Math.min(index, properties.length - 1)];
-      (property ?? dialog?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)'))?.focus();
-    });
   }
   function addColumn(index: number) {
     const column = newColumn();
@@ -119,10 +116,16 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
     if (saving) dialogRef.current?.querySelector<HTMLElement>('[data-dialog-focus-target]')?.focus();
   }, [saving]);
   useEffect(() => {
-    if (!initialPropertyId || !draft) return;
+    if (!initialPropertyId || !draftId) return;
     dialogRef.current?.querySelector<HTMLElement>(`[data-property-id="${initialPropertyId}"] input`)?.focus();
-  }, [draft?.id, initialPropertyId]);
+  }, [draftId, initialPropertyId]);
   useEffect(() => {
+    if (focusAfterRemoval.current !== null) {
+      const dialog = dialogRef.current;
+      const properties = [...(dialog?.querySelectorAll<HTMLElement>('.model-property input') ?? [])];
+      (properties[Math.min(focusAfterRemoval.current, properties.length - 1)] ?? dialog?.querySelector<HTMLElement>(focusableSelector))?.focus();
+      focusAfterRemoval.current = null;
+    }
     if (!propertyToFocus.current) return;
     dialogRef.current?.querySelector<HTMLElement>(`[data-property-id="${propertyToFocus.current}"] input`)?.focus();
     propertyToFocus.current = null;
