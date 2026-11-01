@@ -141,7 +141,6 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 type'), { target: { value: 'function' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])" } });
     fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
-    fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
 
     const bind = async (sheetName: string) => {
@@ -179,11 +178,10 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Data models' })).getByRole('button', { name: 'Edit' }));
     const edit = screen.getByRole('form', { name: 'Edit data model' });
     fireEvent.change(within(edit).getByLabelText('Model name'), { target: { value: 'Receipt' } });
-    fireEvent.click(within(edit).getByRole('button', { name: /SUM/ }));
-    fireEvent.change(within(edit).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])*2" } });
-    fireEvent.keyDown(within(edit).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
     fireEvent.click(within(edit).getByRole('button', { name: 'Move property 2 up' }));
-    fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
+    fireEvent.click(within(edit).getByRole('button', { name: /SUM/ }));
+    fireEvent.change(within(edit).getByLabelText('Property 1 formula'), { target: { value: "=SUM(@'Input'[1])*2" } });
+    fireEvent.keyDown(within(edit).getByLabelText('Property 1 formula'), { key: 'Enter', ctrlKey: true });
     await waitFor(() => expect(columnLabelsFor(firstFrame)).toEqual(['Output', 'Input']));
     expect(columnLabelsFor(firstFrame)).toEqual(['Output', 'Input']);
     expect(cellInFrame(firstFrame, 'A1')).toHaveTextContent('6');
@@ -296,7 +294,6 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 type'), { target: { value: 'function' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: '=SUM(@A[1])' } });
     fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
-    fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
 
