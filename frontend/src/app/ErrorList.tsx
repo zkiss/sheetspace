@@ -43,7 +43,11 @@ export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onN
     setSelection({ key: next.key, column: nextColumn });
   }
   if (!open) return null;
-  return <section aria-label="Workbook errors" className="error-list-panel" data-workspace-native-content data-workspace-navigation ref={list} onKeyDown={(event) => {
+  return <section aria-label="Workbook errors" className="error-list-panel" data-workspace-native-content data-workspace-navigation ref={list} onKeyDownCapture={(event) => {
+    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'e') {
+      event.preventDefault(); event.stopPropagation(); onClose();
+    }
+  }} onKeyDown={(event) => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
   }}>
     <header className="error-list-header"><strong>Errors <span>{errors.length}</span></strong><span className="error-list-hint">↑↓←→ navigate · F2 inspect / expand · F4 follow cell</span>
