@@ -10,7 +10,7 @@
     "build:assets": "tsc --noEmit && vite build",
     "check:architecture": "vitest run architecture",
     "preview": "vite preview",
-    "lint": "eslint src",
+    "lint": "eslint src scripts",
     "test": "vitest run",
     "test:coverage": "npm run lint && vitest run --coverage"
   },

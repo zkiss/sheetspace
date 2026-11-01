@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    files: ['src/**/*.{js,mjs,cjs,jsx,ts,tsx}'],
+    files: ['src/**/*.{js,mjs,cjs,jsx,ts,tsx}', 'scripts/**/*.{js,mjs,cjs,jsx,ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     plugins: {
       'react-hooks': reactHooks,

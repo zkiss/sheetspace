@@ -29,5 +29,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "architecture", "tests"]
+  "include": ["src", "architecture", "tests", "scripts"]
 }

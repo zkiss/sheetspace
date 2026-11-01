@@ -47,6 +47,8 @@ export const frontendPolicy: ArchitecturePolicy = {
       mayImport: [...productionNames, 'test-support'], external: testingExternal,
     })),
     { name: 'browser-tests', files: /^tests\/[^/]+\.test\.ts$/, role: 'test', external: ['node:fs', 'playwright', 'vitest'] },
+    { name: 'scripts', files: /^scripts\/(?:[^/]+|demo\/(?![^/]*\.test\.ts$)[^/]+)$/, role: 'tooling', mayImport: [...productionNames, 'test-support'], external: [] },
+    { name: 'scripts/tests', files: /^scripts\/demo\/[^/]+\.test\.ts$/, role: 'test', mayImport: ['scripts', ...productionNames, 'test-support'], external: testingExternal },
     { name: 'performance', files: /^performance\/[^/]+\.probe\.tsx$/, role: 'test', mayImport: [...productionNames, 'test-support'], external: testingExternal },
     { name: 'test-support', files: /^src\/test-support\/(?![^/]*\.test\.tsx?$)[^/]+$/, role: 'test-support', mayImport: productionNames, external: testingExternal },
     { name: 'architecture', files: /^architecture\/[^/]+$/, role: 'tooling', mayImport: ['configuration'], external: ['node:child_process', 'node:fs', 'node:os', 'node:path', 'node:url', 'typescript', 'vitest', '@csstools/css-tokenizer'] },

@@ -25,6 +25,7 @@ export default defineConfig({
     // policy, hook, component and App tests in JSDOM, with isolated workers.
     environmentMatchGlobs: [
       ['architecture/**/*.test.ts', 'node'],
+      ['scripts/**/*.test.ts', 'node'],
       ['src/{calculation,workbook,application/core,infrastructure/persistence}/**/*.test.ts', 'node'],
       ['src/grid/{cellInteraction,cellNavigation,clipboardPayload,gridAxisMetrics,gridAxisProjection,gridCellReveal,gridGeometry,gridRangeReveal,sheetGridModel}.test.ts', 'node'],
       ['src/workspace/{formattingActions,formattingShortcuts,NumberFormatControls,NumberFormatControls.colourState,NumberFormatControls.costEvidence,NumberFormatControls.projectionContract,sheetRenderingMode,workspaceFrameVirtualization}.test.ts', 'node'],
