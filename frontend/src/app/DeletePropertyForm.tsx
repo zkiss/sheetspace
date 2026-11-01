@@ -10,7 +10,7 @@ export function DeletePropertyForm({ target, onApply, onCancel }: {
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   return <div>
-    <p>This column is defined by data model "{target.modelName}". Delete property "{target.propertyName}" from that model? This removes the property and its data from all sheets bound to the model.</p>
+    <p>This column is defined by data model <code className="data-model-name">{target.modelName}</code>. Delete property "{target.propertyName}" from that model? This removes the property and its data from all sheets bound to the model.</p>
     {error ? <p className="form-error" role="alert">{error}</p> : null}
     <div className="confirmation-actions">
     <button autoFocus className="button-primary" disabled={busy} type="button" onClick={() => {

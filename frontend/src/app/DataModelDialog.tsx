@@ -152,7 +152,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
       {!draft ? <>
         <div className="data-model-header"><h2>Data models</h2><button autoFocus onClick={openCreate} type="button">Create model</button></div>
         {models.length === 0 ? <p>No data models yet. Create one to define reusable sheet properties.</p> : <ul className="data-model-list">
-          {models.map((model) => <li key={model.id}><span><strong>{model.name}</strong><small>{model.columns.length} properties</small></span><button onClick={() => openEdit(model)} type="button">Edit</button></li>)}
+          {models.map((model) => <li key={model.id}><span><strong><code className="data-model-name">{model.name}</code></strong><small>{model.columns.length} properties</small></span><button onClick={() => openEdit(model)} type="button">Edit</button></li>)}
         </ul>}
         <div className="dialog-actions"><button className="button-secondary" onClick={close} type="button">Close</button></div>
       </> : <form aria-label={isNew ? 'Create data model' : 'Edit data model'} onKeyDownCapture={(event) => {

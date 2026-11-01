@@ -63,7 +63,7 @@ export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind,
   return <span className="workspace-model-controls">
     <label>Model for {sheet.name}<select ref={selector} aria-label={`Model for ${sheet.name}`} disabled={pending} value={selectedId} onChange={(event) => { setSelectedModelId(event.target.value); setFeedback(''); setConfirmation(null); }}>
       <option value="">No model</option>{models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
-    {boundModelId ? <><span aria-label={`Bound to ${currentModel?.name ?? 'data model'}`} role="status">Bound: {currentModel?.name ?? 'data model'}</span>
+    {boundModelId ? <><span aria-label={`Bound to ${currentModel?.name ?? 'data model'}`} role="status">Bound: <code className="data-model-name">{currentModel?.name ?? 'data model'}</code></span>
       <button data-workspace-navigation onClick={() => onOpenDataModels(boundModelId)} type="button">Edit model</button>
       {selectedId !== boundModelId ? <button disabled={pending} onClick={() => setConfirmation('rebind')} type="button">Rebind model</button> : null}
       <button disabled={pending} onClick={() => setConfirmation('unbind')} type="button">Unbind model</button>

@@ -17,7 +17,7 @@ export function RenameColumnForm({ target, initialName, onApply, onCancel }: {
     if (error && !busy) input.current?.focus();
   }, [busy, error]);
   if (!confirmed && target.kind === 'property') return <div>
-    <p>This column is defined by data model "{target.modelName}". Rename property "{target.propertyName}" in that model? This change will apply to all sheets bound to the model.</p>
+    <p>This column is defined by data model <code className="data-model-name">{target.modelName}</code>. Rename property "{target.propertyName}" in that model? This change will apply to all sheets bound to the model.</p>
     <div className="confirmation-actions">
       <button autoFocus className="button-primary" type="button" onClick={() => setConfirmed(true)}>Continue</button>
       <button className="button-secondary" type="button" onClick={onCancel}>Cancel</button>
