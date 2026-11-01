@@ -17,14 +17,14 @@ const model: DataModel = { id: 'm', name: 'Model', columns: [
 const workbook = createEmptyWorkbook();
 const editorInteraction = { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() };
 
-function setup() {
+function setup(middleRaw = 'bad') {
   const dismiss = vi.fn();
   const submit = vi.fn().mockResolvedValue({});
   function Harness() {
     const [draft, setDraft] = useState(() => {
       let next = createModelEntryDraft(model);
       for (const id of ['first', 'middle', 'last']) {
-        next = changeEntryField(next, model, id, 'bad', workbook, 'sheet');
+        next = changeEntryField(next, model, id, id === 'middle' ? middleRaw : 'bad', workbook, 'sheet');
         next = leaveEntryField(next, model, id, workbook, 'sheet');
       }
       return next;
@@ -98,6 +98,59 @@ describe('entry validation keyboard access', () => {
     await user.keyboard('{Escape}');
     expect(dismiss).toHaveBeenCalledWith('middle');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('dismisses completion before cancelling the light editor or dismissing cell feedback', async () => {
+    const { user, dismiss, submit } = setup('=SU');
+    const target = cell('Middle');
+    await user.click(target);
+    await user.keyboard('{F2}');
+    const editor = await screen.findByRole('textbox', { name: 'Sheet Middle editor' });
+    await user.keyboard('{Control>} {/Control}');
+    expect(await screen.findByRole('listbox', { name: 'Formula completions' })).toBeVisible();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox', { name: 'Formula completions' })).not.toBeInTheDocument();
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('=SU');
+    expect(screen.getByRole('alert')).toBeVisible();
+    expect(dismiss).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(target).toHaveFocus());
+    expect(target).toHaveTextContent('=SU');
+    expect(dismiss).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    expect(dismiss).toHaveBeenCalledWith('middle');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(target).toHaveFocus();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it.each(['Control', 'Meta'])('keeps heavy editor Escape and Tab ownership until %s+Escape cancels', async (modifier) => {
+    const { user, dismiss, submit } = setup();
+    const target = cell('Middle');
+    await user.click(target);
+    await user.keyboard('{F2}{F2}');
+    const editor = await screen.findByRole('textbox', { name: 'Sheet Middle editor' });
+    expect(editor.closest('[data-editor-mode]')).toHaveAttribute('data-editor-mode', 'heavy');
+    await user.keyboard('{Escape}');
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('bad');
+    expect(screen.getByRole('alert')).toBeVisible();
+    expect(dismiss).not.toHaveBeenCalled();
+    await user.keyboard('{Tab}');
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('  bad');
+    expect(dismiss).not.toHaveBeenCalled();
+    await user.keyboard(`{${modifier}>}{Escape}{/${modifier}}`);
+    await waitFor(() => expect(target).toHaveFocus());
+    expect(target).toHaveTextContent('bad');
+    expect(screen.getByRole('alert')).toBeVisible();
+    expect(dismiss).not.toHaveBeenCalled();
+    await user.keyboard('{Escape}');
+    expect(dismiss).toHaveBeenCalledWith('middle');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(target).toHaveFocus();
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('dismisses by clicking feedback while editing and returns focus to the cell', async () => {
