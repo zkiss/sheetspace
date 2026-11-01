@@ -1,39 +1,58 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CellTarget } from '@grid/cellInteractionContracts';
 import type { WorkbookError } from './workbookErrors';
-import { ErrorTrace } from './ErrorTrace';
+import { ErrorListCell } from './ErrorListCell';
+import type { ErrorReferenceHover } from './errorCellText';
+import './ErrorList.css';
 
-export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onNavigate }: {
+export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onNavigate, onReferenceHover }: {
   errors: readonly WorkbookError[];
   open: boolean;
   focusRequest: number;
   onClose: () => void;
   onActivate: (error: WorkbookError) => void;
-  onNavigate?: (target: { sheetId: string; cell: WorkbookError['cell'] }) => void;
+  onNavigate?: (target: CellTarget) => void;
+  onReferenceHover?: (hover: ErrorReferenceHover) => void;
 }) {
-  const [selectedKey, setSelectedKey] = useState<string>();
-  const list = useRef<HTMLDivElement>(null);
-  const selected = errors.find((error) => error.key === selectedKey) ?? errors[0];
-  useEffect(() => { if (open) list.current?.focus(); }, [open, focusRequest]);
-  useEffect(() => { if (selected?.key !== selectedKey) setSelectedKey(selected?.key); }, [selected?.key, selectedKey]);
-  useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' }); }, [selected?.key, open]);
+  const [selection, setSelection] = useState<{ key?: string; column: number }>({ column: 0 });
+  const list = useRef<HTMLElement>(null);
+  const movementPending = useRef(false);
+  const selected = errors.find((error) => error.key === selection.key) ?? errors[0];
+  const focusSelected = () => list.current?.querySelector<HTMLElement>('[data-error-selected="true"]')?.focus({ preventScroll: true });
+  useEffect(() => { if (open) focusSelected(); }, [open, focusRequest]);
+  useLayoutEffect(() => {
+    if (!movementPending.current) return;
+    movementPending.current = false;
+    focusSelected();
+    list.current?.querySelector<HTMLElement>('[data-error-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [selection]);
+  useEffect(() => () => onReferenceHover?.(null), [onReferenceHover]);
+  function move(row: number, column: number, wrap = false) {
+    let index = Math.max(0, errors.findIndex((error) => error.key === selected?.key)) + row;
+    let nextColumn = selection.column + column;
+    if (wrap && nextColumn > 3) { index++; nextColumn = 0; }
+    if (wrap && nextColumn < 0) { index--; nextColumn = 3; }
+    nextColumn = Math.max(0, Math.min(3, nextColumn));
+    const next = errors[Math.max(0, Math.min(errors.length - 1, index))];
+    if (!next) return;
+    movementPending.current = true;
+    setSelection({ key: next.key, column: nextColumn });
+  }
   if (!open) return null;
-  return <section aria-label="Workbook errors" style={{ position: 'absolute', bottom: 0, right: 0, zIndex: 20, background: 'white', maxHeight: '40vh', overflow: 'auto', minWidth: 360 }}>
-    <button type="button" onClick={onClose}>Close errors</button>
-    <div ref={list} tabIndex={0} role="grid" aria-label="Error list" aria-activedescendant={selected ? `error-row-${errors.indexOf(selected)}` : undefined} onKeyDown={(event) => {
-      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-        event.preventDefault(); event.stopPropagation();
-        const index = errors.indexOf(selected);
-        const next = errors[Math.max(0, Math.min(errors.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))];
-        if (next) setSelectedKey(next.key);
-      } else if (event.key === 'Enter' || event.key === 'F4') {
-        event.preventDefault(); event.stopPropagation();
-        if (selected) onActivate(selected);
-      }
-    }}>
-      {errors.length === 0 ? <p>No workbook errors.</p> : <table><thead><tr><th>Reference</th><th>Error code</th><th>Error text</th></tr></thead><tbody>
-        {errors.map((error, index) => <tr id={`error-row-${index}`} key={error.key} aria-selected={error.key === selected?.key} onClick={() => { setSelectedKey(error.key); onActivate(error); }} style={{ background: error.key === selected?.key ? '#dbeafe' : undefined, cursor: 'pointer' }}><td>{error.reference}</td><td>{error.code}</td><td>{error.text}</td></tr>)}
-      </tbody></table>}
+  return <section aria-label="Workbook errors" className="error-list-panel" data-workspace-native-content data-workspace-navigation ref={list} onKeyDown={(event) => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
+  }}>
+    <header className="error-list-header"><strong>Errors <span>{errors.length}</span></strong><span className="error-list-hint">↑↓←→ navigate · F2 inspect / expand · F4 follow cell</span>
+      <button aria-label="Close errors" className="error-list-close" title="Close errors (Esc)" type="button" onClick={onClose}>×</button>
+    </header>
+    <div className="error-list-scroll">
+      {errors.length === 0 ? <p className="error-list-empty">No workbook errors.</p> : <table aria-label="Error list" aria-readonly="true" className="error-list-grid" role="grid">
+        <colgroup><col className="error-list-cell-column" /><col className="error-list-code-column" /><col className="error-list-text-column" /><col /></colgroup>
+        <thead><tr>{['Cell', 'Error code', 'Error text', 'Stack trace'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <tbody>{errors.map((error) => <tr key={error.key}>{[0, 1, 2, 3].map((column) => <ErrorListCell key={column} error={error} column={column}
+          selected={error.key === selected?.key && column === selection.column} onSelect={() => setSelection({ key: error.key, column })} onMove={move}
+          onReferenceHover={onReferenceHover} onNavigate={(target) => { if (onNavigate) onNavigate(target); else onActivate(error); }} />)}</tr>)}</tbody>
+      </table>}
     </div>
-    {selected && onNavigate ? <ErrorTrace key={selected.key} error={selected} onNavigate={onNavigate} /> : null}
   </section>;
 }

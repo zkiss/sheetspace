@@ -46,6 +46,8 @@ import type { CellWriteResult } from '@application/core/userActions';
 import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
 import { NavigationPalette, type NavigationCommand } from './NavigationPalette';
 import { ErrorList } from './ErrorList';
+import { ErrorReferencePreview } from './ErrorReferencePreview';
+import type { ErrorReferenceHover } from './errorCellText';
 import { workbookErrors } from './workbookErrors';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 import { clampWorkspaceZoom, workspaceRectForFrame } from '@workspace/workspaceGeometry';
@@ -153,6 +155,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [referenceGridViewports, setReferenceGridViewports] = useState<Readonly<Record<string, GridReferenceViewport | undefined>>>({});
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [errorsOpen, setErrorsOpen] = useState(false);
+  const [errorReferenceHover, setErrorReferenceHover] = useState<ErrorReferenceHover>(null);
   const [errorsFocusRequest, setErrorsFocusRequest] = useState(0);
   const openErrors = useCallback(() => { setErrorsOpen(true); setErrorsFocusRequest((value) => value + 1); }, []);
   const errors = useMemo(() => workbookErrors(workbook, formulaResults), [workbook, formulaResults]);
@@ -687,14 +690,17 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         errorsDisabled={!interactionsEnabled}
         onOpenErrors={openErrors}
       />
-      <ErrorList errors={errors} open={errorsOpen && !sheetDialogOpen} focusRequest={errorsFocusRequest} onClose={() => { setErrorsOpen(false); onRestoreGridFocus(); }} onNavigate={(target) => {
+      <ErrorList errors={errors} open={errorsOpen && !sheetDialogOpen} focusRequest={errorsFocusRequest} onReferenceHover={setErrorReferenceHover} onClose={() => { setErrorsOpen(false); setErrorReferenceHover(null); onRestoreGridFocus(); }} onNavigate={(target) => {
         const sheet = findSheetById(workbook, target.sheetId);
-        if (sheet && sheet.content.rows.includes(target.cell.rowId) && sheet.content.columns.includes(target.cell.columnId) && navigateTarget({ kind: 'cell', target }, sheet)) setErrorsOpen(false);
+        if (sheet && sheet.content.rows.includes(target.cell.rowId) && sheet.content.columns.includes(target.cell.columnId)) navigateTarget({ kind: 'cell', target }, sheet);
       }} onActivate={(error) => {
         const current = errors.find((item) => item.key === error.key);
         const sheet = current && findSheetById(workbook, current.sheetId);
-        if (current && sheet && navigateTarget({ kind: 'cell', target: { sheetId: current.sheetId, cell: current.cell } }, sheet)) setErrorsOpen(false);
+        if (current && sheet) navigateTarget({ kind: 'cell', target: { sheetId: current.sheetId, cell: current.cell } }, sheet);
       }} />
+      {errorsOpen && !sheetDialogOpen && errorReferenceHover ? <ErrorReferencePreview hover={errorReferenceHover} surface={workspaceController.workspaceSurfaceRef.current}
+        geometry={projectReferenceGeometry({ reference: errorReferenceHover.reference, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize })}
+        onNavigate={navigateReference} /> : null}
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
       {navigationFeedback ? <p className="form-error" role="alert">{navigationFeedback}</p> : null}
        {commandPaletteOpen ? <NavigationPalette key={paletteView} panel={actionPalette.panel} commands={(paletteChoices ?? allPaletteCommands).map((command) => actionPalette.busy ? { ...command, unavailable: 'Waiting for clipboard access' } : command)} onClose={() => { if (!actionPalette.preventClose) { actionPalette.resetPanel(); closeCommandPalette(); } }} rowPicker={rowPickerOpen && selectedSheet ? {

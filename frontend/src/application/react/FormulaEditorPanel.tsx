@@ -8,11 +8,14 @@ import { formulaEditorCaret } from './formulaEditorCaret';
 import { FormulaEditorPopover } from './FormulaEditorPopover';
 import './FormulaEditorPanel.css';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
+import { referenceTextTokens } from '@application/core/referenceTextTokens';
 
 /** The single rich formula surface used by workspace and model editing. */
-export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate }: {
+export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = false, readOnly = false, readOnlyText = false, initialView, modelOnly = false, raw, referenceValues, resolver, sheetNames, propertyNames = [], onApply, onCancel, onFocusLeave, onRawChange, onViewChange, cellMode, onToggleMode, onCommitAndNavigate, inputRef, panelRef, sheetId, inspectionReferences, referenceColors, onReferenceHover, onReferenceModifierHover, onReferenceNavigate, onReferenceElementHover }: {
   ariaLabel: string; autoFocus?: boolean; disabled?: boolean; initialView?: FormulaEditorSelection & { scrollTop?: number }; modelOnly?: boolean; raw: string;
   readOnly?: boolean;
+  readOnlyText?: boolean;
+  onReferenceElementHover?: (reference: FormulaInspectionReference | undefined, element?: HTMLElement) => void;
   referenceValues?: (identity: FormulaReferenceIdentity) => FormulaScalarValue | readonly FormulaScalarValue[] | undefined;
   resolver: FormulaReferenceResolver; sheetNames: readonly string[]; propertyNames?: readonly string[]; onApply: () => void; onCancel: () => void; onRawChange: (raw: string) => void;
   onFocusLeave?: (view: FormulaEditorSelection & { scrollTop: number }, destination: EventTarget | null) => void;
@@ -47,7 +50,10 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   const openingView = useRef(initialView);
   const openingRawLength = useRef(raw.length);
   const selection = () => ({ start: input.current?.selectionStart ?? raw.length, end: input.current?.selectionEnd ?? raw.length });
-  const analysis = useMemo(() => analyzeFormulaEditor(raw, resolver), [raw, resolver]);
+  const analysis = useMemo(() => readOnlyText ? {
+    result: { kind: 'not-formula' as const, raw }, tokens: referenceTextTokens(raw, inspectionReferences ?? []),
+    references: [], referenceIdentities: [], diagnostics: [],
+  } : analyzeFormulaEditor(raw, resolver), [raw, resolver, readOnlyText, inspectionReferences]);
   const formattingAvailable = formatFormula(raw, { start: 0, end: 0 }).available;
   useLayoutEffect(() => {
     if (!autoFocus || !input.current) return;
@@ -171,6 +177,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     ));
   }
   function inspectionAt(index: number) {
+    if (readOnlyText) return inspectionReferences?.[index];
     const span = analysis.references[index]?.sourceSpan;
     return inspectionReferences?.find((reference) => reference.displaySpan.start === span?.start && reference.displaySpan.end === span?.end);
   }
@@ -178,10 +185,12 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     const token = tokenAt(event);
     setReferenceModifier(event.ctrlKey || event.metaKey);
     onReferenceHover?.(token ? inspectionAt(Number(token.dataset.referenceIndex))?.sourceSpan ?? null : null);
+    onReferenceElementHover?.(token ? inspectionAt(Number(token.dataset.referenceIndex)) : undefined, token);
     setHoveredReference((current) => token
       ? current?.element === token ? current : { index: Number(token.dataset.referenceIndex), element: token }
       : undefined);
   }
+  useEffect(() => () => onReferenceElementHover?.(undefined), [onReferenceElementHover]);
   const hoveredInspection = hoveredReference ? inspectionAt(hoveredReference.index) : undefined;
   const modifierReference = referenceModifier && hoveredInspection?.navigable ? hoveredInspection : undefined;
   const modifierReferenceStart = modifierReference?.sourceSpan.start;
@@ -197,12 +206,15 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     setCompletionRequest(null);
     setHoveredReference(undefined);
     onReferenceHover?.(null);
+    onReferenceElementHover?.(undefined);
     if (input.current) onFocusLeave?.({ start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop }, event.relatedTarget);
   }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
     {!cellMode ? <div className="formula-editor-heading"><strong>Formula editor</strong><span>Ctrl/⌘+Enter applies · Ctrl/⌘+Esc cancels</span></div> : null}
     <div className="formula-editor-input-wrap">
       <pre aria-hidden="true" className="formula-editor-highlight" ref={highlight}>{analysis.tokens.map((token) => {
-        const referenceIndex = analysis.references.findIndex((reference) => reference.sourceSpan.start === token.sourceSpan.start && reference.sourceSpan.end === token.sourceSpan.end);
+        const referenceIndex = readOnlyText
+          ? (inspectionReferences ?? []).findIndex((reference) => reference.displaySpan.start === token.sourceSpan.start && reference.displaySpan.end === token.sourceSpan.end)
+          : analysis.references.findIndex((reference) => reference.sourceSpan.start === token.sourceSpan.start && reference.sourceSpan.end === token.sourceSpan.end);
         const inspected = inspectionAt(referenceIndex);
         const referenceColour = (inspected && referenceColors?.get(inspected.sourceSpan.start)) ?? referenceIdentityColor(analysis.referenceIdentities[referenceIndex]);
         return <span className={`formula-syntax-token formula-syntax-token-${token.kind}${inspected ? ' formula-editor-inspected-reference' : ''}`} data-reference-index={referenceIndex >= 0 ? referenceIndex : undefined}
@@ -211,7 +223,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     <RawFormulaInput aria-label={ariaLabel} aria-autocomplete="list" aria-controls={completionOpen ? completionsId : undefined}
       aria-activedescendant={completionOpen && completionChosen ? `${completionsId}-${completionIndex}` : undefined}
       className={`formula-editor-input${cellMode ? ' sheet-grid-cell-editor' : ''}`} data-workspace-sheet-editor={sheetId}
-      disabled={disabled} aria-readonly={readOnly} onFocus={reportView} onKeyDown={onKeyDown} onKeyUp={(event) => setReferenceModifier(event.ctrlKey || event.metaKey)} onScroll={reportView} onMouseMove={hoverReference} onMouseLeave={() => { setHoveredReference(undefined); onReferenceHover?.(null); }} style={{ cursor: modifierReference ? 'pointer' : undefined }}
+      disabled={disabled} aria-readonly={readOnly} onFocus={reportView} onKeyDown={onKeyDown} onKeyUp={(event) => setReferenceModifier(event.ctrlKey || event.metaKey)} onScroll={reportView} onMouseMove={hoverReference} onMouseLeave={() => { setHoveredReference(undefined); onReferenceHover?.(null); onReferenceElementHover?.(undefined); }} style={{ cursor: modifierReference ? 'pointer' : undefined }}
       onPaste={(event) => { if (readOnly) { event.preventDefault(); event.stopPropagation(); } }}
       onCut={(event) => { if (readOnly) { event.preventDefault(); event.stopPropagation(); } }}
       onDrop={(event) => { if (readOnly) { event.preventDefault(); event.stopPropagation(); } }}

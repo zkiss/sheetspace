@@ -23,6 +23,9 @@ export type WorkbookError = {
   reference: string;
   code: FormulaErrorCode;
   text: string;
+  textReference?: ErrorTraceLine['target'];
+  traceMessage?: string;
+  hasCauses?: boolean;
   trace?: readonly ErrorTraceLine[];
 };
 
@@ -87,16 +90,6 @@ export function errorTrace(workbook: Workbook, diagnostic: FormulaDiagnostic): E
   return lines;
 }
 
-const errorDescriptions: Record<FormulaErrorCode, string> = {
-  '#PARSE!': 'Invalid formula syntax',
-  '#REF!': 'Invalid reference',
-  '#NAME!': 'Unknown name',
-  '#VALUE!': 'Invalid value',
-  '#DIV/0!': 'Division by zero',
-  '#CYCLE!': 'Circular reference',
-  '#N/A': 'Value not available',
-};
-
 export function workbookErrors(workbook: Workbook, snapshot: FormulaEvaluationSnapshot): WorkbookError[] {
   return sheetsInOrder(workbook).flatMap((sheet) => {
     const columns = columnReferences(workbook, sheet);
@@ -109,8 +102,12 @@ export function workbookErrors(workbook: Workbook, snapshot: FormulaEvaluationSn
       const cell = { rowId: sheet.content.rows[rowIndex], columnId: sheet.content.columns[columnIndex] };
       const reference = `@${sheetName}!${columns[columnIndex]}[${rowIndex + 1}]`;
       const diagnostic = formulaDiagnostic(result);
+      const cause = diagnostic?.causes[0]?.cell;
+      const textReference = diagnostic?.message.startsWith('Propagated ') && cause ? cellReference(workbook, cause) : undefined;
+      const text = textReference ? `Could not calculate ${textReference.reference}.` : diagnostic?.message ?? result.error;
       let trace: readonly ErrorTraceLine[] | undefined;
-      return [{ key: JSON.stringify([sheet.id, cell.rowId, cell.columnId]), sheetId: sheet.id, cell, reference, code: result.error, text: errorDescriptions[result.error], get trace() { return diagnostic ? (trace ??= errorTrace(workbook, diagnostic)) : undefined; }, rowIndex, columnIndex }];
+      const hasCauses = Boolean(diagnostic && (diagnostic.causes.length || diagnostic.structural?.graph.nodes.get(diagnostic.structural.root)?.dependencies.length));
+      return [{ key: JSON.stringify([sheet.id, cell.rowId, cell.columnId]), sheetId: sheet.id, cell, reference, code: result.error, text, textReference, traceMessage: diagnostic?.message, hasCauses, get trace() { return diagnostic ? (trace ??= errorTrace(workbook, diagnostic)) : undefined; }, rowIndex, columnIndex }];
     }).sort((a, b) => a.rowIndex - b.rowIndex || a.columnIndex - b.columnIndex);
   });
 }
