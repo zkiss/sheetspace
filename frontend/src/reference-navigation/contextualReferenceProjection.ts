@@ -39,7 +39,7 @@ export function contextualReferences(references: readonly FormulaInspectionRefer
   });
 }
 
-function referenceColour(index: number): string {
+export function referenceColour(index: number): string {
   const hue = (index * 137.508) % 360;
   const lightness = 34 + Math.floor(index / 360) % 3 * 9;
   return `hsl(${hue.toFixed(3)} 78% ${lightness}%)`;

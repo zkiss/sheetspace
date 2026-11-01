@@ -116,9 +116,14 @@
 
 .save-status-dot.save-status-failed:hover { background: #d85d5d; }
 
+.workspace-status { display: flex; align-items: center; margin-left: auto; }
+.workbook-error-indicator { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; min-height: 0; border: 0; border-radius: .3rem; padding: .25rem; background: transparent; }
+.workbook-error-indicator:hover:not(:disabled) { background: #fff3cc; }
+.workbook-error-indicator:disabled { opacity: .5; }
+.workbook-error-indicator svg { display: block; width: 1.15rem; height: 1.15rem; }
+
 .save-status-indicator {
   flex-shrink: 0;
-  margin-left: auto;
   position: relative;
   display: grid;
   place-items: center;

@@ -63,14 +63,14 @@ export function SheetModelControls({ models, onBind, onOpenDataModels, onUnbind,
   return <span className="workspace-model-controls">
     <label>Model for {sheet.name}<select ref={selector} aria-label={`Model for ${sheet.name}`} disabled={pending} value={selectedId} onChange={(event) => { setSelectedModelId(event.target.value); setFeedback(''); setConfirmation(null); }}>
       <option value="">No model</option>{models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
-    {boundModelId ? <><span aria-label={`Bound to ${currentModel?.name ?? 'data model'}`} role="status">Bound: {currentModel?.name ?? 'data model'}</span>
+    {boundModelId ? <><span aria-label={`Bound to ${currentModel?.name ?? 'data model'}`} role="status">Bound: <code className="data-model-name">{currentModel?.name ?? 'data model'}</code></span>
       <button data-workspace-navigation onClick={() => onOpenDataModels(boundModelId)} type="button">Edit model</button>
       {selectedId !== boundModelId ? <button disabled={pending} onClick={() => setConfirmation('rebind')} type="button">Rebind model</button> : null}
       <button disabled={pending} onClick={() => setConfirmation('unbind')} type="button">Unbind model</button>
     </> : <button disabled={!selectedId || pending} onClick={() => setConfirmation('bind')} type="button">Bind model</button>}
     {confirmation ? <span className="sheet-model-confirmation" role="group" aria-label="Confirm model change">
       <span>{confirmation === 'unbind' ? 'Unbinding makes calculated results editable materialized values.' : `${confirmation === 'bind' ? 'Binding' : 'Rebinding'} maps properties in declaration order, keeps manual inputs where possible, and replaces calculated columns.`}</span>
-      <span className="sheet-model-confirmation-actions"><button onClick={() => { restoreFocus.current = true; setConfirmation(null); }} type="button">Cancel</button><button onClick={() => {
+      <span className="sheet-model-confirmation-actions"><button className="button-secondary" onClick={() => { restoreFocus.current = true; setConfirmation(null); }} type="button">Cancel</button><button className="button-primary" onClick={() => {
         restoreFocus.current = true;
         if (confirmation === 'unbind') report(onUnbind(sheet.id));
         else if (selectedId) bindModel(selectedId);

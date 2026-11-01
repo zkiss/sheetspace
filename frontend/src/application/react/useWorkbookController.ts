@@ -5,6 +5,7 @@ import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { admitRecordConfirmingMissing } from '@infrastructure/persistence/admitRecordConfirmingMissing';
 import { useMissingEntrySessions } from './useMissingEntrySessions';
+import { useContentHistoryFeedback } from './useContentHistoryFeedback';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -22,6 +23,8 @@ import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
+import { deleteRow } from '@application/core/deleteRow';
+import { deleteColumn } from '@application/core/deleteColumn';
 import { addDataModel } from '@workbook/mutations/dataModel';
 import { materializeAppendedModelRow } from '@application/core/modelRowAppend';
 import { prepareCellInput } from '@application/core/cellInputPreparation';
@@ -82,16 +85,8 @@ export function useWorkbookController({
   contentHistoryRef.current ??= new ContentHistory();
   const contentHistory = contentHistoryRef.current;
   const [, setHistoryRevision] = useState(0);
-  const [contentHistoryFeedback, setContentHistoryFeedback] = useState<WorkbookController['contentHistoryFeedback']>();
+  const [contentHistoryFeedback, setContentHistoryFeedback] = useContentHistoryFeedback();
   const [mutationFailure, setMutationFailure] = useState<WorkbookController['mutationFailure']>();
-  useEffect(() => {
-    if (!contentHistoryFeedback) return;
-    const identity = contentHistoryFeedback.identity;
-    const timeout = window.setTimeout(() => {
-      setContentHistoryFeedback((current) => current?.identity === identity ? undefined : current);
-    }, 1200);
-    return () => window.clearTimeout(timeout);
-  }, [contentHistoryFeedback]);
   const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
     setControllerState((current) => {
       const nextWorkbook = typeof update === 'function'
@@ -177,7 +172,7 @@ export function useWorkbookController({
       setContentHistoryFeedback(undefined);
       setHistoryRevision((revision) => revision + 1);
     }
-  }, [savedAutosave.outboxSnapshot, contentHistory]);
+  }, [savedAutosave.outboxSnapshot, contentHistory, setContentHistoryFeedback]);
 
   type WorkbookOperationInput = WorkbookOperation extends infer Operation
     ? Operation extends unknown ? Omit<Operation, 'operationId'> : never
@@ -489,6 +484,8 @@ export function useWorkbookController({
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
       appendColumn: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
       appendRow: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
+      deleteRow: (sheetId, rowId) => applyModelLifecycleTransition((source) => deleteRow(source, sheetId, rowId)),
+      deleteColumn: (sheetId, columnId) => applyModelLifecycleTransition((source) => deleteColumn(source, sheetId, columnId)),
       changeSheetZOrder,
       createSheet,
       deleteSheet: deleteSheetCommand,

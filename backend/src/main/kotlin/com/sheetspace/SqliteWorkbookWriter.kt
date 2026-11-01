@@ -255,7 +255,7 @@ internal class SqliteWorkbookWriter(
 
         val retained = current.filter { it in updated }
         val reordered = removed.isNotEmpty() || retained.map { updated.indexOf(it) } != retained.indices.toList()
-        if (reordered) reorderStructure(sheetId, table, idColumn, retained, updated)
+        if (reordered) reorderStructure(sheetId, table, idColumn, retained, updated, current.size)
 
         val additions = updated.filterNot { it in current }
         if (additions.isNotEmpty()) {
@@ -280,10 +280,11 @@ internal class SqliteWorkbookWriter(
         idColumn: String,
         retained: List<T>,
         updated: List<T>,
+        previousSize: Int,
     ) {
         val orderColumn = if (table == "sheet_rows") "row_order" else "column_order"
         connection.prepareStatement("UPDATE $table SET $orderColumn = $orderColumn + ? WHERE sheet_id = ?").use { statement ->
-            statement.setInt(1, updated.size)
+            statement.setInt(1, maxOf(previousSize, updated.size))
             statement.setBytes(2, sheetId.value.toUuidBytes())
             statement.executeUpdate()
         }

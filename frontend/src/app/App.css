@@ -1,5 +1,6 @@
 .workspace-shell {
   display: grid;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
 }

@@ -71,12 +71,14 @@ describe('App model binding workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
     await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
-    const amount = screen.getByRole('textbox', { name: 'Amount new record' });
+    const amount = screen.getByRole('cell', { name: 'Amount new record' });
     for (const value of ['3', '5']) {
-      fireEvent.change(amount, { target: { value } });
-      fireEvent.keyDown(amount, { key: 'Enter' });
+      amount.focus();
+      fireEvent.keyDown(amount, { key: value });
+      const editor = await screen.findByRole('textbox', { name: 'Inputs Amount editor' });
+      fireEvent.keyDown(editor, { key: 'Enter' });
       await waitFor(() => expect(frame()).toHaveAttribute('data-row-count', value === '3' ? '1' : '2'));
-      expect(amount).toHaveValue('');
+      expect(amount).toHaveTextContent('');
     }
     expect(apiClient.admitRecord).toHaveBeenCalledTimes(2);
   });
@@ -95,24 +97,26 @@ describe('App model binding workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
     await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
     expect(frame()).toHaveAttribute('data-row-count', '0');
-    const amount = screen.getByRole('textbox', { name: 'Amount new record' });
-    const tax = screen.getByRole('textbox', { name: 'Tax new record' });
-    fireEvent.change(amount, { target: { value: 'bad' } });
-    expect(amount).toHaveAttribute('aria-invalid', 'false');
-    fireEvent.blur(amount);
+    const amount = screen.getByRole('cell', { name: 'Amount new record' });
+    const tax = screen.getByRole('cell', { name: 'Tax new record' });
+    amount.focus();
+    fireEvent.keyDown(amount, { key: 'b' });
+    const editor = await screen.findByRole('textbox', { name: 'Inputs Amount editor' });
+    fireEvent.change(editor, { target: { value: 'bad' } });
+    fireEvent.keyDown(editor, { key: 'Tab' });
     expect(amount).toHaveAttribute('aria-invalid', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss Amount validation' }));
-    expect(amount).toHaveValue('bad');
+    expect(amount).toHaveTextContent('bad');
     expect(amount).toHaveClass('model-entry-invalid');
+    await waitFor(() => expect(tax).toHaveFocus());
     fireEvent.keyDown(tax, { key: 'Enter' });
     await waitFor(() => expect(amount).toHaveFocus());
     expect(apiClient.admitRecord).not.toHaveBeenCalled();
-    fireEvent.change(amount, { target: { value: '3' } });
-    expect(amount).not.toHaveClass('model-entry-invalid');
-    fireEvent.keyDown(amount, { key: 'Enter' });
+    fireEvent.keyDown(amount, { key: '3' });
+    const corrected = await screen.findByRole('textbox', { name: 'Inputs Amount editor' });
+    fireEvent.keyDown(corrected, { key: 'Enter' });
     await waitFor(() => expect(apiClient.admitRecord).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Retry saving record' })).toBeInTheDocument());
-    expect(amount).toHaveValue('3');
+    expect(amount).toHaveTextContent('3');
     expect(frame()).toHaveAttribute('data-row-count', '0');
   });
 
@@ -141,7 +145,6 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 type'), { target: { value: 'function' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])" } });
     fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
-    fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
 
     const bind = async (sheetName: string) => {
@@ -179,11 +182,10 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Data models' })).getByRole('button', { name: 'Edit' }));
     const edit = screen.getByRole('form', { name: 'Edit data model' });
     fireEvent.change(within(edit).getByLabelText('Model name'), { target: { value: 'Receipt' } });
-    fireEvent.click(within(edit).getByRole('button', { name: /SUM/ }));
-    fireEvent.change(within(edit).getByLabelText('Property 2 formula'), { target: { value: "=SUM(@'Input'[1])*2" } });
-    fireEvent.keyDown(within(edit).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
     fireEvent.click(within(edit).getByRole('button', { name: 'Move property 2 up' }));
-    fireEvent.click(within(edit).getByRole('button', { name: 'Save' }));
+    fireEvent.click(within(edit).getByRole('button', { name: /SUM/ }));
+    fireEvent.change(within(edit).getByLabelText('Property 1 formula'), { target: { value: "=SUM(@'Input'[1])*2" } });
+    fireEvent.keyDown(within(edit).getByLabelText('Property 1 formula'), { key: 'Enter', ctrlKey: true });
     await waitFor(() => expect(columnLabelsFor(firstFrame)).toEqual(['Output', 'Input']));
     expect(columnLabelsFor(firstFrame)).toEqual(['Output', 'Input']);
     expect(cellInFrame(firstFrame, 'A1')).toHaveTextContent('6');
@@ -296,7 +298,6 @@ describe('App model binding workflow', () => {
     fireEvent.change(within(create).getByLabelText('Property 2 type'), { target: { value: 'function' } });
     fireEvent.change(within(create).getByLabelText('Property 2 formula'), { target: { value: '=SUM(@A[1])' } });
     fireEvent.keyDown(within(create).getByLabelText('Property 2 formula'), { key: 'Enter', ctrlKey: true });
-    fireEvent.click(within(create).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledTimes(1));
 

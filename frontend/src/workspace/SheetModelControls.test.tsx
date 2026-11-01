@@ -60,10 +60,14 @@ describe('SheetModelControls', () => {
     const sheet = { ...sheetDocument({ id: 'inputs', name: 'Inputs' }), modelId: 'first' };
     const { onBind, onOpenDataModels, onUnbind } = renderControls({ sheet });
 
+    expect(screen.getByRole('status', { name: 'Bound to First model' }).querySelector('code')).toHaveTextContent('First model');
+
     fireEvent.click(screen.getByRole('button', { name: 'Edit model' }));
     fireEvent.change(screen.getByLabelText('Model for Inputs'), { target: { value: 'second' } });
     fireEvent.click(screen.getByRole('button', { name: 'Rebind model' }));
     expect(screen.getByRole('group', { name: 'Confirm model change' })).toHaveTextContent('Rebinding');
+    expect(screen.getByRole('button', { name: 'Confirm rebind' })).toHaveClass('button-primary');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('button-secondary');
     fireEvent.click(screen.getByRole('button', { name: 'Confirm rebind' }));
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: 'Unbind model' }));

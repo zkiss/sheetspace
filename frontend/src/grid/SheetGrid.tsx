@@ -120,7 +120,7 @@ export function SheetGrid({
   onNavigationSettled,
   onReferenceViewport,
 }: {
-  entryRow?: { model: DataModel; session: EntrySessionState; commands: EntryCommands };
+  entryRow?: { model: DataModel; session: EntrySessionState; commands: EntryCommands; onEntryFocus?: () => void };
   presentation?: SheetPresentation;
   logicalSelection?: CellSelection | null;
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
@@ -537,6 +537,10 @@ export function SheetGrid({
     }
     const firstRow = rows.find((row) => row.kind === 'saved');
     const firstColumn = columns.find((column) => column.kind === 'saved');
+    if (!firstRow && entryRow) {
+      gridRef.current?.querySelector<HTMLElement>('.model-entry-cell')?.focus();
+      return;
+    }
     if (!firstRow || !firstColumn) return;
     const key = cellKey({ columnIndex: firstColumn.durableIndex, rowIndex: firstRow.durableIndex });
     const target = cellTargetAt(sheet, key);
@@ -597,6 +601,17 @@ export function SheetGrid({
         // blur remains the reliable cancellation path for that case.
         if (next && !event.currentTarget.contains(next)) finishDrag();
       }}
+      onKeyDownCapture={(event) => {
+        if (!entryRow || event.key !== 'ArrowDown' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !(event.target instanceof HTMLElement)) return;
+        const key = event.target.dataset.cellKey;
+        const address = key && parseA1Address(key);
+        if (!address || !address.ok || address.value.rowIndex !== sheet.rows.length - 1) return;
+        const cell = gridRef.current?.querySelectorAll<HTMLElement>('.model-entry-cell')[address.value.columnIndex];
+        if (!cell) return;
+        event.preventDefault();
+        event.stopPropagation();
+        cell.focus();
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           finishDrag();
@@ -638,7 +653,14 @@ export function SheetGrid({
           : undefined}
       />
       <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
-      {entryRow && <ModelEntryRow {...entryRow} columnWidths={entryRow.model.columns.map((_, index) => columnMetrics.itemSize(index) ?? GRID_CELL_WIDTH)} style={{ position: 'absolute', top: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize, left: GRID_ROW_HEADER_WIDTH, height: GRID_CELL_HEIGHT }} />}
+      {entryRow && <ModelEntryRow {...entryRow} editorInteraction={editorInteraction} sheetId={sheet.id} sheetName={sheet.name} onNavigateUp={(columnIndex) => {
+        if (!sheet.rows.length || columnIndex >= sheet.columns.length) return;
+        const key = cellKey({ columnIndex, rowIndex: sheet.rows.length - 1 });
+        const target = cellTargetAt(sheet, key);
+        if (!target) return;
+        cellInteraction.select(target);
+        setGridEntryFocusIntent({ id: `entry-${nextGridFocusRequestId.current++}`, targetKey: key });
+      }} columnWidths={entryRow.model.columns.map((_, index) => columnMetrics.itemSize(index) ?? GRID_CELL_WIDTH)} style={{ position: 'absolute', top: GRID_COLUMN_HEADER_HEIGHT + rowMetrics.totalSize, left: 0, height: GRID_CELL_HEIGHT }} />}
     </div>
   );
 }
