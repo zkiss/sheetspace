@@ -8,6 +8,27 @@ const errors: WorkbookError[] = ['one', 'two'].map((key) => ({ key, sheetId: key
 beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
 afterEach(() => { delete (Element.prototype as Partial<Element>).scrollIntoView; });
 
+it('expands only the inspected trace in a large propagated chain', async () => {
+  const user = userEvent.setup();
+  const traces = Array.from({ length: 100 }, (_, index) => vi.fn(() => [
+    { key: String(index), depth: 0, message: 'propagated' },
+    ...Array.from({ length: index }, (_, cause) => ({ key: String(cause), depth: 1, message: 'cause' })),
+  ]));
+  const chain: WorkbookError[] = traces.map((trace, index) => ({
+    key: String(index), sheetId: 'sheet', cell: { rowId: String(index), columnId: 'column' },
+    reference: `cell${index}`, code: '#REF!', text: 'propagated', hasCauses: true, get trace() { return trace(); },
+  }));
+  const props = { errors: chain, focusRequest: 1, onClose: vi.fn(), onActivate: vi.fn() };
+  const view = render(<ErrorList {...props} open={false} />);
+  expect(traces.every((trace) => trace.mock.calls.length === 0)).toBe(true);
+  view.rerender(<ErrorList {...props} open />);
+  expect(traces.every((trace) => trace.mock.calls.length === 0)).toBe(true);
+  await user.keyboard('{End}{F2}');
+  expect(await screen.findByRole('textbox', { name: 'Errors Stack trace editor' })).toHaveValue('propagated');
+  expect(traces[0]).toHaveBeenCalled();
+  expect(traces.slice(1).every((trace) => trace.mock.calls.length === 0)).toBe(true);
+});
+
 it('focuses the selected cell, navigates and retains selection across reopening', async () => {
   const user = userEvent.setup();
   const activate = vi.fn();

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CellTarget } from '@grid/cellInteractionContracts';
+import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import type { WorkbookError } from './workbookErrors';
 import { ErrorListCell } from './ErrorListCell';
 import { errorCellText, type ErrorReferenceHover } from './errorCellText';
@@ -19,9 +20,14 @@ export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onN
   const list = useRef<HTMLElement>(null);
   const movementPending = useRef(false);
   const ownsFocus = useRef(false);
-  const referenceColors = useMemo(() => allocateErrorReferenceColors(errors.flatMap((error) => [
-    ...errorCellText(error, 0).references, ...errorCellText(error, 2).references, ...errorCellText(error, 3, true).references,
-  ])), [errors]);
+  const [extraColors, setExtraColors] = useState<{ errors: readonly WorkbookError[]; colors: ReadonlyMap<string, string> }>();
+  const baseColors = useMemo(() => allocateErrorReferenceColors(open ? errors.flatMap((error) => [
+    ...errorCellText(error, 0).references, ...errorCellText(error, 2).references,
+  ]) : []), [errors, open]);
+  const referenceColors = extraColors?.errors === errors ? extraColors.colors : baseColors;
+  function allocateInspectionColors(references: readonly FormulaInspectionReference[]) {
+    setExtraColors({ errors, colors: allocateErrorReferenceColors(references, referenceColors) });
+  }
   const selected = errors.find((error) => error.key === selection.key) ?? errors[0];
   const focusSelected = () => list.current?.querySelector<HTMLElement>('[data-error-selected="true"]')?.focus({ preventScroll: true });
   useEffect(() => { if (open) focusSelected(); }, [open, focusRequest]);
@@ -67,7 +73,7 @@ export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onN
         <thead><tr>{['Cell', 'Error code', 'Error text', 'Stack trace'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{errors.map((error) => <tr key={error.key}>{[0, 1, 2, 3].map((column) => <ErrorListCell key={column} error={error} column={column}
           selected={error.key === selected?.key && column === selection.column} onSelect={() => setSelection({ key: error.key, column })} onMove={move}
-          referenceColors={referenceColors} onReferenceHover={onReferenceHover} onNavigate={(target) => { if (onNavigate) onNavigate(target); else onActivate(error); }} />)}</tr>)}</tbody>
+          referenceColors={referenceColors} onInspectReferences={allocateInspectionColors} onReferenceHover={onReferenceHover} onNavigate={(target) => { if (onNavigate) onNavigate(target); else onActivate(error); }} />)}</tr>)}</tbody>
       </table>}
     </div>
   </section>;

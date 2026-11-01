@@ -7,13 +7,14 @@ import { errorCellText, type ErrorReferenceHover } from './errorCellText';
 import { allocateErrorReferenceColors, errorReferenceKey } from './errorReferenceColors';
 import type { WorkbookError } from './workbookErrors';
 
-export function ErrorListCell({ error, column, selected, onSelect, onMove, onNavigate, onReferenceHover, referenceColors }: {
+export function ErrorListCell({ error, column, selected, onSelect, onMove, onNavigate, onReferenceHover, referenceColors, onInspectReferences }: {
   error: WorkbookError; column: number; selected: boolean;
   onSelect: () => void;
   onMove: (rows: number, columns: number, wrap?: boolean) => void;
   onNavigate: (target: CellTarget) => void;
   onReferenceHover?: (hover: ErrorReferenceHover) => void;
   referenceColors: ReadonlyMap<string, string>;
+  onInspectReferences: (references: readonly FormulaInspectionReference[]) => void;
 }) {
   const anchor = useRef<HTMLTableCellElement | null>(null);
   const [editing, setEditing] = useState<CellEditSession | null>(null);
@@ -25,7 +26,10 @@ export function ErrorListCell({ error, column, selected, onSelect, onMove, onNav
     onReferenceHover?.(reference && element ? { reference, element, color: palette.get(errorReferenceKey(reference)) } : null);
   }, [onReferenceHover, palette]);
   const Editor = useCallback((props: CellFormulaEditorProps) => <FormulaEditorPanel {...props} readOnlyText onReferenceElementHover={hover} />, [hover]);
-  function inspect() { setEditing({ target: error, sessionId: Date.now(), draft: document.raw, readOnly: true, selection: { start: 0, end: 0 } }); }
+  function inspect() {
+    onInspectReferences(errorCellText(error, column, true).references);
+    setEditing({ target: error, sessionId: Date.now(), draft: document.raw, readOnly: true, selection: { start: 0, end: 0 } });
+  }
   function close(restore: boolean) {
     setEditing(null); onReferenceHover?.(null);
     if (restore) requestAnimationFrame(() => anchor.current?.focus({ preventScroll: true }));
