@@ -77,3 +77,23 @@ Use a concise squash-merge commit message that summarizes what changed, not how 
 For a Bead-backed Deliverable, start the message with `<bead-id>:`.
 
 Never implement or make ordinary commits on `main`; Deliverables reach `main` only through a user-authorized squash merge.
+
+## Optional fixes mode
+
+Use **fixes mode** only when the user explicitly requests it. Keep the normal execution-path selection and dedicated-branch lifecycle above; this mode changes the feedback workflow, not branch ownership or merge authorization.
+
+### Rapid feedback
+
+- Create a temporary Markdown fixes log, such as `FIXES.md`, containing this protocol and the fixes made.
+- Address only the requested feedback. After each fixing turn, update the log and commit the changes. Related refinements may share one cohesive area entry rather than a separate entry for every small change.
+- Test updates, test execution, and passing results may be deferred during this explicitly selected phase. This is a temporary deferral, not permission to weaken constitution coverage thresholds or build checks, or to claim final assurance.
+
+### User-requested hardening and assurance
+
+When the user requests hardening and assurance, end the rapid phase and assess the whole fixes Deliverable:
+
+- Preserve intended working application behavior. Update meaningful automated tests to reflect the intended fixes; correct bugs introduced by quick fixes and refactor where useful for repository compliance.
+- Require passing reviews for each area. Intermediate test failures may remain while other areas are addressed only when explicitly tracked and attributed; they are not passing gates.
+- Require all authoritative final tests and repository quality gates, plus a holistic review of the combined Deliverable, to pass. Keep human acceptance separate from agent-completable assurance as described above.
+
+Once hardening has begun, this guidance does not reactivate rapid-phase test deferral. Remove the temporary fixes log before any eventual merge. Fixes mode never authorizes an automatic merge; user authorization remains required.
