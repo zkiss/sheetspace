@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { bindSheetToModel } from '@application/core/modelLifecycle';
@@ -16,14 +16,14 @@ it('navigates trace header and cross-sheet causes through the workspace', async 
   const document = workbook.documents.summary;
   document.content.cells[cellIdentityKey(cellIdentityAt(document.content, 'A1')!)] = prepareUserFormula('=@Source!A[1]+1', workbook, document.id);
   render(<App initialWorkbook={workbook} />);
-  await user.click(screen.getByRole('button', { name: /Errors \(2\)/ }));
-  await user.click(within(screen.getByRole('region', { name: 'Error trace' })).getAllByRole('button', { name: '@Summary!A[1]' })[0]);
+  await user.click(screen.getByRole('button', { name: /Toggle error list/ }));
+  await user.click(screen.getByRole('gridcell', { name: '@Summary!A[1]' }));
+  await user.keyboard('{F4}');
   const inspected = screen.getByRole('cell', { name: 'Summary A1 cell' });
   await waitFor(() => expect(inspected).toHaveFocus());
   expect(inspected).toHaveAttribute('data-navigation-highlight');
-  fireEvent.keyDown(inspected, { altKey: true, shiftKey: true, key: 'E' });
-  const trace = screen.getByRole('region', { name: 'Error trace' });
-  await user.click(within(trace).getByRole('button', { name: '@Source!A[1]' }));
+  await user.click(screen.getByRole('gridcell', { name: '@Source!A[1]' }));
+  await user.keyboard('{F4}');
   const destination = screen.getByRole('cell', { name: 'Source A1 cell' });
   await waitFor(() => expect(destination).toHaveFocus());
   expect(destination).toHaveAttribute('data-navigation-highlight');
@@ -39,9 +39,9 @@ it('navigates a model-bound calculated cell from its trace header', async () => 
   const bound = bindSheetToModel({ ...workbookWithSheets([sheet]), dataModels: { model } }, sheet.id, model.id, () => 'unused-column');
   if (!bound.ok) throw new Error(bound.reason);
   render(<App initialWorkbook={bound.value} />);
-  await user.click(screen.getByRole('button', { name: /Errors \(1\)/ }));
-  const trace = screen.getByRole('region', { name: 'Error trace' });
-  await user.click(within(trace).getAllByRole('button', { name: '@Inputs!Total[1]' })[0]);
+  await user.click(screen.getByRole('button', { name: /Toggle error list/ }));
+  await user.click(screen.getByRole('gridcell', { name: '@Inputs!Total[1]' }));
+  await user.keyboard('{F4}');
   const calculated = screen.getByRole('cell', { name: /Inputs A1 calculated/ });
   await waitFor(() => expect(calculated).toHaveFocus());
   expect(calculated).toHaveAttribute('data-navigation-highlight');

@@ -114,7 +114,7 @@ describe('workbook errors', () => {
       b: { A1: { kind: 'error', error: '#REF!', display: '#REF!' } },
     });
     expect(rows.map((row) => row.reference)).toEqual(["@'Bob''s sheet'!'Net profit'[40]", '@Other!A[1]']);
-    expect(rows[0]).toMatchObject({ code: '#DIV/0!', text: 'Division by zero', cell: { rowId: first.content.rows[39], columnId: first.content.columns[1] } });
+    expect(rows[0]).toMatchObject({ code: '#DIV/0!', text: '#DIV/0!', cell: { rowId: first.content.rows[39], columnId: first.content.columns[1] } });
     const reordered = { ...first, name: 'Renamed', content: { ...first.content, rows: [...first.content.rows].reverse() } };
     const updated = workbookErrors(workbookWithSheets([reordered]), { a: { B11: { kind: 'error', error: '#DIV/0!', display: '#DIV/0!' } } });
     expect(updated[0].key).toBe(rows[0].key);

@@ -27,13 +27,13 @@ it('rejects removed identities and navigates a current target absent from the er
     { sheetId: 's', cell: valid },
   ];
   render(<App initialWorkbook={workbook} />);
-  await user.click(screen.getByRole('button', { name: /Errors/ }));
+  await user.click(screen.getByRole('button', { name: /Toggle error list/ }));
   for (const index of [0, 1, 2]) {
     await user.click(screen.getByRole('button', { name: `Trace target ${index}` }));
     expect(screen.getByRole('grid', { name: 'Error list' })).toBeInTheDocument();
   }
   await user.click(screen.getByRole('button', { name: 'Trace target 3' }));
-  expect(screen.queryByRole('grid', { name: 'Error list' })).not.toBeInTheDocument();
+  expect(screen.getByRole('grid', { name: 'Error list' })).toBeInTheDocument();
   const destination = await screen.findByRole('cell', { name: 'Inputs A1 empty cell' });
   await waitFor(() => expect(destination).toHaveFocus());
   expect(destination).toHaveAttribute('data-navigation-highlight');

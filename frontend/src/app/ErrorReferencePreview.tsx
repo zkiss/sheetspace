@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { BodyPortal } from '@shared/ui/BodyPortal';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
 import type { ProjectedReferenceGeometry } from '@reference-navigation/contextualReferenceProjection';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
@@ -29,7 +29,7 @@ export function ErrorReferencePreview({ hover, geometry, surface, onNavigate }: 
   const bounds = surface.getBoundingClientRect();
   const reference = hover.reference;
   const color = hover.color;
-  return createPortal(<div style={{ position: 'fixed', left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, zIndex: 2, pointerEvents: 'none' }}>
+  return <BodyPortal><div style={{ position: 'fixed', left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, zIndex: 2, pointerEvents: 'none' }}>
     <ContextualReferenceLinks references={[{ contextual: { reference, color }, geometry }]} source={source} visible editorActive onNavigate={onNavigate} surfaceSize={bounds} />
-  </div>, document.body);
+  </div></BodyPortal>;
 }
