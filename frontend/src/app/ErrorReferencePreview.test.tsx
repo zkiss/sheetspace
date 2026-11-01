@@ -17,8 +17,21 @@ it('projects the hovered element into the workspace portal and stops tracking on
   const view = render(<ErrorReferencePreview hover={{ reference, element, color: 'red' }} surface={surface} geometry={{ kind: 'visible', rect: { left: 100, top: 20, right: 120, bottom: 40 } }} onNavigate={vi.fn()} />);
   expect(screen.getByLabelText('Formula reference paths')).toBeInTheDocument();
   act(() => callbacks[0](0));
+  element.getBoundingClientRect = () => ({ left: 40, top: 40, right: 60, bottom: 60, width: 20, height: 20, x: 40, y: 40, toJSON: () => ({}) });
+  act(() => callbacks[1](0));
   view.unmount();
-  expect(cancel).toHaveBeenCalledWith(2);
+  expect(cancel).toHaveBeenCalledWith(3);
   frame.mockRestore();
   cancel.mockRestore();
+});
+
+it('does not render a reference path without a hover or workspace surface', () => {
+  const geometry = { kind: 'unavailable', reason: 'unmounted' } as const;
+  const view = render(<ErrorReferencePreview hover={null} surface={document.createElement('div')} geometry={geometry} onNavigate={vi.fn()} />);
+  expect(screen.queryByLabelText('Formula reference paths')).not.toBeInTheDocument();
+  view.rerender(<ErrorReferencePreview hover={null} surface={null} geometry={geometry} onNavigate={vi.fn()} />);
+  expect(screen.queryByLabelText('Formula reference paths')).not.toBeInTheDocument();
+  const error: WorkbookError = { key: 'e', sheetId: 's', cell: { rowId: 'r', columnId: 'c' }, reference: 'A1', code: '#REF!', text: 'Missing' };
+  view.rerender(<ErrorReferencePreview hover={{ reference: errorCellText(error, 0).references[0], element: document.createElement('span') }} surface={null} geometry={geometry} onNavigate={vi.fn()} />);
+  expect(screen.queryByLabelText('Formula reference paths')).not.toBeInTheDocument();
 });

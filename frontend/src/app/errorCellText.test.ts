@@ -26,3 +26,11 @@ it('renders flat trace causes with navigable spans and shared distinct colours',
   const tokens = referenceTextTokens(trace.raw, trace.references);
   expect(tokens.filter((token) => token.kind === 'reference').map((token) => trace.raw.slice(token.sourceSpan.start, token.sourceSpan.end))).toEqual(['@S!A[1]', '@S!B[1]', '@S!A[1]']);
 });
+
+it('renders trace lines without targets as plain diagnostic text', () => {
+  const error: WorkbookError = { key: 'e', sheetId: 's', cell: { rowId: 'r', columnId: 'c' }, reference: 'A1', code: '#REF!', text: 'Missing', trace: [
+    { key: 'root', depth: 0, message: 'Failure' },
+    { key: 'cause', depth: 1, message: 'Missing input' },
+  ] };
+  expect(errorCellText(error, 3, true)).toEqual({ raw: 'Failure\n  caused by Missing input', references: [] });
+});

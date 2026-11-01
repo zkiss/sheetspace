@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ErrorList } from './ErrorList';
@@ -60,6 +60,8 @@ it('clears hovered references on close and follows modified clicks without closi
   const props = { errors, open: true, focusRequest: 1, onClose: close, onActivate: vi.fn(), onNavigate: navigate, onReferenceHover: hover };
   const view = render(<ErrorList {...props} />);
   const reference = screen.getByRole('gridcell', { name: 'one' }).querySelector('.error-list-reference')!;
+  fireEvent.keyDown(reference, { key: 'ArrowDown' });
+  expect(screen.getByRole('gridcell', { name: 'one' })).toHaveFocus();
   await user.hover(reference);
   expect(hover).toHaveBeenLastCalledWith(expect.objectContaining({ element: reference, reference: expect.objectContaining({ text: 'one' }) }));
   await user.keyboard('{Control>}');
@@ -95,6 +97,8 @@ it('navigates columns with Tab, Home and End and toggles closed from the grid', 
   render(<ErrorList errors={errors} open focusRequest={1} onClose={close} onActivate={vi.fn()} />);
   await user.keyboard('{End}');
   expect(screen.getByTitle('one: Invalid reference')).toHaveFocus();
+  await user.keyboard('{ArrowLeft}{ArrowRight}');
+  expect(screen.getByTitle('one: Invalid reference')).toHaveFocus();
   await user.keyboard('{Tab}');
   expect(screen.getByRole('gridcell', { name: 'two' })).toHaveFocus();
   await user.keyboard('{Shift>}{Tab}{/Shift}');
@@ -103,4 +107,34 @@ it('navigates columns with Tab, Home and End and toggles closed from the grid', 
   expect(screen.getByRole('gridcell', { name: 'one' })).toHaveFocus();
   await user.keyboard('{Alt>}{Shift>}e{/Shift}{/Alt}');
   expect(close).toHaveBeenCalledOnce();
+});
+
+it('moves through the grid when committing a read-only inspection', async () => {
+  const user = userEvent.setup();
+  render(<ErrorList errors={errors} open focusRequest={1} onClose={vi.fn()} onActivate={vi.fn()} />);
+  await user.keyboard('{ArrowRight}{Enter}');
+  expect(await screen.findByRole('textbox', { name: 'Errors Error code editor' })).toHaveValue('#REF!');
+  await user.keyboard('{Tab}');
+  await waitFor(() => expect(screen.getAllByRole('gridcell', { name: 'Invalid reference' })[0]).toHaveFocus());
+  await user.keyboard('{F2}{Enter}');
+  await waitFor(() => expect(screen.getAllByRole('gridcell', { name: 'Invalid reference' })[1]).toHaveFocus());
+  await user.keyboard('{F2}{Shift>}{Tab}{/Shift}');
+  await waitFor(() => expect(screen.getAllByRole('gridcell', { name: '#REF!' })[1]).toHaveFocus());
+});
+
+it('clears hover on leaving a reference and navigates with the meta key', async () => {
+  const user = userEvent.setup();
+  const hover = vi.fn();
+  const navigate = vi.fn();
+  render(<ErrorList errors={errors} open focusRequest={1} onClose={vi.fn()} onActivate={vi.fn()} onNavigate={navigate} onReferenceHover={hover} />);
+  const reference = screen.getByRole('gridcell', { name: 'one' }).querySelector('.error-list-reference')!;
+  await user.hover(reference);
+  await user.unhover(reference);
+  expect(hover).toHaveBeenLastCalledWith(null);
+  await user.keyboard('{Meta>}');
+  await user.click(reference);
+  await user.keyboard('{/Meta}');
+  expect(navigate).toHaveBeenCalledWith({ sheetId: 'one', cell: errors[0].cell });
+  await user.keyboard('{F2}{Escape}');
+  expect(hover).toHaveBeenLastCalledWith(null);
 });
