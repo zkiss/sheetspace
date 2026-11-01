@@ -53,6 +53,11 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const [clipboardBusy, setClipboardBusy] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
   const clipboardOperation = useRef(0);
+  const selectionContext = JSON.stringify([sheet?.id, activeCell, selection]);
+  const selectionRevision = useRef({ context: selectionContext, revision: 0 });
+  if (selectionRevision.current.context !== selectionContext) {
+    selectionRevision.current = { context: selectionContext, revision: selectionRevision.current.revision + 1 };
+  }
   useEffect(() => () => { clipboardOperation.current += 1; }, []);
   function show(next: Panel) { setPanel(next); openPanel(); }
   function failure(result: unknown) {
@@ -92,15 +97,16 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('rename-sheet', 'Rename sheet…', 'Sheet', run(() => sheet && onRename(sheet), false), noSheet);
   add('delete-row', 'Delete row', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
+    const revision = selectionRevision.current.revision;
     const submission = commands.deleteRow(sheet.id, activeCell.cell.rowId);
     const message = failure(submission.result);
     if (message) { closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       const error = failure(result);
-      if (error) { onFeedback(error); closePalette(); }
-      else onRowDeleted(sheet, activeCell);
-    }, () => { onFeedback('The command could not be saved.'); closePalette(); });
+      if (error) { onFeedback(error); if (selectionRevision.current.revision === revision) closePalette(); }
+      else if (selectionRevision.current.revision === revision) onRowDeleted(sheet, activeCell);
+    }, () => { onFeedback('The command could not be saved.'); if (selectionRevision.current.revision === revision) closePalette(); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.rows.includes(activeCell.cell.rowId) ? undefined : 'Select a saved row first');
   add('delete-column', 'Delete column', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
@@ -109,15 +115,16 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       show({ kind: 'delete-property', title: 'Delete property', target, selection: activeCell, sheet });
       return;
     }
+    const revision = selectionRevision.current.revision;
     const submission = commands.deleteColumn(sheet.id, activeCell.cell.columnId);
     const message = failure(submission.result);
     if (message) { closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       const error = failure(result);
-      if (error) { onFeedback(error); closePalette(); }
-      else onColumnDeleted(sheet, activeCell);
-    }, () => { onFeedback('The command could not be saved.'); closePalette(); });
+      if (error) { onFeedback(error); if (selectionRevision.current.revision === revision) closePalette(); }
+      else if (selectionRevision.current.revision === revision) onColumnDeleted(sheet, activeCell);
+    }, () => { onFeedback('The command could not be saved.'); if (selectionRevision.current.revision === revision) closePalette(); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.columns.includes(activeCell.cell.columnId) ? undefined : 'Select a saved column first');
   const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
     && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;
@@ -236,13 +243,15 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
     const model = workbook.dataModels?.[panel.target.modelId];
     if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target) || !model) return 'The selected property has changed. Close and try again.';
+    const revision = selectionRevision.current.revision;
     const submission = commands.replaceModelDeclaration({ ...model, columns: model.columns.filter((property) => property.id !== panel.target.propertyId) });
     setRenameBusy(true);
     let result;
     try { result = submission.result.ok ? await submission.completion : submission.result; }
     finally { setRenameBusy(false); }
     if (!result.ok) return `Could not delete the property: ${result.reason}.`;
-    setPanel(null); closePalette(false); onColumnDeleted(panel.sheet, panel.selection);
+    setPanel(null);
+    if (selectionRevision.current.revision === revision) { closePalette(false); onColumnDeleted(panel.sheet, panel.selection); }
     return undefined;
   }} />;
   if (panel?.kind === 'rename-column') content = <RenameColumnForm target={panel.target} initialName={panel.initialName} onCancel={() => { setPanel(null); closePalette(); }} onApply={async (name) => {

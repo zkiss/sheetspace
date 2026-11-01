@@ -51,6 +51,35 @@ describe('workspace palette actions', () => {
     await act(async () => finish({ ok: true }));
     expect(callback).toHaveBeenCalledWith(sheet, cell);
   });
+  it.each(['row', 'column'] as const)('does not override navigation while %s deletion is saving', async (axis) => {
+    const { command, commands, props, hook, cell } = setup();
+    let finish!: (result: { ok: boolean }) => void;
+    (axis === 'row' ? commands.deleteRow : commands.deleteColumn).mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    act(() => command(`delete-${axis}`).run());
+    props.activeCell = { ...cell, cell: { ...cell.cell, rowId: 'another-row' } };
+    hook.rerender();
+    props.activeCell = cell;
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(axis === 'row' ? props.onRowDeleted : props.onColumnDeleted).not.toHaveBeenCalled();
+  });
+  it('does not override a sheet change while property deletion is saving', async () => {
+    const { command, hook, props, commands, sheet, cell } = setup();
+    const bound = { ...sheet, modelId: 'model', modelColumnBindings: { property: cell.cell.columnId } };
+    props.sheet = bound;
+    props.workbook = { ...workbookWithSheets([bound]), dataModels: { model: { id: 'model', name: 'Model', columns: [{ id: 'property', name: 'Amount', kind: 'manual', type: 'float' }] } } };
+    let finish!: (result: { ok: boolean }) => void;
+    commands.replaceModelDeclaration.mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    hook.rerender();
+    act(() => command('delete-column').run());
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete property' }));
+    props.sheet = undefined;
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(props.onColumnDeleted).not.toHaveBeenCalled();
+    expect(props.closePalette).not.toHaveBeenCalled();
+  });
   it.each(['row', 'column'] as const)('reports rejected and failed %s deletions without moving selection', async (axis) => {
     const { command, commands, props } = setup();
     const mutation = axis === 'row' ? commands.deleteRow : commands.deleteColumn;
