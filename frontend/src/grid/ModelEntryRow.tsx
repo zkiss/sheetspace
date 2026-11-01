@@ -27,6 +27,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
 }) {
   const cells = useRef(new Map<string, HTMLDivElement>());
   const anchor = useRef<HTMLDivElement | null>(null);
+  const feedback = useRef<HTMLDivElement | null>(null);
   const submitting = useRef(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; initial: string; session: CellEditSession } | null>(null);
@@ -35,7 +36,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
   const focusedProperty = editing?.id ?? selected;
 
   useEffect(() => {
-    if (!focusedProperty || !session.draft.fields[focusedProperty]?.invalid) { setFeedbackPosition(null); return; }
+    if (!focusedProperty || !session.draft.fields[focusedProperty]?.message) { setFeedbackPosition(null); return; }
     let frame = 0;
     const update = () => {
       const rect = cells.current.get(focusedProperty)?.getBoundingClientRect();
@@ -109,7 +110,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
         style={cellStyle} key={column.id} role="cell" tabIndex={disabled ? -1 : 0}
         ref={(element) => { if (element) cells.current.set(column.id, element); else cells.current.delete(column.id); }}
         onFocus={() => { setSelected(column.id); onEntryFocus?.(); }} onBlur={(event) => {
-          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+          if (event.relatedTarget instanceof Node && (event.currentTarget.contains(event.relatedTarget) || feedback.current?.contains(event.relatedTarget))) return;
           setSelected((current) => current === column.id ? null : current);
           if (field && !isEditing) commands.leave(column.id);
         }} onKeyDown={(event) => keyDown(event, index, column.id)} onDoubleClick={() => startEditing(column.id)}>
@@ -123,7 +124,10 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
           commit: (current, restore) => finishEditing(column.id, current?.draft ?? field?.raw ?? '', Boolean(restore)),
           commitAndNavigate: (current, request) => {
             finishEditing(column.id, current.draft, false);
-            if (request.key === 'Enter') void submit();
+            if (request.key === 'Enter') {
+              requestAnimationFrame(() => { if (document.activeElement === document.body) cells.current.get(column.id)?.focus(); });
+              void submit();
+            }
             else {
               const next = index + (request.shift ? -1 : 1);
               requestAnimationFrame(() => focusColumn(next >= 0 && next < model.columns.length ? next : index));
@@ -132,8 +136,12 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
         }} />}
       </div>;
     })}
-    {focusedProperty && session.draft.fields[focusedProperty]?.invalid && feedbackPosition && createPortal(<div className="model-entry-feedback" role="alert" style={feedbackPosition}>
-      {session.draft.fields[focusedProperty]?.message ?? `Enter a valid ${model.columns.find((column) => column.id === focusedProperty)?.type} value.`}
+    {focusedProperty && session.draft.fields[focusedProperty]?.message && feedbackPosition && createPortal(<div ref={feedback} className="model-entry-feedback" role="alert" style={feedbackPosition} onBlur={(event) => {
+      if (event.relatedTarget instanceof Node && (event.currentTarget.contains(event.relatedTarget) || cells.current.get(focusedProperty)?.contains(event.relatedTarget))) return;
+      setSelected((current) => current === focusedProperty ? null : current);
+    }}>
+      {session.draft.fields[focusedProperty]?.message}
+      <button type="button" onClick={() => { commands.dismiss(focusedProperty); cells.current.get(focusedProperty)?.focus(); }}>Dismiss</button>
     </div>, document.body)}
     {!model.columns.some((column) => column.kind === 'manual') && !session.retryRequired && <div role="cell" className="model-entry-submit"><button type="button" disabled={session.pending || session.stale} onClick={() => void submit()}>Save record</button></div>}
     {session.failure && <div className="model-entry-failure" role="alert">{session.failure}{session.retryRequired && <button type="button" onClick={() => void submit()}>Retry saving record</button>}</div>}

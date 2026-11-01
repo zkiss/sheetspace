@@ -95,6 +95,33 @@ describe('model entry row', () => {
     expect(commands.submit).toHaveBeenCalledOnce();
   });
 
+  it('keeps entry focus after submitting from the editor', async () => {
+    const { commands } = setup();
+    commands.submit.mockResolvedValue({});
+    const price = cell('Price new record'); price.focus();
+    fireEvent.keyDown(price, { key: 'F2' });
+    const editor = await screen.findByRole('textbox', { name: 'Sheet Price editor' });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    await waitFor(() => expect(price).toHaveFocus());
+    expect(commands.submit).toHaveBeenCalledOnce();
+  });
+
+  it('dismisses validation without clearing the invalid value or losing cell focus', async () => {
+    const { commands, session, editorInteraction, rerender } = setup();
+    const flagged = { ...session, draft: { ...session.draft, fields: { ...session.draft.fields, price: { raw: 'bad', invalid: true, message: 'Invalid price' } } } };
+    rerender(<ModelEntryRow model={model} session={flagged} commands={commands} editorInteraction={editorInteraction} />);
+    const price = cell('Price new record'); price.focus();
+    const dismiss = await screen.findByRole('button', { name: 'Dismiss' });
+    dismiss.focus(); fireEvent.click(dismiss);
+    expect(commands.dismiss).toHaveBeenCalledWith('price');
+    expect(price).toHaveFocus();
+    const dismissed = { ...flagged, draft: { ...flagged.draft, fields: { ...flagged.draft.fields, price: { raw: 'bad', invalid: true } } } };
+    rerender(<ModelEntryRow model={model} session={dismissed} commands={commands} editorInteraction={editorInteraction} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(price).toHaveAttribute('aria-invalid', 'true');
+    expect(price).toHaveTextContent('bad');
+  });
+
   it('shows validation only for the selected invalid cell and preserves its value', async () => {
     const { commands, session, editorInteraction, rerender } = setup();
     const flagged = { ...session, draft: { ...session.draft, fields: { ...session.draft.fields, price: { raw: 'bad', invalid: true, message: 'Invalid price' } } } };
