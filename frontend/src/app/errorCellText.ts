@@ -30,7 +30,7 @@ export function errorCellText(error: WorkbookError, column: number, expanded = f
   } else {
     for (const line of error.trace ?? [{ key: error.key, depth: 0, target: error, message: error.text }]) {
       if (document.raw) append('\n');
-      append(`${'  '.repeat(Math.min(line.depth, 12))}${line.depth ? 'caused by ' : ''}`);
+      if (line.depth) append('  caused by ');
       if (line.target) { reference(line.target); append(': '); }
       append(line.message);
     }

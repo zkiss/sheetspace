@@ -29,7 +29,7 @@ export function ErrorReferencePreview({ hover, geometry, surface, onNavigate }: 
   const bounds = surface.getBoundingClientRect();
   const reference = hover.reference;
   const color = errorReferenceColor(reference);
-  return createPortal(<div style={{ position: 'fixed', left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, zIndex: 1002, pointerEvents: 'none' }}>
+  return createPortal(<div style={{ position: 'fixed', left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, zIndex: 2, pointerEvents: 'none' }}>
     <ContextualReferenceLinks references={[{ contextual: { reference, color }, geometry }]} source={source} visible editorActive onNavigate={onNavigate} surfaceSize={bounds} />
   </div>, document.body);
 }
