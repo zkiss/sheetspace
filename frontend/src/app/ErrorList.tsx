@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CellTarget } from '@grid/cellInteractionContracts';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import type { WorkbookError } from './workbookErrors';
@@ -20,6 +20,11 @@ export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onN
   const list = useRef<HTMLElement>(null);
   const movementPending = useRef(false);
   const ownsFocus = useRef(false);
+  const hoverOwner = useRef<object | null>(null);
+  const cellHover = useCallback((owner: object, hover: ErrorReferenceHover) => {
+    if (hover) { hoverOwner.current = owner; onReferenceHover?.(hover); }
+    else if (hoverOwner.current === owner) { hoverOwner.current = null; onReferenceHover?.(null); }
+  }, [onReferenceHover]);
   const [extraColors, setExtraColors] = useState<{ errors: readonly WorkbookError[]; colors: ReadonlyMap<string, string> }>();
   const baseColors = useMemo(() => allocateErrorReferenceColors(open ? errors.flatMap((error) => [
     ...errorCellText(error, 0).references, ...errorCellText(error, 2).references,
@@ -73,7 +78,7 @@ export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onN
         <thead><tr>{['Cell', 'Error code', 'Error text', 'Stack trace'].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{errors.map((error) => <tr key={error.key}>{[0, 1, 2, 3].map((column) => <ErrorListCell key={column} error={error} column={column}
           selected={error.key === selected?.key && column === selection.column} onSelect={() => setSelection({ key: error.key, column })} onMove={move}
-          referenceColors={referenceColors} onInspectReferences={allocateInspectionColors} onReferenceHover={onReferenceHover} onNavigate={(target) => { if (onNavigate) onNavigate(target); else onActivate(error); }} />)}</tr>)}</tbody>
+          referenceColors={referenceColors} onInspectReferences={allocateInspectionColors} onReferenceHover={cellHover} onNavigate={(target) => { if (onNavigate) onNavigate(target); else onActivate(error); }} />)}</tr>)}</tbody>
       </table>}
     </div>
   </section>;

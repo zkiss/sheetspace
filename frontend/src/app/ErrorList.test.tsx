@@ -94,6 +94,28 @@ it('clears hovered references on close and follows modified clicks without closi
   expect(hover).toHaveBeenLastCalledWith(null);
 });
 
+it('clears a removed or changed hovered reference without clearing another cell’s hover', () => {
+  const hover = vi.fn();
+  const props = { errors, open: true, focusRequest: 1, onClose: vi.fn(), onActivate: vi.fn(), onReferenceHover: hover };
+  const view = render(<ErrorList {...props} />);
+  const first = screen.getByRole('gridcell', { name: 'one' }).querySelector('.error-list-reference')!;
+  fireEvent.mouseEnter(first);
+  view.rerender(<ErrorList {...props} errors={[errors[1]]} />);
+  expect(hover).toHaveBeenLastCalledWith(null);
+
+  const second = screen.getByRole('gridcell', { name: 'two' }).querySelector('.error-list-reference')!;
+  fireEvent.mouseEnter(second);
+  view.rerender(<ErrorList {...props} errors={[{ ...errors[1], reference: 'changed' }]} />);
+  expect(hover).toHaveBeenLastCalledWith(null);
+
+  view.rerender(<ErrorList {...props} />);
+  fireEvent.mouseEnter(screen.getByRole('gridcell', { name: 'one' }).querySelector('.error-list-reference')!);
+  const current = screen.getByRole('gridcell', { name: 'two' }).querySelector('.error-list-reference')!;
+  fireEvent.mouseEnter(current);
+  view.rerender(<ErrorList {...props} errors={[errors[1]]} />);
+  expect(hover).toHaveBeenLastCalledWith(expect.objectContaining({ element: current }));
+});
+
 it('inspects read-only cells in light and heavy modes and restores grid focus', async () => {
   const user = userEvent.setup();
   const close = vi.fn();
