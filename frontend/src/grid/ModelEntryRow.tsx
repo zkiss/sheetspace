@@ -124,7 +124,10 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
           commitAndNavigate: (current, request) => {
             finishEditing(column.id, current.draft, false);
             if (request.key === 'Enter') void submit();
-            else requestAnimationFrame(() => focusColumn(index + (request.shift ? -1 : 1)));
+            else {
+              const next = index + (request.shift ? -1 : 1);
+              requestAnimationFrame(() => focusColumn(next >= 0 && next < model.columns.length ? next : index));
+            }
           },
         }} />}
       </div>;

@@ -72,6 +72,22 @@ describe('model entry row', () => {
     expect(commands.submit).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['Quantity new record', 'Sheet Quantity editor', 'quantity', false],
+    ['Price new record', 'Sheet Price editor', 'price', true],
+  ])('keeps focus on the boundary cell after editing %s with Tab', async (name, editorName, id, shiftKey) => {
+    const { commands } = setup();
+    const boundary = cell(name); boundary.focus();
+    fireEvent.keyDown(boundary, { key: 'F2' });
+    const editor = await screen.findByRole('textbox', { name: editorName });
+    fireEvent.change(editor, { target: { value: '42' } });
+    fireEvent.keyDown(editor, { key: 'Tab', shiftKey });
+    await waitFor(() => expect(boundary).toHaveFocus());
+    expect(commands.change).toHaveBeenLastCalledWith(id, '42');
+    expect(commands.leave).toHaveBeenCalledWith(id);
+    expect(commands.submit).not.toHaveBeenCalled();
+  });
+
   it('submits on Enter and focuses the first invalid cell', async () => {
     const { commands } = setup();
     const price = cell('Price new record'); price.focus(); fireEvent.keyDown(price, { key: 'Enter' });
