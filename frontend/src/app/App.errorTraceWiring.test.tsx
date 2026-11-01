@@ -1,6 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
 import type { StableCellIdentity } from '@workbook/core/model';
@@ -14,8 +13,15 @@ vi.mock('./ErrorList', async (importOriginal) => {
   </> };
 });
 
-it('rejects removed identities and navigates a current target absent from the error list', async () => {
-  const user = userEvent.setup();
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+it('rejects removed identities and navigates a current target absent from the error list', () => {
   const sheet = sheetDocument({ id: 's', name: 'Inputs', rowCount: 2, columnCount: 2, cells: { B1: '=1/0' } });
   const workbook = workbookWithSheets([sheet]);
   const content = workbook.documents.s.content;
@@ -27,14 +33,14 @@ it('rejects removed identities and navigates a current target absent from the er
     { sheetId: 's', cell: valid },
   ];
   render(<App initialWorkbook={workbook} />);
-  await user.click(screen.getByRole('button', { name: /Toggle error list/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Toggle error list/ }));
   for (const index of [0, 1, 2]) {
-    await user.click(screen.getByRole('button', { name: `Trace target ${index}` }));
+    fireEvent.click(screen.getByRole('button', { name: `Trace target ${index}` }));
     expect(screen.getByRole('grid', { name: 'Error list' })).toBeInTheDocument();
   }
-  await user.click(screen.getByRole('button', { name: 'Trace target 3' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Trace target 3' }));
   expect(screen.getByRole('grid', { name: 'Error list' })).toBeInTheDocument();
-  const destination = await screen.findByRole('cell', { name: 'Inputs A1 empty cell' });
-  await waitFor(() => expect(destination).toHaveFocus());
+  const destination = screen.getByRole('cell', { name: 'Inputs A1 empty cell' });
+  expect(destination).toHaveFocus();
   expect(destination).toHaveAttribute('data-navigation-highlight');
 });
