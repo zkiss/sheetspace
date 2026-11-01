@@ -5,6 +5,7 @@ import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { admitRecordConfirmingMissing } from '@infrastructure/persistence/admitRecordConfirmingMissing';
 import { useMissingEntrySessions } from './useMissingEntrySessions';
+import { useContentHistoryFeedback } from './useContentHistoryFeedback';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -84,16 +85,8 @@ export function useWorkbookController({
   contentHistoryRef.current ??= new ContentHistory();
   const contentHistory = contentHistoryRef.current;
   const [, setHistoryRevision] = useState(0);
-  const [contentHistoryFeedback, setContentHistoryFeedback] = useState<WorkbookController['contentHistoryFeedback']>();
+  const [contentHistoryFeedback, setContentHistoryFeedback] = useContentHistoryFeedback();
   const [mutationFailure, setMutationFailure] = useState<WorkbookController['mutationFailure']>();
-  useEffect(() => {
-    if (!contentHistoryFeedback) return;
-    const identity = contentHistoryFeedback.identity;
-    const timeout = window.setTimeout(() => {
-      setContentHistoryFeedback((current) => current?.identity === identity ? undefined : current);
-    }, 1200);
-    return () => window.clearTimeout(timeout);
-  }, [contentHistoryFeedback]);
   const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
     setControllerState((current) => {
       const nextWorkbook = typeof update === 'function'
@@ -179,7 +172,7 @@ export function useWorkbookController({
       setContentHistoryFeedback(undefined);
       setHistoryRevision((revision) => revision + 1);
     }
-  }, [savedAutosave.outboxSnapshot, contentHistory]);
+  }, [savedAutosave.outboxSnapshot, contentHistory, setContentHistoryFeedback]);
 
   type WorkbookOperationInput = WorkbookOperation extends infer Operation
     ? Operation extends unknown ? Omit<Operation, 'operationId'> : never

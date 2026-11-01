@@ -9,7 +9,7 @@ type Props = Parameters<typeof useWorkspaceActionCommands>[0];
 function setup(columnCount = 1) {
   const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount });
   const cell = { sheetId: sheet.id, cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! } };
-  const commands = { appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn() };
+  const commands = { appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn(), deleteRow: vi.fn(), deleteColumn: vi.fn(), replaceModelDeclaration: vi.fn() };
   const controller = { createSheetAtViewportCenter: vi.fn(), zoomWorkspaceBy: vi.fn(), resetViewport: vi.fn() };
   const clipboard = { canWrite: () => true, canRead: () => true, write: vi.fn().mockResolvedValue(undefined), read: vi.fn() };
   const props = {
@@ -18,7 +18,7 @@ function setup(columnCount = 1) {
     canUndo: false, canRedo: false, canRetryFailedSaves: false,
     navigation: { canGoBack: false, canGoForward: false, traverse: vi.fn() }, closePalette: vi.fn(), openPanel: vi.fn(),
     onOpenDataModels: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), onEdit: vi.fn(), onClear: vi.fn(),
-    onSelectAxis: vi.fn(), onSelectAll: vi.fn(), onToggleReferences: vi.fn(), onFeedback: vi.fn(),
+    onSelectAxis: vi.fn(), onSelectAll: vi.fn(), onRowDeleted: vi.fn(), onColumnDeleted: vi.fn(), onToggleReferences: vi.fn(), onFeedback: vi.fn(),
     onCopy: vi.fn(), onCut: vi.fn(), onPaste: vi.fn(), onCancelCut: vi.fn(), hasPendingCut: false, clipboardAccess: clipboard,
   } as unknown as Props;
   const hook = renderHook(() => useWorkspaceActionCommands(props));
@@ -40,6 +40,59 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it.each(['row', 'column'] as const)('selects an adjacent cell only after %s deletion succeeds', async (axis) => {
+    const { command, commands, props, sheet, cell } = setup();
+    const mutation = axis === 'row' ? commands.deleteRow : commands.deleteColumn;
+    let finish!: (result: { ok: boolean; reason?: string }) => void;
+    mutation.mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    act(() => command(`delete-${axis}`).run());
+    const callback = axis === 'row' ? props.onRowDeleted : props.onColumnDeleted;
+    expect(callback).not.toHaveBeenCalled();
+    await act(async () => finish({ ok: true }));
+    expect(callback).toHaveBeenCalledWith(sheet, cell);
+  });
+  it.each(['row', 'column'] as const)('reports rejected and failed %s deletions without moving selection', async (axis) => {
+    const { command, commands, props } = setup();
+    const mutation = axis === 'row' ? commands.deleteRow : commands.deleteColumn;
+    mutation.mockReturnValueOnce({ result: { ok: false, reason: 'pending-axis-creation' } });
+    act(() => command(`delete-${axis}`).run());
+    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('pending-axis-creation'));
+    mutation.mockReturnValueOnce({ result: { ok: true }, completion: Promise.resolve({ ok: false, reason: 'persistence-failed' }) });
+    await act(async () => command(`delete-${axis}`).run());
+    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('persistence-failed'));
+    expect(axis === 'row' ? props.onRowDeleted : props.onColumnDeleted).not.toHaveBeenCalled();
+  });
+  it('confirms shared property deletion and rejects a stale selection', async () => {
+    const { command, hook, props, commands, sheet, cell } = setup();
+    const bound = { ...sheet, modelId: 'model', modelColumnBindings: { property: cell.cell.columnId } };
+    props.sheet = bound;
+    props.workbook = { ...workbookWithSheets([bound]), dataModels: { model: { id: 'model', name: 'Model', columns: [{ id: 'property', name: 'Amount', kind: 'manual', type: 'float' }] } } };
+    hook.rerender();
+    act(() => command('delete-column').run());
+    props.sheet = undefined;
+    hook.rerender();
+    render(<>{hook.result.current.panel?.content}</>);
+    expect(screen.getByText(/removes the property and its data/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete property' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('changed');
+    expect(commands.replaceModelDeclaration).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  });
+  it('removes a shared property only after confirmation and successful persistence', async () => {
+    const { command, hook, props, commands, sheet, cell } = setup();
+    const bound = { ...sheet, modelId: 'model', modelColumnBindings: { property: cell.cell.columnId } };
+    const model = { id: 'model', name: 'Model', columns: [{ id: 'property', name: 'Amount', kind: 'manual' as const, type: 'float' as const }] };
+    props.sheet = bound;
+    props.workbook = { ...workbookWithSheets([bound]), dataModels: { model } };
+    commands.replaceModelDeclaration.mockReturnValue({ result: { ok: true }, completion: Promise.resolve({ ok: true }) });
+    hook.rerender();
+    act(() => command('delete-column').run());
+    expect(commands.replaceModelDeclaration).not.toHaveBeenCalled();
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete property' }));
+    await waitFor(() => expect(props.onColumnDeleted).toHaveBeenCalledWith(bound, cell));
+    expect(commands.replaceModelDeclaration).toHaveBeenCalledWith({ ...model, columns: [] });
+  });
   it('hides structural commands for a bound sheet and restores them when unbound', () => {
     const { hook, props, sheet } = setup();
     expect(hook.result.current.commands.map((item) => item.id)).toEqual(expect.arrayContaining(['append-row', 'append-column']));
@@ -73,7 +126,7 @@ describe('workspace palette actions', () => {
     props.selection = { mode: 'columns', anchor: cell, extent: cell };
     render(<RenamePalette props={props} />);
     openRename();
-    expect(screen.getByText(/defined by data model "Model"/)).toHaveTextContent('Amount');
+    expect(screen.getByText('Model').closest('p')).toHaveTextContent('Amount');
     expect(screen.queryByLabelText('Column name')).not.toBeInTheDocument();
     if (method === 'Escape') fireEvent.keyDown(screen.getByRole('button', { name: 'Continue' }), { key: 'Escape' });
     else fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));

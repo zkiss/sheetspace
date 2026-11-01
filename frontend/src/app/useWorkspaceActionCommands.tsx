@@ -96,8 +96,11 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     const message = failure(submission.result);
     if (message) { closePalette(); onFeedback(message); return; }
     closePalette(false);
-    onRowDeleted(sheet, activeCell);
-    void submission.completion.then((result) => { const error = failure(result); if (error) onFeedback(error); });
+    void submission.completion.then((result) => {
+      const error = failure(result);
+      if (error) { onFeedback(error); closePalette(); }
+      else onRowDeleted(sheet, activeCell);
+    }, () => { onFeedback('The command could not be saved.'); closePalette(); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.rows.includes(activeCell.cell.rowId) ? undefined : 'Select a saved row first');
   add('delete-column', 'Delete column', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
@@ -110,8 +113,11 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     const message = failure(submission.result);
     if (message) { closePalette(); onFeedback(message); return; }
     closePalette(false);
-    onColumnDeleted(sheet, activeCell);
-    void submission.completion.then((result) => { const error = failure(result); if (error) onFeedback(error); });
+    void submission.completion.then((result) => {
+      const error = failure(result);
+      if (error) { onFeedback(error); closePalette(); }
+      else onColumnDeleted(sheet, activeCell);
+    }, () => { onFeedback('The command could not be saved.'); closePalette(); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.columns.includes(activeCell.cell.columnId) ? undefined : 'Select a saved column first');
   const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
     && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;
@@ -229,7 +235,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   if (panel?.kind === 'delete-property') content = <DeletePropertyForm target={panel.target} onCancel={() => { setPanel(null); closePalette(); }} onApply={async () => {
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
     const model = workbook.dataModels?.[panel.target.modelId];
-    if (JSON.stringify(current) !== JSON.stringify(panel.target) || !model) return 'The selected property has changed. Close and try again.';
+    if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target) || !model) return 'The selected property has changed. Close and try again.';
     const submission = commands.replaceModelDeclaration({ ...model, columns: model.columns.filter((property) => property.id !== panel.target.propertyId) });
     setRenameBusy(true);
     let result;
