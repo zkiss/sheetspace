@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ContextualReferenceLinks } from '@reference-navigation/ContextualReferenceLinks';
 import type { ProjectedReferenceGeometry } from '@reference-navigation/contextualReferenceProjection';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
-import { errorReferenceColor, type ErrorReferenceHover } from './errorCellText';
+import type { ErrorReferenceHover } from './errorCellText';
 
 export function ErrorReferencePreview({ hover, geometry, surface, onNavigate }: {
   hover: ErrorReferenceHover;
@@ -28,7 +28,7 @@ export function ErrorReferencePreview({ hover, geometry, surface, onNavigate }: 
   if (!hover || !surface) return null;
   const bounds = surface.getBoundingClientRect();
   const reference = hover.reference;
-  const color = errorReferenceColor(reference);
+  const color = hover.color;
   return createPortal(<div style={{ position: 'fixed', left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, zIndex: 2, pointerEvents: 'none' }}>
     <ContextualReferenceLinks references={[{ contextual: { reference, color }, geometry }]} source={source} visible editorActive onNavigate={onNavigate} surfaceSize={bounds} />
   </div>, document.body);

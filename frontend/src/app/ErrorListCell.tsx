@@ -3,24 +3,27 @@ import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { SheetGridCellEditor, type CellFormulaEditorProps } from '@grid/SheetGridCellEditor';
 import type { CellEditSession, CellTarget } from '@grid/cellInteractionContracts';
-import { errorCellText, errorReferenceColor, type ErrorReferenceHover } from './errorCellText';
+import { errorCellText, type ErrorReferenceHover } from './errorCellText';
+import { allocateErrorReferenceColors, errorReferenceKey } from './errorReferenceColors';
 import type { WorkbookError } from './workbookErrors';
 
-export function ErrorListCell({ error, column, selected, onSelect, onMove, onNavigate, onReferenceHover }: {
+export function ErrorListCell({ error, column, selected, onSelect, onMove, onNavigate, onReferenceHover, referenceColors }: {
   error: WorkbookError; column: number; selected: boolean;
   onSelect: () => void;
   onMove: (rows: number, columns: number, wrap?: boolean) => void;
   onNavigate: (target: CellTarget) => void;
   onReferenceHover?: (hover: ErrorReferenceHover) => void;
+  referenceColors: ReadonlyMap<string, string>;
 }) {
   const anchor = useRef<HTMLTableCellElement | null>(null);
   const [editing, setEditing] = useState<CellEditSession | null>(null);
   const inspecting = editing !== null;
   const document = useMemo(() => errorCellText(error, column, inspecting), [error, column, inspecting]);
-  const colors = useMemo(() => new Map(document.references.map((reference) => [reference.sourceSpan.start, errorReferenceColor(reference)!])), [document]);
+  const palette = useMemo(() => allocateErrorReferenceColors(document.references, referenceColors), [document, referenceColors]);
+  const colors = useMemo(() => new Map(document.references.map((reference) => [reference.sourceSpan.start, palette.get(errorReferenceKey(reference))!])), [document, palette]);
   const hover = useCallback((reference: FormulaInspectionReference | undefined, element?: HTMLElement) => {
-    onReferenceHover?.(reference && element ? { reference, element } : null);
-  }, [onReferenceHover]);
+    onReferenceHover?.(reference && element ? { reference, element, color: palette.get(errorReferenceKey(reference)) } : null);
+  }, [onReferenceHover, palette]);
   const Editor = useCallback((props: CellFormulaEditorProps) => <FormulaEditorPanel {...props} readOnlyText onReferenceElementHover={hover} />, [hover]);
   function inspect() { setEditing({ target: error, sessionId: Date.now(), draft: document.raw, readOnly: true, selection: { start: 0, end: 0 } }); }
   function close(restore: boolean) {

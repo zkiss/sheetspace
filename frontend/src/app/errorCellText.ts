@@ -1,14 +1,8 @@
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
-import { referenceIdentityColor } from '@workbook/core/referenceIdentity';
 import type { WorkbookError, ErrorTraceLine } from './workbookErrors';
 
 export type ErrorCellText = { raw: string; references: FormulaInspectionReference[] };
-export type ErrorReferenceHover = { reference: FormulaInspectionReference; element: HTMLElement } | null;
-
-export function errorReferenceColor(reference: FormulaInspectionReference) {
-  return referenceIdentityColor(reference.target.kind === 'cell' && reference.target.identity
-    ? { kind: 'cell', sheetId: reference.target.sheetId, ...reference.target.identity } : undefined);
-}
+export type ErrorReferenceHover = { reference: FormulaInspectionReference; element: HTMLElement; color?: string } | null;
 
 export function errorCellText(error: WorkbookError, column: number, expanded = false): ErrorCellText {
   const document: ErrorCellText = { raw: '', references: [] };
