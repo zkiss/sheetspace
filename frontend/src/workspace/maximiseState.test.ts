@@ -11,7 +11,14 @@ const enter = () => enterMaximise(initialMaximiseState(), 'a', frame, size, sour
 describe('maximise geometry', () => {
   it('starts at displayed geometry and ends at the workspace origin without chrome', () => {
     const state = enter();
-    expect(sampleMaximise(state, 0)).toEqual(source);
+    const displayed = {
+      frame: { left: 45, top: 42.5, width: 600, height: 450 },
+      body: { left: 46.5, top: 92, width: 597, height: 399 },
+      tableScale: 1.5,
+      chrome: 1,
+    };
+    expect(source).toEqual(displayed);
+    expect(sampleMaximise(state, 0)).toEqual(displayed);
     expect(sampleMaximise(state, MAXIMISE_TRANSITION_MS)).toEqual({ frame: { left: 0, top: 0, ...size }, body: { left: 0, top: 0, ...size }, tableScale: 1, chrome: 0 });
     expect(sampleMaximise(state, 150)?.chrome).toBe(.5);
   });
