@@ -1,8 +1,8 @@
 import type { WorkspaceViewport } from './workspaceContracts';
 
 /** Sample the browser's interpolated translation/scale while a reveal is displayed. */
-export function displayedWorkspaceViewport(plane: HTMLElement | null): WorkspaceViewport | undefined {
-  if (plane?.dataset.navigationMotion !== 'smooth') return;
+export function displayedWorkspaceViewport(plane: HTMLElement | null, includePreview = false): WorkspaceViewport | undefined {
+  if (!plane || (!includePreview && plane.dataset.navigationMotion !== 'smooth')) return;
   // Computed transforms serialize as matrices, including while CSS is transitioning.
   const matrix = getComputedStyle(plane).transform.match(/^matrix(3d)?\((.+)\)$/);
   if (!matrix) return;

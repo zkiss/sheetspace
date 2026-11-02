@@ -36,6 +36,7 @@ export function useWorkspaceController({
   const [workspaceSurfaceSize, setWorkspaceSurfaceSize] = useState<SheetFrameSize | null>(null);
   const workspaceSurfaceRef = useRef<HTMLElement | null>(null);
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
+  const previewGeneration = useRef(0);
   const panPreview = useRef<WorkspaceViewport | null>(null);
   const panFrame = useRef<number>();
   const panPublication = useRef({ time: 0, x: 0, y: 0 });
@@ -169,7 +170,9 @@ export function useWorkspaceController({
         x: addFiniteWorkspaceCoordinate(panPreview.current.x, deltaX),
         y: addFiniteWorkspaceCoordinate(panPreview.current.y, deltaY),
       };
+      const generation = previewGeneration.current;
       if (panFrame.current === undefined) panFrame.current = requestAnimationFrame((time) => {
+        if (generation !== previewGeneration.current) return;
         panFrame.current = undefined;
         const next = panPreview.current;
         if (!next) return;
@@ -248,7 +251,9 @@ export function useWorkspaceController({
     zoomPreview.current = zoomViewportAt(current, zoomScaleBy(current.scale, factor), zoomOrigin(origin));
     if (zoomPreview.current.scale !== current.scale) invalidateCreationSequence();
     viewportRef.current = zoomPreview.current;
+    const generation = previewGeneration.current;
     if (zoomFrame.current === undefined) zoomFrame.current = requestAnimationFrame((time) => {
+      if (generation !== previewGeneration.current) return;
       zoomFrame.current = undefined;
       const next = zoomPreview.current;
       if (!next) return;
@@ -260,7 +265,9 @@ export function useWorkspaceController({
       }
     });
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
-    zoomTimer.current = window.setTimeout(finishZoomPreview, 150);
+    zoomTimer.current = window.setTimeout(() => {
+      if (generation === previewGeneration.current) finishZoomPreview();
+    }, 150);
   }
 
   function finishZoomPreview() {
@@ -304,6 +311,28 @@ export function useWorkspaceController({
   function cancelViewportAnimation() {
     activeViewportMotion.current = undefined;
     workspacePlaneRef.current?.getAnimations().forEach((animation) => animation.cancel());
+  }
+
+  function commitFrozenViewport(next: WorkspaceViewport) {
+    previewGeneration.current++;
+    if (panFrame.current !== undefined) cancelAnimationFrame(panFrame.current);
+    if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
+    if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+    panFrame.current = undefined; zoomFrame.current = undefined; zoomTimer.current = undefined;
+    panPreview.current = null; zoomPreview.current = null;
+    cancelViewportRestore();
+    cancelViewportAnimation();
+    navigationMayBeMoving.current = false;
+    setNavigationMotion(false);
+    viewportRef.current = next;
+    paintPanViewport(next);
+    setViewport(next);
+  }
+
+  function freezeDisplayedViewport() {
+    const displayed = displayedWorkspaceViewport(workspacePlaneRef.current, true) ?? viewport;
+    commitFrozenViewport(displayed);
+    return displayed;
   }
 
   function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}) {
@@ -418,6 +447,8 @@ export function useWorkspaceController({
 
   return {
     closeSheetMenu,
+    freezeDisplayedViewport,
+    commitFrozenViewport,
     consumeViewportMovementIsUser: () => {
       const isUserMovement = viewportMovementIsUser.current;
       viewportMovementIsUser.current = false;
