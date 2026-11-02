@@ -24,6 +24,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   const targetOwnership = useRef(0);
   const ownership = useRef(0);
   const transaction = useRef(0);
+  const failedHandoff = useRef(0);
   const options = useRef({ handoff, size, reducedMotion, available });
   options.current = { handoff, size, reducedMotion, available };
   const [presentation, setPresentation] = useState(() => sampleMaximise(state, performance.now()));
@@ -49,7 +50,17 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     }
     if (restoreCompleted && previous.frame && previous.size) {
       const owned = options.current.handoff.commitFrozenViewport(restoredViewport(previous.frame, restoreSize ?? previous.size));
-      if (owner !== transaction.current || owned === false) return;
+      if (owner !== transaction.current) return;
+      if (owned === false) {
+        failedHandoff.current++;
+        ownership.current++;
+        targetOwnership.current++;
+        publish(cancelMaximise(previous), now);
+        release('cancelled');
+        releaseCanvas('cancelled');
+        releaseTarget('cancelled');
+        return;
+      }
     }
     publish(next, now);
     if (!next.motion) { release('settled'); releaseCanvas(next.mode === 'canvas' ? 'settled' : 'cancelled'); releaseTarget(next.mode === 'maximised' ? 'settled' : 'cancelled'); return; }
@@ -90,12 +101,13 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     return new Promise((resolve) => waiters.current.push(resolve));
   }
   function ensureCanvas(): Promise<Result> {
+    const handoffGeneration = failedHandoff.current;
     if (current.current.mode !== 'canvas' && current.current.mode !== 'restoring') toggle();
     const generation = ownership.current;
     const completion: Promise<Result> = current.current.motion
       ? new Promise((resolve) => canvasWaiters.current.push(resolve))
       : Promise.resolve('settled');
-    return completion.then((result) => result === 'settled' && current.current.mode === 'canvas' && ownership.current === generation ? 'settled' : 'cancelled');
+    return completion.then((result) => result === 'settled' && current.current.mode === 'canvas' && ownership.current === generation && failedHandoff.current === handoffGeneration ? 'settled' : 'cancelled');
   }
   function ensureMaximised(id: string): Promise<Result> {
     const generation = targetOwnership.current;

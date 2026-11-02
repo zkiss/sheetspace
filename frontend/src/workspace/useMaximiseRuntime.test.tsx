@@ -43,6 +43,27 @@ it.each(['immediate', 'animated', 'resize'] as const)('does not publish a %s res
   expect(result.current.currentState().mode).toBe('maximised');
 });
 
+it.each(['immediate', 'animated', 'resize'] as const)('cancels a %s restore when its viewport handoff loses ownership', async (kind) => {
+  let callback: FrameRequestCallback = () => {};
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn(() => false) };
+  const { result, rerender } = renderHook(({ dimensions, reduced }) => useMaximiseRuntime(handoff, dimensions, reduced, () => true), {
+    initialProps: { dimensions: size, reduced: true },
+  });
+  act(() => result.current.enter('source', saved));
+  if (kind !== 'immediate') rerender({ dimensions: size, reduced: false });
+  let pending!: Promise<'settled' | 'cancelled'>;
+  act(() => { pending = result.current.ensureCanvas(); });
+  if (kind === 'animated') act(() => callback(performance.now() + 1000));
+  if (kind === 'resize') rerender({ dimensions: { width: 1000, height: 700 }, reduced: true });
+  expect(await pending).toBe('cancelled');
+  expect(result.current.currentState().mode).toBe('canvas');
+  act(() => result.current.enter('successor', saved));
+  if (kind === 'animated') act(() => callback(performance.now() + 1000));
+  expect(await result.current.ensureMaximised('successor')).toBe('settled');
+});
+
 it('marks coordinator-owned entry as a programmatic viewport handoff', () => {
   const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
   const { result } = renderHook(() => useMaximiseRuntime(handoff, size, true, () => true));

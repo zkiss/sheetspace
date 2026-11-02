@@ -506,9 +506,7 @@ export function useWorkspaceController({
 
   return {
     closeSheetMenu,
-    freezeDisplayedViewport,
-    freezeDisplayedViewportOwned,
-    commitFrozenViewport,
+    freezeDisplayedViewport, freezeDisplayedViewportOwned, commitFrozenViewport,
     consumeViewportMovementIsUser: () => {
       const isUserMovement = viewportMovementIsUser.current;
       viewportMovementIsUser.current = false;
@@ -527,9 +525,7 @@ export function useWorkspaceController({
     restoreViewport,
     viewport,
     displayedViewport,
-    workspacePlaneRef,
-    workspaceSurfaceRef,
-    workspaceSurfaceSize,
+    workspacePlaneRef, workspaceSurfaceRef, workspaceSurfaceSize,
     zoomWorkspace,
     zoomWorkspaceBy,
   };
