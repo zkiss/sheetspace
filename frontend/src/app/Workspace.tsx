@@ -215,6 +215,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     onClearSelection,
     onCreateSheet,
     interactionsEnabled: interactionsEnabled && !maximiseActive,
+    commandsEnabled: !sheetDialogOpen,
   });
   const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)));
   const modeActive = maximise.state.mode !== 'canvas';

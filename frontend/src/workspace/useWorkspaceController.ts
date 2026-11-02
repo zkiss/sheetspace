@@ -22,12 +22,14 @@ export function useWorkspaceController({
   onCreateSheet,
   shouldRenderPanViewport,
   interactionsEnabled = true,
+  commandsEnabled = interactionsEnabled,
 }: {
   onBeforeUserMovement?: () => void;
   onClearSelection: () => void;
   onCreateSheet: (position: WorkspacePosition, viewportScale: number, label: string, confirm: () => void) => void;
   shouldRenderPanViewport?: (viewport: WorkspaceViewport) => boolean;
   interactionsEnabled?: boolean;
+  commandsEnabled?: boolean;
 }) {
   const [viewport, setViewport] = useState<WorkspaceViewport>({ x: 0, y: 0, scale: 1 });
   const [pendingSheetMenu, setPendingSheetMenu] = useState<PendingSheetMenu | null>(null);
@@ -424,7 +426,7 @@ export function useWorkspaceController({
   }
 
   function createSheetAtViewportCenter() {
-    if (!interactionsEnabled) return;
+    if (!commandsEnabled) return;
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) return;
     closeSheetMenu();
