@@ -6,6 +6,53 @@ const destinationTarget = { kind: 'cell', target: { sheetId: 'destination', cell
 
 describe('navigation failure and traversal ownership', () => {
   afterEach(() => vi.useRealTimers());
+  it('does not report an unavailable failure when retirement starts a successor', () => {
+    const unavailable = vi.fn();
+    let fail: (reason: 'unavailable' | 'cancelled') => void = () => {};
+    let successorReady = () => {};
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true,
+      onRestoreSelection: () => true, onUnavailableTarget: unavailable, restoreViewport: () => () => {},
+      selection: null, viewport: { x: 0, y: 0, scale: 1 },
+    }));
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, (_ready, failed) => {
+        fail = failed; return () => {};
+      }, undefined, () => result.current.startExplicitSheetNavigation('successor', () => {}, (ready) => {
+        successorReady = ready; return () => {};
+      }));
+    }));
+    act(() => fail('unavailable'));
+    expect(unavailable).not.toHaveBeenCalled();
+    act(() => successorReady());
+    expect(result.current.history.canGoBack).toBe(true);
+  });
+
+  it('does not report a saved restore failure after selection feedback starts a successor', () => {
+    vi.useFakeTimers();
+    const unavailable = vi.fn();
+    let fail: (reason: 'unavailable' | 'cancelled') => void = () => {};
+    let successorReady = () => {};
+    const restoreSelection = vi.fn(() => {
+      result.current.startExplicitSheetNavigation('successor', () => {}, (ready) => {
+        successorReady = ready; return () => {};
+      });
+      return true;
+    });
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
+      onRestoreSelection: restoreSelection, onUnavailableTarget: unavailable, restoreViewport: () => () => {},
+      restoreDestination: (_sheet, _viewport, _ready, failed) => { fail = failed; return () => {}; },
+      selection: null, viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 0 } });
+    act(() => result.current.startExplicitSheetNavigation('saved', () => {}, (ready) => { ready(); return () => {}; }));
+    rerender({ x: 1 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => result.current.history.traverse('back'));
+    act(() => fail('unavailable'));
+    expect(restoreSelection).toHaveBeenCalledWith(null);
+    expect(unavailable).not.toHaveBeenCalled();
+    act(() => successorReady());
+    expect(result.current.history.canGoBack).toBe(true);
+  });
   it.each(['cancelled', 'unavailable'] as const)('retires a failed explicit destination without capturing arrival: %s', (reason) => {
     const unavailable = vi.fn();
     let fail: (reason: 'cancelled' | 'unavailable') => void = () => {};

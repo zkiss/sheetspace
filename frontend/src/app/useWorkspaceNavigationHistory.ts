@@ -115,7 +115,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       setActiveNavigationGeneration((revision) => revision + 1);
       operation.cancel();
       restoring.onRetire?.();
-      if (reason === 'unavailable') onUnavailable?.();
+      if (reason === 'unavailable' && operation.isLatest()) onUnavailable?.();
     });
     if (current() && !restoring.viewportSettled) restoring.cancelViewport = cancelViewport;
     else if (restoring.retired && !restoring.finished && !restoring.viewportSettled) cancelViewport();
@@ -132,6 +132,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
           if (activeRestore.current?.operation === operation && operation.isCurrent()) activeRestore.current.requiredSheetId = undefined;
         }
       }, () => {
+        if (!operation.isLatest()) return;
         onRestoreSelection(null);
         if (operation.isLatest()) onUnavailableTarget();
       }, context.destinationSheetId);
