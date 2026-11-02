@@ -45,6 +45,7 @@ function select(sheet: SheetDocument, selection: ExtractionSelection): { rows: [
 }
 
 export function prepareExtraction(workbook: Workbook, request: ExtractionRequest): ExtractionPreparationResult {
+  if (!Object.prototype.hasOwnProperty.call(workbook.documents, request.sourceSheetId)) return { ok: false, reason: 'unknown-source' };
   const source = findSheetById(workbook, request.sourceSheetId);
   if (!source) return { ok: false, reason: 'unknown-source' };
   if (source.modelId || source.modelColumnBindings || source.modelFormulaBindings) return { ok: false, reason: 'protected-source' };
