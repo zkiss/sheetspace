@@ -141,6 +141,7 @@ export function useNavigationHistory({ capture, restore }: {
   }, [flushMovement, restore, retireTransient]);
   useEffect(() => () => { if (timer.current !== undefined) window.clearTimeout(timer.current); }, []);
   return {
+    ownershipGeneration: () => nextOperation.current,
     cancelPendingNavigation: () => { activeOperation.current = undefined; pendingExplicitNavigation.current = undefined; retireTransient(); },
     canGoBack: history.current.cursor > 0 || pendingExplicitNavigation.current !== undefined,
     canGoForward: history.current.cursor >= 0 && history.current.cursor < history.current.entries.length - 1,

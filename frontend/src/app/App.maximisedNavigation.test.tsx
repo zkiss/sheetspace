@@ -82,7 +82,11 @@ it('reveals content undo on another maximised sheet without adding an explicit n
   expect(source).toHaveAttribute('data-position-x', '0');
 });
 
-it.each(['source restoration', 'target entry'] as const)('adopts displayed geometry when Restore interrupts %s', async (stage) => {
+it.each([
+  ['source restoration', 'direct'], ['target entry', 'direct'],
+  ['source restoration', 'focused'], ['target entry', 'focused'],
+  ['source restoration', 'delayed'], ['target entry', 'delayed'],
+] as const)('adopts displayed geometry when Restore interrupts %s (%s activation)', async (stage, activation) => {
   useAnimationClock();
   const { source, destination } = setup(false, false);
   await finishTransfer();
@@ -98,9 +102,18 @@ it.each(['source restoration', 'target entry'] as const)('adopts displayed geome
   const body = within(presented).getByTestId('sheet-frame-body');
   expect(presented).toHaveAttribute('data-presented', 'true');
   const geometry = [presented.style.cssText, body.style.cssText];
-  fireEvent.click(screen.getByRole('button', { name: 'Restore to workspace' }));
-  expect(presented).toHaveAttribute('data-presented', 'true');
-  expect([presented.style.cssText, body.style.cssText]).toEqual(geometry);
+  const restore = screen.getByRole('button', { name: 'Restore to workspace' });
+  if (activation !== 'direct') {
+    act(() => restore.focus());
+    expect(presented).toHaveAttribute('data-presented', 'true');
+    expect([presented.style.cssText, body.style.cssText]).toEqual(geometry);
+  }
+  if (activation === 'delayed') await finishTransfer();
+  const activationGeometry = [presented.style.cssText, body.style.cssText];
+  expect(restore).toHaveTextContent('Restore to workspace');
+  // Explicit focus plus click models keyboard-generated activation; keyDown alone has no native default in jsdom.
+  fireEvent.click(restore);
+  expect([presented.style.cssText, body.style.cssText]).toEqual(activationGeometry);
   await finishTransfer();
   expect(source).not.toHaveAttribute('data-presented');
   expect(destination).not.toHaveAttribute('data-presented');
@@ -112,17 +125,70 @@ it.each(['source restoration', 'target entry'] as const)('adopts displayed geome
   expect(screen.getByRole('button', { name: 'Maximise sheet' })).toBeInTheDocument();
   expect(destination.querySelector('[data-navigation-highlight="true"]')).toBeNull();
   expect(destination.contains(document.activeElement)).toBe(false);
+
+  fireEvent.click(within(source).getByRole('cell', { name: 'Outputs A1 cell' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  await finishTransfer();
+  followRange(source);
+  await finishTransfer();
+  expect(destination).toHaveAttribute('data-presented', 'true');
+  expect(within(destination).getByRole('cell', { name: 'Inputs B3 empty cell' })).toHaveFocus();
 });
 
 function useAnimationClock() {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
 }
 
+it.each(['blur', 'new zoom'] as const)('focus alone preserves target entry and yields to %s', async (next) => {
+  useAnimationClock();
+  const { source, destination } = setup(false, false);
+  await finishTransfer();
+  followRange(source);
+  for (let frame = 0; frame < 100 && !destination.hasAttribute('data-presented'); frame++) {
+    await act(async () => { vi.advanceTimersByTime(16); });
+  }
+  const restore = screen.getByRole('button', { name: 'Restore to workspace' });
+  act(() => restore.focus());
+  if (next === 'blur') act(() => restore.blur());
+  else {
+    fireEvent.wheel(within(destination).getByTestId('sheet-frame-body'), { deltaY: 100, ctrlKey: true });
+    fireEvent.click(restore);
+  }
+  await finishTransfer();
+  if (next === 'blur') {
+    expect(destination).toHaveAttribute('data-presented', 'true');
+    expect(destination.querySelector('[data-navigation-highlight="true"]')).toBeNull();
+    expect(destination.contains(document.activeElement)).toBe(false);
+  } else {
+    expect(destination).toHaveAttribute('data-presented', 'true');
+    expect(restore).toHaveFocus();
+  }
+});
+
 async function finishTransfer() {
   for (let stage = 0; stage < 5; stage++) {
     await act(async () => { vi.advanceTimersByTime(1000); });
   }
 }
+
+it('does not let a delayed Restore cancel newer canvas history after adopted restoration finishes', async () => {
+  useAnimationClock();
+  const { source, destination } = setup(false, false);
+  await finishTransfer();
+  followRange(source);
+  await finishTransfer();
+  fireEvent.keyDown(document.body, { key: 'ArrowLeft', altKey: true });
+  await act(async () => { vi.advanceTimersByTime(32); });
+  const restore = screen.getByRole('button', { name: 'Restore to workspace' });
+  act(() => restore.focus());
+  await finishTransfer();
+  expect(source).not.toHaveAttribute('data-presented');
+  fireEvent.keyDown(document.body, { key: 'ArrowRight', altKey: true });
+  fireEvent.click(restore);
+  await finishTransfer();
+  expect(destination).not.toHaveAttribute('data-presented');
+  expect(within(destination).getByRole('cell', { name: 'Inputs C5 empty cell' })).toHaveFocus();
+});
 
 it('completes an animated reference transfer when no newer grid input claims ownership', async () => {
   useAnimationClock();

@@ -9,6 +9,30 @@ const size = { width: 800, height: 600 };
 const displayed = { x: -40, y: 60, scale: 0.7 };
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it('adopts without activating and rejects stale claims after a successor takes presentation ownership', () => {
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: () => displayed, commitFrozenViewport: vi.fn() };
+  const { result, unmount } = renderHook(() => useMaximiseRuntime(handoff, size, false, () => true));
+  act(() => result.current.enter('source', saved));
+  const retirePredecessor = result.current.claimPresentation();
+  const state = result.current.currentState();
+  const ownsAdoption = result.current.adoptPresentation();
+  act(() => retirePredecessor());
+  expect(ownsAdoption()).toBe(true);
+  expect(result.current.currentState()).toBe(state);
+  expect(handoff.commitFrozenViewport).not.toHaveBeenCalled();
+  const retireSuccessor = result.current.claimPresentation();
+  expect(ownsAdoption()).toBe(false);
+  act(() => retirePredecessor());
+  expect(result.current.currentState()).toBe(state);
+  act(() => retireSuccessor());
+  expect(result.current.currentState().mode).toBe('canvas');
+  const ownsUnmounted = result.current.adoptPresentation();
+  unmount();
+  expect(ownsUnmounted()).toBe(false);
+});
+
 it.each(['entering', 'restoring'] as const)('adopts an owned restore before retiring a navigation claim during %s', async (mode) => {
   let callback: FrameRequestCallback = () => {};
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });

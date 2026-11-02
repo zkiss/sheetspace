@@ -98,6 +98,10 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     update(next, now, previous.mode !== 'restoring' && next.mode === 'canvas');
   }
   function cancel() { presentationOwner.current++; update(cancelMaximise(current.current), performance.now()); }
+  function adoptPresentation() {
+    const owner = ++presentationOwner.current;
+    return () => presentationOwner.current === owner;
+  }
   function claimPresentation() {
     const owner = ++presentationOwner.current;
     return () => { if (presentationOwner.current === owner && current.current.motion) cancel(); };
@@ -149,5 +153,5 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     releaseCanvas('cancelled');
     releaseTarget('cancelled');
   }, []);
-  return { state, presentation, enter, toggle, cancel, claimPresentation, zoom, settled, ensureCanvas, ensureMaximised, restoreToCanvas, currentState: () => current.current };
+  return { state, presentation, enter, toggle, cancel, claimPresentation, adoptPresentation, zoom, settled, ensureCanvas, ensureMaximised, restoreToCanvas, currentState: () => current.current };
 }

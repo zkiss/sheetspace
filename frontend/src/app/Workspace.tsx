@@ -297,6 +297,29 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }), []);
   useEffect(() => { transport.activate(); return () => transport.deactivate(); }, [transport]);
   useEffect(() => transport.reconcile(), [transport, workbook]);
+  const restoreIntent = useRef<(() => boolean) | null>(null);
+  const [focusedRestore, setFocusedRestore] = useState(false);
+  function clearRestoreIntent() {
+    restoreIntent.current = null;
+    setFocusedRestore(false);
+  }
+  function focusMaximise() {
+    if (maximise.currentState().mode === 'canvas') { cancelNavigationBeforeUserMovement.current(); return; }
+    const ownsPresentation = maximise.adoptPresentation();
+    const navigationGeneration = navigationHistory.ownershipGeneration();
+    cancelNavigationBeforeUserMovement.current();
+    if (!document.activeElement?.hasAttribute('data-workspace-presentation-action')) return;
+    restoreIntent.current = () => ownsPresentation() && navigationHistory.ownershipGeneration() === navigationGeneration;
+    setFocusedRestore(true);
+  }
+  function activateMaximise() {
+    const intent = restoreIntent.current;
+    if (!intent) { toggleMaximise(); return; }
+    clearRestoreIntent();
+    if (!intent()) return;
+    void maximise.restoreToCanvas();
+    cancelNavigationBeforeUserMovement.current();
+  }
   function toggleMaximise() {
     if (modeActive) void maximise.restoreToCanvas();
     cancelNavigationBeforeUserMovement.current();
@@ -321,7 +344,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     acquire: startContentNavigation,
     reveal: ({ sheetId, target, outsideViewport }, callbacks) => transport.content(sheetId, target, outsideViewport, callbacks),
   });
-  cancelNavigationBeforeUserMovement.current = () => { cancelNavigationRestore(); transport.cancel(); };
+  cancelNavigationBeforeUserMovement.current = () => {
+    if (restoreIntent.current) restoreIntent.current = () => false;
+    cancelNavigationRestore();
+    transport.cancel();
+  };
   useLayoutEffect(() => { if (sheetDialogOpen) cancelNavigationBeforeUserMovement.current(); }, [sheetDialogOpen]);
   const pendingNavigation = useRef(false);
   pendingNavigation.current = Boolean(pendingNavigationSheetId) || contentReveal.pending;
@@ -330,6 +357,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       if (!transport.activeDestination() && !pendingNavigation.current) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      // This control has already adopted presentation and retired navigation in onFocus.
+      if (target.hasAttribute('data-workspace-presentation-action')) return;
       if (target.closest('[data-workspace-sheet-frame]') && !target.closest('input, textarea, select, [contenteditable="true"], [data-workspace-sheet-editor]')) return;
       cancelNavigationBeforeUserMovement.current();
     };
@@ -798,8 +827,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     <>
       <WorkspaceToolbar
         canMaximise={Boolean(selectedSheet) || modeActive}
-        maximised={modeActive}
-        onToggleMaximise={toggleMaximise}
+        maximised={modeActive || focusedRestore}
+        onToggleMaximise={activateMaximise}
+        onFocusMaximise={focusMaximise}
+        onBlurMaximise={clearRestoreIntent}
         referencesVisible={referenceLinksVisible}
         formatControls={<NumberFormatControls
             disabled={!interactionsEnabled}
