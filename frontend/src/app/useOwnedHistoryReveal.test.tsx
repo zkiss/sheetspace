@@ -7,7 +7,7 @@ import type { ContentHistoryFeedback } from '@application/react/useWorkbookContr
 import { useWorkspaceNavigationHistory } from './useWorkspaceNavigationHistory';
 import { useOwnedHistoryReveal } from './useOwnedHistoryReveal';
 
-function setup(staged = true, strict = false) {
+function setup(staged = true, strict = false, initial = false, replaceDuringReplay = false) {
   const sheet = sheetDocument({ id: 'history', name: 'History' });
   const feedback = (identity: string): ContentHistoryFeedback => ({ identity,
     affected: { sheetIds: [sheet.id], cells: [] }, before: [],
@@ -18,19 +18,23 @@ function setup(staged = true, strict = false) {
     controller: { workspaceSurfaceSize: { width: 1000, height: 1000 } as { width: number; height: number } | null,
       workspaceSurfaceRef: { current: document.createElement('div') }, viewport: { x: 0, y: 0, scale: 1 }, navigateToTarget: vi.fn() },
   };
+  if (initial) inputs.feedback = feedback('one');
   const requests: { onSettled: () => void; onFailure: () => void; cancel: ReturnType<typeof vi.fn> }[] = [];
+  let navigation: ReturnType<typeof useWorkspaceNavigationHistory>;
+  let newestCurrent = () => false;
   const reveal = vi.fn((_destination, callbacks: { onSettled: () => void; onFailure: () => void }) => {
     const request = { ...callbacks, cancel: vi.fn() };
+    if (replaceDuringReplay) request.cancel.mockImplementation(() => navigation.history.explicitNavigation((operation) => { newestCurrent = operation.isCurrent; }));
     requests.push(request);
     return request.cancel;
   });
   const view = renderHook(() => {
-    const navigation = useWorkspaceNavigationHistory({ onRestoreSelection: () => true, onUnavailableTarget: vi.fn(),
+    navigation = useWorkspaceNavigationHistory({ onRestoreSelection: () => true, onUnavailableTarget: vi.fn(),
       restoreViewport: (_viewport, settled) => { settled(); return () => {}; }, selection: null, viewport: inputs.controller.viewport });
     const delivery = useOwnedHistoryReveal({ ...inputs, acquire: navigation.startContentNavigation, reveal });
     return { delivery, navigation };
   }, { wrapper: strict ? StrictMode : undefined });
-  return { ...view, inputs, sheet, feedback, reveal, requests, show: (identity = 'one') => {
+  return { ...view, inputs, sheet, feedback, reveal, requests, newestCurrent: () => newestCurrent(), show: (identity = 'one') => {
     inputs.feedback = feedback(identity);
     view.rerender();
   } };
@@ -232,5 +236,101 @@ describe('owned content-history delivery', () => {
     state.rerender();
     expect(state.result.current.delivery.canReveal('history', 'one')).toBe(false);
     expect(state.reveal).toHaveBeenCalledOnce();
+  });
+
+  it.each(['explicit', 'content', 'traversal'] as const)('keeps reentrant %s newer than the replacing content request', (kind) => {
+    const state = setup();
+    state.inputs.controller.viewport = { x: 200, y: 100, scale: 1 };
+    state.rerender();
+    act(() => state.result.current.navigation.history.explicitNavigation((operation) => operation.complete()));
+    state.show();
+    const stale = state.result.current.delivery;
+    let current = () => false;
+    const retired = vi.fn();
+    state.requests[0].cancel.mockImplementation(() => {
+      if (kind === 'explicit') state.result.current.navigation.history.explicitNavigation((operation) => { current = operation.isCurrent; });
+      if (kind === 'content') state.result.current.navigation.startContentNavigation((operation) => { current = operation.isCurrent; }, retired);
+      if (kind === 'traversal') expect(state.result.current.navigation.history.traverse('back')).toBe(true);
+    });
+
+    state.show('two');
+    act(() => { state.requests[0].onSettled(); state.requests[0].onFailure(); stale.consume('history', 'one'); });
+    state.rerender();
+
+    expect(state.reveal).toHaveBeenCalledOnce();
+    expect(state.requests[0].cancel).toHaveBeenCalledOnce();
+    expect(state.result.current.delivery.canReveal('history', 'two')).toBe(false);
+    if (kind !== 'traversal') expect(current()).toBe(true);
+    expect(retired).not.toHaveBeenCalled();
+    state.show('three');
+    expect(state.reveal).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['retirement', 'viewport'] as const)('does not release newer ownership from a second captured explicit %s disposer', (source) => {
+    const state = setup();
+    let current = () => false;
+    const admit = () => state.result.current.navigation.startContentNavigation((operation) => { current = operation.isCurrent; }, vi.fn());
+    const cancel = vi.fn(() => { if (source === 'viewport') admit(); });
+    const retired = vi.fn(() => { if (source === 'retirement') admit(); });
+    act(() => state.result.current.navigation.history.explicitNavigation((operation) => {
+      state.result.current.navigation.startExplicitNavigation(operation,
+        { kind: 'cell', target: { sheetId: state.sheet.id, cell: cellIdentityAt(state.sheet.content, 'A1')! } },
+        () => cancel, undefined, retired);
+    }));
+
+    state.show();
+
+    expect(current()).toBe(true);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(retired).toHaveBeenCalledOnce();
+    expect(state.reveal).not.toHaveBeenCalled();
+  });
+
+  it.each(['success', 'failure', 'replacement'] as const)('handles synchronous %s before installing its returned handle', (outcome) => {
+    const state = setup();
+    const cancel = vi.fn();
+    let current = () => false;
+    state.reveal.mockImplementationOnce((_destination, callbacks) => {
+      if (outcome === 'success') callbacks.onSettled();
+      if (outcome === 'failure') callbacks.onFailure();
+      if (outcome === 'replacement') state.result.current.navigation.history.explicitNavigation((operation) => { current = operation.isCurrent; });
+      return cancel;
+    });
+
+    state.show();
+    state.rerender();
+
+    expect(cancel).toHaveBeenCalledTimes(outcome === 'success' ? 0 : 1);
+    expect(state.result.current.delivery.canReveal('history', 'one')).toBe(outcome === 'success');
+    if (outcome === 'replacement') expect(current()).toBe(true);
+    expect(state.reveal).toHaveBeenCalledOnce();
+  });
+
+  it('replays initially admitted StrictMode work with fresh attempt guards and captured teardown', () => {
+    const state = setup(true, true, true);
+    expect(state.requests).toHaveLength(2);
+    expect(state.requests[0].cancel).toHaveBeenCalledOnce();
+    act(() => { state.requests[0].onSettled(); state.requests[0].onFailure(); });
+    expect(state.result.current.delivery.ready).toBe(false);
+    expect(state.requests[1].cancel).not.toHaveBeenCalled();
+    act(() => state.requests[1].onSettled());
+    const stale = state.result.current.delivery;
+    act(() => stale.consume('history', 'one'));
+    state.rerender();
+    expect(state.requests).toHaveLength(2);
+    state.unmount();
+    expect(stale.canReveal('history', 'one')).toBe(false);
+    expect(state.requests[1].cancel).not.toHaveBeenCalled();
+  });
+
+  it('does not replay a logical request superseded reentrantly during lifecycle disposal', () => {
+    const state = setup(true, true, true, true);
+    expect(state.requests).toHaveLength(1);
+    expect(state.newestCurrent()).toBe(true);
+    act(() => { state.requests[0].onSettled(); state.requests[0].onFailure(); });
+    state.rerender();
+    expect(state.newestCurrent()).toBe(true);
+    expect(state.result.current.delivery.canReveal('history', 'one')).toBe(false);
+    expect(state.requests[0].cancel).toHaveBeenCalledOnce();
   });
 });
