@@ -1,22 +1,27 @@
 import type { AffectedWorkbookEntities, CellPersistenceWrite } from './userActions';
+import type { Workbook } from '@workbook/core/model';
 
 export const CONTENT_HISTORY_MAX_ENTRIES = 100;
 export const CONTENT_HISTORY_MAX_BYTES = 64 * 1024;
 
 export type ContentTransaction = {
+  kind: 'cells' | 'extraction';
   writes: readonly CellPersistenceWrite[];
   affected: AffectedWorkbookEntities;
   bytes: number;
+  snapshots?: { before: Workbook; after: Workbook };
 };
 
 function cloneTransaction(transaction: ContentTransaction): ContentTransaction {
   return {
+    kind: transaction.kind,
     writes: transaction.writes.map((write) => ({ ...write })),
     affected: {
       sheetIds: [...transaction.affected.sheetIds],
       cells: transaction.affected.cells.map(({ sheetId, cell }) => ({ sheetId, cell: { ...cell } })),
     },
     bytes: transaction.bytes,
+    ...(transaction.snapshots && { snapshots: structuredClone(transaction.snapshots) }),
   };
 }
 
@@ -37,6 +42,7 @@ export class ContentHistory {
 
   record(writes: readonly CellPersistenceWrite[], affected: AffectedWorkbookEntities) {
     const transaction = cloneTransaction({
+      kind: 'cells',
       writes,
       affected,
       bytes: new TextEncoder().encode(JSON.stringify({ writes, affected })).byteLength,
@@ -45,6 +51,14 @@ export class ContentHistory {
     if (transaction.bytes > CONTENT_HISTORY_MAX_BYTES) return;
     this.undoStack.push(transaction); this.undoBytes += transaction.bytes;
     this.trimUndo();
+  }
+  recordExtraction(before: Workbook, after: Workbook) {
+    const transaction: ContentTransaction = {
+      kind: 'extraction', writes: [], affected: { sheetIds: [...new Set([...before.manifest.sheetIds, ...after.manifest.sheetIds])], cells: [] },
+      bytes: 0, snapshots: structuredClone({ before, after }),
+    };
+    this.clearRedo();
+    this.pushUndo(transaction);
   }
   commitUndo() { const transaction = this.undoStack.pop(); if (!transaction) return; this.undoBytes -= transaction.bytes; this.pushRedo(transaction); }
   commitRedo() { const transaction = this.redoStack.pop(); if (!transaction) return; this.redoBytes -= transaction.bytes; this.pushUndo(transaction); }
