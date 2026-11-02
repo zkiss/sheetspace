@@ -29,6 +29,25 @@ describe('useWorkspaceNavigationHistory', () => {
     vi.unstubAllGlobals();
   });
 
+  it('retains each navigation staging policy when presentation changes', () => {
+    let arrive = () => {};
+    const ready = vi.fn();
+    const { result, rerender } = renderHook(({ staged }) => useWorkspaceNavigationHistory({
+      stageDestination: staged, onRestoreSelection: () => true, onUnavailableTarget: vi.fn(),
+      restoreViewport: () => () => {}, selection: null, viewport: { x: 0, y: 0, scale: 1 },
+    }), { initialProps: { staged: true } });
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => { arrive = settled; return () => {}; }, ready);
+    }));
+    rerender({ staged: false });
+    expect(result.current.navigationRequestForSheet('destination')).toBeUndefined();
+    act(() => result.current.acknowledgeGridRestore('destination', 1));
+    expect(ready).not.toHaveBeenCalled();
+    act(() => arrive());
+    expect(ready).toHaveBeenCalledOnce();
+    expect(result.current.navigationRequestForSheet('destination')).toBeDefined();
+  });
+
   it('restores selection only at destination readiness and ignores cancelled settlement', () => {
     vi.useFakeTimers();
     const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
