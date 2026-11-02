@@ -2,11 +2,52 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useMaximiseRuntime } from './useMaximiseRuntime';
 import { canvasPresentation, restoredViewport } from './maximiseGeometry';
+import { useSheetCreationRoute } from '../app/useSheetCreationRoute';
 
 const saved = { position: { x: 100, y: 200 }, size: { width: 400, height: 300 }, visualScale: 2 };
 const size = { width: 800, height: 600 };
 const displayed = { x: -40, y: 60, scale: 0.7 };
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it('opens one creation dialog after a resized restore settles', async () => {
+  let callback: FrameRequestCallback = () => {};
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const open = vi.fn();
+  const { result, rerender } = renderHook(({ dimensions }) => {
+    const runtime = useMaximiseRuntime(handoff, dimensions, false, () => true);
+    const create = useSheetCreationRoute({ ensureCanvas: runtime.ensureCanvas, openCreationDialog: open, presentationActive: runtime.state.mode !== 'canvas' });
+    return { runtime, create };
+  }, { initialProps: { dimensions: size } });
+  act(() => result.current.runtime.enter('sheet', saved));
+  act(() => { result.current.create(); result.current.create(); });
+  const stale = callback;
+  const resized = { width: 1000, height: 700 };
+  rerender({ dimensions: resized });
+  act(() => stale(performance.now() + 1000));
+  expect(open).not.toHaveBeenCalled();
+  await act(async () => { callback(performance.now() + 1000); });
+  expect(open).toHaveBeenCalledOnce();
+  expect(handoff.commitFrozenViewport).toHaveBeenCalledWith(restoredViewport(saved, resized));
+});
+
+it('cancels a creation restore after resize if the user reverses it', async () => {
+  vi.stubGlobal('requestAnimationFrame', () => 1);
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const open = vi.fn();
+  const { result, rerender } = renderHook(({ dimensions }) => {
+    const runtime = useMaximiseRuntime(handoff, dimensions, false, () => true);
+    const create = useSheetCreationRoute({ ensureCanvas: runtime.ensureCanvas, openCreationDialog: open, presentationActive: runtime.state.mode !== 'canvas' });
+    return { runtime, create };
+  }, { initialProps: { dimensions: size } });
+  act(() => result.current.runtime.enter('sheet', saved));
+  act(() => result.current.create());
+  rerender({ dimensions: { width: 1000, height: 700 } });
+  await act(async () => { result.current.runtime.toggle(); });
+  expect(open).not.toHaveBeenCalled();
+});
 
 it('joins a restore and cancels all canvas requests if it is reversed', async () => {
   let callback: FrameRequestCallback = () => {};

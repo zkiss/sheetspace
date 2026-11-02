@@ -15,27 +15,33 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   const current = useRef(state);
   const frame = useRef<number>();
   const waiters = useRef<Array<(result: Result) => void>>([]);
+  const canvasWaiters = useRef<Array<(result: Result) => void>>([]);
+  const ownership = useRef(0);
   const options = useRef({ handoff, size, reducedMotion, available });
   options.current = { handoff, size, reducedMotion, available };
   const [presentation, setPresentation] = useState(() => sampleMaximise(state, performance.now()));
 
   function release(result: Result) { waiters.current.splice(0).forEach((resolve) => resolve(result)); }
+  function releaseCanvas(result: Result) { canvasWaiters.current.splice(0).forEach((resolve) => resolve(result)); }
   function publish(next: MaximiseState, now: number) {
     current.current = next;
     setState(next);
     setPresentation(sampleMaximise(next, now));
   }
-  function update(next: MaximiseState, now: number, restoreCompleted = false) {
+  function update(next: MaximiseState, now: number, restoreCompleted = false, retargetRestore = false) {
     const previous = current.current;
     if (next === previous) return;
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     frame.current = undefined;
-    if (previous.identity !== next.identity) release('cancelled');
+    if (previous.identity !== next.identity) {
+      release('cancelled');
+      if (!retargetRestore) { ownership.current++; releaseCanvas('cancelled'); }
+    }
     if (restoreCompleted && previous.frame && previous.size) {
       options.current.handoff.commitFrozenViewport(restoredViewport(previous.frame, previous.size));
     }
     publish(next, now);
-    if (!next.motion) { release('settled'); return; }
+    if (!next.motion) { release('settled'); releaseCanvas(next.mode === 'canvas' ? 'settled' : 'cancelled'); return; }
     const identity = next.identity;
     const tick = (time: number) => {
       if (current.current.identity !== identity) return;
@@ -70,8 +76,11 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   }
   function ensureCanvas(): Promise<Result> {
     if (current.current.mode !== 'canvas' && current.current.mode !== 'restoring') toggle();
-    const identity = current.current.identity;
-    return settled().then((result) => result === 'settled' && current.current.mode === 'canvas' && current.current.identity === identity ? 'settled' : 'cancelled');
+    const generation = ownership.current;
+    const completion: Promise<Result> = current.current.motion
+      ? new Promise((resolve) => canvasWaiters.current.push(resolve))
+      : Promise.resolve('settled');
+    return completion.then((result) => result === 'settled' && current.current.mode === 'canvas' && ownership.current === generation ? 'settled' : 'cancelled');
   }
   useLayoutEffect(() => {
     const now = performance.now();
@@ -82,14 +91,16 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
       if (existing.mode === 'restoring' && resized.mode === 'canvas' && existing.frame) {
         options.current.handoff.commitFrozenViewport(restoredViewport(existing.frame, size));
       }
-      update(resized, now);
+      update(resized, now, false, existing.mode === 'restoring');
     }
     if (reducedMotion && current.current.motion) update(completeMaximise(current.current, current.current.identity), now, current.current.mode === 'restoring');
   });
   useLayoutEffect(() => () => {
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     current.current = cancelMaximise(current.current);
+    ownership.current++;
     release('cancelled');
+    releaseCanvas('cancelled');
   }, []);
   return { state, presentation, enter, toggle, cancel, zoom, settled, ensureCanvas };
 }
