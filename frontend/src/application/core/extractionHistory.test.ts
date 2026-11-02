@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
-import { ContentHistory, CONTENT_HISTORY_MAX_BYTES } from './contentHistory';
+import { ContentHistory, CONTENT_HISTORY_MAX_BYTES, EXTRACTION_HISTORY_MAX_BYTES } from './contentHistory';
+import { prepareUserFormula } from '@workbook/formula/formulaPreparation';
+import { calculatedProperty, declaration, modelWorkbook } from '@test-support/modelLifecycleFixtures';
 import { extractSelection } from './extractSelection';
 import { prepareExtractionReplay } from './extractionHistory';
 
@@ -22,6 +24,49 @@ function extraction(kind: 'cells' | 'rows' | 'columns', all = false) {
 }
 
 describe('extraction history', () => {
+  it('replays retargeted ordinary formulas on model sheets while protecting calculated cells', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
+    const model = sheetDocument({ id: 'modelSheet', name: 'ModelSheet', rowCount: 1, columnCount: 2 });
+    model.modelId = 'model'; model.modelColumnBindings = { calc: model.content.columns[0]! };
+    const before = modelWorkbook(declaration([calculatedProperty('calc', '=1')]), [source, model]);
+    const cell = cellIdentityAt(source.content, 'A1')!;
+    const ordinary = cellIdentityKey(cellIdentityAt(model.content, 'B1')!);
+    model.content.cells[ordinary] = prepareUserFormula('=@Source!A[1]', before, model.id);
+    const result = extractSelection(before, { sourceSheetId: source.id, selection: { kind: 'cells', start: cell, end: cell }, targetSheetId: ids[0]!, targetName: 'Target', targetRows: [ids[1]!], targetColumns: [ids[2]!], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } });
+    expect(result.ok).toBe(true); if (!result.ok) return;
+    expect(result.workbook.documents.modelSheet!.content.cells[ordinary]).not.toEqual(model.content.cells[ordinary]);
+    const history = new ContentHistory(); history.recordExtraction(before, result.workbook);
+    const undo = prepareExtractionReplay(result.workbook, history.peekUndo()!, 'undo');
+    expect(undo.ok).toBe(true); if (!undo.ok) return;
+    expect(undo.workbook).toEqual(before); history.commitUndo();
+    const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo');
+    expect(redo.ok && redo.workbook).toEqual(result.workbook);
+    const changed = structuredClone(result.workbook);
+    changed.documents.modelSheet!.content.cells[cellIdentityKey(cellIdentityAt(model.content, 'A1')!)] = '=2';
+    history.recordExtraction(before, changed);
+    expect(prepareExtractionReplay(changed, history.peekUndo()!, 'undo')).toEqual({ ok: false, reason: 'protected-model' });
+  });
+
+  it('bounds snapshot retention, rejects oversized admission without consuming redo, and replays retained entries', () => {
+    const { before, after } = extraction('cells');
+    before.documents.source!.content.cells.large = 'x'.repeat(3 * 1024 * 1024);
+    after.documents.source!.content.cells.large = before.documents.source!.content.cells.large!;
+    const history = new ContentHistory();
+    expect(history.canRecordExtraction(before, after)).toBe(true);
+    expect(history.recordExtraction(before, after)).toEqual({ ok: true });
+    expect(history.recordExtraction(before, after)).toEqual({ ok: true });
+    expect(history.recordExtraction(before, after)).toEqual({ ok: true });
+    history.commitUndo(); history.commitUndo();
+    expect(history.canUndo).toBe(false);
+    expect(prepareExtractionReplay(before, history.peekRedo()!, 'redo').ok).toBe(true);
+    const huge = structuredClone(before);
+    huge.documents.source!.content.cells.large = 'x'.repeat(EXTRACTION_HISTORY_MAX_BYTES);
+    expect(history.canRecordExtraction(huge, after)).toBe(false);
+    expect(history.recordExtraction(huge, after)).toEqual({ ok: false, reason: 'extraction-history-too-large' });
+    expect(history.canRedo).toBe(true);
+    history.commitRedo();
+    expect(prepareExtractionReplay(after, history.peekUndo()!, 'undo').ok).toBe(true);
+  });
   it.each([['cells', false], ['rows', false], ['columns', false], ['rows', true], ['columns', true]] as const)('replays %s extraction (all=%s) with stable identities and metadata', (kind, all) => {
     const { before, after } = extraction(kind, all), history = new ContentHistory();
     history.recordExtraction(before, after);

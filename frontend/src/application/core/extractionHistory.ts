@@ -1,6 +1,8 @@
 import type { Workbook, SheetDocument } from '@workbook/core/model';
 import type { WorkbookPersistenceIntent } from './userActions';
 import type { ContentTransaction } from './contentHistory';
+import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
+import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 
 export type ExtractionReplayResult =
   | { ok: false; reason: 'invalid-extraction-history' | 'stale-extraction-history' | 'protected-model' }
@@ -21,8 +23,20 @@ function semantic(workbook: Workbook): Workbook {
   return { ...workbook, manifest: { ...workbook.manifest, revision: 0 }, documents: Object.fromEntries(Object.entries(workbook.documents).map(([id, sheet]) => [id, { ...sheet, revision: 0 }])) };
 }
 
-function protectedContent(sheet: SheetDocument) {
-  return { ...sheet, frame: undefined, revision: 0 };
+function protectedContent(sheet: SheetDocument, workbook: Workbook) {
+  const owned = calculatedOwnedColumns(sheet, workbook.dataModels);
+  const cells = Object.fromEntries(Object.entries(sheet.content.cells).filter(([key]) => {
+    const identity = cellIdentityFromKey(key);
+    return !identity || owned.has(identity.columnId);
+  }));
+  return { ...sheet, frame: undefined, revision: 0, content: { ...sheet.content, cells } };
+}
+
+function ordinaryChangesAreFormulaRewrites(a: SheetDocument, b: SheetDocument): boolean {
+  return [...new Set([...Object.keys(a.content.cells), ...Object.keys(b.content.cells)])].every((key) => {
+    const before = a.content.cells[key], after = b.content.cells[key];
+    return before === after || (before?.startsWith('=') && after?.startsWith('='));
+  });
 }
 
 /** Prepare a compare-and-swap replay; the caller commits history only after persistence succeeds. */
@@ -32,7 +46,7 @@ export function prepareExtractionReplay(current: Workbook, transaction: ContentT
   if (!equal(before.dataModels, after.dataModels)) return { ok: false, reason: 'protected-model' };
   for (const id of new Set([...Object.keys(before.documents), ...Object.keys(after.documents)])) {
     const a = before.documents[id], b = after.documents[id];
-    if ((a?.modelId || b?.modelId) && (!a || !b || !equal(protectedContent(a), protectedContent(b)))) return { ok: false, reason: 'protected-model' };
+    if ((a?.modelId || b?.modelId) && (!a || !b || !equal(protectedContent(a, before), protectedContent(b, after)) || !ordinaryChangesAreFormulaRewrites(a, b))) return { ok: false, reason: 'protected-model' };
   }
   const expected = direction === 'undo' ? after : before;
   const target = direction === 'undo' ? before : after;
