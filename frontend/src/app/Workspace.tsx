@@ -397,7 +397,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     if (!sheet || !navigateTarget({ kind: 'cell', target }, sheet)) setNavigationFeedback('The navigation target is no longer available.');
   }, [navigateTarget, workbook]);
   const navigateEmptySheet = useCallback((sheet: SheetDocument) => {
-    startExplicitSheetNavigation(onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), {
+    startExplicitSheetNavigation(sheet.id, onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), {
       naturalScale: clampWorkspaceZoom(1 / sheet.frame.visualScale),
       onSettled: settled,
     }));

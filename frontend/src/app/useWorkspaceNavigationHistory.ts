@@ -3,6 +3,7 @@ import type { CellSelection } from '@grid/cellInteractionContracts';
 import type { ReferenceNavigationTarget } from '@grid/cellInteractionContracts';
 import { useNavigationHistory } from '@reference-navigation/useNavigationHistory';
 import type { NavigationOperation } from '@reference-navigation/useNavigationHistory';
+import type { NavigationContext } from '@reference-navigation/navigationHistory';
 import type { WorkspaceViewport } from '@workspace/workspaceContracts';
 
 export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailableTarget, onHistoryTraversal, restoreViewport, restoreDestination, stageDestination = false, selection, viewport }: {
@@ -17,8 +18,9 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
 }) {
   const scrollContainers = useRef(new Map<string, HTMLElement>());
   const pendingScroll = useRef(new Map<string, { generation: number; left: number; top: number }>());
+  const destinationSheetId = useRef<string>();
   const [, setActiveNavigationGeneration] = useState(0);
-  const activeRestore = useRef<{ generation: number; operation: NavigationOperation; cancelViewport: () => void; retired: boolean; finished: boolean; viewportSettled: boolean; requiredGridSettled: boolean; requiredSheetId?: string; navigationTarget?: ReferenceNavigationTarget }>();
+  const activeRestore = useRef<{ generation: number; operation: NavigationOperation; cancelViewport: () => void; retired: boolean; finished: boolean; viewportSettled: boolean; requiredGridSettled: boolean; requiredSheetId?: string; destinationSheetId?: string; navigationTarget?: ReferenceNavigationTarget }>();
   const activateNavigationSelection = useCallback((sheetId: string | undefined) => {
     if (!sheetId) return;
     // A dialog or editor opened after the jump owns focus until the user leaves it.
@@ -33,6 +35,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     if (activeRestore.current !== restoring || !restoring.operation.isCurrent()) return;
     restoring.finished = true;
     activeRestore.current = undefined;
+    destinationSheetId.current = restoring.destinationSheetId;
     restoring.operation.complete();
   }, [activateNavigationSelection]);
   useLayoutEffect(() => { finishRestoreIfSettled(); });
@@ -67,16 +70,17 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const capture = useCallback(() => ({
     viewport,
     selection,
+    destinationSheetId: selection?.anchor.sheetId ?? destinationSheetId.current,
     scroll: Object.fromEntries([...scrollContainers.current].map(([sheetId, element]) => [sheetId, {
       left: element.scrollLeft, top: element.scrollTop,
     }])),
   }), [selection, viewport]);
-  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}, navigationTarget?: ReferenceNavigationTarget, onReady?: () => void, onUnavailable?: () => void) => {
+  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}, navigationTarget?: ReferenceNavigationTarget, onReady?: () => void, onUnavailable?: () => void, destination = requiredSheetId) => {
     if (!operation.isCurrent()) return;
     const previous = activeRestore.current;
     const generation = operation.generation;
     const restoring = {
-      generation, operation, cancelViewport: () => {}, retired: false, finished: false, viewportSettled: false, requiredGridSettled: false, requiredSheetId, navigationTarget,
+      generation, operation, cancelViewport: () => {}, retired: false, finished: false, viewportSettled: false, requiredGridSettled: false, requiredSheetId, destinationSheetId: destination, navigationTarget,
     };
     activeRestore.current = restoring;
     if (previous) previous.retired = true;
@@ -113,10 +117,10 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     if (current() && !restoring.viewportSettled) restoring.cancelViewport = cancelViewport;
     else if (restoring.retired && !restoring.finished && !restoring.viewportSettled) cancelViewport();
   }, [cancelPendingScroll, stageDestination]);
-  const restore = useCallback((context: ReturnType<typeof capture>, operation: NavigationOperation) => {
+  const restore = useCallback((context: NavigationContext, operation: NavigationOperation) => {
     beginNavigation(operation, context.selection?.anchor.sheetId,
-      (settled, failed) => context.selection && restoreDestination
-        ? restoreDestination(context.selection.anchor.sheetId, context.viewport, settled, failed)
+      (settled, failed) => context.destinationSheetId && restoreDestination
+        ? restoreDestination(context.destinationSheetId, context.viewport, settled, failed)
         : restoreViewport(context.viewport, settled), context.scroll, undefined, () => {
         const selectionAvailable = onRestoreSelection(context.selection);
         if (activeRestore.current?.operation !== operation || !operation.isCurrent()) return;
@@ -127,7 +131,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       }, () => {
         onRestoreSelection(null);
         if (operation.isLatest()) onUnavailableTarget();
-      });
+      }, context.destinationSheetId);
   }, [beginNavigation, onRestoreSelection, onUnavailableTarget, restoreViewport, restoreDestination]);
   const history = useNavigationHistory({ capture, restore });
   const cancelNavigationRestore = useCallback(() => {
@@ -168,13 +172,13 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     const sheetId = target.kind === 'cell' ? target.target.sheetId : target.sheetId;
     beginNavigation(operation, sheetId, startViewport, {}, target, onReady, onUnavailableTarget);
   }, [beginNavigation, onUnavailableTarget]);
-  const startExplicitSheetNavigation = useCallback((clearSelection: () => void, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void) => {
+  const startExplicitSheetNavigation = useCallback((sheetId: string, clearSelection: () => void, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void) => {
     history.explicitNavigation((operation) => {
       // Empty sheets are valid destinations but intentionally have no grid target.
       // Clear the old selection before the arrival context is captured.
       clearSelection();
       if (!operation.isCurrent()) return;
-      beginNavigation(operation, undefined, startViewport, {}, undefined, undefined, onUnavailableTarget);
+      beginNavigation(operation, undefined, startViewport, {}, undefined, undefined, onUnavailableTarget, sheetId);
     });
   }, [beginNavigation, history, onUnavailableTarget]);
   return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation, pendingNavigationSheetId: activeRestore.current?.requiredSheetId };

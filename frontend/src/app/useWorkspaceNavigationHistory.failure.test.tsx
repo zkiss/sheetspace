@@ -41,7 +41,7 @@ describe('navigation failure and traversal ownership', () => {
       onRestoreSelection: () => true, onUnavailableTarget: unavailable, restoreViewport: () => () => {},
       selection: null, viewport: { x, y: 0, scale: 1 },
     }), { initialProps: { x: 0 } });
-    act(() => result.current.startExplicitSheetNavigation(clearSelection, (_ready, failed) => { fail = failed; return () => {}; }));
+    act(() => result.current.startExplicitSheetNavigation('empty', clearSelection, (_ready, failed) => { fail = failed; return () => {}; }));
     rerender({ x: 5 });
     act(() => fail('unavailable'));
     expect(clearSelection).toHaveBeenCalledOnce();
