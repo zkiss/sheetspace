@@ -222,7 +222,7 @@ function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
   return undefined;
 }
 export function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
-  if (intent.kind === 'model-lifecycle') return [...intent.before.manifest.sheetIds];
+  if (intent.kind === 'model-lifecycle') return [...new Set([...intent.before.manifest.sheetIds, ...intent.after.manifest.sheetIds])];
   if (intent.kind === 'update-sheet-z-order') return [...new Set(intent.updates.map(({ sheetId }) => sheetId))];
   if (intent.kind === 'write-cells') return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
   return [intent.sheetId];

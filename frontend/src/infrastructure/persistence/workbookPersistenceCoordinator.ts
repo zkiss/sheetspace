@@ -51,6 +51,15 @@ export class WorkbookPersistenceCoordinator {
     return this.missingSheetIds.has(sheetId);
   }
 
+  recordSnapshot(revisions: readonly { sheetId: SheetId; revision: number }[], removed: readonly SheetId[]) {
+    removed.forEach((id) => { this.revisions.delete(id); this.missingSheetIds.add(id); });
+    revisions.forEach(({ sheetId, revision }) => {
+      this.missingSheetIds.delete(sheetId);
+      this.revisions.set(sheetId, revision);
+    });
+    return revisions;
+  }
+
   subscribeToMissingSheets(listener: MissingSheetListener) {
     this.missingSheetListeners.add(listener);
     return () => {

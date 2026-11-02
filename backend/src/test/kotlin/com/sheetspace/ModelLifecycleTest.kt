@@ -88,14 +88,31 @@ class ModelLifecycleTest {
     }
 
     @Test
-    fun `lifecycle boundary keeps sheet membership fixed while allowing model membership changes`() {
+    fun `lifecycle boundary supports sheet removal and rejects stale replay`() {
         val before = lifecycleWorkbook()
         val sheet = before.sheetsInOrder.first()
         val changedMembership = before.removeSheet(sheet.id)
         val changedModels = before.copy(dataModels = emptyMap())
 
-        assertEquals(WorkbookApplicationError.INVALID_MODEL_LIFECYCLE, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(before, before, changedMembership) }.error)
+        assertEquals(changedMembership, reconcileModelLifecycle(before, before, changedMembership))
+        assertEquals(changedMembership, reconcileModelLifecycle(changedMembership, before, changedMembership))
+        val concurrent = before.replaceSheet(sheet.copy(name = "Concurrent"))
+        assertEquals(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT, assertFailsWith<WorkbookApplicationException> { reconcileModelLifecycle(concurrent, before, changedMembership) }.error)
         assertEquals(changedModels, reconcileModelLifecycle(before, before, changedModels))
+    }
+
+    @Test
+    fun `sheet creation and recreation use authoritative revisions`() {
+        val before = lifecycleWorkbook()
+        val original = before.sheetsInOrder.first()
+        val removed = before.removeSheet(original.id)
+        val stale = original.copy(revision = 99)
+        val requested = removed.addSheet(stale)
+        val result = reconcileModelLifecycle(removed, removed, requested)
+
+        assertEquals(removed.manifest.revision + 1, result.manifest.revision)
+        assertEquals(0, result.documents.getValue(original.id).revision)
+        assertEquals(result, reconcileModelLifecycle(result, removed, requested))
     }
 
     @Test

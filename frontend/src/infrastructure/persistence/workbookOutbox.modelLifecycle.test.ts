@@ -12,6 +12,33 @@ function boundary(outbox: WorkbookOutbox) {
 }
 
 describe('structural persistence barriers', () => {
+  it('reserves the union of created and removed sheet identities', () => {
+    const outbox = new WorkbookOutbox();
+    const before = workbookWithSheets([sheetDocument({ id: 'old', name: 'Old' })]);
+    const after = workbookWithSheets([sheetDocument({ id: 'new', name: 'New' })]);
+    const entry = outbox.enqueue('transition', { kind: 'model-lifecycle', before, after });
+    expect(entry.affectedSheetIds).toEqual(['old', 'new']);
+  });
+
+  it('allows recreation after a snapshot removal and replaces the prior revision', async () => {
+    const coordinator = new WorkbookPersistenceCoordinator();
+    const original = workbookWithSheets([sheetDocument({ id: 'one', name: 'One', revision: 9 })]);
+    const empty = workbookWithSheets([]);
+    const recreated = workbookWithSheets([sheetDocument({ id: 'one', name: 'One', revision: 0 })]);
+    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(empty).mockResolvedValueOnce(recreated);
+    const transport = new WorkbookPersistenceTransport({ saveModelLifecycle }, coordinator);
+    coordinator.recordRevision('one', 9);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('undo', { kind: 'model-lifecycle', before: original, after: empty });
+    await outbox.executeNext(transport);
+    expect(coordinator.isSheetMissing('one')).toBe(true);
+    outbox.enqueue('redo', { kind: 'model-lifecycle', before: empty, after: recreated });
+    await outbox.executeNext(transport);
+    expect(outbox.inspect('redo')!.status).toBe('succeeded');
+    expect(coordinator.isSheetMissing('one')).toBe(false);
+    expect(coordinator.revision('one')).toBe(0);
+  });
+
   it('preserves pre-boundary writes and frame coalescing when a later deletion supersedes newer work', () => {
     const outbox = new WorkbookOutbox();
     outbox.enqueue('old-frame', { kind: 'update-sheet-position', sheetId: 'one', position: { x: 1, y: 2 } });
