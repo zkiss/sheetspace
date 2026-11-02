@@ -168,6 +168,44 @@ describe('owned content-history delivery', () => {
     expect(state.result.current.delivery.canReveal('history', 'one')).toBe(true);
   });
 
+  describe.each(['rows', 'columns'] as const)('deleted durable %s', (axis) => {
+    it.each(['before dispatch', 'during transport', 'awaiting acknowledgement'] as const)('retires delivery %s and allows a successor', (phase) => {
+      const state = setup();
+      state.inputs.editing = phase === 'before dispatch';
+      state.show();
+      if (phase === 'awaiting acknowledgement') act(() => state.requests[0].onSettled());
+      const stale = state.result.current.delivery;
+      const predecessor = state.requests[0];
+
+      state.inputs.sheets = [{ ...state.sheet, content: { ...state.sheet.content, [axis]: state.sheet.content[axis].slice(1) } }];
+      state.inputs.feedback = undefined;
+      state.inputs.controller.workspaceSurfaceSize = null;
+      state.rerender();
+
+      expect(state.result.current.delivery.pending).toBe(false);
+      expect(state.result.current.delivery.pendingSheetId).toBeUndefined();
+      expect(state.result.current.delivery.feedback).toBeUndefined();
+      expect(stale.canReveal('history', 'one')).toBe(false);
+      if (predecessor) expect(predecessor.cancel).toHaveBeenCalledTimes(phase === 'during transport' ? 1 : 0);
+      else expect(state.reveal).not.toHaveBeenCalled();
+
+      state.inputs.editing = false;
+      state.inputs.controller.workspaceSurfaceSize = { width: 1000, height: 1000 };
+      state.inputs.sheets = [state.sheet];
+      state.rerender();
+      expect(state.result.current.delivery.pending).toBe(false);
+      state.show('two');
+      const successor = state.requests[state.requests.length - 1];
+      act(() => { predecessor?.onSettled(); predecessor?.onFailure(); stale.consume('history', 'one'); });
+      expect(state.result.current.delivery.ready).toBe(false);
+      expect(successor.cancel).not.toHaveBeenCalled();
+      act(() => successor.onSettled());
+      expect(state.result.current.delivery.canReveal('history', 'two')).toBe(true);
+      act(() => state.result.current.delivery.consume('history', 'two'));
+      expect(state.result.current.delivery.pending).toBe(false);
+    });
+  });
+
   it('accepts transport success once and ignores a later failure while awaiting grid acknowledgement', () => {
     const state = setup();
     state.show();

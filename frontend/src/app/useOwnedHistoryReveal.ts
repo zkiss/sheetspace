@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ContentHistoryFeedback } from '@application/react/useWorkbookController';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import type { SheetDocument } from '@workbook/core/model';
+import { cellAddressOf } from '@workbook/core/cellIdentity';
 import type { NavigationOperation } from '@reference-navigation/useNavigationHistory';
 import { resolveHistoryRevealDestination, type HistoryRevealController, type RevealDestination } from './useWorkspaceHistoryReveal';
 
@@ -48,6 +49,11 @@ export function useOwnedHistoryReveal(inputs: Inputs) {
     refresh((revision) => revision + 1);
   };
   const live = (record: Delivery) => active.current === record && !record.retired && Boolean(record.operation?.isCurrent());
+  const targetExists = (record: Delivery) => {
+    const sheet = latest.current.sheets.find((sheet) => sheet.id === record.sheetId);
+    const cell = record.feedback.after.find((cell) => cell.sheetId === record.sheetId);
+    return Boolean(sheet && cell && cellAddressOf(sheet.content, cell));
+  };
   useLayoutEffect(() => {
     if (!delivery) return;
     active.current = delivery;
@@ -70,7 +76,7 @@ export function useOwnedHistoryReveal(inputs: Inputs) {
   }, [delivery]);
   useEffect(() => {
     if (!delivery || !live(delivery)) return;
-    if (!inputs.sheets.some((sheet) => sheet.id === delivery.sheetId)) { retire(delivery); return; }
+    if (!targetExists(delivery)) { retire(delivery); return; }
     if (delivery.dispatched || inputs.editing) return;
     const destination = resolveHistoryRevealDestination(delivery.feedback, inputs.sheets, inputs.creatingAxes, inputs.controller);
     if (!destination) return;
@@ -89,6 +95,7 @@ export function useOwnedHistoryReveal(inputs: Inputs) {
     else if (delivery.retired) cancel();
   });
   const canReveal = (sheetId: string, identity: string) => Boolean(delivery && live(delivery)
+    && targetExists(delivery)
     && delivery.feedback.identity === identity && !delivery.consumed.has(sheetId)
     && !latest.current.editing && (!delivery.staged || (delivery.dispatched && delivery.settled && sheetId === delivery.sheetId)));
   return {
