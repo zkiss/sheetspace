@@ -54,7 +54,7 @@ export function useWorkspaceController({
   const navigationMayBeMoving = useRef(false);
   const activeViewportMotion = useRef<{ animation: Animation; motion: ReturnType<typeof navigationViewportMotion> }>();
   const viewportMovementIsUser = useRef(false);
-  const pendingViewportRestore = useRef<{ id: number; onSettled: () => void; timeout?: number }>();
+  const pendingViewportRestore = useRef<{ id: number; onSettled: () => void; onCancelled?: () => void; timeout?: number }>();
   const nextViewportRestoreId = useRef(0);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
     start: interruptNavigation, panStart: beginPanPreview, panEnd: finishPanPreview,
@@ -69,6 +69,7 @@ export function useWorkspaceController({
   useLayoutEffect(() => () => {
     if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
+    cancelViewportRestore();
     activeViewportMotion.current?.animation.cancel();
   }, []);
 
@@ -308,6 +309,7 @@ export function useWorkspaceController({
     const pending = pendingViewportRestore.current;
     if (pending?.timeout !== undefined) window.clearTimeout(pending.timeout);
     pendingViewportRestore.current = undefined;
+    pending?.onCancelled?.();
   }
 
   function cancelViewportAnimation() {
@@ -338,13 +340,13 @@ export function useWorkspaceController({
     return displayed;
   }
 
-  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}) {
-    return animateViewport(nextViewport, onSettled);
+  function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}, onCancelled?: () => void) {
+    return animateViewport(nextViewport, onSettled, onCancelled);
   }
 
   function navigateToTarget(
     target: WorkspaceTargetRect,
-    options: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; preserveVisibleAxes?: boolean; onSettled?: () => void } = {},
+    options: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; preserveVisibleAxes?: boolean; onSettled?: () => void; onCancelled?: () => void } = {},
   ): () => void {
     const workspace = workspaceSurfaceRef.current;
     if (!workspace) {
@@ -360,18 +362,19 @@ export function useWorkspaceController({
       target,
       ...options,
     }).viewport;
-    return animateViewport(nextViewport, options.onSettled);
+    return animateViewport(nextViewport, options.onSettled, options.onCancelled);
   }
 
-  function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void): () => void {
+  function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void, onCancelled?: () => void): () => void {
     finishZoomPreview();
     const active = activeViewportMotion.current;
     const time = active?.animation.currentTime;
     const incoming = active?.motion.sample(typeof time === 'number' ? time : 0);
     const start = displayedWorkspaceViewport(workspacePlaneRef.current) ?? incoming?.viewport ?? viewportRef.current;
-    cancelViewportRestore();
     const id = ++nextViewportRestoreId.current;
-    const pending = { id, onSettled: onSettled ?? (() => {}), timeout: undefined as number | undefined };
+    cancelViewportRestore();
+    if (id !== nextViewportRestoreId.current) { onCancelled?.(); return () => {}; }
+    const pending = { id, onSettled: onSettled ?? (() => {}), onCancelled, timeout: undefined as number | undefined };
     pendingViewportRestore.current = pending;
     navigationMayBeMoving.current = true;
     viewportMovementIsUser.current = false;
@@ -421,7 +424,17 @@ export function useWorkspaceController({
     viewportRef.current = nextViewport;
     setViewport(nextViewport);
     return () => {
-      if (pendingViewportRestore.current?.id === id) cancelViewportRestore();
+      if (pendingViewportRestore.current?.id !== id) return;
+      const displayed = displayedWorkspaceViewport(workspacePlaneRef.current) ?? viewportRef.current;
+      pendingViewportRestore.current = undefined;
+      if (pending.timeout !== undefined) window.clearTimeout(pending.timeout);
+      cancelViewportAnimation();
+      navigationMayBeMoving.current = false;
+      setNavigationMotion(false);
+      viewportRef.current = displayed;
+      paintPanViewport(displayed);
+      setViewport(displayed);
+      pending.onCancelled?.();
     };
   }
 
