@@ -23,6 +23,7 @@ export function useWorkspaceGestures(
     panEnd?: () => void;
     pan: (x: number, y: number) => void;
     zoom: (factor: number, origin: WorkspacePosition) => void;
+    gestureStart?: () => ((factor: number, origin: WorkspacePosition) => void) | undefined;
     closeMenu: () => void;
     clearSelection: () => void;
   },
@@ -41,6 +42,7 @@ export function useWorkspaceGestures(
     let space = false;
     let suppressClick = false;
     let gestureScale: number | null = null;
+    let gestureZoom: ((factor: number, origin: WorkspacePosition) => void) | undefined;
 
     function endPan() {
       const previous = pan;
@@ -54,6 +56,7 @@ export function useWorkspaceGestures(
     function cancel() {
       space = false;
       gestureScale = null;
+      gestureZoom = undefined;
       endPan();
     }
     function keyDown(event: KeyboardEvent) {
@@ -137,11 +140,17 @@ export function useWorkspaceGestures(
       if (event.type !== 'gesturestart' && gestureScale === null) return;
       consume(event);
       if (event.type === 'gesturestart') {
-        if (current.current.start() === false) return;
+        if (current.current.gestureStart) {
+          gestureZoom = current.current.gestureStart();
+          if (!gestureZoom) return;
+        } else {
+          if (current.current.start() === false) return;
+          gestureZoom = (factor, origin) => current.current.zoom(factor, origin);
+        }
         gestureScale = input.scale;
         return;
       }
-      if (gestureScale !== null) current.current.zoom(input.scale / gestureScale,
+      if (gestureScale !== null) gestureZoom?.(input.scale / gestureScale,
         surfacePointFromClient({ x: input.clientX, y: input.clientY }, surface!));
       gestureScale = input.scale;
     }
@@ -149,6 +158,7 @@ export function useWorkspaceGestures(
       if (event.defaultPrevented) return;
       if (gestureScale !== null) consume(event);
       gestureScale = null;
+      gestureZoom = undefined;
     }
     function visibility() { if (document.hidden) cancel(); }
     function ownedPortalListener(listener: EventListener): EventListener {

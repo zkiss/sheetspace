@@ -222,3 +222,152 @@ it('preserves a reduced-motion successor against a rejected pointer session', ()
   expect(settled).toHaveBeenCalledOnce();
   expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
 });
+
+function gesture(target: Element, type: string, scale: number) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.assign(event, { scale, clientX: 100, clientY: 80 });
+  fireEvent(target, event);
+}
+
+it.each(['movement', 'cancellation'] as const)(
+  'preserves the exact successor destination started by the %s callback during absolute zoom',
+  (source) => {
+    let startSuccessor = () => {};
+    const app = setup(() => { if (source === 'movement') startSuccessor(); });
+    const settled = vi.fn();
+    const cancelled = vi.fn();
+    act(() => {
+      app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }, vi.fn(), () => {
+        if (source === 'cancellation') startSuccessor();
+      });
+    });
+    startSuccessor = () => {
+      app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled, cancelled);
+      app.animation.cancel.mockClear();
+    };
+    act(() => app.controller.zoomWorkspace(2, { x: 100, y: 80 }));
+    expect(app.animation.cancel).not.toHaveBeenCalled();
+    expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+    act(() => app.animation.onfinish?.());
+    expect(settled).toHaveBeenCalledOnce();
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+  },
+);
+
+it.each(['movement', 'cancellation'] as const)(
+  'preserves the exact successor destination started by the %s callback during relative zoom',
+  (source) => {
+    vi.useFakeTimers();
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    let startSuccessor = () => {};
+    const app = setup(() => { if (source === 'movement') startSuccessor(); });
+    const settled = vi.fn();
+    const cancelled = vi.fn();
+    act(() => {
+      app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }, vi.fn(), () => {
+        if (source === 'cancellation') startSuccessor();
+      });
+    });
+    startSuccessor = () => {
+      app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled, cancelled);
+      app.animation.cancel.mockClear();
+    };
+    act(() => app.controller.zoomWorkspaceBy(1.5, { x: 100, y: 80 }));
+    expect(app.animation.cancel).not.toHaveBeenCalled();
+    act(() => { frames.forEach((frame) => frame(1000)); vi.runAllTimers(); });
+    expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+    act(() => app.animation.onfinish?.());
+    expect(settled).toHaveBeenCalledOnce();
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+  },
+);
+
+it.each(['ctrlKey', 'metaKey'] as const)(
+  'rejects native %s wheel zoom that interrupts a reentrant successor navigation',
+  (modifier) => {
+    vi.useFakeTimers();
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    let startSuccessor = () => {};
+    const app = setup(() => startSuccessor());
+    const settled = vi.fn();
+    const cancelled = vi.fn();
+    startSuccessor = () => {
+      app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled, cancelled);
+      app.animation.cancel.mockClear();
+    };
+    act(() => {
+      fireEvent.wheel(app.plane.parentElement!, { [modifier]: true, deltaY: -100, clientX: 100, clientY: 80 });
+    });
+    expect(app.animation.cancel).not.toHaveBeenCalled();
+    act(() => { frames.forEach((frame) => frame(1000)); vi.runAllTimers(); });
+    expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+    act(() => app.animation.onfinish?.());
+    expect(settled).toHaveBeenCalledOnce();
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+  },
+);
+
+it('does not let a continuing native pinch overwrite a reentrant successor navigation', () => {
+  vi.useFakeTimers();
+  vi.spyOn(performance, 'now').mockReturnValue(0);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const app = setup();
+  const surface = app.plane.parentElement!;
+  const settled = vi.fn();
+  const cancelled = vi.fn();
+  gesture(surface, 'gesturestart', 1);
+  act(() => { app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled, cancelled); });
+  app.animation.cancel.mockClear();
+  gesture(surface, 'gesturechange', 1.5);
+  expect(app.animation.cancel).not.toHaveBeenCalled();
+  act(() => { frames.forEach((frame) => frame(1000)); vi.runAllTimers(); });
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+  act(() => app.animation.onfinish?.());
+  expect(settled).toHaveBeenCalledOnce();
+  expect(cancelled).not.toHaveBeenCalled();
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+});
+
+it('ignores a retained zoom frame after navigation and a new zoom preview', () => {
+  vi.useFakeTimers();
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const app = setup();
+  act(() => app.controller.zoomWorkspaceBy(1.5, { x: 100, y: 80 }));
+  const staleFrame = frames.at(-1)!;
+  act(() => app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }));
+  act(() => app.controller.zoomWorkspaceBy(1.2, { x: 100, y: 80 }));
+  const currentFrame = frames.at(-1)!;
+  app.plane.style.transform = 'translate(1px, 2px) scale(1)';
+  const before = app.plane.style.transform;
+  act(() => staleFrame(1000));
+  expect(app.plane.style.transform).toBe(before);
+  act(() => currentFrame(1000));
+  expect(app.plane.style.transform).not.toBe(before);
+});
+
+it.each(['reset', 'freeze'] as const)('retires an admitted native pinch across %s', (handoff) => {
+  const app = setup();
+  const surface = app.plane.parentElement!;
+  gesture(surface, 'gesturestart', 1);
+  act(() => {
+    if (handoff === 'reset') app.controller.resetViewport();
+    else app.controller.commitFrozenViewport({ x: 25, y: 35, scale: 1 });
+  });
+  const expected = app.controller.viewport;
+  gesture(surface, 'gesturechange', 1.5);
+  gesture(surface, 'gestureend', 1.5);
+  expect(app.controller.viewport).toEqual(expected);
+});
