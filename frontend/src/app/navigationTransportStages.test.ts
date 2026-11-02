@@ -12,6 +12,7 @@ describe('navigation presentation stage adapters', () => {
       currentState: () => ({ mode: 'maximised' as const, sheetId: 'source' }),
       ensureCanvas: vi.fn(async () => { events.push('restore'); return 'settled' as const; }),
       enter: vi.fn(() => { events.push('enter'); }),
+      claimPresentation: () => () => {},
       ensureMaximised: vi.fn(async () => { events.push('ready'); return 'settled' as const; }),
     };
     const move = vi.fn((finish: (result: 'settled' | 'cancelled') => void) => { events.push('move'); finish('settled'); return () => {}; });
@@ -27,6 +28,7 @@ describe('navigation presentation stage adapters', () => {
       currentState: () => ({ mode: 'entering' as const, sheetId: 'target' }),
       ensureCanvas: vi.fn(async () => 'settled' as const),
       enter: vi.fn(), ensureMaximised: vi.fn(async () => 'settled' as const),
+      claimPresentation: () => () => {},
     };
     const move = vi.fn(() => () => {});
     const operation = createNavigationStageCoordinator().start('target', navigationTransportStages(runtime, () => true, () => ({ saved, displayed }), move));
@@ -40,6 +42,7 @@ describe('navigation presentation stage adapters', () => {
     const runtime = {
       currentState: () => ({ mode: 'entering' as const, sheetId: 'target' }),
       ensureCanvas: vi.fn(async () => 'settled' as const), enter: vi.fn(),
+      claimPresentation: () => () => {},
       ensureMaximised: () => new Promise<'settled' | 'cancelled'>((finish) => { resolve = finish; }),
     };
     const operation = createNavigationStageCoordinator().start('target', navigationTransportStages(runtime, () => true, () => ({ saved, displayed }), () => () => {}));

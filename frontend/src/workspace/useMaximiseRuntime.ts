@@ -24,6 +24,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   const targetOwnership = useRef(0);
   const ownership = useRef(0);
   const transaction = useRef(0);
+  const presentationOwner = useRef(0);
   const failedHandoff = useRef(0);
   const options = useRef({ handoff, size, reducedMotion, available });
   options.current = { handoff, size, reducedMotion, available };
@@ -77,6 +78,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     frame.current = requestAnimationFrame(tick);
   }
   function enter(id: string, saved: SavedFrame, displayed: SavedFrame = saved, programmatic = false) {
+    presentationOwner.current++;
     const measured = options.current.size;
     if (!measured || !Number.isFinite(measured.width) || !Number.isFinite(measured.height) || measured.width <= 0 || measured.height <= 0 || !options.current.available(id)) return;
     if (current.current.mode !== 'canvas' && current.current.sheetId === id) return;
@@ -89,12 +91,17 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     update(enterMaximise(current.current, id, saved, measured, canvasPresentation(displayed, viewport), now, options.current.reducedMotion), now);
   }
   function toggle() {
+    presentationOwner.current++;
     const now = performance.now();
     const previous = current.current;
     const next = toggleMaximise(previous, now, options.current.reducedMotion);
     update(next, now, previous.mode !== 'restoring' && next.mode === 'canvas');
   }
-  function cancel() { update(cancelMaximise(current.current), performance.now()); }
+  function cancel() { presentationOwner.current++; update(cancelMaximise(current.current), performance.now()); }
+  function claimPresentation() {
+    const owner = ++presentationOwner.current;
+    return () => { if (presentationOwner.current === owner && current.current.motion) cancel(); };
+  }
   function zoom(factor: number) { const now = performance.now(); update(zoomMaximise(current.current, factor, now, options.current.reducedMotion), now); }
   function settled(): Promise<Result> {
     if (!current.current.motion) return Promise.resolve('settled');
@@ -128,6 +135,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     if (reducedMotion && current.current.motion) update(completeMaximise(current.current, current.current.identity), now, current.current.mode === 'restoring', false, current.current.mode === 'entering');
   });
   useLayoutEffect(() => () => {
+    presentationOwner.current++;
     transaction.current++;
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     current.current = cancelMaximise(current.current);
@@ -137,5 +145,5 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     releaseCanvas('cancelled');
     releaseTarget('cancelled');
   }, []);
-  return { state, presentation, enter, toggle, cancel, zoom, settled, ensureCanvas, ensureMaximised, currentState: () => current.current };
+  return { state, presentation, enter, toggle, cancel, claimPresentation, zoom, settled, ensureCanvas, ensureMaximised, currentState: () => current.current };
 }

@@ -7,14 +7,15 @@ export type NavigationTransportRuntime = {
   ensureCanvas: () => Promise<Result>;
   ensureMaximised: (id: string) => Promise<Result>;
   enter: (id: string, saved: SavedFrame, displayed: SavedFrame, programmatic: boolean) => void;
+  claimPresentation: () => () => void;
 };
 
 export type NavigationTransportFrames = { saved: SavedFrame; displayed: SavedFrame };
 
-function waitForPresentation(promise: Promise<Result>, finish: (result: Result) => void) {
+function waitForPresentation(promise: Promise<Result>, finish: (result: Result) => void, retire: () => void) {
   let active = true;
   void promise.then((result) => { if (active) finish(result); });
-  return () => { active = false; };
+  return () => { active = false; retire(); };
 }
 
 /** Adapts semantic presentation settlement to the stage coordinator's callback contract. */
@@ -25,18 +26,22 @@ export function navigationTransportStages(
   move: NavigationStages['move'],
   isCurrent: () => boolean = () => true,
 ): NavigationStages {
+  function wait(promise: Promise<Result>, finish: (result: Result) => void) {
+    if (!isCurrent()) return () => {};
+    return waitForPresentation(promise, finish, runtime.claimPresentation());
+  }
   return {
     available,
     presentation: runtime.currentState,
-    restore: (finish) => waitForPresentation(runtime.ensureCanvas(), finish),
+    restore: (finish) => wait(runtime.ensureCanvas(), finish),
     move,
     enter: (id, finish) => {
       const frame = frames(id);
       if (!frame || !available(id)) { finish('cancelled'); return () => {}; }
       runtime.enter(id, frame.saved, frame.displayed, true);
       if (!isCurrent()) { finish('cancelled'); return () => {}; }
-      return waitForPresentation(runtime.ensureMaximised(id), finish);
+      return wait(runtime.ensureMaximised(id), finish);
     },
-    targetReady: (id, finish) => waitForPresentation(runtime.ensureMaximised(id), finish),
+    targetReady: (id, finish) => wait(runtime.ensureMaximised(id), finish),
   };
 }

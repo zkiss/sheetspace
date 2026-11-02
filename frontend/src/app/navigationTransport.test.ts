@@ -14,6 +14,7 @@ function setup(mode: 'canvas' | 'maximised' | 'entering' = 'canvas') {
     ensureCanvas: vi.fn(async () => { events.push('restore'); state = { mode: 'canvas' }; return 'settled' as const; }),
     ensureMaximised: vi.fn(async () => { events.push('ready'); return 'settled' as const; }),
     enter: vi.fn(() => { events.push('enter'); }),
+    claimPresentation: () => () => {},
   };
   const controller = {
     navigateToTarget: vi.fn<(target: typeof rect, options: { onSettled: () => void; onCancelled: () => void }) => ReturnType<typeof vi.fn>>(() => { events.push('move'); return vi.fn(); }),
