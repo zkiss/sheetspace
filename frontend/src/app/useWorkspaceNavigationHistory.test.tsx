@@ -67,6 +67,77 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(restoreViewport).not.toHaveBeenCalled();
   });
 
+  it('does not publish saved scroll for an unavailable selected destination', () => {
+    vi.useFakeTimers();
+    const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
+    const unavailable = vi.fn();
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => false, onUnavailableTarget: unavailable,
+      restoreViewport: (_viewport, ready) => { ready(); return () => {}; },
+      selection, viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    act(() => result.current.registerScrollContainer('destination', scrollContainer(240, 360)));
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.history.traverse('back'); });
+    expect(unavailable).toHaveBeenCalledOnce();
+    expect(result.current.historyRestoreForSheet('destination')).toBeUndefined();
+    expect(result.current.navigationRestoreForSheet('destination')).toBeUndefined();
+  });
+
+  it('keeps dialog focus when the destination grid settles', () => {
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport: () => () => {},
+      selection: null, viewport: { x: 0, y: 0, scale: 1 },
+    }));
+    const grid = scrollContainer(0, 0);
+    const cell = document.createElement('button');
+    cell.dataset.activeCell = 'true';
+    grid.append(cell);
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const button = document.createElement('button');
+    dialog.append(button);
+    document.body.append(grid, dialog);
+    button.focus();
+    act(() => result.current.registerScrollContainer('destination', grid));
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, (ready) => { ready(); return () => {}; });
+    }));
+    act(() => result.current.acknowledgeGridRestore('destination', 1));
+    expect(document.activeElement).toBe(button);
+    grid.remove();
+    dialog.remove();
+  });
+
+  it('rejects replaced presentation and grid acknowledgements', () => {
+    const arrivals: Array<() => void> = [];
+    const ready = vi.fn();
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport: () => () => {},
+      selection: null, viewport: { x: 0, y: 0, scale: 1 },
+    }));
+    const navigate = () => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => {
+        arrivals.push(settled);
+        return () => {};
+      }, ready);
+    });
+    act(navigate);
+    act(navigate);
+    act(() => arrivals[0]());
+    expect(ready).not.toHaveBeenCalled();
+    expect(result.current.navigationRequestForSheet('destination')).toBeUndefined();
+    act(() => arrivals[1]());
+    const request = result.current.navigationRequestForSheet('destination');
+    expect(request).toBeDefined();
+    act(() => result.current.acknowledgeGridRestore('destination', request!.generation - 1));
+    expect(result.current.navigationRequestForSheet('destination')).toEqual(request);
+    act(() => result.current.acknowledgeGridRestore('destination', request!.generation));
+    expect(result.current.navigationRequestForSheet('destination')).toBeUndefined();
+    expect(ready).toHaveBeenCalledOnce();
+  });
+
   it('does not record an empty-scroll restoration until a later user movement', () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({

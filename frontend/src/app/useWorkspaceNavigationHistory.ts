@@ -38,10 +38,11 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   }, []);
   const cancelRestore = useCallback(() => {
     restoreGeneration.current += 1;
-    activeRestore.current?.cancelViewport();
+    const previous = activeRestore.current;
     activeRestore.current = undefined;
     setActiveNavigationGeneration(null);
     cancelPendingScroll();
+    previous?.cancelViewport();
   }, [cancelPendingScroll]);
   const acknowledgeGridRestore = useCallback((sheetId: string, generation: number) => {
     const offset = pendingScroll.current.get(sheetId);
@@ -80,7 +81,9 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       restoring.viewportSettled = true;
       onReady?.();
       if (activeRestore.current !== restoring) return;
-      Object.entries(scroll).forEach(([sheetId, offset]) => pendingScroll.current.set(sheetId, { ...offset, generation }));
+      Object.entries(scroll).forEach(([sheetId, offset]) => {
+        if (sheetId !== requiredSheetId || restoring.requiredSheetId) pendingScroll.current.set(sheetId, { ...offset, generation });
+      });
       setActiveNavigationGeneration(generation);
       finishRestoreIfSettled();
     });
