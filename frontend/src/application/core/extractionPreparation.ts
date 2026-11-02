@@ -23,7 +23,7 @@ export type PreparedExtraction = {
   mappings: readonly MoveCellIdentityMapping[]; snapshot: ClipboardSourceSnapshot;
 };
 
-function validId(id: unknown): id is string { return typeof id === 'string' && id.trim().length > 0 && !id.includes('\u0000'); }
+function validId(id: unknown): id is string { return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id); }
 function bounds(ids: readonly string[], start: string, end: string): [number, number] | undefined {
   const a = ids.indexOf(start), b = ids.indexOf(end);
   return a < 0 || b < 0 ? undefined : [Math.min(a, b), Math.max(a, b) + 1];
@@ -51,14 +51,14 @@ export function prepareExtraction(workbook: Workbook, request: ExtractionRequest
   if (source.modelId || source.modelColumnBindings || source.modelFormulaBindings) return { ok: false, reason: 'protected-source' };
   const selected = select(source, request.selection);
   if (!selected) return { ok: false, reason: 'invalid-selection' };
-  if (!validId(request.targetSheetId) || Object.prototype.hasOwnProperty.call(workbook.documents, request.targetSheetId) || workbook.manifest.sheetIds.includes(request.targetSheetId)) return { ok: false, reason: 'invalid-target-id' };
+  if (!validId(request.targetSheetId) || [...Object.keys(workbook.documents), ...workbook.manifest.sheetIds].some((id) => id.toLowerCase() === request.targetSheetId)) return { ok: false, reason: 'invalid-target-id' };
   if (typeof request.targetName !== 'string') return { ok: false, reason: 'empty-target-name' };
   const name = validateSheetName(request.targetName, sheetsInOrder(workbook));
   if (!name.ok) return { ok: false, reason: name.reason === 'empty' ? 'empty-target-name' : 'duplicate-target-name' };
   const sourceRows = source.content.rows.slice(...selected.rows), sourceColumns = source.content.columns.slice(...selected.columns);
   if (!Array.isArray(request.targetRows) || !Array.isArray(request.targetColumns)) return { ok: false, reason: 'invalid-target-axes' };
   const axes = [...request.targetRows, ...request.targetColumns];
-  const existingAxes = new Set(Object.values(workbook.documents).flatMap((sheet) => [...sheet.content.rows, ...sheet.content.columns]));
+  const existingAxes = new Set(Object.values(workbook.documents).flatMap((sheet) => [...sheet.content.rows, ...sheet.content.columns]).map((id) => id.toLowerCase()));
   if (request.targetRows.length !== sourceRows.length || request.targetColumns.length !== sourceColumns.length || axes.some((id) => !validId(id) || existingAxes.has(id)) || new Set(axes).size !== axes.length) return { ok: false, reason: 'invalid-target-axes' };
   const frame = request.frame;
   if (!frame?.position || !frame.size || !Number.isFinite(frame.position.x) || !Number.isFinite(frame.position.y) || !Number.isFinite(frame.size.width) || !Number.isFinite(frame.size.height) || frame.size.width <= 0 || frame.size.height <= 0 || !Number.isFinite(frame.zIndex)) return { ok: false, reason: 'invalid-frame' };

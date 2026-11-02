@@ -14,11 +14,11 @@ function fixture(): Workbook {
     } },
   } } };
 }
-function request(): ExtractionRequest { return { sourceSheetId: 's', selection: { kind: 'cells', start: { rowId: 'r3', columnId: 'c2' }, end: { rowId: 'r2', columnId: 'c1' } }, targetSheetId: 't', targetName: ' Target ', targetRows: ['a', 'b'], targetColumns: ['x', 'y'], frame: { position: { x: 4, y: 5 }, size: { width: 200, height: 150 }, zIndex: 2 } }; }
+function request(): ExtractionRequest { return { sourceSheetId: 's', selection: { kind: 'cells', start: { rowId: 'r3', columnId: 'c2' }, end: { rowId: 'r2', columnId: 'c1' } }, targetSheetId: '00000000-0000-4000-8000-000000000001', targetName: ' Target ', targetRows: ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'], targetColumns: ['00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006'], frame: { position: { x: 4, y: 5 }, size: { width: 200, height: 150 }, zIndex: 2 } }; }
 function mappings(rows: string[], columns: string[], targetRows: string[], targetColumns: string[]) {
   return rows.flatMap((rowId, r) => columns.map((columnId, c) => ({
     source: { sheetId: 's', cell: { rowId, columnId } },
-    destination: { sheetId: 't', cell: { rowId: targetRows[r], columnId: targetColumns[c] } },
+    destination: { sheetId: '00000000-0000-4000-8000-000000000001', cell: { rowId: targetRows[r], columnId: targetColumns[c] } },
   })));
 }
 
@@ -27,41 +27,41 @@ describe('extraction preparation', () => {
     const workbook = fixture(), before = structuredClone(workbook);
     const result = prepareExtraction(workbook, request());
     expect(result.ok).toBe(true); if (!result.ok) return;
-    const { value } = result, target = value.workbook.documents.t!;
+    const { value } = result, target = value.workbook.documents['00000000-0000-4000-8000-000000000001']!;
     expect(value.origin).toEqual({ row: 1, column: 0 });
     expect(value.extents).toEqual({ rowCount: 2, columnCount: 2 });
-    expect(value.mappings).toEqual(mappings(['r2', 'r3'], ['c1', 'c2'], ['a', 'b'], ['x', 'y']));
+    expect(value.mappings).toEqual(mappings(['r2', 'r3'], ['c1', 'c2'], ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'], ['00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006']));
     expect(value.snapshot.cells[0]![1]!.raw).toBe('=A3');
     expect(value.snapshot.cells[1]![0]!.raw).toBe('');
     expect(target.content.cells).toEqual({});
-    expect(target.columnNames).toEqual({ y: 'Named' });
-    expect(target.presentation.rowHeights).toEqual({ a: 44 });
-    expect(target.presentation.columnWidths).toEqual({ y: 90 });
+    expect(target.columnNames).toEqual({ ['00000000-0000-4000-8000-000000000006']: 'Named' });
+    expect(target.presentation.rowHeights).toEqual({ ['00000000-0000-4000-8000-000000000002']: 44 });
+    expect(target.presentation.columnWidths).toEqual({ ['00000000-0000-4000-8000-000000000006']: 90 });
     expect(target.frame.visualScale).toBe(2);
     for (const mapping of value.mappings) expect(resolveCellAppearance(target.presentation.formatOverrides!, mapping.destination.cell)).toEqual(resolveCellAppearance(workbook.documents.s!.presentation.formatOverrides!, mapping.source.cell));
-    target.presentation.formatOverrides!.rows.a!.textColor = '#ffffff';
+    target.presentation.formatOverrides!.rows['00000000-0000-4000-8000-000000000002']!.textColor = '#ffffff';
     expect(workbook).toEqual(before);
   });
   it('expands whole rows and columns, including all axes and empty opposite dimensions', () => {
     const workbook = fixture();
-    const rows = prepareExtraction(workbook, { ...request(), selection: { kind: 'rows', start: 'r3', end: 'r1' }, targetRows: ['a', 'b', 'c'] });
-    expect(rows.ok && rows.value.mappings).toEqual(mappings(['r1', 'r2', 'r3'], ['c1', 'c2'], ['a', 'b', 'c'], ['x', 'y']));
-    expect(rows.ok && rows.value.workbook.documents.t!.columnNames).toEqual({ y: 'Named' });
-    const columns = prepareExtraction(workbook, { ...request(), selection: { kind: 'columns', start: 'c2', end: 'c2' }, targetRows: ['a', 'b', 'c'], targetColumns: ['x'] });
-    expect(columns.ok && columns.value.mappings).toEqual(mappings(['r1', 'r2', 'r3'], ['c2'], ['a', 'b', 'c'], ['x']));
-    const singleRow = prepareExtraction(workbook, { ...request(), selection: { kind: 'rows', start: 'r2', end: 'r2' }, targetRows: ['a'] });
-    expect(singleRow.ok && singleRow.value.mappings).toEqual(mappings(['r2'], ['c1', 'c2'], ['a'], ['x', 'y']));
+    const rows = prepareExtraction(workbook, { ...request(), selection: { kind: 'rows', start: 'r3', end: 'r1' }, targetRows: ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004'] });
+    expect(rows.ok && rows.value.mappings).toEqual(mappings(['r1', 'r2', 'r3'], ['c1', 'c2'], ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004'], ['00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006']));
+    expect(rows.ok && rows.value.workbook.documents['00000000-0000-4000-8000-000000000001']!.columnNames).toEqual({ ['00000000-0000-4000-8000-000000000006']: 'Named' });
+    const columns = prepareExtraction(workbook, { ...request(), selection: { kind: 'columns', start: 'c2', end: 'c2' }, targetRows: ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004'], targetColumns: ['00000000-0000-4000-8000-000000000005'] });
+    expect(columns.ok && columns.value.mappings).toEqual(mappings(['r1', 'r2', 'r3'], ['c2'], ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004'], ['00000000-0000-4000-8000-000000000005']));
+    const singleRow = prepareExtraction(workbook, { ...request(), selection: { kind: 'rows', start: 'r2', end: 'r2' }, targetRows: ['00000000-0000-4000-8000-000000000002'] });
+    expect(singleRow.ok && singleRow.value.mappings).toEqual(mappings(['r2'], ['c1', 'c2'], ['00000000-0000-4000-8000-000000000002'], ['00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006']));
     const multipleRows = prepareExtraction(workbook, { ...request(), selection: { kind: 'rows', start: 'r2', end: 'r3' } });
-    expect(multipleRows.ok && multipleRows.value.mappings).toEqual(mappings(['r2', 'r3'], ['c1', 'c2'], ['a', 'b'], ['x', 'y']));
-    const allColumns = prepareExtraction(workbook, { ...request(), selection: { kind: 'columns', start: 'c2', end: 'c1' }, targetRows: ['a', 'b', 'c'] });
-    expect(allColumns.ok && allColumns.value.mappings).toEqual(mappings(['r1', 'r2', 'r3'], ['c1', 'c2'], ['a', 'b', 'c'], ['x', 'y']));
+    expect(multipleRows.ok && multipleRows.value.mappings).toEqual(mappings(['r2', 'r3'], ['c1', 'c2'], ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'], ['00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006']));
+    const allColumns = prepareExtraction(workbook, { ...request(), selection: { kind: 'columns', start: 'c2', end: 'c1' }, targetRows: ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004'] });
+    expect(allColumns.ok && allColumns.value.mappings).toEqual(mappings(['r1', 'r2', 'r3'], ['c1', 'c2'], ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004'], ['00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006']));
     workbook.documents.s!.content.rows = [];
     const empty = prepareExtraction(workbook, { ...request(), selection: { kind: 'columns', start: 'c2', end: 'c1' }, targetRows: [] });
     expect(empty.ok && empty.value.mappings).toEqual([]);
     expect(empty.ok && empty.value.extents).toEqual({ rowCount: 0, columnCount: 2 });
     const noColumns = fixture();
     noColumns.documents.s!.content.columns = [];
-    const emptyRows = prepareExtraction(noColumns, { ...request(), selection: { kind: 'rows', start: 'r3', end: 'r1' }, targetRows: ['a', 'b', 'c'], targetColumns: [] });
+    const emptyRows = prepareExtraction(noColumns, { ...request(), selection: { kind: 'rows', start: 'r3', end: 'r1' }, targetRows: ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004'], targetColumns: [] });
     expect(emptyRows.ok && emptyRows.value.mappings).toEqual([]);
     expect(emptyRows.ok && emptyRows.value.extents).toEqual({ rowCount: 3, columnCount: 0 });
   });
@@ -73,12 +73,27 @@ describe('extraction preparation', () => {
       [{ ...base, selection: { kind: 'rows', start: 'r1', end: 'stale' } }, 'invalid-selection'],
       [{ ...base, targetSheetId: 's' }, 'invalid-target-id'], [{ ...base, targetSheetId: '' }, 'invalid-target-id'],
       [{ ...base, targetName: ' ' }, 'empty-target-name'], [{ ...base, targetName: 'Source' }, 'duplicate-target-name'],
-      [{ ...base, targetRows: ['a', 'a'] }, 'invalid-target-axes'], [{ ...base, targetColumns: ['x', 'c1'] }, 'invalid-target-axes'],
+      [{ ...base, targetRows: ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002'] }, 'invalid-target-axes'], [{ ...base, targetColumns: ['00000000-0000-4000-8000-000000000005', 'c1'] }, 'invalid-target-axes'],
       [{ ...base, frame: { ...base.frame, size: { width: 0, height: 2 } } }, 'invalid-frame'],
     ];
     for (const [input, reason] of cases) expect(prepareExtraction(workbook, input)).toEqual({ ok: false, reason });
     expect(workbook).toEqual(before);
     workbook.documents.s!.modelId = 'model';
     expect(prepareExtraction(workbook, base)).toEqual({ ok: false, reason: 'protected-source' });
+  });
+  it('requires canonical persisted UUIDs and rejects canonical identity collisions', () => {
+    const workbook = fixture(), base = request(), before = structuredClone(workbook);
+    const id = 'abcdefab-cdef-1234-5678-abcdefabcdef';
+    expect(prepareExtraction(workbook, { ...base, targetSheetId: id }).ok).toBe(true);
+    expect(prepareExtraction(workbook, { ...base, targetSheetId: 't' })).toEqual({ ok: false, reason: 'invalid-target-id' });
+    expect(prepareExtraction(workbook, { ...base, targetSheetId: id.toUpperCase() })).toEqual({ ok: false, reason: 'invalid-target-id' });
+    expect(prepareExtraction(workbook, { ...base, targetRows: ['a', base.targetRows[1]!] })).toEqual({ ok: false, reason: 'invalid-target-axes' });
+    expect(prepareExtraction(workbook, { ...base, targetRows: [id.toUpperCase(), base.targetRows[1]!] })).toEqual({ ok: false, reason: 'invalid-target-axes' });
+    expect(workbook).toEqual(before);
+    workbook.manifest.sheetIds.push(id.toUpperCase());
+    expect(prepareExtraction(workbook, { ...base, targetSheetId: id })).toEqual({ ok: false, reason: 'invalid-target-id' });
+    workbook.documents.s!.content.rows.push(id.toUpperCase());
+    expect(prepareExtraction(workbook, { ...base, targetRows: [id, base.targetRows[1]!] })).toEqual({ ok: false, reason: 'invalid-target-axes' });
+    expect(prepareExtraction(fixture(), { ...base, targetRows: [id, id] })).toEqual({ ok: false, reason: 'invalid-target-axes' });
   });
 });
