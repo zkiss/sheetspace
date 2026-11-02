@@ -19,13 +19,13 @@ export function useLifecycleSettlement(options: {
     if (!local) return transport;
     return transport ? Promise.all([local, transport]).then(() => undefined) : local;
   };
-  function submit<T extends { ok: true; value: Workbook }>(before: Workbook, result: T): Promise<T | TransitionFailure> {
+  function submit<T extends { ok: true; value: Workbook }>(before: Workbook, result: T, onSuccess = options.resetHistory): Promise<T | TransitionFailure> {
     let release!: () => void;
     pending.current = new Promise<void>((resolve) => { release = resolve; });
     options.current.current = result.value;
     options.setWorkbook(result.value, { kind: 'structure' });
     if (!options.autosaveEnabled) {
-      options.resetHistory();
+      onSuccess();
       pending.current = undefined;
       release();
       return Promise.resolve(result);
@@ -34,7 +34,7 @@ export function useLifecycleSettlement(options: {
     options.autosave.enqueue(operationId, { kind: 'model-lifecycle', before, after: result.value });
     return options.autosave.waitFor(operationId).then((entry) => {
       if (entry.status === 'succeeded') {
-        options.resetHistory();
+        onSuccess();
         return result;
       }
       const blocked = options.autosave.modelTransitionIsBlockedByFailedPrerequisite(operationId);

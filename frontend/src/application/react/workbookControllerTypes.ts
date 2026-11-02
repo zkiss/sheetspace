@@ -16,6 +16,7 @@ import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 
 export type WorkbookCommands = {
+  extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest) => ExtractionSubmission;
   submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
   leaveEntryField: (sheetId: string, propertyId: string) => void;
@@ -48,6 +49,9 @@ export type WorkbookCommands = {
   updateCellContent: (sheetId: string, cellKey: CellKey, raw: string) => CellWriteResult;
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
+
+export type ExtractionCommandResult = import('@application/core/extractSelection').ExtractionResult | TransitionFailure | { ok: false; reason: 'extraction-history-too-large' };
+export type ExtractionSubmission = Readonly<{ result: ExtractionCommandResult; completion: Promise<ExtractionCommandResult> }>;
 
 export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
 export type DataModelCommandSubmission = Readonly<{ result: ModelCommandResult; completion: Promise<ModelCommandResult> }>;

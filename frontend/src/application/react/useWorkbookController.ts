@@ -22,6 +22,9 @@ import {
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
+import { extractSelection } from '@application/core/extractSelection'; import { prepareExtractionReplay } from '@application/core/extractionHistory';
+import type { ExtractionRequest } from '@application/core/extractionPreparation';
+import type { ExtractionCommandResult, ExtractionSubmission } from './workbookControllerTypes';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
 import { deleteRow } from '@application/core/deleteRow';
@@ -218,7 +221,7 @@ export function useWorkbookController({
     return applied;
   }
 
-  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
+  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
@@ -245,8 +248,22 @@ export function useWorkbookController({
       const rejected = { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
-    return { result, completion: lifecycle.submit(before, result) as Promise<T | TransitionFailure> };
+    return { result, completion: lifecycle.submit(before, result, onSuccess && (() => onSuccess(before, result.value))) as Promise<T | TransitionFailure> };
 
+  }
+
+  function extractSelectionCommand(request: ExtractionRequest): ExtractionSubmission {
+    let extracted: ReturnType<typeof extractSelection> | undefined;
+    const submission = applyModelLifecycleTransition((before) => {
+      extracted = extractSelection(before, request);
+      if (!extracted.ok) return extracted;
+      if (!contentHistory.canRecordExtraction(before, extracted.workbook)) return { ok: false, reason: 'extraction-history-too-large' } as const;
+      return { ok: true, value: extracted.workbook } as const;
+    }, (before, after) => {
+      contentHistory.recordExtraction(before, after);
+      setContentHistoryFeedback(undefined); setHistoryRevision((revision) => revision + 1);
+    });
+    const convert = (result: typeof submission.result): ExtractionCommandResult => result.ok ? extracted! : result; return { result: convert(submission.result), completion: submission.completion.then(convert) };
   }
 
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
@@ -341,6 +358,15 @@ export function useWorkbookController({
     if (lifecycle.hasPending()) return;
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
+    if (transaction.kind === 'extraction') {
+      applyModelLifecycleTransition((current) => { const prepared = prepareExtractionReplay(current, transaction, direction);
+        return prepared.ok ? { ok: true, value: prepared.workbook } as const : prepared;
+      }, () => {
+        if (direction === 'undo') contentHistory.commitUndo(); else contentHistory.commitRedo();
+        setContentHistoryFeedback(undefined); setHistoryRevision((revision) => revision + 1);
+      });
+      return;
+    }
     if (transaction.writes.some((write) => admissionLocks.current.has(write.sheetId))) { setMutationFailure('pending-model-transition'); return; }
     const sourceWorkbook = optimisticWorkbook.current;
     const expected = direction === 'undo' ? 'after' : 'before';
@@ -390,6 +416,7 @@ export function useWorkbookController({
       return model ? [[sheet.id, entrySessions.get(sheet.id, model)]] : [];
     })),
     commands: {
+      extractSelection: extractSelectionCommand,
       submitEntryDraft: async (sheetId) => {
         if (rejectPendingModelTransition()) return {};
         const model = entryModel(sheetId);
