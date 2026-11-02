@@ -30,15 +30,18 @@ type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string
   | { kind: 'numbers'; title: string; fields: readonly CommandNumberField[]; apply: (values: number[]) => unknown };
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
-  canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onOpenDataModels, onRename, onDelete, onEdit, onClear,
+  maximise,
+  canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onCreateSheet, onOpenDataModels, onRename, onDelete, onEdit, onClear,
   onSelectAxis, onSelectAll, onRowDeleted, onColumnDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
+  maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
   navigation: { canGoBack: boolean; canGoForward: boolean; traverse: (direction: 'back' | 'forward') => boolean };
   closePalette: (restoreFocus?: boolean) => void; openPanel: () => void;
+  onCreateSheet: () => void;
   onOpenDataModels?: (modelId?: string) => void; onRename: (sheet: SheetDocument) => void;
   onDelete: (sheet: SheetDocument) => void; onEdit: (target: CellTarget) => void; onClear: (target: CellTarget) => void;
   onSelectAxis: (axis: 'rows' | 'columns', target: CellTarget) => void; onSelectAll: (sheet: SheetDocument) => void;
@@ -78,7 +81,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     actions.push({ id, label, group, run: action, unavailable, shortcut });
   };
 
-  add('new-sheet', 'New sheet…', 'Workspace', run(controller.createSheetAtViewportCenter, false), undefined, 'Shift+N');
+  add('new-sheet', 'New sheet…', 'Workspace', run(onCreateSheet, false), undefined, 'Shift+N');
   add('data-models', 'Data models…', 'Workspace', run(() => onOpenDataModels?.(), false), onOpenDataModels ? undefined : 'Data models unavailable');
   add('toggle-references', referencesVisible ? 'Hide references' : 'Show references', 'Workspace', run(onToggleReferences));
   add('back', 'Back', 'Navigation', run(() => navigation.traverse('back'), false), navigation.canGoBack ? undefined : 'No previous location', 'Alt+Left');
@@ -86,9 +89,10 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('undo', 'Undo', 'Editing', run(commands.undo), canUndo ? undefined : 'Nothing to undo', 'Ctrl/⌘+Z');
   add('redo', 'Redo', 'Editing', run(commands.redo), canRedo ? undefined : 'Nothing to redo', 'Ctrl/⌘+Shift+Z');
   add('retry-save', 'Retry failed saves', 'Workspace', run(commands.retryFailedSaves), canRetryFailedSaves ? undefined : 'No failed saves');
-  add('zoom-in', 'Zoom in', 'View', run(() => controller.zoomWorkspaceBy(1.2)));
-  add('zoom-out', 'Zoom out', 'View', run(() => controller.zoomWorkspaceBy(1 / 1.2)));
-  add('reset-view', 'Reset workspace view', 'View', run(controller.resetViewport));
+  add('maximise-sheet', maximise?.active ? 'Restore to workspace' : 'Maximise sheet', 'View', run(() => maximise?.toggle()), maximise && (maximise.active || sheet) ? undefined : 'Select a sheet first');
+  add('zoom-in', 'Zoom in', 'View', run(() => maximise?.active ? maximise.zoom(1.2) : controller.zoomWorkspaceBy(1.2)));
+  add('zoom-out', 'Zoom out', 'View', run(() => maximise?.active ? maximise.zoom(1 / 1.2) : controller.zoomWorkspaceBy(1 / 1.2)));
+  add('reset-view', 'Reset workspace view', 'View', run(controller.resetViewport), maximise?.active ? 'Restore to workspace first' : undefined);
 
   if (!sheet?.modelId) {
     add('append-row', 'Append row', 'Sheet', run(() => sheet && commands.appendRow(sheet.id)), noSheet);

@@ -16,7 +16,7 @@ function setup(columnCount = 1) {
     commands, controller, sheet, workbook: workbookWithSheets([sheet]), activeCell: cell, selection: null,
     formatting: { descriptor: { valid: false } }, referencesVisible: true,
     canUndo: false, canRedo: false, canRetryFailedSaves: false,
-    navigation: { canGoBack: false, canGoForward: false, traverse: vi.fn() }, closePalette: vi.fn(), openPanel: vi.fn(),
+    navigation: { canGoBack: false, canGoForward: false, traverse: vi.fn() }, closePalette: vi.fn(), openPanel: vi.fn(), onCreateSheet: vi.fn(),
     onOpenDataModels: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), onEdit: vi.fn(), onClear: vi.fn(),
     onSelectAxis: vi.fn(), onSelectAll: vi.fn(), onRowDeleted: vi.fn(), onColumnDeleted: vi.fn(), onToggleReferences: vi.fn(), onFeedback: vi.fn(),
     onCopy: vi.fn(), onCut: vi.fn(), onPaste: vi.fn(), onCancelCut: vi.fn(), hasPendingCut: false, clipboardAccess: clipboard,
@@ -187,7 +187,8 @@ describe('workspace palette actions', () => {
       command('new-sheet').run(); command('append-row').run(); command('sheet-order-up').run();
       command('zoom-in').run(); command('select-row').run(); command('data-models').run();
     });
-    expect(controller.createSheetAtViewportCenter).toHaveBeenCalledOnce();
+    expect(props.onCreateSheet).toHaveBeenCalledOnce();
+    expect(controller.createSheetAtViewportCenter).not.toHaveBeenCalled();
     expect(commands.appendRow).toHaveBeenCalledWith(sheet.id);
     expect(commands.changeSheetZOrder).toHaveBeenCalledWith(sheet.id, 'up');
     expect(controller.zoomWorkspaceBy).toHaveBeenCalledWith(1.2);

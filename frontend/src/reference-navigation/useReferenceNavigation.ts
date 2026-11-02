@@ -37,6 +37,7 @@ function normalizedRange(reference: FormulaInspectionReference, sheet: SheetDocu
 
 export function useReferenceNavigation({
   navigateToTarget,
+  navigateDestination,
   onSelectReferenceTarget,
   onExplicitNavigation,
   startNavigation,
@@ -44,14 +45,16 @@ export function useReferenceNavigation({
 }: {
   navigateToTarget: (
     target: WorkspaceTargetRect,
-    options?: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void },
+    options?: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void; onFailure?: (reason: 'unavailable' | 'cancelled') => void },
   ) => () => void;
+  navigateDestination?: (sheetId: string, target: WorkspaceTargetRect, options: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void; onFailure?: (reason: 'unavailable' | 'cancelled') => void }) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
-  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void) => void;
+  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, onReady: () => void, onRetire?: () => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
+  const arrivalSequence = useRef(0);
   const [highlight, setHighlight] =
     useState<{ target: ReferenceNavigationTarget; identity: number } | null>(null);
   const [navigationMotion, setNavigationMotion] = useState(false);
@@ -95,19 +98,47 @@ export function useReferenceNavigation({
       const generation = typeof operation === 'function' && 'generation' in operation
         ? operation.generation : nextHighlightIdentity.current++;
       const navigationOperation = typeof operation === 'function' && 'complete' in operation
-        ? operation : Object.assign(complete, { generation, complete });
-      onSelectReferenceTarget(target);
-      setHighlight({ target, identity: generation });
+        ? operation : Object.assign(complete, { generation, complete, cancel: () => {}, isCurrent: () => true, isLatest: () => true });
+      const sequence = ++arrivalSequence.current;
+      let published = false;
+      setHighlight(null);
+      const retire = () => {
+        if (arrivalSequence.current !== sequence) return;
+        arrivalSequence.current += 1;
+        setHighlight(null);
+        setNavigationMotion(false);
+      };
+      const arrive = () => {
+        if (published || arrivalSequence.current !== sequence || !navigationOperation.isCurrent()) return;
+        published = true;
+        onSelectReferenceTarget(target);
+        if (arrivalSequence.current !== sequence || !navigationOperation.isCurrent()) return;
+        setHighlight({ target, identity: generation });
+      };
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
       setNavigationMotion(!reduceMotion);
-      const startViewport = (settled: () => void) => navigateToTarget(workspaceRectForFrame(targetSheet.frame), {
+      const startViewport = (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void = () => {}) => (navigateDestination ? (rect: WorkspaceTargetRect, motionOptions: Parameters<NonNullable<typeof navigateDestination>>[2]) => navigateDestination(targetSheet.id, rect, motionOptions) : navigateToTarget)(workspaceRectForFrame(targetSheet.frame), {
         forceOversized: options.forceOversized ?? (target.kind === 'range' && !rangeFitsSheetViewport(normalized, targetSheet)),
         minimumScale: detailedViewportScaleForSheet(targetSheet),
         naturalScale: clampWorkspaceZoom(1 / targetSheet.frame.visualScale),
         onSettled: settled,
+        onFailure: failed,
       });
-      if (startNavigation) startNavigation(navigationOperation, target, startViewport);
-      else startViewport(navigationOperation.complete);
+      if (startNavigation) startNavigation(navigationOperation, target, startViewport, arrive, retire);
+      else {
+        arrive();
+        if (arrivalSequence.current !== sequence || !navigationOperation.isCurrent()) return;
+        let pending = true;
+        startViewport(() => {
+          if (!pending) return;
+          pending = false;
+          navigationOperation.complete();
+        }, () => {
+          if (!pending) return;
+          pending = false;
+          retire();
+        });
+      }
     };
     if (onExplicitNavigation) onExplicitNavigation(navigate); else navigate(() => {});
     return true;
@@ -130,7 +161,7 @@ export function useReferenceNavigation({
   }
 
   return {
-    clearNavigationHighlight: () => { setHighlight(null); setNavigationMotion(false); },
+    clearNavigationHighlight: () => { arrivalSequence.current += 1; setHighlight(null); setNavigationMotion(false); },
     navigateReference,
     navigateTarget,
     navigationHighlight: highlight?.target ?? null,

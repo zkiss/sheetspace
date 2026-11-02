@@ -84,6 +84,7 @@ it('cancels the active animation and its settlement when a pan interrupts naviga
   act(() => controller.restoreViewport({ x: -300, y: -100, scale: 1.1 }, settled));
   animation.cancel.mockClear();
   const finish = animation.onfinish!;
+  animation.cancel.mockClear();
   const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 1, buttons: 4, clientX: 100, clientY: 80 });
   Object.defineProperty(down, 'pointerId', { value: 7 });
   fireEvent(surface, down);
@@ -166,4 +167,39 @@ it.each([false, true])('preserves a creation sequence on interruption only when 
   fireEvent(surface, down);
   act(() => controller.createSheetAtViewportCenter());
   expect(onCreateSheet.mock.calls[1][0]).toEqual(moved ? { x: 430, y: 295 } : { x: 416, y: 306 });
+});
+
+it('freezes the displayed animation before cancelling it and rejects stale completion', () => {
+  vi.stubGlobal('KeyframeEffect', class {});
+  Object.defineProperty(document, 'timeline', { configurable: true, value: { currentTime: 1000 } });
+  const animation = { cancel: vi.fn(), currentTime: 40, effect: null, onfinish: null as (() => void) | null };
+  let controller: ReturnType<typeof useWorkspaceController>;
+  function Harness() {
+    controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() });
+    return <WorkspaceSurface hasSheets isPanningWorkspace={controller.isPanningWorkspace}
+      navigationMotion={controller.navigationMotion} onContextMenu={controller.handleWorkspaceContextMenu}
+      viewport={controller.viewport} workspacePlaneRef={controller.workspacePlaneRef}
+      workspaceSurfaceRef={controller.workspaceSurfaceRef}>{null}</WorkspaceSurface>;
+  }
+  render(<Harness />);
+  const plane = screen.getByTestId('workspace-plane');
+  Object.defineProperty(plane, 'animate', { configurable: true, value: () => animation });
+  Object.defineProperty(plane, 'getAnimations', { configurable: true, value: () => [animation] });
+  const settled = vi.fn();
+  act(() => controller.restoreViewport({ x: 500, y: 300, scale: 2 }, settled));
+  const finish = animation.onfinish!;
+  animation.cancel.mockClear();
+  const original = window.getComputedStyle;
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+    expect(animation.cancel).not.toHaveBeenCalled();
+    const style = original(element);
+    Object.defineProperty(style, 'transform', { configurable: true, value: 'matrix(1.5, 0, 0, 1.5, 123, 45)' });
+    return style;
+  });
+  let frozen: ReturnType<typeof controller.freezeDisplayedViewport>;
+  act(() => { frozen = controller.freezeDisplayedViewport(); });
+  expect(frozen!).toEqual({ x: 123, y: 45, scale: 1.5 });
+  expect(controller!.viewport).toEqual(frozen!);
+  act(() => finish());
+  expect(settled).not.toHaveBeenCalled();
 });

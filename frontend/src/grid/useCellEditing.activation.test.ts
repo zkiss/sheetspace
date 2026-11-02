@@ -5,6 +5,20 @@ import { cellTargetAt } from './cellInteraction';
 import { useCellEditing } from './useCellEditing';
 
 describe('sheet activation memory', () => {
+  it('looks up a remembered destination without changing the current selection', () => {
+    const inputs = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const outputs = sheetDocument({ id: 'outputs', name: 'Outputs' });
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const workbook = workbookWithSheets([inputs, outputs]);
+    const { result } = renderHook(() => useCellEditing({ workbook, commands }));
+    const source = cellTargetAt(inputs, 'A1')!;
+    const destination = cellTargetAt(outputs, 'B2')!;
+    act(() => result.current.selectCell(destination));
+    act(() => result.current.selectCell(source));
+    expect(result.current.sheetSelectionTarget('outputs')).toEqual(destination);
+    expect(result.current.activeCell).toEqual(source);
+    expect(result.current.sheetSelectionTarget('missing')).toBeUndefined();
+  });
   it('cancels an open draft when a live model change makes its column calculated', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };

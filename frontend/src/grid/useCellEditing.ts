@@ -196,13 +196,19 @@ export function useCellEditing({
     return undefined;
   }
 
-  function activateSheet(sheetId: string, requestFocus = true) {
+  function sheetSelectionTarget(sheetId: string) {
     const sheet = findSheetById(workbook, sheetId);
     if (!sheet) return undefined;
     const remembered = state.selectionsBySheet[sheetId];
-    const target = remembered && cellKeyForTarget(sheet, remembered) ? remembered : (sheet.content.rows[0] && sheet.content.columns[0]
+    return remembered && cellKeyForTarget(sheet, remembered) ? remembered : (sheet.content.rows[0] && sheet.content.columns[0]
       ? { sheetId, cell: { rowId: sheet.content.rows[0], columnId: sheet.content.columns[0] } }
       : undefined);
+  }
+
+  function activateSheet(sheetId: string, requestFocus = true) {
+    const sheet = findSheetById(workbook, sheetId);
+    const target = sheetSelectionTarget(sheetId);
+    if (!sheet) return undefined;
     if (!target) return undefined;
     if (state.selection?.sheetId === sheetId && cellKeyForTarget(sheet, state.selection)) {
       if (requestFocus) dispatch({ type: 'focus-current-selection' });
@@ -301,6 +307,7 @@ export function useCellEditing({
   }
 
   return {
+    sheetSelectionTarget,
     interactionRevision: () => interactionRevision.current,
     activeCell: state.selection,
     activateSheet,

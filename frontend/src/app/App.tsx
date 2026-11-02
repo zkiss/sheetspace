@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import {
   type PendingSheetCreation,
   type PendingSheetRename,
+  type PresentationSnapshot,
 } from './sheetDialogContracts';
 import { CreateSheetDialog, RenameSheetDialog } from './SheetDialogs';
 import { DataModelDialog } from './DataModelDialog';
@@ -36,6 +37,8 @@ function validationMessage(reason: 'empty' | 'duplicate' | 'unknown-sheet' | 'pe
 
 export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   const [pendingCreation, setPendingCreation] = useState<PendingSheetCreation | null>(null);
+  const presentation = useRef<PresentationSnapshot>({ canvas: true, generation: 0 });
+  const handlePresentationChange = useCallback((snapshot: PresentationSnapshot) => { presentation.current = snapshot; }, []);
   const [pendingRename, setPendingRename] = useState<PendingSheetRename | null>(null);
   const [dataModelsOpen, setDataModelsOpen] = useState(false);
   const [dataModelEditId, setDataModelEditId] = useState<string | undefined>(undefined);
@@ -64,6 +67,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     interactionRevision,
     acknowledgeKeyboardFocusRequest,
     activateSheet,
+    sheetSelectionTarget,
     cancelKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
@@ -117,8 +121,13 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     }
 
     const revision = interactionRevision();
+    const presentationAtRequest = presentation.current;
     const result = commands.createSheet(sheetName, pendingCreation.position, pendingCreation.viewportScale, (sheet) => {
       if (interactionRevision() !== revision) return;
+      // A later presentation ownership change hides the canvas the created sheet
+      // was placed on, so keep the document without moving selection there.
+      const current = presentation.current;
+      if (!current.canvas || current.generation !== presentationAtRequest.generation) return;
       const rowId = sheet.content.rows[0];
       const columnId = sheet.content.columns[0];
       if (rowId && columnId) selectCell({ sheetId: sheet.id, cell: { rowId, columnId } });
@@ -169,6 +178,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         activeCell={activeCell}
         entrySessions={entrySessions}
         onActivateSheet={activateSheet}
+        sheetSelectionTarget={sheetSelectionTarget}
         canRetryFailedSaves={canRetryFailedSaves}
         canUndo={canUndo}
         canRedo={canRedo}
@@ -195,6 +205,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onNavigateKeyboardCell={navigateKeyboardCell}
         onOpenDataModels={(modelId, propertyId, onClose) => { dataModelCloseFocus.current = onClose; setDataModelEditId(modelId); setDataModelPropertyId(propertyId); setDataModelsOpen(true); }}
         onOpenRenameDialog={openRenameDialog}
+        onPresentationChange={handlePresentationChange}
         onRetryFailedSaves={commands.retryFailedSaves}
         onSelectCell={selectCell}
         onExtendSelection={extendSelection}

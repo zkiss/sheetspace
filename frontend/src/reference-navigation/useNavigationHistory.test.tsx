@@ -109,7 +109,7 @@ describe('useNavigationHistory', () => {
     act(() => secondSettle?.());
 
     act(() => result.current.history.traverse('back'));
-    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 2, y: 0, scale: 1 } }), expect.any(Function));
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
   });
 
   it('discards a late explicit arrival after a user gesture cancels it', () => {
@@ -256,6 +256,30 @@ describe('useNavigationHistory', () => {
     act(() => { expect(result.current.traverse('back')).toBe(true); });
     expect(restore).toHaveBeenCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
     act(() => settleJump?.());
-    expect(result.current.canGoForward).toBe(true);
+    expect(result.current.canGoForward).toBe(false);
+  });
+
+  it('never stores flyover state when Back and Forward interrupt staged operations', () => {
+    vi.useFakeTimers();
+    let x = 1;
+    let jumpComplete = () => {};
+    const restore = vi.fn();
+    const { result } = renderHook(() => useNavigationHistory({
+      capture: () => ({ viewport: { x, y: 0, scale: 1 }, selection: null, scroll: {} }), restore,
+    }));
+    x = 2;
+    act(() => { result.current.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => result.current.explicitNavigation((operation) => { jumpComplete = operation.complete; }));
+    x = 50;
+    act(() => { expect(result.current.traverse('back')).toBe(true); });
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 2, y: 0, scale: 1 } }), expect.any(Function));
+    act(() => jumpComplete());
+    x = 40;
+    act(() => { expect(result.current.traverse('back')).toBe(true); });
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 1, y: 0, scale: 1 } }), expect.any(Function));
+    x = 30;
+    act(() => { expect(result.current.traverse('forward')).toBe(true); });
+    expect(restore).toHaveBeenLastCalledWith(expect.objectContaining({ viewport: { x: 2, y: 0, scale: 1 } }), expect.any(Function));
+    expect(result.current.canGoForward).toBe(false);
   });
 });

@@ -62,6 +62,58 @@ function gesture(type: string, scale: number) {
 }
 
 describe('interrupting displayed reference navigation motion', () => {
+  it.each(['pan', 'zoom'] as const)('freezes the painted %s preview before cancelling its pending publications', (kind) => {
+    vi.useFakeTimers();
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const callbacks: FrameRequestCallback[] = [];
+    const cancel = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length; });
+    vi.stubGlobal('cancelAnimationFrame', cancel);
+    const { surface, plane, state, sample } = setup();
+    if (kind === 'pan') {
+      pointer(surface, 'pointerdown', 1);
+      pointer(surface, 'pointermove', 1, 130, 60);
+    } else {
+      act(() => state().zoomWorkspaceBy(1.5, { x: 100, y: 80 }));
+    }
+    act(() => callbacks[callbacks.length - 1](1));
+    const expected = kind === 'pan'
+      ? { x: -470, y: -220, scale: 1.25 }
+      : { x: -800, y: -340, scale: 1.875 };
+    expect(plane.style.transform).toBe(`translate(${expected.x}px, ${expected.y}px) scale(${expected.scale})`);
+    expect(state().viewport).not.toEqual(expected);
+    sample.mockImplementation(() => `matrix(${expected.scale}, 0, 0, ${expected.scale}, ${expected.x}, ${expected.y})`);
+    if (kind === 'pan') pointer(surface, 'pointermove', 1, 140, 60);
+    else act(() => state().zoomWorkspaceBy(1.1, { x: 100, y: 80 }));
+    const stale = callbacks[callbacks.length - 1];
+    const cancellationsBeforeFreeze = cancel.mock.calls.length;
+    let frozen = state().viewport;
+    act(() => { frozen = state().freezeDisplayedViewport(); });
+    expect(frozen).toEqual(expected);
+    expect(state().viewport).toEqual(expected);
+    expect(cancel.mock.calls.length).toBeGreaterThan(cancellationsBeforeFreeze);
+    expect(sample.mock.invocationCallOrder[sample.mock.invocationCallOrder.length - 1]).toBeLessThan(cancel.mock.invocationCallOrder[cancel.mock.invocationCallOrder.length - 1]);
+    act(() => { stale(1000); vi.runAllTimers(); });
+    expect(state().viewport).toEqual(expected);
+    expect(plane.style.transform).toBe(`translate(${expected.x}px, ${expected.y}px) scale(${expected.scale})`);
+  });
+
+  it('rejects queued pan and zoom preview publications after freezing the displayed viewport', () => {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length; });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const { surface, state } = setup();
+    pointer(surface, 'pointerdown', 1);
+    pointer(surface, 'pointermove', 1, 130, 60);
+    act(() => state().zoomWorkspaceBy(1.5, { x: 100, y: 80 }));
+    const pending = [...callbacks];
+    expect(pending.length).toBeGreaterThanOrEqual(2);
+    let frozen = state().viewport;
+    act(() => { frozen = state().freezeDisplayedViewport(); });
+    act(() => pending.forEach((callback) => callback(performance.now() + 1000)));
+    expect(state().viewport).toEqual(frozen);
+  });
+
   it('animates restored history viewports and lets a user pan interrupt them', () => {
     const { plane, surface, restore } = setup();
     act(() => restore());

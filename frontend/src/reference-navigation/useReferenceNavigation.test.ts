@@ -27,6 +27,77 @@ afterEach(() => {
 });
 
 describe('useReferenceNavigation', () => {
+  it('accepts standalone transport success once and ignores late failures', () => {
+    vi.useFakeTimers();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    let ready = () => {};
+    let fail: (reason: 'unavailable' | 'cancelled') => void = () => {};
+    const complete = vi.fn();
+    const { result } = renderHook(() => useReferenceNavigation({
+      workbook: workbookWithSheets([sheet]), onSelectReferenceTarget: vi.fn(),
+      onExplicitNavigation: (navigate) => navigate(complete),
+      navigateToTarget: (_target, options) => { ready = options!.onSettled!; fail = options!.onFailure!; return () => {}; },
+    }));
+    const cell = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => { result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell } }, sheet); });
+    act(() => { ready(); ready(); fail('unavailable'); vi.advanceTimersByTime(1199); });
+    expect(complete).toHaveBeenCalledOnce();
+    expect(result.current.navigationHighlight).not.toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.navigationHighlight).toBeNull();
+  });
+
+  it('does not start an old standalone viewport after selection replaces it', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const navigateToTarget = vi.fn(() => () => {});
+    let replace = () => {};
+    const select = vi.fn(() => replace());
+    const { result } = renderHook(() => useReferenceNavigation({
+      workbook: workbookWithSheets([sheet]), onSelectReferenceTarget: select, navigateToTarget,
+    }));
+    replace = () => result.current.clearNavigationHighlight();
+    const cell = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => { result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell } }, sheet); });
+    expect(navigateToTarget).not.toHaveBeenCalled();
+    expect(result.current.navigationHighlight).toBeNull();
+  });
+
+  it.each(['unavailable', 'cancelled'] as const)('accepts standalone %s failure once before synchronous late success', (reason) => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const complete = vi.fn();
+    const { result } = renderHook(() => useReferenceNavigation({
+      workbook: workbookWithSheets([sheet]), onSelectReferenceTarget: vi.fn(),
+      onExplicitNavigation: (navigate) => navigate(complete),
+      navigateToTarget: (_target, options) => {
+        options!.onFailure!(reason);
+        options!.onFailure!(reason);
+        options!.onSettled!();
+        return () => {};
+      },
+    }));
+    const cell = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => { result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell } }, sheet); });
+    expect(complete).not.toHaveBeenCalled();
+    expect(result.current.navigationHighlight).toBeNull();
+    expect(result.current.navigationMotion).toBe(false);
+  });
+
+  it('publishes custom readiness only once without restarting its highlight', () => {
+    vi.useFakeTimers();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    let ready = () => {};
+    const select = vi.fn();
+    const { result } = renderHook(() => useReferenceNavigation({
+      workbook: workbookWithSheets([sheet]), onSelectReferenceTarget: select,
+      navigateToTarget: () => () => {},
+      startNavigation: (_operation, _target, _viewport, onReady) => { ready = onReady; },
+    }));
+    const cell = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => { result.current.navigateTarget({ kind: 'cell', target: { sheetId: sheet.id, cell } }, sheet); ready(); });
+    act(() => { vi.advanceTimersByTime(1000); ready(); vi.advanceTimersByTime(200); });
+    expect(select).toHaveBeenCalledOnce();
+    expect(result.current.navigationHighlight).toBeNull();
+  });
   it('ignores broken, missing-sheet, and unresolved durable targets', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const navigateToTarget = vi.fn();
@@ -146,7 +217,7 @@ describe('useReferenceNavigation', () => {
       navigateToTarget,
       onExplicitNavigation: (navigate) => navigate(Object.assign(() => { settled += 1; }, { generation: 1, complete: () => { settled += 1; } })),
       onSelectReferenceTarget: vi.fn(),
-      startNavigation: (operation, _target, startViewport) => { startViewport(operation.complete); },
+      startNavigation: (operation, _target, startViewport) => { startViewport(operation.complete, operation.cancel); },
       workbook: workbookWithSheets([sheet]),
     }));
 
@@ -160,11 +231,53 @@ describe('useReferenceNavigation', () => {
     expect(settled).toBe(1);
   });
 
+  it('selects and starts the full highlight lifetime only at destination readiness', () => {
+    vi.useFakeTimers();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const select = vi.fn();
+    let ready = () => {};
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget: vi.fn(), onSelectReferenceTarget: select,
+      startNavigation: (_operation, _target, _startViewport, onReady) => { ready = onReady; },
+      workbook: workbookWithSheets([sheet]),
+    }));
+    const identity = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => { result.current.navigateReference(reference({ kind: 'cell', sheetId: sheet.id, identity })); });
+    act(() => { vi.advanceTimersByTime(2_000); });
+    expect(select).not.toHaveBeenCalled();
+    expect(result.current.navigationHighlight).toBeNull();
+    act(ready);
+    expect(select).toHaveBeenCalledOnce();
+    act(() => { vi.advanceTimersByTime(1_199); });
+    expect(result.current.navigationHighlight).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(result.current.navigationHighlight).toBeNull();
+  });
+
+  it('ignores an old arrival after a newer jump or explicit highlight cancellation', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const select = vi.fn();
+    const arrivals: Array<() => void> = [];
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget: vi.fn(), onSelectReferenceTarget: select,
+      startNavigation: (_operation, _target, _startViewport, onReady) => { arrivals.push(onReady); },
+      workbook: workbookWithSheets([sheet]),
+    }));
+    const identity = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    const target = reference({ kind: 'cell', sheetId: sheet.id, identity });
+    act(() => { result.current.navigateReference(target); result.current.navigateReference(target); });
+    act(() => { arrivals[0]!(); });
+    expect(select).not.toHaveBeenCalled();
+    act(() => { result.current.clearNavigationHighlight(); arrivals[1]!(); });
+    expect(select).not.toHaveBeenCalled();
+    expect(result.current.navigationHighlight).toBeNull();
+  });
+
   it('navigates command targets through the same explicit history boundary', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const navigateToTarget = vi.fn();
     const select = vi.fn();
-    const explicit = vi.fn((navigate) => navigate(Object.assign(() => {}, { generation: 4, complete: () => {} })));
+    const explicit = vi.fn((navigate) => navigate(Object.assign(() => {}, { generation: 4, complete: () => {}, cancel: () => {}, isCurrent: () => true, isLatest: () => true })));
     const { result } = renderHook(() => useReferenceNavigation({
       navigateToTarget, onExplicitNavigation: explicit, onSelectReferenceTarget: select, workbook: workbookWithSheets([sheet]),
     }));

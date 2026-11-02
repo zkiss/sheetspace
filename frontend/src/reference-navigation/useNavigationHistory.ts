@@ -3,7 +3,7 @@ import { appendNavigationContext, EMPTY_NAVIGATION_HISTORY, traverseNavigationHi
 
 const SETTLE_MS = 2_000;
 
-export type NavigationOperation = (() => void) & { generation: number; complete: () => void };
+export type NavigationOperation = (() => void) & { generation: number; complete: () => void; cancel: () => void; isCurrent: () => boolean; isLatest: () => boolean };
 
 export function useNavigationHistory({ capture, restore }: {
   capture: () => NavigationContext;
@@ -15,6 +15,12 @@ export function useNavigationHistory({ capture, restore }: {
   const nextOperation = useRef(0);
   const activeOperation = useRef<number>();
   const pendingExplicitNavigation = useRef<number>();
+  const transientRetirement = useRef<() => void>();
+  const retireTransient = useCallback(() => {
+    const retire = transientRetirement.current;
+    transientRetirement.current = undefined;
+    retire?.();
+  }, []);
   const captureRef = useRef(capture);
   captureRef.current = capture;
   const commit = useCallback(() => {
@@ -50,15 +56,19 @@ export function useNavigationHistory({ capture, restore }: {
     // restore must not keep suppressing every later ordinary pan or zoom.
     activeOperation.current = undefined;
     pendingExplicitNavigation.current = undefined;
+    retireTransient();
     scheduleMovement();
-  }, [scheduleMovement]);
+  }, [retireTransient, scheduleMovement]);
   const explicitNavigation = useCallback((navigate: (operation: NavigationOperation) => void) => {
     history.current = { ...history.current, entries: history.current.entries.slice(0, history.current.cursor + 1) };
+    const replacing = activeOperation.current !== undefined;
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
     pendingExplicitNavigation.current = generation;
+    retireTransient();
+    if (activeOperation.current !== generation) return;
     flushMovement();
-    commit();
+    if (!replacing) commit();
     const complete = () => {
       // A newer jump or traversal owns the current context. Its predecessor
       // must not append an arrival or release the newer operation's guard.
@@ -67,44 +77,76 @@ export function useNavigationHistory({ capture, restore }: {
       activeOperation.current = undefined;
       pendingExplicitNavigation.current = undefined;
     };
-    const operation = Object.assign(complete, { generation, complete });
-    navigate(operation);
-  }, [commit, flushMovement]);
-  const traverse = useCallback((direction: 'back' | 'forward') => {
-    flushMovement();
-    // The camera may still be moving, but Back must leave the new destination,
-    // not skip the departure because its arrival callback has not run yet.
-    if (pendingExplicitNavigation.current !== undefined && pendingExplicitNavigation.current === activeOperation.current) {
-      commit();
+    const cancel = () => {
+      if (activeOperation.current !== generation) return;
       activeOperation.current = undefined;
       pendingExplicitNavigation.current = undefined;
-    }
-    if (!traverseNavigationHistory(history.current, direction)) return false;
-    // Selection changes alone are not destinations, but the context being left
-    // must still be current when Forward returns to it.
-    const entries = [...history.current.entries];
-    entries[history.current.cursor] = captureRef.current();
-    history.current = { ...history.current, entries };
-    const next = traverseNavigationHistory(history.current, direction);
-    if (!next) return false;
-    history.current = next.history;
+      setRevision((current) => current + 1);
+    };
+    const operation = Object.assign(complete, { generation, complete, cancel, isCurrent: () => activeOperation.current === generation, isLatest: () => nextOperation.current === generation });
+    navigate(operation);
+  }, [commit, flushMovement, retireTransient]);
+  const transientNavigation = useCallback((navigate: (operation: NavigationOperation) => void, onRetire: () => void) => {
+    const previous = transientRetirement.current;
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
+    pendingExplicitNavigation.current = undefined;
+    transientRetirement.current = onRetire;
+    const complete = () => {
+      if (activeOperation.current !== generation) return;
+      activeOperation.current = undefined;
+      transientRetirement.current = undefined;
+    };
+    const cancel = () => {
+      if (activeOperation.current !== generation) return;
+      activeOperation.current = undefined;
+      retireTransient();
+    };
+    previous?.();
+    if (activeOperation.current === generation) navigate(Object.assign(complete, {
+      generation, complete, cancel, isCurrent: () => activeOperation.current === generation,
+      isLatest: () => nextOperation.current === generation,
+    }));
+  }, [retireTransient]);
+  const traverse = useCallback((direction: 'back' | 'forward') => {
+    flushMovement();
+    const unsettled = activeOperation.current !== undefined;
+    const returnToDeparture = direction === 'back' && pendingExplicitNavigation.current === activeOperation.current && pendingExplicitNavigation.current !== undefined;
+    if (!returnToDeparture && !traverseNavigationHistory(history.current, direction)) return false;
+    // Selection changes alone are not destinations, but the context being left
+    // must still be current when Forward returns to it.
+    if (!unsettled) {
+      const entries = [...history.current.entries];
+      entries[history.current.cursor] = captureRef.current();
+      history.current = { ...history.current, entries };
+    }
+    const next = returnToDeparture
+      ? { history: history.current, context: history.current.entries[history.current.cursor] }
+      : traverseNavigationHistory(history.current, direction);
+    if (!next) return false;
+    history.current = next.history;
+    pendingExplicitNavigation.current = undefined;
+    const generation = ++nextOperation.current;
+    activeOperation.current = generation;
+    retireTransient();
+    if (activeOperation.current !== generation) return true;
     const complete = () => {
       // An old rAF or React commit must never release suppression for a newer
       // traversal. Completion is owned by the restore adapter, not a timer.
       if (activeOperation.current === generation) activeOperation.current = undefined;
     };
-    restore(next.context, Object.assign(complete, { generation, complete }));
+    restore(next.context, Object.assign(complete, { generation, complete, cancel: complete, isCurrent: () => activeOperation.current === generation, isLatest: () => nextOperation.current === generation }));
     setRevision((current) => current + 1);
     return true;
-  }, [commit, flushMovement, restore]);
+  }, [flushMovement, restore, retireTransient]);
   useEffect(() => () => { if (timer.current !== undefined) window.clearTimeout(timer.current); }, []);
   return {
-    cancelPendingNavigation: () => { activeOperation.current = undefined; pendingExplicitNavigation.current = undefined; },
+    ownershipGeneration: () => nextOperation.current,
+    cancelPendingNavigation: () => { activeOperation.current = undefined; pendingExplicitNavigation.current = undefined; retireTransient(); },
     canGoBack: history.current.cursor > 0 || pendingExplicitNavigation.current !== undefined,
     canGoForward: history.current.cursor >= 0 && history.current.cursor < history.current.entries.length - 1,
     explicitNavigation,
+    transientNavigation,
     recordUserMovement,
     revision,
     traverse,

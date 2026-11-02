@@ -4,6 +4,7 @@ import type { WorkspaceViewport } from '@workspace/workspaceContracts';
 export type NavigationContext = {
   viewport: WorkspaceViewport;
   selection: CellSelection | null;
+  destinationSheetId?: string;
   scroll: Readonly<Record<string, { left: number; top: number }>>;
 };
 

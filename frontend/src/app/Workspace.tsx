@@ -1,6 +1,6 @@
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 /* eslint-disable max-lines -- Workspace remains the existing composition root; focused history ownership is extracted. */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, columnIndexToLabel } from '@workbook/core/address';
@@ -26,16 +26,19 @@ import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application
 import { SheetGrid } from '@grid/SheetGrid';
 import { useReferenceNavigation } from '@reference-navigation/useReferenceNavigation';
 import { useWorkspaceNavigationHistory } from './useWorkspaceNavigationHistory';
+import { createNavigationTransport } from './navigationTransport';
 import { useSheetFrameInteractions } from '@workspace/useSheetFrameInteractions';
 import type { WorkbookCommands } from '@application/react/useWorkbookController';
 import { useWorkspaceController } from '@workspace/useWorkspaceController';
+import { useMaximiseRuntime } from '@workspace/useMaximiseRuntime';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
+import { isOwnedPortalTarget } from '@workspace/workspaceEventPolicy';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { formattingActionWrites, formattingShortcut } from '@workspace/formattingActions';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
-import { useWorkspaceHistoryReveal } from './useWorkspaceHistoryReveal';
+import { useOwnedHistoryReveal } from './useOwnedHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
 import { SheetModelControls } from '@workspace/SheetModelControls';
@@ -50,7 +53,9 @@ import { ErrorReferencePreview } from './ErrorReferencePreview';
 import type { ErrorReferenceHover } from './errorCellText';
 import { workbookErrors } from './workbookErrors';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
-import { clampWorkspaceZoom, workspaceRectForFrame } from '@workspace/workspaceGeometry';
+import { useSheetCreationRoute } from './useSheetCreationRoute';
+import type { PresentationSnapshot } from './sheetDialogContracts';
+import { clampWorkspaceZoom, normalizedWheelDelta, workspaceRectForFrame, zoomFactorFromWheelDelta } from '@workspace/workspaceGeometry';
 const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
   activeCell,
   canRetryFailedSaves,
@@ -68,6 +73,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onClearCell,
   onClearSelection,
   onActivateSheet,
+  sheetSelectionTarget,
   onCommitEdit,
   onCommitEditAndNavigate,
   onSuspendEdit,
@@ -78,6 +84,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onNavigateKeyboardCell,
   onOpenDataModels,
   onOpenRenameDialog,
+  onPresentationChange,
   onRetryFailedSaves,
   onSelectCell,
   onExtendSelection,
@@ -113,6 +120,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onClearCell: (target: CellTarget) => CellWriteResult | undefined;
   onClearSelection: () => void;
   onActivateSheet: (sheetId: string, requestFocus?: boolean) => CellTarget | undefined;
+  sheetSelectionTarget: (sheetId: string) => CellTarget | undefined;
   onCommitEdit: (session?: CellEditSession) => CellWriteResult | undefined;
   onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | undefined;
   onSuspendEdit?: (session: CellEditSession) => void;
@@ -123,6 +131,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
   onOpenDataModels?: (modelId?: string, propertyId?: string, onClose?: () => void) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
+  onPresentationChange?: (snapshot: PresentationSnapshot) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
   onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
@@ -173,11 +182,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const openPropertyDefinitionRef = useRef<() => void>(() => {});
   const runPaletteCommandRef = useRef<(id: string) => void>(() => {});
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
-  const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
-  const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
-    if (gridHistoryReveals.current.identity !== identity) gridHistoryReveals.current = { identity, sheetIds: new Set() };
-    gridHistoryReveals.current.sheetIds.add(sheetId);
-  }, []);
   const sheets = sheetsInOrder(workbook);
   const activeSheetId = entrySheetId ?? activeCell?.sheetId;
   const selectedSheet = activeSheetId ? findSheetById(workbook, activeSheetId) : undefined;
@@ -198,20 +202,177 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const formattingProjection = useFormattingSelection(selectedSheet, selectionRange);
   const cancelNavigationBeforeUserMovement = useRef<() => void>(() => {});
   const panViewportNeedsRender = useRef<(viewport: import('@workspace/workspaceContracts').WorkspaceViewport) => boolean>(() => true);
+  const [maximiseActive, setMaximiseActive] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!media) return;
+    const changed = () => setReducedMotion(media.matches);
+    media.addEventListener?.('change', changed);
+    return () => media.removeEventListener?.('change', changed);
+  }, []);
   const workspaceController = useWorkspaceController({
     onBeforeUserMovement: () => cancelNavigationBeforeUserMovement.current(),
     shouldRenderPanViewport: (viewport) => panViewportNeedsRender.current(viewport),
     onClearSelection,
     onCreateSheet,
-    interactionsEnabled,
+    interactionsEnabled: interactionsEnabled && !maximiseActive,
+    commandsEnabled: !sheetDialogOpen,
   });
+  const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)), (id) => {
+    const sheet = findSheetById(workbook, id);
+    return sheet && frameProjection(sheet);
+  });
+  const modeActive = maximise.state.mode !== 'canvas';
+  useEffect(() => setMaximiseActive(modeActive), [modeActive]);
+  // Publish in the commit that changes ownership so a creation result that
+  // resolves later cannot select against a superseded presentation.
+  useLayoutEffect(() => {
+    onPresentationChange?.({ canvas: maximise.state.mode === 'canvas', generation: maximise.state.identity });
+  }, [maximise.state.identity, maximise.state.mode, onPresentationChange]);
+  const createSheet = useSheetCreationRoute({
+    ensureCanvas: maximise.ensureCanvas,
+    openCreationDialog: workspaceController.createSheetAtViewportCenter,
+    presentationActive: modeActive,
+  });
+  const zoomMaximised = useRef(maximise.zoom);
+  const zoomMaximisedView = (factor: number) => { cancelNavigationBeforeUserMovement.current(); maximise.zoom(factor); };
+  zoomMaximised.current = zoomMaximisedView;
+  useEffect(() => {
+    const surface = workspaceController.workspaceSurfaceRef.current;
+    if (!surface || !modeActive || !interactionsEnabled) return;
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = normalizedWheelDelta(event.deltaY, event.deltaMode, surface.clientHeight);
+      zoomMaximised.current(zoomFactorFromWheelDelta(event.deltaMode === 0 && Math.abs(delta) < 20 ? delta * 8 : delta));
+    };
+    let gestureScale: number | undefined;
+    const gesture = (event: Event) => {
+      const input = event as Event & { scale: number };
+      if (event.type === 'gestureend') {
+        if (gestureScale !== undefined) { event.preventDefault(); event.stopPropagation(); }
+        gestureScale = undefined;
+        return;
+      }
+      if (!Number.isFinite(input.scale) || input.scale <= 0) return;
+      if (event.type !== 'gesturestart' && gestureScale === undefined) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.type === 'gesturechange' && gestureScale !== undefined) zoomMaximised.current(input.scale / gestureScale);
+      gestureScale = input.scale;
+    };
+    const portalWheel = (event: WheelEvent) => { if (isOwnedPortalTarget(event.target, surface)) wheel(event); };
+    const portalGesture = (event: Event) => { if (isOwnedPortalTarget(event.target, surface)) gesture(event); };
+    surface.addEventListener('wheel', wheel, { capture: true, passive: false });
+    document.addEventListener('wheel', portalWheel, { capture: true, passive: false });
+    for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+      surface.addEventListener(type, gesture, { capture: true, passive: false });
+      document.addEventListener(type, portalGesture, { capture: true, passive: false });
+    }
+    return () => {
+      surface.removeEventListener('wheel', wheel, true);
+      document.removeEventListener('wheel', portalWheel, true);
+      for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+        surface.removeEventListener(type, gesture, true);
+        document.removeEventListener(type, portalGesture, true);
+      }
+    };
+  }, [modeActive, interactionsEnabled, workspaceController.workspaceSurfaceRef]);
+  const displayedFrames = useRef(new Map<string, ReturnType<typeof frameProjection>>());
+  const transportInputs = useRef({ maximise, workspaceController, workbook });
+  transportInputs.current = { maximise, workspaceController, workbook };
+  const transport = useMemo(() => createNavigationTransport({
+    currentState: () => transportInputs.current.maximise.currentState(),
+    ensureCanvas: () => transportInputs.current.maximise.ensureCanvas(),
+    ensureMaximised: (id) => transportInputs.current.maximise.ensureMaximised(id),
+    enter: (id, saved, displayed, programmatic) => transportInputs.current.maximise.enter(id, saved, displayed, programmatic),
+    claimPresentation: () => transportInputs.current.maximise.claimPresentation(),
+  }, {
+    navigateToTarget: (target, options) => transportInputs.current.workspaceController.navigateToTarget(target, options),
+    restoreViewport: (viewport, settled, cancelled) => transportInputs.current.workspaceController.restoreViewport(viewport, settled, cancelled),
+  }, (id) => Boolean(findSheetById(transportInputs.current.workbook, id)), (id) => {
+    const sheet = findSheetById(transportInputs.current.workbook, id);
+    if (!sheet) return undefined;
+    const saved = frameProjection(sheet);
+    return { saved, displayed: displayedFrames.current.get(id) ?? saved };
+  }), []);
+  useEffect(() => { transport.activate(); return () => transport.deactivate(); }, [transport]);
+  useEffect(() => transport.reconcile(), [transport, workbook]);
+  const restoreIntent = useRef<(() => boolean) | null>(null);
+  const [focusedRestore, setFocusedRestore] = useState(false);
+  function clearRestoreIntent() {
+    restoreIntent.current = null;
+    setFocusedRestore(false);
+  }
+  function focusMaximise() {
+    if (maximise.currentState().mode === 'canvas') { cancelNavigationBeforeUserMovement.current(); return; }
+    const ownsPresentation = maximise.adoptPresentation();
+    const navigationGeneration = navigationHistory.ownershipGeneration();
+    cancelNavigationBeforeUserMovement.current();
+    if (!document.activeElement?.hasAttribute('data-workspace-presentation-action')) return;
+    restoreIntent.current = () => ownsPresentation() && navigationHistory.ownershipGeneration() === navigationGeneration;
+    setFocusedRestore(true);
+  }
+  function activateMaximise() {
+    const intent = restoreIntent.current;
+    if (!intent) { toggleMaximise(); return; }
+    clearRestoreIntent();
+    if (!intent()) return;
+    void maximise.restoreToCanvas();
+    cancelNavigationBeforeUserMovement.current();
+  }
+  function toggleMaximise() {
+    if (modeActive) void maximise.restoreToCanvas();
+    cancelNavigationBeforeUserMovement.current();
+    if (!modeActive && selectedSheet) {
+      const saved = frameProjection(selectedSheet);
+      const displayed = displayedFrames.current.get(selectedSheet.id) ?? saved;
+      cancelSheetFrameScale();
+      maximise.enter(selectedSheet.id, saved, displayed);
+    }
+  }
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, pendingNavigationSheetId, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
+  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, ownsGridRestore, pendingNavigationSheetId, registerScrollContainer, recordUserGridMovement, startContentNavigation, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
     onHistoryTraversal: () => clearNavigationHighlight(),
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
+    restoreDestination: (id, viewport, onSettled, onFailure) => transport.restore(id, viewport, { onSettled, onFailure }),
+    stageDestination: transport.stageDestination,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
-  cancelNavigationBeforeUserMovement.current = cancelNavigationRestore;
+  const contentReveal = useOwnedHistoryReveal({
+    feedback: contentHistoryFeedback, editing: editingCell !== null, sheets, creatingAxes,
+    controller: workspaceController, stageDestination: transport.stageDestination,
+    acquire: startContentNavigation,
+    reveal: ({ sheetId, target, outsideViewport }, callbacks) => transport.content(sheetId, target, outsideViewport, callbacks),
+    onPresentedCell: ({ sheetId, rowId, columnId }) => {
+      const target = { sheetId, cell: { rowId, columnId } };
+      onSelectCell(target);
+      onFocusSelection(target);
+    },
+  });
+  cancelNavigationBeforeUserMovement.current = () => {
+    if (restoreIntent.current) restoreIntent.current = () => false;
+    cancelNavigationRestore();
+    transport.cancel();
+  };
+  useLayoutEffect(() => { if (sheetDialogOpen) cancelNavigationBeforeUserMovement.current(); }, [sheetDialogOpen]);
+  const pendingNavigation = useRef(false);
+  pendingNavigation.current = Boolean(pendingNavigationSheetId) || contentReveal.pending;
+  useEffect(() => {
+    const retireOnExternalFocus = (event: FocusEvent) => {
+      if (!transport.activeDestination() && !pendingNavigation.current) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      // This control has already adopted presentation and retired navigation in onFocus.
+      if (target.hasAttribute('data-workspace-presentation-action')) return;
+      if (target.closest('[data-workspace-sheet-frame]') && !target.closest('input, textarea, select, [contenteditable="true"], [data-workspace-sheet-editor]')) return;
+      cancelNavigationBeforeUserMovement.current();
+    };
+    document.addEventListener('focusin', retireOnExternalFocus);
+    return () => document.removeEventListener('focusin', retireOnExternalFocus);
+  }, [transport]);
   const lastViewport = useRef(workspaceController.viewport);
   useEffect(() => {
     if (lastViewport.current !== workspaceController.viewport) {
@@ -231,7 +392,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const primaryModifier = event.ctrlKey || event.metaKey;
       if (!primaryModifier && event.shiftKey && !event.altKey && key === 'n') {
         event.preventDefault();
-        workspaceController.createSheetAtViewportCenter();
+        createSheet();
         return;
       }
       if (event.altKey && !event.shiftKey && !primaryModifier && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
@@ -284,8 +445,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, toggleErrors, workspaceController]);
-  useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
+  }, [commands, createSheet, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, toggleErrors, workspaceController]);
   const {
     clearNavigationHighlight,
     navigateReference,
@@ -295,6 +455,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     navigationMotion,
   } = useReferenceNavigation({
     navigateToTarget: workspaceController.navigateToTarget,
+    navigateDestination: (id, target, options) => transport.target(id, target, options, { onSettled: options.onSettled ?? (() => {}), onFailure: options.onFailure ?? (() => {}) }),
     onSelectReferenceTarget,
     onExplicitNavigation: navigationHistory.explicitNavigation,
     startNavigation: startExplicitNavigation,
@@ -314,11 +475,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     if (!sheet || !navigateTarget({ kind: 'cell', target }, sheet)) setNavigationFeedback('The navigation target is no longer available.');
   }, [navigateTarget, workbook]);
   const navigateEmptySheet = useCallback((sheet: SheetDocument) => {
-    startExplicitSheetNavigation(onClearSelection, (settled) => workspaceController.navigateToTarget(workspaceRectForFrame(sheet.frame), {
+    startExplicitSheetNavigation(sheet.id, onClearSelection, (onSettled, onFailure) => transport.target(sheet.id, workspaceRectForFrame(sheet.frame), {
       naturalScale: clampWorkspaceZoom(1 / sheet.frame.visualScale),
-      onSettled: settled,
-    }));
-  }, [onClearSelection, startExplicitSheetNavigation, workspaceController]);
+    }, { onSettled, onFailure }));
+  }, [onClearSelection, startExplicitSheetNavigation, transport]);
   const openChoices = useCallback((choices: NavigationCommand[]) => {
     setRowPickerOpen(false);
     setPaletteChoices(choices);
@@ -418,7 +578,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         group: 'Sheets',
         label: sheet.name,
         run: () => {
-          const remembered = onActivateSheet(sheet.id, false);
+          const remembered = sheetSelectionTarget(sheet.id);
           if (remembered) navigateCellTarget(remembered);
           else if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
           else navigateEmptySheet(sheet);
@@ -426,7 +586,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         },
       };
     }));
-  }, [closeCommandPalette, navigateCellTarget, navigateEmptySheet, onActivateSheet, openChoices, sheets]);
+  }, [closeCommandPalette, navigateCellTarget, navigateEmptySheet, sheetSelectionTarget, openChoices, sheets]);
   const openColumnChoices = useCallback(() => {
     if (!selectedSheet || selectedSheet.content.columns.length === 0) return;
     const labels = modelColumnPresentation(selectedSheet, workbook.dataModels).columnLabels;
@@ -463,6 +623,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
+    cancelSheetFrameScale,
     frameLayoutPreview,
     frameScalePreview,
     handleSheetFrameDragMove,
@@ -474,7 +635,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     stopSheetFrameResize,
   } = useSheetFrameInteractions({
     commands,
-    interactionsEnabled,
+    interactionsEnabled: interactionsEnabled && !modeActive,
     viewportScale: workspaceController.viewport.scale,
     workbook,
   });
@@ -496,6 +657,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
+  displayedFrames.current = projectedFramesById;
   const referenceSurfaceSize = useMemo(() => workspaceController.workspaceSurfaceSize ?? { width: 0, height: 0 }, [workspaceController.workspaceSurfaceSize]);
   const frameVisibilityOptions = {
     frames: projectedFrames,
@@ -505,11 +667,12 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       interactionSheetId: interactionPinnedSheetId,
       pendingFocusSheetId: pinsFocusedFrame(gridFocusLease) ? gridFocusLease?.sheetId : undefined,
       referenceSheetId: referenceSelection?.kind === 'cell' ? referenceSelection.target.sheetId : referenceSelection?.sheetId,
-      historySheetIds: [pendingNavigationSheetId, selectionTransition?.from.sheetId, ...(contentHistoryFeedback?.after.map((cell) => cell.sheetId) ?? [])].filter((id): id is string => Boolean(id)),
+      historySheetIds: [pendingNavigationSheetId, contentReveal.pendingSheetId, selectionTransition?.from.sheetId, ...(contentHistoryFeedback?.after.map((cell) => cell.sheetId) ?? [])].filter((id): id is string => Boolean(id)),
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
   };
-  const mountedSheetIds = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.displayedViewport });
+  const mountedSheetIds = new Set(mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.displayedViewport }));
+  if (maximise.state.sheetId) mountedSheetIds.add(maximise.state.sheetId);
   panViewportNeedsRender.current = (viewport) => {
     const next = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport });
     return next.size !== mountedSheetIds.size || [...next].some((id) => !mountedSheetIds.has(id));
@@ -544,6 +707,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     return projectReferenceGeometry({ reference: { kind: 'reference', text: '', sourceSpan: { start: 0, end: 0 }, displaySpan: { start: 0, end: 0 }, target: { kind: 'cell', sheetId: selectedSheet.id, identity }, broken: false, navigable: true }, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize });
   }, [activeCell, formulaInspection, projectedFrames, referenceGridViewports, referenceSurfaceSize, selectedSheet, workbook, workspaceController.viewport]);
   const handleGridPointerInteractionChange = useCallback((sheetId: string, active: boolean) => {
+    if (active) cancelNavigationBeforeUserMovement.current();
     setGridInteractionSheetIds((current) => {
       if (current.has(sheetId) === active) return current;
       const next = new Set(current);
@@ -618,6 +782,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }
   const actionPalette = useWorkspaceActionCommands({
     commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
+    maximise: { active: modeActive, toggle: toggleMaximise, zoom: zoomMaximisedView },
+    onCreateSheet: createSheet,
     formatting: formattingProjection, referencesVisible: referenceLinksVisible, canUndo, canRedo, canRetryFailedSaves,
     navigation: navigationHistory, closePalette: closeCommandPalette,
     openPanel: () => { setPaletteChoices(null); setRowPickerOpen(false); setPaletteView((view) => view + 1); setCommandPaletteOpen(true); },
@@ -668,6 +834,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   return (
     <>
       <WorkspaceToolbar
+        canMaximise={Boolean(selectedSheet) || modeActive}
+        maximised={modeActive || focusedRestore}
+        onToggleMaximise={activateMaximise}
+        onFocusMaximise={focusMaximise}
+        onBlurMaximise={clearRestoreIntent}
         referencesVisible={referenceLinksVisible}
         formatControls={<NumberFormatControls
             disabled={!interactionsEnabled}
@@ -679,7 +850,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             projection={formattingProjection}
             selection={selectionRange}
           />}
-        onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        onCreateSheet={createSheet}
         canGoBack={navigationHistory.canGoBack}
         canGoForward={navigationHistory.canGoForward}
         onGoBack={() => navigationHistory.traverse('back')}
@@ -703,7 +874,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         const sheet = current && findSheetById(workbook, current.sheetId);
         if (current && sheet) navigateTarget({ kind: 'cell', target: { sheetId: current.sheetId, cell: current.cell } }, sheet);
       }} />
-      {errorsOpen && !sheetDialogOpen && errorReferenceHover ? <ErrorReferencePreview hover={errorReferenceHover} surface={workspaceController.workspaceSurfaceRef.current}
+      {errorsOpen && !sheetDialogOpen && !modeActive && errorReferenceHover ? <ErrorReferencePreview hover={errorReferenceHover} surface={workspaceController.workspaceSurfaceRef.current}
         geometry={projectReferenceGeometry({ reference: errorReferenceHover.reference, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize })}
         onNavigate={navigateReference} /> : null}
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
@@ -718,6 +889,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
          },
        } : undefined} /> : null}
       <WorkspaceSurface
+        concealBackground={modeActive}
+        concealPeers={modeActive}
         contextMenu={workspaceController.pendingSheetMenu && menuSheet ? (
           <SheetContextMenu
             key={menuSheet.id}
@@ -751,11 +924,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
         navigationMotion={(navigationMotion || workspaceController.navigationMotion) && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
-        onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        onCreateSheet={createSheet}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
           <>
-            {formulaInspection ? <ContextualReferenceLinks editorActive={Boolean(editingCell)} hoveredSourceSpan={hoveredReferenceSpan} pulseSourceSpan={modifierReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
+            {formulaInspection && !modeActive ? <ContextualReferenceLinks editorActive={Boolean(editingCell)} hoveredSourceSpan={hoveredReferenceSpan} pulseSourceSpan={modifierReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
           </>
         )}
         viewport={workspaceController.viewport}
@@ -790,6 +963,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             ? addressRangeOf(sheet.content, navigationHighlight.range)
             : undefined;
           const navigationRequest = navigationRequestForSheet(sheet.id);
+          const gridPresentationReady = (maximise.state.mode === 'canvas' && !transport.activeStaged())
+            || (maximise.state.mode === 'maximised' && maximise.state.sheetId === sheet.id);
           const navigationRequestTarget = navigationRequest?.target.kind === 'cell'
             ? navigationRequest.target.target
             : null;
@@ -809,6 +984,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             <SheetFrame
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
+              presentation={maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.presentation, viewport: workspaceController.viewport } : undefined}
               isActiveSheet={activeSheetId === sheet.id}
               isNavigationReveal={navigationHighlight?.kind === 'cell'
                 ? navigationHighlight.target.sheetId === sheet.id
@@ -817,6 +993,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                 sheetEditingCell
                 || interactionPinnedSheetId === sheet.id
                 || gridInteractionSheetIds.has(sheet.id)
+                || pendingNavigationSheetId === sheet.id
+                || contentReveal.pendingSheetId === sheet.id
                 || (gridFocusLease?.phase === 'request-active' && gridFocusLease.sheetId === sheet.id),
               )}
               onDetailedFocusDisplaced={() => handleDetailedFocusDisplaced(sheet.id)}
@@ -864,6 +1042,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       submit: () => commands.submitEntryDraft(sheet.id),
                     } } : undefined}
                     interactionsEnabled={interactionsEnabled}
+                    revealEnabled={gridPresentationReady && (!contentReveal.pending || contentReveal.ready)}
+                    requireMeasuredViewport={modeActive}
+                    ownsGridRestore={ownsGridRestore}
                     activeCellKey={cellKeyForTarget(sheet, activeCell)}
                     selectionTransition={selectionTransition}
                     activeSheetId={activeSheetId ?? null}
@@ -878,23 +1059,23 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onReferenceViewport={reportReferenceViewport}
-                    onUserViewportMovement={recordUserGridMovement}
-                    historyRestore={historyRestoreForSheet(sheet.id)}
-                    navigationRestoreGeneration={navigationRequest ? undefined : navigationRestoreForSheet(sheet.id)}
-                    navigationRequestGeneration={navigationRequest?.generation}
+                    onUserViewportMovement={() => { recordUserGridMovement(); transport.cancel(); }}
+                    historyRestore={gridPresentationReady ? historyRestoreForSheet(sheet.id) : undefined}
+                    navigationRestoreGeneration={gridPresentationReady && !navigationRequest ? navigationRestoreForSheet(sheet.id) : undefined}
+                    navigationRequestGeneration={gridPresentationReady ? navigationRequest?.generation : undefined}
                     navigationRequestCellKey={cellKeyForTarget(sheet, navigationRequestTarget)}
                     navigationRequestRange={navigationRequestRange}
                     onNavigationSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
-                      clear: (target) => reportWriteOutcome(onClearCell(target)),
-                      navigate: onNavigateCell,
-                      navigateKeyboard: onNavigateKeyboardCell,
-                      select: onSelectCell,
-                      extend: onExtendSelection,
+                      clear: (target) => { cancelNavigationBeforeUserMovement.current(); reportWriteOutcome(onClearCell(target)); },
+                      navigate: (target, direction) => { cancelNavigationBeforeUserMovement.current(); onNavigateCell(target, direction); },
+                      navigateKeyboard: (...args) => { cancelNavigationBeforeUserMovement.current(); return onNavigateKeyboardCell(...args); },
+                      select: (...args) => { cancelNavigationBeforeUserMovement.current(); onSelectCell(...args); },
+                      extend: (...args) => { cancelNavigationBeforeUserMovement.current(); onExtendSelection(...args); },
                       focusSelection: onFocusSelection,
                       settleSelectionGesture: onSettleSelectionGesture,
-                      startEditing: onStartEdit,
+                      startEditing: (...args) => { cancelNavigationBeforeUserMovement.current(); onStartEdit(...args); },
                     }}
                     editingCell={sheetEditingCell}
                     editorInteraction={{
@@ -920,7 +1101,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       },
                     }}
                     formulaResults={formulaResults}
-                    keyboardFocusRequest={keyboardFocusRequest?.target.sheetId === sheet.id
+                    keyboardFocusRequest={gridPresentationReady && keyboardFocusRequest?.target.sheetId === sheet.id
                       ? {
                           id: keyboardFocusRequest.id,
                           targetKey: cellKeyForTarget(sheet, keyboardFocusRequest.target),
@@ -931,14 +1112,15 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     navigationHighlightRange={navigationHighlightRange}
                     navigationHighlightIdentity={navigationHighlightIdentity}
                     historyFeedbackCells={historyFeedbackCells}
-                    historyFeedbackIdentity={gridHistoryReveals.current.identity === contentHistoryFeedback?.identity
-                      && gridHistoryReveals.current.sheetIds.has(sheet.id)
-                      ? undefined : contentHistoryFeedback?.identity}
-                    onHistoryRevealConsumed={handleHistoryRevealConsumed}
+                    historyRevealCells={contentReveal.feedback ? historyCellsForSheet(contentReveal.feedback, sheet) : historyFeedbackCells}
+                    historyRevealReady={gridPresentationReady && contentReveal.ready}
+                    historyFeedbackIdentity={contentReveal.feedback?.identity}
+                    canRevealHistory={contentReveal.canReveal}
+                    onHistoryRevealConsumed={contentReveal.consume}
                     scrollContainerRef={scrollContainerRef}
                     selectedRange={selectedRange}
                     selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
-                    onSelectAxis={onSelectAxis}
+                    onSelectAxis={(...args) => { cancelNavigationBeforeUserMovement.current(); onSelectAxis(...args); }}
                     clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
                     sheet={tabular}
                   />

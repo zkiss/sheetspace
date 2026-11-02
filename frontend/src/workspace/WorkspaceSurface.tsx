@@ -5,6 +5,8 @@ import '@workspace/WorkspaceSurface.css';
 export function WorkspaceSurface({
   children,
   contextMenu,
+  concealBackground,
+  concealPeers,
   hasSheets,
   isPanningWorkspace,
   navigationMotion,
@@ -17,6 +19,8 @@ export function WorkspaceSurface({
 }: {
   children: ReactNode;
   contextMenu?: ReactNode;
+  concealBackground?: boolean;
+  concealPeers?: boolean;
   hasSheets: boolean;
   isPanningWorkspace: boolean;
   navigationMotion: boolean;
@@ -50,7 +54,7 @@ export function WorkspaceSurface({
   return (
     <section
       aria-label="Spatial workspace"
-      className={`workspace-surface${isPanningWorkspace ? ' workspace-surface-panning' : ''}`}
+      className={`workspace-surface${isPanningWorkspace ? ' workspace-surface-panning' : ''}${concealBackground ? ' workspace-surface-concealed' : ''}`}
       data-viewport-scale={viewport.scale}
       data-viewport-x={viewport.x}
       data-viewport-y={viewport.y}
@@ -64,6 +68,7 @@ export function WorkspaceSurface({
         className={`workspace-plane${navigationMotion ? ' workspace-plane-navigating' : ''}`}
         data-navigation-motion={navigationMotion ? 'smooth' : 'instant'}
         data-testid="workspace-plane"
+        data-conceal-peers={concealPeers ? 'true' : undefined}
         ref={workspacePlaneRef}
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
