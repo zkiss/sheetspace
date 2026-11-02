@@ -39,3 +39,25 @@ it('cancels the active stage on unmount', async () => {
   expect(await operation.completion).toBe('cancelled');
   expect(release).toHaveBeenCalledOnce();
 });
+
+it('rejects reentrant and retained starts after unmount', async () => {
+  let successor: ReturnType<ReturnType<typeof useNavigationStageCoordinator>['start']> | undefined;
+  let finish!: (result: 'settled' | 'cancelled') => void;
+  const move = vi.fn((callback: typeof finish) => {
+    finish = callback;
+    return () => { successor = start('successor'); };
+  });
+  const stages: NavigationStages = {
+    available: () => true, presentation: () => ({ mode: 'canvas' }),
+    restore: () => vi.fn(), move, enter: () => vi.fn(), targetReady: () => vi.fn(),
+  };
+  const { result, unmount } = renderHook(() => useNavigationStageCoordinator(stages));
+  const start = result.current.start;
+  const original = start('original');
+  unmount();
+  finish('settled');
+  expect(await original.completion).toBe('cancelled');
+  expect(await successor!.completion).toBe('cancelled');
+  expect(await start('after').completion).toBe('cancelled');
+  expect(move).toHaveBeenCalledOnce();
+});

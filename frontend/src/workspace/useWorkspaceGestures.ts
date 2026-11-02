@@ -18,7 +18,7 @@ type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
 export function useWorkspaceGestures(
   surfaceRef: RefObject<HTMLElement>,
   actions: {
-    start: () => void;
+    start: () => void | boolean;
     panStart?: () => void;
     panEnd?: () => void;
     pan: (x: number, y: number) => void;
@@ -83,7 +83,8 @@ export function useWorkspaceGestures(
       consume(event);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       current.current.clearSelection();
-      current.current.start();
+      suppressClick = true;
+      if (current.current.start() === false) return;
       current.current.panStart?.();
       current.current.closeMenu();
       pan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
@@ -136,7 +137,7 @@ export function useWorkspaceGestures(
       if (event.type !== 'gesturestart' && gestureScale === null) return;
       consume(event);
       if (event.type === 'gesturestart') {
-        current.current.start();
+        if (current.current.start() === false) return;
         gestureScale = input.scale;
         return;
       }

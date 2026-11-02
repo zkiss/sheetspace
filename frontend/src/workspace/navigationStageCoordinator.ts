@@ -14,8 +14,10 @@ export type NavigationStages = {
 export function createNavigationStageCoordinator() {
   let active: (() => void) | undefined;
   let reconcileActive: (() => void) | undefined;
+  let live = true;
 
   function start(id: string, stages: NavigationStages) {
+    if (!live) return { cancel: () => {}, completion: Promise.resolve('cancelled' as const) };
     const previous = active;
     let done = false;
     let dispose: (() => void) | undefined;
@@ -59,5 +61,9 @@ export function createNavigationStageCoordinator() {
     return { cancel, completion };
   }
 
-  return { start, cancel: () => active?.(), reconcile: () => reconcileActive?.() };
+  return {
+    start, cancel: () => active?.(), reconcile: () => reconcileActive?.(),
+    activate: () => { live = true; },
+    deactivate: () => { live = false; active?.(); },
+  };
 }

@@ -11,7 +11,7 @@ export function useNavigationStageCoordinator(stages: NavigationStages) {
   const owner = coordinator.current;
 
   useLayoutEffect(() => { owner.reconcile(); });
-  useLayoutEffect(() => () => owner.cancel(), [owner]);
+  useLayoutEffect(() => { owner.activate(); return () => owner.deactivate(); }, [owner]);
 
   return {
     cancel: owner.cancel,

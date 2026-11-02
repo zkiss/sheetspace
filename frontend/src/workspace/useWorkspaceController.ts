@@ -40,6 +40,8 @@ export function useWorkspaceController({
   const workspacePlaneRef = useRef<HTMLDivElement | null>(null);
   const previewGeneration = useRef(0);
   const panPreview = useRef<WorkspaceViewport | null>(null);
+  const panSession = useRef(false);
+  const panSessionId = useRef(0);
   const panFrame = useRef<number>();
   const panPublication = useRef({ time: 0, x: 0, y: 0 });
   const zoomPreview = useRef<WorkspaceViewport | null>(null);
@@ -133,6 +135,7 @@ export function useWorkspaceController({
   }
 
   function interruptNavigation() {
+    const navigationId = nextViewportRestoreId.current;
     finishZoomPreview();
     finishPanPreview();
     sampleCreationMotion();
@@ -151,6 +154,7 @@ export function useWorkspaceController({
     setNavigationMotion(false);
     onBeforeUserMovement?.();
     notify?.();
+    return navigationId === nextViewportRestoreId.current;
   }
 
   function invalidateCreationSequence() {
@@ -167,6 +171,7 @@ export function useWorkspaceController({
   }
 
   function panWorkspace(deltaX: number, deltaY: number) {
+    if (panSession.current && panSessionId.current !== nextViewportRestoreId.current) return;
     if (deltaX !== 0 || deltaY !== 0) invalidateCreationSequence();
     if (panPreview.current) {
       panPreview.current = {
@@ -203,14 +208,19 @@ export function useWorkspaceController({
   }
 
   function beginPanPreview() {
+    panSession.current = true;
+    panSessionId.current = nextViewportRestoreId.current;
     panPreview.current = viewportRef.current;
     panPublication.current = { time: performance.now(), x: viewportRef.current.x, y: viewportRef.current.y };
   }
 
   function finishPanPreview() {
+    const stale = panSession.current && panSessionId.current !== nextViewportRestoreId.current;
+    panSession.current = false;
     if (panFrame.current !== undefined) cancelAnimationFrame(panFrame.current);
     panFrame.current = undefined;
     const next = panPreview.current;
+    if (stale) { panPreview.current = null; return; }
     if (!next) return;
     paintPanViewport(next);
     panPreview.current = null;
@@ -382,6 +392,12 @@ export function useWorkspaceController({
     const incoming = active?.motion.sample(typeof time === 'number' ? time : 0);
     const start = displayedWorkspaceViewport(workspacePlaneRef.current) ?? incoming?.viewport ?? viewportRef.current;
     const id = ++nextViewportRestoreId.current;
+    if (panSession.current) {
+      previewGeneration.current++;
+      if (panFrame.current !== undefined) cancelAnimationFrame(panFrame.current);
+      panFrame.current = undefined;
+      panPreview.current = null;
+    }
     cancelViewportRestore();
     if (id !== nextViewportRestoreId.current) { onCancelled?.(); return () => {}; }
     const pending = { id, onSettled: onSettled ?? (() => {}), onCancelled, timeout: undefined as number | undefined };
