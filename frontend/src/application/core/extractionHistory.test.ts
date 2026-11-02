@@ -98,6 +98,37 @@ describe('extraction history', () => {
     expect(history.canRedo).toBe(false);
   });
 
+  it('treats an oversized cell edit as a history boundary after extraction and cell edits', () => {
+    const { before, after } = extraction('cells'), history = new ContentHistory();
+    const cell = cellIdentityAt(after.documents.source!.content, 'A1')!;
+    const affected = { sheetIds: ['source'], cells: [{ sheetId: 'source', cell }] };
+    const write = (beforeRaw: string | null, afterRaw: string) => ({ sheetId: 'source', ...cell, beforeRaw, afterRaw });
+    history.recordExtraction(before, after);
+    history.record([write(null, 'small')], affected);
+
+    const large = 'x'.repeat(CONTENT_HISTORY_MAX_BYTES);
+    history.record([write('small', large)], affected);
+
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+    history.record([{ ...write(null, 'next'), columnId: 'another-column' }], { sheetIds: ['source'], cells: [] });
+    expect(history.peekUndo()?.writes[0]?.afterRaw).toBe('next');
+    history.commitUndo();
+    expect(history.canUndo).toBe(false);
+  });
+
+  it('clears both redo and older extraction undo after an oversized cell edit', () => {
+    const { before, after } = extraction('cells'), history = new ContentHistory();
+    history.recordExtraction(before, after);
+    history.record([{ sheetId: 'source', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: 'small' }], { sheetIds: ['source'], cells: [] });
+    history.commitUndo();
+
+    history.record([{ sheetId: 'source', rowId: 'r', columnId: 'c', beforeRaw: null, afterRaw: 'x'.repeat(CONTENT_HISTORY_MAX_BYTES) }], { sheetIds: ['source'], cells: [] });
+
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+  });
+
   it.each(['content', 'frame', 'model'] as const)('rejects stale %s changes without consuming history', (change) => {
     const { before, after } = extraction('cells'), history = new ContentHistory();
     history.recordExtraction(before, after);

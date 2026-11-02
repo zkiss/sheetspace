@@ -53,7 +53,7 @@ export class ContentHistory {
       bytes: new TextEncoder().encode(JSON.stringify({ writes, affected })).byteLength,
     });
     this.clearRedo();
-    if (transaction.bytes > CONTENT_HISTORY_MAX_BYTES) return;
+    if (transaction.bytes > CONTENT_HISTORY_MAX_BYTES) { this.clear(); return; }
     this.undoStack.push(transaction); this.undoBytes += transaction.bytes;
     this.trimUndo();
   }
