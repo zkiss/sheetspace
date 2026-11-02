@@ -278,11 +278,14 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       }
     };
   }, [modeActive, interactionsEnabled, workspaceController.workspaceSurfaceRef]);
+  const displayedFrames = useRef(new Map<string, ReturnType<typeof frameProjection>>());
   function toggleMaximise() {
     if (modeActive) maximise.toggle();
     else if (selectedSheet) {
+      const saved = frameProjection(selectedSheet);
+      const displayed = displayedFrames.current.get(selectedSheet.id) ?? saved;
       cancelSheetFrameScale();
-      maximise.enter(selectedSheet.id, frameProjection(selectedSheet));
+      maximise.enter(selectedSheet.id, saved, displayed);
     }
   }
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
@@ -577,6 +580,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
+  displayedFrames.current = projectedFramesById;
   const referenceSurfaceSize = useMemo(() => workspaceController.workspaceSurfaceSize ?? { width: 0, height: 0 }, [workspaceController.workspaceSurfaceSize]);
   const frameVisibilityOptions = {
     frames: projectedFrames,

@@ -54,13 +54,13 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     };
     frame.current = requestAnimationFrame(tick);
   }
-  function enter(id: string, saved: SavedFrame) {
+  function enter(id: string, saved: SavedFrame, displayed: SavedFrame = saved) {
     const measured = options.current.size;
     if (!measured || !Number.isFinite(measured.width) || !Number.isFinite(measured.height) || measured.width <= 0 || measured.height <= 0 || !options.current.available(id)) return;
     if (current.current.mode !== 'canvas' && current.current.sheetId === id) return;
     const viewport = options.current.handoff.freezeDisplayedViewport();
     const now = performance.now();
-    update(enterMaximise(current.current, id, saved, measured, canvasPresentation(saved, viewport), now, options.current.reducedMotion), now);
+    update(enterMaximise(current.current, id, saved, measured, canvasPresentation(displayed, viewport), now, options.current.reducedMotion), now);
   }
   function toggle() {
     const now = performance.now();

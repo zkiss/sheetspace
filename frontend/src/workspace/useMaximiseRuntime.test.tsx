@@ -102,8 +102,10 @@ it('samples the handoff and reverses continuously, then commits the native-scale
   vi.stubGlobal('cancelAnimationFrame', (id: number) => callbacks.delete(id));
   const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
   const { result } = renderHook(() => useMaximiseRuntime(handoff, size, false, () => true));
-  act(() => result.current.enter('sheet', saved));
-  expect(result.current.presentation).toEqual(canvasPresentation(saved, displayed));
+  const preview = { position: { x: 35, y: 70 }, size: { width: 510, height: 350 }, visualScale: 1.3 };
+  act(() => result.current.enter('sheet', saved, preview));
+  expect(result.current.presentation).toEqual(canvasPresentation(preview, displayed));
+  expect(result.current.state.frame).toEqual(saved);
   const first = result.current.settled();
   now = 150;
   act(() => callbacks.get(nextId)!(now));
@@ -111,6 +113,7 @@ it('samples the handoff and reverses continuously, then commits the native-scale
   act(() => result.current.toggle());
   expect(await first).toBe('cancelled');
   expect(result.current.presentation).toEqual(middle);
+  expect(result.current.state.motion?.to).toEqual(canvasPresentation(saved, restoredViewport(saved, size)));
   const restored = result.current.settled();
   now = 450;
   act(() => callbacks.get(nextId)!(now));
