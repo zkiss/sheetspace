@@ -352,8 +352,8 @@ export function useWorkspaceController({
   }
 
   function commitFrozenViewport(next: WorkspaceViewport, beforeNotify?: () => void) {
-    if (unmounted.current) return;
-    previewGeneration.current++;
+    if (unmounted.current) return false;
+    const owner = ++previewGeneration.current;
     if (panFrame.current !== undefined) cancelAnimationFrame(panFrame.current);
     if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
@@ -368,13 +368,15 @@ export function useWorkspaceController({
     setViewport(next);
     beforeNotify?.();
     notify?.();
+    return !unmounted.current && owner === previewGeneration.current;
   }
 
-  function freezeDisplayedViewport(programmatic = false) {
+  function freezeDisplayedViewportOwned(programmatic = false) {
     const displayed = displayedWorkspaceViewport(workspacePlaneRef.current, true) ?? viewport;
-    commitFrozenViewport(displayed, programmatic ? undefined : onBeforeUserMovement);
-    return displayed;
+    const owned = commitFrozenViewport(displayed, programmatic ? undefined : onBeforeUserMovement);
+    return { viewport: displayed, owned };
   }
+  function freezeDisplayedViewport(programmatic = false) { return freezeDisplayedViewportOwned(programmatic).viewport; }
 
   function restoreViewport(nextViewport: WorkspaceViewport, onSettled: () => void = () => {}, onCancelled?: () => void) { return animateViewport(nextViewport, onSettled, onCancelled); }
 
@@ -505,6 +507,7 @@ export function useWorkspaceController({
   return {
     closeSheetMenu,
     freezeDisplayedViewport,
+    freezeDisplayedViewportOwned,
     commitFrozenViewport,
     consumeViewportMovementIsUser: () => {
       const isUserMovement = viewportMovementIsUser.current;

@@ -9,6 +9,40 @@ const size = { width: 800, height: 600 };
 const displayed = { x: -40, y: 60, scale: 0.7 };
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it('does not publish an entry superseded during its viewport handoff', async () => {
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result } = renderHook(() => useMaximiseRuntime(handoff, size, true, () => true));
+  handoff.freezeDisplayedViewport.mockImplementationOnce(() => {
+    result.current.cancel();
+    result.current.enter('successor', saved);
+    return displayed;
+  });
+  act(() => result.current.enter('stale', saved));
+  expect(result.current.currentState().sheetId).toBe('successor');
+  expect(await result.current.ensureMaximised('successor')).toBe('settled');
+  expect(await result.current.ensureMaximised('stale')).toBe('cancelled');
+});
+
+it.each(['immediate', 'animated', 'resize'] as const)('does not publish a %s restore superseded during its viewport handoff', async (kind) => {
+  let callback: FrameRequestCallback = () => {};
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result, rerender } = renderHook(({ dimensions, reduced }) => useMaximiseRuntime(handoff, dimensions, reduced, () => true), {
+    initialProps: { dimensions: size, reduced: true },
+  });
+  act(() => result.current.enter('source', saved));
+  if (kind !== 'immediate') rerender({ dimensions: size, reduced: false });
+  handoff.commitFrozenViewport.mockImplementationOnce(() => result.current.enter('successor', saved));
+  act(() => result.current.toggle());
+  if (kind === 'animated') act(() => callback(performance.now() + 1000));
+  if (kind === 'resize') rerender({ dimensions: { width: 1000, height: 700 }, reduced: true });
+  if (kind === 'animated') act(() => callback(performance.now() + 1000));
+  expect(result.current.currentState().sheetId).toBe('successor');
+  expect(await result.current.ensureMaximised('successor')).toBe('settled');
+  expect(result.current.currentState().mode).toBe('maximised');
+});
+
 it('marks coordinator-owned entry as a programmatic viewport handoff', () => {
   const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
   const { result } = renderHook(() => useMaximiseRuntime(handoff, size, true, () => true));

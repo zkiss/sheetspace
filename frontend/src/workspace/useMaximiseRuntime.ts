@@ -6,7 +6,11 @@ import type { SavedFrame } from './maximiseGeometry';
 import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, MAXIMISE_TRANSITION_MS, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
 import type { MaximiseState } from './maximiseState';
 
-type Handoff = { freezeDisplayedViewport: (programmatic?: boolean) => WorkspaceViewport; commitFrozenViewport: (viewport: WorkspaceViewport) => void };
+type Handoff = {
+  freezeDisplayedViewport: (programmatic?: boolean) => WorkspaceViewport;
+  freezeDisplayedViewportOwned?: (programmatic?: boolean) => { viewport: WorkspaceViewport; owned: boolean };
+  commitFrozenViewport: (viewport: WorkspaceViewport) => boolean | void;
+};
 type Result = 'settled' | 'cancelled';
 
 /** Owns one transient sheet presentation; the caller owns editor and input wiring. */
@@ -19,6 +23,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   const targetWaiters = useRef<Array<(result: Result) => void>>([]);
   const targetOwnership = useRef(0);
   const ownership = useRef(0);
+  const transaction = useRef(0);
   const options = useRef({ handoff, size, reducedMotion, available });
   options.current = { handoff, size, reducedMotion, available };
   const [presentation, setPresentation] = useState(() => sampleMaximise(state, performance.now()));
@@ -31,7 +36,8 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     setState(next);
     setPresentation(sampleMaximise(next, now));
   }
-  function update(next: MaximiseState, now: number, restoreCompleted = false, retargetRestore = false, retargetEntry = false) {
+  function update(next: MaximiseState, now: number, restoreCompleted = false, retargetRestore = false, retargetEntry = false, restoreSize?: SheetFrameSize) {
+    const owner = ++transaction.current;
     const previous = current.current;
     if (next === previous) return;
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
@@ -42,7 +48,8 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
       if (!retargetEntry) { targetOwnership.current++; releaseTarget('cancelled'); }
     }
     if (restoreCompleted && previous.frame && previous.size) {
-      options.current.handoff.commitFrozenViewport(restoredViewport(previous.frame, previous.size));
+      const owned = options.current.handoff.commitFrozenViewport(restoredViewport(previous.frame, restoreSize ?? previous.size));
+      if (owner !== transaction.current || owned === false) return;
     }
     publish(next, now);
     if (!next.motion) { release('settled'); releaseCanvas(next.mode === 'canvas' ? 'settled' : 'cancelled'); releaseTarget(next.mode === 'maximised' ? 'settled' : 'cancelled'); return; }
@@ -62,7 +69,11 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     const measured = options.current.size;
     if (!measured || !Number.isFinite(measured.width) || !Number.isFinite(measured.height) || measured.width <= 0 || measured.height <= 0 || !options.current.available(id)) return;
     if (current.current.mode !== 'canvas' && current.current.sheetId === id) return;
-    const viewport = programmatic ? options.current.handoff.freezeDisplayedViewport(true) : options.current.handoff.freezeDisplayedViewport();
+    const owner = ++transaction.current;
+    const handoff = options.current.handoff;
+    const frozen = handoff.freezeDisplayedViewportOwned?.(programmatic);
+    const viewport = frozen?.viewport ?? (programmatic ? handoff.freezeDisplayedViewport(true) : handoff.freezeDisplayedViewport());
+    if (owner !== transaction.current || frozen?.owned === false || !options.current.available(id)) return;
     const now = performance.now();
     update(enterMaximise(current.current, id, saved, measured, canvasPresentation(displayed, viewport), now, options.current.reducedMotion), now);
   }
@@ -100,14 +111,12 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     if (existing.sheetId && !available(existing.sheetId)) { update(unavailableMaximiseSheet(existing, existing.sheetId), now); return; }
     if (size) {
       const resized = resizeMaximise(existing, size, now, reducedMotion);
-      if (existing.mode === 'restoring' && resized.mode === 'canvas' && existing.frame) {
-        options.current.handoff.commitFrozenViewport(restoredViewport(existing.frame, size));
-      }
-      update(resized, now, false, existing.mode === 'restoring', existing.mode === 'entering');
+      update(resized, now, existing.mode === 'restoring' && resized.mode === 'canvas', existing.mode === 'restoring', existing.mode === 'entering', size);
     }
     if (reducedMotion && current.current.motion) update(completeMaximise(current.current, current.current.identity), now, current.current.mode === 'restoring', false, current.current.mode === 'entering');
   });
   useLayoutEffect(() => () => {
+    transaction.current++;
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     current.current = cancelMaximise(current.current);
     ownership.current++;
