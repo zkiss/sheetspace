@@ -8,7 +8,7 @@ import { tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from './gridAxisProjection';
 import { SheetGrid } from './SheetGrid';
 
-function setup() {
+function setup(overrides: Partial<ComponentProps<typeof SheetGrid>> = {}) {
   const sheet = tabularProjection(sheetDocument({ id: 'history', name: 'History', rowCount: 30, columnCount: 10 }));
   const axisProjection = projectGridAxes(sheet);
   const scrollContainerRef = createRef<HTMLDivElement>();
@@ -17,7 +17,7 @@ function setup() {
   const props: ComponentProps<typeof SheetGrid> = {
     activeCellKey: null, axisProjection, sheet, scrollContainerRef,
     cellInteraction: { clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() },
-    editingCell: null,
+    editingCell: null, ...overrides,
     editorInteraction: { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
     formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null, onUserViewportMovement,
   };
@@ -35,6 +35,42 @@ function setup() {
 }
 
 describe('history reveal scroll-axis independence', () => {
+  it('checks live content ownership immediately before scroll and acknowledgement', () => {
+    const canRevealHistory = vi.fn().mockReturnValue(false);
+    const onHistoryRevealConsumed = vi.fn();
+    const { viewport, reveal } = setup({ canRevealHistory, onHistoryRevealConsumed });
+    viewport.scrollTop = 400;
+    reveal('A1');
+    expect(viewport.scrollTop).toBe(400);
+    expect(onHistoryRevealConsumed).not.toHaveBeenCalled();
+    canRevealHistory.mockReturnValue(true);
+    reveal('A1');
+    expect(viewport.scrollTop).toBe(0);
+    expect(onHistoryRevealConsumed).toHaveBeenCalledWith('history', 'undo-1');
+  });
+
+  it('waits for measured presentation geometry before consuming retained feedback', () => {
+    const onHistoryRevealConsumed = vi.fn();
+    const { viewport, reveal } = setup({ requireMeasuredViewport: true, onHistoryRevealConsumed });
+    act(() => { virtualGridGeometry(viewport, { width: 0, height: 0 }); });
+    viewport.scrollTop = 400;
+    reveal('A1');
+    expect(onHistoryRevealConsumed).not.toHaveBeenCalled();
+    expect(viewport.scrollTop).toBe(400);
+    act(() => { virtualGridGeometry(viewport); });
+    reveal('A1');
+    expect(onHistoryRevealConsumed).toHaveBeenCalledOnce();
+  });
+
+  it('rejects revoked navigation requests and saved-scroll restoration', () => {
+    const { viewport, renderNavigationTarget, restore, onNavigationSettled } = setup({ ownsGridRestore: () => false });
+    viewport.scrollTop = 400;
+    renderNavigationTarget('A1', 9);
+    restore({ generation: 10, left: 0, top: 0 });
+    expect(viewport.scrollTop).toBe(400);
+    expect(onNavigationSettled).not.toHaveBeenCalled();
+  });
+
   it('holds content history reveal until the destination grid is ready', () => {
     const { viewport, reveal } = setup();
     viewport.scrollLeft = 500;

@@ -172,6 +172,11 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       ? { generation: active.generation, target: active.navigationTarget }
       : undefined;
   }, []);
+  const ownsGridRestore = (_sheetId: string, generation: number) => {
+    const restoring = activeRestore.current;
+    return Boolean(restoring && restoring.generation === generation
+      && restoring.operation.isCurrent() && (!restoring.staged || restoring.viewportSettled));
+  };
   const startExplicitNavigation = useCallback((operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, onReady?: () => void, onRetire?: () => void) => {
     const sheetId = target.kind === 'cell' ? target.target.sheetId : target.sheetId;
     beginNavigation(operation, sheetId, startViewport, {}, target, onReady, onUnavailableTarget, sheetId, onRetire);
@@ -181,5 +186,11 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       beginNavigation(operation, undefined, startViewport, {}, undefined, clearSelection, onUnavailableTarget, sheetId);
     });
   }, [beginNavigation, history, onUnavailableTarget]);
-  return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation, pendingNavigationSheetId: activeRestore.current?.destinationSheetId };
+  const startContentNavigation = (navigate: (operation: NavigationOperation) => void, onRetire: () => void) => {
+    history.transientNavigation((operation) => {
+      cancelRestore();
+      if (operation.isCurrent()) navigate(operation);
+    }, onRetire);
+  };
+  return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, ownsGridRestore, registerScrollContainer, recordUserGridMovement, startContentNavigation, startExplicitNavigation, startExplicitSheetNavigation, pendingNavigationSheetId: activeRestore.current?.destinationSheetId };
 }

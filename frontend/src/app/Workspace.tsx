@@ -38,7 +38,7 @@ import { NumberFormatControls } from '@workspace/NumberFormatControls';
 import { formattingActionWrites, formattingShortcut } from '@workspace/formattingActions';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
-import { useWorkspaceHistoryReveal } from './useWorkspaceHistoryReveal';
+import { useOwnedHistoryReveal } from './useOwnedHistoryReveal';
 import { ClipboardPayloadStore } from '@grid/clipboardPayload';
 import { useGridFocusLease } from './useGridFocusLease';
 import { SheetModelControls } from '@workspace/SheetModelControls';
@@ -182,11 +182,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const openPropertyDefinitionRef = useRef<() => void>(() => {});
   const runPaletteCommandRef = useRef<(id: string) => void>(() => {});
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
-  const gridHistoryReveals = useRef<{ identity?: string; sheetIds: Set<string> }>({ sheetIds: new Set() });
-  const handleHistoryRevealConsumed = useCallback((sheetId: string, identity: string) => {
-    if (gridHistoryReveals.current.identity !== identity) gridHistoryReveals.current = { identity, sheetIds: new Set() };
-    gridHistoryReveals.current.sheetIds.add(sheetId);
-  }, []);
   const sheets = sheetsInOrder(workbook);
   const activeSheetId = entrySheetId ?? activeCell?.sheetId;
   const selectedSheet = activeSheetId ? findSheetById(workbook, activeSheetId) : undefined;
@@ -238,7 +233,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     presentationActive: modeActive,
   });
   const zoomMaximised = useRef(maximise.zoom);
-  zoomMaximised.current = maximise.zoom;
+  const zoomMaximisedView = (factor: number) => { cancelNavigationBeforeUserMovement.current(); maximise.zoom(factor); };
+  zoomMaximised.current = zoomMaximisedView;
   useEffect(() => {
     const surface = workspaceController.workspaceSurfaceRef.current;
     if (!surface || !modeActive || !interactionsEnabled) return;
@@ -303,7 +299,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   useEffect(() => transport.reconcile(), [transport, workbook]);
   function toggleMaximise() {
     cancelNavigationBeforeUserMovement.current();
-    if (modeActive) maximise.toggle();
+    if (modeActive) void maximise.ensureCanvas();
     else if (selectedSheet) {
       const saved = frameProjection(selectedSheet);
       const displayed = displayedFrames.current.get(selectedSheet.id) ?? saved;
@@ -312,16 +308,23 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
   }
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
-  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, pendingNavigationSheetId, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
+  const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, ownsGridRestore, pendingNavigationSheetId, registerScrollContainer, recordUserGridMovement, startContentNavigation, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
     onHistoryTraversal: () => clearNavigationHighlight(),
     onRestoreSelection, onUnavailableTarget: () => setNavigationFeedback('The saved navigation target is no longer available.'), restoreViewport: workspaceController.restoreViewport,
     restoreDestination: (id, viewport, onSettled, onFailure) => transport.restore(id, viewport, { onSettled, onFailure }),
     stageDestination: transport.stageDestination,
     selection: selectionRange, viewport: workspaceController.viewport,
   });
+  const contentReveal = useOwnedHistoryReveal({
+    feedback: contentHistoryFeedback, editing: editingCell !== null, sheets, creatingAxes,
+    controller: workspaceController, stageDestination: transport.stageDestination,
+    acquire: startContentNavigation,
+    reveal: ({ sheetId, target, outsideViewport }, callbacks) => transport.content(sheetId, target, outsideViewport, callbacks),
+  });
   cancelNavigationBeforeUserMovement.current = () => { cancelNavigationRestore(); transport.cancel(); };
+  useLayoutEffect(() => { if (sheetDialogOpen) cancelNavigationBeforeUserMovement.current(); }, [sheetDialogOpen]);
   const pendingNavigation = useRef(false);
-  pendingNavigation.current = Boolean(pendingNavigationSheetId);
+  pendingNavigation.current = Boolean(pendingNavigationSheetId) || contentReveal.pending;
   useEffect(() => {
     const retireOnExternalFocus = (event: FocusEvent) => {
       if (!transport.activeDestination() && !pendingNavigation.current) return;
@@ -406,10 +409,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [commands, createSheet, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, toggleErrors, workspaceController]);
-  const revealHistoryDestination = useCallback(({ sheetId, target, outsideViewport }: { sheetId: string; target: import('@workspace/workspaceGeometry').WorkspaceTargetRect; outsideViewport: boolean }) => {
-    transport.content(sheetId, target, outsideViewport, { onSettled: () => {}, onFailure: () => {} });
-  }, [transport]);
-  useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController, revealHistoryDestination);
   const {
     clearNavigationHighlight,
     navigateReference,
@@ -631,7 +630,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       interactionSheetId: interactionPinnedSheetId,
       pendingFocusSheetId: pinsFocusedFrame(gridFocusLease) ? gridFocusLease?.sheetId : undefined,
       referenceSheetId: referenceSelection?.kind === 'cell' ? referenceSelection.target.sheetId : referenceSelection?.sheetId,
-      historySheetIds: [pendingNavigationSheetId, selectionTransition?.from.sheetId, ...(contentHistoryFeedback?.after.map((cell) => cell.sheetId) ?? [])].filter((id): id is string => Boolean(id)),
+      historySheetIds: [pendingNavigationSheetId, contentReveal.pendingSheetId, selectionTransition?.from.sheetId, ...(contentHistoryFeedback?.after.map((cell) => cell.sheetId) ?? [])].filter((id): id is string => Boolean(id)),
     },
     surfaceSize: workspaceController.workspaceSurfaceSize,
   };
@@ -745,7 +744,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }
   const actionPalette = useWorkspaceActionCommands({
     commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
-    maximise: { active: modeActive, toggle: toggleMaximise, zoom: maximise.zoom },
+    maximise: { active: modeActive, toggle: toggleMaximise, zoom: zoomMaximisedView },
     onCreateSheet: createSheet,
     formatting: formattingProjection, referencesVisible: referenceLinksVisible, canUndo, canRedo, canRetryFailedSaves,
     navigation: navigationHistory, closePalette: closeCommandPalette,
@@ -955,6 +954,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                 || interactionPinnedSheetId === sheet.id
                 || gridInteractionSheetIds.has(sheet.id)
                 || pendingNavigationSheetId === sheet.id
+                || contentReveal.pendingSheetId === sheet.id
                 || (gridFocusLease?.phase === 'request-active' && gridFocusLease.sheetId === sheet.id),
               )}
               onDetailedFocusDisplaced={() => handleDetailedFocusDisplaced(sheet.id)}
@@ -1002,6 +1002,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       submit: () => commands.submitEntryDraft(sheet.id),
                     } } : undefined}
                     interactionsEnabled={interactionsEnabled}
+                    revealEnabled={gridPresentationReady && (!contentReveal.pending || contentReveal.ready)}
+                    requireMeasuredViewport={modeActive}
+                    ownsGridRestore={ownsGridRestore}
                     activeCellKey={cellKeyForTarget(sheet, activeCell)}
                     selectionTransition={selectionTransition}
                     activeSheetId={activeSheetId ?? null}
@@ -1016,7 +1019,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onReferenceViewport={reportReferenceViewport}
-                    onUserViewportMovement={recordUserGridMovement}
+                    onUserViewportMovement={() => { recordUserGridMovement(); transport.cancel(); }}
                     historyRestore={gridPresentationReady ? historyRestoreForSheet(sheet.id) : undefined}
                     navigationRestoreGeneration={gridPresentationReady && !navigationRequest ? navigationRestoreForSheet(sheet.id) : undefined}
                     navigationRequestGeneration={gridPresentationReady ? navigationRequest?.generation : undefined}
@@ -1069,11 +1072,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     navigationHighlightRange={navigationHighlightRange}
                     navigationHighlightIdentity={navigationHighlightIdentity}
                     historyFeedbackCells={historyFeedbackCells}
-                    historyRevealReady={gridPresentationReady}
-                    historyFeedbackIdentity={gridHistoryReveals.current.identity === contentHistoryFeedback?.identity
-                      && gridHistoryReveals.current.sheetIds.has(sheet.id)
-                      ? undefined : contentHistoryFeedback?.identity}
-                    onHistoryRevealConsumed={handleHistoryRevealConsumed}
+                    historyRevealCells={contentReveal.feedback ? historyCellsForSheet(contentReveal.feedback, sheet) : historyFeedbackCells}
+                    historyRevealReady={gridPresentationReady && contentReveal.ready}
+                    historyFeedbackIdentity={contentReveal.feedback?.identity}
+                    canRevealHistory={contentReveal.canReveal}
+                    onHistoryRevealConsumed={contentReveal.consume}
                     scrollContainerRef={scrollContainerRef}
                     selectedRange={selectedRange}
                     selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}

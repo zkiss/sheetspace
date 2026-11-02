@@ -91,6 +91,11 @@ export function SheetGrid({
   navigationHighlightRange,
   navigationHighlightIdentity,
   historyFeedbackCells,
+  historyRevealCells = historyFeedbackCells,
+  canRevealHistory,
+  revealEnabled = true,
+  requireMeasuredViewport = false,
+  ownsGridRestore,
   historyFeedbackIdentity,
   historyRevealReady = true,
   onHistoryRevealConsumed,
@@ -164,6 +169,11 @@ export function SheetGrid({
   /** One reference-navigation action, independent of range/projection allocations. */
   navigationHighlightIdentity?: number;
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
+  historyRevealCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
+  canRevealHistory?: (sheetId: string, identity: string) => boolean;
+  revealEnabled?: boolean;
+  requireMeasuredViewport?: boolean;
+  ownsGridRestore?: (sheetId: string, generation: number) => boolean;
   /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
   historyFeedbackIdentity?: string;
   historyRevealReady?: boolean;
@@ -305,7 +315,7 @@ export function SheetGrid({
       ?? (navigationHighlightCellKey ? parseCellAddress(navigationHighlightCellKey, sheet) : navigationHighlightRange?.start);
   const navigationTargetKey = navigationRequestCellKey
     ?? (navigationRequestRange ? cellKey(navigationRequestRange.start) : null);
-  const historyAddress = parseCellAddress(historyFeedbackCells?.keys().next().value ?? null, sheet);
+  const historyAddress = parseCellAddress(historyRevealCells?.keys().next().value ?? null, sheet);
   // Keep the selected cell mounted so native focus survives manual scrolling.
   const pinnedAddresses = [
     activeAddress,
@@ -367,7 +377,7 @@ export function SheetGrid({
     }
   }
   useEffect(() => {
-    if (!focusIntent || editingCell) return;
+    if (!revealEnabled || !focusIntent || editingCell) return;
     if (document.activeElement?.closest('form, [role="dialog"]')) return;
     const address = parseCellAddress(focusIntent.targetKey, sheet);
     if (!address) return;
@@ -376,9 +386,9 @@ export function SheetGrid({
     if (rowIndex !== undefined) rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     if (columnIndex !== undefined) columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
     if (!focusIntentIsInWindow) gridRef.current?.focus({ preventScroll: true });
-  }, [columns, editingCell, focusIntent, focusIntentIsInWindow, rowVirtualizer, columnVirtualizer, rows, sheet]);
+  }, [revealEnabled, columns, editingCell, focusIntent, focusIntentIsInWindow, rowVirtualizer, columnVirtualizer, rows, sheet]);
   useEffect(() => {
-    if (!focusIntent || editingCell || !focusIntentIsInWindow) return;
+    if (!revealEnabled || !focusIntent || editingCell || !focusIntentIsInWindow) return;
     if (document.activeElement?.closest('form, [role="dialog"]')) return;
     // A newer application request supersedes this effect before it can move DOM
     // focus or acknowledge the old request. Grid-entry intents are local and do
@@ -405,10 +415,11 @@ export function SheetGrid({
       consumedKeyboardFocusRequestIds.current.add(completedIntent.requestId);
       onKeyboardFocusRequestConsumed(completedIntent.requestId);
     }
-  }, [editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, onKeyboardFocusRequestConsumed, scrollContainerRef, virtualColumns, virtualRows]);
+  }, [revealEnabled, editingCell, focusIntent, focusIntentIsInWindow, keyboardFocusRequest?.id, onKeyboardFocusRequestConsumed, scrollContainerRef, virtualColumns, virtualRows]);
   const revealedActiveCell = useRef<string | null>(null);
   useEffect(() => {
     if (!activeAddress) { revealedActiveCell.current = null; return; }
+    if (!revealEnabled) return;
     if (!scrollContainerRef.current) return;
     const identity = `${sheet.id}:${activeCellKey}`;
     if (revealedActiveCell.current === identity) return;
@@ -418,9 +429,10 @@ export function SheetGrid({
     revealedActiveCell.current = identity;
     rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-  }, [activeAddress, activeCellKey, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
+  }, [revealEnabled, activeAddress, activeCellKey, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
   useEffect(() => {
     if (navigationRequestGeneration == null) return;
+    if (!revealEnabled || (ownsGridRestore && !ownsGridRestore(sheet.id, navigationRequestGeneration))) return;
     if (revealedNavigationIdentity.current === navigationRequestGeneration) return;
     const parsedCell = navigationRequestCellKey
       ? parseA1Address(navigationRequestCellKey, sheetBounds(sheet))
@@ -442,10 +454,12 @@ export function SheetGrid({
     rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
     columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
     setNavigationFocusIntent({ generation: navigationRequestGeneration, range, targetKey });
-  }, [columnVirtualizer, columns, navigationRequestCellKey, navigationRequestGeneration, navigationRequestRange, rowVirtualizer, rows, sheet]);
+  }, [revealEnabled, ownsGridRestore, columnVirtualizer, columns, navigationRequestCellKey, navigationRequestGeneration, navigationRequestRange, rowVirtualizer, rows, sheet]);
   useEffect(() => {
     if (!navigationFocusIntent || navigationFocusIntent.generation !== navigationRequestGeneration) return;
+    if (!revealEnabled || (ownsGridRestore && !ownsGridRestore(sheet.id, navigationFocusIntent.generation))) return;
     const scrollContainer = scrollContainerRef.current;
+    if (requireMeasuredViewport && (!scrollContainer?.clientWidth || !scrollContainer.clientHeight)) return;
     const registeredTarget = focusTargetRef.current;
     const targetElement = registeredTarget.key === navigationFocusIntent.targetKey
       ? registeredTarget.element
@@ -458,6 +472,7 @@ export function SheetGrid({
     if (interactionsEnabled && !editingCell && !document.activeElement?.closest('form, [role="dialog"], [data-workspace-sheet-editor]')) {
       targetElement.focus({ preventScroll: true });
     }
+    if (ownsGridRestore && !ownsGridRestore(sheet.id, navigationFocusIntent.generation)) return;
     ensureCellVisibleOutsideStickyHeaders(
       targetElement,
       scrollContainer,
@@ -482,13 +497,13 @@ export function SheetGrid({
     scrollContainer.scrollTop = reveal.row.scroll;
     setNavigationFocusIntent(null);
     onNavigationSettled?.(navigationFocusIntent.generation);
-  }, [columnMetrics, columns, editingCell, interactionsEnabled, navigationFocusIntent, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, virtualColumns, virtualRows]);
+  }, [revealEnabled, ownsGridRestore, requireMeasuredViewport, sheet.id, columnMetrics, columns, editingCell, interactionsEnabled, navigationFocusIntent, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, virtualColumns, virtualRows]);
   useEffect(() => {
     // Presentation-only highlights still reveal their range for consumers that
     // do not participate in a workspace navigation operation. An operation
     // request owns its reveal above, so a cancelled request can never be
     // revived by its retained highlight.
-    if (navigationRequestGeneration !== undefined || onNavigationSettled) return;
+    if (!revealEnabled || navigationRequestGeneration !== undefined || onNavigationSettled) return;
     if (navigationHighlightIdentity !== undefined
       && revealedNavigationIdentity.current === navigationHighlightIdentity) return;
     if (!navigationHighlightRange && !navigationHighlightCellKey) return;
@@ -514,11 +529,13 @@ export function SheetGrid({
     revealedNavigationIdentity.current = navigationHighlightIdentity;
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
-  }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, sheet]);
+  }, [revealEnabled, columnMetrics, columns, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, sheet]);
   useEffect(() => {
     if (!historyRevealReady || !historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
+    if (canRevealHistory && !canRevealHistory(sheet.id, historyFeedbackIdentity)) return;
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
+    if (requireMeasuredViewport && (!scrollContainer.clientWidth || !scrollContainer.clientHeight)) return;
     const rowIndex = axisIndexForDurableIndex(rows, historyAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, historyAddress.columnIndex);
     const reveal = gridCellReveal({ rows: rowMetrics, columns: columnMetrics }, { row: rowIndex, column: columnIndex }, {
@@ -530,8 +547,11 @@ export function SheetGrid({
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
     onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
-  }, [columnMetrics, historyAddress, historyFeedbackIdentity, historyRevealReady, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
-  useGridHistoryRestore({ navigationGeneration: navigationRestoreGeneration, onSettled: onNavigationSettled, restore: historyRestore, scrollContainerRef });
+  }, [requireMeasuredViewport, canRevealHistory, columnMetrics, historyAddress, historyFeedbackIdentity, historyRevealReady, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
+  useGridHistoryRestore({ navigationGeneration: navigationRestoreGeneration, onSettled: onNavigationSettled, restore: historyRestore, scrollContainerRef,
+    canRestore: (generation) => revealEnabled && (!ownsGridRestore || ownsGridRestore(sheet.id, generation))
+      && (!requireMeasuredViewport || Boolean(scrollContainerRef.current?.clientWidth && scrollContainerRef.current.clientHeight)),
+  });
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
     if (focusIntent) return;

@@ -15,6 +15,12 @@ export function useNavigationHistory({ capture, restore }: {
   const nextOperation = useRef(0);
   const activeOperation = useRef<number>();
   const pendingExplicitNavigation = useRef<number>();
+  const transientRetirement = useRef<() => void>();
+  const retireTransient = useCallback(() => {
+    const retire = transientRetirement.current;
+    transientRetirement.current = undefined;
+    retire?.();
+  }, []);
   const captureRef = useRef(capture);
   captureRef.current = capture;
   const commit = useCallback(() => {
@@ -50,14 +56,17 @@ export function useNavigationHistory({ capture, restore }: {
     // restore must not keep suppressing every later ordinary pan or zoom.
     activeOperation.current = undefined;
     pendingExplicitNavigation.current = undefined;
+    retireTransient();
     scheduleMovement();
-  }, [scheduleMovement]);
+  }, [retireTransient, scheduleMovement]);
   const explicitNavigation = useCallback((navigate: (operation: NavigationOperation) => void) => {
     history.current = { ...history.current, entries: history.current.entries.slice(0, history.current.cursor + 1) };
     const replacing = activeOperation.current !== undefined;
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
     pendingExplicitNavigation.current = generation;
+    retireTransient();
+    if (activeOperation.current !== generation) return;
     flushMovement();
     if (!replacing) commit();
     const complete = () => {
@@ -76,7 +85,29 @@ export function useNavigationHistory({ capture, restore }: {
     };
     const operation = Object.assign(complete, { generation, complete, cancel, isCurrent: () => activeOperation.current === generation, isLatest: () => nextOperation.current === generation });
     navigate(operation);
-  }, [commit, flushMovement]);
+  }, [commit, flushMovement, retireTransient]);
+  const transientNavigation = useCallback((navigate: (operation: NavigationOperation) => void, onRetire: () => void) => {
+    const previous = transientRetirement.current;
+    const generation = ++nextOperation.current;
+    activeOperation.current = generation;
+    pendingExplicitNavigation.current = undefined;
+    transientRetirement.current = onRetire;
+    const complete = () => {
+      if (activeOperation.current !== generation) return;
+      activeOperation.current = undefined;
+      transientRetirement.current = undefined;
+    };
+    const cancel = () => {
+      if (activeOperation.current !== generation) return;
+      activeOperation.current = undefined;
+      retireTransient();
+    };
+    previous?.();
+    if (activeOperation.current === generation) navigate(Object.assign(complete, {
+      generation, complete, cancel, isCurrent: () => activeOperation.current === generation,
+      isLatest: () => nextOperation.current === generation,
+    }));
+  }, [retireTransient]);
   const traverse = useCallback((direction: 'back' | 'forward') => {
     flushMovement();
     const unsettled = activeOperation.current !== undefined;
@@ -97,6 +128,8 @@ export function useNavigationHistory({ capture, restore }: {
     pendingExplicitNavigation.current = undefined;
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
+    retireTransient();
+    if (activeOperation.current !== generation) return true;
     const complete = () => {
       // An old rAF or React commit must never release suppression for a newer
       // traversal. Completion is owned by the restore adapter, not a timer.
@@ -105,13 +138,14 @@ export function useNavigationHistory({ capture, restore }: {
     restore(next.context, Object.assign(complete, { generation, complete, cancel: complete, isCurrent: () => activeOperation.current === generation, isLatest: () => nextOperation.current === generation }));
     setRevision((current) => current + 1);
     return true;
-  }, [flushMovement, restore]);
+  }, [flushMovement, restore, retireTransient]);
   useEffect(() => () => { if (timer.current !== undefined) window.clearTimeout(timer.current); }, []);
   return {
-    cancelPendingNavigation: () => { activeOperation.current = undefined; pendingExplicitNavigation.current = undefined; },
+    cancelPendingNavigation: () => { activeOperation.current = undefined; pendingExplicitNavigation.current = undefined; retireTransient(); },
     canGoBack: history.current.cursor > 0 || pendingExplicitNavigation.current !== undefined,
     canGoForward: history.current.cursor >= 0 && history.current.cursor < history.current.entries.length - 1,
     explicitNavigation,
+    transientNavigation,
     recordUserMovement,
     revision,
     traverse,
