@@ -369,6 +369,26 @@ describe('model lifecycle controller wiring', () => {
     expect(result.current.workbook.documents.one!.modelId).toBeUndefined();
   });
 
+  it('rejects lifecycle changes while an axis failure remains unresolved', async () => {
+    const appendRow = vi.fn().mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ sheetId: 'one', revision: 2, rowCount: 3, rowId: 'server-row' });
+    const api = autosaveClient({ appendRow });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initialWorkbook(), apiClient: api }));
+    act(() => result.current.commands.updateCellContent('one', 'A1', '8'));
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    act(() => result.current.commands.appendRow('one'));
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+
+    act(() => expect(result.current.commands.bindSheetToModel('one', 'model').result).toEqual({ ok: false, reason: 'pending-axis-creation' }));
+    expect(result.current.canUndo).toBe(true);
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    expect(result.current.workbook.documents.one!.modelId).toBeUndefined();
+
+    act(() => result.current.commands.appendRow('one'));
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(appendRow).toHaveBeenCalledTimes(2);
+  });
+
   it('holds new sheet and axis requests behind a pending structural save without dropping them', async () => {
     const save = deferred<Workbook>();
     const workbook = bind(initialWorkbook(), 'one');
