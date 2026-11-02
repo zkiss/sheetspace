@@ -1,9 +1,15 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WorkspaceSurface } from './WorkspaceSurface';
 import { useWorkspaceController } from './useWorkspaceController';
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); delete (document as unknown as { timeline?: unknown }).timeline; });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); delete (document as unknown as { timeline?: unknown }).timeline; });
+
+function pointer(target: Element | Window, type: string, props: MouseEventInit = {}) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: 1, ...props });
+  Object.defineProperty(event, 'pointerId', { value: 7 });
+  fireEvent(target, event);
+}
 
 function setup(onBeforeUserMovement?: () => void) {
   vi.stubGlobal('KeyframeEffect', class {});
@@ -148,4 +154,71 @@ it('rejects a successor started by unmount cancellation', () => {
   });
   app.view.unmount();
   expect(successorCancelled).toHaveBeenCalledOnce();
+});
+
+it.each([
+  ['movement', 0], ['movement', 1], ['cancellation', 0], ['cancellation', 1],
+] as const)('rejects pointer pan when %s starts a successor with button %s', (source, button) => {
+  let startSuccessor = () => {};
+  const app = setup(() => { if (source === 'movement') startSuccessor(); });
+  const surface = app.plane.parentElement!;
+  surface.setPointerCapture = vi.fn();
+  const settled = vi.fn();
+  const cancelled = vi.fn();
+  act(() => { app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }, vi.fn(), () => {
+    if (source === 'cancellation') startSuccessor();
+  }); });
+  const oldFinish = app.animation.onfinish!;
+  startSuccessor = () => { app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled, cancelled); };
+  pointer(surface, 'pointerdown', { button, buttons: button === 1 ? 4 : 1 });
+  pointer(window, 'pointermove', { button, buttons: button === 1 ? 4 : 1, clientX: 50, clientY: 30 });
+  pointer(window, 'pointerup', { button, buttons: 0 });
+  act(oldFinish);
+  expect(surface.setPointerCapture).not.toHaveBeenCalled();
+  expect(app.controller.isPanningWorkspace).toBe(false);
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+  expect(settled).not.toHaveBeenCalled();
+  act(() => app.animation.onfinish?.());
+  expect(settled).toHaveBeenCalledOnce();
+  expect(cancelled).not.toHaveBeenCalled();
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+});
+
+it('retains stale pointer ownership across a second interruption and ignores queued preview frames', () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const app = setup();
+  const surface = app.plane.parentElement!;
+  pointer(surface, 'pointerdown');
+  pointer(window, 'pointermove', { clientX: 10, clientY: 20 });
+  const staleFrame = frames[frames.length - 1];
+  const settled = vi.fn();
+  act(() => app.controller.restoreViewport({ x: 700, y: 400, scale: 1 }, settled));
+  const gesture = new Event('gesturestart', { bubbles: true, cancelable: true });
+  Object.assign(gesture, { scale: 1, clientX: 0, clientY: 0 });
+  fireEvent(surface, gesture);
+  act(() => app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled));
+  pointer(window, 'pointermove', { clientX: 50, clientY: 60 });
+  pointer(window, 'pointerup', { buttons: 0 });
+  act(() => staleFrame(1000));
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+  act(() => app.animation.onfinish?.());
+  expect(settled).toHaveBeenCalledOnce();
+});
+
+it('preserves a reduced-motion successor against a rejected pointer session', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  let startSuccessor = () => {};
+  const app = setup(() => startSuccessor());
+  const settled = vi.fn();
+  act(() => { app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }); });
+  startSuccessor = () => { app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled); };
+  pointer(app.plane.parentElement!, 'pointerdown');
+  pointer(window, 'pointermove', { clientX: 50 });
+  pointer(window, 'pointerup', { buttons: 0 });
+  act(() => vi.runAllTimers());
+  expect(settled).toHaveBeenCalledOnce();
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
 });

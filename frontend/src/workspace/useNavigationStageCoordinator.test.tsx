@@ -1,3 +1,4 @@
+import { StrictMode, useLayoutEffect } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { NavigationStages } from './navigationStageCoordinator';
@@ -60,4 +61,23 @@ it('rejects reentrant and retained starts after unmount', async () => {
   expect(await successor!.completion).toBe('cancelled');
   expect(await start('after').completion).toBe('cancelled');
   expect(move).toHaveBeenCalledOnce();
+});
+
+it('activates a fresh lifetime during StrictMode effect replay', async () => {
+  const finishes: ((result: 'settled' | 'cancelled') => void)[] = [];
+  const operations: ReturnType<ReturnType<typeof useNavigationStageCoordinator>['start']>[] = [];
+  const stages: NavigationStages = {
+    available: () => true, presentation: () => ({ mode: 'canvas' }),
+    restore: () => vi.fn(), move: (finish) => { finishes.push(finish); return vi.fn(); },
+    enter: () => vi.fn(), targetReady: () => vi.fn(),
+  };
+  renderHook(() => {
+    const coordinator = useNavigationStageCoordinator(stages);
+    useLayoutEffect(() => { operations.push(coordinator.start('target')); }, [coordinator]);
+  }, { wrapper: StrictMode });
+  expect(operations).toHaveLength(2);
+  expect(await operations[0].completion).toBe('cancelled');
+  act(() => finishes[0]('settled'));
+  act(() => finishes[1]('settled'));
+  expect(await operations[1].completion).toBe('ready');
 });

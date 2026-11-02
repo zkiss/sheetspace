@@ -60,7 +60,7 @@ export function useWorkspaceController({
   const nextViewportRestoreId = useRef(0);
   const unmounted = useRef(false);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
-    start: interruptNavigation, panStart: beginPanPreview, panEnd: finishPanPreview,
+    start: interruptNavigation, panStart: beginPanPreview, panEnd: () => finishPanPreview(true),
     pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
   }, interactionsEnabled);
 
@@ -214,9 +214,9 @@ export function useWorkspaceController({
     panPublication.current = { time: performance.now(), x: viewportRef.current.x, y: viewportRef.current.y };
   }
 
-  function finishPanPreview() {
+  function finishPanPreview(endSession = false) {
     const stale = panSession.current && panSessionId.current !== nextViewportRestoreId.current;
-    panSession.current = false;
+    if (endSession) panSession.current = false;
     if (panFrame.current !== undefined) cancelAnimationFrame(panFrame.current);
     panFrame.current = undefined;
     const next = panPreview.current;
