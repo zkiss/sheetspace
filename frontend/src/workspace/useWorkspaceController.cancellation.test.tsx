@@ -346,10 +346,10 @@ it('ignores a retained zoom frame after navigation and a new zoom preview', () =
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
   const app = setup();
   act(() => app.controller.zoomWorkspaceBy(1.5, { x: 100, y: 80 }));
-  const staleFrame = frames.at(-1)!;
+  const staleFrame = frames[frames.length - 1]!;
   act(() => app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }));
   act(() => app.controller.zoomWorkspaceBy(1.2, { x: 100, y: 80 }));
-  const currentFrame = frames.at(-1)!;
+  const currentFrame = frames[frames.length - 1]!;
   app.plane.style.transform = 'translate(1px, 2px) scale(1)';
   const before = app.plane.style.transform;
   act(() => staleFrame(1000));
