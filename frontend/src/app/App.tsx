@@ -67,6 +67,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     interactionRevision,
     acknowledgeKeyboardFocusRequest,
     activateSheet,
+    sheetSelectionTarget,
     cancelKeyboardFocusRequest,
     keyboardFocusRequest,
     navigateCell,
@@ -177,6 +178,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         activeCell={activeCell}
         entrySessions={entrySessions}
         onActivateSheet={activateSheet}
+        sheetSelectionTarget={sheetSelectionTarget}
         canRetryFailedSaves={canRetryFailedSaves}
         canUndo={canUndo}
         canRedo={canRedo}

@@ -27,7 +27,7 @@ export function formattingWorkspaceProps(sheet: SheetDocument, selection: Format
     editingCell: null, keyboardFocusRequest: null, referenceSelection: null,
     canRetryFailedSaves: false, saveStatus: 'saved', creatingAxes: {}, creatingFrames: [],
     onKeyboardFocusRequestConsumed: vi.fn(), onKeyboardFocusRequestCancelled: vi.fn(),
-    onCancelEdit: vi.fn(), onClearCell: vi.fn(), onClearSelection: vi.fn(), onActivateSheet: vi.fn(),
+    onCancelEdit: vi.fn(), onClearCell: vi.fn(), onClearSelection: vi.fn(), onActivateSheet: vi.fn(), sheetSelectionTarget: vi.fn(),
     onCommitEdit: vi.fn(), onCommitEditAndNavigate: vi.fn(), onCreateSheet: vi.fn(), onEditValueChange: vi.fn(),
     onNavigateCell: vi.fn(), onNavigateKeyboardCell: vi.fn(), onOpenRenameDialog: vi.fn(),
     onRetryFailedSaves: vi.fn(), onSelectCell: vi.fn(), onExtendSelection: vi.fn(), onFocusSelection: vi.fn(),

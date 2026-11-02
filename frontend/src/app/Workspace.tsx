@@ -73,6 +73,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onClearCell,
   onClearSelection,
   onActivateSheet,
+  sheetSelectionTarget,
   onCommitEdit,
   onCommitEditAndNavigate,
   onSuspendEdit,
@@ -119,6 +120,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onClearCell: (target: CellTarget) => CellWriteResult | undefined;
   onClearSelection: () => void;
   onActivateSheet: (sheetId: string, requestFocus?: boolean) => CellTarget | undefined;
+  sheetSelectionTarget: (sheetId: string) => CellTarget | undefined;
   onCommitEdit: (session?: CellEditSession) => CellWriteResult | undefined;
   onCommitEditAndNavigate: (session: CellEditSession, request: Pick<import('@grid/cellInteractionContracts').CellNavigationRequest, 'key' | 'shift'>) => CellWriteResult | undefined;
   onSuspendEdit?: (session: CellEditSession) => void;
@@ -540,7 +542,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         group: 'Sheets',
         label: sheet.name,
         run: () => {
-          const remembered = onActivateSheet(sheet.id, false);
+          const remembered = sheetSelectionTarget(sheet.id);
           if (remembered) navigateCellTarget(remembered);
           else if (first) navigateCellTarget({ sheetId: sheet.id, cell: first });
           else navigateEmptySheet(sheet);
@@ -548,7 +550,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         },
       };
     }));
-  }, [closeCommandPalette, navigateCellTarget, navigateEmptySheet, onActivateSheet, openChoices, sheets]);
+  }, [closeCommandPalette, navigateCellTarget, navigateEmptySheet, sheetSelectionTarget, openChoices, sheets]);
   const openColumnChoices = useCallback(() => {
     if (!selectedSheet || selectedSheet.content.columns.length === 0) return;
     const labels = modelColumnPresentation(selectedSheet, workbook.dataModels).columnLabels;
