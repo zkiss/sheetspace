@@ -12,9 +12,12 @@ export function prepareExtractionReferences(prepared: PreparedExtraction): Extra
   const { workbook, mappings, snapshot } = prepared;
   const moved = new Map(mappings.map((mapping) => [JSON.stringify([mapping.source.sheetId, cellIdentityKey(mapping.source.cell)]), mapping.destination]));
   const writes: CellWrite[] = [];
+  const destinationWrites = new Map<string, CellWrite>();
   for (const row of snapshot.cells) for (const cell of row) {
     const destination = moved.get(JSON.stringify([snapshot.sheetId, cellIdentityKey(cell.identity)]))!;
-    writes.push({ sheetId: destination.sheetId, ...destination.cell, raw: cell.raw });
+    const write = { sheetId: destination.sheetId, ...destination.cell, raw: cell.raw };
+    destinationWrites.set(JSON.stringify([destination.sheetId, cellIdentityKey(destination.cell)]), write);
+    writes.push(write);
     writes.push({ sheetId: snapshot.sheetId, ...cell.identity, raw: '' });
   }
   for (const sheet of Object.values(workbook.documents)) {
@@ -29,7 +32,7 @@ export function prepareExtractionReferences(prepared: PreparedExtraction): Extra
       if (result.content === raw) continue;
       if (owned.has(cell.columnId)) return { ok: false, reason: 'protected-model-formula' };
       if (destination) {
-        const write = writes.find((item) => item.sheetId === destination.sheetId && item.rowId === destination.cell.rowId && item.columnId === destination.cell.columnId)!;
+        const write = destinationWrites.get(JSON.stringify([destination.sheetId, cellIdentityKey(destination.cell)]))!;
         write.raw = result.content;
       } else writes.push({ sheetId: sheet.id, ...cell, raw: result.content });
     }
