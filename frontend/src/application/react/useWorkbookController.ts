@@ -1,11 +1,12 @@
 import type { MutationResult, WorkspacePosition, SheetFrameSize, SheetZOrderDirection, StableCellIdentity, Workbook, DataModel, SheetDocument } from '@workbook/core/model';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { FormulaCalculation } from '@calculation/formulaCalculation';
 import { workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { admitRecordConfirmingMissing } from '@infrastructure/persistence/admitRecordConfirmingMissing';
 import { useMissingEntrySessions } from './useMissingEntrySessions';
 import { useContentHistoryFeedback } from './useContentHistoryFeedback';
+import { useLifecycleSettlement } from './useLifecycleSettlement';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -127,9 +128,15 @@ export function useWorkbookController({
     setWorkbook,
     workbook,
   });
+  const resetHistory = () => {
+    contentHistory.clear();
+    setContentHistoryFeedback(undefined);
+    setHistoryRevision((revision) => revision + 1);
+  };
+  const lifecycle = useLifecycleSettlement({ autosaveEnabled, current: optimisticWorkbook, setWorkbook, autosave: savedAutosave, resetHistory });
   const { createSheet, creatingFrames, hasPendingCreations, saveStatus: creationSaveStatus } = useSheetCreationOperations({
     autosaveEnabled,
-    beforeCreate: savedAutosave.waitForModelTransitions,
+    beforeCreate: lifecycle.wait,
     currentWorkbook: () => optimisticWorkbook.current,
     resolvedApiClient,
     setWorkbook,
@@ -158,22 +165,6 @@ export function useWorkbookController({
     appliedCalculation.current = pendingCalculation;
   }, [calculated, pendingCalculation]);
   const formulaResults = calculated.results;
-  const resetHistory = () => {
-    contentHistory.clear();
-    setContentHistoryFeedback(undefined);
-    setHistoryRevision((revision) => revision + 1);
-  };
-  const completedModelTransitions = useRef(new Set<string>());
-  useEffect(() => {
-    for (const entry of savedAutosave.outboxSnapshot) {
-      if (entry.intent.kind !== 'model-lifecycle' || entry.status !== 'succeeded' || completedModelTransitions.current.has(entry.operationId)) continue;
-      completedModelTransitions.current.add(entry.operationId);
-      contentHistory.clear();
-      setContentHistoryFeedback(undefined);
-      setHistoryRevision((revision) => revision + 1);
-    }
-  }, [savedAutosave.outboxSnapshot, contentHistory, setContentHistoryFeedback]);
-
   type WorkbookOperationInput = WorkbookOperation extends infer Operation
     ? Operation extends unknown ? Omit<Operation, 'operationId'> : never
     : never;
@@ -208,7 +199,7 @@ export function useWorkbookController({
   }
 
   function rejectPendingModelTransition(): { ok: false; reason: 'pending-model-transition' } | undefined {
-    if (!savedAutosave.hasModelTransition()) return undefined;
+    if (!lifecycle.hasPending()) return undefined;
     setMutationFailure('pending-model-transition');
     return { ok: false, reason: 'pending-model-transition' };
   }
@@ -246,7 +237,7 @@ export function useWorkbookController({
       const rejected = { ok: false, reason: 'pending-sheet-creation' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
-    if (savedAutosave.hasModelTransition()) {
+    if (lifecycle.hasPending()) {
       const rejected = { ok: false, reason: 'pending-model-transition' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
@@ -254,24 +245,8 @@ export function useWorkbookController({
       const rejected = { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
-    optimisticWorkbook.current = result.value;
-    setWorkbook(result.value, { kind: 'structure' });
-    if (!autosaveEnabled) {
-      resetHistory();
-      return { result, completion: Promise.resolve(result) };
-    }
-    const operationId = crypto.randomUUID();
-    savedAutosave.enqueue(operationId, { kind: 'model-lifecycle', before, after: result.value });
-    const completion = savedAutosave.waitFor(operationId).then((entry) => {
-      if (entry.status === 'succeeded') return result;
-      const blockedByPrerequisite = savedAutosave.modelTransitionIsBlockedByFailedPrerequisite(operationId);
-      optimisticWorkbook.current = before;
-      setWorkbook(before, { kind: 'structure' });
-      savedAutosave.discard(operationId);
-      if (blockedByPrerequisite) return { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
-      return { ok: false, reason: 'persistence-failed' } as const;
-    });
-    return { result, completion };
+    return { result, completion: lifecycle.submit(before, result) as Promise<T | TransitionFailure> };
+
   }
 
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
@@ -313,7 +288,7 @@ export function useWorkbookController({
 
   const axisCreation = useGridAxisCreationOperations({
     autosaveEnabled,
-    beforeCreate: savedAutosave.waitForModelTransitions,
+    beforeCreate: lifecycle.wait,
     hasPendingRecreation: savedAutosave.hasPendingRecreation,
     currentWorkbook: () => optimisticWorkbook.current,
     persistenceCoordinator,
@@ -363,7 +338,7 @@ export function useWorkbookController({
   }
 
   function replayContentHistory(direction: 'undo' | 'redo') {
-    if (savedAutosave.hasModelTransition()) return;
+    if (lifecycle.hasPending()) return;
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
     if (transaction.writes.some((write) => admissionLocks.current.has(write.sheetId))) { setMutationFailure('pending-model-transition'); return; }
@@ -416,6 +391,7 @@ export function useWorkbookController({
     })),
     commands: {
       submitEntryDraft: async (sheetId) => {
+        if (rejectPendingModelTransition()) return {};
         const model = entryModel(sheetId);
         if (!model || entrySessions.get(sheetId, model).pending) return {};
         const result = entrySessions.submit(sheetId, model, optimisticWorkbook.current, () => crypto.randomUUID(), async (submission) => {
@@ -506,9 +482,9 @@ export function useWorkbookController({
       writeStoredCells: (writes) => storedWriteResult(applyAction({ kind: 'write-cells', writes }, true, true)),
     },
     canRetryFailedSaves: savedAutosave.hasRetryableFailures,
-    canUndo: !savedAutosave.hasModelTransition() && contentHistory.canUndo,
-    canRedo: !savedAutosave.hasModelTransition() && contentHistory.canRedo,
-    contentHistoryFeedback: savedAutosave.hasModelTransition() ? undefined : contentHistoryFeedback,
+    canUndo: !lifecycle.hasPending() && contentHistory.canUndo,
+    canRedo: !lifecycle.hasPending() && contentHistory.canRedo,
+    contentHistoryFeedback: lifecycle.hasPending() ? undefined : contentHistoryFeedback,
     mutationFailure,
     formulaResults,
     retryStartupLoad,
