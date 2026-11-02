@@ -48,7 +48,7 @@ export function useReferenceNavigation({
   ) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
-  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, onReady: () => void) => void;
+  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, onReady: () => void, onRetire?: () => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
@@ -99,6 +99,12 @@ export function useReferenceNavigation({
         ? operation : Object.assign(complete, { generation, complete, cancel: () => {}, isCurrent: () => true, isLatest: () => true });
       const sequence = ++arrivalSequence.current;
       setHighlight(null);
+      const retire = () => {
+        if (arrivalSequence.current !== sequence) return;
+        arrivalSequence.current += 1;
+        setHighlight(null);
+        setNavigationMotion(false);
+      };
       const arrive = () => {
         if (arrivalSequence.current !== sequence) return;
         onSelectReferenceTarget(target);
@@ -113,15 +119,11 @@ export function useReferenceNavigation({
         naturalScale: clampWorkspaceZoom(1 / targetSheet.frame.visualScale),
         onSettled: settled,
         onFailure: (reason) => {
-          if (arrivalSequence.current === sequence) {
-            arrivalSequence.current += 1;
-            setHighlight(null);
-            setNavigationMotion(false);
-          }
+          retire();
           failed(reason);
         },
       });
-      if (startNavigation) startNavigation(navigationOperation, target, startViewport, arrive);
+      if (startNavigation) startNavigation(navigationOperation, target, startViewport, arrive, retire);
       else { arrive(); startViewport(navigationOperation.complete); }
     };
     if (onExplicitNavigation) onExplicitNavigation(navigate); else navigate(() => {});
