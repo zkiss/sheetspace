@@ -9,6 +9,31 @@ const size = { width: 800, height: 600 };
 const displayed = { x: -40, y: 60, scale: 0.7 };
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it.each(['entering', 'restoring'] as const)('adopts an owned restore before retiring a navigation claim during %s', async (mode) => {
+  let callback: FrameRequestCallback = () => {};
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result } = renderHook(() => useMaximiseRuntime(handoff, size, false, () => true));
+  act(() => result.current.enter('sheet', saved));
+  if (mode === 'restoring') {
+    act(() => callback(performance.now() + 1000));
+    act(() => { void result.current.ensureCanvas(); });
+  }
+  const retireNavigation = result.current.claimPresentation();
+  let restored!: Promise<'settled' | 'cancelled'>;
+  act(() => {
+    restored = result.current.restoreToCanvas();
+    retireNavigation();
+  });
+  expect(result.current.currentState().mode).toBe('restoring');
+  expect(result.current.currentState().sheetId).toBe('sheet');
+  act(() => callback(performance.now() + 1000));
+  expect(await restored).toBe('settled');
+  expect(handoff.commitFrozenViewport).toHaveBeenCalledWith(restoredViewport(saved, size));
+  expect(result.current.currentState().mode).toBe('canvas');
+});
+
 it('does not publish an entry superseded during its viewport handoff', async () => {
   const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
   const { result } = renderHook(() => useMaximiseRuntime(handoff, size, true, () => true));

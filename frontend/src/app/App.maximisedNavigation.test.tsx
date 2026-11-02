@@ -82,18 +82,36 @@ it('reveals content undo on another maximised sheet without adding an explicit n
   expect(source).toHaveAttribute('data-position-x', '0');
 });
 
-it('honours Restore to workspace during the source-restore stage instead of reversing into a stale maximisation', async () => {
-  vi.useFakeTimers();
+it.each(['source restoration', 'target entry'] as const)('adopts displayed geometry when Restore interrupts %s', async (stage) => {
+  useAnimationClock();
   const { source, destination } = setup(false, false);
-  await act(async () => { vi.advanceTimersByTime(1000); });
+  await finishTransfer();
+  await act(async () => { vi.advanceTimersByTime(8); });
   followRange(source);
+  if (stage === 'target entry') {
+    for (let frame = 0; frame < 100 && !destination.hasAttribute('data-presented'); frame++) {
+      await act(async () => { vi.advanceTimersByTime(16); });
+    }
+  }
   await act(async () => { vi.advanceTimersByTime(32); });
+  const presented = stage === 'source restoration' ? source : destination;
+  const body = within(presented).getByTestId('sheet-frame-body');
+  expect(presented).toHaveAttribute('data-presented', 'true');
+  const geometry = [presented.style.cssText, body.style.cssText];
   fireEvent.click(screen.getByRole('button', { name: 'Restore to workspace' }));
-  await act(async () => { vi.advanceTimersByTime(2000); });
+  expect(presented).toHaveAttribute('data-presented', 'true');
+  expect([presented.style.cssText, body.style.cssText]).toEqual(geometry);
+  await finishTransfer();
   expect(source).not.toHaveAttribute('data-presented');
   expect(destination).not.toHaveAttribute('data-presented');
+  const surface = screen.getByTestId('workspace-surface');
+  const scale = 1 / Number(presented.dataset.visualScale);
+  expect(Number(surface.dataset.viewportScale)).toBeCloseTo(scale);
+  expect(Number(surface.dataset.viewportX) + Number(presented.dataset.positionX) * scale).toBeCloseTo((800 - Number(presented.dataset.frameWidth)) / 2);
+  expect(Number(surface.dataset.viewportY) + Number(presented.dataset.positionY) * scale).toBeCloseTo((600 - Number(presented.dataset.frameHeight)) / 2);
   expect(screen.getByRole('button', { name: 'Maximise sheet' })).toBeInTheDocument();
   expect(destination.querySelector('[data-navigation-highlight="true"]')).toBeNull();
+  expect(destination.contains(document.activeElement)).toBe(false);
 });
 
 function useAnimationClock() {

@@ -298,9 +298,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   useEffect(() => { transport.activate(); return () => transport.deactivate(); }, [transport]);
   useEffect(() => transport.reconcile(), [transport, workbook]);
   function toggleMaximise() {
+    if (modeActive) void maximise.restoreToCanvas();
     cancelNavigationBeforeUserMovement.current();
-    if (modeActive) void maximise.ensureCanvas();
-    else if (selectedSheet) {
+    if (!modeActive && selectedSheet) {
       const saved = frameProjection(selectedSheet);
       const displayed = displayedFrames.current.get(selectedSheet.id) ?? saved;
       cancelSheetFrameScale();

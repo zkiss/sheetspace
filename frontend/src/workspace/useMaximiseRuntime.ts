@@ -124,6 +124,10 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     return completion.then((result) => result === 'settled' && targetOwnership.current === generation
       && current.current.mode === 'maximised' && current.current.sheetId === id && options.current.available(id) ? 'settled' : 'cancelled');
   }
+  function restoreToCanvas(): Promise<Result> {
+    presentationOwner.current++;
+    return ensureCanvas();
+  }
   useLayoutEffect(() => {
     const now = performance.now();
     const existing = current.current;
@@ -145,5 +149,5 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     releaseCanvas('cancelled');
     releaseTarget('cancelled');
   }, []);
-  return { state, presentation, enter, toggle, cancel, claimPresentation, zoom, settled, ensureCanvas, ensureMaximised, currentState: () => current.current };
+  return { state, presentation, enter, toggle, cancel, claimPresentation, zoom, settled, ensureCanvas, ensureMaximised, restoreToCanvas, currentState: () => current.current };
 }
