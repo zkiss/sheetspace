@@ -93,6 +93,29 @@
     0 8px 24px rgb(23 32 42 / 12%);
 }
 
+.sheet-frame-presented {
+  border: 0;
+  border-radius: 0;
+  box-shadow: 0 0 0 1px rgb(186 199 206 / var(--presentation-chrome));
+}
+
+.sheet-frame-presented .sheet-frame-header {
+  flex: none;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 calc(0.65rem * var(--presentation-chrome));
+  border-bottom-width: 0;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.sheet-frame-presented .sheet-frame-body {
+  position: absolute;
+  min-height: 0;
+  border-radius: 0;
+  transform-origin: top left;
+}
+
 .sheet-frame-header {
   display: flex;
   align-items: center;

@@ -47,6 +47,10 @@
 
 .workspace-plane-navigating { will-change: transform; }
 
+.workspace-surface-concealed { background-color: #fff; }
+.workspace-surface-concealed .workspace-grid { visibility: hidden; }
+.workspace-plane[data-conceal-peers='true'] > :not([data-presented='true']) { visibility: hidden; }
+
 .empty-workspace {
   position: absolute;
   z-index: 1;

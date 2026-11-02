@@ -1,6 +1,8 @@
 import { useEffect, useRef, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { SheetFrameProjection } from '@workbook/core/model';
 import type { SheetFrameResizeDirection } from './workspaceContracts';
+import type { WorkspaceViewport } from './workspaceContracts';
+import type { SheetPresentation } from './maximiseGeometry';
 import { clampSheetFrameSize, effectiveSheetScreenScale, SHEET_HEADER_HEIGHT } from '@workspace/workspaceGeometry';
 import { resolveSheetRenderingMode } from '@workspace/sheetRenderingMode';
 import { isSheetContextTarget } from './workspaceEventPolicy';
@@ -24,6 +26,7 @@ export function SheetFrame({
   isActiveSheet,
   isNavigationReveal,
   retainDetailedBody,
+  presentation,
   overview,
   onDetailedFocusDisplaced,
   onDetailedBodyAvailable,
@@ -50,6 +53,7 @@ export function SheetFrame({
   isNavigationReveal: boolean;
   /** Retain an existing detailed body during editing or a gesture; never reveal one solely for a culling pin. */
   retainDetailedBody?: boolean;
+  presentation?: { sample: SheetPresentation; viewport: WorkspaceViewport };
   overview?: ReactNode;
   /** Reports that replacing this detailed body displaced native grid focus. */
   onDetailedFocusDisplaced?: () => void;
@@ -79,7 +83,7 @@ export function SheetFrame({
   const requestedRenderingMode = resolveSheetRenderingMode(screenScale, renderingModeRef.current);
   renderingModeRef.current = requestedRenderingMode;
   const previousRenderingMode = useRef(requestedRenderingMode);
-  const renderingMode = retainDetailedBody && previousRenderingMode.current === 'detailed'
+  const renderingMode = presentation || (retainDetailedBody && previousRenderingMode.current === 'detailed')
     ? 'detailed'
     : requestedRenderingMode;
   const bodyHadFocus = useRef(false);
@@ -101,10 +105,11 @@ export function SheetFrame({
   return (
     <article
       aria-label={`Sheet ${frame.name}`}
-      className={`sheet-frame${isActiveSheet ? ' sheet-frame-active' : ''}${
+      className={`sheet-frame${presentation ? ' sheet-frame-presented' : ''}${isActiveSheet ? ' sheet-frame-active' : ''}${
         isNavigationReveal ? ' sheet-frame-navigation-reveal' : ''
       }`}
       data-active-sheet={isActiveSheet ? 'true' : undefined}
+      data-presented={presentation ? 'true' : undefined}
       data-navigation-reveal={isNavigationReveal ? 'true' : undefined}
       data-column-count={columnCount}
       data-frame-height={frameSize.height}
@@ -128,16 +133,17 @@ export function SheetFrame({
       onWheel={(event) => event.stopPropagation()}
       style={{
         '--sheet-header-height': `${SHEET_HEADER_HEIGHT}px`,
-        left: frame.position.x,
-        top: frame.position.y,
+        left: presentation ? (presentation.sample.frame.left - presentation.viewport.x) / presentation.viewport.scale : frame.position.x,
+        top: presentation ? (presentation.sample.frame.top - presentation.viewport.y) / presentation.viewport.scale : frame.position.y,
         zIndex: frame.zIndex,
-        width: frameSize.width,
-        height: frameSize.height,
-        transform: `scale(${frame.visualScale})`,
+        width: presentation?.sample.frame.width ?? frameSize.width,
+        height: presentation?.sample.frame.height ?? frameSize.height,
+        transform: `scale(${presentation ? 1 / presentation.viewport.scale : frame.visualScale})`,
         transformOrigin: 'top left',
+        '--presentation-chrome': presentation?.sample.chrome,
       } as CSSProperties}
     >
-      {SHEET_FRAME_RESIZE_HANDLES.map(([handle, direction]) => (
+      {!presentation && SHEET_FRAME_RESIZE_HANDLES.map(([handle, direction]) => (
         <div
           aria-label={`Resize sheet ${frame.name} from ${handle}`}
           className={`sheet-frame-resize-handle sheet-frame-resize-handle-${handle}`}
@@ -159,9 +165,11 @@ export function SheetFrame({
       <header
         className="sheet-frame-header"
         data-testid="sheet-frame-header"
+        style={presentation ? { height: Math.max(0, presentation.sample.body.top - presentation.sample.frame.top), opacity: presentation.sample.chrome } : undefined}
         onPointerCancel={onSheetFrameDragCancel}
         onLostPointerCapture={onSheetFrameDragCancel}
         onPointerDown={(event) => {
+          if (presentation) return;
           if (event.button === 0) onSelectSheet();
           onSheetFrameDragStart(frame.id, event);
         }}
@@ -174,6 +182,13 @@ export function SheetFrame({
         className="sheet-frame-body"
         data-rendering-mode={renderingMode}
         data-testid="sheet-frame-body"
+        style={presentation ? {
+          left: presentation.sample.body.left - presentation.sample.frame.left,
+          top: presentation.sample.body.top - presentation.sample.frame.top,
+          width: presentation.sample.body.width / presentation.sample.tableScale,
+          height: presentation.sample.body.height / presentation.sample.tableScale,
+          transform: `scale(${presentation.sample.tableScale})`,
+        } : undefined}
         onBlurCapture={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
           bodyHadFocus.current = false;
