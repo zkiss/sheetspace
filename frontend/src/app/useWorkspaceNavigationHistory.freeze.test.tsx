@@ -16,7 +16,7 @@ it('samples before cancelling a history restore and rejects its delayed grid and
   let history: ReturnType<typeof useWorkspaceNavigationHistory>;
   function Harness() {
     controller = useWorkspaceController({ onBeforeUserMovement: () => history.cancelNavigationRestore(), onCreateSheet: vi.fn(), onClearSelection: vi.fn() });
-    history = useWorkspaceNavigationHistory({ onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport: controller.restoreViewport, selection, viewport: controller.viewport });
+    history = useWorkspaceNavigationHistory({ stageDestination: true, onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport: controller.restoreViewport, selection, viewport: controller.viewport });
     return <WorkspaceSurface hasSheets isPanningWorkspace={controller.isPanningWorkspace}
       navigationMotion={controller.navigationMotion} onContextMenu={controller.handleWorkspaceContextMenu}
       viewport={controller.viewport} workspacePlaneRef={controller.workspacePlaneRef}

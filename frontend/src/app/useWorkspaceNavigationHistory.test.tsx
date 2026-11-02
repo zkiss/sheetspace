@@ -34,7 +34,7 @@ describe('useWorkspaceNavigationHistory', () => {
     const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
     const onRestoreSelection = vi.fn(() => true);
     let settle = () => {};
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection, onUnavailableTarget: vi.fn(),
       restoreViewport: (_viewport, ready) => { settle = ready; return () => {}; },
       selection, viewport: { x, y: 0, scale: 1 },
@@ -56,7 +56,7 @@ describe('useWorkspaceNavigationHistory', () => {
     const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
     const restoreDestination = vi.fn(() => () => {});
     const restoreViewport = vi.fn(() => () => {});
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport, restoreDestination,
       selection, viewport: { x, y: 0, scale: 1 },
     }), { initialProps: { x: 1 } });
@@ -71,7 +71,7 @@ describe('useWorkspaceNavigationHistory', () => {
     vi.useFakeTimers();
     const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
     const unavailable = vi.fn();
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => false, onUnavailableTarget: unavailable,
       restoreViewport: (_viewport, ready) => { ready(); return () => {}; },
       selection, viewport: { x, y: 0, scale: 1 },
@@ -86,7 +86,7 @@ describe('useWorkspaceNavigationHistory', () => {
   });
 
   it('keeps dialog focus when the destination grid settles', () => {
-    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport: () => () => {},
       selection: null, viewport: { x: 0, y: 0, scale: 1 },
     }));
@@ -113,7 +113,7 @@ describe('useWorkspaceNavigationHistory', () => {
   it('rejects replaced presentation and grid acknowledgements', () => {
     const arrivals: Array<() => void> = [];
     const ready = vi.fn();
-    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport: () => () => {},
       selection: null, viewport: { x: 0, y: 0, scale: 1 },
     }));
@@ -140,7 +140,7 @@ describe('useWorkspaceNavigationHistory', () => {
 
   it('does not record an empty-scroll restoration until a later user movement', () => {
     vi.useFakeTimers();
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport: (_viewport, complete) => { complete(); return () => {}; },
@@ -165,7 +165,7 @@ describe('useWorkspaceNavigationHistory', () => {
   it('applies a restored offscreen grid scroll offset when its container mounts', () => {
     vi.useFakeTimers();
     const restoreViewport = vi.fn((_viewport, complete) => { complete(); return () => {}; });
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport,
@@ -192,7 +192,7 @@ describe('useWorkspaceNavigationHistory', () => {
   it('reapplies saved offscreen scroll after selection restoration reveals its range', () => {
     vi.useFakeTimers();
     const selection = { anchor: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, extent: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, mode: 'cell' } as never;
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport: (_viewport, complete) => { complete(); return () => {}; },
@@ -224,7 +224,7 @@ describe('useWorkspaceNavigationHistory', () => {
   it('records only an explicit user grid movement, never a programmatic scroll write', () => {
     vi.useFakeTimers();
     const restoreViewport = vi.fn((_viewport, complete) => { complete(); return () => {}; });
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport,
@@ -266,7 +266,7 @@ describe('useWorkspaceNavigationHistory', () => {
       return () => { settleViewport = undefined; };
     });
     const selection = { anchor: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, extent: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, mode: 'cell' } as never;
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport, selection, viewport: { x, y: 0, scale: 1 },
     }), { initialProps: { x: 1 } });
     const grid = scrollContainer(240, 360);
@@ -287,7 +287,7 @@ describe('useWorkspaceNavigationHistory', () => {
 
   it('focuses the destination only after both grid acknowledgement and presentation settlement', () => {
     let settleViewport = () => {};
-    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport: () => () => {},
@@ -323,7 +323,7 @@ describe('useWorkspaceNavigationHistory', () => {
       settleViewport = complete;
       return () => { settleViewport = undefined; };
     });
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport,
@@ -346,7 +346,7 @@ describe('useWorkspaceNavigationHistory', () => {
   });
 
   it('removes a cancelled reference reveal generation before a delayed grid can mount', () => {
-    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport: () => () => {},
@@ -364,7 +364,7 @@ describe('useWorkspaceNavigationHistory', () => {
   });
 
   it('keeps the explicit grid request after its presentation lifetime and removes it on input', () => {
-    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport: () => () => {},
@@ -385,7 +385,7 @@ describe('useWorkspaceNavigationHistory', () => {
     vi.useFakeTimers();
     let settleViewport: (() => void) | undefined;
     const selection = { anchor: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, extent: { sheetId: 'destination', rowIndex: 3, columnIndex: 2 }, mode: 'cell' } as never;
-    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
       onRestoreSelection: () => true,
       onUnavailableTarget: vi.fn(),
       restoreViewport: (_viewport, complete) => { settleViewport = complete; return () => { settleViewport = undefined; }; },
