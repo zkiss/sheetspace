@@ -15,7 +15,7 @@ export function createNavigationStageCoordinator() {
   let active: (() => void) | undefined;
 
   function start(id: string, stages: NavigationStages) {
-    active?.();
+    const previous = active;
     let done = false;
     let dispose: (() => void) | undefined;
     let resolve!: (result: 'ready' | 'cancelled') => void;
@@ -31,6 +31,7 @@ export function createNavigationStageCoordinator() {
     };
     function cancel() { finish('cancelled'); }
     active = cancel;
+    previous?.();
     function valid() { return !done && active === cancel && stages.available(id); }
     function run(stage: Stage, next: () => void) {
       if (!valid()) { finish('cancelled'); return; }

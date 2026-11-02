@@ -38,3 +38,61 @@ it('handles synchronous settlement and same-sheet bypass', async () => {
   expect(await operation.completion).toBe('ready');
   expect(move).not.toHaveBeenCalled();
 });
+
+it('does not replace a newer request started reentrantly by a cancelled stage', async () => {
+  const coordinator = createNavigationStageCoordinator();
+  let replacement: ReturnType<typeof coordinator.start> | undefined;
+  const callbacks: Array<(result: 'settled' | 'cancelled') => void> = [];
+  const stages: NavigationStages = {
+    available: () => true,
+    presentation: () => ({ mode: 'canvas' }),
+    restore: () => vi.fn(),
+    move: (finish) => {
+      callbacks.push(finish);
+      return () => { replacement = coordinator.start('newest', stages); };
+    },
+    enter: () => vi.fn(),
+    targetReady: () => vi.fn(),
+  };
+  const first = coordinator.start('first', stages);
+  const interrupted = coordinator.start('second', stages);
+  expect(await first.completion).toBe('cancelled');
+  expect(await interrupted.completion).toBe('cancelled');
+  callbacks[1]('settled');
+  expect(await replacement!.completion).toBe('ready');
+});
+
+it('releases a stage returned after reentrant cancellation', async () => {
+  const coordinator = createNavigationStageCoordinator();
+  const release = vi.fn();
+  const stages: NavigationStages = {
+    available: () => true,
+    presentation: () => ({ mode: 'canvas' }),
+    restore: () => vi.fn(),
+    move: () => { coordinator.cancel(); return release; },
+    enter: () => vi.fn(),
+    targetReady: () => vi.fn(),
+  };
+  const operation = coordinator.start('target', stages);
+  expect(await operation.completion).toBe('cancelled');
+  expect(release).toHaveBeenCalledOnce();
+});
+
+it('never enters a destination removed while the flyover is underway', async () => {
+  let available = true;
+  let completeMove!: (result: 'settled' | 'cancelled') => void;
+  const enter = vi.fn(() => vi.fn());
+  const stages: NavigationStages = {
+    available: () => available,
+    presentation: () => ({ mode: 'maximised', sheetId: 'source' }),
+    restore: (finish) => { finish('settled'); return vi.fn(); },
+    move: (finish) => { completeMove = finish; return vi.fn(); },
+    enter,
+    targetReady: () => vi.fn(),
+  };
+  const operation = createNavigationStageCoordinator().start('target', stages);
+  available = false;
+  completeMove('settled');
+  expect(await operation.completion).toBe('cancelled');
+  expect(enter).not.toHaveBeenCalled();
+});
