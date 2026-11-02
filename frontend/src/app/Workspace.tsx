@@ -219,7 +219,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     interactionsEnabled: interactionsEnabled && !maximiseActive,
     commandsEnabled: !sheetDialogOpen,
   });
-  const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)));
+  const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)), (id) => {
+    const sheet = findSheetById(workbook, id);
+    return sheet && frameProjection(sheet);
+  });
   const modeActive = maximise.state.mode !== 'canvas';
   useEffect(() => setMaximiseActive(modeActive), [modeActive]);
   // Publish in the commit that changes ownership so a creation result that
@@ -343,6 +346,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     controller: workspaceController, stageDestination: transport.stageDestination,
     acquire: startContentNavigation,
     reveal: ({ sheetId, target, outsideViewport }, callbacks) => transport.content(sheetId, target, outsideViewport, callbacks),
+    onPresentedCell: ({ sheetId, rowId, columnId }) => {
+      const target = { sheetId, cell: { rowId, columnId } };
+      onSelectCell(target);
+      onFocusSelection(target);
+    },
   });
   cancelNavigationBeforeUserMovement.current = () => {
     if (restoreIntent.current) restoreIntent.current = () => false;

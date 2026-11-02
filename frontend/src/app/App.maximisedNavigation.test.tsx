@@ -80,6 +80,21 @@ it('reveals content undo on another maximised sheet without adding an explicit n
   await waitFor(() => expect(source).toHaveAttribute('data-presented', 'true'));
   expect(cell).not.toHaveTextContent('changed');
   expect(source).toHaveAttribute('data-position-x', '0');
+  await waitFor(() => expect(cell).toHaveFocus());
+  expect(cell).toHaveAttribute('data-active-cell', 'true');
+  expect(destination.querySelector('[data-active-cell="true"]')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Bold: one effective value; inherited/ }));
+  await waitFor(() => expect(cell).toHaveStyle({ fontWeight: 'bold' }));
+  expect(within(destination).getByRole('cell', { name: 'Inputs A1 empty cell' })).toHaveStyle({ fontWeight: 'normal' });
+  fireEvent.keyDown(cell, { key: 'ArrowDown' });
+  const next = within(source).getByRole('cell', { name: 'Outputs A2 empty cell' });
+  await waitFor(() => expect(next).toHaveFocus());
+  fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+  fireEvent.click(screen.getByRole('button', { name: /Sheet display scale…/ }));
+  expect(screen.getByRole('spinbutton', { name: 'Display scale (%)' })).toHaveValue(100);
+  fireEvent.keyDown(screen.getByRole('spinbutton', { name: 'Display scale (%)' }), { key: 'Escape' });
+  fireEvent.keyDown(next, { key: 'F2' });
+  expect(screen.getByRole('textbox', { name: 'Outputs A2 editor' })).toHaveFocus();
 });
 
 it.each([
@@ -138,6 +153,31 @@ it.each([
 function useAnimationClock() {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
 }
+
+it('does not let an interrupted content undo replace newer visible selection or focus', async () => {
+  useAnimationClock();
+  const { source, destination } = setup(false, false);
+  await finishTransfer();
+  const cell = within(source).getByRole('cell', { name: 'Outputs A1 cell' });
+  fireEvent.keyDown(cell, { key: 'F2' });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Outputs A1 editor' }), { target: { value: 'changed' } });
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Outputs A1 editor' }), { key: 'Enter' });
+  fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+  fireEvent.click(screen.getByRole('button', { name: /Go to sheet…/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Inputs' }));
+  await finishTransfer();
+  const current = within(destination).getByRole('cell', { name: 'Inputs A1 empty cell' });
+  expect(current).toHaveFocus();
+  fireEvent.keyDown(current, { key: 'z', ctrlKey: true });
+  await act(async () => { vi.advanceTimersByTime(32); });
+  fireEvent.keyDown(current, { key: 'ArrowDown' });
+  await finishTransfer();
+  const newer = within(destination).getByRole('cell', { name: 'Inputs A2 empty cell' });
+  expect(newer).toHaveAttribute('data-active-cell', 'true');
+  expect(newer).toHaveFocus();
+  expect(source).not.toHaveAttribute('data-presented');
+  expect(source.querySelector('[data-active-cell="true"]')).toBeNull();
+});
 
 it.each(['blur', 'new zoom'] as const)('focus alone preserves target entry and yields to %s', async (next) => {
   useAnimationClock();

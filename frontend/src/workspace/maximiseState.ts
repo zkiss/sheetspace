@@ -53,6 +53,15 @@ export function resizeMaximise(state: MaximiseState, size: SheetFrameSize, now: 
   return transition(next, state.mode as 'entering' | 'restoring', displayed, now, reducedMotion);
 }
 
+/** Saved edits change the restore destination, never the maximised working view. */
+export function reconcileMaximiseFrame(state: MaximiseState, frame: SavedFrame, now: number): MaximiseState {
+  const previous = state.frame;
+  if (!previous || (previous.position.x === frame.position.x && previous.position.y === frame.position.y
+    && previous.size.width === frame.size.width && previous.size.height === frame.size.height && previous.visualScale === frame.visualScale)) return state;
+  const next = { ...state, frame };
+  return state.mode === 'restoring' ? transition(next, 'restoring', sampleMaximise(state, now)!, now, false) : next;
+}
+
 /** Grid zoom uses the same finite 0.1–8 policy as workspace zoom, but is never persisted. */
 export function zoomMaximise(state: MaximiseState, factor: number, now: number, reducedMotion = false): MaximiseState {
   if (state.mode !== 'maximised' && state.mode !== 'entering') return state;

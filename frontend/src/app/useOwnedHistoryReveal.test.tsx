@@ -20,6 +20,7 @@ function setup(staged = true, strict = false, initial = false, replaceDuringRepl
   };
   if (initial) inputs.feedback = feedback('one');
   const requests: { onSettled: () => void; onFailure: () => void; cancel: ReturnType<typeof vi.fn> }[] = [];
+  const onPresentedCell = vi.fn();
   let navigation: ReturnType<typeof useWorkspaceNavigationHistory>;
   let newestCurrent = () => false;
   const reveal = vi.fn((_destination, callbacks: { onSettled: () => void; onFailure: () => void }) => {
@@ -31,16 +32,33 @@ function setup(staged = true, strict = false, initial = false, replaceDuringRepl
   const view = renderHook(() => {
     navigation = useWorkspaceNavigationHistory({ onRestoreSelection: () => true, onUnavailableTarget: vi.fn(),
       restoreViewport: (_viewport, settled) => { settled(); return () => {}; }, selection: null, viewport: inputs.controller.viewport });
-    const delivery = useOwnedHistoryReveal({ ...inputs, acquire: navigation.startContentNavigation, reveal });
+    const delivery = useOwnedHistoryReveal({ ...inputs, acquire: navigation.startContentNavigation, reveal, onPresentedCell });
     return { delivery, navigation };
   }, { wrapper: strict ? StrictMode : undefined });
-  return { ...view, inputs, sheet, feedback, reveal, requests, newestCurrent: () => newestCurrent(), show: (identity = 'one') => {
+  return { ...view, inputs, sheet, feedback, reveal, requests, onPresentedCell, newestCurrent: () => newestCurrent(), show: (identity = 'one') => {
     inputs.feedback = feedback(identity);
     view.rerender();
   } };
 }
 
 describe('owned content-history delivery', () => {
+  it('publishes command selection once after visible acknowledgement, never after cancellation', () => {
+    const state = setup();
+    state.show();
+    act(() => state.result.current.delivery.consume('history', 'one'));
+    expect(state.onPresentedCell).not.toHaveBeenCalled();
+    act(() => state.requests[0].onSettled());
+    act(() => state.result.current.delivery.consume('history', 'one'));
+    expect(state.onPresentedCell).toHaveBeenCalledTimes(1);
+    expect(state.onPresentedCell).toHaveBeenCalledWith(state.feedback('one').after[0]);
+    act(() => state.result.current.delivery.consume('history', 'one'));
+    expect(state.onPresentedCell).toHaveBeenCalledTimes(1);
+    state.show('two');
+    const stale = state.result.current.delivery;
+    act(() => state.result.current.navigation.recordUserGridMovement());
+    act(() => { state.requests[1].onSettled(); stale.consume('history', 'two'); });
+    expect(state.onPresentedCell).toHaveBeenCalledTimes(1);
+  });
   it('admits canvas delivery eagerly without adding a navigation-history entry', () => {
     const state = setup(false);
     state.show();

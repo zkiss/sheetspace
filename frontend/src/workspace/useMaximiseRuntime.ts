@@ -3,7 +3,7 @@ import type { SheetFrameSize } from '@workbook/core/model';
 import type { WorkspaceViewport } from './workspaceContracts';
 import { canvasPresentation, restoredViewport } from './maximiseGeometry';
 import type { SavedFrame } from './maximiseGeometry';
-import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, MAXIMISE_TRANSITION_MS, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
+import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, MAXIMISE_TRANSITION_MS, reconcileMaximiseFrame, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
 import type { MaximiseState } from './maximiseState';
 
 type Handoff = {
@@ -14,7 +14,7 @@ type Handoff = {
 type Result = 'settled' | 'cancelled';
 
 /** Owns one transient sheet presentation; the caller owns editor and input wiring. */
-export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null, reducedMotion: boolean, available: (id: string) => boolean) {
+export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null, reducedMotion: boolean, available: (id: string) => boolean, savedFrame?: (id: string) => SavedFrame | undefined) {
   const [state, setState] = useState(initialMaximiseState);
   const current = useRef(state);
   const frame = useRef<number>();
@@ -134,8 +134,14 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   }
   useLayoutEffect(() => {
     const now = performance.now();
-    const existing = current.current;
+    let existing = current.current;
     if (existing.sheetId && !available(existing.sheetId)) { update(unavailableMaximiseSheet(existing, existing.sheetId), now); return; }
+    const saved = existing.sheetId && savedFrame?.(existing.sheetId);
+    if (saved) {
+      const reconciled = reconcileMaximiseFrame(existing, saved, now);
+      update(reconciled, now, false, existing.mode === 'restoring', existing.mode === 'entering');
+      existing = current.current;
+    }
     if (size) {
       const resized = resizeMaximise(existing, size, now, reducedMotion);
       update(resized, now, existing.mode === 'restoring' && resized.mode === 'canvas', existing.mode === 'restoring', existing.mode === 'entering', size);

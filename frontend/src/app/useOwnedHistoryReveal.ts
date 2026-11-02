@@ -31,6 +31,7 @@ type Inputs = {
   stageDestination: () => boolean;
   acquire: (start: (operation: NavigationOperation) => void, retire: () => void) => void;
   reveal: (destination: RevealDestination, callbacks: { onSettled: () => void; onFailure: () => void }) => () => void;
+  onPresentedCell?: (cell: ContentHistoryFeedback['after'][number]) => void;
 };
 
 export function useOwnedHistoryReveal(inputs: Inputs) {
@@ -120,6 +121,10 @@ export function useOwnedHistoryReveal(inputs: Inputs) {
     consume: (sheetId: string, identity: string) => {
       if (!delivery || !canReveal(sheetId, identity)) return;
       delivery.consumed.add(sheetId);
+      if (delivery.staged) {
+        const cell = delivery.feedback.after.find((cell) => cell.sheetId === sheetId)!;
+        latest.current.onPresentedCell?.(cell);
+      }
       if (attempt?.settled && sheetId === delivery.sheetId) {
         delivery.completed = true;
         attempt.operation?.complete();
