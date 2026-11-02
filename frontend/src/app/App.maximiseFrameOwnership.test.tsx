@@ -93,7 +93,10 @@ it.each(['drag', 'resize', 'scale'] as const)('retires captured frame %s before 
   expect(api.updateSheetVisualScale).not.toHaveBeenCalled();
 });
 
-it.each(['drag', 'resize', 'scale'] as const)('moves the live %s preview continuously into maximised mode without retaining it', (owner) => {
+it.each((['drag', 'resize', 'scale'] as const).flatMap((owner) => [
+  { owner, reverseEarly: true },
+  { owner, reverseEarly: false },
+]))('moves the live $owner preview continuously and restores it (early reversal: $reverseEarly)', ({ owner, reverseEarly }) => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }));
   const api = autosaveClient({ updateSheetVisualScale: vi.fn() });
   const sheet = smallSheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 48, y: 96 }, visualScale: 0.8, frameSize: { width: 310, height: 220 }, zIndex: 7 });
@@ -142,6 +145,10 @@ it.each(['drag', 'resize', 'scale'] as const)('moves the live %s preview continu
   expect(frame).toHaveAttribute('data-presented', 'true');
   expect(target.releasePointerCapture).toHaveBeenCalledWith(17);
   expect(captured).toBe(false);
+  pointer(target, 'lostpointercapture', 100, owner === 'scale');
+  pointer(target, 'pointermove', 150, owner === 'scale');
+  pointer(target, 'pointerup', 150, owner === 'scale');
+  expect(captured).toBe(false);
   expect([frame.dataset.positionX, frame.dataset.positionY, frame.dataset.frameWidth, frame.dataset.frameHeight, frame.dataset.visualScale]).toEqual(saved);
   expectGeometry(surfaceFrameGeometry(frame, surface), source);
   const body = within(frame).getByTestId('sheet-frame-body');
@@ -152,22 +159,29 @@ it.each(['drag', 'resize', 'scale'] as const)('moves the live %s preview continu
   expectGeometry(surfaceFrameGeometry(frame, surface), midpoint(source, { left: 0, top: 0, width: 800, height: 600 }));
   expect(within(frame).getByTestId('sheet-frame-header')).toHaveStyle({ opacity: '0.5' });
 
-  advance(150);
-  expectGeometry(surfaceFrameGeometry(frame, surface), { left: 0, top: 0, width: 800, height: 600 });
-  expect(within(frame).getByTestId('sheet-frame-header')).toHaveStyle({ height: '0px', opacity: '0' });
-
+  if (!reverseEarly) {
+    advance(150);
+    expectGeometry(surfaceFrameGeometry(frame, surface), { left: 0, top: 0, width: 800, height: 600 });
+    expect(within(frame).getByTestId('sheet-frame-header')).toHaveStyle({ height: '0px', opacity: '0' });
+  }
+  const interrupted = surfaceFrameGeometry(frame, surface);
+  const interruptedBodyScale = transformScale(body);
   fireEvent.click(screen.getByRole('button', { name: 'Restore to workspace' }));
   expect(frame).toHaveAttribute('data-presented', 'true');
-  expectGeometry(surfaceFrameGeometry(frame, surface), { left: 0, top: 0, width: 800, height: 600 });
+  expectGeometry(surfaceFrameGeometry(frame, surface), interrupted);
+  expect(transformScale(body)).toBeCloseTo(interruptedBodyScale, 6);
   expect([frame.dataset.positionX, frame.dataset.positionY, frame.dataset.frameWidth, frame.dataset.frameHeight, frame.dataset.visualScale]).toEqual(saved);
 
   advance(150);
-  expectGeometry(surfaceFrameGeometry(frame, surface), midpoint({ left: 0, top: 0, width: 800, height: 600 }, { left: 245, top: 190, width: 310, height: 220 }));
+  expectGeometry(surfaceFrameGeometry(frame, surface), midpoint(interrupted, { left: 245, top: 190, width: 310, height: 220 }));
   advance(150);
 
   expect(frame).not.toHaveAttribute('data-presented');
   expect(screen.getByRole('article', { name: 'Sheet Inputs' })).toBe(frame);
   expect([frame.dataset.positionX, frame.dataset.positionY, frame.dataset.frameWidth, frame.dataset.frameHeight, frame.dataset.visualScale]).toEqual(saved);
+  expect(frame).toHaveAttribute('data-z-index', '7');
+  expectGeometry(surfaceFrameGeometry(frame, surface), { left: 245, top: 190, width: 310, height: 220 });
+  expect(transformScale(frame) * Number(surface.dataset.viewportScale)).toBeCloseTo(1, 6);
   expect(api.updateSheetPosition).not.toHaveBeenCalled();
   expect(api.updateSheetFrameLayout).not.toHaveBeenCalled();
   expect(api.updateSheetVisualScale).not.toHaveBeenCalled();
