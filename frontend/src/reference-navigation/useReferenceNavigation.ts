@@ -98,6 +98,7 @@ export function useReferenceNavigation({
       const navigationOperation = typeof operation === 'function' && 'complete' in operation
         ? operation : Object.assign(complete, { generation, complete, cancel: () => {}, isCurrent: () => true, isLatest: () => true });
       const sequence = ++arrivalSequence.current;
+      let published = false;
       setHighlight(null);
       const retire = () => {
         if (arrivalSequence.current !== sequence) return;
@@ -106,7 +107,8 @@ export function useReferenceNavigation({
         setNavigationMotion(false);
       };
       const arrive = () => {
-        if (arrivalSequence.current !== sequence) return;
+        if (published || arrivalSequence.current !== sequence || !navigationOperation.isCurrent()) return;
+        published = true;
         onSelectReferenceTarget(target);
         if (arrivalSequence.current !== sequence || !navigationOperation.isCurrent()) return;
         setHighlight({ target, identity: generation });
@@ -118,13 +120,23 @@ export function useReferenceNavigation({
         minimumScale: detailedViewportScaleForSheet(targetSheet),
         naturalScale: clampWorkspaceZoom(1 / targetSheet.frame.visualScale),
         onSettled: settled,
-        onFailure: (reason) => {
-          retire();
-          failed(reason);
-        },
+        onFailure: failed,
       });
       if (startNavigation) startNavigation(navigationOperation, target, startViewport, arrive, retire);
-      else { arrive(); startViewport(navigationOperation.complete); }
+      else {
+        arrive();
+        if (arrivalSequence.current !== sequence || !navigationOperation.isCurrent()) return;
+        let pending = true;
+        startViewport(() => {
+          if (!pending) return;
+          pending = false;
+          navigationOperation.complete();
+        }, () => {
+          if (!pending) return;
+          pending = false;
+          retire();
+        });
+      }
     };
     if (onExplicitNavigation) onExplicitNavigation(navigate); else navigate(() => {});
     return true;

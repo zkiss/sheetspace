@@ -7,6 +7,41 @@ import { useWorkspaceNavigationHistory } from './useWorkspaceNavigationHistory';
 afterEach(() => vi.useRealTimers());
 
 describe('reference navigation retirement', () => {
+  it.each([
+    ['before grid settlement', 'cell'], ['after grid settlement', 'cell'],
+    ['before grid settlement', 'range'], ['after grid settlement', 'range'],
+  ] as const)('ignores duplicate readiness and late failures %s for %s', (timing, kind) => {
+    vi.useFakeTimers();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const cell = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    let ready = () => {};
+    let fail: (reason: 'unavailable' | 'cancelled') => void = () => {};
+    const select = vi.fn();
+    const unavailable = vi.fn();
+    const { result } = renderHook(() => {
+      const history = useWorkspaceNavigationHistory({ stageDestination: true, selection: null,
+        viewport: { x: 0, y: 0, scale: 1 }, onRestoreSelection: () => true,
+        onUnavailableTarget: unavailable, restoreViewport: () => () => {} });
+      const reference = useReferenceNavigation({ workbook: workbookWithSheets([sheet]),
+        onSelectReferenceTarget: select, onExplicitNavigation: history.history.explicitNavigation,
+        startNavigation: history.startExplicitNavigation,
+        navigateToTarget: (_target, options) => { ready = options!.onSettled!; fail = options!.onFailure!; return () => {}; } });
+      return { history, reference };
+    });
+    const target = kind === 'cell' ? { kind, target: { sheetId: sheet.id, cell } } : { kind, sheetId: sheet.id, range: { start: cell, end: cell } };
+    act(() => { result.current.reference.navigateTarget(target, sheet); });
+    act(() => ready());
+    const generation = result.current.history.navigationRestoreForSheet(sheet.id)!;
+    const identity = result.current.reference.navigationHighlightIdentity;
+    if (timing === 'after grid settlement') act(() => result.current.history.acknowledgeGridRestore(sheet.id, generation));
+    act(() => { ready(); fail('unavailable'); fail('cancelled'); vi.advanceTimersByTime(1199); });
+    expect(select).toHaveBeenCalledOnce();
+    expect(unavailable).not.toHaveBeenCalled();
+    expect(result.current.reference.navigationHighlightIdentity).toBe(identity);
+    if (timing === 'before grid settlement') act(() => result.current.history.acknowledgeGridRestore(sheet.id, generation));
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.reference.navigationHighlight).toBeNull();
+  });
   it.each(['cancel', 'empty replacement'] as const)('retires an arrived but unsettled highlight on %s', (action) => {
     vi.useFakeTimers();
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
