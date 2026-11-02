@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { autosaveClient } from '@test-support/apiClients';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
@@ -32,13 +32,15 @@ describe('extraction controller history', () => {
     const request: ExtractionRequest = { sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell }, targetSheetId: ids[0]!, targetName: 'Target', targetRows: [ids[1]!], targetColumns: [ids[2]!], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } };
     const save = vi.fn().mockRejectedValue(new Error('offline'));
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient({ saveModelLifecycle: save }) }));
+    act(() => { result.current.commands.updateCellContent('s', 'A1', '42'); });
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
     await act(async () => {
       const submission = result.current.commands.extractSelection(request);
       expect(submission.result.ok).toBe(true);
       expect(await submission.completion).toEqual({ ok: false, reason: 'persistence-failed' });
     });
     expect(result.current.workbook.documents[ids[0]!]).toBeUndefined();
-    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canUndo).toBe(true);
     expect(save).toHaveBeenCalledOnce();
   });
 

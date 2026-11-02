@@ -7,6 +7,8 @@ import { admitRecordConfirmingMissing } from '@infrastructure/persistence/admitR
 import { useMissingEntrySessions } from './useMissingEntrySessions';
 import { useContentHistoryFeedback } from './useContentHistoryFeedback';
 import { useLifecycleSettlement } from './useLifecycleSettlement';
+import { useExtractionReplay } from './useExtractionReplay';
+import { extractionCommand } from './extractionCommand';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
@@ -22,9 +24,6 @@ import {
 } from '@application/core/userActions';
 import type { ClipboardParseResult } from '@application/core/clipboardPayload';
 import { ContentHistory } from '@application/core/contentHistory';
-import { extractSelection } from '@application/core/extractSelection'; import { prepareExtractionReplay } from '@application/core/extractionHistory';
-import type { ExtractionRequest } from '@application/core/extractionPreparation';
-import type { ExtractionCommandResult, ExtractionSubmission } from './workbookControllerTypes';
 import { bindSheetToModel, unbindSheetFromModel, replaceModelDeclaration } from '@application/core/modelLifecycle';
 import { renameColumn } from '@application/core/renameColumn';
 import { deleteRow } from '@application/core/deleteRow';
@@ -252,20 +251,6 @@ export function useWorkbookController({
 
   }
 
-  function extractSelectionCommand(request: ExtractionRequest): ExtractionSubmission {
-    let extracted: ReturnType<typeof extractSelection> | undefined;
-    const submission = applyModelLifecycleTransition((before) => {
-      extracted = extractSelection(before, request);
-      if (!extracted.ok) return extracted;
-      if (!contentHistory.canRecordExtraction(before, extracted.workbook)) return { ok: false, reason: 'extraction-history-too-large' } as const;
-      return { ok: true, value: extracted.workbook } as const;
-    }, (before, after) => {
-      contentHistory.recordExtraction(before, after);
-      setContentHistoryFeedback(undefined); setHistoryRevision((revision) => revision + 1);
-    });
-    const convert = (result: typeof submission.result): ExtractionCommandResult => result.ok ? extracted! : result; return { result: convert(submission.result), completion: submission.completion.then(convert) };
-  }
-
   function deleteSheetCommand(sheetId: string): WorkbookOperationResult {
     const pendingRejection = rejectPendingModelTransition();
     if (pendingRejection) return pendingRejection;
@@ -354,19 +339,23 @@ export function useWorkbookController({
     return result.ok ? { ok: true, changed: result.value.changed } : { ok: false, reason: result.reason };
   }
 
+  const extractionReplay = useExtractionReplay({
+    history: contentHistory,
+    hasPending: lifecycle.hasPending,
+    clearFeedback: () => setContentHistoryFeedback(undefined),
+    publishHistory: () => setHistoryRevision((revision) => revision + 1),
+    submit: (transform, success) => applyModelLifecycleTransition(transform, success),
+  });
+
   function replayContentHistory(direction: 'undo' | 'redo') {
-    if (lifecycle.hasPending()) return;
     const transaction = direction === 'undo' ? contentHistory.peekUndo() : contentHistory.peekRedo();
     if (!transaction) return;
     if (transaction.kind === 'extraction') {
-      applyModelLifecycleTransition((current) => { const prepared = prepareExtractionReplay(current, transaction, direction);
-        return prepared.ok ? { ok: true, value: prepared.workbook } as const : prepared;
-      }, () => {
-        if (direction === 'undo') contentHistory.commitUndo(); else contentHistory.commitRedo();
-        setContentHistoryFeedback(undefined); setHistoryRevision((revision) => revision + 1);
-      });
+      extractionReplay.replay(transaction, direction);
       return;
     }
+    if (lifecycle.hasPending()) return;
+    extractionReplay.clearFailure();
     if (transaction.writes.some((write) => admissionLocks.current.has(write.sheetId))) { setMutationFailure('pending-model-transition'); return; }
     const sourceWorkbook = optimisticWorkbook.current;
     const expected = direction === 'undo' ? 'after' : 'before';
@@ -416,7 +405,11 @@ export function useWorkbookController({
       return model ? [[sheet.id, entrySessions.get(sheet.id, model)]] : [];
     })),
     commands: {
-      extractSelection: extractSelectionCommand,
+      extractSelection: (request) => extractionCommand(request, {
+        history: contentHistory,
+        submit: applyModelLifecycleTransition,
+        publish: () => { setContentHistoryFeedback(undefined); setHistoryRevision((revision) => revision + 1); },
+      }),
       submitEntryDraft: async (sheetId) => {
         if (rejectPendingModelTransition()) return {};
         const model = entryModel(sheetId);
@@ -512,6 +505,7 @@ export function useWorkbookController({
     canUndo: !lifecycle.hasPending() && contentHistory.canUndo,
     canRedo: !lifecycle.hasPending() && contentHistory.canRedo,
     contentHistoryFeedback: lifecycle.hasPending() ? undefined : contentHistoryFeedback,
+    extractionReplayFailure: extractionReplay.failure,
     mutationFailure,
     formulaResults,
     retryStartupLoad,
