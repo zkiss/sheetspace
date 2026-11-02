@@ -44,7 +44,7 @@ describe('navigation failure and traversal ownership', () => {
     act(() => result.current.startExplicitSheetNavigation('empty', clearSelection, (_ready, failed) => { fail = failed; return () => {}; }));
     rerender({ x: 5 });
     act(() => fail('unavailable'));
-    expect(clearSelection).toHaveBeenCalledOnce();
+    expect(clearSelection).not.toHaveBeenCalled();
     expect(unavailable).toHaveBeenCalledOnce();
     expect(result.current.history.canGoBack).toBe(false);
   });

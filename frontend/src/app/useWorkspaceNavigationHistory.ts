@@ -174,11 +174,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   }, [beginNavigation, onUnavailableTarget]);
   const startExplicitSheetNavigation = useCallback((sheetId: string, clearSelection: () => void, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void) => {
     history.explicitNavigation((operation) => {
-      // Empty sheets are valid destinations but intentionally have no grid target.
-      // Clear the old selection before the arrival context is captured.
-      clearSelection();
-      if (!operation.isCurrent()) return;
-      beginNavigation(operation, undefined, startViewport, {}, undefined, undefined, onUnavailableTarget, sheetId);
+      beginNavigation(operation, undefined, startViewport, {}, undefined, clearSelection, onUnavailableTarget, sheetId);
     });
   }, [beginNavigation, history, onUnavailableTarget]);
   return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation, pendingNavigationSheetId: activeRestore.current?.requiredSheetId };

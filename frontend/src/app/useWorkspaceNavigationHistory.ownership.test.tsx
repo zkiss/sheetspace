@@ -8,6 +8,58 @@ const selection = { anchor: { sheetId: 'departure' } } as CellSelection;
 const target = (sheetId: string) => ({ kind: 'cell', target: { sheetId, cell: {} } }) as never;
 
 describe('navigation ownership and committed arrival', () => {
+  it.each(['cancelled', 'unavailable', 'outer'] as const)('preserves departure when an empty arrival is interrupted: %s', (reason) => {
+    let ready = () => {};
+    let fail: (reason: 'cancelled' | 'unavailable') => void = () => {};
+    const unavailable = vi.fn();
+    const { result } = renderHook(() => {
+      const [selected, setSelected] = useState<CellSelection | null>(selection);
+      const history = useWorkspaceNavigationHistory({ stageDestination: true, selection: selected,
+        viewport: { x: 0, y: 0, scale: 1 }, onRestoreSelection: (value) => { setSelected(value); return true; },
+        onUnavailableTarget: unavailable, restoreViewport: () => () => {},
+      });
+      return { history, selected, setSelected };
+    });
+    act(() => result.current.history.startExplicitSheetNavigation('empty', () => result.current.setSelected(null), (settled, failed) => {
+      ready = settled; fail = failed; return () => {};
+    }));
+    expect(result.current.selected).toEqual(selection);
+    act(() => { if (reason === 'outer') result.current.history.cancelNavigationRestore(); else fail(reason); });
+    act(() => { ready(); fail('unavailable'); ready(); });
+    expect(result.current.selected).toEqual(selection);
+    expect(result.current.history.history.canGoBack).toBe(false);
+    expect(unavailable).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0);
+  });
+
+  it('ignores stale empty callbacks after a selected successor arrives', () => {
+    let staleReady = () => {};
+    let staleFail: (reason: 'cancelled' | 'unavailable') => void = () => {};
+    let successorReady = () => {};
+    const successor = { anchor: { sheetId: 'successor' } } as CellSelection;
+    const unavailable = vi.fn();
+    const { result } = renderHook(() => {
+      const [selected, setSelected] = useState<CellSelection | null>(selection);
+      const history = useWorkspaceNavigationHistory({ stageDestination: true, selection: selected,
+        viewport: { x: 0, y: 0, scale: 1 }, onRestoreSelection: (value) => { setSelected(value); return true; },
+        onUnavailableTarget: unavailable, restoreViewport: () => () => {},
+      });
+      return { history, selected, setSelected };
+    });
+    act(() => result.current.history.startExplicitSheetNavigation('empty', () => result.current.setSelected(null), (ready, fail) => {
+      staleReady = ready; staleFail = fail; return () => {};
+    }));
+    act(() => result.current.history.history.explicitNavigation((operation) => {
+      result.current.history.startExplicitNavigation(operation, target('successor'), (ready) => { successorReady = ready; return () => {}; }, () => result.current.setSelected(successor));
+    }));
+    act(() => { staleReady(); staleFail('unavailable'); });
+    expect(result.current.selected).toEqual(selection);
+    act(() => successorReady());
+    act(() => { staleReady(); staleFail('unavailable'); });
+    expect(result.current.selected).toEqual(successor);
+    expect(result.current.history.navigationRestoreForSheet('successor')).toBeDefined();
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
   it('restores an empty destination through staged presentation before completing forward traversal', () => {
     let ready = () => {};
     const restoreDestination = vi.fn((_sheet: string, _viewport: { x: number; y: number; scale: number }, settled: () => void) => { ready = settled; return () => {}; });
@@ -20,9 +72,14 @@ describe('navigation ownership and committed arrival', () => {
       });
       return { history, selected, setSelected, setX };
     });
+    let arrive = () => {};
     act(() => result.current.history.startExplicitSheetNavigation('empty', () => result.current.setSelected(null), (settled) => {
-      result.current.setX(42); settled(); return () => {};
+      arrive = settled; return () => {};
     }));
+    expect(result.current.selected).toEqual(selection);
+    expect(result.current.history.navigationRestoreForSheet('departure')).toBeUndefined();
+    act(() => { result.current.setX(42); arrive(); });
+    expect(result.current.selected).toBeNull();
     act(() => result.current.history.history.traverse('back'));
     expect(restoreDestination).toHaveBeenLastCalledWith('departure', expect.objectContaining({ x: 0 }), expect.any(Function), expect.any(Function));
     act(() => ready());
