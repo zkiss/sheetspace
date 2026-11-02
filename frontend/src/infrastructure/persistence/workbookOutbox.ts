@@ -36,6 +36,12 @@ export class WorkbookOutbox {
 
   snapshot(): OutboxSnapshot { return this.entries.map(cloneEntry); }
   hasModelTransition() { return this.entries.some((entry) => entry.intent.kind === 'model-lifecycle' && entry.status !== 'succeeded' && entry.status !== 'superseded'); }
+  hasPendingRecreation(sheetId: SheetId) {
+    return this.entries.some((entry) => entry.intent.kind === 'model-lifecycle'
+      && entry.status !== 'succeeded' && entry.status !== 'superseded'
+      && !entry.intent.before.manifest.sheetIds.includes(sheetId)
+      && entry.intent.after.manifest.sheetIds.includes(sheetId));
+  }
   hasFailedPrerequisiteForModelTransition() {
     return this.entries.some((entry) => entry.intent.kind !== 'model-lifecycle' && (entry.status === 'failed' || entry.status === 'blocked'));
   }

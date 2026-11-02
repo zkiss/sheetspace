@@ -143,6 +143,7 @@ export function useSavedSheetAutosave({
     outboxSnapshot: snapshot,
     currentOutboxSnapshot: () => outbox.snapshot(),
     hasModelTransition: () => outbox.hasModelTransition(),
+    hasPendingRecreation: (sheetId: SheetId) => outbox.hasPendingRecreation(sheetId),
     hasFailedPrerequisiteForModelTransition: () => outbox.hasFailedPrerequisiteForModelTransition(),
     modelTransitionIsBlockedByFailedPrerequisite: (operationId: string) => outbox.modelTransitionIsBlockedByFailedPrerequisite(operationId),
     discard: (operationId: string) => outbox.remove(operationId),

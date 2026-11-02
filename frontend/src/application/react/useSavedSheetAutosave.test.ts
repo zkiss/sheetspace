@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { deferred } from '@test-support/apiClients';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
@@ -8,6 +8,8 @@ import { type Workbook } from '@workbook/core/model';
 import type { SetWorkbook } from '@calculation/workbookCalculation';
 import { WorkbookApiError, type SheetRevisionResponse, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
+import { useGridAxisCreationOperations } from './useGridAxisCreationOperations';
+import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
 
 function renderAutosave(apiClient: Partial<WorkbookApi>, initialWorkbook: Workbook) {
   return renderHook(() => {
@@ -27,6 +29,50 @@ function renderAutosave(apiClient: Partial<WorkbookApi>, initialWorkbook: Workbo
 }
 
 describe('useSavedSheetAutosave', () => {
+  it('retains an axis append behind a pending recreation and uses the new incarnation revision', async () => {
+    const source = positionedSheet('source', 'Source', { x: 0, y: 0 });
+    const target = { ...positionedSheet('target', 'Target', { x: 200, y: 0 }), revision: 9 };
+    const before = workbookWithSheets([source, target]);
+    const removed = workbookWithSheets([source]);
+    const recreated = workbookWithSheets([source, { ...target, revision: 0 }]);
+    const pending = deferred<Workbook>();
+    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(removed).mockReturnValueOnce(pending.promise);
+    const appendRow = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 1, rowCount: 21, rowId: 'row' });
+    const writeCells = vi.fn().mockResolvedValue({ sheets: [{ sheetId: target.id, revision: 2 }] });
+    const updateSheetFrameLayout = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 3 });
+    const api = { saveModelLifecycle, appendRow, writeCells, updateSheetFrameLayout };
+    const coordinator = new WorkbookPersistenceCoordinator();
+    const { result } = renderHook(() => {
+      const [workbook, setWorkbook] = useState(before);
+      const ref = useRef(workbook);
+      ref.current = workbook;
+      const update = useCallback<SetWorkbook>((value) => setWorkbook(value), []);
+      const autosave = useSavedSheetAutosave({ autosaveEnabled: true, workbook, setWorkbook: update, resolvedApiClient: api, persistenceCoordinator: coordinator });
+      const axis = useGridAxisCreationOperations({ autosaveEnabled: true, beforeCreate: autosave.waitForModelTransitions, hasPendingRecreation: autosave.hasPendingRecreation, currentWorkbook: () => ref.current, persistenceCoordinator: coordinator, reconcile: () => undefined, resolvedApiClient: api, setWorkbook: update });
+      return { autosave, axis, workbook, setWorkbook };
+    });
+
+    act(() => result.current.autosave.enqueue('remove', { kind: 'model-lifecycle', before, after: removed }));
+    await waitFor(() => expect(result.current.autosave.outboxSnapshot[0]?.status).toBe('succeeded'));
+    act(() => {
+      result.current.setWorkbook(before);
+      result.current.autosave.enqueue('recreate', { kind: 'model-lifecycle', before: removed, after: before });
+    });
+    act(() => result.current.axis.appendRow(target.id));
+    expect(result.current.axis.hasUnsettled()).toBe(true);
+    expect(appendRow).not.toHaveBeenCalled();
+    await act(async () => pending.resolve(recreated));
+    await waitFor(() => expect(appendRow).toHaveBeenCalledWith(target.id, { revision: 0 }));
+    await waitFor(() => expect(findSheetById(result.current.workbook, target.id)?.revision).toBe(1));
+    act(() => result.current.autosave.enqueue('cell', { kind: 'write-cells', writes: [{ sheetId: target.id, rowId: 'row', columnId: 'column', beforeRaw: null, afterRaw: '3' }] }));
+    await waitFor(() => expect(writeCells).toHaveBeenCalledWith([{ sheetId: target.id, revision: 1 }], [{ sheetId: target.id, rowId: 'row', columnId: 'column', raw: '3' }]));
+    await waitFor(() => expect(findSheetById(result.current.workbook, target.id)?.revision).toBe(2));
+    const position = { x: 10, y: 20 };
+    const size = { width: 300, height: 200 };
+    act(() => result.current.autosave.enqueue('frame', { kind: 'update-sheet-frame-layout', sheetId: target.id, position, size }));
+    await waitFor(() => expect(updateSheetFrameLayout).toHaveBeenCalledWith(target.id, position, size, { revision: 2 }));
+    await waitFor(() => expect(findSheetById(result.current.workbook, target.id)?.revision).toBe(3));
+  });
   it('admits recreation and uses its authoritative revision despite historical render values', async () => {
     const source = positionedSheet('source', 'Source', { x: 0, y: 0 });
     const target = { ...positionedSheet('target', 'Target', { x: 200, y: 0 }), revision: 9 };

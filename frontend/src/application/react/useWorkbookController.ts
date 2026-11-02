@@ -314,6 +314,7 @@ export function useWorkbookController({
   const axisCreation = useGridAxisCreationOperations({
     autosaveEnabled,
     beforeCreate: savedAutosave.waitForModelTransitions,
+    hasPendingRecreation: savedAutosave.hasPendingRecreation,
     currentWorkbook: () => optimisticWorkbook.current,
     persistenceCoordinator,
     reconcile: applyReconciliation,
