@@ -41,6 +41,24 @@ it('cancels the active stage on unmount', async () => {
   expect(release).toHaveBeenCalledOnce();
 });
 
+it('retains operation-specific movement across a presentation restore', async () => {
+  let finishRestore!: (result: 'settled' | 'cancelled') => void;
+  const capturedMove = vi.fn((finish: typeof finishRestore) => { finish('settled'); return vi.fn(); });
+  const currentMove = vi.fn(() => vi.fn());
+  const stages: NavigationStages = {
+    available: () => true, presentation: () => ({ mode: 'maximised', sheetId: 'source' }),
+    restore: (finish) => { finishRestore = finish; return vi.fn(); }, move: currentMove,
+    enter: (_id, finish) => { finish('settled'); return vi.fn(); }, targetReady: () => vi.fn(),
+  };
+  const { result, rerender } = renderHook(({ value }) => useNavigationStageCoordinator(value), { initialProps: { value: stages } });
+  const operation = result.current.start('target', capturedMove);
+  rerender({ value: { ...stages, move: vi.fn(() => vi.fn()) } });
+  act(() => finishRestore('settled'));
+  expect(await operation.completion).toBe('ready');
+  expect(capturedMove).toHaveBeenCalledOnce();
+  expect(currentMove).not.toHaveBeenCalled();
+});
+
 it('rejects reentrant and retained starts after unmount', async () => {
   let successor: ReturnType<ReturnType<typeof useNavigationStageCoordinator>['start']> | undefined;
   let finish!: (result: 'settled' | 'cancelled') => void;

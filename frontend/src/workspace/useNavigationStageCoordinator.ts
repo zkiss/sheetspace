@@ -15,11 +15,11 @@ export function useNavigationStageCoordinator(stages: NavigationStages) {
 
   return {
     cancel: owner.cancel,
-    start: (id: string) => owner.start(id, {
+    start: (id: string, move?: NavigationStages['move']) => owner.start(id, {
       available: (target) => latest.current.available(target),
       presentation: () => latest.current.presentation(),
       restore: (finish) => latest.current.restore(finish),
-      move: (finish) => latest.current.move(finish),
+      move: move ?? ((finish) => latest.current.move(finish)),
       enter: (target, finish) => latest.current.enter(target, finish),
       targetReady: (target, finish) => latest.current.targetReady(target, finish),
     }),
