@@ -34,6 +34,10 @@ export class WorkbookPersistenceCoordinator {
     return this.revisions.get(sheetId);
   }
 
+  seedRevision(sheetId: SheetId, revision: number) {
+    if (!this.revisions.has(sheetId) && !this.missingSheetIds.has(sheetId)) this.revisions.set(sheetId, revision);
+  }
+
   recordRevision(sheetId: SheetId, revision: number) {
     const recorded = Math.max(this.revisions.get(sheetId) ?? revision, revision);
     this.revisions.set(sheetId, recorded);

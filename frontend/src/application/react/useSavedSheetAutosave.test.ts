@@ -21,11 +21,33 @@ function renderAutosave(apiClient: Partial<WorkbookApi>, initialWorkbook: Workbo
         workbook,
       }),
       workbook,
+      setWorkbook,
     };
   });
 }
 
 describe('useSavedSheetAutosave', () => {
+  it('admits recreation and uses its authoritative revision despite historical render values', async () => {
+    const source = positionedSheet('source', 'Source', { x: 0, y: 0 });
+    const target = { ...positionedSheet('target', 'Target', { x: 200, y: 0 }), revision: 9 };
+    const before = workbookWithSheets([source, target]);
+    const removed = workbookWithSheets([source]);
+    const recreated = workbookWithSheets([source, { ...target, revision: 0 }]);
+    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(removed).mockResolvedValueOnce(recreated);
+    const renameSheet = vi.fn().mockResolvedValue({ sheetId: target.id, revision: 1 });
+    const { result } = renderAutosave({ saveModelLifecycle, renameSheet }, before);
+
+    act(() => result.current.autosave.enqueue('remove', { kind: 'model-lifecycle', before, after: removed }));
+    await waitFor(() => expect(result.current.autosave.outboxSnapshot[0]?.status).toBe('succeeded'));
+    act(() => {
+      result.current.setWorkbook(before);
+      result.current.autosave.enqueue('recreate', { kind: 'model-lifecycle', before: removed, after: before });
+    });
+    await waitFor(() => expect(result.current.autosave.outboxSnapshot[1]?.status).toBe('succeeded'));
+    expect(findSheetById(result.current.workbook, target.id)?.revision).toBe(0);
+    act(() => result.current.autosave.enqueue('rename', { kind: 'rename-sheet', sheetId: target.id, name: 'New' }));
+    await waitFor(() => expect(renameSheet).toHaveBeenCalledWith(target.id, 'New', { revision: 0 }));
+  });
   it('derives save status from outbox snapshots and records successful revisions', async () => {
     const sheet = positionedSheet('sheet-inputs', 'Inputs', { x: 0, y: 0 });
     const save = deferred<SheetRevisionResponse>();

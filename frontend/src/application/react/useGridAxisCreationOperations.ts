@@ -138,7 +138,7 @@ export function useGridAxisCreationOperations({
   reconcileRef.current = reconcile;
 
   for (const sheet of Object.values(currentWorkbook().documents)) {
-    persistenceCoordinator.recordRevision(sheet.id, sheet.revision);
+    persistenceCoordinator.seedRevision(sheet.id, sheet.revision);
   }
 
   useEffect(() => queue.subscribe(setSnapshot), [queue]);
