@@ -24,6 +24,7 @@ export function createNavigationTransport(runtime: NavigationTransportRuntime, c
     let done = false;
     let retired = false;
     let release: (() => void) | undefined;
+    let releasePresentation: (() => void) | undefined;
     const operation = { id, cancel: () => finish('cancelled'), unavailable: () => finish('unavailable') };
     const current = () => live && active === operation && !done;
     function finish(result: 'ready' | Failure) {
@@ -35,15 +36,24 @@ export function createNavigationTransport(runtime: NavigationTransportRuntime, c
       const dispose = release;
       release = undefined;
       dispose?.();
+      const retirePresentation = releasePresentation;
+      releasePresentation = undefined;
+      retirePresentation?.();
       if (!owned || active || !live) return;
       if (result === 'ready') callbacks.onSettled();
       else callbacks.onFailure(result);
     }
     if (!live) return () => {};
     active = operation;
+    const valid = available(id);
+    if (current() && valid && staged) {
+      const retire = runtime.claimPresentation();
+      if (current()) releasePresentation = retire;
+      else retire();
+    }
     previous?.cancel();
     if (!current()) return () => {};
-    if (!available(id)) { finish('unavailable'); return () => {}; }
+    if (!valid || !available(id)) { finish('unavailable'); return () => {}; }
     if (!staged) {
       const cancel = motion(() => finish(available(id) ? 'ready' : 'unavailable'), () => finish(available(id) ? 'cancelled' : 'unavailable'), staged);
       if (current()) release = cancel;
