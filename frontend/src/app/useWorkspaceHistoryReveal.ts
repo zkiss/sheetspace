@@ -12,9 +12,16 @@ type Controller = {
   navigateToTarget: (target: NonNullable<ReturnType<typeof historyRevealTarget>>, options: { preserveVisibleAxes: boolean }) => void;
 };
 
+type RevealDestination = {
+  sheetId: string;
+  target: NonNullable<ReturnType<typeof historyRevealTarget>>;
+  outsideViewport: boolean;
+};
+
 export function useWorkspaceHistoryReveal(
   feedback: ContentHistoryFeedback | undefined, editing: boolean, sheets: readonly SheetDocument[],
   creatingAxes: Readonly<Record<string, CreatingGridAxes>>, controller: Controller,
+  revealDestination?: (destination: RevealDestination) => void,
 ) {
   const revealedIdentity = useRef<string>();
   useEffect(() => {
@@ -30,8 +37,11 @@ export function useWorkspaceHistoryReveal(
     if (!target) return;
     revealedIdentity.current = feedback.identity;
     const bounds = workspaceViewportBounds(controller.workspaceSurfaceSize, controller.viewport);
-    if (target.left < bounds.left || target.right > bounds.right || target.top < bounds.top || target.bottom > bounds.bottom) {
+    const outsideViewport = target.left < bounds.left || target.right > bounds.right || target.top < bounds.top || target.bottom > bounds.bottom;
+    if (revealDestination) {
+      revealDestination({ sheetId: destination.id, target, outsideViewport });
+    } else if (outsideViewport) {
       controller.navigateToTarget(target, { preserveVisibleAxes: true });
     }
-  }, [feedback, creatingAxes, controller, editing, sheets]);
+  }, [feedback, creatingAxes, controller, editing, sheets, revealDestination]);
 }
