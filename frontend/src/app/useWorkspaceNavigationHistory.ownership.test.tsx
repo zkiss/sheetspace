@@ -187,4 +187,81 @@ describe('navigation ownership and committed arrival', () => {
     act(() => result.current.history.history.traverse('forward'));
     expect(result.current.x).toBe(2);
   });
+
+  it.each(['ready', 'cancelled', 'unavailable'] as const)('accepts synchronous %s only once before the disposer returns', (outcome) => {
+    const dispose = vi.fn();
+    const publish = vi.fn();
+    const unavailable = vi.fn();
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true, selection: null,
+      viewport: { x: 0, y: 0, scale: 1 }, onRestoreSelection: () => true,
+      onUnavailableTarget: unavailable, restoreViewport: () => () => {},
+    }));
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, target('destination'), (ready, fail) => {
+        if (outcome === 'ready') ready(); else fail(outcome);
+        ready(); fail('unavailable'); fail('cancelled');
+        return dispose;
+      }, publish);
+    }));
+    expect(publish).toHaveBeenCalledTimes(outcome === 'ready' ? 1 : 0);
+    expect(unavailable).toHaveBeenCalledTimes(outcome === 'unavailable' ? 1 : 0);
+    expect(dispose).not.toHaveBeenCalled();
+    if (outcome === 'ready') {
+      const generation = result.current.navigationRestoreForSheet('destination')!;
+      act(() => result.current.acknowledgeGridRestore('destination', generation));
+      expect(result.current.history.canGoBack).toBe(true);
+    }
+  });
+
+  it('releases a synchronously retired starter once without disturbing its successor', () => {
+    const oldDispose = vi.fn();
+    const successorDispose = vi.fn();
+    let successorReady = () => {};
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true, selection: null,
+      viewport: { x: 0, y: 0, scale: 1 }, onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(), restoreViewport: () => () => {},
+    }));
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, target('old'), () => {
+        result.current.history.explicitNavigation((next) => {
+          result.current.startExplicitNavigation(next, target('successor'), (ready) => { successorReady = ready; return successorDispose; });
+        });
+        return oldDispose;
+      });
+    }));
+    expect(oldDispose).toHaveBeenCalledOnce();
+    expect(successorDispose).not.toHaveBeenCalled();
+    act(() => successorReady());
+    const generation = result.current.navigationRestoreForSheet('successor')!;
+    expect(generation).toBeDefined();
+    act(() => result.current.acknowledgeGridRestore('successor', generation));
+    expect(successorDispose).not.toHaveBeenCalled();
+    expect(result.current.history.canGoBack).toBe(true);
+  });
+
+  it('does not capture an old arrival when focus starts a successor', () => {
+    let successorReady = () => {};
+    const container = document.createElement('div');
+    const cell = document.createElement('button');
+    cell.dataset.activeCell = 'true';
+    container.append(cell);
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({ stageDestination: true, selection: null,
+      viewport: { x: 0, y: 0, scale: 1 }, onRestoreSelection: () => true,
+      onUnavailableTarget: vi.fn(), restoreViewport: () => () => {},
+    }));
+    vi.spyOn(cell, 'focus').mockImplementation(() => {
+      result.current.startExplicitSheetNavigation('successor', () => {}, (ready) => { successorReady = ready; return () => {}; });
+    });
+    act(() => result.current.registerScrollContainer('old', container));
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, target('old'), (ready) => { ready(); return () => {}; });
+    }));
+    const generation = result.current.navigationRestoreForSheet('old')!;
+    act(() => result.current.acknowledgeGridRestore('old', generation));
+    expect(cell.focus).toHaveBeenCalledOnce();
+    expect(result.current.navigationRestoreForSheet('old')).toBeUndefined();
+    act(() => successorReady());
+    expect(result.current.history.canGoBack).toBe(true);
+    expect(result.current.navigationRestoreForSheet('old')).toBeUndefined();
+  });
 });

@@ -39,8 +39,13 @@ describe('reference navigation retirement', () => {
     expect(unavailable).not.toHaveBeenCalled();
     expect(result.current.reference.navigationHighlightIdentity).toBe(identity);
     if (timing === 'before grid settlement') act(() => result.current.history.acknowledgeGridRestore(sheet.id, generation));
+    act(() => { ready(); fail('unavailable'); fail('cancelled'); });
+    expect(result.current.reference.navigationHighlightIdentity).toBe(identity);
     act(() => vi.advanceTimersByTime(1));
     expect(result.current.reference.navigationHighlight).toBeNull();
+    act(() => { ready(); fail('unavailable'); fail('cancelled'); });
+    expect(result.current.reference.navigationHighlight).toBeNull();
+    expect(select).toHaveBeenCalledOnce();
   });
   it.each(['cancel', 'empty replacement'] as const)('retires an arrived but unsettled highlight on %s', (action) => {
     vi.useFakeTimers();
