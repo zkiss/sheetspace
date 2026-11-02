@@ -95,3 +95,52 @@ it('honours Restore to workspace during the source-restore stage instead of reve
   expect(screen.getByRole('button', { name: 'Maximise sheet' })).toBeInTheDocument();
   expect(destination.querySelector('[data-navigation-highlight="true"]')).toBeNull();
 });
+
+function useAnimationClock() {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+}
+
+async function finishTransfer() {
+  for (let stage = 0; stage < 5; stage++) {
+    await act(async () => { vi.advanceTimersByTime(1000); });
+  }
+}
+
+it('completes an animated reference transfer when no newer grid input claims ownership', async () => {
+  useAnimationClock();
+  const { source, destination } = setup(false, false);
+  await finishTransfer();
+  followRange(source);
+  await finishTransfer();
+  expect(destination).toHaveAttribute('data-presented', 'true');
+  expect(within(destination).getByRole('cell', { name: 'Inputs B3 empty cell' })).toHaveFocus();
+});
+
+it.each(['click', 'keyboard', 'extend', 'pointer'] as const)('retires an animated reference transfer before accepting newer %s selection', async (input) => {
+  useAnimationClock();
+  const { source, destination } = setup(false, false);
+  await finishTransfer();
+  followRange(source);
+  await act(async () => { vi.advanceTimersByTime(32); });
+  const next = within(source).getByRole('cell', { name: 'Outputs A2 empty cell' });
+  if (input === 'keyboard') fireEvent.keyDown(within(source).getByRole('cell', { name: 'Outputs A1 cell' }), { key: 'ArrowDown' });
+  else if (input === 'pointer') {
+    fireEvent(next, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 60, clientY: 70 }));
+    fireEvent(next, new MouseEvent('pointerup', { bubbles: true, button: 0, clientX: 60, clientY: 70 }));
+  } else fireEvent.click(next, { shiftKey: input === 'extend' });
+  expect(next).toHaveAttribute('data-active-cell', 'true');
+
+  await finishTransfer();
+  expect(destination).not.toHaveAttribute('data-presented');
+  expect(next).toHaveAttribute('data-active-cell', 'true');
+  expect(destination.contains(document.activeElement)).toBe(false);
+  expect(destination.querySelector('[data-navigation-highlight="true"]')).toBeNull();
+
+  fireEvent.click(within(source).getByRole('cell', { name: 'Outputs A1 cell' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  await finishTransfer();
+  followRange(source);
+  await finishTransfer();
+  expect(destination).toHaveAttribute('data-presented', 'true');
+  expect(within(destination).getByRole('cell', { name: 'Inputs B3 empty cell' })).toHaveFocus();
+});

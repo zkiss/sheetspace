@@ -670,6 +670,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     return projectReferenceGeometry({ reference: { kind: 'reference', text: '', sourceSpan: { start: 0, end: 0 }, displaySpan: { start: 0, end: 0 }, target: { kind: 'cell', sheetId: selectedSheet.id, identity }, broken: false, navigable: true }, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize });
   }, [activeCell, formulaInspection, projectedFrames, referenceGridViewports, referenceSurfaceSize, selectedSheet, workbook, workspaceController.viewport]);
   const handleGridPointerInteractionChange = useCallback((sheetId: string, active: boolean) => {
+    if (active) cancelNavigationBeforeUserMovement.current();
     setGridInteractionSheetIds((current) => {
       if (current.has(sheetId) === active) return current;
       const next = new Set(current);
@@ -1028,14 +1029,14 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onNavigationSettled={(generation) => acknowledgeGridRestore(sheet.id, generation)}
                     onNativeFocusTarget={handleDetailedNativeFocus}
                     cellInteraction={{
-                      clear: (target) => reportWriteOutcome(onClearCell(target)),
-                      navigate: onNavigateCell,
-                      navigateKeyboard: onNavigateKeyboardCell,
-                      select: onSelectCell,
-                      extend: onExtendSelection,
+                      clear: (target) => { cancelNavigationBeforeUserMovement.current(); reportWriteOutcome(onClearCell(target)); },
+                      navigate: (target, direction) => { cancelNavigationBeforeUserMovement.current(); onNavigateCell(target, direction); },
+                      navigateKeyboard: (...args) => { cancelNavigationBeforeUserMovement.current(); return onNavigateKeyboardCell(...args); },
+                      select: (...args) => { cancelNavigationBeforeUserMovement.current(); onSelectCell(...args); },
+                      extend: (...args) => { cancelNavigationBeforeUserMovement.current(); onExtendSelection(...args); },
                       focusSelection: onFocusSelection,
                       settleSelectionGesture: onSettleSelectionGesture,
-                      startEditing: onStartEdit,
+                      startEditing: (...args) => { cancelNavigationBeforeUserMovement.current(); onStartEdit(...args); },
                     }}
                     editingCell={sheetEditingCell}
                     editorInteraction={{
@@ -1080,7 +1081,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     scrollContainerRef={scrollContainerRef}
                     selectedRange={selectedRange}
                     selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
-                    onSelectAxis={onSelectAxis}
+                    onSelectAxis={(...args) => { cancelNavigationBeforeUserMovement.current(); onSelectAxis(...args); }}
                     clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
                     sheet={tabular}
                   />
