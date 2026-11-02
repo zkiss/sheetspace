@@ -10,7 +10,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   onUnavailableTarget: () => void;
   onHistoryTraversal?: () => void;
   restoreViewport: (viewport: WorkspaceViewport, onSettled: () => void) => () => void;
-  restoreDestination?: (sheetId: string, viewport: WorkspaceViewport, onSettled: () => void) => () => void;
+  restoreDestination?: (sheetId: string, viewport: WorkspaceViewport, onSettled: () => void, onFailure: (reason: 'unavailable' | 'cancelled') => void) => () => void;
   stageDestination?: boolean;
   selection: CellSelection | null;
   viewport: WorkspaceViewport;
@@ -69,7 +69,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       left: element.scrollLeft, top: element.scrollTop,
     }])),
   }), [selection, viewport]);
-  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}, navigationTarget?: ReferenceNavigationTarget, onReady?: () => void) => {
+  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}, navigationTarget?: ReferenceNavigationTarget, onReady?: () => void, onUnavailable?: () => void) => {
     cancelRestore();
     restoreGeneration.current = Math.max(restoreGeneration.current + 1, operation.generation);
     const generation = operation.generation;
@@ -91,21 +91,31 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       restoring.viewportSettled = true;
       if (stageDestination) publishDestination();
       finishRestoreIfSettled();
+    }, (reason) => {
+      if (activeRestore.current !== restoring) return;
+      activeRestore.current = undefined;
+      cancelPendingScroll();
+      setActiveNavigationGeneration(null);
+      if (reason === 'unavailable') onUnavailable?.();
+      operation.complete();
     });
     if (activeRestore.current === restoring) restoring.cancelViewport = cancelViewport;
     else cancelViewport();
     finishRestoreIfSettled();
-  }, [cancelRestore, finishRestoreIfSettled, stageDestination]);
+  }, [cancelPendingScroll, cancelRestore, finishRestoreIfSettled, stageDestination]);
   const restore = useCallback((context: ReturnType<typeof capture>, operation: NavigationOperation) => {
     beginNavigation(operation, context.selection?.anchor.sheetId,
-      (settled) => context.selection && restoreDestination
-        ? restoreDestination(context.selection.anchor.sheetId, context.viewport, settled)
+      (settled, failed) => context.selection && restoreDestination
+        ? restoreDestination(context.selection.anchor.sheetId, context.viewport, settled, failed)
         : restoreViewport(context.viewport, settled), context.scroll, undefined, () => {
         const selectionAvailable = onRestoreSelection(context.selection);
         if (!selectionAvailable && context.selection) {
           onUnavailableTarget();
           if (activeRestore.current?.generation === operation.generation) activeRestore.current.requiredSheetId = undefined;
         }
+      }, () => {
+        onRestoreSelection(null);
+        onUnavailableTarget();
       });
   }, [beginNavigation, onRestoreSelection, onUnavailableTarget, restoreViewport, restoreDestination]);
   const history = useNavigationHistory({ capture, restore });

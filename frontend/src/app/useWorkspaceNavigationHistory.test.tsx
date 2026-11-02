@@ -63,8 +63,63 @@ describe('useWorkspaceNavigationHistory', () => {
     rerender({ x: 2 });
     act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
     act(() => result.current.history.traverse('back'));
-    expect(restoreDestination).toHaveBeenCalledWith('destination', { x: 1, y: 0, scale: 1 }, expect.any(Function));
+    expect(restoreDestination).toHaveBeenCalledWith('destination', { x: 1, y: 0, scale: 1 }, expect.any(Function), expect.any(Function));
     expect(restoreViewport).not.toHaveBeenCalled();
+  });
+
+  it.each(['initially missing', 'removed during restore'])('recovers from a destination %s without exposing its grid', (scenario) => {
+    vi.useFakeTimers();
+    const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
+    const unavailable = vi.fn();
+    const restoreSelection = vi.fn(() => true);
+    let fail: (reason: 'unavailable' | 'cancelled') => void = () => {};
+    let ready = () => {};
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
+      onRestoreSelection: restoreSelection, onUnavailableTarget: unavailable,
+      restoreViewport: () => () => {},
+      restoreDestination: (_sheet, _viewport, settled, failed) => {
+        ready = settled; fail = failed;
+        if (scenario === 'initially missing') failed('unavailable');
+        return () => {};
+      }, selection, viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    act(() => result.current.registerScrollContainer('destination', scrollContainer(20, 30)));
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => result.current.history.traverse('back'));
+    if (scenario !== 'initially missing') act(() => fail('unavailable'));
+    expect(unavailable).toHaveBeenCalledOnce();
+    expect(restoreSelection).toHaveBeenCalledWith(null);
+    expect(result.current.historyRestoreForSheet('destination')).toBeUndefined();
+    expect(result.current.navigationRestoreForSheet('destination')).toBeUndefined();
+    act(() => { ready(); fail('unavailable'); });
+    expect(unavailable).toHaveBeenCalledOnce();
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => { settled(); return () => {}; });
+    }));
+    expect(result.current.navigationRestoreForSheet('destination')).toBeDefined();
+  });
+
+  it('releases a cancelled staged restore without reporting an unavailable sheet', () => {
+    vi.useFakeTimers();
+    const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
+    const unavailable = vi.fn();
+    const restoreSelection = vi.fn(() => true);
+    let fail: (reason: 'unavailable' | 'cancelled') => void = () => {};
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({ stageDestination: true,
+      onRestoreSelection: restoreSelection, onUnavailableTarget: unavailable,
+      restoreViewport: () => () => {},
+      restoreDestination: (_sheet, _viewport, _settled, failed) => { fail = failed; return () => {}; },
+      selection, viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.history.traverse('back'); });
+    act(() => fail('cancelled'));
+    expect(unavailable).not.toHaveBeenCalled();
+    expect(restoreSelection).not.toHaveBeenCalled();
+    expect(result.current.navigationRestoreForSheet('destination')).toBeUndefined();
+    act(() => result.current.history.traverse('forward'));
+    expect(result.current.pendingNavigationSheetId).toBe('destination');
   });
 
   it('does not publish saved scroll for an unavailable selected destination', () => {
