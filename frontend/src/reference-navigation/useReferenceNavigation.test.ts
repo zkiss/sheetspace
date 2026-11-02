@@ -160,6 +160,48 @@ describe('useReferenceNavigation', () => {
     expect(settled).toBe(1);
   });
 
+  it('selects and starts the full highlight lifetime only at destination readiness', () => {
+    vi.useFakeTimers();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const select = vi.fn();
+    let ready = () => {};
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget: vi.fn(), onSelectReferenceTarget: select,
+      startNavigation: (_operation, _target, _startViewport, onReady) => { ready = onReady; },
+      workbook: workbookWithSheets([sheet]),
+    }));
+    const identity = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    act(() => { result.current.navigateReference(reference({ kind: 'cell', sheetId: sheet.id, identity })); });
+    act(() => { vi.advanceTimersByTime(2_000); });
+    expect(select).not.toHaveBeenCalled();
+    expect(result.current.navigationHighlight).toBeNull();
+    act(ready);
+    expect(select).toHaveBeenCalledOnce();
+    act(() => { vi.advanceTimersByTime(1_199); });
+    expect(result.current.navigationHighlight).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(result.current.navigationHighlight).toBeNull();
+  });
+
+  it('ignores an old arrival after a newer jump or explicit highlight cancellation', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
+    const select = vi.fn();
+    const arrivals: Array<() => void> = [];
+    const { result } = renderHook(() => useReferenceNavigation({
+      navigateToTarget: vi.fn(), onSelectReferenceTarget: select,
+      startNavigation: (_operation, _target, _startViewport, onReady) => { arrivals.push(onReady); },
+      workbook: workbookWithSheets([sheet]),
+    }));
+    const identity = { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! };
+    const target = reference({ kind: 'cell', sheetId: sheet.id, identity });
+    act(() => { result.current.navigateReference(target); result.current.navigateReference(target); });
+    act(() => { arrivals[0]!(); });
+    expect(select).not.toHaveBeenCalled();
+    act(() => { result.current.clearNavigationHighlight(); arrivals[1]!(); });
+    expect(select).not.toHaveBeenCalled();
+    expect(result.current.navigationHighlight).toBeNull();
+  });
+
   it('navigates command targets through the same explicit history boundary', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const navigateToTarget = vi.fn();

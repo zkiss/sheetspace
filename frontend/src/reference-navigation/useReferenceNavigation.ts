@@ -48,10 +48,11 @@ export function useReferenceNavigation({
   ) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
-  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void) => void;
+  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void, onReady: () => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
+  const arrivalSequence = useRef(0);
   const [highlight, setHighlight] =
     useState<{ target: ReferenceNavigationTarget; identity: number } | null>(null);
   const [navigationMotion, setNavigationMotion] = useState(false);
@@ -96,8 +97,13 @@ export function useReferenceNavigation({
         ? operation.generation : nextHighlightIdentity.current++;
       const navigationOperation = typeof operation === 'function' && 'complete' in operation
         ? operation : Object.assign(complete, { generation, complete });
-      onSelectReferenceTarget(target);
-      setHighlight({ target, identity: generation });
+      const sequence = ++arrivalSequence.current;
+      setHighlight(null);
+      const arrive = () => {
+        if (arrivalSequence.current !== sequence) return;
+        onSelectReferenceTarget(target);
+        setHighlight({ target, identity: generation });
+      };
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
       setNavigationMotion(!reduceMotion);
       const startViewport = (settled: () => void) => navigateToTarget(workspaceRectForFrame(targetSheet.frame), {
@@ -106,8 +112,8 @@ export function useReferenceNavigation({
         naturalScale: clampWorkspaceZoom(1 / targetSheet.frame.visualScale),
         onSettled: settled,
       });
-      if (startNavigation) startNavigation(navigationOperation, target, startViewport);
-      else startViewport(navigationOperation.complete);
+      if (startNavigation) startNavigation(navigationOperation, target, startViewport, arrive);
+      else { arrive(); startViewport(navigationOperation.complete); }
     };
     if (onExplicitNavigation) onExplicitNavigation(navigate); else navigate(() => {});
     return true;
@@ -130,7 +136,7 @@ export function useReferenceNavigation({
   }
 
   return {
-    clearNavigationHighlight: () => { setHighlight(null); setNavigationMotion(false); },
+    clearNavigationHighlight: () => { arrivalSequence.current += 1; setHighlight(null); setNavigationMotion(false); },
     navigateReference,
     navigateTarget,
     navigationHighlight: highlight?.target ?? null,

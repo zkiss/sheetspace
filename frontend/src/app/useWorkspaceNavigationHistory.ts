@@ -67,7 +67,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       left: element.scrollLeft, top: element.scrollTop,
     }])),
   }), [selection, viewport]);
-  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}, navigationTarget?: ReferenceNavigationTarget) => {
+  const beginNavigation = useCallback((operation: NavigationOperation, requiredSheetId: string | undefined, startViewport: (settled: () => void) => () => void, scroll: Record<string, { left: number; top: number }> = {}, navigationTarget?: ReferenceNavigationTarget, onReady?: () => void) => {
     cancelRestore();
     restoreGeneration.current = Math.max(restoreGeneration.current + 1, operation.generation);
     const generation = operation.generation;
@@ -78,6 +78,8 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     const cancelViewport = startViewport(() => {
       if (activeRestore.current !== restoring) return;
       restoring.viewportSettled = true;
+      onReady?.();
+      if (activeRestore.current !== restoring) return;
       Object.entries(scroll).forEach(([sheetId, offset]) => pendingScroll.current.set(sheetId, { ...offset, generation }));
       setActiveNavigationGeneration(generation);
       finishRestoreIfSettled();
@@ -130,9 +132,9 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       ? { generation: active.generation, target: active.navigationTarget }
       : undefined;
   }, []);
-  const startExplicitNavigation = useCallback((operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void) => {
+  const startExplicitNavigation = useCallback((operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void, onReady?: () => void) => {
     const sheetId = target.kind === 'cell' ? target.target.sheetId : target.sheetId;
-    beginNavigation(operation, sheetId, startViewport, {}, target);
+    beginNavigation(operation, sheetId, startViewport, {}, target, onReady);
   }, [beginNavigation]);
   const startExplicitSheetNavigation = useCallback((clearSelection: () => void, startViewport: (settled: () => void) => () => void) => {
     history.explicitNavigation((operation) => {
