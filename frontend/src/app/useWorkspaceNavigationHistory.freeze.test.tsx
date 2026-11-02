@@ -35,9 +35,8 @@ it('samples before cancelling a history restore and rejects its delayed grid and
   grid.scrollLeft = 700;
   act(() => { history.history.recordUserMovement(); vi.advanceTimersByTime(2000); });
   act(() => { history.history.traverse('back'); });
-  const pending = history!.historyRestoreForSheet('sheet')!;
-  expect(pending).toMatchObject({ left: 240, top: 360 });
-  expect(history!.navigationRestoreForSheet('sheet')).toBe(pending.generation);
+  expect(history!.historyRestoreForSheet('sheet')).toBeUndefined();
+  expect(history!.navigationRestoreForSheet('sheet')).toBeUndefined();
   const staleFinish = animation.onfinish!;
   animation.cancel.mockClear();
   const original = window.getComputedStyle;
@@ -54,7 +53,7 @@ it('samples before cancelling a history restore and rejects its delayed grid and
   expect(history!.historyRestoreForSheet('sheet')).toBeUndefined();
   expect(history!.navigationRestoreForSheet('sheet')).toBeUndefined();
   expect(history!.pendingNavigationSheetId).toBeUndefined();
-  act(() => { history.acknowledgeGridRestore('sheet', pending.generation); staleFinish(); vi.runAllTimers(); });
+  act(() => { history.acknowledgeGridRestore('sheet', 1); staleFinish(); vi.runAllTimers(); });
   expect(grid.scrollLeft).toBe(700);
   expect(controller!.viewport).toEqual({ x: 123, y: 45, scale: 1.5 });
   expect(history!.navigationRestoreForSheet('sheet')).toBeUndefined();

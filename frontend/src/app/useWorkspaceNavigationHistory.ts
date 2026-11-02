@@ -46,7 +46,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const acknowledgeGridRestore = useCallback((sheetId: string, generation: number) => {
     const offset = pendingScroll.current.get(sheetId);
     const restoring = activeRestore.current;
-    if (restoring?.generation === generation && restoring.requiredSheetId === sheetId && !restoring.requiredGridSettled) {
+    if (restoring?.generation === generation && restoring.viewportSettled && restoring.requiredSheetId === sheetId && !restoring.requiredGridSettled) {
       if (offset?.generation === generation) pendingScroll.current.delete(sheetId);
       restoring.requiredGridSettled = true;
       finishRestoreIfSettled();
@@ -75,13 +75,15 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       generation, complete: operation.complete, cancelViewport: () => {}, viewportSettled: false, requiredGridSettled: false, requiredSheetId, navigationTarget,
     };
     activeRestore.current = restoring;
-    setActiveNavigationGeneration(generation);
-    restoring.cancelViewport = startViewport(() => {
-      if (activeRestore.current?.generation !== generation) return;
-      activeRestore.current.viewportSettled = true;
+    const cancelViewport = startViewport(() => {
+      if (activeRestore.current !== restoring) return;
+      restoring.viewportSettled = true;
+      Object.entries(scroll).forEach(([sheetId, offset]) => pendingScroll.current.set(sheetId, { ...offset, generation }));
+      setActiveNavigationGeneration(generation);
       finishRestoreIfSettled();
     });
-    Object.entries(scroll).forEach(([sheetId, offset]) => pendingScroll.current.set(sheetId, { ...offset, generation }));
+    if (activeRestore.current === restoring) restoring.cancelViewport = cancelViewport;
+    else cancelViewport();
     finishRestoreIfSettled();
   }, [cancelRestore, finishRestoreIfSettled]);
   const restore = useCallback((context: ReturnType<typeof capture>, operation: NavigationOperation) => {
@@ -120,11 +122,11 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const historyRestoreForSheet = useCallback((sheetId: string) => pendingScroll.current.get(sheetId), []);
   const navigationRestoreForSheet = useCallback((sheetId: string) => {
     const active = activeRestore.current;
-    return active?.requiredSheetId === sheetId ? active.generation : undefined;
+    return active?.viewportSettled && active.requiredSheetId === sheetId ? active.generation : undefined;
   }, []);
   const navigationRequestForSheet = useCallback((sheetId: string) => {
     const active = activeRestore.current;
-    return active?.requiredSheetId === sheetId && active.navigationTarget
+    return active?.viewportSettled && active.requiredSheetId === sheetId && active.navigationTarget
       ? { generation: active.generation, target: active.navigationTarget }
       : undefined;
   }, []);

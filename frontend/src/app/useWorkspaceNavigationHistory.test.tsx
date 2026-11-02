@@ -184,11 +184,11 @@ describe('useWorkspaceNavigationHistory', () => {
     act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.history.traverse('back'); });
 
 
-    // Grid reveal runs independently of outer motion. Neither acknowledgement
-    // is a substitute for the other.
+    act(() => applyGridRestore(result.current, 'destination', grid));
+    expect(grid.scrollLeft).toBe(700);
+    act(() => settleViewport?.());
     act(() => applyGridRestore(result.current, 'destination', grid));
     expect(grid.scrollLeft).toBe(240);
-    act(() => settleViewport?.());
     expect(result.current.history.canGoForward).toBe(true);
   });
 
@@ -218,6 +218,8 @@ describe('useWorkspaceNavigationHistory', () => {
     act(() => result.current.acknowledgeGridRestore('destination', 1));
     expect(focus).not.toHaveBeenCalled();
     act(() => settleViewport());
+    expect(focus).not.toHaveBeenCalled();
+    act(() => result.current.acknowledgeGridRestore('destination', 1));
     expect(focus).toHaveBeenCalledOnce();
     grid.remove();
   });
@@ -260,7 +262,7 @@ describe('useWorkspaceNavigationHistory', () => {
     }));
 
     act(() => result.current.history.explicitNavigation((operation) => {
-      result.current.startExplicitNavigation(operation, destinationTarget, () => () => {});
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => { settled(); return () => {}; });
     }));
     expect(result.current.navigationRestoreForSheet('destination')).toBe(1);
 
@@ -278,7 +280,7 @@ describe('useWorkspaceNavigationHistory', () => {
     }));
 
     act(() => result.current.history.explicitNavigation((operation) => {
-      result.current.startExplicitNavigation(operation, destinationTarget, () => () => {});
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => { settled(); return () => {}; });
     }));
     expect(result.current.navigationRequestForSheet('destination')).toMatchObject({ generation: 1, target: destinationTarget });
 
