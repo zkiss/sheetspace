@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { autosaveClient } from '@test-support/apiClients';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { cellRawContent } from '@workbook/read/queries';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
@@ -9,6 +10,50 @@ import type { ExtractionRequest } from '@application/core/extractionPreparation'
 const ids = Array.from({ length: 5 }, (_, i) => `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`);
 
 describe('extraction controller history', () => {
+  it('orders same-turn extraction and edits with undo and redo', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1 });
+    const cell = cellIdentityAt(sheet.content, 'A1')!;
+    const request: ExtractionRequest = { sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell }, targetSheetId: ids[0]!, targetName: 'Target', targetRows: [ids[1]!], targetColumns: [ids[2]!], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } };
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
+    const content = (id: string) => {
+      const document = result.current.workbook.documents[id];
+      return document && cellRawContent(document, 'A1');
+    };
+    act(() => {
+      result.current.commands.updateCellContent('s', 'A1', '1');
+      expect(result.current.commands.extractSelection(request).result.ok).toBe(true);
+      result.current.commands.updateCellContent(ids[0]!, 'A1', '2');
+    });
+    expect(content(ids[0]!)).toBe('2');
+    act(() => result.current.commands.undo());
+    expect(content(ids[0]!)).toBe('1');
+    act(() => result.current.commands.undo());
+    expect(content(ids[0]!)).toBeUndefined();
+    expect(content('s')).toBe('1');
+    expect(result.current.extractionReplayFailure).toBeUndefined();
+    act(() => result.current.commands.undo());
+    expect(content('s')).toBeUndefined();
+    act(() => result.current.commands.redo());
+    expect(content('s')).toBe('1');
+    act(() => result.current.commands.redo());
+    expect(content(ids[0]!)).toBe('1');
+    act(() => result.current.commands.redo());
+    expect(content(ids[0]!)).toBe('2');
+  });
+
+  it('settles offline extraction before same-turn undo', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
+    const cell = cellIdentityAt(sheet.content, 'A1')!;
+    const request: ExtractionRequest = { sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell }, targetSheetId: ids[0]!, targetName: 'Target', targetRows: [ids[1]!], targetColumns: [ids[2]!], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } };
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
+    act(() => {
+      expect(result.current.commands.extractSelection(request).result.ok).toBe(true);
+      result.current.commands.undo();
+    });
+    expect(result.current.workbook.documents[ids[0]!]).toBeUndefined();
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('42');
+    expect(result.current.canRedo).toBe(true);
+  });
   it.each(['cells', 'rows', 'columns'] as const)('extracts and replays %s offline', async (kind) => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 2 });
     const cell = cellIdentityAt(sheet.content, 'A1')!;

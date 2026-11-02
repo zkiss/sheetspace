@@ -34,6 +34,41 @@ async function settle(saves: ReturnType<typeof setup>['saves'], index: number, f
 }
 
 describe('online extraction replay', () => {
+  it('retains the predecessor revision and history when queued extraction fails', async () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1 });
+    const cell = cellIdentityAt(sheet.content, 'A1')!;
+    const request: ExtractionRequest = {
+      sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell },
+      targetSheetId: '00000000-0000-0000-0000-000000000001', targetName: 'Target', targetRows: ['00000000-0000-0000-0000-000000000002'], targetColumns: ['00000000-0000-0000-0000-000000000003'],
+      frame: { position: { x: 30, y: 40 }, size: { width: 300, height: 200 }, zIndex: 2 },
+    };
+    const write = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
+    const save = deferred<Workbook>();
+    const api = autosaveClient({
+      writeCells: vi.fn().mockReturnValueOnce(write.promise).mockResolvedValue({ sheets: [{ sheetId: 's', revision: 8 }] }),
+      saveModelLifecycle: vi.fn().mockReturnValue(save.promise),
+    });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => {
+      result.current.commands.updateCellContent('s', 'A1', '1');
+      submission = result.current.commands.extractSelection(request);
+      expect(submission.result.ok).toBe(true);
+      expect(result.current.commands.updateCellContent('s', 'A1', '2')).toEqual({ ok: false, reason: 'pending-model-transition' });
+      result.current.commands.undo();
+    });
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+    await act(async () => write.resolve({ sheets: [{ sheetId: 's', revision: 7 }] }));
+    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    await act(async () => { save.reject(new Error('offline')); await submission.completion; });
+    expect(result.current.workbook.documents.s!.revision).toBe(7);
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    expect(result.current.canUndo).toBe(true);
+    act(() => result.current.commands.updateCellContent('s', 'A1', '2'));
+    await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.writeCells).mock.calls[1]![0]).toEqual([{ sheetId: 's', revision: 7 }]);
+  });
+
   it('persists forward, inverse and redo atomically with stable identity and frame', async () => {
     const { result, request, saves, save } = setup();
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
