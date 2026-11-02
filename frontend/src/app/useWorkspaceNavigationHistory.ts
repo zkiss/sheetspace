@@ -96,8 +96,8 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       activeRestore.current = undefined;
       cancelPendingScroll();
       setActiveNavigationGeneration(null);
+      operation.cancel();
       if (reason === 'unavailable') onUnavailable?.();
-      operation.complete();
     });
     if (activeRestore.current === restoring) restoring.cancelViewport = cancelViewport;
     else cancelViewport();
@@ -137,7 +137,6 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       history.recordUserMovement();
     },
     traverse: (direction: 'back' | 'forward') => {
-      cancelRestore();
       const traversed = history.traverse(direction);
       if (traversed) onHistoryTraversal?.();
       return traversed;
@@ -154,17 +153,17 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
       ? { generation: active.generation, target: active.navigationTarget }
       : undefined;
   }, [stageDestination]);
-  const startExplicitNavigation = useCallback((operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void, onReady?: () => void) => {
+  const startExplicitNavigation = useCallback((operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, onReady?: () => void) => {
     const sheetId = target.kind === 'cell' ? target.target.sheetId : target.sheetId;
-    beginNavigation(operation, sheetId, startViewport, {}, target, onReady);
-  }, [beginNavigation]);
-  const startExplicitSheetNavigation = useCallback((clearSelection: () => void, startViewport: (settled: () => void) => () => void) => {
+    beginNavigation(operation, sheetId, startViewport, {}, target, onReady, onUnavailableTarget);
+  }, [beginNavigation, onUnavailableTarget]);
+  const startExplicitSheetNavigation = useCallback((clearSelection: () => void, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void) => {
     history.explicitNavigation((operation) => {
       // Empty sheets are valid destinations but intentionally have no grid target.
       // Clear the old selection before the arrival context is captured.
       clearSelection();
-      beginNavigation(operation, undefined, startViewport);
+      beginNavigation(operation, undefined, startViewport, {}, undefined, undefined, onUnavailableTarget);
     });
-  }, [beginNavigation, history]);
+  }, [beginNavigation, history, onUnavailableTarget]);
   return { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation, pendingNavigationSheetId: activeRestore.current?.requiredSheetId };
 }

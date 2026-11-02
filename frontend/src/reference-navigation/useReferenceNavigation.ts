@@ -44,11 +44,11 @@ export function useReferenceNavigation({
 }: {
   navigateToTarget: (
     target: WorkspaceTargetRect,
-    options?: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void },
+    options?: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void; onFailure?: (reason: 'unavailable' | 'cancelled') => void },
   ) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
-  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void) => () => void, onReady: () => void) => void;
+  startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, onReady: () => void) => void;
   workbook: Workbook;
 }) {
   const nextHighlightIdentity = useRef(1);
@@ -96,7 +96,7 @@ export function useReferenceNavigation({
       const generation = typeof operation === 'function' && 'generation' in operation
         ? operation.generation : nextHighlightIdentity.current++;
       const navigationOperation = typeof operation === 'function' && 'complete' in operation
-        ? operation : Object.assign(complete, { generation, complete });
+        ? operation : Object.assign(complete, { generation, complete, cancel: () => {} });
       const sequence = ++arrivalSequence.current;
       setHighlight(null);
       const arrive = () => {
@@ -106,11 +106,19 @@ export function useReferenceNavigation({
       };
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
       setNavigationMotion(!reduceMotion);
-      const startViewport = (settled: () => void) => navigateToTarget(workspaceRectForFrame(targetSheet.frame), {
+      const startViewport = (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void = () => {}) => navigateToTarget(workspaceRectForFrame(targetSheet.frame), {
         forceOversized: options.forceOversized ?? (target.kind === 'range' && !rangeFitsSheetViewport(normalized, targetSheet)),
         minimumScale: detailedViewportScaleForSheet(targetSheet),
         naturalScale: clampWorkspaceZoom(1 / targetSheet.frame.visualScale),
         onSettled: settled,
+        onFailure: (reason) => {
+          if (arrivalSequence.current === sequence) {
+            arrivalSequence.current += 1;
+            setHighlight(null);
+            setNavigationMotion(false);
+          }
+          failed(reason);
+        },
       });
       if (startNavigation) startNavigation(navigationOperation, target, startViewport, arrive);
       else { arrive(); startViewport(navigationOperation.complete); }

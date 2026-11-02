@@ -3,7 +3,7 @@ import { appendNavigationContext, EMPTY_NAVIGATION_HISTORY, traverseNavigationHi
 
 const SETTLE_MS = 2_000;
 
-export type NavigationOperation = (() => void) & { generation: number; complete: () => void };
+export type NavigationOperation = (() => void) & { generation: number; complete: () => void; cancel: () => void };
 
 export function useNavigationHistory({ capture, restore }: {
   capture: () => NavigationContext;
@@ -68,7 +68,13 @@ export function useNavigationHistory({ capture, restore }: {
       activeOperation.current = undefined;
       pendingExplicitNavigation.current = undefined;
     };
-    const operation = Object.assign(complete, { generation, complete });
+    const cancel = () => {
+      if (activeOperation.current !== generation) return;
+      activeOperation.current = undefined;
+      pendingExplicitNavigation.current = undefined;
+      setRevision((current) => current + 1);
+    };
+    const operation = Object.assign(complete, { generation, complete, cancel });
     navigate(operation);
   }, [commit, flushMovement]);
   const traverse = useCallback((direction: 'back' | 'forward') => {
@@ -96,7 +102,7 @@ export function useNavigationHistory({ capture, restore }: {
       // traversal. Completion is owned by the restore adapter, not a timer.
       if (activeOperation.current === generation) activeOperation.current = undefined;
     };
-    restore(next.context, Object.assign(complete, { generation, complete }));
+    restore(next.context, Object.assign(complete, { generation, complete, cancel: complete }));
     setRevision((current) => current + 1);
     return true;
   }, [flushMovement, restore]);
