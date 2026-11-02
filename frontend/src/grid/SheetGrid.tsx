@@ -455,7 +455,9 @@ export function SheetGrid({
     // This is deliberately after the virtualizer and regular focus effects.
     // It is the grid's final reveal/focus phase and therefore the only point
     // at which the workspace operation may capture its arrival.
-    targetElement.focus({ preventScroll: true });
+    if (interactionsEnabled && !editingCell && !document.activeElement?.closest('form, [role="dialog"], [data-workspace-sheet-editor]')) {
+      targetElement.focus({ preventScroll: true });
+    }
     ensureCellVisibleOutsideStickyHeaders(
       targetElement,
       scrollContainer,
@@ -480,7 +482,7 @@ export function SheetGrid({
     scrollContainer.scrollTop = reveal.row.scroll;
     setNavigationFocusIntent(null);
     onNavigationSettled?.(navigationFocusIntent.generation);
-  }, [columnMetrics, columns, navigationFocusIntent, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, virtualColumns, virtualRows]);
+  }, [columnMetrics, columns, editingCell, interactionsEnabled, navigationFocusIntent, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, virtualColumns, virtualRows]);
   useEffect(() => {
     // Presentation-only highlights still reveal their range for consumers that
     // do not participate in a workspace navigation operation. An operation

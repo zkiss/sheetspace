@@ -24,7 +24,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   const activateNavigationSelection = useCallback((sheetId: string | undefined) => {
     if (!sheetId) return;
     // A dialog or editor opened after the jump owns focus until the user leaves it.
-    if (document.activeElement?.closest('[role="dialog"], [data-workspace-sheet-editor]')) return;
+    if (document.activeElement?.closest('form, [role="dialog"], [data-workspace-sheet-editor]')) return;
     const selectedCell = scrollContainers.current.get(sheetId)?.querySelector<HTMLElement>('[data-active-cell="true"]');
     selectedCell?.focus({ preventScroll: true });
   }, []);

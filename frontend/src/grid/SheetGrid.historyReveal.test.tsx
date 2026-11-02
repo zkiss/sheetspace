@@ -117,6 +117,22 @@ describe('history reveal scroll-axis independence', () => {
     expect(onNavigationSettled).toHaveBeenCalledWith(9);
   });
 
+  it('settles the reveal without stealing focus from a dialog', () => {
+    const { onNavigationSettled, renderNavigationTarget } = setup();
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const input = document.createElement('input');
+    dialog.append(input);
+    document.body.append(dialog);
+    input.focus();
+
+    renderNavigationTarget('A1', 9);
+
+    expect(document.activeElement).toBe(input);
+    expect(onNavigationSettled).toHaveBeenCalledWith(9);
+    dialog.remove();
+  });
+
   it.each([
     { target: 'C20', left: 100, top: 0, movesX: false, movesY: true },
     { target: 'I3', left: 0, top: 30, movesX: true, movesY: false },
