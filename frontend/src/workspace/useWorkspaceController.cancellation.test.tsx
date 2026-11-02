@@ -115,6 +115,29 @@ it.each(['reset', 'freeze', 'interrupt'] as const)('does not cancel a successor 
   expect(successorCancelled).toBe(false);
 });
 
+it.each(['movement', 'cancellation'] as const)('preserves the settled destination of a successor started by the %s callback during pan', (source) => {
+  let startSuccessor = () => {};
+  const app = setup(() => { if (source === 'movement') startSuccessor(); });
+  const settled = vi.fn();
+  const cancelled = vi.fn();
+  act(() => {
+    app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }, vi.fn(), () => {
+      if (source === 'cancellation') startSuccessor();
+    });
+  });
+  startSuccessor = () => {
+    app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, settled, cancelled);
+    app.animation.cancel.mockClear();
+  };
+  act(() => app.controller.panWorkspace(10, 20));
+  expect(app.animation.cancel).not.toHaveBeenCalled();
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+  act(() => app.animation.onfinish?.());
+  expect(settled).toHaveBeenCalledOnce();
+  expect(cancelled).not.toHaveBeenCalled();
+  expect(app.controller.viewport).toEqual({ x: 600, y: 400, scale: 1 });
+});
+
 it('rejects a successor started by unmount cancellation', () => {
   const app = setup();
   const successorCancelled = vi.fn();

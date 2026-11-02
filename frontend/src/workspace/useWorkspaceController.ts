@@ -192,7 +192,9 @@ export function useWorkspaceController({
       });
       return;
     }
+    const navigationId = nextViewportRestoreId.current;
     interruptNavigation();
+    if (navigationId !== nextViewportRestoreId.current) return;
     setViewport((currentViewport) => ({
       ...currentViewport,
       x: addFiniteWorkspaceCoordinate(currentViewport.x, deltaX),
