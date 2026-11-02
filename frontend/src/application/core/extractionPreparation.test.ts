@@ -95,5 +95,80 @@ describe('extraction preparation', () => {
     workbook.documents.s!.content.rows.push(id.toUpperCase());
     expect(prepareExtraction(workbook, { ...base, targetRows: [id, base.targetRows[1]!] })).toEqual({ ok: false, reason: 'invalid-target-axes' });
     expect(prepareExtraction(fixture(), { ...base, targetRows: [id, id] })).toEqual({ ok: false, reason: 'invalid-target-axes' });
+    for (const collision of ['document', 'row', 'column'] as const) {
+      const current = fixture();
+      if (collision === 'document') current.documents[id.toUpperCase()] = current.documents.s!;
+      else current.documents.s!.content[collision === 'row' ? 'rows' : 'columns'].push(id.toUpperCase());
+      const input = collision === 'document' ? { ...base, targetSheetId: id } : { ...base, targetColumns: [id, base.targetColumns[1]!] };
+      const snapshot = structuredClone({ current, input });
+      expect(prepareExtraction(current, input)).toEqual({ ok: false, reason: collision === 'document' ? 'invalid-target-id' : 'invalid-target-axes' });
+      expect({ current, input }).toEqual(snapshot);
+    }
+  });
+  it('validates the complete persisted frame contract without mutating inputs', () => {
+    const base = request();
+    const invalidFrames: ExtractionRequest['frame'][] = [];
+    for (const value of [NaN, Infinity, -Infinity]) {
+      invalidFrames.push({ ...base.frame, position: { ...base.frame.position, x: value } }, { ...base.frame, position: { ...base.frame.position, y: value } });
+    }
+    for (const value of [0, -1, NaN, Infinity, -Infinity]) {
+      invalidFrames.push({ ...base.frame, size: { ...base.frame.size, width: value } }, { ...base.frame, size: { ...base.frame.size, height: value } });
+    }
+    for (const zIndex of [0, -1, 1.5, NaN, Infinity, -Infinity, 2147483648, Number.MAX_SAFE_INTEGER + 1]) invalidFrames.push({ ...base.frame, zIndex });
+    invalidFrames.push(undefined as unknown as ExtractionRequest['frame'], { ...base.frame, position: undefined! }, { ...base.frame, size: undefined! });
+    for (const frame of invalidFrames) {
+      const workbook = fixture(), input = { ...base, frame }, before = structuredClone({ workbook, input });
+      expect(prepareExtraction(workbook, input)).toEqual({ ok: false, reason: 'invalid-frame' });
+      expect({ workbook, input }).toEqual(before);
+    }
+    for (const scale of [NaN, Infinity, -Infinity, 0.099, 8.001]) {
+      const workbook = fixture(), input = request();
+      workbook.documents.s!.frame.visualScale = scale;
+      const before = structuredClone({ workbook, input });
+      expect(prepareExtraction(workbook, input)).toEqual({ ok: false, reason: 'invalid-frame' });
+      expect({ workbook, input }).toEqual(before);
+    }
+    for (const [scale, zIndex] of [[0.1, 1], [8, 2147483647]] as const) {
+      const workbook = fixture(), input = request();
+      workbook.documents.s!.frame.visualScale = scale;
+      input.frame = { position: { x: -1.5, y: -0.25 }, size: { width: 0.5, height: 1.25 }, zIndex };
+      const before = structuredClone({ workbook, input }), result = prepareExtraction(workbook, input);
+      expect(result.ok && result.value.workbook.documents[input.targetSheetId]!.frame).toEqual({ ...input.frame, visualScale: scale });
+      expect({ workbook, input }).toEqual(before);
+    }
+  });
+  it('rejects invalid request boundaries with exact reasons and unchanged inputs', () => {
+    const base = request(), id = 'abcdefab-cdef-1234-5678-abcdefabcdef';
+    const cases: [ExtractionRequest, string][] = [
+      [{ ...base, selection: { kind: 'other' } as unknown as ExtractionRequest['selection'] }, 'invalid-selection'],
+      [{ ...base, selection: { kind: 'cells', start: undefined!, end: { rowId: 'r1', columnId: 'c1' } } }, 'invalid-selection'],
+      [{ ...base, selection: { kind: 'columns', start: 'stale', end: 'c1' } }, 'invalid-selection'],
+      [{ ...base, targetSheetId: id.toUpperCase() }, 'invalid-target-id'],
+      [{ ...base, targetSheetId: ' ' }, 'invalid-target-id'],
+      [{ ...base, targetName: '  ' }, 'empty-target-name'],
+      [{ ...base, targetName: ' Source ' }, 'duplicate-target-name'],
+      [{ ...base, targetRows: [] }, 'invalid-target-axes'],
+      [{ ...base, targetColumns: [] }, 'invalid-target-axes'],
+      [{ ...base, targetRows: null! }, 'invalid-target-axes'],
+      [{ ...base, targetColumns: null! }, 'invalid-target-axes'],
+      [{ ...base, targetRows: [id, id] }, 'invalid-target-axes'],
+      [{ ...base, targetColumns: [base.targetRows[0]!, base.targetColumns[1]!] }, 'invalid-target-axes'],
+      [{ ...base, targetColumns: ['bad', base.targetColumns[1]!] }, 'invalid-target-axes'],
+    ];
+    for (const [input, reason] of cases) {
+      const workbook = fixture(), before = structuredClone({ workbook, input });
+      expect(prepareExtraction(workbook, input)).toEqual({ ok: false, reason });
+      expect({ workbook, input }).toEqual(before);
+    }
+    for (const field of ['modelId', 'modelColumnBindings', 'modelFormulaBindings'] as const) {
+      const workbook = fixture(), input = request();
+      Object.assign(workbook.documents.s!, { [field]: field === 'modelId' ? 'model' : {} });
+      const before = structuredClone({ workbook, input });
+      expect(prepareExtraction(workbook, input)).toEqual({ ok: false, reason: 'protected-source' });
+      expect({ workbook, input }).toEqual(before);
+    }
+    const workbook = fixture(), input = { ...base, targetName: ' source ', targetSheetId: id };
+    const result = prepareExtraction(workbook, input);
+    expect(result.ok && result.value.workbook.documents[id]!.name).toBe('source');
   });
 });

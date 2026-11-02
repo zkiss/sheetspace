@@ -1,5 +1,5 @@
 import { cellIdentityKey } from '@workbook/core/cellIdentity';
-import type { FrameState, SheetDocument, StableCellIdentity, Workbook } from '@workbook/core/model';
+import { isValidSheetVisualScale, type FrameState, type SheetDocument, type StableCellIdentity, type Workbook } from '@workbook/core/model';
 import { validateSheetName } from '@workbook/mutations/operations';
 import { findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import type { ClipboardSourceSnapshot } from './clipboardPayload';
@@ -61,7 +61,7 @@ export function prepareExtraction(workbook: Workbook, request: ExtractionRequest
   const existingAxes = new Set(Object.values(workbook.documents).flatMap((sheet) => [...sheet.content.rows, ...sheet.content.columns]).map((id) => id.toLowerCase()));
   if (request.targetRows.length !== sourceRows.length || request.targetColumns.length !== sourceColumns.length || axes.some((id) => !validId(id) || existingAxes.has(id)) || new Set(axes).size !== axes.length) return { ok: false, reason: 'invalid-target-axes' };
   const frame = request.frame;
-  if (!frame?.position || !frame.size || !Number.isFinite(frame.position.x) || !Number.isFinite(frame.position.y) || !Number.isFinite(frame.size.width) || !Number.isFinite(frame.size.height) || frame.size.width <= 0 || frame.size.height <= 0 || !Number.isFinite(frame.zIndex)) return { ok: false, reason: 'invalid-frame' };
+  if (!frame?.position || !frame.size || !Number.isFinite(frame.position.x) || !Number.isFinite(frame.position.y) || !Number.isFinite(frame.size.width) || !Number.isFinite(frame.size.height) || frame.size.width <= 0 || frame.size.height <= 0 || !Number.isInteger(frame.zIndex) || frame.zIndex < 1 || frame.zIndex > 2147483647 || !isValidSheetVisualScale(source.frame.visualScale)) return { ok: false, reason: 'invalid-frame' };
   const rows = [...request.targetRows], columns = [...request.targetColumns];
   const copyAxis = <T>(record: Readonly<Record<string, T>> | undefined, from: readonly string[], to: readonly string[]): Record<string, T> => Object.fromEntries(from.flatMap((id, i) => record && Object.prototype.hasOwnProperty.call(record, id) ? [[to[i]!, structuredClone(record[id]!)]] : []));
   const overrides = source.presentation.formatOverrides;
