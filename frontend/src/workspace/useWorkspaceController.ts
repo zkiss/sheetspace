@@ -331,6 +331,7 @@ export function useWorkspaceController({
 
   function freezeDisplayedViewport() {
     const displayed = displayedWorkspaceViewport(workspacePlaneRef.current, true) ?? viewport;
+    onBeforeUserMovement?.();
     commitFrozenViewport(displayed);
     return displayed;
   }
