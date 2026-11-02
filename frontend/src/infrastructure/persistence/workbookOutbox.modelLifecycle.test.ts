@@ -99,4 +99,34 @@ describe('structural persistence barriers', () => {
     expect(result!.status).toBe('blocked');
     expect(saveModelLifecycle).not.toHaveBeenCalled();
   });
+
+  it('retries an ambiguous lifecycle response with the exact original compare-and-swap', async () => {
+    const before = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const after = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' }), sheetDocument({ id: 'new', name: 'New' })]);
+    const saveModelLifecycle = vi.fn().mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce(after);
+    const outbox = new WorkbookOutbox();
+    const transport = new WorkbookPersistenceTransport({ saveModelLifecycle });
+    outbox.enqueue('extract', { kind: 'model-lifecycle', before, after });
+
+    expect((await outbox.executeNext(transport))!.status).toBe('failed');
+    outbox.retry('extract');
+    expect((await outbox.executeNext(transport))!.status).toBe('succeeded');
+    expect(saveModelLifecycle.mock.calls).toEqual([[before, after], [before, after]]);
+  });
+
+  it('blocks a lifecycle transition behind a failed ordinary prerequisite until explicitly retried', async () => {
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('write', { kind: 'rename-sheet', sheetId: 'one', name: 'Changed' });
+    boundary(outbox);
+    const execute = vi.fn().mockRejectedValueOnce(new Error('write failed')).mockResolvedValue({ kind: 'saved', revisions: [] });
+
+    await outbox.executeNext({ execute });
+    expect(outbox.inspect('boundary')!.status).toBe('blocked');
+    expect(outbox.modelTransitionIsBlockedByFailedPrerequisite('boundary')).toBe(true);
+    outbox.retry('write');
+    await outbox.executeNext({ execute });
+    expect(await outbox.executeNext({ execute })).toBeUndefined();
+    outbox.retry('boundary');
+    expect((await outbox.executeNext({ execute }))!.status).toBe('succeeded');
+  });
 });
