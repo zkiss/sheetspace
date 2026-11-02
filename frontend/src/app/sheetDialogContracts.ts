@@ -11,3 +11,9 @@ export type PendingSheetRename = {
   sheetId: string;
   currentName: string;
 };
+
+/** The transient workspace presentation that owns the visible editor. */
+export type PresentationSnapshot = {
+  generation: number;
+  canvas: boolean;
+};

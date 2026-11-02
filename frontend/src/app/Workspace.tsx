@@ -1,6 +1,6 @@
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 /* eslint-disable max-lines -- Workspace remains the existing composition root; focused history ownership is extracted. */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, columnIndexToLabel } from '@workbook/core/address';
@@ -52,6 +52,8 @@ import { ErrorReferencePreview } from './ErrorReferencePreview';
 import type { ErrorReferenceHover } from './errorCellText';
 import { workbookErrors } from './workbookErrors';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
+import { useSheetCreationRoute } from './useSheetCreationRoute';
+import type { PresentationSnapshot } from './sheetDialogContracts';
 import { clampWorkspaceZoom, normalizedWheelDelta, workspaceRectForFrame, zoomFactorFromWheelDelta } from '@workspace/workspaceGeometry';
 const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
   activeCell,
@@ -80,6 +82,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onNavigateKeyboardCell,
   onOpenDataModels,
   onOpenRenameDialog,
+  onPresentationChange,
   onRetryFailedSaves,
   onSelectCell,
   onExtendSelection,
@@ -125,6 +128,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   onNavigateKeyboardCell: (target: CellTarget, request: import('@grid/cellInteractionContracts').CellNavigationRequest) => boolean;
   onOpenDataModels?: (modelId?: string, propertyId?: string, onClose?: () => void) => void;
   onOpenRenameDialog: (sheet: SheetDocument) => void;
+  onPresentationChange?: (snapshot: PresentationSnapshot) => void;
   onRetryFailedSaves: () => void;
   onSelectCell: (target: CellTarget, gesture?: SelectionGesture) => void;
   onExtendSelection: (target: CellTarget, gesture?: SelectionGesture) => void;
@@ -220,6 +224,16 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)));
   const modeActive = maximise.state.mode !== 'canvas';
   useEffect(() => setMaximiseActive(modeActive), [modeActive]);
+  // Publish in the commit that changes ownership so a creation result that
+  // resolves later cannot select against a superseded presentation.
+  useLayoutEffect(() => {
+    onPresentationChange?.({ canvas: maximise.state.mode === 'canvas', generation: maximise.state.identity });
+  }, [maximise.state.identity, maximise.state.mode, onPresentationChange]);
+  const createSheet = useSheetCreationRoute({
+    ensureCanvas: maximise.ensureCanvas,
+    openCreationDialog: workspaceController.createSheetAtViewportCenter,
+    presentationActive: modeActive,
+  });
   const zoomMaximised = useRef(maximise.zoom);
   zoomMaximised.current = maximise.zoom;
   useEffect(() => {
@@ -294,7 +308,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const primaryModifier = event.ctrlKey || event.metaKey;
       if (!primaryModifier && event.shiftKey && !event.altKey && key === 'n') {
         event.preventDefault();
-        workspaceController.createSheetAtViewportCenter();
+        createSheet();
         return;
       }
       if (event.altKey && !event.shiftKey && !primaryModifier && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
@@ -347,7 +361,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, toggleErrors, workspaceController]);
+  }, [commands, createSheet, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, toggleErrors, workspaceController]);
   useWorkspaceHistoryReveal(contentHistoryFeedback, editingCell !== null, sheets, creatingAxes, workspaceController);
   const {
     clearNavigationHighlight,
@@ -683,6 +697,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const actionPalette = useWorkspaceActionCommands({
     commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
     maximise: { active: modeActive, toggle: toggleMaximise, zoom: maximise.zoom },
+    onCreateSheet: createSheet,
     formatting: formattingProjection, referencesVisible: referenceLinksVisible, canUndo, canRedo, canRetryFailedSaves,
     navigation: navigationHistory, closePalette: closeCommandPalette,
     openPanel: () => { setPaletteChoices(null); setRowPickerOpen(false); setPaletteView((view) => view + 1); setCommandPaletteOpen(true); },
@@ -747,7 +762,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             projection={formattingProjection}
             selection={selectionRange}
           />}
-        onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        onCreateSheet={createSheet}
         canGoBack={navigationHistory.canGoBack}
         canGoForward={navigationHistory.canGoForward}
         onGoBack={() => navigationHistory.traverse('back')}
@@ -771,7 +786,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         const sheet = current && findSheetById(workbook, current.sheetId);
         if (current && sheet) navigateTarget({ kind: 'cell', target: { sheetId: current.sheetId, cell: current.cell } }, sheet);
       }} />
-      {errorsOpen && !sheetDialogOpen && errorReferenceHover ? <ErrorReferencePreview hover={errorReferenceHover} surface={workspaceController.workspaceSurfaceRef.current}
+      {errorsOpen && !sheetDialogOpen && !modeActive && errorReferenceHover ? <ErrorReferencePreview hover={errorReferenceHover} surface={workspaceController.workspaceSurfaceRef.current}
         geometry={projectReferenceGeometry({ reference: errorReferenceHover.reference, workbook, frames: projectedFrames, gridViewports: referenceGridViewports, workspaceViewport: workspaceController.viewport, surfaceSize: referenceSurfaceSize })}
         onNavigate={navigateReference} /> : null}
       {calculatedCellFeedback ? <p className="form-error" role="alert">{calculatedCellFeedback}</p> : null}
@@ -821,11 +836,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         hasSheets={sheets.length + creatingFrames.length > 0}
         isPanningWorkspace={workspaceController.isPanningWorkspace}
         navigationMotion={(navigationMotion || workspaceController.navigationMotion) && !workspaceController.navigationInterrupted && !workspaceController.isPanningWorkspace}
-        onCreateSheet={workspaceController.createSheetAtViewportCenter}
+        onCreateSheet={createSheet}
         onContextMenu={workspaceController.handleWorkspaceContextMenu}
         overlay={(
           <>
-            {formulaInspection ? <ContextualReferenceLinks editorActive={Boolean(editingCell)} hoveredSourceSpan={hoveredReferenceSpan} pulseSourceSpan={modifierReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
+            {formulaInspection && !modeActive ? <ContextualReferenceLinks editorActive={Boolean(editingCell)} hoveredSourceSpan={hoveredReferenceSpan} pulseSourceSpan={modifierReferenceSpan} onNavigate={navigateReference} references={contextualReferenceItems} source={contextualSourceGeometry} surfaceSize={referenceSurfaceSize} visible={referenceLinksVisible} /> : null}
           </>
         )}
         viewport={workspaceController.viewport}

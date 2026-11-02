@@ -68,6 +68,11 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     if (!current.current.motion) return Promise.resolve('settled');
     return new Promise((resolve) => waiters.current.push(resolve));
   }
+  function ensureCanvas(): Promise<Result> {
+    if (current.current.mode !== 'canvas' && current.current.mode !== 'restoring') toggle();
+    const identity = current.current.identity;
+    return settled().then((result) => result === 'settled' && current.current.mode === 'canvas' && current.current.identity === identity ? 'settled' : 'cancelled');
+  }
   useLayoutEffect(() => {
     const now = performance.now();
     const existing = current.current;
@@ -86,5 +91,5 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     current.current = cancelMaximise(current.current);
     release('cancelled');
   }, []);
-  return { state, presentation, enter, toggle, cancel, zoom, settled };
+  return { state, presentation, enter, toggle, cancel, zoom, settled, ensureCanvas };
 }

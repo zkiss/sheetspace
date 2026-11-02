@@ -31,7 +31,7 @@ type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
   maximise,
-  canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onOpenDataModels, onRename, onDelete, onEdit, onClear,
+  canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onCreateSheet, onOpenDataModels, onRename, onDelete, onEdit, onClear,
   onSelectAxis, onSelectAll, onRowDeleted, onColumnDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
@@ -41,6 +41,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
   navigation: { canGoBack: boolean; canGoForward: boolean; traverse: (direction: 'back' | 'forward') => boolean };
   closePalette: (restoreFocus?: boolean) => void; openPanel: () => void;
+  onCreateSheet: () => void;
   onOpenDataModels?: (modelId?: string) => void; onRename: (sheet: SheetDocument) => void;
   onDelete: (sheet: SheetDocument) => void; onEdit: (target: CellTarget) => void; onClear: (target: CellTarget) => void;
   onSelectAxis: (axis: 'rows' | 'columns', target: CellTarget) => void; onSelectAll: (sheet: SheetDocument) => void;
@@ -80,7 +81,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     actions.push({ id, label, group, run: action, unavailable, shortcut });
   };
 
-  add('new-sheet', 'New sheet…', 'Workspace', run(controller.createSheetAtViewportCenter, false), undefined, 'Shift+N');
+  add('new-sheet', 'New sheet…', 'Workspace', run(onCreateSheet, false), undefined, 'Shift+N');
   add('data-models', 'Data models…', 'Workspace', run(() => onOpenDataModels?.(), false), onOpenDataModels ? undefined : 'Data models unavailable');
   add('toggle-references', referencesVisible ? 'Hide references' : 'Show references', 'Workspace', run(onToggleReferences));
   add('back', 'Back', 'Navigation', run(() => navigation.traverse('back'), false), navigation.canGoBack ? undefined : 'No previous location', 'Alt+Left');

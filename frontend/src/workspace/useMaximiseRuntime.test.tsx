@@ -8,6 +8,50 @@ const size = { width: 800, height: 600 };
 const displayed = { x: -40, y: 60, scale: 0.7 };
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it('joins a restore and cancels all canvas requests if it is reversed', async () => {
+  let callback: FrameRequestCallback = () => {};
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result } = renderHook(() => useMaximiseRuntime(handoff, size, false, () => true));
+  act(() => result.current.enter('sheet', saved));
+  let first!: Promise<string>;
+  let second!: Promise<string>;
+  act(() => { first = result.current.ensureCanvas(); second = result.current.ensureCanvas(); });
+  expect(result.current.state.mode).toBe('restoring');
+  act(() => result.current.toggle());
+  expect(await first).toBe('cancelled');
+  expect(await second).toBe('cancelled');
+  let last!: Promise<string>;
+  act(() => { last = result.current.ensureCanvas(); });
+  act(() => callback(performance.now() + 1000));
+  expect(await last).toBe('settled');
+  expect(handoff.commitFrozenViewport).toHaveBeenCalledTimes(1);
+});
+
+it('invalidates a settled canvas request when presentation ownership changes or unmounts', async () => {
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result, unmount } = renderHook(() => useMaximiseRuntime(handoff, size, true, () => true));
+  const pending = result.current.ensureCanvas();
+  act(() => result.current.enter('sheet', saved));
+  expect(await pending).toBe('cancelled');
+  let restored!: Promise<string>;
+  act(() => { restored = result.current.ensureCanvas(); });
+  unmount();
+  expect(await restored).toBe('cancelled');
+});
+
+it('cancels a canvas request when the owned sheet disappears during restoration', async () => {
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result, rerender } = renderHook(({ present }) => useMaximiseRuntime(handoff, size, false, () => present), { initialProps: { present: true } });
+  act(() => result.current.enter('sheet', saved));
+  let pending!: Promise<string>;
+  act(() => { pending = result.current.ensureCanvas(); });
+  rerender({ present: false });
+  expect(await pending).toBe('cancelled');
+  expect(handoff.commitFrozenViewport).not.toHaveBeenCalled();
+});
+
 it('samples the handoff and reverses continuously, then commits the native-scale restore', async () => {
   let now = 0;
   let nextId = 0;
