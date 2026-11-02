@@ -2,14 +2,14 @@ import type { SavedFrame } from '@workspace/maximiseGeometry';
 import type { NavigationStages } from '@workspace/navigationStageCoordinator';
 
 type Result = 'settled' | 'cancelled';
-type Runtime = {
+export type NavigationTransportRuntime = {
   currentState: () => ReturnType<NavigationStages['presentation']>;
   ensureCanvas: () => Promise<Result>;
   ensureMaximised: (id: string) => Promise<Result>;
   enter: (id: string, saved: SavedFrame, displayed: SavedFrame, programmatic: boolean) => void;
 };
 
-type Frames = { saved: SavedFrame; displayed: SavedFrame };
+export type NavigationTransportFrames = { saved: SavedFrame; displayed: SavedFrame };
 
 function waitForPresentation(promise: Promise<Result>, finish: (result: Result) => void) {
   let active = true;
@@ -19,10 +19,11 @@ function waitForPresentation(promise: Promise<Result>, finish: (result: Result) 
 
 /** Adapts semantic presentation settlement to the stage coordinator's callback contract. */
 export function navigationTransportStages(
-  runtime: Runtime,
+  runtime: NavigationTransportRuntime,
   available: (id: string) => boolean,
-  frames: (id: string) => Frames | undefined,
+  frames: (id: string) => NavigationTransportFrames | undefined,
   move: NavigationStages['move'],
+  isCurrent: () => boolean = () => true,
 ): NavigationStages {
   return {
     available,
@@ -33,6 +34,7 @@ export function navigationTransportStages(
       const frame = frames(id);
       if (!frame || !available(id)) { finish('cancelled'); return () => {}; }
       runtime.enter(id, frame.saved, frame.displayed, true);
+      if (!isCurrent()) { finish('cancelled'); return () => {}; }
       return waitForPresentation(runtime.ensureMaximised(id), finish);
     },
     targetReady: (id, finish) => waitForPresentation(runtime.ensureMaximised(id), finish),
