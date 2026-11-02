@@ -12,7 +12,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
   onHistoryTraversal?: () => void;
   restoreViewport: (viewport: WorkspaceViewport, onSettled: () => void) => () => void;
   restoreDestination?: (sheetId: string, viewport: WorkspaceViewport, onSettled: () => void, onFailure: (reason: 'unavailable' | 'cancelled') => void) => () => void;
-  stageDestination?: boolean;
+  stageDestination?: boolean | (() => boolean);
   selection: CellSelection | null;
   viewport: WorkspaceViewport;
 }) {
@@ -81,7 +81,7 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     const previous = activeRestore.current;
     const generation = operation.generation;
     const restoring = {
-      generation, operation, cancelViewport: () => {}, onRetire, retired: false, finished: false, viewportSettled: false, requiredGridSettled: false, staged: stageDestination, requiredSheetId, destinationSheetId: destination, navigationTarget,
+      generation, operation, cancelViewport: () => {}, onRetire, retired: false, finished: false, viewportSettled: false, requiredGridSettled: false, staged: typeof stageDestination === 'function' ? stageDestination() : stageDestination, requiredSheetId, destinationSheetId: destination, navigationTarget,
     };
     activeRestore.current = restoring;
     if (previous) previous.retired = true;

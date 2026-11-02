@@ -48,6 +48,28 @@ describe('useWorkspaceNavigationHistory', () => {
     expect(result.current.navigationRequestForSheet('destination')).toBeDefined();
   });
 
+  it('samples the live staging policy at operation start without a render', () => {
+    let staged = true;
+    let arrive = () => {};
+    const ready = vi.fn();
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+      stageDestination: () => staged, onRestoreSelection: () => true, onUnavailableTarget: vi.fn(),
+      restoreViewport: () => () => {}, selection: null, viewport: { x: 0, y: 0, scale: 1 },
+    }));
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => { arrive = settled; return () => {}; }, ready);
+    }));
+    staged = false;
+    expect(ready).not.toHaveBeenCalled();
+    act(() => arrive());
+    expect(ready).toHaveBeenCalledOnce();
+    const nextReady = vi.fn();
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, () => () => {}, nextReady);
+    }));
+    expect(nextReady).toHaveBeenCalledOnce();
+  });
+
   it('restores selection only at destination readiness and ignores cancelled settlement', () => {
     vi.useFakeTimers();
     const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
