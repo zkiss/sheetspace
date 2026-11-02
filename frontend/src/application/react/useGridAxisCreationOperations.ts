@@ -200,8 +200,8 @@ export function useGridAxisCreationOperations({
     if (!autosaveEnabled || !sheet || sheet.modelId) return;
     if (persistenceCoordinator.isSheetMissing(sheetId)) {
       if (!hasPendingRecreation?.(sheetId)) return;
-      queue.admitRecreation(sheetId);
     }
+    queue.admitRecreation(sheetId);
     queue.enqueue({ operationId: crypto.randomUUID(), sheetId, axis });
     pump();
   }, [autosaveEnabled, currentWorkbook, hasPendingRecreation, persistenceCoordinator, pump, queue]);

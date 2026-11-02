@@ -146,7 +146,7 @@ export function useSavedSheetAutosave({
     hasPendingRecreation: (sheetId: SheetId) => outbox.hasPendingRecreation(sheetId),
     hasFailedPrerequisiteForModelTransition: () => outbox.hasFailedPrerequisiteForModelTransition(),
     modelTransitionIsBlockedByFailedPrerequisite: (operationId: string) => outbox.modelTransitionIsBlockedByFailedPrerequisite(operationId),
-    discard: (operationId: string) => outbox.remove(operationId),
+    discard: (operationId: string) => { outbox.remove(operationId); pump(); },
     waitFor: (operationId: string) => outbox.waitFor(operationId),
     waitForModelTransitions: () => outbox.waitForModelTransitions(),
     retryFailedSaves,
