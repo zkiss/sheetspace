@@ -13,6 +13,7 @@ export type NavigationStages = {
 
 export function createNavigationStageCoordinator() {
   let active: (() => void) | undefined;
+  let reconcileActive: (() => void) | undefined;
 
   function start(id: string, stages: NavigationStages) {
     const previous = active;
@@ -23,7 +24,7 @@ export function createNavigationStageCoordinator() {
     const finish = (result: 'ready' | 'cancelled') => {
       if (done) return;
       done = true;
-      if (active === cancel) active = undefined;
+      if (active === cancel) { active = undefined; reconcileActive = undefined; }
       const release = dispose;
       dispose = undefined;
       release?.();
@@ -31,6 +32,7 @@ export function createNavigationStageCoordinator() {
     };
     function cancel() { finish('cancelled'); }
     active = cancel;
+    reconcileActive = () => { if (!stages.available(id)) cancel(); };
     previous?.();
     function valid() { return !done && active === cancel && stages.available(id); }
     function run(stage: Stage, next: () => void) {
@@ -57,5 +59,5 @@ export function createNavigationStageCoordinator() {
     return { cancel, completion };
   }
 
-  return { start, cancel: () => active?.() };
+  return { start, cancel: () => active?.(), reconcile: () => reconcileActive?.() };
 }

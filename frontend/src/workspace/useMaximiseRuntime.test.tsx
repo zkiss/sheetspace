@@ -9,6 +9,13 @@ const size = { width: 800, height: 600 };
 const displayed = { x: -40, y: 60, scale: 0.7 };
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it('marks coordinator-owned entry as a programmatic viewport handoff', () => {
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result } = renderHook(() => useMaximiseRuntime(handoff, size, true, () => true));
+  act(() => result.current.enter('sheet', saved, saved, true));
+  expect(handoff.freezeDisplayedViewport).toHaveBeenCalledWith(true);
+});
+
 it('settles target ownership across entering resize but not reversal or removal', async () => {
   let callback: FrameRequestCallback = () => {};
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });

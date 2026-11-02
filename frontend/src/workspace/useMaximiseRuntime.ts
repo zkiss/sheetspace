@@ -6,7 +6,7 @@ import type { SavedFrame } from './maximiseGeometry';
 import { cancelMaximise, completeMaximise, enterMaximise, initialMaximiseState, MAXIMISE_TRANSITION_MS, resizeMaximise, sampleMaximise, toggleMaximise, unavailableMaximiseSheet, zoomMaximise } from './maximiseState';
 import type { MaximiseState } from './maximiseState';
 
-type Handoff = { freezeDisplayedViewport: () => WorkspaceViewport; commitFrozenViewport: (viewport: WorkspaceViewport) => void };
+type Handoff = { freezeDisplayedViewport: (programmatic?: boolean) => WorkspaceViewport; commitFrozenViewport: (viewport: WorkspaceViewport) => void };
 type Result = 'settled' | 'cancelled';
 
 /** Owns one transient sheet presentation; the caller owns editor and input wiring. */
@@ -58,11 +58,11 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     };
     frame.current = requestAnimationFrame(tick);
   }
-  function enter(id: string, saved: SavedFrame, displayed: SavedFrame = saved) {
+  function enter(id: string, saved: SavedFrame, displayed: SavedFrame = saved, programmatic = false) {
     const measured = options.current.size;
     if (!measured || !Number.isFinite(measured.width) || !Number.isFinite(measured.height) || measured.width <= 0 || measured.height <= 0 || !options.current.available(id)) return;
     if (current.current.mode !== 'canvas' && current.current.sheetId === id) return;
-    const viewport = options.current.handoff.freezeDisplayedViewport();
+    const viewport = programmatic ? options.current.handoff.freezeDisplayedViewport(true) : options.current.handoff.freezeDisplayedViewport();
     const now = performance.now();
     update(enterMaximise(current.current, id, saved, measured, canvasPresentation(displayed, viewport), now, options.current.reducedMotion), now);
   }
