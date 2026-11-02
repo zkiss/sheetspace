@@ -56,6 +56,7 @@ export function useWorkspaceController({
   const viewportMovementIsUser = useRef(false);
   const pendingViewportRestore = useRef<{ id: number; onSettled: () => void; onCancelled?: () => void; timeout?: number }>();
   const nextViewportRestoreId = useRef(0);
+  const unmounted = useRef(false);
   const isPanningWorkspace = useWorkspaceGestures(workspaceSurfaceRef, {
     start: interruptNavigation, panStart: beginPanPreview, panEnd: finishPanPreview,
     pan: panWorkspace, zoom: zoomWorkspaceBy, closeMenu: closeSheetMenu, clearSelection: onClearSelection,
@@ -66,12 +67,15 @@ export function useWorkspaceController({
     else if (panPreview.current) paintPanViewport(panPreview.current);
   });
 
-  useLayoutEffect(() => () => {
+  useLayoutEffect(() => { unmounted.current = false; return () => {
+    unmounted.current = true;
     if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
-    cancelViewportRestore();
+    const notify = detachViewportRestore();
     activeViewportMotion.current?.animation.cancel();
-  }, []);
+    activeViewportMotion.current = undefined;
+    notify?.();
+  }; }, []);
 
   useLayoutEffect(() => {
     const workspace = workspaceSurfaceRef.current;
@@ -137,19 +141,19 @@ export function useWorkspaceController({
     // gesture.
     onBeforeUserMovement?.();
     // Read before React removes the transition, and only once even for batched inputs.
+    const notify = detachViewportRestore();
     if (navigationMayBeMoving.current) {
       navigationMayBeMoving.current = false;
       const displayed = displayedWorkspaceViewport(workspacePlaneRef.current);
-      cancelViewportRestore();
       cancelViewportAnimation();
       if (displayed) { viewportRef.current = displayed; setViewport(displayed); }
     } else {
-      cancelViewportRestore();
       cancelViewportAnimation();
     }
     viewportMovementIsUser.current = true;
     setNavigationInterrupted(true);
     setNavigationMotion(false);
+    notify?.();
   }
 
   function invalidateCreationSequence() {
@@ -295,7 +299,7 @@ export function useWorkspaceController({
   function resetViewport() {
     finishZoomPreview();
     onBeforeUserMovement?.();
-    cancelViewportRestore();
+    const notify = detachViewportRestore();
     cancelViewportAnimation();
     navigationMayBeMoving.current = false;
     viewportMovementIsUser.current = true;
@@ -303,13 +307,18 @@ export function useWorkspaceController({
     setNavigationMotion(false);
     if (viewportRef.current.x !== 0 || viewportRef.current.y !== 0 || viewportRef.current.scale !== 1) invalidateCreationSequence();
     setViewport({ x: 0, y: 0, scale: 1 });
+    notify?.();
   }
 
-  function cancelViewportRestore() {
+  function detachViewportRestore() {
     const pending = pendingViewportRestore.current;
     if (pending?.timeout !== undefined) window.clearTimeout(pending.timeout);
     pendingViewportRestore.current = undefined;
-    pending?.onCancelled?.();
+    return pending?.onCancelled;
+  }
+
+  function cancelViewportRestore() {
+    detachViewportRestore()?.();
   }
 
   function cancelViewportAnimation() {
@@ -324,13 +333,14 @@ export function useWorkspaceController({
     if (zoomTimer.current !== undefined) window.clearTimeout(zoomTimer.current);
     panFrame.current = undefined; zoomFrame.current = undefined; zoomTimer.current = undefined;
     panPreview.current = null; zoomPreview.current = null;
-    cancelViewportRestore();
+    const notify = detachViewportRestore();
     cancelViewportAnimation();
     navigationMayBeMoving.current = false;
     setNavigationMotion(false);
     viewportRef.current = next;
     paintPanViewport(next);
     setViewport(next);
+    notify?.();
   }
 
   function freezeDisplayedViewport(programmatic = false) {
@@ -366,6 +376,7 @@ export function useWorkspaceController({
   }
 
   function animateViewport(nextViewport: WorkspaceViewport, onSettled?: () => void, onCancelled?: () => void): () => void {
+    if (unmounted.current) { onCancelled?.(); return () => {}; }
     finishZoomPreview();
     const active = activeViewportMotion.current;
     const time = active?.animation.currentTime;

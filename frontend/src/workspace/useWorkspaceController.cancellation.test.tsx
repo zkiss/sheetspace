@@ -56,10 +56,55 @@ it('notifies replacement and ignores an obsolete disposer', () => {
   expect(app.animation.cancel).not.toHaveBeenCalled();
 });
 
+it('does not cancel a reused animation through its previous disposer', () => {
+  const app = setup();
+  const Effect = class { setKeyframes = vi.fn(); updateTiming = vi.fn(); };
+  vi.stubGlobal('KeyframeEffect', Effect);
+  const effect = new Effect();
+  Object.assign(app.animation, { effect });
+  let cancel!: () => void;
+  act(() => { cancel = app.controller.restoreViewport({ x:  300, y: 200, scale: 2 }); });
+  app.animation.cancel.mockClear();
+  act(() => { app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }); });
+  act(cancel);
+  expect(app.animation.cancel).not.toHaveBeenCalled();
+  expect(effect.setKeyframes).toHaveBeenCalledOnce();
+});
+
 it('notifies cancellation on unmount', () => {
   const app = setup();
   const cancelled = vi.fn();
   act(() => { app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }, vi.fn(), cancelled); });
   app.view.unmount();
   expect(cancelled).toHaveBeenCalledOnce();
+});
+
+it.each(['reset', 'freeze', 'interrupt'] as const)('does not cancel a successor started during %s cancellation', (action) => {
+  const app = setup();
+  let successorCancelled = false;
+  act(() => {
+    app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }, vi.fn(), () => {
+      app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, vi.fn(), () => { successorCancelled = true; });
+      app.animation.cancel.mockClear();
+    });
+  });
+  act(() => {
+    if (action === 'reset') app.controller.resetViewport();
+    else if (action === 'freeze') app.controller.freezeDisplayedViewport(true);
+    else app.controller.panWorkspace(1, 0);
+  });
+  expect(app.animation.cancel).not.toHaveBeenCalled();
+  expect(successorCancelled).toBe(false);
+});
+
+it('rejects a successor started by unmount cancellation', () => {
+  const app = setup();
+  const successorCancelled = vi.fn();
+  act(() => {
+    app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }, vi.fn(), () => {
+      app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, vi.fn(), successorCancelled);
+    });
+  });
+  app.view.unmount();
+  expect(successorCancelled).toHaveBeenCalledOnce();
 });

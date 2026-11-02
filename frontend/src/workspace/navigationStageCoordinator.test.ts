@@ -96,3 +96,39 @@ it('never enters a destination removed while the flyover is underway', async () 
   expect(await operation.completion).toBe('cancelled');
   expect(enter).not.toHaveBeenCalled();
 });
+
+it.each([0, 1, 2])('cancels and ignores stale completion at stage %i', async (interruptedStage) => {
+  const callbacks: Array<(result: 'settled' | 'cancelled') => void> = [];
+  const releases = [vi.fn(), vi.fn(), vi.fn()];
+  const stage = (index: number) => (finish: (result: 'settled' | 'cancelled') => void) => {
+    callbacks[index] = finish;
+    return releases[index];
+  };
+  const stages: NavigationStages = {
+    available: () => true,
+    presentation: () => ({ mode: 'maximised', sheetId: 'source' }),
+    restore: stage(0), move: stage(1), enter: (_, finish) => stage(2)(finish), targetReady: () => vi.fn(),
+  };
+  const operation = createNavigationStageCoordinator().start('target', stages);
+  for (let index = 0; index < interruptedStage; index++) callbacks[index]('settled');
+  operation.cancel();
+  callbacks[interruptedStage]('settled');
+  expect(await operation.completion).toBe('cancelled');
+  expect(releases[interruptedStage]).toHaveBeenCalledOnce();
+  expect(callbacks[interruptedStage + 1]).toBeUndefined();
+});
+
+it('retains the next stage disposer when the preceding stage settles inline', async () => {
+  const release = vi.fn();
+  const stages: NavigationStages = {
+    available: () => true,
+    presentation: () => ({ mode: 'restoring', sheetId: 'source' }),
+    restore: (finish) => { finish('settled'); return vi.fn(); },
+    move: () => release,
+    enter: () => vi.fn(), targetReady: () => vi.fn(),
+  };
+  const operation = createNavigationStageCoordinator().start('target', stages);
+  operation.cancel();
+  expect(await operation.completion).toBe('cancelled');
+  expect(release).toHaveBeenCalledOnce();
+});
