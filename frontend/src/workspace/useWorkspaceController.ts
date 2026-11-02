@@ -136,10 +136,6 @@ export function useWorkspaceController({
     finishZoomPreview();
     finishPanPreview();
     sampleCreationMotion();
-    // History restoration may have pending grid work. Retire it before sampling
-    // or changing the viewport so a newly mounted grid cannot restore over this
-    // gesture.
-    onBeforeUserMovement?.();
     // Read before React removes the transition, and only once even for batched inputs.
     const notify = detachViewportRestore();
     if (navigationMayBeMoving.current) {
@@ -153,6 +149,7 @@ export function useWorkspaceController({
     viewportMovementIsUser.current = true;
     setNavigationInterrupted(true);
     setNavigationMotion(false);
+    onBeforeUserMovement?.();
     notify?.();
   }
 
@@ -298,7 +295,6 @@ export function useWorkspaceController({
 
   function resetViewport() {
     finishZoomPreview();
-    onBeforeUserMovement?.();
     const notify = detachViewportRestore();
     cancelViewportAnimation();
     navigationMayBeMoving.current = false;
@@ -307,6 +303,7 @@ export function useWorkspaceController({
     setNavigationMotion(false);
     if (viewportRef.current.x !== 0 || viewportRef.current.y !== 0 || viewportRef.current.scale !== 1) invalidateCreationSequence();
     setViewport({ x: 0, y: 0, scale: 1 });
+    onBeforeUserMovement?.();
     notify?.();
   }
 
@@ -326,7 +323,7 @@ export function useWorkspaceController({
     workspacePlaneRef.current?.getAnimations().forEach((animation) => animation.cancel());
   }
 
-  function commitFrozenViewport(next: WorkspaceViewport) {
+  function commitFrozenViewport(next: WorkspaceViewport, beforeNotify?: () => void) {
     previewGeneration.current++;
     if (panFrame.current !== undefined) cancelAnimationFrame(panFrame.current);
     if (zoomFrame.current !== undefined) cancelAnimationFrame(zoomFrame.current);
@@ -340,13 +337,13 @@ export function useWorkspaceController({
     viewportRef.current = next;
     paintPanViewport(next);
     setViewport(next);
+    beforeNotify?.();
     notify?.();
   }
 
   function freezeDisplayedViewport(programmatic = false) {
     const displayed = displayedWorkspaceViewport(workspacePlaneRef.current, true) ?? viewport;
-    if (!programmatic) onBeforeUserMovement?.();
-    commitFrozenViewport(displayed);
+    commitFrozenViewport(displayed, programmatic ? undefined : onBeforeUserMovement);
     return displayed;
   }
 

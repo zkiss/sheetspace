@@ -132,3 +132,40 @@ it('retains the next stage disposer when the preceding stage settles inline', as
   expect(await operation.completion).toBe('cancelled');
   expect(release).toHaveBeenCalledOnce();
 });
+
+it.each([0, 1, 2])('retires a replaced operation at stage %i', async (index) => {
+  const callbacks: Array<(result: 'settled' | 'cancelled') => void> = [];
+  const releases = [vi.fn(), vi.fn(), vi.fn()];
+  const stage = (i: number) => (finish: (result: 'settled' | 'cancelled') => void) => { callbacks[i] = finish; return releases[i]; };
+  const stages: NavigationStages = {
+    available: () => true, presentation: () => ({ mode: 'maximised', sheetId: 'source' }),
+    restore: stage(0), move: stage(1), enter: (_, finish) => stage(2)(finish), targetReady: () => vi.fn(),
+  };
+  const coordinator = createNavigationStageCoordinator();
+  const old = coordinator.start('old', stages);
+  for (let i = 0; i < index; i++) callbacks[i]('settled');
+  const stale = callbacks[index];
+  const next = coordinator.start('next', { ...stages, presentation: () => ({ mode: 'canvas' }), move: (finish) => { finish('settled'); return vi.fn(); } });
+  stale('settled');
+  expect(await old.completion).toBe('cancelled');
+  expect(await next.completion).toBe('ready');
+  expect(releases[index]).toHaveBeenCalledOnce();
+});
+
+it.each([0, 1, 2])('reconciles destination removal at stage %i', async (index) => {
+  let available = true;
+  const callbacks: Array<(result: 'settled' | 'cancelled') => void> = [];
+  const stage = (i: number) => (finish: (result: 'settled' | 'cancelled') => void) => { callbacks[i] = finish; return vi.fn(); };
+  const stages: NavigationStages = {
+    available: () => available, presentation: () => ({ mode: 'maximised', sheetId: 'source' }),
+    restore: stage(0), move: stage(1), enter: (_, finish) => stage(2)(finish), targetReady: () => vi.fn(),
+  };
+  const coordinator = createNavigationStageCoordinator();
+  const operation = coordinator.start('target', stages);
+  for (let i = 0; i < index; i++) callbacks[i]('settled');
+  available = false;
+  coordinator.reconcile();
+  callbacks[index]('settled');
+  expect(await operation.completion).toBe('cancelled');
+  expect(callbacks[index + 1]).toBeUndefined();
+});

@@ -5,12 +5,12 @@ import { useWorkspaceController } from './useWorkspaceController';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); delete (document as unknown as { timeline?: unknown }).timeline; });
 
-function setup() {
+function setup(onBeforeUserMovement?: () => void) {
   vi.stubGlobal('KeyframeEffect', class {});
   Object.defineProperty(document, 'timeline', { configurable: true, value: { currentTime: 1000 } });
   let controller!: ReturnType<typeof useWorkspaceController>;
   function Harness() {
-    controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn() });
+    controller = useWorkspaceController({ onCreateSheet: vi.fn(), onClearSelection: vi.fn(), onBeforeUserMovement });
     return <WorkspaceSurface hasSheets isPanningWorkspace={controller.isPanningWorkspace}
       navigationMotion={controller.navigationMotion} onContextMenu={controller.handleWorkspaceContextMenu}
       viewport={controller.viewport} workspacePlaneRef={controller.workspacePlaneRef}
@@ -42,6 +42,24 @@ it('cancels only its motion and commits the displayed viewport', () => {
   expect(app.controller.viewport).toEqual({ x: 12, y: 34, scale: 1.5 });
   act(cancel);
   expect(cancelled).toHaveBeenCalledOnce();
+});
+
+it.each(['reset', 'freeze', 'interrupt'] as const)('does not cancel a successor started by the user-movement callback during %s', (action) => {
+  let startSuccessor = () => {};
+  const app = setup(() => startSuccessor());
+  const successorCancelled = vi.fn();
+  act(() => { app.controller.restoreViewport({ x: 300, y: 200, scale: 2 }); });
+  startSuccessor = () => {
+    app.controller.restoreViewport({ x: 600, y: 400, scale: 1 }, vi.fn(), successorCancelled);
+    app.animation.cancel.mockClear();
+  };
+  act(() => {
+    if (action === 'reset') app.controller.resetViewport();
+    else if (action === 'freeze') app.controller.freezeDisplayedViewport();
+    else app.controller.panWorkspace(1, 0);
+  });
+  expect(app.animation.cancel).not.toHaveBeenCalled();
+  expect(successorCancelled).not.toHaveBeenCalled();
 });
 
 it('notifies replacement and ignores an obsolete disposer', () => {

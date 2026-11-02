@@ -36,6 +36,20 @@ it('settles target ownership across entering resize but not reversal or removal'
   expect(await removed).toBe('cancelled');
 });
 
+it('preserves semantic target readiness when resize enables reduced motion', async () => {
+  vi.stubGlobal('requestAnimationFrame', () => 1);
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result, rerender } = renderHook(({ dimensions, reduced }) => useMaximiseRuntime(handoff, dimensions, reduced, () => true), {
+    initialProps: { dimensions: size, reduced: false },
+  });
+  act(() => result.current.enter('sheet', saved));
+  const pending = result.current.ensureMaximised('sheet');
+  rerender({ dimensions: { width: 1000, height: 700 }, reduced: true });
+  expect(await pending).toBe('settled');
+  expect(result.current.currentState().mode).toBe('maximised');
+});
+
 it('opens one creation dialog after a resized restore settles', async () => {
   let callback: FrameRequestCallback = () => {};
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
