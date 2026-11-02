@@ -29,6 +29,22 @@ describe('useWorkspaceNavigationHistory', () => {
     vi.unstubAllGlobals();
   });
 
+  it('passes the selected sheet to a destination-aware history restore', () => {
+    vi.useFakeTimers();
+    const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
+    const restoreDestination = vi.fn(() => () => {});
+    const restoreViewport = vi.fn(() => () => {});
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport, restoreDestination,
+      selection, viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); });
+    act(() => result.current.history.traverse('back'));
+    expect(restoreDestination).toHaveBeenCalledWith('destination', { x: 1, y: 0, scale: 1 }, expect.any(Function));
+    expect(restoreViewport).not.toHaveBeenCalled();
+  });
+
   it('does not record an empty-scroll restoration until a later user movement', () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
@@ -166,6 +182,7 @@ describe('useWorkspaceNavigationHistory', () => {
     grid.scrollLeft = 700;
     rerender({ x: 2 });
     act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.history.traverse('back'); });
+
 
     // Grid reveal runs independently of outer motion. Neither acknowledgement
     // is a substitute for the other.

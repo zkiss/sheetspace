@@ -5,11 +5,12 @@ import { useNavigationHistory } from '@reference-navigation/useNavigationHistory
 import type { NavigationOperation } from '@reference-navigation/useNavigationHistory';
 import type { WorkspaceViewport } from '@workspace/workspaceContracts';
 
-export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailableTarget, onHistoryTraversal, restoreViewport, selection, viewport }: {
+export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailableTarget, onHistoryTraversal, restoreViewport, restoreDestination, selection, viewport }: {
   onRestoreSelection: (selection: CellSelection | null) => boolean;
   onUnavailableTarget: () => void;
   onHistoryTraversal?: () => void;
   restoreViewport: (viewport: WorkspaceViewport, onSettled: () => void) => () => void;
+  restoreDestination?: (sheetId: string, viewport: WorkspaceViewport, onSettled: () => void) => () => void;
   selection: CellSelection | null;
   viewport: WorkspaceViewport;
 }) {
@@ -87,8 +88,10 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     const selectionAvailable = onRestoreSelection(context.selection);
     if (!selectionAvailable && context.selection) onUnavailableTarget();
     beginNavigation(operation, selectionAvailable ? context.selection?.anchor.sheetId : undefined,
-      (settled) => restoreViewport(context.viewport, settled), context.scroll);
-  }, [beginNavigation, onRestoreSelection, onUnavailableTarget, restoreViewport]);
+      (settled) => selectionAvailable && context.selection && restoreDestination
+        ? restoreDestination(context.selection.anchor.sheetId, context.viewport, settled)
+        : restoreViewport(context.viewport, settled), context.scroll);
+  }, [beginNavigation, onRestoreSelection, onUnavailableTarget, restoreViewport, restoreDestination]);
   const history = useNavigationHistory({ capture, restore });
   const cancelNavigationRestore = useCallback(() => {
     // Outer input must invalidate both the adapter's DOM work and the history
