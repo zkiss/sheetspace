@@ -280,6 +280,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }, [modeActive, interactionsEnabled, workspaceController.workspaceSurfaceRef]);
   const displayedFrames = useRef(new Map<string, ReturnType<typeof frameProjection>>());
   function toggleMaximise() {
+    cancelNavigationBeforeUserMovement.current();
     if (modeActive) maximise.toggle();
     else if (selectedSheet) {
       const saved = frameProjection(selectedSheet);
