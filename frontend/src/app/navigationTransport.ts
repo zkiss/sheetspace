@@ -14,7 +14,7 @@ type Controller = {
 };
 
 export function createNavigationTransport(runtime: NavigationTransportRuntime, controller: Controller, available: (id: string) => boolean, frames: (id: string) => NavigationTransportFrames | undefined) {
-  let active: { id: string; cancel: () => void; unavailable: () => void } | undefined;
+  let active: { id: string; staged: boolean; cancel: () => void; unavailable: () => void } | undefined;
   let live = true;
 
   function start(id: string, motion: Motion, callbacks: Callbacks) {
@@ -25,7 +25,7 @@ export function createNavigationTransport(runtime: NavigationTransportRuntime, c
     let retired = false;
     let release: (() => void) | undefined;
     let releasePresentation: (() => void) | undefined;
-    const operation = { id, cancel: () => finish('cancelled'), unavailable: () => finish('unavailable') };
+    const operation = { id, staged, cancel: () => finish('cancelled'), unavailable: () => finish('unavailable') };
     const current = () => live && active === operation && !done;
     function finish(result: 'ready' | Failure) {
       if (done) return;
@@ -73,6 +73,7 @@ export function createNavigationTransport(runtime: NavigationTransportRuntime, c
   return {
     stageDestination: () => runtime.currentState().mode !== 'canvas',
     activeDestination: () => active?.id,
+    activeStaged: () => active?.staged ?? false,
     cancel: () => active?.cancel(),
     reconcile: () => { if (active && !available(active.id)) active.unavailable(); },
     deactivate: () => { live = false; active?.cancel(); },

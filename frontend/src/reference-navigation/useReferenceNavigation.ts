@@ -37,6 +37,7 @@ function normalizedRange(reference: FormulaInspectionReference, sheet: SheetDocu
 
 export function useReferenceNavigation({
   navigateToTarget,
+  navigateDestination,
   onSelectReferenceTarget,
   onExplicitNavigation,
   startNavigation,
@@ -46,6 +47,7 @@ export function useReferenceNavigation({
     target: WorkspaceTargetRect,
     options?: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void; onFailure?: (reason: 'unavailable' | 'cancelled') => void },
   ) => () => void;
+  navigateDestination?: (sheetId: string, target: WorkspaceTargetRect, options: { forceOversized?: boolean; minimumScale?: number; naturalScale?: number; onSettled?: () => void; onFailure?: (reason: 'unavailable' | 'cancelled') => void }) => () => void;
   onSelectReferenceTarget: (target: ReferenceNavigationTarget) => void;
   onExplicitNavigation?: (navigate: (operation: NavigationOperation | (() => void)) => void) => void;
   startNavigation?: (operation: NavigationOperation, target: ReferenceNavigationTarget, startViewport: (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void) => () => void, onReady: () => void, onRetire?: () => void) => void;
@@ -115,7 +117,7 @@ export function useReferenceNavigation({
       };
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
       setNavigationMotion(!reduceMotion);
-      const startViewport = (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void = () => {}) => navigateToTarget(workspaceRectForFrame(targetSheet.frame), {
+      const startViewport = (settled: () => void, failed: (reason: 'unavailable' | 'cancelled') => void = () => {}) => (navigateDestination ? (rect: WorkspaceTargetRect, motionOptions: Parameters<NonNullable<typeof navigateDestination>>[2]) => navigateDestination(targetSheet.id, rect, motionOptions) : navigateToTarget)(workspaceRectForFrame(targetSheet.frame), {
         forceOversized: options.forceOversized ?? (target.kind === 'range' && !rangeFitsSheetViewport(normalized, targetSheet)),
         minimumScale: detailedViewportScaleForSheet(targetSheet),
         naturalScale: clampWorkspaceZoom(1 / targetSheet.frame.visualScale),
