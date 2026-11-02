@@ -206,7 +206,7 @@ describe('useReferenceNavigation', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet' });
     const navigateToTarget = vi.fn();
     const select = vi.fn();
-    const explicit = vi.fn((navigate) => navigate(Object.assign(() => {}, { generation: 4, complete: () => {} })));
+    const explicit = vi.fn((navigate) => navigate(Object.assign(() => {}, { generation: 4, complete: () => {}, cancel: () => {}, isCurrent: () => true, isLatest: () => true })));
     const { result } = renderHook(() => useReferenceNavigation({
       navigateToTarget, onExplicitNavigation: explicit, onSelectReferenceTarget: select, workbook: workbookWithSheets([sheet]),
     }));

@@ -96,12 +96,13 @@ export function useReferenceNavigation({
       const generation = typeof operation === 'function' && 'generation' in operation
         ? operation.generation : nextHighlightIdentity.current++;
       const navigationOperation = typeof operation === 'function' && 'complete' in operation
-        ? operation : Object.assign(complete, { generation, complete, cancel: () => {} });
+        ? operation : Object.assign(complete, { generation, complete, cancel: () => {}, isCurrent: () => true, isLatest: () => true });
       const sequence = ++arrivalSequence.current;
       setHighlight(null);
       const arrive = () => {
         if (arrivalSequence.current !== sequence) return;
         onSelectReferenceTarget(target);
+        if (arrivalSequence.current !== sequence || !navigationOperation.isCurrent()) return;
         setHighlight({ target, identity: generation });
       };
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
