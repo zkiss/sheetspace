@@ -117,6 +117,48 @@ it('retargets an in-flight restore to a resized surface when motion is reduced',
   expect(handoff.commitFrozenViewport).toHaveBeenCalledWith(restoredViewport(saved, resized));
 });
 
+it.each(['entering', 'restoring'] as const)('retargets an in-flight %s resize from its sampled presentation and ignores stale completion', async (mode) => {
+  let now = 0;
+  let nextId = 0;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.set(++nextId, callback); return nextId; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
+  const { result, rerender } = renderHook(({ dimensions }) => useMaximiseRuntime(handoff, dimensions, false, () => true), { initialProps: { dimensions: size } });
+  act(() => result.current.enter('sheet', saved));
+  if (mode === 'restoring') {
+    now = 300;
+    act(() => callbacks.get(nextId)!(now));
+    act(() => result.current.toggle());
+  }
+  const pending = result.current.settled();
+  now += 100;
+  act(() => callbacks.get(nextId)!(now));
+  const middle = result.current.presentation;
+  const stale = callbacks.get(nextId)!;
+  const resized = { width: 1000, height: 700 };
+  rerender({ dimensions: resized });
+  expect(await pending).toBe('cancelled');
+  expect(result.current.presentation).toEqual(middle);
+  const retargeted = result.current.settled();
+  act(() => stale(now + 1000));
+  expect(result.current.state.mode).toBe(mode);
+  expect(result.current.presentation).toEqual(middle);
+  expect(handoff.commitFrozenViewport).not.toHaveBeenCalled();
+  now += 300;
+  act(() => callbacks.get(nextId)!(now));
+  expect(await retargeted).toBe('settled');
+  if (mode === 'entering') {
+    expect(result.current.state.mode).toBe('maximised');
+    expect(result.current.presentation?.body).toEqual({ left: 0, top: 0, width: 1000, height: 700 });
+  } else {
+    expect(result.current.state.mode).toBe('canvas');
+    expect(handoff.commitFrozenViewport).toHaveBeenCalledOnce();
+    expect(handoff.commitFrozenViewport).toHaveBeenCalledWith(restoredViewport(saved, resized));
+  }
+});
+
 it('replaces an active sheet and cancels its pending operation', async () => {
   const handoff = { freezeDisplayedViewport: vi.fn(() => displayed), commitFrozenViewport: vi.fn() };
   const { result } = renderHook(() => useMaximiseRuntime(handoff, size, false, () => true));
