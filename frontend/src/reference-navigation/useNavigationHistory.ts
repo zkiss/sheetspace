@@ -54,11 +54,12 @@ export function useNavigationHistory({ capture, restore }: {
   }, [scheduleMovement]);
   const explicitNavigation = useCallback((navigate: (operation: NavigationOperation) => void) => {
     history.current = { ...history.current, entries: history.current.entries.slice(0, history.current.cursor + 1) };
+    const replacing = activeOperation.current !== undefined;
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
     pendingExplicitNavigation.current = generation;
     flushMovement();
-    commit();
+    if (!replacing) commit();
     const complete = () => {
       // A newer jump or traversal owns the current context. Its predecessor
       // must not append an arrival or release the newer operation's guard.
@@ -72,22 +73,22 @@ export function useNavigationHistory({ capture, restore }: {
   }, [commit, flushMovement]);
   const traverse = useCallback((direction: 'back' | 'forward') => {
     flushMovement();
-    // The camera may still be moving, but Back must leave the new destination,
-    // not skip the departure because its arrival callback has not run yet.
-    if (pendingExplicitNavigation.current !== undefined && pendingExplicitNavigation.current === activeOperation.current) {
-      commit();
-      activeOperation.current = undefined;
-      pendingExplicitNavigation.current = undefined;
-    }
-    if (!traverseNavigationHistory(history.current, direction)) return false;
+    const unsettled = activeOperation.current !== undefined;
+    const returnToDeparture = direction === 'back' && pendingExplicitNavigation.current === activeOperation.current && pendingExplicitNavigation.current !== undefined;
+    if (!returnToDeparture && !traverseNavigationHistory(history.current, direction)) return false;
     // Selection changes alone are not destinations, but the context being left
     // must still be current when Forward returns to it.
-    const entries = [...history.current.entries];
-    entries[history.current.cursor] = captureRef.current();
-    history.current = { ...history.current, entries };
-    const next = traverseNavigationHistory(history.current, direction);
+    if (!unsettled) {
+      const entries = [...history.current.entries];
+      entries[history.current.cursor] = captureRef.current();
+      history.current = { ...history.current, entries };
+    }
+    const next = returnToDeparture
+      ? { history: history.current, context: history.current.entries[history.current.cursor] }
+      : traverseNavigationHistory(history.current, direction);
     if (!next) return false;
     history.current = next.history;
+    pendingExplicitNavigation.current = undefined;
     const generation = ++nextOperation.current;
     activeOperation.current = generation;
     const complete = () => {
@@ -98,7 +99,7 @@ export function useNavigationHistory({ capture, restore }: {
     restore(next.context, Object.assign(complete, { generation, complete }));
     setRevision((current) => current + 1);
     return true;
-  }, [commit, flushMovement, restore]);
+  }, [flushMovement, restore]);
   useEffect(() => () => { if (timer.current !== undefined) window.clearTimeout(timer.current); }, []);
   return {
     cancelPendingNavigation: () => { activeOperation.current = undefined; pendingExplicitNavigation.current = undefined; },

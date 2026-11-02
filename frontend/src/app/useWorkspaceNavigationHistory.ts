@@ -51,10 +51,9 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     if (restoring?.generation === generation && (!stageDestination || restoring.viewportSettled) && restoring.requiredSheetId === sheetId && !restoring.requiredGridSettled) {
       if (offset?.generation === generation) pendingScroll.current.delete(sheetId);
       restoring.requiredGridSettled = true;
-      if (!stageDestination) activateNavigationSelection(sheetId);
       finishRestoreIfSettled();
     }
-  }, [activateNavigationSelection, finishRestoreIfSettled, stageDestination]);
+  }, [finishRestoreIfSettled, stageDestination]);
   useEffect(() => cancelRestore, [cancelRestore]);
   const registerScrollContainer = useCallback((sheetId: string, element: HTMLElement | null) => {
     if (!element) {

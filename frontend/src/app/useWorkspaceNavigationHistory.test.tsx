@@ -317,6 +317,37 @@ describe('useWorkspaceNavigationHistory', () => {
     grid.remove();
   });
 
+  it.each(['none', 'dialog', 'editor'])('defers canvas focus until settlement and respects %s ownership', (owner) => {
+    let settleViewport = () => {};
+    const { result } = renderHook(() => useWorkspaceNavigationHistory({
+      onRestoreSelection: () => true, onUnavailableTarget: vi.fn(), restoreViewport: () => () => {},
+      selection: null, viewport: { x: 0, y: 0, scale: 1 },
+    }));
+    const grid = scrollContainer(0, 0);
+    const cell = document.createElement('button');
+    cell.dataset.activeCell = 'true';
+    grid.append(cell);
+    document.body.append(grid);
+    const focus = vi.spyOn(cell, 'focus');
+    const container = document.createElement('div');
+    if (owner === 'dialog') container.setAttribute('role', 'dialog');
+    if (owner === 'editor') container.setAttribute('data-workspace-sheet-editor', '');
+    const button = document.createElement('button');
+    container.append(button);
+    document.body.append(container);
+    button.focus();
+    act(() => result.current.registerScrollContainer('destination', grid));
+    act(() => result.current.history.explicitNavigation((operation) => {
+      result.current.startExplicitNavigation(operation, destinationTarget, (settled) => { settleViewport = settled; return () => {}; });
+    }));
+    act(() => result.current.acknowledgeGridRestore('destination', 1));
+    expect(focus).not.toHaveBeenCalled();
+    act(() => settleViewport());
+    expect(focus).toHaveBeenCalledTimes(owner === 'none' ? 1 : 0);
+    grid.remove();
+    container.remove();
+  });
+
   it('records a reference jump immediately while retaining its reveal request until acknowledgement', () => {
     let settleViewport: (() => void) | undefined;
     const restoreViewport = vi.fn((_viewport, complete) => {
