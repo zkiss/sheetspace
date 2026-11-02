@@ -280,7 +280,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }, [modeActive, interactionsEnabled, workspaceController.workspaceSurfaceRef]);
   function toggleMaximise() {
     if (modeActive) maximise.toggle();
-    else if (selectedSheet) maximise.enter(selectedSheet.id, frameProjection(selectedSheet));
+    else if (selectedSheet) {
+      cancelSheetFrameScale();
+      maximise.enter(selectedSheet.id, frameProjection(selectedSheet));
+    }
   }
   const navigationKeyboardEnabled = interactionsEnabled && !workspaceController.pendingSheetMenu;
   const { acknowledgeGridRestore, cancelNavigationRestore, history: navigationHistory, historyRestoreForSheet, navigationRestoreForSheet, navigationRequestForSheet, pendingNavigationSheetId, registerScrollContainer, recordUserGridMovement, startExplicitNavigation, startExplicitSheetNavigation } = useWorkspaceNavigationHistory({
@@ -540,6 +543,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
+    cancelSheetFrameScale,
     frameLayoutPreview,
     frameScalePreview,
     handleSheetFrameDragMove,
@@ -551,7 +555,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     stopSheetFrameResize,
   } = useSheetFrameInteractions({
     commands,
-    interactionsEnabled,
+    interactionsEnabled: interactionsEnabled && !modeActive,
     viewportScale: workspaceController.viewport.scale,
     workbook,
   });
