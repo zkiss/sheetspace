@@ -89,12 +89,16 @@ export function useWorkspaceNavigationHistory({ onRestoreSelection, onUnavailabl
     finishRestoreIfSettled();
   }, [cancelRestore, finishRestoreIfSettled]);
   const restore = useCallback((context: ReturnType<typeof capture>, operation: NavigationOperation) => {
-    const selectionAvailable = onRestoreSelection(context.selection);
-    if (!selectionAvailable && context.selection) onUnavailableTarget();
-    beginNavigation(operation, selectionAvailable ? context.selection?.anchor.sheetId : undefined,
-      (settled) => selectionAvailable && context.selection && restoreDestination
+    beginNavigation(operation, context.selection?.anchor.sheetId,
+      (settled) => context.selection && restoreDestination
         ? restoreDestination(context.selection.anchor.sheetId, context.viewport, settled)
-        : restoreViewport(context.viewport, settled), context.scroll);
+        : restoreViewport(context.viewport, settled), context.scroll, undefined, () => {
+        const selectionAvailable = onRestoreSelection(context.selection);
+        if (!selectionAvailable && context.selection) {
+          onUnavailableTarget();
+          if (activeRestore.current?.generation === operation.generation) activeRestore.current.requiredSheetId = undefined;
+        }
+      });
   }, [beginNavigation, onRestoreSelection, onUnavailableTarget, restoreViewport, restoreDestination]);
   const history = useNavigationHistory({ capture, restore });
   const cancelNavigationRestore = useCallback(() => {

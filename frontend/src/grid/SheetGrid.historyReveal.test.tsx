@@ -21,8 +21,9 @@ function setup() {
     editorInteraction: { FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() },
     formulaResults: {}, keyboardFocusRequest: null, onKeyboardFocusRequestConsumed: vi.fn(), navigationHighlightCellKey: null, onUserViewportMovement,
   };
-  const grid = (target?: string, identity = 'undo-1', historyRestore?: { generation: number; left: number; top: number }, navigationRequestGeneration?: number | null, navigationTarget?: string) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+  const grid = (target?: string, identity = 'undo-1', historyRestore?: { generation: number; left: number; top: number }, navigationRequestGeneration?: number | null, navigationTarget?: string, historyRevealReady = true) => <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
     <SheetGrid {...props} axisProjection={projectGridAxes(sheet)} historyFeedbackIdentity={target ? identity : undefined}
+      historyRevealReady={historyRevealReady}
       historyFeedbackCells={target ? new Map([[target, { before: 'old', beforeDisplay: 'old', after: 'new' }]]) : undefined}
       historyRestore={historyRestore} navigationHighlightCellKey={navigationTarget ?? null} navigationHighlightIdentity={navigationTarget ? Number(identity) : undefined}
        navigationRequestGeneration={navigationRequestGeneration ?? undefined} navigationRequestCellKey={navigationTarget} onNavigationSettled={onNavigationSettled} />
@@ -30,10 +31,21 @@ function setup() {
   const view = render(grid());
   const viewport = scrollContainerRef.current!;
   act(() => { virtualGridGeometry(viewport); });
-  return { viewport, sheet, onNavigationSettled, onUserViewportMovement, reveal: (target: string, identity?: string) => view.rerender(grid(target, identity)), restore: (historyRestore: { generation: number; left: number; top: number }) => view.rerender(grid(undefined, undefined, historyRestore)), renderNavigationTarget: (target: string, generation?: number | null) => view.rerender(grid(undefined, '9', undefined, generation, target)) };
+  return { viewport, sheet, onNavigationSettled, onUserViewportMovement, reveal: (target: string, identity?: string, ready?: boolean) => view.rerender(grid(target, identity, undefined, undefined, undefined, ready)), restore: (historyRestore: { generation: number; left: number; top: number }) => view.rerender(grid(undefined, undefined, historyRestore)), renderNavigationTarget: (target: string, generation?: number | null) => view.rerender(grid(undefined, '9', undefined, generation, target)) };
 }
 
 describe('history reveal scroll-axis independence', () => {
+  it('holds content history reveal until the destination grid is ready', () => {
+    const { viewport, reveal } = setup();
+    viewport.scrollLeft = 500;
+    viewport.scrollTop = 400;
+    reveal('A1', 'undo-1', false);
+    expect(viewport.scrollLeft).toBe(500);
+    expect(viewport.scrollTop).toBe(400);
+    reveal('A1', 'undo-1', true);
+    expect(viewport.scrollLeft).toBe(0);
+    expect(viewport.scrollTop).toBe(0);
+  });
   it('does not mistake programmatic reveal scroll events for user movement', () => {
     const { viewport, onUserViewportMovement } = setup();
 

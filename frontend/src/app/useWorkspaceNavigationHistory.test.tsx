@@ -29,6 +29,28 @@ describe('useWorkspaceNavigationHistory', () => {
     vi.unstubAllGlobals();
   });
 
+  it('restores selection only at destination readiness and ignores cancelled settlement', () => {
+    vi.useFakeTimers();
+    const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;
+    const onRestoreSelection = vi.fn(() => true);
+    let settle = () => {};
+    const { result, rerender } = renderHook(({ x }) => useWorkspaceNavigationHistory({
+      onRestoreSelection, onUnavailableTarget: vi.fn(),
+      restoreViewport: (_viewport, ready) => { settle = ready; return () => {}; },
+      selection, viewport: { x, y: 0, scale: 1 },
+    }), { initialProps: { x: 1 } });
+    rerender({ x: 2 });
+    act(() => { result.current.history.recordUserMovement(); vi.advanceTimersByTime(2_000); result.current.history.traverse('back'); });
+    expect(onRestoreSelection).not.toHaveBeenCalled();
+    const stale = settle;
+    act(() => result.current.cancelNavigationRestore());
+    act(() => stale());
+    expect(onRestoreSelection).not.toHaveBeenCalled();
+    act(() => result.current.history.traverse('forward'));
+    act(() => settle());
+    expect(onRestoreSelection).toHaveBeenCalledWith(selection);
+  });
+
   it('passes the selected sheet to a destination-aware history restore', () => {
     vi.useFakeTimers();
     const selection = { anchor: { sheetId: 'destination' }, extent: { sheetId: 'destination' }, mode: 'cell' } as never;

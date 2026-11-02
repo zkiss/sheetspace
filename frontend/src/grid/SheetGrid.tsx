@@ -92,6 +92,7 @@ export function SheetGrid({
   navigationHighlightIdentity,
   historyFeedbackCells,
   historyFeedbackIdentity,
+  historyRevealReady = true,
   onHistoryRevealConsumed,
   formulaResults,
   scrollContainerRef,
@@ -165,6 +166,7 @@ export function SheetGrid({
   historyFeedbackCells?: ReadonlyMap<string, { before: string | null; beforeDisplay: string | null; after: string | null }>;
   /** Identity of the undo/redo action, independent of feedback map/projection allocations. */
   historyFeedbackIdentity?: string;
+  historyRevealReady?: boolean;
   onHistoryRevealConsumed?: (sheetId: string, identity: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
@@ -512,7 +514,7 @@ export function SheetGrid({
     scrollContainer.scrollTop = reveal.row.scroll;
   }, [columnMetrics, columns, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, navigationRequestGeneration, onNavigationSettled, rowMetrics, rows, scrollContainerRef, sheet]);
   useEffect(() => {
-    if (!historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
+    if (!historyRevealReady || !historyAddress || !historyFeedbackIdentity || revealedHistoryIdentity.current === historyFeedbackIdentity) return;
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     const rowIndex = axisIndexForDurableIndex(rows, historyAddress.rowIndex);
@@ -526,7 +528,7 @@ export function SheetGrid({
     scrollContainer.scrollLeft = reveal.column.scroll;
     scrollContainer.scrollTop = reveal.row.scroll;
     onHistoryRevealConsumed?.(sheet.id, historyFeedbackIdentity);
-  }, [columnMetrics, historyAddress, historyFeedbackIdentity, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
+  }, [columnMetrics, historyAddress, historyFeedbackIdentity, historyRevealReady, onHistoryRevealConsumed, rowMetrics, rows, columns, scrollContainerRef, sheet.id]);
   useGridHistoryRestore({ navigationGeneration: navigationRestoreGeneration, onSettled: onNavigationSettled, restore: historyRestore, scrollContainerRef });
   function enterGrid(event: FocusEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget) return;
