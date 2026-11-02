@@ -62,6 +62,22 @@ function gesture(type: string, scale: number) {
 }
 
 describe('interrupting displayed reference navigation motion', () => {
+  it('rejects queued pan and zoom preview publications after freezing the displayed viewport', () => {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length; });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const { surface, state } = setup();
+    pointer(surface, 'pointerdown', 1);
+    pointer(surface, 'pointermove', 1, 130, 60);
+    act(() => state().zoomWorkspaceBy(1.5, { x: 100, y: 80 }));
+    const pending = [...callbacks];
+    expect(pending.length).toBeGreaterThanOrEqual(2);
+    let frozen = state().viewport;
+    act(() => { frozen = state().freezeDisplayedViewport(); });
+    act(() => pending.forEach((callback) => callback(performance.now() + 1000)));
+    expect(state().viewport).toEqual(frozen);
+  });
+
   it('animates restored history viewports and lets a user pan interrupt them', () => {
     const { plane, surface, restore } = setup();
     act(() => restore());
