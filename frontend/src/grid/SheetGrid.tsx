@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Grid owns its virtualizer, focus, and navigation-settlement lifecycle. */
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type RefObject, type SyntheticEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
@@ -613,6 +613,12 @@ export function SheetGrid({
     event.preventDefault();
   }
 
+  const blockDisabledInteraction = (event: SyntheticEvent) => {
+    if (interactionsEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   return (
     <div
       aria-label={`${sheet.name} grid`}
@@ -621,6 +627,12 @@ export function SheetGrid({
       className="sheet-grid"
       data-testid="sheet-grid"
       data-workspace-navigation
+      onClickCapture={blockDisabledInteraction}
+      onDoubleClickCapture={blockDisabledInteraction}
+      onFocusCapture={blockDisabledInteraction}
+      onCopyCapture={blockDisabledInteraction}
+      onCutCapture={blockDisabledInteraction}
+      onPasteCapture={blockDisabledInteraction}
       onFocus={enterGrid}
       onBlur={(event) => {
         const next = event.relatedTarget as Node | null;
@@ -630,6 +642,7 @@ export function SheetGrid({
         if (next && !event.currentTarget.contains(next)) finishDrag();
       }}
       onKeyDownCapture={(event) => {
+        if (!interactionsEnabled) { blockDisabledInteraction(event); return; }
         if (!entryRow || event.key !== 'ArrowDown' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !(event.target instanceof HTMLElement)) return;
         const key = event.target.dataset.cellKey;
         const address = key && parseA1Address(key);
