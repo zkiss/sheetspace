@@ -1,3 +1,4 @@
+import { matchesShortcut, detectPlatform } from '@shared/keyboard/keymap';
 import { cellRawContent } from '@workbook/read/queries';
 import { displayFormulaValue, displayRawCellValue, type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
@@ -38,6 +39,7 @@ export function getSheetCellDisplayText({
 export function gridCellKeyboardAction({
   altKey,
   ctrlKey,
+  code = '',
   isActive,
   isCellTarget,
   key,
@@ -46,17 +48,19 @@ export function gridCellKeyboardAction({
 }: {
   altKey: boolean;
   ctrlKey: boolean;
+  code?: string;
   isActive: boolean;
   isCellTarget: boolean;
   key: string;
   metaKey: boolean;
   shiftKey?: boolean;
 }): GridCellKeyboardAction {
-  if (!isCellTarget || !isActive || altKey) {
+  const event = { key, code, altKey, ctrlKey, metaKey, shiftKey };
+  if (!isCellTarget || !isActive) {
     return { kind: 'none' };
   }
 
-  if ((key === 'Enter' || key === 'F2') && !ctrlKey && !metaKey && !shiftKey) {
+  if (matchesShortcut(event, 'edit-cell')) {
     return { kind: 'start-edit' };
   }
 
@@ -64,18 +68,18 @@ export function gridCellKeyboardAction({
     || key === 'ArrowUp' || key === 'ArrowDown' || key === 'Home' || key === 'End';
   const isUnmodifiedTraversalKey = !ctrlKey && !metaKey
     && (key === 'Tab' || (key === 'Enter' && shiftKey));
-  if (isDirectionalNavigationKey || isUnmodifiedTraversalKey) {
+  if (!altKey && (isDirectionalNavigationKey || isUnmodifiedTraversalKey)) {
     return {
       kind: 'navigate',
-      request: { key, command: ctrlKey || metaKey, shift: shiftKey },
+      request: { key, command: detectPlatform() === 'mac' ? metaKey && !ctrlKey : ctrlKey && !metaKey, shift: shiftKey },
     };
   }
 
-  if ((key === 'Backspace' || key === 'Delete') && !ctrlKey && !metaKey && !shiftKey) {
+  if (matchesShortcut(event, 'clear-cells')) {
     return { kind: 'clear-cell' };
   }
 
-  if (key.length === 1 && !ctrlKey && !metaKey) {
+  if (key.length === 1 && !ctrlKey && !metaKey && !altKey) {
     return { kind: 'start-edit', initialValue: key };
   }
 

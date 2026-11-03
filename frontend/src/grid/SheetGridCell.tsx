@@ -79,6 +79,7 @@ export function SheetGridCell({
     const action = gridCellKeyboardAction({
       altKey: event.altKey,
       ctrlKey: event.ctrlKey,
+      code: event.code,
       isActive,
       isCellTarget: event.target === event.currentTarget,
       key: event.key,

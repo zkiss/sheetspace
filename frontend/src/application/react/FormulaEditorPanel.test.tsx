@@ -65,8 +65,10 @@ describe('FormulaEditorPanel', () => {
     if (modifier === 'plain') {
       expect(cancel).not.toHaveBeenCalled();
       expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
-    } else {
+    } else if (modifier === 'ctrl') {
       expect(cancel).toHaveBeenCalledOnce();
+    } else {
+      expect(cancel).not.toHaveBeenCalled();
     }
   });
 

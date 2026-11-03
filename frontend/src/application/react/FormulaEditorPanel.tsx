@@ -1,3 +1,4 @@
+import { matchesShortcut, shortcutLabel } from '@shared/keyboard/keymap';
 import { referenceIdentityColor, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type Ref, type RefObject, type MouseEvent } from 'react';
 import { applyFormulaCompletion, analyzeFormulaEditor, formatFormula, formulaCompletions, formulaReferenceHover, indentFormulaSelection, outdentFormulaSelection, type FormulaEditorSelection } from '@application/core/formulaEditorLogic';
@@ -112,7 +113,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     setReferenceModifier(event.ctrlKey || event.metaKey);
     if (event.nativeEvent.isComposing) return;
-    if (event.key === 'F4' && onReferenceNavigate) {
+    if (matchesShortcut(event, 'reference-navigate') && onReferenceNavigate) {
       event.preventDefault(); event.stopPropagation();
       const caret = event.currentTarget.selectionStart;
       const reference = inspectionReferences?.find((item) => caret >= item.displaySpan.start && caret <= item.displaySpan.end);
@@ -120,24 +121,24 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       else if (reference) setReferenceFeedback(`Cannot navigate: ${reference.text} has a broken target.`);
       return;
     }
-    if (event.key === 'F2' && onToggleMode) {
+    if (matchesShortcut(event, 'toggle-editor-mode') && onToggleMode) {
       event.preventDefault(); event.stopPropagation();
       setCompletionRequest(null); setHoveredReference(undefined); reportView(); onToggleMode(); return;
     }
     if (readOnly) {
       event.stopPropagation();
-      if (event.key === 'Escape' || ((event.ctrlKey || event.metaKey) && event.key === 'Enter')) {
+      if (event.key === 'Escape' || matchesShortcut(event, 'editor-apply')) {
         event.preventDefault(); event.stopPropagation(); onCancel();
       } else if (cellMode === 'light' && onCommitAndNavigate && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
         event.preventDefault(); event.stopPropagation(); onCommitAndNavigate({ key: event.key, shift: event.shiftKey });
-      } else if (event.key === 'Enter' || ((event.ctrlKey || event.metaKey) && event.code === 'Space')) {
+      } else if (event.key === 'Enter' || matchesShortcut(event, 'editor-complete')) {
         event.preventDefault(); event.stopPropagation();
       }
       return;
     }
-    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onApply(); return; }
-    if ((event.ctrlKey || event.metaKey) && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel(); return; }
-    if ((event.ctrlKey || event.metaKey) && event.code === 'Space') {
+    if (matchesShortcut(event, 'editor-apply')) { event.preventDefault(); event.stopPropagation(); onApply(); return; }
+    if (matchesShortcut(event, 'editor-cancel')) { event.preventDefault(); event.stopPropagation(); onCancel(); return; }
+    if (matchesShortcut(event, 'editor-complete')) {
       event.preventDefault(); event.stopPropagation();
       setCompletionRequest({ selection: selection(), automatic: false });
       setCompletionIndex(0); setCompletionChosen(false); return;
@@ -209,7 +210,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     onReferenceElementHover?.(undefined);
     if (input.current) onFocusLeave?.({ start: input.current.selectionStart, end: input.current.selectionEnd, scrollTop: input.current.scrollTop }, event.relatedTarget);
   }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
-    {!cellMode ? <div className="formula-editor-heading"><strong>Formula editor</strong><span>Ctrl/⌘+Enter applies · Ctrl/⌘+Esc cancels</span></div> : null}
+    {!cellMode ? <div className="formula-editor-heading"><strong>Formula editor</strong><span>{shortcutLabel('editor-apply')} applies · {shortcutLabel('editor-cancel')} cancels</span></div> : null}
     <div className="formula-editor-input-wrap">
       <pre aria-hidden="true" className="formula-editor-highlight" ref={highlight}>{analysis.tokens.map((token) => {
         const referenceIndex = readOnlyText
@@ -257,8 +258,8 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     {!cellMode && analysis.diagnostics.length > 0 ? <ul className="formula-editor-diagnostics" role="status">{analysis.diagnostics.map((diagnostic, index) => <li key={`${diagnostic.sourceSpan.start}-${index}`}>{diagnostic.code} at {diagnostic.sourceSpan.start + 1}–{diagnostic.sourceSpan.end}</li>)}</ul> : null}
     {cellMode !== 'light' ? <div className="formula-editor-actions" onMouseDown={(event) => event.preventDefault()}>
       {!readOnly ? <button disabled={disabled || !formattingAvailable} onClick={() => { const result = formatFormula(raw, selection()); if (result.available) setEditor(result); }} type="button">Format</button> : null}
-      <button aria-label={readOnly ? 'Close formula' : 'Cancel formula'} disabled={disabled} onClick={onCancel} title={readOnly ? 'Close (Esc)' : 'Cancel (Ctrl/⌘+Esc)'} type="button">{readOnly ? 'Close' : 'Cancel'}</button>
-      {!readOnly ? <button disabled={disabled} onClick={onApply} title="Apply (Ctrl/⌘+Enter)" type="button">Apply</button> : null}
+      <button aria-label={readOnly ? 'Close formula' : 'Cancel formula'} disabled={disabled} onClick={onCancel} title={readOnly ? 'Close (Esc)' : `Cancel (${shortcutLabel('editor-cancel')})`} type="button">{readOnly ? 'Close' : 'Cancel'}</button>
+      {!readOnly ? <button disabled={disabled} onClick={onApply} title={`Apply (${shortcutLabel('editor-apply')})`} type="button">Apply</button> : null}
     </div> : null}
   </section>;
 }

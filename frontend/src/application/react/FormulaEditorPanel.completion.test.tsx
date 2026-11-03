@@ -66,6 +66,8 @@ describe('formula completion keyboard handling', () => {
     const { input, apply, cancel } = setup(mode);
     fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
     fireEvent.keyDown(input, { key: 'Escape', metaKey: true });
+    expect(cancel).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Escape', ctrlKey: true });
     expect(apply).toHaveBeenCalledOnce(); expect(cancel).toHaveBeenCalledOnce();
   });
 

@@ -1,3 +1,4 @@
+import { matchesShortcut, shortcutLabel } from '@shared/keyboard/keymap';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { DataModel, ModelColumn, ModelColumnType } from '@workbook/core/model';
 import type { ModelCommandResult } from '@application/react/useWorkbookController';
@@ -159,7 +160,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
         </ul>}
         <div className="dialog-actions"><button className="button-secondary" onClick={close} type="button">Close</button></div>
       </> : <form aria-label={isNew ? 'Create data model' : 'Edit data model'} onKeyDownCapture={(event) => {
-        if (event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key === 'Enter') {
+        if (matchesShortcut(event, 'dialog-save')) {
           event.preventDefault();
           event.stopPropagation();
           if (!saving) event.currentTarget.requestSubmit();
@@ -177,11 +178,10 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
                 event.preventDefault();
                 return;
               }
-              if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return;
-              if (event.key === 'Enter') addColumn(index + 1);
-              else if (event.key === 'Delete') removeColumn(index);
-              else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-                const direction = event.key === 'ArrowUp' ? -1 : 1;
+              if (matchesShortcut(event, 'property-add')) addColumn(index + 1);
+              else if (matchesShortcut(event, 'property-remove')) removeColumn(index);
+              else if (matchesShortcut(event, 'property-move-up') || matchesShortcut(event, 'property-move-down')) {
+                const direction = matchesShortcut(event, 'property-move-up') ? -1 : 1;
                 if (index + direction >= 0 && index + direction < draft.columns.length) propertyToFocus.current = column.id;
                 moveColumn(index, direction);
               }
@@ -210,10 +210,10 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
               setFormulaDrafts((current) => { const remaining = { ...current }; delete remaining[column.id]; return remaining; });
               setEditingFormula(null);
             }} onRawChange={(formula) => setFormulaDrafts((current) => ({ ...current, [column.id]: formula }))} propertyNames={draft.columns.map((property) => property.name).filter(Boolean)} raw={formulaDrafts[column.id] ?? column.formula} referenceValues={(identity) => formulaPanelReferenceValues(identity, modelDraftReferenceResolver(formulaWorkbook, draft), formulaResults)} resolver={modelDraftReferenceResolver(formulaWorkbook, draft)} sheetNames={Object.values(formulaWorkbook.documents).map((sheet) => sheet.name)} /></div>}</div> : <span className="model-property-manual" />}
-            <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} title="Move up (Alt+Shift+Up)" disabled={saving || index === 0} onClick={() => moveColumn(index, -1)} type="button">↑</button><button aria-label={`Move property ${index + 1} down`} title="Move down (Alt+Shift+Down)" disabled={saving || index === draft.columns.length - 1} onClick={() => moveColumn(index, 1)} type="button">↓</button><button aria-label={`Remove property ${index + 1}`} title="Remove (Alt+Shift+Delete)" disabled={saving} onClick={() => removeColumn(index)} type="button">×</button></div>
+            <div className="model-property-actions"><button aria-label={`Move property ${index + 1} up`} title={`Move up (${shortcutLabel('property-move-up')})`} disabled={saving || index === 0} onClick={() => moveColumn(index, -1)} type="button">↑</button><button aria-label={`Move property ${index + 1} down`} title={`Move down (${shortcutLabel('property-move-down')})`} disabled={saving || index === draft.columns.length - 1} onClick={() => moveColumn(index, 1)} type="button">↓</button><button aria-label={`Remove property ${index + 1}`} title={`Remove (${shortcutLabel('property-remove')})`} disabled={saving} onClick={() => removeColumn(index)} type="button">×</button></div>
             </div>
           </div>)}
-          <button disabled={saving} onClick={() => addColumn(draft.columns.length)} title="Add below the current property with Alt+Shift+Enter" type="button">Add property</button>
+          <button disabled={saving} onClick={() => addColumn(draft.columns.length)} title={`Add below the current property with ${shortcutLabel('property-add')}`} type="button">Add property</button>
         </fieldset>
         {!isNew && (draft.columns.some((column) => !savedPropertyIds.has(column.id)) || [...savedPropertyIds].some((id) => !draft.columns.some((column) => column.id === id))) ? <p className="data-model-warning">Removing a property can discard bound data. New replacement properties start empty, even when they reuse a name. Renaming and reordering retain existing property identity.</p> : null}
         {error ? <div className="form-error" role="alert"><p>{error}</p>{error.includes('need to be retried') ? <button onClick={onRetryFailedSaves} type="button">Retry earlier changes</button> : null}</div> : null}
