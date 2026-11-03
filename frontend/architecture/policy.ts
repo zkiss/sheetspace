@@ -26,6 +26,7 @@ const packages: Owner[] = [
   production('grid/ui', 'grid', ['grid/model', 'application/core', 'calculation', ...formula, 'workspace/model', 'shared/styles'], ['react', 'react-dom', '@tanstack/react-virtual'], `(?!(?:${gridModels})\\.ts$)[^/]+`),
   production('reference-navigation', 'reference-navigation', ['grid/model', 'workspace/model', ...formula, 'shared/styles'], ['react']),
   production('shared/styles', 'shared/styles', []),
+  production('shared/keyboard', 'shared/keyboard', []),
   production('shared/ui', 'shared/ui', [], ['react', 'react-dom']),
 ];
 const productionNames = [...packages.map(({ name }) => name), 'app', 'app/bootstrap'];
@@ -35,7 +36,7 @@ packages.push(
 );
 
 const testingExternal = ['vitest', 'react', '@testing-library/react', '@testing-library/user-event', '@testing-library/jest-dom'];
-const testDirectories = ['app', 'workbook/core', 'workbook/read', 'workbook/formula', 'workbook/mutations', 'calculation', 'application/core', 'application/react', 'infrastructure/persistence', 'grid', 'workspace', 'reference-navigation', 'shared/styles'];
+const testDirectories = ['app', 'workbook/core', 'workbook/read', 'workbook/formula', 'workbook/mutations', 'calculation', 'application/core', 'application/react', 'infrastructure/persistence', 'grid', 'workspace', 'reference-navigation', 'shared/styles', 'shared/keyboard'];
 
 export const frontendPolicy: ArchitecturePolicy = {
   excludedDirectories: ['node_modules', 'dist', 'coverage'],
