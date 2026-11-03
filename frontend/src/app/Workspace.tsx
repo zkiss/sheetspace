@@ -803,7 +803,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     extraction: {
       request: (sheet, selection) => {
         const viewport = referenceGridViewports[sheet.id];
-        const request = extractionRequest(workbook, sheet, selection, { x: viewport?.scrollLeft ?? 0, y: viewport?.scrollTop ?? 0 }, projectedFramesById.get(sheet.id)?.position);
+        const body = workspaceController.workspaceSurfaceRef.current?.querySelector<HTMLElement>(
+          `[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"] .sheet-frame-body`,
+        );
+        const request = extractionRequest(workbook, sheet, selection, { x: body?.scrollLeft ?? viewport?.scrollLeft ?? 0, y: body?.scrollTop ?? viewport?.scrollTop ?? 0 }, projectedFramesById.get(sheet.id)?.position);
         if (request) {
           extractionFormulaSnapshot.current = formulaResults;
           const token = extractionHandoff.begin(sheet, request.targetSheetId);
@@ -1093,7 +1096,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       submit: () => commands.submitEntryDraft(sheet.id),
                     } } : undefined}
                     interactionsEnabled={interactionsEnabled && extractionHandoff.handoff?.source.id !== sheet.id}
-                    revealEnabled={gridPresentationReady && (!contentReveal.pending || contentReveal.ready)}
+                    revealEnabled={extractionHandoff.handoff?.source.id !== sheet.id && extractionHandoff.handoff?.targetId !== sheet.id && gridPresentationReady && (!contentReveal.pending || contentReveal.ready)}
                     requireMeasuredViewport={modeActive}
                     ownsGridRestore={ownsGridRestore}
                     activeCellKey={cellKeyForTarget(sheet, activeCell)}
@@ -1166,7 +1169,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     navigationHighlightIdentity={navigationHighlightIdentity}
                     historyFeedbackCells={historyFeedbackCells}
                     historyRevealCells={contentReveal.feedback ? historyCellsForSheet(contentReveal.feedback, sheet) : historyFeedbackCells}
-                    historyRevealReady={gridPresentationReady && contentReveal.ready}
+                    historyRevealReady={extractionHandoff.handoff?.source.id !== sheet.id && extractionHandoff.handoff?.targetId !== sheet.id && gridPresentationReady && contentReveal.ready}
                     historyFeedbackIdentity={contentReveal.feedback?.identity}
                     canRevealHistory={contentReveal.canReveal}
                     onHistoryRevealConsumed={contentReveal.consume}
