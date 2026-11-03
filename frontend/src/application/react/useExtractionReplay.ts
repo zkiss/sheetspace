@@ -25,6 +25,7 @@ export function useExtractionReplay(options: {
       const prepared = prepareExtractionReplay(current, transaction, direction);
       return prepared.ok ? { ok: true, value: prepared.workbook } : prepared;
     }, () => {
+      setFailure(undefined);
       if (direction === 'undo') options.history.commitUndo(); else options.history.commitRedo();
       options.publishHistory();
     });

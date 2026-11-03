@@ -135,7 +135,7 @@ export function useWorkbookController({
     setContentHistoryFeedback(undefined);
     setHistoryRevision((revision) => revision + 1);
   };
-  const lifecycle = useLifecycleSettlement({ autosaveEnabled, current: optimisticWorkbook, setWorkbook, autosave: savedAutosave, resetHistory });
+  const lifecycle = useLifecycleSettlement({ subscribeOutbox: savedAutosave.subscribeOutbox, revision: savedAutosave.revision, autosaveEnabled, current: optimisticWorkbook, setWorkbook, autosave: savedAutosave, resetHistory });
   const { createSheet, creatingFrames, hasPendingCreations, saveStatus: creationSaveStatus } = useSheetCreationOperations({
     autosaveEnabled,
     beforeCreate: lifecycle.wait,
@@ -220,12 +220,13 @@ export function useWorkbookController({
     return applied;
   }
 
-  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
+  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
     if (Object.keys(before.documents).some((id) =>
       (admissionLocks.current.has(id) && before.documents[id] !== result.value.documents[id]) ||
+      (protectEntryContents && entrySessions.hasUnfinished(id) && JSON.stringify({ ...before.documents[id], revision: 0 }) !== JSON.stringify({ ...result.value.documents[id], revision: 0 })) ||
       entrySessions.protectsTransition(before, result.value, id))) {
       const rejected = { ok: false, reason: 'pending-model-transition' } as const;
       setMutationFailure('pending-model-transition');
@@ -344,7 +345,7 @@ export function useWorkbookController({
     hasPending: lifecycle.hasPending,
     clearFeedback: () => setContentHistoryFeedback(undefined),
     publishHistory: () => setHistoryRevision((revision) => revision + 1),
-    submit: (transform, success) => applyModelLifecycleTransition(transform, success),
+    submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
   });
 
   function replayContentHistory(direction: 'undo' | 'redo') {
@@ -407,7 +408,7 @@ export function useWorkbookController({
     commands: {
       extractSelection: (request) => extractionCommand(request, {
         history: contentHistory,
-        submit: applyModelLifecycleTransition,
+        submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
         publish: () => { setContentHistoryFeedback(undefined); setHistoryRevision((revision) => revision + 1); },
       }),
       submitEntryDraft: async (sheetId) => {

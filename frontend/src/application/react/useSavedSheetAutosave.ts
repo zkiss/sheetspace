@@ -132,6 +132,9 @@ export function useSavedSheetAutosave({
     outbox.supersedeSheetOperations(sheetId);
   }, [outbox]);
 
+  const subscribeOutbox = useCallback((listener: (snapshot: OutboxSnapshot) => void) => outbox.subscribe(listener), [outbox]);
+  const revision = useCallback((sheetId: SheetId) => coordinator.revision(sheetId), [coordinator]);
+
   const hasRetryableFailures = snapshot.some((entry) => entry.status === 'failed' || entry.status === 'blocked');
   const hasPendingSaves = snapshot.some((entry) => entry.status === 'queued' || entry.status === 'running');
   const saveStatus: SaveStatus = hasRetryableFailures ? 'failed' : hasPendingSaves ? 'saving' : 'saved';
@@ -152,5 +155,7 @@ export function useSavedSheetAutosave({
     retryFailedSaves,
     saveStatus,
     supersedeSheetOperations,
+    subscribeOutbox,
+    revision,
   };
 }

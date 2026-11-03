@@ -43,7 +43,7 @@ describe('model lifecycle controller wiring', () => {
     expect(result.current.workbook.dataModels?.model).toEqual(model);
   });
 
-  it('persists column renames and rolls back a failed save', async () => {
+  it('persists column renames and recovers on an exact retry of an ambiguous failure', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const column = workbook.documents.one!.content.columns[0]!;
     const api = autosaveClient({ saveModelLifecycle: vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementation(async (_before, after) => after) });
@@ -52,11 +52,11 @@ describe('model lifecycle controller wiring', () => {
     act(() => { first = result.current.commands.renameColumn('one', column, ' Revenue '); });
     await expect(first!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
     await waitFor(() => expect(result.current.workbook.documents.one!.columnNames).toBeUndefined());
-    let retry: ReturnType<typeof result.current.commands.renameColumn>;
-    act(() => { retry = result.current.commands.renameColumn('one', column, ' Revenue '); });
-    await expect(retry!.completion).resolves.toMatchObject({ ok: true });
-    expect(result.current.workbook.documents.one!.columnNames).toEqual({ [column]: 'Revenue' });
+    act(() => result.current.commands.retryFailedSaves());
+    await waitFor(() => expect(result.current.workbook.documents.one!.columnNames).toEqual({ [column]: 'Revenue' }));
     expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![0]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![0]);
+    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![1]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![1]);
   });
 
   it('creates and persists an unbound model through the lifecycle boundary', async () => {
@@ -92,12 +92,14 @@ describe('model lifecycle controller wiring', () => {
     act(() => { submission = result.current.commands.addDataModel(declaration); });
     expect(submission!.result.ok).toBe(true);
     await expect(submission!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
-    await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(false));
-    await waitFor(() => expect(result.current.workbook.dataModels).toBeUndefined());
-    let retry: ReturnType<typeof result.current.commands.addDataModel>;
-    act(() => { retry = result.current.commands.addDataModel(declaration); });
-    await expect(retry!.completion).resolves.toMatchObject({ ok: true });
-    expect(result.current.workbook.dataModels).toEqual({ 'new-model': declaration });
+    await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(true));
+    expect(result.current.workbook.dataModels).toBeUndefined();
+    // Admission is held while the ambiguous operation is unresolved.
+    expect(result.current.commands.addDataModel(declaration).result).toEqual({ ok: false, reason: 'pending-model-transition' });
+    act(() => result.current.commands.retryFailedSaves());
+    await waitFor(() => expect(result.current.workbook.dataModels).toEqual({ 'new-model': declaration }));
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![0]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![0]);
   });
 
   it('keeps a failed ordinary save intact and lets a model draft retry after its prerequisite is repaired', async () => {
@@ -164,12 +166,16 @@ describe('model lifecycle controller wiring', () => {
     act(() => { failed = result.current.commands.replaceModelDeclaration(rejected); });
     await expect(failed!.completion).resolves.toEqual({ ok: false, reason: 'persistence-failed' });
     await waitFor(() => expect(result.current.workbook.dataModels).toEqual({ model }));
+    // Admission is held while the ambiguous operation is unresolved.
+    expect(result.current.commands.replaceModelDeclaration({ ...model, name: 'Blocked name' }).result).toEqual({ ok: false, reason: 'pending-model-transition' });
+    act(() => result.current.commands.retryFailedSaves());
+    await waitFor(() => expect(result.current.workbook.dataModels).toEqual({ model: rejected }));
 
     const later = { ...model, name: 'Saved name' };
     let replacement: ReturnType<typeof result.current.commands.replaceModelDeclaration>;
     act(() => { replacement = result.current.commands.replaceModelDeclaration(later); });
     await expect(replacement!.completion).resolves.toMatchObject({ ok: true });
-    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]?.[0].dataModels).toEqual({ model });
+    expect(vi.mocked(api.saveModelLifecycle).mock.calls[2]![0].dataModels).toEqual({ model: rejected });
     expect(result.current.workbook.dataModels).toEqual({ model: later });
   });
 
@@ -210,7 +216,9 @@ describe('model lifecycle controller wiring', () => {
     const api = autosaveClient({
       writeCells: vi.fn().mockImplementationOnce(() => { calls.push('old'); return oldSave.promise; }).mockImplementation(async () => { calls.push('new'); return { sheets: [{ sheetId: 'one', revision: 4 }] }; }),
       updateSheetPosition: vi.fn().mockImplementation(async () => { calls.push('frame'); return { sheetId: 'one', revision: 2 }; }),
-      saveModelLifecycle: vi.fn().mockImplementation(() => { calls.push('atomic'); return atomicSave.promise; }),
+      saveModelLifecycle: vi.fn()
+        .mockImplementationOnce(() => { calls.push('atomic'); return atomicSave.promise; })
+        .mockImplementation(async (_before: Workbook, after: Workbook) => { calls.push('atomic'); return after; }),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     act(() => {
@@ -229,11 +237,19 @@ describe('model lifecycle controller wiring', () => {
     expect(snapshot.documents.one!.frame.position).toEqual({ x: 1, y: 2 });
     expect(cellRawContent(snapshot.documents.one!, 'A1')).toBe('9');
     await act(async () => atomicSave.reject(new Error('offline')));
-    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
     expect(calls).toEqual(['old', 'frame', 'atomic']);
     expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
+    // Admission holds the rolled-back binding until the exact operation settles.
     expect(result.current.workbook.documents.one!.modelId).toBe('model');
-    expect(result.current.formulaResults.one.B1?.display).toBe('18');
+    act(() => result.current.commands.retryFailedSaves());
+    await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    expect(calls).toEqual(['old', 'frame', 'atomic', 'atomic']);
+    expect(cellRawContent(result.current.workbook.documents.one!, 'A1')).toBe('9');
+    expect(result.current.workbook.documents.one!.modelId).toBeUndefined();
+    // The committed unbind materializes the calculated value as a stored literal.
+    expect(result.current.formulaResults.one.B1).toBeUndefined();
+    expect(cellRawContent(result.current.workbook.documents.one!, 'B1')).toBe('18');
     expect(result.current.workbook.documents.one!.frame.position).toEqual({ x: 1, y: 2 });
   });
 
@@ -290,7 +306,7 @@ describe('model lifecycle controller wiring', () => {
       before: () => ({ ...workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]), dataModels: { model } }),
       submit: (commands: ReturnType<typeof useWorkbookController>['commands']) => commands.replaceModelDeclaration({ ...model, name: 'Rejected' }),
     },
-  ])('restores the pre-transition workbook after a rejected $name before later lifecycle work', async ({ before: createBefore, submit }) => {
+  ])('restores the pre-transition workbook after a definite rejection of $name before later lifecycle work', async ({ before: createBefore, submit }) => {
     const save = vi.fn()
       .mockRejectedValueOnce(new WorkbookApiError('conflict', 409, 'model-lifecycle-conflict'))
       .mockImplementation(async (_before: Workbook, after: Workbook) => after);

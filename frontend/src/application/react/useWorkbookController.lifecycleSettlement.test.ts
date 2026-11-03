@@ -34,7 +34,13 @@ describe('lifecycle settlement', () => {
     const save = deferred<Workbook>();
     const api = autosaveClient({
       writeCells: vi.fn().mockReturnValueOnce(write.promise).mockResolvedValue({ sheets: [{ sheetId: 'one', revision: 8 }] }),
-      saveModelLifecycle: vi.fn().mockReturnValue(save.promise),
+      saveModelLifecycle: vi.fn()
+        .mockReturnValueOnce(save.promise)
+        .mockImplementation(async (_before: Workbook, after: Workbook) => ({
+          ...after,
+          documents: Object.fromEntries(Object.entries(after.documents).map(([id, sheet]) => [id,
+            { ...sheet, revision: _before.documents[id] ? 7 : 0 }])),
+        })),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     let submission: ReturnType<typeof result.current.commands.addDataModel>;
@@ -46,7 +52,17 @@ describe('lifecycle settlement', () => {
     await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
     await act(async () => { save.reject(new Error('offline')); await submission!.completion; });
     expect(result.current.workbook.documents.one!.revision).toBe(7);
-    expect(result.current.canUndo).toBe(true);
+    // Admission and history are held while the exact operation is unresolved.
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRetryFailedSaves).toBe(true);
+    // The ambiguous failure holds admission until the exact operation settles.
+    expect(result.current.commands.updateCellContent('one', 'A1', '2')).toEqual({ ok: false, reason: 'pending-model-transition' });
+    expect(api.writeCells).toHaveBeenCalledTimes(1);
+    act(() => result.current.commands.retryFailedSaves());
+    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.canRetryFailedSaves).toBe(false));
+    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![0]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![0]);
+    expect(vi.mocked(api.saveModelLifecycle).mock.calls[1]![1]).toEqual(vi.mocked(api.saveModelLifecycle).mock.calls[0]![1]);
     act(() => result.current.commands.updateCellContent('one', 'A1', '2'));
     await waitFor(() => expect(api.writeCells).toHaveBeenCalledTimes(2));
     expect(vi.mocked(api.writeCells).mock.calls[1]![0]).toEqual([{ sheetId: 'one', revision: 7 }]);
