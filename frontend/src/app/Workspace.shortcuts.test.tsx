@@ -158,6 +158,36 @@ describe('keyboard labels and hints', () => {
 });
 
 describe('keyboard event ownership', () => {
+  it('respects shortcuts already handled by another owner and native editing controls', () => {
+    const { props } = renderWorkspace();
+    const input = document.createElement('input');
+    document.body.append(input);
+    const prevent = (event: KeyboardEvent) => event.preventDefault();
+    document.body.addEventListener('keydown', prevent);
+    try {
+      fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
+      document.body.removeEventListener('keydown', prevent);
+      expect(fireEvent.keyDown(input, { key: 'z', ctrlKey: true })).toBe(true);
+      expect(props.commands.undo).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeEventListener('keydown', prevent);
+      input.remove();
+    }
+  });
+
+  it('leaves workspace-owned editor portal shortcuts to the editor', () => {
+    const { props } = renderWorkspace();
+    const portal = document.createElement('div');
+    portal.dataset.workspaceSheetEditor = 'keys';
+    document.body.append(portal);
+    try {
+      expect(fireEvent.keyDown(portal, { key: 'z', ctrlKey: true })).toBe(true);
+      expect(props.commands.undo).not.toHaveBeenCalled();
+    } finally {
+      portal.remove();
+    }
+  });
+
   it('invokes undo and redo exactly once per shortcut', () => {
     const { props } = renderWorkspace();
     fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
