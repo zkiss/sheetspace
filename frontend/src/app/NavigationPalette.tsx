@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './NavigationPalette.css';
 
+/** Ownership contexts the keyboard dispatcher must satisfy before it may run the command. */
+export type KeyboardContext = 'navigation' | 'no-editing' | 'grid-cells' | 'native-clipboard' | 'formatting';
+
 export type NavigationCommand = {
   id: string;
   label: string;
@@ -8,6 +11,8 @@ export type NavigationCommand = {
   group?: string;
   shortcut?: string;
   unavailable?: string;
+  /** Absent means the common workspace guards are the only keyboard requirement. */
+  keyboardContext?: readonly KeyboardContext[];
   run: () => void;
 };
 

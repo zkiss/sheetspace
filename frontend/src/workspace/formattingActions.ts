@@ -41,16 +41,3 @@ export function numberFormatWithPrecision(current: NumberFormat | null, precisio
   return current && current.kind !== 'general' && isValidNumberFormatPrecision(precision)
     ? { ...current, precision } : null;
 }
-
-type Shortcut = { key: string; code: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean };
-
-/** Decode physical shifted digits independently from their layout-specific symbol. */
-export function formattingShortcut(event: Shortcut): FormattingAction | undefined {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey) return undefined;
-  const key = event.shiftKey && /^Digit[015]$/.test(event.code) ? event.code.slice(-1) : event.key.toLowerCase();
-  if (key === 'b' && !event.shiftKey) return { type: 'bold' };
-  if (!event.shiftKey) return undefined;
-  if (key === 'e' || key === 'l' || key === 'r') return { type: 'alignment', value: key === 'e' ? 'center' : key === 'l' ? 'left' : 'right' };
-  if (key === '0' || key === '1' || key === '5') return { type: 'numberFormat', kind: key === '0' ? 'general' : key === '1' ? 'number' : 'percent' };
-  return undefined;
-}

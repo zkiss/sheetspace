@@ -55,7 +55,7 @@ describe('shared Workspace formatting wiring', () => {
       selectionRange: { ...selection, anchor: { ...selection.anchor, cell: { ...selection.anchor.cell } } },
     };
     view.rerender(<Workspace {...latest} />);
-    fireEvent.keyDown(document.body, { key: 'b', metaKey: true });
+    fireEvent.keyDown(document.body, { key: 'b', ctrlKey: true });
     expect(latest.commands.writeNumberFormats).toHaveBeenLastCalledWith(sheet.id,
       sheet.content.rows.slice(0, 3).map((targetId) => ({ scope: 'row', targetId, properties: { fontWeight: 'normal' } })));
     fireEvent.click(screen.getByRole('button', { name: 'Number format' }));
