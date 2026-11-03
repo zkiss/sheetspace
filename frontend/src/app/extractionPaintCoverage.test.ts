@@ -107,4 +107,38 @@ describe('committed extraction paint coverage', () => {
     Object.defineProperty(body, 'clientWidth', { value: 100 });
     expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
   });
+
+  it('requires a missing middle fragment even when both ends are present', () => {
+    const { surface, source, target, range, sheet } = setup();
+    range.end.columnIndex = 2;
+    element(source, '', rect(192, 26, 76, 26.4), 'C1', 'third');
+    element(target, '', rect(192, 26, 76, 26.4), 'C1', 'third');
+    target.querySelector('[data-cell-key="B1"]')?.remove();
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
+    element(target, '', rect(116, 26, 76, 26.4), 'B1', 'second');
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('covered');
+  });
+
+  it('maps custom axis sizes through fractional scale and scroll before clipping', () => {
+    const { surface, source, target } = setup();
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 3,
+      presentation: { rowHeights: { 's:row:1': 40 }, columnWidths: { 's:column:1': 100 } } });
+    const range = { start: { rowIndex: 0, columnIndex: 0 }, end: { rowIndex: 0, columnIndex: 1 } };
+    surface.getBoundingClientRect = () => rect(50, 32.5, 125, 50);
+    for (const frame of [source, target]) {
+      const body = frame.querySelector<HTMLElement>('.sheet-frame-body')!;
+      body.getBoundingClientRect = () => rect(0, 0, 375, 375);
+      Object.defineProperty(body, 'offsetWidth', { value: 300, configurable: true });
+      body.scrollLeft = 10;
+      frame.querySelector('.sheet-grid-corner')!.getBoundingClientRect = () => rect(0, 0, 50, 32.5);
+      frame.querySelectorAll('[data-cell-key]').forEach((cell) => cell.remove());
+      element(frame, '', rect(37.5, 32.5, 125, 50), 'A1', 'first');
+      element(frame, '', rect(162.5, 32.5, 95, 50), 'B1', 'second');
+    }
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('covered');
+    target.querySelector('[data-cell-key="B1"]')?.remove();
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
+    surface.getBoundingClientRect = () => rect(50, 32.5, 112.5, 50);
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('covered');
+  });
 });

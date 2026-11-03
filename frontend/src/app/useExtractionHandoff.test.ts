@@ -78,4 +78,26 @@ describe('extraction handoff ownership', () => {
     expect(result.current.handoff).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('finishes an active fade when reduced motion is enabled and removes its listener', () => {
+    let listener: (() => void) | undefined;
+    const preference = {
+      matches: false,
+      addEventListener: vi.fn((_event: string, callback: () => void) => { listener = callback; }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('matchMedia', () => preference);
+    const { result } = renderHook(() => useExtractionHandoff(ids));
+    act(() => {
+      const token = result.current.begin(source, 'target');
+      result.current.accepted(token);
+      result.current.targetReady(token);
+    });
+    expect(result.current.handoff?.ready).toBe(true);
+    preference.matches = true;
+    act(() => listener?.());
+    expect(result.current.handoff).toBeNull();
+    expect(preference.removeEventListener).toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

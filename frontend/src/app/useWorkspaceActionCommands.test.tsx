@@ -44,6 +44,32 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it('releases rendered ownership when an accepted extraction completion rejects', async () => {
+    const { props, sheet, cell, hook } = setup();
+    hook.unmount();
+    let reject!: (reason: Error) => void;
+    const completion = new Promise<never>((_resolve, fail) => { reject = fail; });
+    const request = { sourceSheetId: sheet.id } as ExtractionRequest;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion });
+    const { result } = renderHook(() => {
+      const owner = useExtractionHandoff([sheet.id, 'target']);
+      const token = useRef(0);
+      const actions = useWorkspaceActionCommands({ ...props, selection: { mode: 'cells', anchor: cell, extent: cell },
+        extraction: {
+          request: () => { token.current = owner.begin(sheet, 'target'); return request; },
+          onAccepted: () => owner.accepted(token.current),
+          onFailure: () => owner.cancel(token.current),
+          onSuccess: vi.fn(),
+        } });
+      return { owner, actions };
+    });
+    act(() => result.current.actions.commands.find((item) => item.id === 'extract-selection')!.run());
+    expect(result.current.owner.handoff).toMatchObject({ accepted: true, ready: false });
+    await act(async () => reject(new Error('save failed')));
+    expect(result.current.owner.handoff).toBeNull();
+    expect(props.onFeedback).toHaveBeenCalledWith('The extraction could not be saved.');
+  });
+
   it.each([false, true])('uses real controller publication receipt with same-batch undo %s', (undo) => {
     const { props, sheet, cell, hook } = setup();
     hook.unmount();
