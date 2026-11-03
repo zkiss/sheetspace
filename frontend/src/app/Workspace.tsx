@@ -233,7 +233,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   useExtractionPaintCoverage(workspaceController.workspaceSurfaceRef,
     paintOwner && extractionRange.current?.token === paintOwner.token
       ? { token: paintOwner.token, source: paintOwner.source, targetId: paintOwner.targetId, range: extractionRange.current.range, ready: paintOwner.ready }
-      : null, extractionHandoff.targetReady, extractionHandoff.targetNotReady, extractionHandoff.cancel, workspaceController.viewport, extractionHandoff.registerCoverage);
+      : null, extractionHandoff.targetReady, extractionHandoff.targetNotReady, extractionHandoff.empty, workspaceController.viewport, extractionHandoff.registerCoverage);
   const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)), (id) => {
     const sheet = findSheetById(workbook, id);
     return sheet && frameProjection(sheet);

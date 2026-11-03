@@ -43,7 +43,7 @@ describe('extraction paint observation', () => {
     const { result, rerender, unmount } = renderHook(({ revision }) => {
       const owner = useExtractionHandoff(['source', 'target']);
       const operation = owner.handoff && { ...owner.handoff, range };
-      useExtractionPaintCoverage(ref, operation, owner.targetReady, owner.targetNotReady, owner.cancel, revision, owner.registerCoverage);
+      useExtractionPaintCoverage(ref, operation, owner.targetReady, owner.targetNotReady, owner.empty, revision, owner.registerCoverage);
       return owner;
     }, { initialProps: { revision: 0 } });
     act(() => { const token = result.current.begin(source, 'target'); result.current.accepted(token); });

@@ -18,6 +18,25 @@ describe('extraction handoff ownership', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+  it('reports exactly one terminal result per generation and ignores stale callbacks', () => {
+    const onExit = vi.fn();
+    const { result, unmount } = renderHook(() => useExtractionHandoff(ids, onExit));
+    let first = 0, second = 0, third = 0;
+    act(() => { first = result.current.begin(source, 'target'); second = result.current.begin(source, 'target'); });
+    expect(onExit).toHaveBeenCalledWith(first, 'aborted');
+    act(() => { result.current.empty(first); result.current.empty(second); result.current.cancel(second); });
+    expect(onExit).toHaveBeenCalledWith(second, 'empty');
+    act(() => {
+      third = result.current.begin(source, 'target');
+      result.current.registerCoverage(third, () => 'covered');
+      result.current.accepted(third); result.current.targetReady(third);
+    });
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
+    expect(onExit).toHaveBeenCalledWith(third, 'covered');
+    unmount();
+    expect(onExit).toHaveBeenCalledTimes(3);
+  });
+
   it('allows absence before acceptance but cancels accepted absence at the first commit', () => {
     const { result } = renderHook(() => useTestHandoff(['source']));
     let token = 0;

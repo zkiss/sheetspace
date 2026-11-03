@@ -8,7 +8,7 @@ import type { ExtractionCoverage } from './useExtractionHandoff';
 type Operation = { token: number; source: SheetDocument; targetId: string; range: CellRange; ready: boolean };
 
 export function useExtractionPaintCoverage(surface: RefObject<HTMLElement>, operation: Operation | null,
-  targetReady: (token: number) => void, targetNotReady: (token: number) => void, cancel: (token: number) => void, geometryRevision: unknown,
+  targetReady: (token: number) => void, targetNotReady: (token: number) => void, empty: (token: number) => void, geometryRevision: unknown,
   registerCoverage?: (token: number, measure: () => ExtractionCoverage) => () => void) {
   useLayoutEffect(() => {
     const root = surface.current;
@@ -33,7 +33,7 @@ export function useExtractionPaintCoverage(surface: RefObject<HTMLElement>, oper
         frame.querySelectorAll('.sheet-frame-body, .sheet-grid').forEach(observe);
       });
       const coverage = measure();
-      if (coverage === 'empty') cancel(operation.token);
+      if (coverage === 'empty') empty(operation.token);
       else if (coverage === 'covered') targetReady(operation.token);
       else targetNotReady(operation.token);
     };
@@ -43,5 +43,5 @@ export function useExtractionPaintCoverage(surface: RefObject<HTMLElement>, oper
     root.addEventListener('scroll', check, true);
     window.addEventListener('resize', check);
     return () => { unregister?.(); observer.disconnect(); resize?.disconnect(); root.removeEventListener('scroll', check, true); window.removeEventListener('resize', check); };
-  }, [surface, operation, targetReady, targetNotReady, cancel, geometryRevision, registerCoverage]);
+  }, [surface, operation, targetReady, targetNotReady, empty, geometryRevision, registerCoverage]);
 }
