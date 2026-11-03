@@ -62,7 +62,7 @@ describe('live SheetFrame/SheetGrid extraction composition — publication and r
     expect(frameElement(surface, SOURCE_ID)).toHaveAttribute('data-rendering-mode', 'overview');
     const originalRect = HTMLElement.prototype.getBoundingClientRect;
     const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this.matches('.sheet-frame-body')) return testRect({ left: 101, top: 133, width: 418, height: 246 });
+      if (this.matches('.sheet-frame-body')) return testRect({ left: 101, top: 133, width: 0, height: 0 });
       if (this.matches('.sheet-grid-corner')) return testRect({ left: 101, top: 133, width: 40, height: 26 });
       return originalRect.call(this);
     });
@@ -72,6 +72,7 @@ describe('live SheetFrame/SheetGrid extraction composition — publication and r
     act(() => api().publish('rows', 'A2', 'A3'));
     expect(frameElement(surface, SOURCE_ID)).toHaveAttribute('data-rendering-mode', 'detailed');
     expect(cellText(surface, SOURCE_ID, 'A4')).toBe('42');
+    expect(frameElement(surface, TARGET_ID)).toHaveClass('sheet-frame-extraction-handoff');
     rect.mockRestore(); width.mockRestore(); clientWidth.mockRestore(); clientHeight.mockRestore();
   });
 
@@ -169,6 +170,27 @@ describe('live SheetFrame/SheetGrid extraction composition — publication and r
 });
 
 describe('live SheetFrame/SheetGrid extraction composition — retirement and nonvisual exits', () => {
+  it('keeps the snapshot through unmeasured detail geometry until coverage is restored', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const result = mountAndMeasure(renderComposition());
+    const { surface, api } = result;
+    act(() => api().publish('rows', 'A2', 'A3'));
+    act(() => { result.remock(); });
+    act(() => api().bumpGeometryRevision());
+    const target = frameElement(surface, TARGET_ID);
+    const body = frameElement(surface, SOURCE_ID).querySelector<HTMLElement>('.sheet-frame-body')!;
+    const measured = body.getBoundingClientRect.bind(body);
+    body.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 0, height: 0 });
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
+    expect(target).not.toHaveClass('sheet-frame-extraction-ready');
+    expect(cellText(surface, SOURCE_ID, 'A4')).toBe('42');
+    expect(surface.querySelectorAll(`[data-sheet-id="${SOURCE_ID}"] [role="rowheader"]`)).toHaveLength(6);
+    body.getBoundingClientRect = measured;
+    act(() => fireEvent.scroll(surface));
+    expect(target).toHaveClass('sheet-frame-extraction-ready');
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
+    expect(surface.querySelector('.sheet-frame-extraction-handoff')).toBeNull();
+  });
   it('validates current geometry at the deadline without an observer notification', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const result = mountAndMeasure(renderComposition());
@@ -334,6 +356,7 @@ describe('live SheetFrame/SheetGrid extraction composition — retirement and no
 
     act(() => api().publish('rows', 'A2', 'A3'));
     surface.getBoundingClientRect = () => testRect({ left: 0, top: 0, width: 0, height: 0 });
+    surface.style.display = 'none';
     act(() => fireEvent.scroll(surface));
 
     // The authorized nonvisual exit: snapshot retired, target keeps ordinary presentation.
@@ -342,6 +365,7 @@ describe('live SheetFrame/SheetGrid extraction composition — retirement and no
     expect(frameElement(surface, TARGET_ID)).toBeInTheDocument();
 
     surface.getBoundingClientRect = () => testRect({ left: 0, top: 0, ...SURFACE_SIZE });
+    surface.style.display = '';
     act(() => { result.remock(); });
     act(() => api().bumpGeometryRevision());
     act(() => vi.advanceTimersByTime(1000));

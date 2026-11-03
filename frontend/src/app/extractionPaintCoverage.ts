@@ -15,13 +15,22 @@ function aperture(frame: Element): Rect | 'empty' | null {
   const body = frame.querySelector<HTMLElement>('.sheet-frame-body');
   const corner = frame.querySelector('.sheet-grid-corner');
   if (!body || !corner) return null;
+  if (hidden(body) || hidden(corner)) return 'empty';
   const bounds = body.getBoundingClientRect();
   const header = corner.getBoundingClientRect();
-  if (bounds.width <= 0 || bounds.height <= 0 || header.width <= 0 || header.height <= 0) return 'empty';
+  if (bounds.width <= 0 || bounds.height <= 0 || header.width <= 0 || header.height <= 0) return null;
   const scale = body.offsetWidth ? bounds.width / body.offsetWidth : 1;
   return { left: header.right, top: header.bottom,
     right: body.clientWidth ? bounds.left + body.clientWidth * scale : bounds.right,
     bottom: body.clientHeight ? bounds.top + body.clientHeight * scale : bounds.bottom };
+}
+
+function hidden(element: Element): boolean {
+  for (let current: Element | null = element; current; current = current.parentElement) {
+    const style = getComputedStyle(current);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return true;
+  }
+  return false;
 }
 
 type VisibleAxis = { first: number; last: number } | 'empty' | 'unknown';
@@ -40,7 +49,8 @@ export function visibleExtractionCoverage(surface: Element, source: Element, tar
   range: CellRange, sheet: SheetDocument): 'unknown' | 'empty' | 'waiting' | 'covered' {
   const sourceAperture = aperture(source), body = source.querySelector<HTMLElement>('.sheet-frame-body');
   const clip = surface.getBoundingClientRect();
-  if (clip.width <= 0 || clip.height <= 0 || sourceAperture === 'empty') return 'empty';
+  if (hidden(surface) || sourceAperture === 'empty') return 'empty';
+  if (clip.width <= 0 || clip.height <= 0) return 'unknown';
   if (!sourceAperture || !body || !body.offsetWidth) return 'unknown';
   const visible = intersection(sourceAperture, clip);
   if (!visible) return 'empty';

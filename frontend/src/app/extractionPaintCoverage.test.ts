@@ -59,7 +59,7 @@ describe('committed extraction paint coverage', () => {
     const firstOnly = { start: range.start, end: range.start };
     expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('empty');
     surface.getBoundingClientRect = () => rect(0, 0, 0, 0);
-    expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('empty');
+    expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('unknown');
   });
   it('requires every visible mapped cell with matching text and geometry', () => {
     const { surface, source, target, range, last, sheet } = setup();
@@ -82,12 +82,16 @@ describe('committed extraction paint coverage', () => {
     expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('unknown');
   });
 
-  it('treats measured hidden workspace, source body and corner as empty', () => {
+  it('distinguishes unmeasured zero rectangles from explicitly hidden surfaces', () => {
     for (const selector of ['surface', '.sheet-frame-body', '.sheet-grid-corner']) {
       const { surface, source, target, range, sheet } = setup();
+      document.body.append(surface);
       const hidden = selector === 'surface' ? surface : source.querySelector(selector)!;
       hidden.getBoundingClientRect = () => rect(0, 0, 0, 0);
-      expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('empty');
+      expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('unknown');
+      (hidden as HTMLElement).style.display = 'none';
+      expect(visibleExtractionCoverage(surface, source, target, range, sheet), selector).toBe('empty');
+      surface.remove();
     }
   });
 

@@ -48,8 +48,8 @@ describe('extraction paint observation', () => {
     }, { initialProps: { revision: 0 } });
     act(() => { const token = result.current.begin(source, 'target'); result.current.accepted(token); });
     expect(result.current.handoff?.ready).toBe(phase === 'fading');
-    if (hidden === 'workspace') clip = bounds(0, 0, 0, 0);
-    else bodyBounds = bounds(0, 0, 0, 0);
+    if (hidden === 'workspace') { clip = bounds(0, 0, 0, 0); root.style.display = 'none'; }
+    else { bodyBounds = bounds(0, 0, 0, 0); sourceFrame.querySelector<HTMLElement>('.sheet-frame-body')!.style.display = 'none'; }
     rerender({ revision: 1 });
     expect(result.current.handoff).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
