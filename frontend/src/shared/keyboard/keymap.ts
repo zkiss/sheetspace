@@ -69,6 +69,7 @@ export const keymap = {
   'error-inspect': [{ key: 'F2' }], 'error-follow': [{ key: 'Enter' }, { key: 'F4' }],
   'reference-navigate': [{ key: 'F4' }], 'toggle-editor-mode': [{ key: 'F2' }],
   'editor-apply': [{ key: 'Enter', mod: true }], 'editor-cancel': [{ key: 'Escape', mod: true }],
+  'editor-close': [{ key: 'Escape' }],
   'editor-complete': [{ key: 'Space', code: 'Space', mod: true }],
   'editor-commit-down': [{ key: 'Enter' }], 'editor-commit-next': [{ key: 'Tab' }],
   'editor-commit-previous': [{ key: 'Tab', shift: true }],

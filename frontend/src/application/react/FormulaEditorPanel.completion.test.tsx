@@ -66,6 +66,60 @@ describe('formula completion keyboard handling', () => {
     } finally { platformMock.mockRestore(); }
   });
 
+  it.each(['MacIntel', 'Linux x86_64'])('opens completion only with the native unmodified primary chord on %s', (platform) => {
+    const platformMock = vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+    try {
+      const { input } = setup('model');
+      const native = platform.startsWith('Mac') ? { metaKey: true } : { ctrlKey: true };
+      const wrong = platform.startsWith('Mac') ? { ctrlKey: true } : { metaKey: true };
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...wrong });
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...native, shiftKey: true });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...native });
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...wrong });
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...native, altKey: true });
+      expect(screen.queryByRole('option', { selected: true })).not.toBeInTheDocument();
+    } finally { platformMock.mockRestore(); }
+  });
+
+  it('separates rebound completion dismissal from light editor cancellation', () => {
+    const map = keymap as unknown as Record<string, Binding>;
+    const originals = { ...map };
+    try {
+      map['completion-dismiss'] = [{ key: 'F8' }];
+      map['editor-close'] = [{ key: 'F9' }];
+      const { input, cancel } = setup('light');
+      fireEvent.keyDown(input, { key: 'F8' });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'F8' });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'F9' });
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally { Object.assign(map, originals); }
+  });
+
+  it('uses the rebound close action, not completion dismissal, for read-only editors and hints', () => {
+    const map = keymap as unknown as Record<string, Binding>;
+    const originals = { ...map }; const cancel = vi.fn();
+    try {
+      map['completion-dismiss'] = [{ key: 'F8' }];
+      map['editor-close'] = [{ key: 'F9' }];
+      render(<FormulaEditorPanel ariaLabel="Formula" readOnly onApply={vi.fn()} onCancel={cancel} onRawChange={vi.fn()} raw="=SU" resolver={resolver} sheetNames={[]} />);
+      const input = screen.getByLabelText('Formula');
+      expect(screen.getByRole('button', { name: 'Close formula' })).toHaveAttribute('title', expect.stringContaining('F9'));
+      expect(screen.getByRole('button', { name: 'Close formula' })).not.toHaveAttribute('title', expect.stringContaining('F8'));
+      fireEvent.keyDown(input, { key: 'F8' });
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'F9' });
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally { Object.assign(map, originals); }
+  });
+
   it.each(['light', 'heavy', 'model'] as const)('accepts a selected completion in %s with Enter or Tab', (mode) => {
     const { input, apply, cancel, commit, parent } = setup(mode);
     const frames: FrameRequestCallback[] = [];

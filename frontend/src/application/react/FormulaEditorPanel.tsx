@@ -130,7 +130,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
         : matchesShortcut(event, 'editor-commit-previous') ? { key: 'Tab' as const, shift: true } : undefined;
     if (readOnly) {
       event.stopPropagation();
-      if (matchesShortcut(event, 'completion-dismiss') || matchesShortcut(event, 'editor-cancel') || matchesShortcut(event, 'editor-apply')) {
+      if (matchesShortcut(event, 'editor-close') || matchesShortcut(event, 'editor-cancel') || matchesShortcut(event, 'editor-apply')) {
         event.preventDefault(); event.stopPropagation(); onCancel();
       } else if (cellMode === 'light' && onCommitAndNavigate && navigation) {
         event.preventDefault(); event.stopPropagation(); onCommitAndNavigate(navigation);
@@ -160,13 +160,17 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
         : nextCompletion ? 0 : completions.length - 1);
       setCompletionChosen(true); return;
     }
-    if (matchesShortcut(event, 'completion-dismiss')) {
+    if (completionOpen && matchesShortcut(event, 'completion-dismiss')) {
       event.preventDefault(); event.stopPropagation();
       setHoveredReference(undefined);
-      if (completionOpen) setCompletionRequest(null);
-      else if (cellMode === 'light') onCancel();
-      else if (completionRequest) setCompletionRequest(null);
+      setCompletionRequest(null);
       return;
+    }
+    if (cellMode === 'light' && matchesShortcut(event, 'editor-close')) {
+      event.preventDefault(); event.stopPropagation(); onCancel(); return;
+    }
+    if (matchesShortcut(event, 'completion-dismiss')) {
+      event.preventDefault(); event.stopPropagation(); setHoveredReference(undefined); setCompletionRequest(null); return;
     }
     if (event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); setEditor(event.shiftKey ? outdentFormulaSelection(raw, selection()) : indentFormulaSelection(raw, selection())); return; }
     if (['Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) setCompletionRequest(null);
@@ -263,7 +267,7 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     {!cellMode && analysis.diagnostics.length > 0 ? <ul className="formula-editor-diagnostics" role="status">{analysis.diagnostics.map((diagnostic, index) => <li key={`${diagnostic.sourceSpan.start}-${index}`}>{diagnostic.code} at {diagnostic.sourceSpan.start + 1}–{diagnostic.sourceSpan.end}</li>)}</ul> : null}
     {cellMode !== 'light' ? <div className="formula-editor-actions" onMouseDown={(event) => event.preventDefault()}>
       {!readOnly ? <button disabled={disabled || !formattingAvailable} onClick={() => { const result = formatFormula(raw, selection()); if (result.available) setEditor(result); }} type="button">Format</button> : null}
-      <button aria-label={readOnly ? 'Close formula' : 'Cancel formula'} disabled={disabled} onClick={onCancel} title={readOnly ? `Close (${shortcutLabel('completion-dismiss')} / ${shortcutLabel('editor-cancel')} / ${shortcutLabel('editor-apply')})` : `Cancel (${shortcutLabel('editor-cancel')})`} type="button">{readOnly ? 'Close' : 'Cancel'}</button>
+      <button aria-label={readOnly ? 'Close formula' : 'Cancel formula'} disabled={disabled} onClick={onCancel} title={readOnly ? `Close (${shortcutLabel('editor-close')} / ${shortcutLabel('editor-cancel')} / ${shortcutLabel('editor-apply')})` : `Cancel (${shortcutLabel('editor-cancel')})`} type="button">{readOnly ? 'Close' : 'Cancel'}</button>
       {!readOnly ? <button disabled={disabled} onClick={onApply} title={`Apply (${shortcutLabel('editor-apply')})`} type="button">Apply</button> : null}
     </div> : null}
   </section>;
