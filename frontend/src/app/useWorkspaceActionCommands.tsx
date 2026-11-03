@@ -59,6 +59,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const [panel, setPanel] = useState<Panel | null>(null);
   const [clipboardBusy, setClipboardBusy] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
+  const [extractionBusy, setExtractionBusy] = useState(false);
+  const extractionPending = useRef(false);
   const clipboardOperation = useRef(0);
   const mounted = useRef(true);
   const selectionContext = JSON.stringify([sheet?.id, activeCell, selection]);
@@ -167,22 +169,32 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const selectedExtraction = sheet && extractionSelection(sheet, selection);
   const extractionUnavailable = !selectedExtraction ? 'Select saved cells, rows, or columns first'
     : sheet?.modelId || sheet?.modelColumnBindings || sheet?.modelFormulaBindings ? 'Extract from an unbound sheet instead'
-      : !extraction ? 'Extraction is not available in this view' : undefined;
+      : !extraction ? 'Extraction is not available in this view' : extractionBusy ? 'Extraction is being saved' : undefined;
   add('extract-selection', 'Extract to new sheet', 'Selection', () => {
-    if (extractionUnavailable || !sheet || !selection || !extraction) return;
+    if (extractionUnavailable || extractionPending.current || !sheet || !selection || !extraction) return;
+    extractionPending.current = true;
+    setExtractionBusy(true);
+    const release = () => { extractionPending.current = false; if (mounted.current) setExtractionBusy(false); };
     const revision = selectionRevision.current.revision;
-    const request = extraction.request(sheet, selection);
-    if (!request) { closePalette(); onFeedback('Select saved cells, rows, or columns first.'); return; }
-    const submission = commands.extractSelection(request);
+    let request: ExtractionRequest | undefined;
+    let submission: ReturnType<typeof commands.extractSelection>;
+    try {
+      request = extraction.request(sheet, selection);
+      if (!request) { release(); closePalette(); onFeedback('Select saved cells, rows, or columns first.'); return; }
+      submission = commands.extractSelection(request);
+    } catch {
+      release(); extraction.onFailure?.(); closePalette(); onFeedback('The extraction could not be started.'); return;
+    }
     const message = extractionFeedback(submission.result);
-    if (message) { extraction.onFailure?.(); closePalette(); onFeedback(message); return; }
+    if (message) { release(); extraction.onFailure?.(); closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
+      release();
       if (!mounted.current) return;
       const error = extractionFeedback(result);
       if (error) { extraction.onFailure?.(); onFeedback(error); return; }
       if (selectionRevision.current.revision === revision) { onCancelCut(); extraction.onSuccess(request); }
-    }, () => { if (mounted.current) { extraction.onFailure?.(); onFeedback('The extraction could not be saved.'); } });
+    }, () => { release(); if (mounted.current) { extraction.onFailure?.(); onFeedback('The extraction could not be saved.'); } });
   }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {
     const operation = ++clipboardOperation.current;

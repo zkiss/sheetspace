@@ -40,6 +40,33 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it('prevents duplicate extraction while saving and permits another after settlement', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    const submit = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.commands.extractSelection = submit;
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    const run = command('extract-selection').run;
+    act(() => { run(); run(); });
+    expect(submit).toHaveBeenCalledOnce();
+    expect(command('extract-selection').unavailable).toBe('Extraction is being saved');
+    await act(async () => finish({ ok: true }));
+    expect(command('extract-selection').unavailable).toBeUndefined();
+  });
+  it.each(['request', 'submission'] as const)('cleans up when extraction %s throws synchronously', (stage) => {
+    const { command, hook, props, cell } = setup();
+    const fail = vi.fn(() => { throw new Error('failed'); });
+    props.commands.extractSelection = stage === 'submission' ? fail : vi.fn();
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: stage === 'request' ? fail : vi.fn().mockReturnValue({}), onSuccess: vi.fn(), onFailure: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    expect(props.extraction.onFailure).toHaveBeenCalledOnce();
+    expect(props.onFeedback).toHaveBeenCalledWith('The extraction could not be started.');
+    expect(command('extract-selection').unavailable).toBeUndefined();
+  });
   it.each(['cells', 'rows', 'columns'] as const)('submits %s extraction and transfers ownership only after settlement', async (mode) => {
     const { command, hook, props, cell } = setup();
     const request = { sourceSheetId: 'sheet' } as ReturnType<NonNullable<Props['extraction']>['request']>;
