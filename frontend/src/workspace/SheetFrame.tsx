@@ -175,7 +175,7 @@ export function SheetFrame({
       <header
         className="sheet-frame-header"
         data-testid="sheet-frame-header"
-        style={presentation ? { height: Math.max(0, presentation.sample.body.top - presentation.sample.frame.top), opacity: presentation.sample.chrome } : undefined}
+        style={presentation ? { height: Math.max(0, presentation.sample.body.top - presentation.sample.frame.top), opacity: extractionHandoff ? undefined : presentation.sample.chrome } : undefined}
         onPointerCancel={onSheetFrameDragCancel}
         onLostPointerCapture={onSheetFrameDragCancel}
         onPointerDown={(event) => {
