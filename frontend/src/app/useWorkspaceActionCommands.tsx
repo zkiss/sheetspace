@@ -39,7 +39,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
-  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest; onSuccess: (request: ExtractionRequest) => void };
+  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onFailure?: () => void };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
@@ -172,16 +172,17 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     if (extractionUnavailable || !sheet || !selection || !extraction) return;
     const revision = selectionRevision.current.revision;
     const request = extraction.request(sheet, selection);
+    if (!request) { closePalette(); onFeedback('Select saved cells, rows, or columns first.'); return; }
     const submission = commands.extractSelection(request);
     const message = extractionFeedback(submission.result);
-    if (message) { closePalette(); onFeedback(message); return; }
+    if (message) { extraction.onFailure?.(); closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       if (!mounted.current) return;
       const error = extractionFeedback(result);
-      if (error) { onFeedback(error); return; }
+      if (error) { extraction.onFailure?.(); onFeedback(error); return; }
       if (selectionRevision.current.revision === revision) { onCancelCut(); extraction.onSuccess(request); }
-    }, () => { if (mounted.current) onFeedback('The extraction could not be saved.'); });
+    }, () => { if (mounted.current) { extraction.onFailure?.(); onFeedback('The extraction could not be saved.'); } });
   }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {
     const operation = ++clipboardOperation.current;

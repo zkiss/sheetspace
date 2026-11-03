@@ -53,6 +53,8 @@ import { ErrorReferencePreview } from './ErrorReferencePreview';
 import type { ErrorReferenceHover } from './errorCellText';
 import { workbookErrors } from './workbookErrors';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
+import { extractionRequest } from './extractionRequest';
+import { useExtractionHandoff } from './useExtractionHandoff';
 import { useSheetCreationRoute } from './useSheetCreationRoute';
 import type { PresentationSnapshot } from './sheetDialogContracts';
 import { clampWorkspaceZoom, normalizedWheelDelta, workspaceRectForFrame, zoomFactorFromWheelDelta } from '@workspace/workspaceGeometry';
@@ -183,6 +185,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const runPaletteCommandRef = useRef<(id: string) => void>(() => {});
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const sheets = sheetsInOrder(workbook);
+  const extractionHandoff = useExtractionHandoff(sheets.map((sheet) => sheet.id));
+  const extractionFormulaSnapshot = useRef(formulaResults);
   const activeSheetId = entrySheetId ?? activeCell?.sheetId;
   const selectedSheet = activeSheetId ? findSheetById(workbook, activeSheetId) : undefined;
   const dataModels = Object.values(workbook.dataModels ?? {});
@@ -672,6 +676,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     surfaceSize: workspaceController.workspaceSurfaceSize,
   };
   const mountedSheetIds = new Set(mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport: workspaceController.displayedViewport }));
+  if (extractionHandoff.handoff) {
+    mountedSheetIds.add(extractionHandoff.handoff.source.id);
+    mountedSheetIds.add(extractionHandoff.handoff.targetId);
+  }
   if (maximise.state.sheetId) mountedSheetIds.add(maximise.state.sheetId);
   panViewportNeedsRender.current = (viewport) => {
     const next = mountedWorkspaceFrameIds({ ...frameVisibilityOptions, viewport });
@@ -783,6 +791,23 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const actionPalette = useWorkspaceActionCommands({
     commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
     maximise: { active: modeActive, toggle: toggleMaximise, zoom: zoomMaximisedView },
+    extraction: {
+      request: (sheet, selection) => {
+        const viewport = referenceGridViewports[sheet.id];
+        const request = extractionRequest(workbook, sheet, selection, { x: viewport?.scrollLeft ?? 0, y: viewport?.scrollTop ?? 0 }, projectedFramesById.get(sheet.id)?.position);
+        if (request) { extractionFormulaSnapshot.current = formulaResults; extractionHandoff.begin(sheet, request.targetSheetId); }
+        return request;
+      },
+      onFailure: extractionHandoff.cancel,
+      onSuccess: (request) => {
+        const rowId = request.targetRows[0];
+        const columnId = request.targetColumns[0];
+        if (!rowId || !columnId) return;
+        const target = { sheetId: request.targetSheetId, cell: { rowId, columnId } };
+        onSelectCell(target);
+        onFocusSelection(target);
+      },
+    },
     onCreateSheet: createSheet,
     formatting: formattingProjection, referencesVisible: referenceLinksVisible, canUndo, canRedo, canRetryFailedSaves,
     navigation: navigationHistory, closePalette: closeCommandPalette,
@@ -935,7 +960,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         workspaceSurfaceRef={workspaceController.workspaceSurfaceRef}
         workspacePlaneRef={workspaceController.workspacePlaneRef}
       >
-        {sheets.map((sheet) => {
+        {sheets.map((liveSheet) => {
+          const sheet = extractionHandoff.handoff?.source.id === liveSheet.id ? extractionHandoff.handoff.source : liveSheet;
           if (!mountedSheetIds.has(sheet.id)) return null;
           const frame = projectedFramesById.get(sheet.id)!;
           const tabular = tabularProjection(sheet);
@@ -982,6 +1008,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
             : undefined;
           return (
             <SheetFrame
+              extractionHandoff={extractionHandoff.handoff?.targetId === sheet.id}
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
               presentation={maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.presentation, viewport: workspaceController.viewport } : undefined}
@@ -1041,7 +1068,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                       dismiss: (id) => commands.dismissEntryFeedback(sheet.id, id),
                       submit: () => commands.submitEntryDraft(sheet.id),
                     } } : undefined}
-                    interactionsEnabled={interactionsEnabled}
+                    interactionsEnabled={interactionsEnabled && extractionHandoff.handoff?.source.id !== sheet.id}
                     revealEnabled={gridPresentationReady && (!contentReveal.pending || contentReveal.ready)}
                     requireMeasuredViewport={modeActive}
                     ownsGridRestore={ownsGridRestore}
@@ -1058,7 +1085,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
-                    onReferenceViewport={reportReferenceViewport}
+                    onReferenceViewport={(id, viewport) => {
+                      reportReferenceViewport(id, viewport);
+                      if (viewport && viewport.width > 0 && viewport.height > 0) extractionHandoff.targetReady(id);
+                    }}
                     onUserViewportMovement={() => { recordUserGridMovement(); transport.cancel(); }}
                     historyRestore={gridPresentationReady ? historyRestoreForSheet(sheet.id) : undefined}
                     navigationRestoreGeneration={gridPresentationReady && !navigationRequest ? navigationRestoreForSheet(sheet.id) : undefined}
@@ -1100,7 +1130,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                         onReferenceNavigate: navigateReference,
                       },
                     }}
-                    formulaResults={formulaResults}
+                    formulaResults={extractionHandoff.handoff?.source.id === sheet.id ? extractionFormulaSnapshot.current : formulaResults}
                     keyboardFocusRequest={gridPresentationReady && keyboardFocusRequest?.target.sheetId === sheet.id
                       ? {
                           id: keyboardFocusRequest.id,

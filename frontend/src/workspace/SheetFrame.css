@@ -14,6 +14,27 @@
   cursor: default;
 }
 
+.sheet-frame-extraction-handoff {
+  animation: extraction-frame-chrome 240ms ease-out both;
+}
+
+.sheet-frame-extraction-handoff .sheet-frame-header {
+  animation: extraction-header-chrome 240ms ease-out both;
+}
+
+@keyframes extraction-frame-chrome {
+  from { border-color: transparent; box-shadow: none; }
+}
+
+@keyframes extraction-header-chrome {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-frame-extraction-handoff,
+  .sheet-frame-extraction-handoff .sheet-frame-header { animation: none; }
+}
+
 .sheet-frame-resize-handle {
   position: absolute;
   z-index: 5;

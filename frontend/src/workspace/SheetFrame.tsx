@@ -26,6 +26,7 @@ export function SheetFrame({
   isActiveSheet,
   isNavigationReveal,
   retainDetailedBody,
+  extractionHandoff,
   presentation,
   overview,
   onDetailedFocusDisplaced,
@@ -53,6 +54,7 @@ export function SheetFrame({
   isNavigationReveal: boolean;
   /** Retain an existing detailed body during editing or a gesture; never reveal one solely for a culling pin. */
   retainDetailedBody?: boolean;
+  extractionHandoff?: boolean;
   presentation?: { sample: SheetPresentation; viewport: WorkspaceViewport };
   overview?: ReactNode;
   /** Reports that replacing this detailed body displaced native grid focus. */
@@ -83,7 +85,7 @@ export function SheetFrame({
   const requestedRenderingMode = resolveSheetRenderingMode(screenScale, renderingModeRef.current);
   renderingModeRef.current = requestedRenderingMode;
   const previousRenderingMode = useRef(requestedRenderingMode);
-  const renderingMode = presentation || (retainDetailedBody && previousRenderingMode.current === 'detailed')
+  const renderingMode = presentation || extractionHandoff || (retainDetailedBody && previousRenderingMode.current === 'detailed')
     ? 'detailed'
     : requestedRenderingMode;
   const bodyHadFocus = useRef(false);
@@ -105,7 +107,7 @@ export function SheetFrame({
   return (
     <article
       aria-label={`Sheet ${frame.name}`}
-      className={`sheet-frame${presentation ? ' sheet-frame-presented' : ''}${isActiveSheet ? ' sheet-frame-active' : ''}${
+      className={`sheet-frame${presentation ? ' sheet-frame-presented' : ''}${extractionHandoff ? ' sheet-frame-extraction-handoff' : ''}${isActiveSheet ? ' sheet-frame-active' : ''}${
         isNavigationReveal ? ' sheet-frame-navigation-reveal' : ''
       }`}
       data-active-sheet={isActiveSheet ? 'true' : undefined}
