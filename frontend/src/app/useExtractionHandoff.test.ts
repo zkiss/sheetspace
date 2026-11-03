@@ -45,6 +45,21 @@ describe('extraction handoff ownership', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('restarts the handoff deadline when painted coverage is lost and restored', () => {
+    const { result } = renderHook(() => useExtractionHandoff(ids));
+    let token = 0;
+    act(() => { token = result.current.begin(source, 'target'); result.current.accepted(token); result.current.targetReady(token); });
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION - 1));
+    act(() => result.current.targetNotReady(token));
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
+    expect(result.current.handoff?.ready).toBe(false);
+    act(() => result.current.targetReady(token));
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION - 1));
+    expect(result.current.handoff?.ready).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.handoff).toBeNull();
+  });
+
   it('cleans up on removal before or after readiness and honors reduced motion', () => {
     const preference = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
     vi.stubGlobal('matchMedia', () => preference);

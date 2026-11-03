@@ -35,6 +35,10 @@ export function useExtractionHandoff(sheetIds: readonly string[]) {
     if (active.current !== token) return;
     setHandoff((current) => current?.token === token && !current.ready ? { ...current, ready: true } : current);
   }, []);
+  const targetNotReady = useCallback((token: number) => {
+    if (active.current !== token) return;
+    setHandoff((current) => current?.token === token && current.ready ? { ...current, ready: false } : current);
+  }, []);
   const targetExists = handoff ? sheetIds.includes(handoff.targetId) : false;
   const sourceExists = handoff ? sheetIds.includes(handoff.source.id) : false;
 
@@ -56,5 +60,5 @@ export function useExtractionHandoff(sheetIds: readonly string[]) {
   }, [cancel, handoff, sourceExists, targetExists]);
   useEffect(() => () => { active.current = null; }, []);
 
-  return { handoff, begin, accepted, cancel, targetReady };
+  return { handoff, begin, accepted, cancel, targetReady, targetNotReady };
 }
