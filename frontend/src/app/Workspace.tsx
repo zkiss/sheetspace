@@ -1124,9 +1124,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
-                    onReferenceViewport={(id, viewport) => {
-                      reportReferenceViewport(id, viewport);
-                    }}
+                    onReferenceViewport={reportReferenceViewport}
                     onUserViewportMovement={() => { recordUserGridMovement(); transport.cancel(); }}
                     historyRestore={gridPresentationReady ? historyRestoreForSheet(sheet.id) : undefined}
                     navigationRestoreGeneration={gridPresentationReady && !navigationRequest ? navigationRestoreForSheet(sheet.id) : undefined}

@@ -31,6 +31,86 @@ function setup(rowCount = 30, columnCount = 10) {
 }
 
 describe('reference-navigation range feedback', () => {
+  it('reports viewport changes and releases the old observer when its owner changes', () => {
+    const { viewport, show, unmount } = setup();
+    const first = vi.fn();
+    const second = vi.fn();
+    show({ onReferenceViewport: first });
+    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 0, scrollTop: 0, width: 240, height: 160 });
+    viewport.scrollLeft = 25;
+    viewport.scrollTop = 30;
+    fireEvent.scroll(viewport);
+    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 240, height: 160 });
+    act(() => { virtualGridGeometry(viewport, { width: 320, height: 180 }); });
+    expect(first).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 320, height: 180 });
+    show({ onReferenceViewport: second });
+    expect(first).toHaveBeenLastCalledWith('target', null);
+    expect(second).toHaveBeenLastCalledWith('target', { scrollLeft: 25, scrollTop: 30, width: 320, height: 180 });
+    unmount();
+    expect(second).toHaveBeenLastCalledWith('target', null);
+  });
+
+  it('attributes scrolling gestures to the user without treating editor keys as movement', () => {
+    const { viewport, show } = setup();
+    const moved = vi.fn();
+    show({ onUserViewportMovement: moved });
+    fireEvent.wheel(viewport);
+    fireEvent.touchMove(viewport);
+    fireEvent.keyDown(viewport, { key: 'PageDown' });
+    fireEvent.keyDown(viewport, { key: 'a' });
+    const editor = document.createElement('input');
+    viewport.appendChild(editor);
+    fireEvent.keyDown(editor, { key: 'PageDown' });
+    expect(moved).toHaveBeenCalledTimes(3);
+    editor.remove();
+  });
+
+  it('reports scrolling even without ResizeObserver', () => {
+    const { viewport, show, unmount } = setup();
+    const report = vi.fn();
+    vi.stubGlobal('ResizeObserver', undefined);
+    try {
+      show({ onReferenceViewport: report });
+      viewport.scrollTop = 40;
+      fireEvent.scroll(viewport);
+      expect(report).toHaveBeenLastCalledWith('target', { scrollLeft: 0, scrollTop: 40, width: 240, height: 160 });
+      unmount();
+      expect(report).toHaveBeenLastCalledWith('target', null);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('ignores missing and invalid navigation destinations without moving the viewport', () => {
+    const { viewport, show } = setup();
+    const settled = vi.fn();
+    viewport.scrollTop = 30;
+    show({ navigationRequestGeneration: 1, onNavigationSettled: settled });
+    show({ navigationRequestGeneration: 2, navigationRequestCellKey: 'ZZ99999', onNavigationSettled: settled });
+    expect(viewport.scrollTop).toBe(30);
+    expect(settled).not.toHaveBeenCalled();
+  });
+
+  it('reveals a valid single-cell navigation destination', () => {
+    const { viewport, show } = setup();
+    const settled = vi.fn();
+    show({ navigationRequestGeneration: 1, navigationRequestCellKey: 'C20', onNavigationSettled: settled });
+    expect(viewport.scrollTop).toBeGreaterThan(0);
+    expect(settled).toHaveBeenCalledWith(1);
+  });
+
+  it('does not reveal navigation ranges outside the sheet', () => {
+    const { viewport, show } = setup();
+    const settled = vi.fn();
+    const outside = { rowIndex: 40, columnIndex: 0 };
+    const inside = { rowIndex: 0, columnIndex: 0 };
+    show({ navigationRequestGeneration: 1, navigationRequestRange: { start: outside, end: outside }, onNavigationSettled: settled });
+    expect(settled).not.toHaveBeenCalled();
+    show({ navigationHighlightIdentity: 2, navigationHighlightRange: { start: inside, end: outside } });
+    expect(viewport.scrollTop).toBe(0);
+    expect(settled).not.toHaveBeenCalled();
+  });
+
   it('marks a rectangle with selection-owned perimeter without replacing focused cells', () => {
     const { cell, show, container } = setup();
     const range = { start: { rowIndex: 1, columnIndex: 1 }, end: { rowIndex: 3, columnIndex: 3 } };
