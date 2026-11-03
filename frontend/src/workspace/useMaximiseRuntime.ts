@@ -25,6 +25,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   const ownership = useRef(0);
   const transaction = useRef(0);
   const presentationOwner = useRef(0);
+  const extractionGeometryOwner = useRef(0);
   const failedHandoff = useRef(0);
   const options = useRef({ handoff, size, reducedMotion, available });
   options.current = { handoff, size, reducedMotion, available };
@@ -134,6 +135,7 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
   }
   function ownedCanvasRestore() {
     const owner = ++presentationOwner.current;
+    const geometryOwner = extractionGeometryOwner.current;
     const handoffGeneration = failedHandoff.current;
     if (current.current.mode !== 'canvas' && current.current.mode !== 'restoring') {
       const now = performance.now();
@@ -144,12 +146,13 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     const generation = ownership.current;
     const pending: Promise<Result> = presentationOwner.current !== owner ? Promise.resolve('cancelled') : current.current.motion
       ? new Promise((resolve) => canvasWaiters.current.push(resolve)) : Promise.resolve('settled');
-    const completion = pending.then((result) => result === 'settled' && presentationOwner.current === owner
+    const owned = () => presentationOwner.current === owner && extractionGeometryOwner.current === geometryOwner;
+    const completion = pending.then((result) => result === 'settled' && owned()
       && current.current.mode === 'canvas' && ownership.current === generation && failedHandoff.current === handoffGeneration ? 'settled' : 'cancelled');
     return {
       completion,
-      owned: () => presentationOwner.current === owner,
-      cancel: () => { if (presentationOwner.current === owner) { presentationOwner.current++; if (current.current.motion) cancel(); } },
+      owned,
+      cancel: () => { if (owned()) { presentationOwner.current++; if (current.current.motion) cancel(); } },
     };
   }
   useLayoutEffect(() => {
@@ -159,13 +162,13 @@ export function useMaximiseRuntime(handoff: Handoff, size: SheetFrameSize | null
     const saved = existing.sheetId && savedFrame?.(existing.sheetId);
     if (saved) {
       const reconciled = reconcileMaximiseFrame(existing, saved, now);
-      if (reconciled !== existing) presentationOwner.current++;
+      if (reconciled !== existing) extractionGeometryOwner.current++;
       update(reconciled, now, false, existing.mode === 'restoring', existing.mode === 'entering');
       existing = current.current;
     }
     if (size) {
       const resized = resizeMaximise(existing, size, now, reducedMotion);
-      if (resized !== existing) presentationOwner.current++;
+      if (resized !== existing) extractionGeometryOwner.current++;
       update(resized, now, existing.mode === 'restoring' && resized.mode === 'canvas', existing.mode === 'restoring', existing.mode === 'entering', size);
     }
     if (reducedMotion && current.current.motion) update(completeMaximise(current.current, current.current.identity), now, current.current.mode === 'restoring', false, current.current.mode === 'entering');

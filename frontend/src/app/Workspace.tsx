@@ -197,7 +197,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const extractionOwner = useRef<typeof extractionPresentation>(null);
   const extractionLease = useRef<ReturnType<ReturnType<typeof useMaximiseRuntime>['ownedCanvasRestore']> | null>(null);
   const extractionAnimation = useRef<number>();
-  const extractionGuard = useRef<{ sourceFrame: string; size: string; viewport: string; identity: number; settling: boolean } | null>(null);
+  const extractionGuard = useRef<{ sourceFrame: string; targetFrame?: string; size: string; viewport: string; identity: number; settling: boolean } | null>(null);
   const extractionFormulaSnapshot = useRef(formulaResults);
   const extractionTokens = useRef(new WeakMap<object, number>());
   const extractionRange = useRef<{ token: number; range: CellRange } | null>(null);
@@ -270,6 +270,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const end = canvasPresentation(frameProjection(target), inputs.workspaceController.viewport);
       if (extractionGuard.current) {
         extractionGuard.current.settling = true;
+        extractionGuard.current.targetFrame = JSON.stringify(frameProjection(target));
         extractionGuard.current.viewport = JSON.stringify(inputs.workspaceController.viewport);
       }
       if (result === 'empty' || inputs.reducedMotion) { abortExtractionPresentation(); return; }
@@ -277,6 +278,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const tick = (now: number) => {
         if (extractionOwner.current !== operation) return;
         if (extractionLease.current && !extractionLease.current.owned()) { abortExtractionPresentation(); return; }
+        const current = extractionInputs.current;
+        const currentTarget = findSheetById(current.workbook, operation.targetId);
+        const guard = extractionGuard.current;
+        if (!currentTarget || !guard || JSON.stringify(frameProjection(currentTarget)) !== guard.targetFrame
+          || JSON.stringify(current.workspaceController.viewport) !== guard.viewport) { abortExtractionPresentation(); return; }
         const progress = Math.min(1, (now - start) / 240);
         if (progress >= 1) { abortExtractionPresentation(); return; }
         setExtractionPresentation({ ...operation, sample: interpolatePresentation(operation.sample, end, progress) });
@@ -297,8 +303,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const operation = extractionOwner.current;
     const guard = extractionGuard.current;
     const source = operation && findSheetById(workbook, operation.sourceId);
-    const invalid = operation?.accepted && (!source || !findSheetById(workbook, operation.targetId)
+    const target = operation && findSheetById(workbook, operation.targetId);
+    const invalid = operation?.accepted && (!source || !target
       || (guard && (JSON.stringify({ position: source.frame.position, size: source.frame.size, visualScale: source.frame.visualScale }) !== guard.sourceFrame
+        || (guard.settling && JSON.stringify(frameProjection(target)) !== guard.targetFrame)
         || JSON.stringify(workspaceController.workspaceSurfaceSize) !== guard.size
         || ((!extractionLease.current || guard.settling) && JSON.stringify(workspaceController.viewport) !== guard.viewport)
         || (!extractionLease.current && maximise.currentState().identity !== guard.identity)))
