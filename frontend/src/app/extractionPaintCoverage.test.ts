@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractionPaintCoverage } from './extractionPaintCoverage';
+import { extractionPaintCoverage, sourceApertureOutsideSurface } from './extractionPaintCoverage';
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
   return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) };
@@ -52,5 +52,16 @@ describe('committed extraction paint coverage', () => {
     expect(extractionPaintCoverage(surface, source, target, range)).toBe(false);
     surface.getBoundingClientRect = () => rect(0, 0, 0, 0);
     expect(extractionPaintCoverage(surface, source, target, range)).toBe(false);
+  });
+
+  it('recognizes a clipped source aperture without treating unknown or partially visible geometry as empty', () => {
+    const { surface, source } = setup();
+    expect(sourceApertureOutsideSurface(surface, source)).toBe(false);
+    surface.getBoundingClientRect = () => rect(400, 400, 100, 100);
+    expect(sourceApertureOutsideSurface(surface, source)).toBe(true);
+    surface.getBoundingClientRect = () => rect(250, 250, 100, 100);
+    expect(sourceApertureOutsideSurface(surface, source)).toBe(false);
+    surface.getBoundingClientRect = () => rect(400, 400, 0, 0);
+    expect(sourceApertureOutsideSurface(surface, source)).toBe(false);
   });
 });

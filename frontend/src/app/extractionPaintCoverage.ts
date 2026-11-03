@@ -27,6 +27,12 @@ function paintable(cell: Element, surface: Element): boolean {
   return false;
 }
 
+export function sourceApertureOutsideSurface(surface: Element, source: Element): boolean {
+  const sourceAperture = aperture(source);
+  const clip = surface.getBoundingClientRect();
+  return !!sourceAperture && clip.width > 0 && clip.height > 0 && !intersection(sourceAperture, clip);
+}
+
 /** Conservative committed-cell coverage: missing source cells are unknown, never evidence of invisibility. */
 export function extractionPaintCoverage(surface: Element, source: Element, target: Element, range: CellRange): boolean {
   const sourceAperture = aperture(source), targetAperture = aperture(target);
