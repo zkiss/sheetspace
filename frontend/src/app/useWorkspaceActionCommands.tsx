@@ -39,7 +39,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
-  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onFailure?: () => void };
+  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onFailure?: (targetId?: string) => void };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
@@ -183,18 +183,18 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (!request) { release(); closePalette(); onFeedback('Select saved cells, rows, or columns first.'); return; }
       submission = commands.extractSelection(request);
     } catch {
-      release(); extraction.onFailure?.(); closePalette(); onFeedback('The extraction could not be started.'); return;
+      release(); extraction.onFailure?.(request?.targetSheetId); closePalette(); onFeedback('The extraction could not be started.'); return;
     }
     const message = extractionFeedback(submission.result);
-    if (message) { release(); extraction.onFailure?.(); closePalette(); onFeedback(message); return; }
+    if (message) { release(); extraction.onFailure?.(request.targetSheetId); closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       release();
       if (!mounted.current) return;
       const error = extractionFeedback(result);
-      if (error) { extraction.onFailure?.(); onFeedback(error); return; }
+      if (error) { extraction.onFailure?.(request.targetSheetId); onFeedback(error); return; }
       if (selectionRevision.current.revision === revision) { onCancelCut(); extraction.onSuccess(request); }
-    }, () => { release(); if (mounted.current) { extraction.onFailure?.(); onFeedback('The extraction could not be saved.'); } });
+    }, () => { release(); if (mounted.current) { extraction.onFailure?.(request.targetSheetId); onFeedback('The extraction could not be saved.'); } });
   }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {
     const operation = ++clipboardOperation.current;

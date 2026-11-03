@@ -48,4 +48,24 @@ describe('extraction handoff ownership', () => {
     expect(result.current.handoff).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('waits for first appearance but releases the snapshot if the target is removed before readiness', () => {
+    const { result, rerender } = renderHook(({ sheets }) => useExtractionHandoff(sheets), { initialProps: { sheets: ['source'] } });
+    act(() => result.current.begin(source, 'target'));
+    expect(result.current.handoff?.targetId).toBe('target');
+    rerender({ sheets: ids });
+    expect(result.current.handoff?.targetId).toBe('target');
+    rerender({ sheets: ['source'] });
+    expect(result.current.handoff).toBeNull();
+  });
+
+  it('does not let a stale failure cancel a newer handoff', () => {
+    const { result } = renderHook(() => useExtractionHandoff(ids));
+    act(() => result.current.begin(source, 'target'));
+    act(() => result.current.begin(source, 'next'));
+    act(() => result.current.cancel('target'));
+    expect(result.current.handoff?.targetId).toBe('next');
+    act(() => result.current.cancel('next'));
+    expect(result.current.handoff).toBeNull();
+  });
 });
