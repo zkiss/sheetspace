@@ -29,6 +29,33 @@ function harness(sample?: SheetPresentation, conceal = false, viewportScale = vi
 }
 
 describe('retained presentation', () => {
+  it('forces the extraction source into detail without starting target chrome and starts chrome only on readiness', () => {
+    const noop = vi.fn();
+    const content = (source: boolean, target: boolean, ready: boolean) => <SheetFrame
+      frame={frame} columnCount={2} rowCount={2} viewportScale={0.01} isActiveSheet isNavigationReveal={false}
+      extractionSource={source} extractionHandoff={target} extractionReady={ready} extractionWaitingZIndex={-1} presentation={{ sample: start, viewport }}
+      onOpenSheetMenu={noop} onResizeCancel={noop} onResizeMove={noop} onResizeStart={noop} onResizeStop={noop}
+      onSheetFrameDragCancel={noop} onSheetFrameDragMove={noop} onSheetFrameDragStart={noop} onSheetFrameDragStop={noop} onSheetFrameInteraction={noop} onSelectSheet={noop}>
+      {() => <span>cell content</span>}
+    </SheetFrame>;
+    const view = render(content(true, false, false));
+    const article = screen.getByTestId('sheet-frame');
+    expect(article).toHaveAttribute('data-rendering-mode', 'detailed');
+    expect(article).not.toHaveClass('sheet-frame-extraction-handoff');
+    expect(screen.getByTestId('sheet-frame-header')).toHaveStyle({ opacity: '1' });
+    view.rerender(content(false, true, false));
+    expect(article).toHaveClass('sheet-frame-extraction-handoff');
+    expect(article).not.toHaveClass('sheet-frame-extraction-ready');
+    expect(screen.getByTestId('sheet-frame-header').style.opacity).toBe('');
+    expect(article).toHaveStyle({ zIndex: '-1' });
+    expect(screen.getByText('cell content')).toBeVisible();
+    view.rerender(content(false, true, true));
+    expect(article).toHaveClass('sheet-frame-extraction-ready');
+    expect(screen.getByTestId('sheet-frame-header').style.opacity).toBe('');
+    expect(article).toHaveStyle({ zIndex: String(frame.zIndex) });
+    expect(screen.getByText('cell content')).toBeVisible();
+  });
+
   it('projects sampled surface geometry through the transformed plane and preserves the editor through the round trip', () => {
     const view = harness(start, true);
     const article = screen.getByTestId('sheet-frame');

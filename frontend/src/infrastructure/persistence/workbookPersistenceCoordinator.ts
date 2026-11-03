@@ -34,6 +34,10 @@ export class WorkbookPersistenceCoordinator {
     return this.revisions.get(sheetId);
   }
 
+  seedRevision(sheetId: SheetId, revision: number) {
+    if (!this.revisions.has(sheetId) && !this.missingSheetIds.has(sheetId)) this.revisions.set(sheetId, revision);
+  }
+
   recordRevision(sheetId: SheetId, revision: number) {
     const recorded = Math.max(this.revisions.get(sheetId) ?? revision, revision);
     this.revisions.set(sheetId, recorded);
@@ -49,6 +53,15 @@ export class WorkbookPersistenceCoordinator {
 
   isSheetMissing(sheetId: SheetId) {
     return this.missingSheetIds.has(sheetId);
+  }
+
+  recordSnapshot(revisions: readonly { sheetId: SheetId; revision: number }[], removed: readonly SheetId[]) {
+    removed.forEach((id) => { this.revisions.delete(id); this.missingSheetIds.add(id); });
+    revisions.forEach(({ sheetId, revision }) => {
+      this.missingSheetIds.delete(sheetId);
+      this.revisions.set(sheetId, revision);
+    });
+    return revisions;
   }
 
   subscribeToMissingSheets(listener: MissingSheetListener) {

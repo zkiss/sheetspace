@@ -36,6 +36,12 @@ export class WorkbookOutbox {
 
   snapshot(): OutboxSnapshot { return this.entries.map(cloneEntry); }
   hasModelTransition() { return this.entries.some((entry) => entry.intent.kind === 'model-lifecycle' && entry.status !== 'succeeded' && entry.status !== 'superseded'); }
+  hasPendingRecreation(sheetId: SheetId) {
+    return this.entries.some((entry) => entry.intent.kind === 'model-lifecycle'
+      && entry.status !== 'succeeded' && entry.status !== 'superseded'
+      && !entry.intent.before.manifest.sheetIds.includes(sheetId)
+      && entry.intent.after.manifest.sheetIds.includes(sheetId));
+  }
   hasFailedPrerequisiteForModelTransition() {
     return this.entries.some((entry) => entry.intent.kind !== 'model-lifecycle' && (entry.status === 'failed' || entry.status === 'blocked'));
   }
@@ -222,7 +228,7 @@ function coalesceKeyFor(intent: WorkbookPersistenceIntent): string | undefined {
   return undefined;
 }
 export function affectedSheets(intent: WorkbookPersistenceIntent): SheetId[] {
-  if (intent.kind === 'model-lifecycle') return [...intent.before.manifest.sheetIds];
+  if (intent.kind === 'model-lifecycle') return [...new Set([...intent.before.manifest.sheetIds, ...intent.after.manifest.sheetIds])];
   if (intent.kind === 'update-sheet-z-order') return [...new Set(intent.updates.map(({ sheetId }) => sheetId))];
   if (intent.kind === 'write-cells') return [...new Set(intent.writes.map(({ sheetId }) => sheetId))];
   return [intent.sheetId];

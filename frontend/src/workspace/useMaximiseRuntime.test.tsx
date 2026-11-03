@@ -9,6 +9,53 @@ const size = { width: 800, height: 600 };
 const displayed = { x: -40, y: 60, scale: 0.7 };
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it('settles an extraction-owned restore and does not cancel a later presentation', async () => {
+  let callback: FrameRequestCallback = () => {};
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callback = cb; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: () => displayed, commitFrozenViewport: vi.fn() };
+  const { result } = renderHook(() => useMaximiseRuntime(handoff, size, false, () => true));
+  act(() => result.current.enter('source', saved));
+  act(() => callback(performance.now() + 1000));
+  let lease!: ReturnType<typeof result.current.ownedCanvasRestore>;
+  act(() => { lease = result.current.ownedCanvasRestore(); });
+  expect(lease.owned()).toBe(true);
+  act(() => callback(performance.now() + 1000));
+  expect(await lease.completion).toBe('settled');
+  expect(handoff.commitFrozenViewport).toHaveBeenCalledWith(restoredViewport(saved, size));
+  act(() => result.current.enter('successor', saved));
+  act(() => lease.cancel());
+  expect(lease.owned()).toBe(false);
+  expect(result.current.currentState().sheetId).toBe('successor');
+});
+
+it('invalidates an extraction restore lease when a foreign zoom takes ownership', async () => {
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: () => displayed, commitFrozenViewport: vi.fn() };
+  const { result } = renderHook(() => useMaximiseRuntime(handoff, size, false, () => true));
+  act(() => result.current.enter('source', saved));
+  let lease!: ReturnType<typeof result.current.ownedCanvasRestore>;
+  act(() => { lease = result.current.ownedCanvasRestore(); result.current.zoom(1.2); });
+  expect(lease.owned()).toBe(false);
+  act(() => result.current.cancel());
+  expect(await lease.completion).toBe('cancelled');
+});
+
+it('invalidates an extraction lease if the workspace is resized during restore', async () => {
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const handoff = { freezeDisplayedViewport: () => displayed, commitFrozenViewport: vi.fn() };
+  const { result, rerender } = renderHook(({ dimensions }) => useMaximiseRuntime(handoff, dimensions, false, () => true), { initialProps: { dimensions: size } });
+  act(() => result.current.enter('source', saved));
+  let lease!: ReturnType<typeof result.current.ownedCanvasRestore>;
+  act(() => { lease = result.current.ownedCanvasRestore(); });
+  rerender({ dimensions: { width: 900, height: 700 } });
+  expect(lease.owned()).toBe(false);
+  act(() => result.current.cancel());
+  expect(await lease.completion).toBe('cancelled');
+});
+
 it('adopts without activating and rejects stale claims after a successor takes presentation ownership', () => {
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
   vi.stubGlobal('cancelAnimationFrame', vi.fn());

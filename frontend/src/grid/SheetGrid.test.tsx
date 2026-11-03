@@ -55,6 +55,26 @@ describe('savedAxisIndexAtOffset', () => {
 });
 
 describe('SheetGrid appearance rendering', () => {
+  it('blocks cell focus, activation and keyboard edits while interactions are disabled', () => {
+    const document = sheetDocument({ id: 'owned-grid', name: 'Owned grid' });
+    const sheet = tabularProjection(document);
+    const select = vi.fn(), clear = vi.fn(), startEditing = vi.fn();
+    const view = render(<div ref={createRef<HTMLDivElement>()}>
+      <SheetGrid activeCellKey={null} axisProjection={projectGridAxes(sheet, { columns: [], rows: [] })}
+        cellInteraction={{ clear, navigate: vi.fn(), select, startEditing }} editingCell={null}
+        editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+        formulaResults={{}} interactionsEnabled={false} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()}
+        navigationHighlightCellKey={null} presentation={document.presentation} scrollContainerRef={createRef<HTMLDivElement>()} sheet={sheet} />
+    </div>);
+    const cell = view.getByRole('cell', { name: 'Owned grid A1 empty cell' });
+    fireEvent.focus(cell);
+    fireEvent.click(cell);
+    fireEvent.keyDown(cell, { key: 'Delete' });
+    expect(select).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    expect(startEditing).not.toHaveBeenCalled();
+  });
+
   it('composes row, column, and cell appearance overrides without obscuring selection feedback after remount', () => {
     const document = sheetDocument({ id: 'appearance-grid', name: 'Appearance grid', rowCount: 2, columnCount: 2 });
     const [firstRow] = document.content.rows;

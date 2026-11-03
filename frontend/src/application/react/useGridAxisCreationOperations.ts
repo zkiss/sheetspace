@@ -65,6 +65,7 @@ class GridAxisCreationQueue {
     }
     if (changed) this.publish();
   }
+  admitRecreation(sheetId: string) { this.missingSheets.delete(sheetId); }
   executeAvailable(execute: (entry: AxisCreation) => Promise<void>) {
     const executions: Promise<void>[] = [];
     let entry = this.nextRunnable();
@@ -116,6 +117,7 @@ class GridAxisCreationQueue {
 export function useGridAxisCreationOperations({
   autosaveEnabled,
   beforeCreate,
+  hasPendingRecreation,
   currentWorkbook,
   persistenceCoordinator,
   reconcile,
@@ -124,6 +126,7 @@ export function useGridAxisCreationOperations({
 }: {
   autosaveEnabled: boolean;
   beforeCreate?: () => Promise<void> | undefined;
+  hasPendingRecreation?: (sheetId: string) => boolean;
   currentWorkbook: () => Workbook;
   persistenceCoordinator: WorkbookPersistenceCoordinator;
   reconcile: (entry: { kind: 'append-row'; sheetId: string; rowId: string } | { kind: 'append-column'; sheetId: string; columnId: string }) => void;
@@ -138,7 +141,7 @@ export function useGridAxisCreationOperations({
   reconcileRef.current = reconcile;
 
   for (const sheet of Object.values(currentWorkbook().documents)) {
-    persistenceCoordinator.recordRevision(sheet.id, sheet.revision);
+    persistenceCoordinator.seedRevision(sheet.id, sheet.revision);
   }
 
   useEffect(() => queue.subscribe(setSnapshot), [queue]);
@@ -194,10 +197,14 @@ export function useGridAxisCreationOperations({
 
   const append = useCallback((sheetId: string, axis: AxisKind) => {
     const sheet = findSheetById(currentWorkbook(), sheetId);
-    if (!autosaveEnabled || persistenceCoordinator.isSheetMissing(sheetId) || !sheet || sheet.modelId) return;
+    if (!autosaveEnabled || !sheet || sheet.modelId) return;
+    if (persistenceCoordinator.isSheetMissing(sheetId)) {
+      if (!hasPendingRecreation?.(sheetId)) return;
+    }
+    queue.admitRecreation(sheetId);
     queue.enqueue({ operationId: crypto.randomUUID(), sheetId, axis });
     pump();
-  }, [autosaveEnabled, currentWorkbook, persistenceCoordinator, pump, queue]);
+  }, [autosaveEnabled, currentWorkbook, hasPendingRecreation, persistenceCoordinator, pump, queue]);
 
   const creatingAxes: Record<string, CreatingGridAxes> = {};
   for (const entry of snapshot) {

@@ -17,14 +17,13 @@ internal fun reconcileModelLifecycle(
 ): WorkbookState {
     validate(before)
     validate(after)
-    requireLifecycle(before.manifest.sheetIds == after.manifest.sheetIds)
     if (sameWorkbookContent(current, after)) return current
     if (!sameWorkbookContent(current, before)) {
         throw WorkbookApplicationException(WorkbookApplicationError.MODEL_LIFECYCLE_CONFLICT)
     }
     return after.copy(
-        manifest = current.manifest,
-        documents = after.documents.mapValues { (id, sheet) -> sheet.copy(revision = current.documents.getValue(id).revision) },
+        manifest = after.manifest.copy(revision = current.manifest.revision + if (current.manifest.sheetIds == after.manifest.sheetIds) 0 else 1),
+        documents = after.documents.mapValues { (id, sheet) -> sheet.copy(revision = current.documents[id]?.revision ?: 0) },
     )
 }
 
@@ -54,6 +53,7 @@ internal fun <T> validateLifecycleWorkbook(workbook: WorkbookState, rules: Calcu
 
 private fun validateLifecycleStructure(workbook: WorkbookState) {
     requireLifecycle(workbook.manifest.version == WORKBOOK_SCHEMA_VERSION)
+    requireLifecycle(workbook.documents.all { (id, sheet) -> id == sheet.id })
     requireLifecycle(workbook.documents.values.map { it.name.trim() }.distinct().size == workbook.documents.size)
     workbook.dataModels.values.forEach { model -> requireLifecycle(isValidDataModel(model)) }
     workbook.documents.values.forEach { sheet ->

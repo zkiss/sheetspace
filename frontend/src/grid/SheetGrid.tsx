@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Grid owns its virtualizer, focus, and navigation-settlement lifecycle. */
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type RefObject, type SyntheticEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cellKey, parseA1Address, type CellAddress, type CellRange } from '@workbook/core/address';
 import { sheetBounds } from '@workbook/read/queries';
@@ -30,6 +30,7 @@ import { ModelEntryRow, type EntryCommands } from './ModelEntryRow';
 import type { DataModel } from '@workbook/core/model';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
 import { useGridHistoryRestore } from './useGridHistoryRestore';
+import { useOwnedScroll } from './useOwnedScroll';
 import { isNativeEditorTarget, logicalUnitsPerRenderedPixel } from './gridScrollInput';
 import { clipboardHtml, clipboardMarkerFromHtml } from './clipboardHtml';
 import '@grid/SheetGrid.css';
@@ -101,6 +102,7 @@ export function SheetGrid({
   onHistoryRevealConsumed,
   formulaResults,
   scrollContainerRef,
+  ownedScroll,
   selectionMode,
   selectionOwner,
   sheet,
@@ -180,6 +182,7 @@ export function SheetGrid({
   onHistoryRevealConsumed?: (sheetId: string, identity: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
+  ownedScroll?: { left: number; top: number };
   selectionMode?: CellSelectionMode;
   /** Controlled selection owner; omitted only by consumers without shared interaction state. */
   selectionOwner?: symbol | null;
@@ -213,6 +216,7 @@ export function SheetGrid({
   const columnItemKey = useCallback((index: number) => columnMetrics.itemKey(index) ?? index, [columnMetrics]);
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
+  useOwnedScroll(scrollContainerRef, ownedScroll);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
   const [navigationFocusIntent, setNavigationFocusIntent] = useState<NavigationFocusIntent | null>(null);
@@ -609,6 +613,12 @@ export function SheetGrid({
     event.preventDefault();
   }
 
+  const blockDisabledInteraction = (event: SyntheticEvent) => {
+    if (interactionsEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   return (
     <div
       aria-label={`${sheet.name} grid`}
@@ -617,6 +627,12 @@ export function SheetGrid({
       className="sheet-grid"
       data-testid="sheet-grid"
       data-workspace-navigation
+      onClickCapture={blockDisabledInteraction}
+      onDoubleClickCapture={blockDisabledInteraction}
+      onFocusCapture={blockDisabledInteraction}
+      onCopyCapture={blockDisabledInteraction}
+      onCutCapture={blockDisabledInteraction}
+      onPasteCapture={blockDisabledInteraction}
       onFocus={enterGrid}
       onBlur={(event) => {
         const next = event.relatedTarget as Node | null;
@@ -626,6 +642,7 @@ export function SheetGrid({
         if (next && !event.currentTarget.contains(next)) finishDrag();
       }}
       onKeyDownCapture={(event) => {
+        if (!interactionsEnabled) { blockDisabledInteraction(event); return; }
         if (!entryRow || event.key !== 'ArrowDown' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !(event.target instanceof HTMLElement)) return;
         const key = event.target.dataset.cellKey;
         const address = key && parseA1Address(key);

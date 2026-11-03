@@ -1,26 +1,36 @@
 import type { AffectedWorkbookEntities, CellPersistenceWrite } from './userActions';
+import type { Workbook } from '@workbook/core/model';
 
 export const CONTENT_HISTORY_MAX_ENTRIES = 100;
 export const CONTENT_HISTORY_MAX_BYTES = 64 * 1024;
+export const EXTRACTION_HISTORY_MAX_BYTES = 16 * 1024 * 1024;
 
 export type ContentTransaction = {
+  kind: 'cells' | 'extraction';
   writes: readonly CellPersistenceWrite[];
   affected: AffectedWorkbookEntities;
   bytes: number;
+  snapshots?: { before: Workbook; after: Workbook };
 };
+
+function extractionBytes(before: Workbook, after: Workbook) {
+  return new TextEncoder().encode(JSON.stringify({ before, after })).byteLength;
+}
 
 function cloneTransaction(transaction: ContentTransaction): ContentTransaction {
   return {
+    kind: transaction.kind,
     writes: transaction.writes.map((write) => ({ ...write })),
     affected: {
       sheetIds: [...transaction.affected.sheetIds],
       cells: transaction.affected.cells.map(({ sheetId, cell }) => ({ sheetId, cell: { ...cell } })),
     },
     bytes: transaction.bytes,
+    ...(transaction.snapshots && { snapshots: structuredClone(transaction.snapshots) }),
   };
 }
 
-/** Session-local, bounded history. Oversized transactions are applied but not retained. */
+/** Session-local, bounded history. Oversized cell transactions are not retained. */
 export class ContentHistory {
   private undoStack: ContentTransaction[] = [];
   private redoStack: ContentTransaction[] = [];
@@ -37,14 +47,30 @@ export class ContentHistory {
 
   record(writes: readonly CellPersistenceWrite[], affected: AffectedWorkbookEntities) {
     const transaction = cloneTransaction({
+      kind: 'cells',
       writes,
       affected,
       bytes: new TextEncoder().encode(JSON.stringify({ writes, affected })).byteLength,
     });
     this.clearRedo();
-    if (transaction.bytes > CONTENT_HISTORY_MAX_BYTES) return;
+    if (transaction.bytes > CONTENT_HISTORY_MAX_BYTES) { this.clear(); return; }
     this.undoStack.push(transaction); this.undoBytes += transaction.bytes;
     this.trimUndo();
+  }
+  /** Check before applying an extraction; serialize edits until it is recorded. */
+  canRecordExtraction(before: Workbook, after: Workbook) {
+    return extractionBytes(before, after) <= EXTRACTION_HISTORY_MAX_BYTES;
+  }
+  recordExtraction(before: Workbook, after: Workbook) {
+    const bytes = extractionBytes(before, after);
+    if (bytes > EXTRACTION_HISTORY_MAX_BYTES) return { ok: false, reason: 'extraction-history-too-large' } as const;
+    const transaction: ContentTransaction = {
+      kind: 'extraction', writes: [], affected: { sheetIds: [...new Set([...before.manifest.sheetIds, ...after.manifest.sheetIds])], cells: [] },
+      bytes, snapshots: structuredClone({ before, after }),
+    };
+    this.clearRedo();
+    this.pushUndo(transaction);
+    return { ok: true } as const;
   }
   commitUndo() { const transaction = this.undoStack.pop(); if (!transaction) return; this.undoBytes -= transaction.bytes; this.pushRedo(transaction); }
   commitRedo() { const transaction = this.redoStack.pop(); if (!transaction) return; this.redoBytes -= transaction.bytes; this.pushUndo(transaction); }
@@ -52,5 +78,10 @@ export class ContentHistory {
   private clearRedo() { this.redoStack = []; this.redoBytes = 0; }
   private pushUndo(transaction: ContentTransaction) { this.undoStack.push(transaction); this.undoBytes += transaction.bytes; this.trimUndo(); }
   private pushRedo(transaction: ContentTransaction) { this.redoStack.push(transaction); this.redoBytes += transaction.bytes; }
-  private trimUndo() { while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || this.undoBytes > CONTENT_HISTORY_MAX_BYTES) { const evicted = this.undoStack.shift()!; this.undoBytes -= evicted.bytes; } }
+  private trimUndo() {
+    const bytesFor = (kind: ContentTransaction['kind']) => this.undoStack.reduce((sum, entry) => sum + (entry.kind === kind ? entry.bytes : 0), 0);
+    while (this.undoStack.length > CONTENT_HISTORY_MAX_ENTRIES || bytesFor('cells') > CONTENT_HISTORY_MAX_BYTES || bytesFor('extraction') > EXTRACTION_HISTORY_MAX_BYTES) {
+      const evicted = this.undoStack.shift()!; this.undoBytes -= evicted.bytes;
+    }
+  }
 }

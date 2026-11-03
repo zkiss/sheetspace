@@ -16,6 +16,8 @@ import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 
 export type WorkbookCommands = {
+  currentWorkbook: () => Workbook;
+  extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest) => ExtractionSubmission;
   submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
   leaveEntryField: (sheetId: string, propertyId: string) => void;
@@ -49,6 +51,10 @@ export type WorkbookCommands = {
   writeCells: (writes: readonly { sheetId: string; rowId: string; columnId: string; raw: string }[]) => CellWriteResult; writeStoredCells: WorkbookCommands['writeCells'];
 };
 
+export type ExtractionCommandResult = import('@application/core/extractSelection').ExtractionResult | TransitionFailure | { ok: false; reason: 'extraction-history-too-large' };
+export type ExtractionSubmission = Readonly<{ result: ExtractionCommandResult; completion: Promise<ExtractionCommandResult> }>;
+export type ExtractionReplayFailure = Extract<import('@application/core/extractionHistory').ExtractionReplayResult, { ok: false }>['reason'] | TransitionFailure['reason'];
+
 export type ModelCommandResult = ModelMutationResult | { ok: false; reason: 'pending-axis-creation' | 'pending-sheet-creation' | 'pending-model-transition' | 'blocked-persistence-prerequisite' | 'persistence-failed' };
 export type DataModelCommandSubmission = Readonly<{ result: ModelCommandResult; completion: Promise<ModelCommandResult> }>;
 export type TransitionFailure = Exclude<ModelCommandResult, ModelMutationResult>;
@@ -76,6 +82,7 @@ export type WorkbookController = {
   canUndo: boolean;
   canRedo: boolean;
   contentHistoryFeedback: ContentHistoryFeedback | undefined;
+  extractionReplayFailure: ExtractionReplayFailure | undefined;
   mutationFailure: 'pending-model-transition' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;

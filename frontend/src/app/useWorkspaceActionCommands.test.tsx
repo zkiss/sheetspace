@@ -4,12 +4,16 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 import { NavigationPalette } from './NavigationPalette';
 import { useRef, useState } from 'react';
+import { useWorkbookController } from '@application/react/useWorkbookController';
+import { useExtractionHandoff } from './useExtractionHandoff';
+import { cellRawContent } from '@workbook/read/queries';
+import type { ExtractionRequest } from '@application/core/extractionPreparation';
 
 type Props = Parameters<typeof useWorkspaceActionCommands>[0];
 function setup(columnCount = 1) {
   const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount });
   const cell = { sheetId: sheet.id, cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! } };
-  const commands = { appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn(), deleteRow: vi.fn(), deleteColumn: vi.fn(), replaceModelDeclaration: vi.fn() };
+  const commands = { currentWorkbook: () => ({ documents: new Proxy({}, { get: () => sheet }) }), appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn(), deleteRow: vi.fn(), deleteColumn: vi.fn(), replaceModelDeclaration: vi.fn() };
   const controller = { createSheetAtViewportCenter: vi.fn(), zoomWorkspaceBy: vi.fn(), resetViewport: vi.fn() };
   const clipboard = { canWrite: () => true, canRead: () => true, write: vi.fn().mockResolvedValue(undefined), read: vi.fn() };
   const props = {
@@ -40,6 +44,159 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it('releases rendered ownership when an accepted extraction completion rejects', async () => {
+    const { props, sheet, cell, hook } = setup();
+    hook.unmount();
+    let reject!: (reason: Error) => void;
+    const completion = new Promise<never>((_resolve, fail) => { reject = fail; });
+    const request = { sourceSheetId: sheet.id, targetSheetId: 'target' } as ExtractionRequest;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true, workbook: { documents: { target: sheet } } }, completion });
+    const { result } = renderHook(() => {
+      const owner = useExtractionHandoff([sheet.id, 'target']);
+      const token = useRef(0);
+      const actions = useWorkspaceActionCommands({ ...props, selection: { mode: 'cells', anchor: cell, extent: cell },
+        extraction: {
+          request: () => { token.current = owner.begin(sheet, 'target'); return request; },
+          onAccepted: () => owner.accepted(token.current),
+          onFailure: () => owner.cancel(token.current),
+          onSuccess: vi.fn(),
+        } });
+      return { owner, actions };
+    });
+    act(() => result.current.actions.commands.find((item) => item.id === 'extract-selection')!.run());
+    expect(result.current.owner.handoff).toMatchObject({ accepted: true, ready: false });
+    await act(async () => reject(new Error('save failed')));
+    expect(result.current.owner.handoff).toBeNull();
+    expect(props.onFeedback).toHaveBeenCalledWith('The extraction could not be saved.');
+  });
+
+  it.each([false, true])('uses real controller publication receipt with same-batch undo %s', async (undo) => {
+    const { props, sheet, cell, hook } = setup();
+    hook.unmount();
+    const source = sheetDocument({ id: sheet.id, name: 'Sheet', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
+    const identity = { rowId: source.content.rows[0]!, columnId: source.content.columns[0]! };
+    const targetId = '00000000-0000-0000-0000-000000000001';
+    const selectAndFocus = vi.fn();
+    const request: ExtractionRequest = { sourceSheetId: source.id, selection: { kind: 'cells', start: identity, end: identity }, targetSheetId: targetId, targetName: 'Target', targetRows: ['00000000-0000-0000-0000-000000000002'], targetColumns: ['00000000-0000-0000-0000-000000000003'], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } };
+    const { result } = renderHook(() => {
+      const controller = useWorkbookController({ initialWorkbook: workbookWithSheets([source]) });
+      const owner = useExtractionHandoff(Object.keys(controller.workbook.documents));
+      const tokens = useRef(new WeakMap<object, number>());
+      const selected = { ...cell, cell: identity };
+      const actions = useWorkspaceActionCommands({ ...props, commands: controller.commands, workbook: controller.workbook, sheet: controller.workbook.documents[source.id], activeCell: selected, selection: { anchor: selected, extent: selected, mode: 'cells' }, extraction: {
+        request: () => { tokens.current.set(request, owner.begin(source, targetId)); return request; },
+        onAccepted: (value) => owner.accepted(tokens.current.get(value)!),
+        onFailure: (value) => { if (value) owner.cancel(tokens.current.get(value)!); },
+        onSuccess: selectAndFocus,
+      } });
+      return { controller, owner, actions };
+    });
+    await act(async () => {
+      result.current.actions.commands.find((item) => item.id === 'extract-selection')!.run();
+      if (undo) result.current.controller.commands.undo();
+    });
+    if (undo) {
+      expect(result.current.controller.workbook.documents[targetId]).toBeUndefined();
+      expect(cellRawContent(result.current.controller.workbook.documents[source.id]!, 'A1')).toBe('42');
+      expect(result.current.owner.handoff).toBeNull();
+      expect(selectAndFocus).not.toHaveBeenCalled();
+      expect(props.onCancelCut).not.toHaveBeenCalled();
+    } else {
+      expect(result.current.controller.workbook.documents[targetId]).toBeDefined();
+      expect(result.current.owner.handoff).toMatchObject({ accepted: true, ready: false });
+      expect(selectAndFocus).toHaveBeenCalledWith(request);
+    }
+  });
+  it('prevents duplicate extraction while saving and permits another after settlement', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    const submit = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.commands.extractSelection = submit;
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    const run = command('extract-selection').run;
+    act(() => { run(); run(); });
+    expect(submit).toHaveBeenCalledOnce();
+    expect(command('extract-selection').unavailable).toBe('Extraction is being saved');
+    await act(async () => finish({ ok: true }));
+    expect(command('extract-selection').unavailable).toBeUndefined();
+  });
+  it.each(['request', 'submission'] as const)('cleans up when extraction %s throws synchronously', (stage) => {
+    const { command, hook, props, cell } = setup();
+    const fail = vi.fn(() => { throw new Error('failed'); });
+    props.commands.extractSelection = stage === 'submission' ? fail : vi.fn();
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: stage === 'request' ? fail : vi.fn().mockReturnValue({}), onSuccess: vi.fn(), onFailure: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    expect(props.extraction.onFailure).toHaveBeenCalledOnce();
+    expect(props.onFeedback).toHaveBeenCalledWith('The extraction could not be started.');
+    expect(command('extract-selection').unavailable).toBeUndefined();
+  });
+  it.each(['cells', 'rows', 'columns'] as const)('submits %s extraction and transfers ownership only after settlement', async (mode) => {
+    const { command, hook, props, cell } = setup();
+    const request = { sourceSheetId: 'sheet' } as ReturnType<NonNullable<Props['extraction']>['request']>;
+    const onSuccess = vi.fn();
+    let finish!: (value: unknown) => void;
+    const submit = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.commands.extractSelection = submit;
+    props.selection = { mode, anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue(request), onSuccess };
+    hook.rerender();
+    expect(command('extract-selection').unavailable).toBeUndefined();
+    act(() => command('extract-selection').run());
+    expect(submit).toHaveBeenCalledWith(request);
+    expect(onSuccess).not.toHaveBeenCalled();
+    await act(async () => finish({ ok: true }));
+    expect(onSuccess).toHaveBeenCalledWith(request);
+    expect(props.onCancelCut).toHaveBeenCalledOnce();
+  });
+  it('keeps newer selection ownership and reports failed extraction', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    props.selection = null;
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
+    expect(props.onCancelCut).not.toHaveBeenCalled();
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: false, reason: 'protected-source' } });
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('bound to a data model'));
+  });
+  it('explains asynchronous range rejection without transferring ownership', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    await act(async () => finish({ ok: false, reason: 'unrepresentable-range' }));
+    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('entire referenced range'));
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
+    expect(props.onCancelCut).not.toHaveBeenCalled();
+  });
+  it('suppresses extraction callbacks after unmount', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    hook.unmount();
+    await act(async () => finish({ ok: false, reason: 'unrepresentable-range' }));
+    expect(props.onFeedback).not.toHaveBeenCalled();
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
+  });
   it.each(['row', 'column'] as const)('selects an adjacent cell only after %s deletion succeeds', async (axis) => {
     const { command, commands, props, sheet, cell } = setup();
     const mutation = axis === 'row' ? commands.deleteRow : commands.deleteColumn;

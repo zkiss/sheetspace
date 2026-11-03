@@ -7,7 +7,6 @@ import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/workbookPersistenceCoordinator';
 import type { WorkbookOperationId, WorkbookPersistenceIntent } from '@application/core/userActions';
 import {
-  affectedSheets,
   WorkbookOutbox,
   type OutboxSnapshot,
   type PersistenceTransport,
@@ -59,7 +58,7 @@ export function useSavedSheetAutosave({
   ), [coordinator, resolvedApiClient]);
 
   for (const sheet of Object.values(workbook.documents)) {
-    transport.recordRevision(sheet.id, sheet.revision);
+    coordinator.seedRevision(sheet.id, sheet.revision);
   }
 
   useEffect(() => outbox.subscribe(setSnapshot), [outbox]);
@@ -79,7 +78,7 @@ export function useSavedSheetAutosave({
           let next = current;
           for (const { sheetId, revision } of result.revisions) {
             const sheet = findSheetById(next, sheetId);
-            if (!sheet || sheet.revision >= revision) continue;
+            if (!sheet || (intent.kind === 'model-lifecycle' ? sheet.revision === revision : sheet.revision >= revision)) continue;
             next = {
               ...next,
               documents: { ...next.documents, [sheetId]: { ...sheet, revision } },
@@ -118,11 +117,9 @@ export function useSavedSheetAutosave({
 
   const enqueue = useCallback((operationId: WorkbookOperationId, intent: WorkbookPersistenceIntent | undefined) => {
     if (!autosaveEnabled || !intent) return;
-    const sheetIds = affectedSheets(intent);
-    if (sheetIds.some((sheetId) => coordinator.isSheetMissing(sheetId))) return;
     outbox.enqueue(operationId, intent);
     pump();
-  }, [autosaveEnabled, coordinator, outbox, pump]);
+  }, [autosaveEnabled, outbox, pump]);
 
   const retryFailedSaves = useCallback(() => {
     for (const entry of outbox.snapshot()) {
@@ -135,6 +132,9 @@ export function useSavedSheetAutosave({
     outbox.supersedeSheetOperations(sheetId);
   }, [outbox]);
 
+  const subscribeOutbox = useCallback((listener: (snapshot: OutboxSnapshot) => void) => outbox.subscribe(listener), [outbox]);
+  const revision = useCallback((sheetId: SheetId) => coordinator.revision(sheetId), [coordinator]);
+
   const hasRetryableFailures = snapshot.some((entry) => entry.status === 'failed' || entry.status === 'blocked');
   const hasPendingSaves = snapshot.some((entry) => entry.status === 'queued' || entry.status === 'running');
   const saveStatus: SaveStatus = hasRetryableFailures ? 'failed' : hasPendingSaves ? 'saving' : 'saved';
@@ -146,13 +146,16 @@ export function useSavedSheetAutosave({
     outboxSnapshot: snapshot,
     currentOutboxSnapshot: () => outbox.snapshot(),
     hasModelTransition: () => outbox.hasModelTransition(),
+    hasPendingRecreation: (sheetId: SheetId) => outbox.hasPendingRecreation(sheetId),
     hasFailedPrerequisiteForModelTransition: () => outbox.hasFailedPrerequisiteForModelTransition(),
     modelTransitionIsBlockedByFailedPrerequisite: (operationId: string) => outbox.modelTransitionIsBlockedByFailedPrerequisite(operationId),
-    discard: (operationId: string) => outbox.remove(operationId),
+    discard: (operationId: string) => { outbox.remove(operationId); pump(); },
     waitFor: (operationId: string) => outbox.waitFor(operationId),
     waitForModelTransitions: () => outbox.waitForModelTransitions(),
     retryFailedSaves,
     saveStatus,
     supersedeSheetOperations,
+    subscribeOutbox,
+    revision,
   };
 }

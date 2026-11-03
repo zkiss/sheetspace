@@ -1,5 +1,7 @@
 package com.sheetspace
 
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
@@ -8,6 +10,14 @@ internal const val TEST_SHEET_2 = "00000000-0000-0000-0000-000000000002"
 
 internal fun withSqliteStore(block: (SqliteWorkbookStore) -> Unit) {
     SqliteWorkbookStore.inMemory().use(block)
+}
+
+internal fun tempSqlitePath(): Path = Files.createTempFile("sheetspace-snapshot-", ".sqlite")
+
+internal fun deleteSqliteArtifacts(path: Path) {
+    Files.deleteIfExists(path)
+    Files.deleteIfExists(path.resolveSibling("${path.fileName}-wal"))
+    Files.deleteIfExists(path.resolveSibling("${path.fileName}-shm"))
 }
 
 internal fun testDocument(

@@ -4,6 +4,20 @@ import { sheetDocument } from '@test-support/workbookFactories';
 import { SheetContextMenu } from './SheetContextMenu';
 
 describe('context-menu percentage scaling', () => {
+  it('displays extraction availability and invokes the shared action only when enabled', () => {
+    const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
+    const run = vi.fn();
+    const props = { menu: { sheetId: sheet.id, x: 0, y: 0 }, sheet, onSetScale: vi.fn(), onAppendColumn: vi.fn(), onAppendRow: vi.fn(), onChangeZOrder: vi.fn(), onDelete: vi.fn(), onRename: vi.fn() };
+    const { rerender } = render(<SheetContextMenu {...props} extraction={{ run, unavailable: 'Select cells on this sheet first' }} />);
+    const item = screen.getByRole('menuitem', { name: 'Extract to new sheet' });
+    expect(item).toBeDisabled();
+    expect(item).toHaveAttribute('title', 'Select cells on this sheet first');
+    fireEvent.click(item);
+    expect(run).not.toHaveBeenCalled();
+    rerender(<SheetContextMenu {...props} extraction={{ run }} />);
+    fireEvent.click(item);
+    expect(run).toHaveBeenCalledOnce();
+  });
   it('offers structural actions only for unbound sheets', () => {
     const sheet = sheetDocument({ id: 'inputs', name: 'Inputs' });
     const props = { menu: { sheetId: sheet.id, x: 0, y: 0 }, sheet, onSetScale: vi.fn(),

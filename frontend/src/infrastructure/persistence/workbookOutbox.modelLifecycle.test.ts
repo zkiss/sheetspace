@@ -12,6 +12,33 @@ function boundary(outbox: WorkbookOutbox) {
 }
 
 describe('structural persistence barriers', () => {
+  it('reserves the union of created and removed sheet identities', () => {
+    const outbox = new WorkbookOutbox();
+    const before = workbookWithSheets([sheetDocument({ id: 'old', name: 'Old' })]);
+    const after = workbookWithSheets([sheetDocument({ id: 'new', name: 'New' })]);
+    const entry = outbox.enqueue('transition', { kind: 'model-lifecycle', before, after });
+    expect(entry.affectedSheetIds).toEqual(['old', 'new']);
+  });
+
+  it('allows recreation after a snapshot removal and replaces the prior revision', async () => {
+    const coordinator = new WorkbookPersistenceCoordinator();
+    const original = workbookWithSheets([sheetDocument({ id: 'one', name: 'One', revision: 9 })]);
+    const empty = workbookWithSheets([]);
+    const recreated = workbookWithSheets([sheetDocument({ id: 'one', name: 'One', revision: 0 })]);
+    const saveModelLifecycle = vi.fn().mockResolvedValueOnce(empty).mockResolvedValueOnce(recreated);
+    const transport = new WorkbookPersistenceTransport({ saveModelLifecycle }, coordinator);
+    coordinator.recordRevision('one', 9);
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('undo', { kind: 'model-lifecycle', before: original, after: empty });
+    await outbox.executeNext(transport);
+    expect(coordinator.isSheetMissing('one')).toBe(true);
+    outbox.enqueue('redo', { kind: 'model-lifecycle', before: empty, after: recreated });
+    await outbox.executeNext(transport);
+    expect(outbox.inspect('redo')!.status).toBe('succeeded');
+    expect(coordinator.isSheetMissing('one')).toBe(false);
+    expect(coordinator.revision('one')).toBe(0);
+  });
+
   it('preserves pre-boundary writes and frame coalescing when a later deletion supersedes newer work', () => {
     const outbox = new WorkbookOutbox();
     outbox.enqueue('old-frame', { kind: 'update-sheet-position', sheetId: 'one', position: { x: 1, y: 2 } });
@@ -71,5 +98,35 @@ describe('structural persistence barriers', () => {
 
     expect(result!.status).toBe('blocked');
     expect(saveModelLifecycle).not.toHaveBeenCalled();
+  });
+
+  it('retries an ambiguous lifecycle response with the exact original compare-and-swap', async () => {
+    const before = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
+    const after = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' }), sheetDocument({ id: 'new', name: 'New' })]);
+    const saveModelLifecycle = vi.fn().mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce(after);
+    const outbox = new WorkbookOutbox();
+    const transport = new WorkbookPersistenceTransport({ saveModelLifecycle });
+    outbox.enqueue('extract', { kind: 'model-lifecycle', before, after });
+
+    expect((await outbox.executeNext(transport))!.status).toBe('failed');
+    outbox.retry('extract');
+    expect((await outbox.executeNext(transport))!.status).toBe('succeeded');
+    expect(saveModelLifecycle.mock.calls).toEqual([[before, after], [before, after]]);
+  });
+
+  it('blocks a lifecycle transition behind a failed ordinary prerequisite until explicitly retried', async () => {
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('write', { kind: 'rename-sheet', sheetId: 'one', name: 'Changed' });
+    boundary(outbox);
+    const execute = vi.fn().mockRejectedValueOnce(new Error('write failed')).mockResolvedValue({ kind: 'saved', revisions: [] });
+
+    await outbox.executeNext({ execute });
+    expect(outbox.inspect('boundary')!.status).toBe('blocked');
+    expect(outbox.modelTransitionIsBlockedByFailedPrerequisite('boundary')).toBe(true);
+    outbox.retry('write');
+    await outbox.executeNext({ execute });
+    expect(await outbox.executeNext({ execute })).toBeUndefined();
+    outbox.retry('boundary');
+    expect((await outbox.executeNext({ execute }))!.status).toBe('succeeded');
   });
 });

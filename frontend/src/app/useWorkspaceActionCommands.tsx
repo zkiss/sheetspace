@@ -23,6 +23,9 @@ import { DeletePropertyForm } from './DeletePropertyForm';
 import { columnRenameTarget, type RenameColumnTarget } from '@application/core/renameColumn';
 import type { NavigationCommand } from './NavigationPalette';
 import { selectionAddressRange } from './workspaceSelection';
+import { extractionSelection } from './extractionSelection';
+import type { ExtractionRequest } from '@application/core/extractionPreparation';
+import { extractionFeedback } from './extractionFeedback';
 
 type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; initialAction?: 'unbind' }
   | { kind: 'rename-column'; title: string; target: RenameColumnTarget; initialName: string }
@@ -30,12 +33,13 @@ type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string
   | { kind: 'numbers'; title: string; fields: readonly CommandNumberField[]; apply: (values: number[]) => unknown };
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
-  maximise,
+  maximise, extraction,
   canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onCreateSheet, onOpenDataModels, onRename, onDelete, onEdit, onClear,
   onSelectAxis, onSelectAll, onRowDeleted, onColumnDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
+  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void; managesOwnership?: boolean };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
@@ -55,13 +59,17 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const [panel, setPanel] = useState<Panel | null>(null);
   const [clipboardBusy, setClipboardBusy] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
+  const [extractionBusy, setExtractionBusy] = useState(false);
+  const extractionPending = useRef(false);
   const clipboardOperation = useRef(0);
+  const mounted = useRef(true);
   const selectionContext = JSON.stringify([sheet?.id, activeCell, selection]);
   const selectionRevision = useRef({ context: selectionContext, revision: 0 });
   if (selectionRevision.current.context !== selectionContext) {
     selectionRevision.current = { context: selectionContext, revision: selectionRevision.current.revision + 1 };
   }
   useEffect(() => () => { clipboardOperation.current += 1; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   function show(next: Panel) { setPanel(next); openPanel(); }
   function failure(result: unknown) {
     return result && typeof result === 'object' && 'ok' in result && !result.ok
@@ -158,6 +166,40 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
 
   add('edit-cell', 'Edit or inspect cell formula', 'Selection', run(() => activeCell && onEdit(activeCell), false), noCell, 'F2');
   add('clear-cells', 'Clear cell contents', 'Selection', run(() => activeCell && onClear(activeCell)), noCell, 'Delete');
+  const selectedExtraction = sheet && extractionSelection(sheet, selection);
+  const extractionUnavailable = !selectedExtraction ? 'Select saved cells, rows, or columns first'
+    : sheet?.modelId || sheet?.modelColumnBindings || sheet?.modelFormulaBindings ? 'Extract from an unbound sheet instead'
+      : !extraction ? 'Extraction is not available in this view' : extractionBusy ? 'Extraction is being saved' : undefined;
+  add('extract-selection', 'Extract to new sheet', 'Selection', () => {
+    if (extractionUnavailable || extractionPending.current || !sheet || !selection || !extraction) return;
+    extractionPending.current = true;
+    setExtractionBusy(true);
+    const release = () => { extractionPending.current = false; if (mounted.current) setExtractionBusy(false); };
+    const revision = selectionRevision.current.revision;
+    let request: ExtractionRequest | undefined;
+    let submission: ReturnType<typeof commands.extractSelection>;
+    try {
+      request = extraction.request(sheet, selection);
+      if (!request) { release(); closePalette(); onFeedback('Select saved cells, rows, or columns first.'); return; }
+      submission = commands.extractSelection(request);
+    } catch {
+      release(); extraction.onFailure?.(request); closePalette(); onFeedback('The extraction could not be started.'); return;
+    }
+    const message = extractionFeedback(submission.result);
+    if (message) { release(); extraction.onFailure?.(request); closePalette(); onFeedback(message); return; }
+    if (submission.result.ok) extraction.onAccepted?.(request, submission.result.workbook.documents[request.targetSheetId]!);
+    closePalette(false);
+    void submission.completion.then((result) => {
+      release();
+      if (!mounted.current) return;
+      const error = extractionFeedback(result);
+      if (error) { extraction.onFailure?.(request); onFeedback(error); return; }
+      if ((extraction.managesOwnership || selectionRevision.current.revision === revision) && commands.currentWorkbook().documents[request.targetSheetId]) {
+        if (!extraction.managesOwnership) onCancelCut();
+        extraction.onSuccess(request);
+      }
+    }, () => { release(); if (mounted.current) { extraction.onFailure?.(request); onFeedback('The extraction could not be saved.'); } });
+  }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {
     const operation = ++clipboardOperation.current;
     setClipboardBusy(true);
