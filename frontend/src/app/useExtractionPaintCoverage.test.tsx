@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
 import { useExtractionPaintCoverage } from './useExtractionPaintCoverage';
+import { EXTRACTION_HANDOFF_DURATION, useExtractionHandoff } from './useExtractionHandoff';
 
 function bounds(left: number, top: number, width: number, height: number): DOMRect {
   return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) };
@@ -22,6 +23,46 @@ function frame(root: HTMLElement, id: string) {
 }
 
 describe('extraction paint observation', () => {
+  it.each([
+    ['pending', 'workspace'], ['fading', 'workspace'],
+    ['pending', 'body'], ['fading', 'body'],
+  ] as const)('ends a %s handoff when the %s is hidden without reviving it', (phase, hidden) => {
+    vi.useFakeTimers();
+    const root = document.createElement('div');
+    document.body.append(root);
+    let clip = bounds(0, 0, 300, 300);
+    root.getBoundingClientRect = () => clip;
+    const sourceFrame = frame(root, 'source');
+    let bodyBounds = bounds(0, 0, 300, 300);
+    sourceFrame.querySelector('.sheet-frame-body')!.getBoundingClientRect = () => bodyBounds;
+    const target = frame(root, 'target');
+    if (phase === 'pending') target.querySelector('[data-cell-key]')!.textContent = 'wrong';
+    const source = sheetDocument({ id: 'source', name: 'Source' });
+    const range = { start: { rowIndex: 0, columnIndex: 0 }, end: { rowIndex: 0, columnIndex: 0 } };
+    const ref = { current: root };
+    const { result, rerender, unmount } = renderHook(({ revision }) => {
+      const owner = useExtractionHandoff(['source', 'target']);
+      const operation = owner.handoff && { ...owner.handoff, range };
+      useExtractionPaintCoverage(ref, operation, owner.targetReady, owner.targetNotReady, owner.cancel, revision);
+      return owner;
+    }, { initialProps: { revision: 0 } });
+    act(() => { const token = result.current.begin(source, 'target'); result.current.accepted(token); });
+    expect(result.current.handoff?.ready).toBe(phase === 'fading');
+    if (hidden === 'workspace') clip = bounds(0, 0, 0, 0);
+    else bodyBounds = bounds(0, 0, 0, 0);
+    rerender({ revision: 1 });
+    expect(result.current.handoff).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    clip = bounds(0, 0, 300, 300);
+    bodyBounds = bounds(0, 0, 300, 300);
+    rerender({ revision: 2 });
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
+    expect(result.current.handoff).toBeNull();
+    unmount();
+    root.remove();
+    vi.useRealTimers();
+  });
+
   it('rechecks coverage after geometry revisions, mutations and scrolling, then disposes listeners', async () => {
     const root = document.createElement('div');
     document.body.append(root);
