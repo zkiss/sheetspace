@@ -205,7 +205,7 @@ function ExtractionComposition({
         range: capturedRangeRef.current.range, ready: paintOwner.ready,
       }
     : null;
-  useExtractionPaintCoverage(surfaceRef, operation, owner.targetReady, owner.targetNotReady, owner.cancel, geometryRevision);
+  useExtractionPaintCoverage(surfaceRef, operation, owner.targetReady, owner.targetNotReady, owner.cancel, geometryRevision, owner.registerCoverage);
 
   const publish = (mode: CellSelection['mode'], fromKey: string, toKey: string) => {
     const current = controller.workbook.documents[sourceId]!;
@@ -285,7 +285,7 @@ function ExtractionComposition({
             extractionSource={isSnapshotSource}
             extractionWaitingZIndex={extractionSlots?.waiting}
             frame={frame}
-            isActiveSheet={false}
+            isActiveSheet={sheet.id === TARGET_ID}
             isNavigationReveal={false}
             key={sheet.id}
             overview={<SheetOverview isActive={false} onSelect={noop} sheet={tabular} />}

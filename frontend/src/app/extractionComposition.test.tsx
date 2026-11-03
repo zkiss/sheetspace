@@ -29,6 +29,7 @@ describe('live SheetFrame/SheetGrid extraction composition — publication and r
     // The waiting target is mounted but cannot mask the snapshot.
     const target = frameElement(surface, TARGET_ID);
     expect(target).toHaveClass('sheet-frame-extraction-handoff');
+    expect(target).toHaveClass('sheet-frame-active');
     expect(target).not.toHaveClass('sheet-frame-extraction-ready');
     const waitingZIndex = Number(target.style.zIndex);
     expect(Number.isInteger(waitingZIndex)).toBe(true);
@@ -168,6 +169,35 @@ describe('live SheetFrame/SheetGrid extraction composition — publication and r
 });
 
 describe('live SheetFrame/SheetGrid extraction composition — retirement and nonvisual exits', () => {
+  it('validates current geometry at the deadline without an observer notification', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const result = mountAndMeasure(renderComposition());
+    const { surface, api } = result;
+    act(() => api().publish('rows', 'A2', 'A3'));
+    act(() => { result.remock(); });
+    act(() => api().bumpGeometryRevision());
+    const target = frameElement(surface, TARGET_ID);
+    const cell = cellElement(surface, TARGET_ID, 'A1');
+    const aligned = cell.getBoundingClientRect.bind(cell);
+    let displaced = false;
+    cell.getBoundingClientRect = () => {
+      const rect = aligned();
+      return testRect({ left: rect.left + (displaced ? 8 : 0), top: rect.top, width: rect.width, height: rect.height });
+    };
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION - 1));
+    displaced = true;
+    act(() => vi.advanceTimersByTime(1));
+    expect(target).not.toHaveClass('sheet-frame-extraction-ready');
+    expect(cellText(surface, SOURCE_ID, 'A4')).toBe('42');
+    expect(surface.querySelectorAll(`[data-sheet-id="${SOURCE_ID}"] [role="rowheader"]`)).toHaveLength(6);
+    displaced = false;
+    act(() => fireEvent.scroll(surface));
+    expect(target).toHaveClass('sheet-frame-extraction-ready');
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION - 1));
+    expect(target).toHaveClass('sheet-frame-extraction-ready');
+    act(() => vi.advanceTimersByTime(1));
+    expect(surface.querySelector('.sheet-frame-extraction-handoff')).toBeNull();
+  });
   it.each(['rows', 'columns'] as const)('hands the %s extraction to the live compacted source after retirement', (mode) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const selection: [string, string] = mode === 'rows' ? ['A2', 'A3'] : ['A1', 'B1'];

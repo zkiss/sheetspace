@@ -1,4 +1,6 @@
 .sheet-frame {
+  --frame-border: #bac7ce;
+  --frame-shadow: 0 8px 24px rgb(23 32 42 / 12%);
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -14,7 +16,7 @@
   cursor: default;
 }
 
-.sheet-frame-extraction-handoff {
+.sheet-frame.sheet-frame-extraction-handoff {
   border-color: transparent;
   box-shadow: none;
   background: transparent;
@@ -49,7 +51,8 @@
 }
 
 @keyframes extraction-frame-chrome {
-  to { border-color: #bac7ce; box-shadow: 0 8px 24px rgb(23 32 42 / 12%); background: #ffffff; }
+  from { border-color: transparent; box-shadow: none; background: transparent; }
+  to { border-color: var(--frame-border); box-shadow: var(--frame-shadow); background: #ffffff; }
 }
 
 @keyframes extraction-header-chrome {
@@ -134,10 +137,12 @@
 }
 
 .sheet-frame-active {
-  border-color: var(--accent);
-  box-shadow:
+  --frame-border: var(--accent);
+  --frame-shadow:
     0 0 0 2px var(--accent-ring),
     0 8px 24px rgb(23 32 42 / 12%);
+  border-color: var(--frame-border);
+  box-shadow: var(--frame-shadow);
 }
 
 .sheet-frame-presented {
