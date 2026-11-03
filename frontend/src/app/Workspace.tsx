@@ -1006,6 +1006,7 @@ export function Workspace({
           case 'grid-cells': return !!target?.closest('[data-cell-key][data-active-cell="true"]');
           case 'native-clipboard': return false;
           case 'formatting': return true;
+          case 'grid-focus': return true;
         }
       }));
       const dispatched = eligible.find((command) => !command.unavailable && matchesShortcut(event, command.id));
@@ -1013,9 +1014,10 @@ export function Workspace({
         paletteInvoker.current = target;
         propertyDefinitionInvoker.current = target;
       }
-      if (dispatchShortcut(event, eligible, undefined)) {
+      const restoreGridFocus = dispatched?.keyboardContext?.includes('grid-focus') ?? false;
+      if (dispatchShortcut(event, eligible, restoreGridFocus ? { restoreFocus: false } : undefined)) {
         event.preventDefault();
-        if (dispatched?.keyboardContext?.includes('formatting')) onRestoreGridFocus();
+        if (restoreGridFocus) onRestoreGridFocus();
         return;
       }
       if (eligible.some((command) => command.keyboardContext?.includes('formatting') && matchesShortcut(event, command.id))) event.preventDefault();

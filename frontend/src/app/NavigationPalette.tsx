@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './NavigationPalette.css';
 
 /** Ownership contexts the keyboard dispatcher must satisfy before it may run the command. */
-export type KeyboardContext = 'navigation' | 'no-editing' | 'grid-cells' | 'native-clipboard' | 'formatting';
+export type KeyboardContext = 'navigation' | 'no-editing' | 'grid-cells' | 'native-clipboard' | 'formatting' | 'grid-focus';
 
 export type NavigationCommand = {
   id: string;
@@ -13,7 +13,7 @@ export type NavigationCommand = {
   unavailable?: string;
   /** Absent means the common workspace guards are the only keyboard requirement. */
   keyboardContext?: readonly KeyboardContext[];
-  run: () => void;
+  run: (context?: { restoreFocus?: boolean }) => void;
 };
 
 /** A small, keyboard-owned command surface. Command resolution remains in Workspace. */
@@ -101,7 +101,7 @@ export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
       </div> : <ul aria-label="Command results" className="navigation-palette-results" id="navigation-command-results" ref={list} role="listbox">
         {matches.map((command, commandIndex) => <li aria-selected={commandIndex === index && !command.unavailable} className="navigation-palette-item" id={`navigation-command-${command.id}`} key={command.id} role="option">
           {command.group && (commandIndex === 0 || matches[commandIndex - 1]?.group !== command.group) ? <strong className="navigation-command-group">{command.group}</strong> : null}
-          <button className="navigation-command" disabled={Boolean(command.unavailable)} onClick={command.run} onMouseEnter={() => { if (!command.unavailable) setIndex(commandIndex); }} type="button">
+          <button className="navigation-command" disabled={Boolean(command.unavailable)} onClick={() => command.run()} onMouseEnter={() => { if (!command.unavailable) setIndex(commandIndex); }} type="button">
             <span className="navigation-command-text"><span className="navigation-command-label">{command.label}</span>
               {command.unavailable ? <small className="navigation-command-reason">{command.unavailable}</small> : null}</span>
             {command.shortcut ? <kbd className="navigation-command-shortcut">{command.shortcut}</kbd> : null}

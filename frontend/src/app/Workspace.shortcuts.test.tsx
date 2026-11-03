@@ -8,7 +8,7 @@ import { formattingWorkspaceProps } from '@test-support/formattingWorkspace';
 
 vi.mock('@shared/keyboard/keymap', async (importOriginal) => {
   const original = await importOriginal<typeof import('@shared/keyboard/keymap')>();
-  const keymap = { ...original.keymap, 'data-models': [{ key: 'm', mod: true, shift: true }] };
+  const keymap = { ...original.keymap, 'data-models': [{ key: 'm', mod: true, shift: true }], 'text-colour': [{ key: 'k', mod: true, shift: true }] };
   return {
     ...original,
     keymap,
@@ -35,6 +35,19 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof Workspace>> = 
 }
 
 describe('registered-command keyboard dispatch', () => {
+  it('opens a newly bound formatting panel without stealing its focus for the grid', async () => {
+    const sheet = smallSheetDocument({ id: 'panel', name: 'Panel', rowCount: 4, columnCount: 4 });
+    const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells'));
+    render(<Workspace {...props} />);
+    const toolbar = screen.getByRole('button', { name: 'Command palette' });
+    toolbar.focus();
+    fireEvent.keyDown(toolbar, { key: 'k', ctrlKey: true, shiftKey: true });
+    await Promise.resolve();
+    const dialog = screen.getByRole('dialog', { name: 'Command palette' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(props.onRestoreGridFocus).not.toHaveBeenCalled();
+  });
+
   it('executes a registered action bound only in the keymap, without any listener for that action', () => {
     const onOpenDataModels = vi.fn();
     renderWorkspace({ onOpenDataModels });

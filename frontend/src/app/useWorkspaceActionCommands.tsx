@@ -77,7 +77,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       ? `The command was not applied${'reason' in result ? `: ${String(result.reason)}` : ''}.` : undefined;
   }
   function run(action: () => unknown, restoreFocus = true) {
-    return () => { setPanel(null); closePalette(restoreFocus); const message = failure(action()); if (message) onFeedback(message); };
+    return (context?: { restoreFocus?: boolean }) => { setPanel(null); closePalette(context?.restoreFocus ?? restoreFocus); const message = failure(action()); if (message) onFeedback(message); };
   }
   function numbers(title: string, fields: readonly CommandNumberField[], apply: (values: number[]) => unknown) {
     return () => show({ kind: 'numbers', title, fields, apply });
@@ -86,7 +86,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const noCell = activeCell ? undefined : 'Select a cell first';
   const noFormat = formatting.descriptor.valid ? undefined : 'Select cells, rows, or columns first';
   const actions: NavigationCommand[] = [];
-  const add = (id: string, label: string, group: string, action: () => void, unavailable?: string, keyboardContext?: readonly KeyboardContext[]) => {
+  const add = (id: string, label: string, group: string, action: NavigationCommand['run'], unavailable?: string, keyboardContext?: readonly KeyboardContext[]) => {
     actions.push({ id, label, group, run: action, unavailable, shortcut: shortcutLabel(id), keyboardContext });
   };
 
@@ -236,15 +236,15 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const format = (action: FormattingAction) => run(() => formatting.descriptor.valid
     && commands.writeNumberFormats(formatting.descriptor.sheetId, formattingActionWrites(formatting, action)));
   for (const [kind, label] of [['general', 'General number format'], ['number', 'Number format'], ['percent', 'Percent format']] as const) {
-    add(`format-${kind}`, label, 'Formatting', format({ type: 'numberFormat', kind }), noFormat, ['no-editing', 'formatting']);
+    add(`format-${kind}`, label, 'Formatting', format({ type: 'numberFormat', kind }), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   }
-  add('bold', 'Toggle bold', 'Formatting', format({ type: 'bold' }), noFormat, ['no-editing', 'formatting']);
+  add('bold', 'Toggle bold', 'Formatting', format({ type: 'bold' }), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   for (const [value, label] of [['left', 'Align left'], ['center', 'Align center'], ['right', 'Align right'], ['general', 'Automatic alignment']] as const) {
-    add(`align-${value}`, label, 'Formatting', format({ type: 'alignment', value }), noFormat, ['no-editing', 'formatting']);
+    add(`align-${value}`, label, 'Formatting', format({ type: 'alignment', value }), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   }
   for (const [property, label] of [['numberFormat', 'Inherit number format'], ['fontWeight', 'Inherit bold setting'], ['horizontalAlignment', 'Inherit horizontal alignment'], ['textColor', 'Inherit text colour'], ['fillColor', 'Inherit fill colour']] as const) {
     add(`inherit-${property}`, label, 'Formatting', run(() => formatting.descriptor.valid && commands.writeNumberFormats(formatting.descriptor.sheetId,
-      materializeFormattingWrites(formatting.descriptor, property, null))), noFormat, ['no-editing', 'formatting']);
+      materializeFormattingWrites(formatting.descriptor, property, null))), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   }
   add('text-colour', 'Text colour…', 'Formatting', () => show({ kind: 'colour', title: 'Text colour', property: 'textColor' }), noFormat, ['no-editing', 'formatting']);
   add('fill-colour', 'Fill colour…', 'Formatting', () => show({ kind: 'colour', title: 'Fill colour', property: 'fillColor' }), noFormat, ['no-editing', 'formatting']);

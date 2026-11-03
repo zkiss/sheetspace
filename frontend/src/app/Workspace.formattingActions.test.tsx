@@ -10,6 +10,20 @@ import { formattingCommands, formattingWorkspaceProps } from '@test-support/form
 afterEach(() => vi.restoreAllMocks());
 
 describe('shared Workspace formatting wiring', () => {
+  it('keeps grid focus after a formatting shortcut from the toolbar and queued microtasks', async () => {
+    const sheet = smallSheetDocument({ id: 'focus', name: 'Focus', rowCount: 4, columnCount: 4 });
+    const gridFocus = document.createElement('button');
+    document.body.append(gridFocus);
+    const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells'));
+    render(<Workspace {...props} onRestoreGridFocus={() => { gridFocus.focus(); return null; }} />);
+    const toolbar = screen.getByRole('button', { name: 'Command palette' });
+    toolbar.focus();
+    fireEvent.keyDown(toolbar, { key: 'b', ctrlKey: true });
+    await Promise.resolve();
+    expect(document.activeElement).toBe(gridFocus);
+    gridFocus.remove();
+  });
+
   it('routes each formatting shortcut to the command and restores focus without recomputing the shared projection', () => {
     const sheet = smallSheetDocument({ id: 'keys', name: 'Keys', rowCount: 4, columnCount: 4 });
     const selection = formattingSelection(sheet, 'cells');
