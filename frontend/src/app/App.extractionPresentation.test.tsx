@@ -9,24 +9,25 @@ import * as workbookController from '@application/react/useWorkbookController';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it.each([false, true])('yields to same-batch target frame edits before first observation (maximised: %s)', async (maximised) => {
+it.each([[false, 'move'], [true, 'move'], [true, 'resize'], [true, 'scale']] as const)('yields to same-batch edits (maximised: %s, edit: %s)', async (maximised, edit) => {
   const useController = workbookController.useWorkbookController;
   let edited = false;
-  let targetId: string | undefined;
-  let previous: ReturnType<typeof useController>['workbook'] | undefined;
-  let displayed: ReturnType<typeof useController>['workbook'] | undefined;
+  let latest: ReturnType<typeof useController> | undefined;
+  let targetId = '';
   vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => {
     const controller = useController(options);
-    const target = targetId && controller.workbook.documents[targetId];
-    if (previous !== controller.workbook) {
-      previous = controller.workbook;
-      displayed = target ? { ...controller.workbook, documents: { ...controller.workbook.documents, [target.id]: { ...target, frame: { ...target.frame, position: { x: 410, y: 320 }, size: { width: 350, height: 260 }, visualScale: 1.4 } } } } : controller.workbook;
-    }
-    return { ...controller, workbook: displayed!, commands: { ...controller.commands, extractSelection: (request) => {
+    latest = controller;
+    return { ...controller, commands: { ...controller.commands, extractSelection: (request) => {
       const submission = controller.commands.extractSelection(request);
-      expect(screen.queryByRole('article', { name: 'Sheet Sheet 1' })).toBeNull();
+      expect(screen.queryByRole('article', { name: 'Sheet Sheet 1', hidden: true })).toBeNull();
       if (submission.result.ok) {
         targetId = request.targetSheetId;
+        const result = edit === 'move'
+          ? controller.commands.moveSheetFrame(request.targetSheetId, { x: 410, y: 320 })
+          : edit === 'resize'
+            ? controller.commands.resizeSheetFrame(request.targetSheetId, { x: 410, y: 320 }, { width: 350, height: 260 })
+            : controller.commands.setSheetVisualScale(request.targetSheetId, 1.4);
+        expect(result.ok).toBe(true);
         edited = true;
       }
       return submission;
@@ -34,7 +35,7 @@ it.each([false, true])('yields to same-batch target frame edits before first obs
   });
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
   const workbook = workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.8 })]);
-  render(<App initialWorkbook={workbook} apiClient={persistedWorkbookClient(workbook)} />);
+  render(<App initialWorkbook={workbook} />);
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
@@ -45,11 +46,14 @@ it.each([false, true])('yields to same-batch target frame edits before first obs
   expect(edited).toBe(true);
   expect(target).not.toHaveAttribute('data-presented');
   expect(target).not.toHaveClass('sheet-frame-extraction-handoff');
-  expect(target).toHaveAttribute('data-position-x', '410');
+  if (edit !== 'scale') expect(target).toHaveAttribute('data-position-x', '410');
+  if (edit === 'scale') expect(latest!.workbook.documents[targetId].frame.visualScale).toBe(1.4);
+  if (edit === 'resize') expect(latest!.workbook.documents[targetId].frame.size).toEqual({ width: 350, height: 260 });
   if (maximised) expect(source).toHaveAttribute('data-presented');
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
   expect(target).not.toHaveAttribute('data-presented');
-  expect(target).toHaveAttribute('data-position-x', '410');
+  if (edit !== 'scale') expect(target).toHaveAttribute('data-position-x', '410');
+  if (edit === 'scale') expect(latest!.workbook.documents[targetId].frame.visualScale).toBe(1.4);
   if (maximised) expect(source).toHaveAttribute('data-presented');
 });
 
@@ -116,6 +120,39 @@ it('restores the actual canvas and removes target presentation after a nonvisual
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   surface.style.visibility = 'hidden';
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
+  await waitFor(() => expect(source).not.toHaveAttribute('data-presented'));
+  await waitFor(() => expect(surface.querySelector('[data-sheet-id]:not([data-sheet-id="inputs"])')).not.toHaveAttribute('data-presented'));
+  expect(surface.dataset.viewportScale).toBe('1.25');
+});
+
+it('accepts the published inherited scale and post-stacking z-index without a foreign edit', async () => {
+  const useController = workbookController.useWorkbookController;
+  let requestedZ: number | undefined;
+  let publishedFrame: ReturnType<typeof useController>['workbook']['documents'][string]['frame'] | undefined;
+  vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => {
+    const controller = useController(options);
+    return { ...controller, commands: { ...controller.commands, extractSelection: (request) => {
+      const alteredRequest = { ...request, frame: { ...request.frame, zIndex: request.frame.zIndex + 5 } };
+      const submission = controller.commands.extractSelection(alteredRequest);
+      requestedZ = alteredRequest.frame.zIndex;
+      expect(submission.result).toMatchObject({ ok: true });
+      if (submission.result.ok) publishedFrame = submission.result.workbook.documents[request.targetSheetId].frame;
+      return submission;
+    } } };
+  });
+  vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
+  const workbook = workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.8 })]);
+  render(<App initialWorkbook={workbook} />);
+  const surface = screen.getByTestId('workspace-surface');
+  measuredElementGeometry(surface, { width: 800, height: 600 });
+  const source = screen.getByRole('article', { name: 'Sheet Inputs' });
+  fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+  surface.style.visibility = 'hidden';
+  fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
+  expect(publishedFrame!.visualScale).toBe(0.8);
+  expect(publishedFrame!.zIndex).not.toBe(requestedZ);
   await waitFor(() => expect(source).not.toHaveAttribute('data-presented'));
   await waitFor(() => expect(surface.querySelector('[data-sheet-id]:not([data-sheet-id="inputs"])')).not.toHaveAttribute('data-presented'));
   expect(surface.dataset.viewportScale).toBe('1.25');
