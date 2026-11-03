@@ -237,6 +237,35 @@ describe('live SheetFrame/SheetGrid extraction composition — retirement and no
     expect(surface.querySelectorAll(`[data-sheet-id="${SOURCE_ID}"] [role="rowheader"]`)).toHaveLength(4);
   });
 
+  it('rechecks target axis geometry changed during the fade without a geometry revision', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const result = mountAndMeasure(renderComposition());
+    const { surface, api } = result;
+    act(() => api().publish('rows', 'A2', 'A3'));
+    act(() => { result.remock(); });
+    act(() => api().bumpGeometryRevision());
+    const target = frameElement(surface, TARGET_ID);
+    const cell = cellElement(surface, TARGET_ID, 'A1');
+    const header = target.querySelector<HTMLElement>('[role="columnheader"]:not(.sheet-grid-corner)')!;
+    const alignedRect = cell.getBoundingClientRect.bind(cell);
+    cell.getBoundingClientRect = () => {
+      const rect = alignedRect();
+      return testRect({ left: rect.left, top: rect.top, width: rect.width + (header.style.width === '200px' ? 8 : 0), height: rect.height });
+    };
+    expect(target).toHaveClass('sheet-frame-extraction-ready');
+    act(() => vi.advanceTimersByTime(100));
+
+    await act(async () => { header.style.width = '200px'; });
+    expect(target).not.toHaveClass('sheet-frame-extraction-ready');
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
+    expect(cellText(surface, SOURCE_ID, 'A2')).toBe('two');
+
+    await act(async () => { header.style.width = ''; });
+    expect(target).toHaveClass('sheet-frame-extraction-ready');
+    act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
+    expect(surface.querySelector('.sheet-frame-extraction-handoff')).toBeNull();
+  });
+
   it('discards a waiting handoff when the extraction is undone before readiness', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const result = mountAndMeasure(renderComposition());
