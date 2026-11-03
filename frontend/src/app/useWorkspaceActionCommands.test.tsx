@@ -40,6 +40,43 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it.each(['cells', 'rows', 'columns'] as const)('submits %s extraction and transfers ownership only after settlement', async (mode) => {
+    const { command, hook, props, cell } = setup();
+    const request = { sourceSheetId: 'sheet' } as ReturnType<NonNullable<Props['extraction']>['request']>;
+    const onSuccess = vi.fn();
+    let finish!: (value: unknown) => void;
+    const submit = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.commands.extractSelection = submit;
+    props.selection = { mode, anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue(request), onSuccess };
+    hook.rerender();
+    expect(command('extract-selection').unavailable).toBeUndefined();
+    act(() => command('extract-selection').run());
+    expect(submit).toHaveBeenCalledWith(request);
+    expect(onSuccess).not.toHaveBeenCalled();
+    await act(async () => finish({ ok: true }));
+    expect(onSuccess).toHaveBeenCalledWith(request);
+    expect(props.onCancelCut).toHaveBeenCalledOnce();
+  });
+  it('keeps newer selection ownership and reports failed extraction', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    props.selection = null;
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
+    expect(props.onCancelCut).not.toHaveBeenCalled();
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: false, reason: 'protected-source' } });
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('protected-source'));
+  });
   it.each(['row', 'column'] as const)('selects an adjacent cell only after %s deletion succeeds', async (axis) => {
     const { command, commands, props, sheet, cell } = setup();
     const mutation = axis === 'row' ? commands.deleteRow : commands.deleteColumn;
