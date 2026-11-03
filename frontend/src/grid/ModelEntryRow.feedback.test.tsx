@@ -167,3 +167,19 @@ describe('entry validation keyboard access', () => {
     expect(target).toHaveTextContent('bad');
   });
 });
+
+it.each([['MacIntel', '⌘+Shift+K', 'Meta+Shift+K'], ['Linux', 'Ctrl+Shift+K', 'Control+Shift+K']])('derives feedback hint and ARIA from the %s binding', async (platform, label, aria) => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const original = keymap.cancel;
+  Object.assign(keymap, { cancel: [{ key: 'k', mod: true, shift: true }] });
+  const platformOverride = vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+  try {
+    const { user, dismiss } = setup();
+    await user.click(cell('Middle'));
+    expect(await screen.findByRole('button', { name: `Dismiss (${label})` })).toHaveAttribute('aria-keyshortcuts', aria);
+    await user.keyboard(platform === 'MacIntel' ? '{Control>}{Shift>}k{/Shift}{/Control}' : '{Meta>}{Shift>}k{/Shift}{/Meta}');
+    expect(dismiss).not.toHaveBeenCalled();
+    await user.keyboard(platform === 'MacIntel' ? '{Meta>}{Shift>}k{/Shift}{/Meta}' : '{Control>}{Shift>}k{/Shift}{/Control}');
+    expect(dismiss).toHaveBeenCalledWith('middle');
+  } finally { Object.assign(keymap, { cancel: original }); platformOverride.mockRestore(); }
+});

@@ -1,4 +1,4 @@
-import { matchesShortcut, detectPlatform } from '@shared/keyboard/keymap';
+import { matchesShortcut, type KeyboardInput, type Keymap, type Platform } from '@shared/keyboard/keymap';
 import { cellRawContent } from '@workbook/read/queries';
 import { displayFormulaValue, displayRawCellValue, type FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
@@ -64,16 +64,8 @@ export function gridCellKeyboardAction({
     return { kind: 'start-edit' };
   }
 
-  const isDirectionalNavigationKey = key === 'ArrowLeft' || key === 'ArrowRight'
-    || key === 'ArrowUp' || key === 'ArrowDown' || key === 'Home' || key === 'End';
-  const isUnmodifiedTraversalKey = !ctrlKey && !metaKey
-    && (key === 'Tab' || (key === 'Enter' && shiftKey));
-  if (!altKey && (isDirectionalNavigationKey || isUnmodifiedTraversalKey)) {
-    return {
-      kind: 'navigate',
-      request: { key, command: detectPlatform() === 'mac' ? metaKey && !ctrlKey : ctrlKey && !metaKey, shift: shiftKey },
-    };
-  }
+  const request = gridNavigationRequest(event);
+  if (request) return { kind: 'navigate', request };
 
   if (matchesShortcut(event, 'clear-cells')) {
     return { kind: 'clear-cell' };
@@ -84,4 +76,38 @@ export function gridCellKeyboardAction({
   }
 
   return { kind: 'none' };
+}
+
+const navigationActions: readonly { id: string; request: CellNavigationRequest }[] = [
+  { id: 'grid-left', request: { key: 'ArrowLeft', command: false, shift: false } },
+  { id: 'grid-left-select', request: { key: 'ArrowLeft', command: false, shift: true } },
+  { id: 'grid-left-jump', request: { key: 'ArrowLeft', command: true, shift: false } },
+  { id: 'grid-left-jump-select', request: { key: 'ArrowLeft', command: true, shift: true } },
+  { id: 'grid-right', request: { key: 'ArrowRight', command: false, shift: false } },
+  { id: 'grid-right-select', request: { key: 'ArrowRight', command: false, shift: true } },
+  { id: 'grid-right-jump', request: { key: 'ArrowRight', command: true, shift: false } },
+  { id: 'grid-right-jump-select', request: { key: 'ArrowRight', command: true, shift: true } },
+  { id: 'grid-up', request: { key: 'ArrowUp', command: false, shift: false } },
+  { id: 'grid-up-select', request: { key: 'ArrowUp', command: false, shift: true } },
+  { id: 'grid-up-jump', request: { key: 'ArrowUp', command: true, shift: false } },
+  { id: 'grid-up-jump-select', request: { key: 'ArrowUp', command: true, shift: true } },
+  { id: 'grid-down', request: { key: 'ArrowDown', command: false, shift: false } },
+  { id: 'grid-down-select', request: { key: 'ArrowDown', command: false, shift: true } },
+  { id: 'grid-down-jump', request: { key: 'ArrowDown', command: true, shift: false } },
+  { id: 'grid-down-jump-select', request: { key: 'ArrowDown', command: true, shift: true } },
+  { id: 'grid-home', request: { key: 'Home', command: false, shift: false } },
+  { id: 'grid-home-select', request: { key: 'Home', command: false, shift: true } },
+  { id: 'grid-home-jump', request: { key: 'Home', command: true, shift: false } },
+  { id: 'grid-home-jump-select', request: { key: 'Home', command: true, shift: true } },
+  { id: 'grid-end', request: { key: 'End', command: false, shift: false } },
+  { id: 'grid-end-select', request: { key: 'End', command: false, shift: true } },
+  { id: 'grid-end-jump', request: { key: 'End', command: true, shift: false } },
+  { id: 'grid-end-jump-select', request: { key: 'End', command: true, shift: true } },
+  { id: 'grid-next', request: { key: 'Tab', command: false, shift: false } },
+  { id: 'grid-previous', request: { key: 'Tab', command: false, shift: true } },
+  { id: 'grid-previous-row', request: { key: 'Enter', command: false, shift: true } },
+];
+
+export function gridNavigationRequest(event: KeyboardInput, platform?: Platform, map?: Keymap): CellNavigationRequest | undefined {
+  return navigationActions.find(({ id }) => matchesShortcut(event, id, platform, map))?.request;
 }

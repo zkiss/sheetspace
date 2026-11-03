@@ -36,6 +36,33 @@ export const keymap = {
   'format-general': [{ key: '0', code: 'Digit0', mod: true, shift: true }],
   'format-number': [{ key: '1', code: 'Digit1', mod: true, shift: true }],
   'format-percent': [{ key: '5', code: 'Digit5', mod: true, shift: true }],
+  'grid-left': [{ key: 'ArrowLeft' }],
+  'grid-left-select': [{ key: 'ArrowLeft', shift: true }],
+  'grid-left-jump': [{ key: 'ArrowLeft', mod: true }],
+  'grid-left-jump-select': [{ key: 'ArrowLeft', mod: true, shift: true }],
+  'grid-right': [{ key: 'ArrowRight' }],
+  'grid-right-select': [{ key: 'ArrowRight', shift: true }],
+  'grid-right-jump': [{ key: 'ArrowRight', mod: true }],
+  'grid-right-jump-select': [{ key: 'ArrowRight', mod: true, shift: true }],
+  'grid-up': [{ key: 'ArrowUp' }],
+  'grid-up-select': [{ key: 'ArrowUp', shift: true }],
+  'grid-up-jump': [{ key: 'ArrowUp', mod: true }],
+  'grid-up-jump-select': [{ key: 'ArrowUp', mod: true, shift: true }],
+  'grid-down': [{ key: 'ArrowDown' }],
+  'grid-down-select': [{ key: 'ArrowDown', shift: true }],
+  'grid-down-jump': [{ key: 'ArrowDown', mod: true }],
+  'grid-down-jump-select': [{ key: 'ArrowDown', mod: true, shift: true }],
+  'grid-home': [{ key: 'Home' }],
+  'grid-home-select': [{ key: 'Home', shift: true }],
+  'grid-home-jump': [{ key: 'Home', mod: true }],
+  'grid-home-jump-select': [{ key: 'Home', mod: true, shift: true }],
+  'grid-end': [{ key: 'End' }],
+  'grid-end-select': [{ key: 'End', shift: true }],
+  'grid-end-jump': [{ key: 'End', mod: true }],
+  'grid-end-jump-select': [{ key: 'End', mod: true, shift: true }],
+  'grid-next': [{ key: 'Tab' }],
+  'grid-previous': [{ key: 'Tab', shift: true }],
+  'grid-previous-row': [{ key: 'Enter', shift: true }],
   'edit-cell': [{ key: 'F2' }, { key: 'Enter' }],
   'clear-cells': [{ key: 'Delete' }, { key: 'Backspace' }],
   'entry-submit': [{ key: 'Enter' }], 'entry-edit': [{ key: 'F2' }],
@@ -77,6 +104,16 @@ export function shortcutLabel(id: string, platform: Platform = detectPlatform(),
     shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key.replace('Arrow', ''),
   ].filter(Boolean).join('+'));
   return labels.length ? labels.join(' / ') : undefined;
+}
+
+
+export function shortcutAria(id: string, platform: Platform = detectPlatform(), map: Keymap = keymap): string | undefined {
+  const labels = bindings(id, platform, map).map((shortcut) => [
+    shortcut.mod ? (platform === 'mac' ? 'Meta' : 'Control') : '',
+    shortcut.alt ? 'Alt' : '', shortcut.shift ? 'Shift' : '',
+    shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key,
+  ].filter(Boolean).join('+'));
+  return labels.length ? labels.join(' ') : undefined;
 }
 
 export type ShortcutCommand<Context> = { id: string; unavailable?: string; run: (context: Context) => void };

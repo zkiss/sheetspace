@@ -61,3 +61,20 @@ describe('entry row boundaries', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
+
+it('uses rebound navigation for entry cells without converting foreign modifiers into traversal', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const original = keymap['grid-right'];
+  Object.assign(keymap, { 'grid-right': [{ key: 'F8' }] });
+  try {
+    render(<ModelEntryRow model={model} session={session()} commands={commands()} />);
+    const cell = screen.getByRole('cell', { name: 'Value new record' });
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'ArrowRight' });
+    expect(cell).toHaveFocus();
+    fireEvent.keyDown(cell, { key: 'F8', metaKey: true });
+    expect(cell).toHaveFocus();
+    fireEvent.keyDown(cell, { key: 'F8' });
+    expect(screen.getByRole('cell', { name: 'Calculated calculated' })).toHaveFocus();
+  } finally { Object.assign(keymap, { 'grid-right': original }); }
+});

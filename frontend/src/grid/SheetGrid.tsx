@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 /* eslint-disable max-lines -- Grid owns its virtualizer, focus, and navigation-settlement lifecycle. */
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type FocusEvent, type RefObject, type SyntheticEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -643,10 +644,10 @@ export function SheetGrid({
       }}
       onKeyDownCapture={(event) => {
         if (!interactionsEnabled) { blockDisabledInteraction(event); return; }
-        if (!entryRow || event.key !== 'ArrowDown' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !(event.target instanceof HTMLElement)) return;
+        if (!entryRow || !matchesShortcut(event, 'grid-down') || matchesShortcut(event, 'edit-cell') || !(event.target instanceof HTMLElement)) return;
         const key = event.target.dataset.cellKey;
         const address = key && parseA1Address(key);
-        if (!address || !address.ok || address.value.rowIndex !== sheet.rows.length - 1) return;
+        if (key !== activeCellKey || !address || !address.ok || address.value.rowIndex !== sheet.rows.length - 1) return;
         const cell = gridRef.current?.querySelectorAll<HTMLElement>('.model-entry-cell')[address.value.columnIndex];
         if (!cell) return;
         event.preventDefault();

@@ -11,6 +11,9 @@ import { cellKeyForTarget, cellTargetAt } from './cellInteraction';
 import { projectGridAxes } from './gridAxisProjection';
 import { useCellEditing } from './useCellEditing';
 import { SheetGrid } from './SheetGrid';
+import { createModelEntryDraft } from '@application/core/modelEntryDraft';
+import { keymap } from '@shared/keyboard/keymap';
+import type { DataModel } from '@workbook/core/model';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -45,8 +48,9 @@ function frames() {
 
 const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
 const consumed = vi.fn();
-function SelectionGrid({ sheet, replacement, replacementKey = 'C1' }: {
+function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }: {
   sheet: ReturnType<typeof sheetDocument>;
+  entryModel?: DataModel;
   replacement?: 'cell' | 'range' | 'edit';
   replacementKey?: string;
 }) {
@@ -88,6 +92,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1' }: {
     })}</output>
     <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
       <SheetGrid
+        entryRow={entryModel && { model: entryModel, session: { draft: createModelEntryDraft(entryModel), pending: false }, commands: { change: vi.fn(), leave: vi.fn(), dismiss: vi.fn(), submit: vi.fn().mockResolvedValue({}) } }}
         activeCellKey={cellKeyForTarget(sheet, interaction.activeCell)}
         activeSheetId={interaction.activeCell?.sheetId ?? null}
         selectionOwner={interaction.selectionOwner}
@@ -277,4 +282,24 @@ describe('stationary scaled drag autoscroll', () => {
       expect(state()).toMatchObject({ anchor: 'B1', extent: key, active: key });
     }
   });
+});
+
+
+it('enters the model row using the rebound down action only from the active bottom cell', () => {
+  const original = keymap['grid-down'];
+  Object.assign(keymap, { 'grid-down': [{ key: 'F8' }] });
+  try {
+    const sheet = sheetDocument({ id: 'entry', name: 'Entry', rowCount: 1, columnCount: 1 });
+    const model: DataModel = { id: 'model', name: 'Model', columns: [{ id: 'value', name: 'Value', kind: 'manual', type: 'int' }] };
+    render(<SelectionGrid sheet={sheet} entryModel={model} />);
+    const cell = activeCell('Entry', 'A1');
+    pointer(cell, 'pointerdown');
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'ArrowDown' });
+    expect(cell).toHaveFocus();
+    fireEvent.keyDown(cell, { key: 'F8', ctrlKey: true });
+    expect(cell).toHaveFocus();
+    fireEvent.keyDown(cell, { key: 'F8' });
+    expect(screen.getByRole('cell', { name: 'Value new record' })).toHaveFocus();
+  } finally { Object.assign(keymap, { 'grid-down': original }); }
 });
