@@ -24,6 +24,22 @@
   opacity: 0;
 }
 
+.sheet-frame-extraction-handoff .sheet-frame-body {
+  background: transparent;
+}
+
+.sheet-frame-extraction-handoff .sheet-grid-corner,
+.sheet-frame-extraction-handoff .sheet-grid-column-header,
+.sheet-frame-extraction-handoff .sheet-grid-row-header {
+  opacity: 0;
+}
+
+.sheet-frame-extraction-ready .sheet-grid-corner,
+.sheet-frame-extraction-ready .sheet-grid-column-header,
+.sheet-frame-extraction-ready .sheet-grid-row-header {
+  animation: extraction-header-chrome 240ms ease-out both;
+}
+
 .sheet-frame-extraction-ready {
   animation: extraction-frame-chrome 240ms ease-out both;
 }
