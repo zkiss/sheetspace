@@ -123,7 +123,7 @@ it('hands painted target cells through the real maximised restore to ordinary ca
   expect(target).not.toHaveClass('sheet-frame-extraction-handoff');
 });
 
-it.each(['complete', 'frame-change', 'undo-restore', 'undo-settle', 'takeover', 'reject-restore', 'reject-settle'] as const)('handles %s during animated extraction transport', async (scenario) => {
+it.each(['complete', 'frame-waiting', 'frame-fade', 'frame-restore', 'frame-change', 'undo-restore', 'undo-settle', 'takeover', 'reject-restore', 'reject-settle'] as const)('handles %s during animated extraction transport', async (scenario) => {
   const useController = workbookController.useWorkbookController;
   let controller: ReturnType<typeof useController> | undefined;
   vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => {
@@ -146,6 +146,17 @@ it.each(['complete', 'frame-change', 'undo-restore', 'undo-settle', 'takeover', 
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
   const target = await screen.findByRole('article', { name: 'Sheet Sheet 1' });
+  if (scenario === 'frame-waiting') {
+    expect(target).toHaveAttribute('data-presented');
+    act(() => { controller!.commands.moveSheetFrame(target.dataset.sheetId!, { x: 410, y: 320 }); });
+    expect(target).not.toHaveAttribute('data-presented');
+    expect(target).toHaveAttribute('data-position-x', '410');
+    expect(source).toHaveAttribute('data-presented');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    expect(target).not.toHaveAttribute('data-presented');
+    expect(source).toHaveAttribute('data-presented');
+    return;
+  }
   for (const frame of [source, target]) {
     const body = frame.querySelector<HTMLElement>('.sheet-frame-body')!;
     const corner = frame.querySelector<HTMLElement>('.sheet-grid-corner')!;
@@ -157,6 +168,16 @@ it.each(['complete', 'frame-change', 'undo-restore', 'undo-settle', 'takeover', 
   }
   fireEvent.scroll(source.querySelector('.sheet-frame-body')!);
   await waitFor(() => expect(target).toHaveClass('sheet-frame-extraction-ready'));
+  if (scenario === 'frame-fade') {
+    expect(target).toHaveClass('sheet-frame-extraction-handoff');
+    act(() => { controller!.commands.moveSheetFrame(target.dataset.sheetId!, { x: 410, y: 320 }); });
+    expect(target).not.toHaveAttribute('data-presented');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    expect(target).not.toHaveAttribute('data-presented');
+    expect(target).toHaveAttribute('data-position-x', '410');
+    expect(source).toHaveAttribute('data-presented');
+    return;
+  }
   await waitFor(() => expect(target).not.toHaveClass('sheet-frame-extraction-handoff'));
   expect(source).toHaveAttribute('data-presented');
   expect(target).toHaveAttribute('data-presented');
@@ -164,6 +185,15 @@ it.each(['complete', 'frame-change', 'undo-restore', 'undo-settle', 'takeover', 
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
   expect(source).toHaveAttribute('data-presented');
   expect(target).toHaveAttribute('style', heldPresentation);
+  if (scenario === 'frame-restore') {
+    act(() => { controller!.commands.moveSheetFrame(target.dataset.sheetId!, { x: 410, y: 320 }); });
+    expect(target).not.toHaveAttribute('data-presented');
+    expect(target).toHaveAttribute('data-position-x', '410');
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    expect(target).not.toHaveAttribute('data-presented');
+    expect(target).toHaveAttribute('data-position-x', '410');
+    return;
+  }
   if (scenario === 'undo-restore' || scenario === 'takeover' || scenario === 'reject-restore') {
     if (scenario === 'undo-restore') {
       act(() => { controller!.commands.undo(); });

@@ -266,11 +266,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const inputs = extractionInputs.current;
       const target = findSheetById(inputs.workbook, operation.targetId);
       if (extractionOwner.current !== operation || !target || !findSheetById(inputs.workbook, operation.sourceId)
+        || !extractionGuard.current?.targetFrame || JSON.stringify(frameProjection(target)) !== extractionGuard.current.targetFrame
         || (extractionLease.current && !extractionLease.current.owned())) { abortExtractionPresentation(); return; }
       const end = canvasPresentation(frameProjection(target), inputs.workspaceController.viewport);
       if (extractionGuard.current) {
         extractionGuard.current.settling = true;
-        extractionGuard.current.targetFrame = JSON.stringify(frameProjection(target));
         extractionGuard.current.viewport = JSON.stringify(inputs.workspaceController.viewport);
       }
       if (result === 'empty' || inputs.reducedMotion) { abortExtractionPresentation(); return; }
@@ -304,9 +304,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const guard = extractionGuard.current;
     const source = operation && findSheetById(workbook, operation.sourceId);
     const target = operation && findSheetById(workbook, operation.targetId);
+    if (operation?.accepted && target && guard && !guard.targetFrame) guard.targetFrame = JSON.stringify(frameProjection(target));
     const invalid = operation?.accepted && (!source || !target
       || (guard && (JSON.stringify({ position: source.frame.position, size: source.frame.size, visualScale: source.frame.visualScale }) !== guard.sourceFrame
-        || (guard.settling && JSON.stringify(frameProjection(target)) !== guard.targetFrame)
+        || JSON.stringify(frameProjection(target)) !== guard.targetFrame
         || JSON.stringify(workspaceController.workspaceSurfaceSize) !== guard.size
         || ((!extractionLease.current || guard.settling) && JSON.stringify(workspaceController.viewport) !== guard.viewport)
         || (!extractionLease.current && maximise.currentState().identity !== guard.identity)))
