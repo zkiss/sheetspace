@@ -258,16 +258,28 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     extractionLease.current = null;
     setExtractionPresentation(null);
   };
+  const extractionValid = (operation: NonNullable<typeof extractionPresentation>) => {
+    const inputs = extractionInputs.current;
+    const guard = extractionGuard.current;
+    const source = findSheetById(inputs.workbook, operation.sourceId);
+    const target = findSheetById(inputs.workbook, operation.targetId);
+    return extractionOwner.current === operation && operation.accepted && guard && source && target && guard.targetFrame
+      && JSON.stringify({ position: source.frame.position, size: source.frame.size, visualScale: source.frame.visualScale }) === guard.sourceFrame
+      && JSON.stringify(frameProjection(target)) === guard.targetFrame
+      && JSON.stringify(inputs.workspaceController.workspaceSurfaceSize) === guard.size
+      && ((extractionLease.current && !guard.settling) || JSON.stringify(inputs.workspaceController.viewport) === guard.viewport)
+      && (extractionLease.current ? extractionLease.current.owned() : inputs.maximise.currentState().identity === guard.identity);
+  };
   extractionExit.current = (token, result) => {
     const operation = extractionOwner.current;
     if (!operation || operation.token !== token) return;
     if (result === 'aborted') { abortExtractionPresentation(); return; }
+    if (!extractionValid(operation)) { abortExtractionPresentation(); return; }
     const settle = () => {
+      if (extractionOwner.current !== operation) return;
       const inputs = extractionInputs.current;
       const target = findSheetById(inputs.workbook, operation.targetId);
-      if (extractionOwner.current !== operation || !target || !findSheetById(inputs.workbook, operation.sourceId)
-        || !extractionGuard.current?.targetFrame || JSON.stringify(frameProjection(target)) !== extractionGuard.current.targetFrame
-        || (extractionLease.current && !extractionLease.current.owned())) { abortExtractionPresentation(); return; }
+      if (!target || !extractionValid(operation)) { abortExtractionPresentation(); return; }
       const end = canvasPresentation(frameProjection(target), inputs.workspaceController.viewport);
       if (extractionGuard.current) {
         extractionGuard.current.settling = true;
@@ -277,12 +289,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       const start = performance.now();
       const tick = (now: number) => {
         if (extractionOwner.current !== operation) return;
-        if (extractionLease.current && !extractionLease.current.owned()) { abortExtractionPresentation(); return; }
-        const current = extractionInputs.current;
-        const currentTarget = findSheetById(current.workbook, operation.targetId);
-        const guard = extractionGuard.current;
-        if (!currentTarget || !guard || JSON.stringify(frameProjection(currentTarget)) !== guard.targetFrame
-          || JSON.stringify(current.workspaceController.viewport) !== guard.viewport) { abortExtractionPresentation(); return; }
+        if (!extractionValid(operation)) { abortExtractionPresentation(); return; }
         const progress = Math.min(1, (now - start) / 240);
         if (progress >= 1) { abortExtractionPresentation(); return; }
         setExtractionPresentation({ ...operation, sample: interpolatePresentation(operation.sample, end, progress) });
@@ -295,23 +302,13 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     extractionLease.current = lease;
     void lease.completion.then((outcome) => {
       if (extractionOwner.current !== operation) return;
-      if (outcome === 'settled' && lease.owned()) extractionAnimation.current = requestAnimationFrame(settle);
+      if (outcome === 'settled' && extractionValid(operation)) extractionAnimation.current = requestAnimationFrame(settle);
       else abortExtractionPresentation();
     });
   };
   useLayoutEffect(() => {
     const operation = extractionOwner.current;
-    const guard = extractionGuard.current;
-    const source = operation && findSheetById(workbook, operation.sourceId);
-    const target = operation && findSheetById(workbook, operation.targetId);
-    if (operation?.accepted && target && guard && !guard.targetFrame) guard.targetFrame = JSON.stringify(frameProjection(target));
-    const invalid = operation?.accepted && (!source || !target
-      || (guard && (JSON.stringify({ position: source.frame.position, size: source.frame.size, visualScale: source.frame.visualScale }) !== guard.sourceFrame
-        || JSON.stringify(frameProjection(target)) !== guard.targetFrame
-        || JSON.stringify(workspaceController.workspaceSurfaceSize) !== guard.size
-        || ((!extractionLease.current || guard.settling) && JSON.stringify(workspaceController.viewport) !== guard.viewport)
-        || (!extractionLease.current && maximise.currentState().identity !== guard.identity)))
-      || (extractionLease.current && !extractionLease.current.owned()));
+    const invalid = operation?.accepted && !extractionValid(operation);
     if (operation && invalid) {
       extractionHandoff.cancel(operation.token);
       abortExtractionPresentation();
@@ -922,10 +919,13 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         }
         return request;
       },
-      onAccepted: (request) => {
+      onAccepted: (request, target) => {
         const token = extractionTokens.current.get(request);
         if (token !== undefined) {
-          if (extractionOwner.current?.token === token) extractionOwner.current.accepted = true;
+          if (extractionOwner.current?.token === token && extractionGuard.current) {
+            extractionGuard.current.targetFrame = JSON.stringify(frameProjection(target));
+            extractionOwner.current.accepted = true;
+          }
           extractionHandoff.accepted(token);
         }
       },

@@ -9,6 +9,50 @@ import * as workbookController from '@application/react/useWorkbookController';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+it.each([false, true])('yields to same-batch target frame edits before first observation (maximised: %s)', async (maximised) => {
+  const useController = workbookController.useWorkbookController;
+  let edited = false;
+  let targetId: string | undefined;
+  let previous: ReturnType<typeof useController>['workbook'] | undefined;
+  let displayed: ReturnType<typeof useController>['workbook'] | undefined;
+  vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => {
+    const controller = useController(options);
+    const target = targetId && controller.workbook.documents[targetId];
+    if (previous !== controller.workbook) {
+      previous = controller.workbook;
+      displayed = target ? { ...controller.workbook, documents: { ...controller.workbook.documents, [target.id]: { ...target, frame: { ...target.frame, position: { x: 410, y: 320 }, size: { width: 350, height: 260 }, visualScale: 1.4 } } } } : controller.workbook;
+    }
+    return { ...controller, workbook: displayed!, commands: { ...controller.commands, extractSelection: (request) => {
+      const submission = controller.commands.extractSelection(request);
+      expect(screen.queryByRole('article', { name: 'Sheet Sheet 1' })).toBeNull();
+      if (submission.result.ok) {
+        targetId = request.targetSheetId;
+        edited = true;
+      }
+      return submission;
+    } } };
+  });
+  vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
+  const workbook = workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.8 })]);
+  render(<App initialWorkbook={workbook} apiClient={persistedWorkbookClient(workbook)} />);
+  measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
+  const source = screen.getByRole('article', { name: 'Sheet Inputs' });
+  fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
+  if (maximised) fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+  fireEvent.click(screen.getByRole('button', { name: /Extract to new sheet/ }));
+  const target = await screen.findByRole('article', { name: 'Sheet Sheet 1', hidden: true });
+  expect(edited).toBe(true);
+  expect(target).not.toHaveAttribute('data-presented');
+  expect(target).not.toHaveClass('sheet-frame-extraction-handoff');
+  expect(target).toHaveAttribute('data-position-x', '410');
+  if (maximised) expect(source).toHaveAttribute('data-presented');
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); });
+  expect(target).not.toHaveAttribute('data-presented');
+  expect(target).toHaveAttribute('data-position-x', '410');
+  if (maximised) expect(source).toHaveAttribute('data-presented');
+});
+
 it('places both ends of a selected rectangle at the captured maximised body scale', async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
   const workbook = workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.8 })]);

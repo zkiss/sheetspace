@@ -39,7 +39,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
-  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest) => void; onFailure?: (request?: ExtractionRequest) => void };
+  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
@@ -187,7 +187,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     }
     const message = extractionFeedback(submission.result);
     if (message) { release(); extraction.onFailure?.(request); closePalette(); onFeedback(message); return; }
-    extraction.onAccepted?.(request);
+    if (submission.result.ok) extraction.onAccepted?.(request, submission.result.workbook.documents[request.targetSheetId]!);
     closePalette(false);
     void submission.completion.then((result) => {
       release();

@@ -49,8 +49,8 @@ describe('workspace palette actions', () => {
     hook.unmount();
     let reject!: (reason: Error) => void;
     const completion = new Promise<never>((_resolve, fail) => { reject = fail; });
-    const request = { sourceSheetId: sheet.id } as ExtractionRequest;
-    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion });
+    const request = { sourceSheetId: sheet.id, targetSheetId: 'target' } as ExtractionRequest;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true, workbook: { documents: { target: sheet } } }, completion });
     const { result } = renderHook(() => {
       const owner = useExtractionHandoff([sheet.id, 'target']);
       const token = useRef(0);
