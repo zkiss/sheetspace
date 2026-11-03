@@ -20,6 +20,7 @@ import { formulaPanelReferenceValues } from './formulaPanelValues';
 import { workbookFormulaReferenceResolver } from '@workbook/formula/reference';
 import { SheetContextMenu } from '@workspace/SheetContextMenu';
 import { SheetFrame } from '@workspace/SheetFrame';
+import { extractionStacking } from '@workspace/extractionStacking';
 import { SheetOverview } from '@workspace/SheetOverview';
 import { CreatingSheetFrame } from '@workspace/CreatingSheetFrame';
 import type { CreatingSheetFrame as CreatingSheetFrameState } from '@application/core/sheetCreationState';
@@ -671,6 +672,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       : layout;
   });
   const projectedFramesById = new Map(projectedFrames.map((frame) => [frame.id, frame]));
+  const extractionSlots = extractionHandoff.handoff
+    ? extractionStacking(projectedFrames, extractionHandoff.handoff.source.id)
+    : undefined;
   displayedFrames.current = projectedFramesById;
   const referenceSurfaceSize = useMemo(() => workspaceController.workspaceSurfaceSize ?? { width: 0, height: 0 }, [workspaceController.workspaceSurfaceSize]);
   const frameVisibilityOptions = {
@@ -1038,7 +1042,8 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               extractionHandoff={extractionHandoff.handoff?.targetId === sheet.id}
               extractionSource={extractionHandoff.handoff?.source.id === sheet.id}
               extractionReady={extractionHandoff.handoff?.ready}
-              extractionWaitingZIndex={extractionHandoff.handoff ? (projectedFramesById.get(extractionHandoff.handoff.source.id)?.zIndex ?? 0) - 0.5 : undefined}
+              extractionWaitingZIndex={extractionSlots?.waiting}
+              presentationZIndex={extractionSlots?.slots.get(sheet.id)}
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
               presentation={maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.presentation, viewport: workspaceController.viewport } : undefined}

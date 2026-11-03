@@ -33,7 +33,7 @@ describe('retained presentation', () => {
     const noop = vi.fn();
     const content = (source: boolean, target: boolean, ready: boolean) => <SheetFrame
       frame={frame} columnCount={2} rowCount={2} viewportScale={0.01} isActiveSheet isNavigationReveal={false}
-      extractionSource={source} extractionHandoff={target} extractionReady={ready} extractionWaitingZIndex={-0.5}
+      extractionSource={source} extractionHandoff={target} extractionReady={ready} extractionWaitingZIndex={-1}
       onOpenSheetMenu={noop} onResizeCancel={noop} onResizeMove={noop} onResizeStart={noop} onResizeStop={noop}
       onSheetFrameDragCancel={noop} onSheetFrameDragMove={noop} onSheetFrameDragStart={noop} onSheetFrameDragStop={noop} onSheetFrameInteraction={noop} onSelectSheet={noop}>
       {() => <span>cell content</span>}
@@ -45,7 +45,7 @@ describe('retained presentation', () => {
     view.rerender(content(false, true, false));
     expect(article).toHaveClass('sheet-frame-extraction-handoff');
     expect(article).not.toHaveClass('sheet-frame-extraction-ready');
-    expect(article).toHaveStyle({ zIndex: '-0.5' });
+    expect(article).toHaveStyle({ zIndex: '-1' });
     expect(screen.getByText('cell content')).toBeVisible();
     view.rerender(content(false, true, true));
     expect(article).toHaveClass('sheet-frame-extraction-ready');
