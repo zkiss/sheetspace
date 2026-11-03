@@ -232,3 +232,23 @@ describe('useAxisResize sessions', () => {
     expect(commit).not.toHaveBeenCalled();
   });
 });
+
+it('cancels a resize in capture using the rebound chord and releases ownership once', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const commit = vi.fn(), handle = mountedHandle();
+    handle.hasPointerCapture = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useAxisResize({ sheet, commit }));
+    act(() => { result.current.start(event(handle), 'column', column, 76); result.current.move(event(handle, { clientX: 40 })); });
+    const input = document.createElement('input'); document.body.append(input);
+    input.addEventListener('keydown', (e) => e.stopPropagation());
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', bubbles: true })); });
+    expect(result.current.preview).not.toBeNull();
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', altKey: true, bubbles: true })); result.current.stop(event(handle, { clientX: 40 })); });
+    expect(result.current.preview).toBeNull();
+    expect(handle.releasePointerCapture).toHaveBeenCalledOnce();
+    expect(commit).not.toHaveBeenCalled();
+  } finally { map.cancel = original; }
+});

@@ -486,3 +486,24 @@ describe('useSheetFrameInteractions', () => {
     expect(result.current.interactionPinnedSheetId).toBeNull();
   });
 });
+
+it('cancels a captured frame scale with the rebound chord before editor bubbling', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const { commands: testCommands, result } = renderInteractions();
+    const start = pointerEvent({ clientX: 100, clientY: 0 });
+    start.currentTarget.hasPointerCapture = vi.fn().mockReturnValue(true);
+    act(() => result.current.handleSheetFrameScaleStart('sheet-inputs', start));
+    const input = document.createElement('input'); document.body.append(input);
+    input.addEventListener('keydown', (e) => e.stopPropagation());
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', bubbles: true })); });
+    expect(result.current.interactionPinnedSheetId).toBe('sheet-inputs');
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', altKey: true, bubbles: true })); result.current.stopSheetFrameScale(pointerEvent({ clientX: 200, clientY: 0 })); });
+    expect(result.current.interactionPinnedSheetId).toBeNull();
+    expect(start.currentTarget.releasePointerCapture).toHaveBeenCalledOnce();
+    expect(testCommands.setSheetVisualScale).not.toHaveBeenCalled();
+    input.remove();
+  } finally { map.cancel = original; }
+});

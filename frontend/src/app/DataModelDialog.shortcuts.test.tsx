@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { expect, it, vi } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { DataModelDialog } from './DataModelDialog';
+import { workbookWithSheets } from '@test-support/workbookFactories';
+import type { Workbook } from '@workbook/core/model';
 
 const model: DataModel = { id: 'model', name: 'Invoice', columns: [
   { id: 'first', name: 'First', kind: 'manual', type: 'string' },
@@ -165,4 +167,35 @@ it('uses rebound property commands and derives their hints', async () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
   } finally { Object.assign(map, original); }
+});
+
+it('contains rebound cancellation for drafts and while saving', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const onCancel = vi.fn(), outer = vi.fn();
+    let resolve!: (value: { ok: true; value: Workbook }) => void;
+    const onSave = vi.fn(() => new Promise<{ ok: true; value: Workbook }>((done) => { resolve = done; }));
+    render(<div onKeyDown={outer}><DataModelDialog models={[model]} onCancel={onCancel} onSave={onSave} /></div>);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    let name = screen.getByLabelText('Model name');
+    expect(fireEvent.keyDown(name, { key: 'Escape' })).toBe(true);
+    expect(fireEvent.keyDown(name, { key: 'q' })).toBe(true);
+    outer.mockClear();
+    expect(fireEvent.keyDown(name, { key: 'q', altKey: true })).toBe(false);
+    expect(outer).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    name = screen.getByLabelText('Model name');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(fireEvent.keyDown(name, { key: 'q', altKey: true })).toBe(false);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole('form', { name: 'Edit data model' })).toBeInTheDocument();
+    resolve({ ok: true, value: workbookWithSheets([]) });
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Edit data model' })).not.toBeInTheDocument());
+    expect(fireEvent.keyDown(screen.getByRole('dialog', { name: 'Data models' }), { key: 'q', altKey: true })).toBe(false);
+    expect(onCancel).toHaveBeenCalledOnce();
+  } finally { map.cancel = original; }
 });
