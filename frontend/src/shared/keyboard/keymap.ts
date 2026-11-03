@@ -38,6 +38,8 @@ export const keymap = {
   'format-percent': [{ key: '5', code: 'Digit5', mod: true, shift: true }],
   'edit-cell': [{ key: 'F2' }, { key: 'Enter' }],
   'clear-cells': [{ key: 'Delete' }, { key: 'Backspace' }],
+  'entry-submit': [{ key: 'Enter' }], 'entry-edit': [{ key: 'F2' }],
+  'error-inspect': [{ key: 'F2' }], 'error-follow': [{ key: 'Enter' }, { key: 'F4' }],
   'reference-navigate': [{ key: 'F4' }], 'toggle-editor-mode': [{ key: 'F2' }],
   'editor-apply': [{ key: 'Enter', mod: true }], 'editor-cancel': [{ key: 'Escape', mod: true }],
   'editor-complete': [{ key: 'Space', code: 'Space', mod: true }],

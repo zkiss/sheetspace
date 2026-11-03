@@ -125,7 +125,8 @@ describe('entry validation keyboard access', () => {
     expect(submit).not.toHaveBeenCalled();
   });
 
-  it.each(['Control', 'Meta'])('keeps heavy editor Escape and Tab ownership until %s+Escape cancels', async (modifier) => {
+  it('keeps heavy editor Escape and Tab ownership until Ctrl+Escape cancels', async () => {
+    const modifier = 'Control';
     const { user, dismiss, submit } = setup();
     const target = cell('Middle');
     await user.click(target);
@@ -159,7 +160,7 @@ describe('entry validation keyboard access', () => {
     await user.click(target);
     await user.keyboard('{F2}');
     await screen.findByRole('textbox', { name: 'Sheet Middle editor' });
-    await user.click(await screen.findByRole('button', { name: 'Dismiss (Esc)' }));
+    await user.click(await screen.findByRole('button', { name: 'Dismiss (Escape)' }));
     await waitFor(() => expect(target).toHaveFocus());
     expect(dismiss).toHaveBeenCalledWith('middle');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

@@ -111,7 +111,7 @@ describe('model entry row', () => {
     const flagged = { ...session, draft: { ...session.draft, fields: { ...session.draft.fields, price: { raw: 'bad', invalid: true, message: 'Invalid price' } } } };
     rerender(<ModelEntryRow model={model} session={flagged} commands={commands} editorInteraction={editorInteraction} />);
     const price = cell('Price new record'); price.focus();
-    const dismiss = await screen.findByRole('button', { name: 'Dismiss (Esc)' });
+    const dismiss = await screen.findByRole('button', { name: 'Dismiss (Escape)' });
     dismiss.focus(); fireEvent.click(dismiss);
     expect(commands.dismiss).toHaveBeenCalledWith('price');
     expect(price).toHaveFocus();

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import type { WorkbookError } from './workbookErrors';
 
 export function ErrorTrace({ error, onNavigate }: {
@@ -22,7 +23,7 @@ export function ErrorTrace({ error, onNavigate }: {
           setSelectedKey(selectionKey(next));
           event.currentTarget.children.item(lines.indexOf(next))?.scrollIntoView?.({ block: 'nearest' });
         }
-      } else if (event.key === 'Enter' || event.key === 'F4') {
+      } else if (matchesShortcut(event, 'error-follow')) {
         event.preventDefault(); event.stopPropagation(); activate(selected);
       }
     }}>
