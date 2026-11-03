@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
+import { tabularCellsByA1 } from '@workbook/read/queries';
 import type { Workbook } from '@workbook/core/model';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
@@ -18,7 +19,7 @@ function sameContent(left: Workbook, right: Workbook): boolean {
 }
 
 /** Stands in for the backend lifecycle compare-and-swap: commits atomically, then drops the response. */
-function committingLifecycleBackend(initial: Workbook) {
+function committingLifecycleBackend(initial: Workbook, loseResponse = true) {
   let durable = structuredClone(initial);
   const saveModelLifecycle = vi.fn().mockImplementation((before: Workbook, after: Workbook) => {
     // The exact retry is accepted because current durable state already matches after.
@@ -31,7 +32,7 @@ function committingLifecycleBackend(initial: Workbook) {
       documents: Object.fromEntries(Object.entries(after.documents).map(([id, sheet]) => [id,
         { ...sheet, revision: durable.documents[id]?.revision ?? 0 }])),
     };
-    return Promise.reject(new TypeError('response lost'));
+    return loseResponse ? Promise.reject(new TypeError('response lost')) : Promise.resolve(structuredClone(durable));
   });
   return { saveModelLifecycle, durable: () => durable };
 }
@@ -66,6 +67,58 @@ async function settle(saves: ReturnType<typeof setup>['saves'], index: number, f
 }
 
 describe('online extraction replay', () => {
+  it('reloads atomic stacking and data after extraction, undo and redo', async () => {
+    const source = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' }, zIndex: 1 });
+    const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1, zIndex: 2 });
+    const initial = workbookWithSheets([source, neighbor]);
+    const cell = cellIdentityAt(source.content, 'A1')!;
+    const request: ExtractionRequest = {
+      sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell },
+      targetSheetId: '00000000-0000-0000-0000-000000000001', targetName: 'Target',
+      targetRows: ['00000000-0000-0000-0000-000000000002'], targetColumns: ['00000000-0000-0000-0000-000000000003'],
+      frame: { position: { x: 30, y: 40 }, size: { width: 300, height: 200 }, zIndex: 2 },
+    };
+    const server = committingLifecycleBackend(initial, false);
+    const api = autosaveClient({ saveModelLifecycle: server.saveModelLifecycle });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: initial, apiClient: api }));
+    const reload = () => {
+      const reloaded = renderHook(() => useWorkbookController({ initialWorkbook: structuredClone(server.durable()), apiClient: api }));
+      const workbook = reloaded.result.current.workbook;
+      reloaded.unmount();
+      return workbook;
+    };
+    const expectExtracted = (workbook: Workbook) => {
+      expect(workbook.documents.s!.frame).toEqual(source.frame);
+      expect(workbook.documents.neighbor!.frame).toEqual({ ...neighbor.frame, zIndex: 3 });
+      expect(workbook.documents[request.targetSheetId]!.frame.zIndex).toBe(2);
+      expect(tabularCellsByA1(workbook.documents.s!.content)).toEqual({});
+      expect(tabularCellsByA1(workbook.documents[request.targetSheetId]!.content)).toEqual({ A1: '42' });
+    };
+
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request); });
+    await act(async () => { expect((await submission.completion).ok).toBe(true); });
+    expect(server.saveModelLifecycle).toHaveBeenCalledTimes(1);
+    const [before, after] = server.saveModelLifecycle.mock.calls[0]!;
+    expect(before.documents.neighbor.frame).toEqual(neighbor.frame);
+    expectExtracted(after);
+    expectExtracted(reload());
+
+    act(() => result.current.commands.undo());
+    await waitFor(() => expect(result.current.canRedo).toBe(true));
+    expect(server.saveModelLifecycle).toHaveBeenCalledTimes(2);
+    const undone = reload();
+    expect(undone.documents[request.targetSheetId]).toBeUndefined();
+    expect(undone.documents.neighbor!.frame).toEqual(neighbor.frame);
+    expect(undone.documents.s!.frame).toEqual(source.frame);
+    expect(tabularCellsByA1(undone.documents.s!.content)).toEqual({ A1: '42' });
+
+    act(() => result.current.commands.redo());
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+    expect(server.saveModelLifecycle).toHaveBeenCalledTimes(3);
+    expectExtracted(reload());
+    expect(api.updateSheetZOrder).not.toHaveBeenCalled();
+  });
   it('rolls back frame insertion and data together when settlement fails', async () => {
     const { result, request, saves, save } = setup(true);
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
