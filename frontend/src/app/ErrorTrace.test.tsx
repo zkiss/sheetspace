@@ -92,3 +92,21 @@ it('navigates an explicit repeated cause by click and keyboard', async () => {
   expect(navigate).toHaveBeenCalledTimes(2);
   expect(navigate).toHaveBeenLastCalledWith(target);
 });
+
+it('follows the rebound shortcut only from the list owner', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map['error-follow']; map['error-follow'] = [{ key: 'f', alt: true }];
+  try {
+    const navigate = vi.fn();
+    const target = { sheetId: 's', cell: { rowId: 'r', columnId: 'c' }, reference: 'A1' };
+    render(<ErrorTrace error={{ key: 'a', ...target, code: '#REF!', text: 'Bad', trace: [{ key: '0', depth: 0, message: 'Bad', target }] }} onNavigate={navigate} />);
+    const list = screen.getByRole('listbox');
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.keyDown(list, { key: 'F4' });
+    fireEvent.keyDown(screen.getAllByRole('button', { name: 'A1' })[1], { key: 'f', altKey: true });
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.keyDown(list, { key: 'f', altKey: true });
+    expect(navigate).toHaveBeenCalledWith(target);
+  } finally { map['error-follow'] = original; }
+});

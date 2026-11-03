@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './NavigationPalette.css';
 
@@ -57,7 +58,7 @@ export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
     });
   }
   function keyDown(event: React.KeyboardEvent) {
-    if (event.key === 'Escape') { event.preventDefault(); onClose(); return; }
+    if (matchesShortcut(event, 'cancel')) { event.preventDefault(); onClose(); return; }
     if (panel && event.key !== 'Tab') return;
     if (rowPicker) {
       if (event.key === 'Enter' && event.target === input.current) {

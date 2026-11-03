@@ -132,7 +132,7 @@ export function DataModelDialog({ formulaResults = {}, initialModelId, initialPr
     propertyToFocus.current = null;
   }, [draft]);
   function containFocus(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === 'Escape') {
+    if (matchesShortcut(event, 'cancel')) {
       event.preventDefault();
       event.stopPropagation();
       if (saving) return;

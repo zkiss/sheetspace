@@ -197,3 +197,46 @@ describe('workspace target × native-event ownership', () => {
     expect(gesture(surface, 'gestureend', 1.5).defaultPrevented).toBe(false);
   });
 });
+
+it('releases the initiating physical pan key after the binding changes', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map['gesture-pan'];
+  try {
+    map['gesture-pan'] = [{ key: 'a', code: 'KeyA' }];
+    const { actions, target } = setup();
+    expect(fireEvent.keyDown(document.body, { key: 'a', code: 'KeyA' })).toBe(false);
+    pointer(target('sheet'), 'pointerdown');
+    expect(actions.start).toHaveBeenCalledOnce();
+    map['gesture-pan'] = [{ key: 'b', code: 'KeyB' }];
+    fireEvent.keyUp(window, { key: 'b', code: 'KeyB' });
+    expect(fireEvent.keyUp(window, { key: 'a', code: 'KeyA' })).toBe(false);
+    expect(pointer(target('sheet'), 'pointerdown').defaultPrevented).toBe(false);
+    expect(actions.start).toHaveBeenCalledOnce();
+  } finally { map['gesture-pan'] = original; }
+});
+
+it.each(['blur', 'hidden', 'modal'])('retires rebound pan ownership on %s', async (ending) => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map['gesture-pan']; map['gesture-pan'] = [{ key: 'a', code: 'KeyA' }];
+  const panEnd = vi.fn();
+  function Harness({ enabled }: { enabled: boolean }) {
+    const ref = useRef<HTMLElement>(null);
+    useWorkspaceGestures(ref, { start: vi.fn(), panEnd, pan: vi.fn(), zoom: vi.fn(), closeMenu: vi.fn(), clearSelection: vi.fn() }, enabled);
+    return <section ref={ref} data-testid="rebound-surface"><article data-workspace-sheet-frame data-testid="rebound-sheet" /></section>;
+  }
+  try {
+    const view = render(<Harness enabled />);
+    fireEvent.keyDown(document.body, { key: 'a', code: 'KeyA' });
+    pointer(screen.getByTestId('rebound-sheet'), 'pointerdown');
+    if (ending === 'blur') fireEvent(window, new Event('blur'));
+    else if (ending === 'hidden') {
+      const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      fireEvent(document, new Event('visibilitychange')); hidden.mockRestore();
+    } else view.rerender(<Harness enabled={false} />);
+    expect(panEnd).toHaveBeenCalledOnce();
+    expect(fireEvent.keyUp(window, { key: 'a', code: 'KeyA' })).toBe(true);
+    expect(pointer(screen.getByTestId('rebound-sheet'), 'pointerdown').defaultPrevented).toBe(false);
+  } finally { map['gesture-pan'] = original; }
+});

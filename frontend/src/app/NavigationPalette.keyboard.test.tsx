@@ -90,3 +90,19 @@ describe('command palette keyboard navigation', () => {
     expect(onNavigate).toHaveBeenCalledWith(3);
   });
 });
+
+it('respects a rebound cancel chord without stealing ordinary input', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const close = vi.fn();
+    render(<NavigationPalette commands={[]} onClose={close} />);
+    const input = screen.getByLabelText('Command search');
+    expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(true);
+    expect(fireEvent.keyDown(input, { key: 'q' })).toBe(true);
+    expect(close).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(input, { key: 'q', altKey: true })).toBe(false);
+    expect(close).toHaveBeenCalledOnce();
+  } finally { map.cancel = original; }
+});

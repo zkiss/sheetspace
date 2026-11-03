@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import type { FormEvent } from 'react';
 import type { PendingSheetCreation, PendingSheetRename } from './sheetDialogContracts';
 import './SheetDialogs.css';
@@ -28,7 +29,7 @@ export function SheetDialog({
   return (
     <div className="dialog-backdrop" role="presentation">
       <form aria-label={label} className="sheet-dialog" onSubmit={onSubmit} onKeyDown={(event) => {
-        if (event.key !== 'Escape') return;
+        if (!matchesShortcut(event, 'cancel')) return;
         event.preventDefault();
         event.stopPropagation();
         onCancel();

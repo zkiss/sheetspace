@@ -655,7 +655,7 @@ export function SheetGrid({
         cell.focus();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') {
+        if (matchesShortcut(event, 'cancel')) {
           finishDrag();
           if (!isNativeEditorTarget(event.target)) clipboardInteraction?.cancelCut?.();
         }

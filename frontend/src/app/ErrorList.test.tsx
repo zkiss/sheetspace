@@ -181,3 +181,46 @@ it('clears hover on leaving a reference and navigates with the meta key', async 
   await user.keyboard('{F2}{Escape}');
   expect(hover).toHaveBeenLastCalledWith(null);
 });
+
+it('follows and inspects with rebound shortcuts, derives hints, and closes with rebound cancel', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = { ...map };
+  map['error-inspect'] = [{ key: 'i', alt: true }];
+  map['error-follow'] = [{ key: 'f', alt: true }];
+  map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const activate = vi.fn(); const close = vi.fn();
+    render(<ErrorList errors={errors} open focusRequest={1} onClose={close} onActivate={activate} />);
+    expect(screen.getByText(/Alt\+I inspect/)).toHaveTextContent('Alt+F follow cell');
+    expect(screen.getByTitle('Close errors (Alt+Q)')).toBeInTheDocument();
+    const cell = screen.getByRole('gridcell', { name: 'one' });
+    fireEvent.keyDown(cell, { key: 'F4' });
+    expect(activate).not.toHaveBeenCalled();
+    fireEvent.keyDown(cell, { key: 'f', altKey: true });
+    expect(activate).toHaveBeenCalledWith(errors[0]);
+    fireEvent.keyDown(cell, { key: 'i', altKey: true });
+    expect(await screen.findByRole('textbox', { name: 'Errors Cell editor' })).toBeInTheDocument();
+    expect(close).not.toHaveBeenCalled();
+  } finally { Object.assign(map, original); }
+});
+
+it('uses rebound follow to inspect cells with no navigable reference and rebound cancel to close', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = { ...map };
+  map['error-follow'] = [{ key: 'f', alt: true }]; map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const close = vi.fn(); const activate = vi.fn();
+    render(<ErrorList errors={errors} open focusRequest={1} onClose={close} onActivate={activate} />);
+    const cell = screen.getByRole('gridcell', { name: 'one' });
+    fireEvent.keyDown(cell, { key: 'ArrowRight' });
+    fireEvent.keyDown(screen.getAllByRole('gridcell', { name: '#REF!' })[0], { key: 'f', altKey: true });
+    expect(await screen.findByRole('textbox', { name: 'Errors Error code editor' })).toBeInTheDocument();
+    expect(activate).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Errors Error code editor' }), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Errors Error code editor' })).not.toBeInTheDocument());
+    fireEvent.keyDown(screen.getAllByRole('gridcell', { name: '#REF!' })[0], { key: 'q', altKey: true });
+    expect(close).toHaveBeenCalledOnce();
+  } finally { Object.assign(map, original); }
+});
