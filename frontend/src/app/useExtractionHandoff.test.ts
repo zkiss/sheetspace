@@ -10,62 +10,57 @@ describe('extraction handoff ownership', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-  it('retains the source snapshot until the ready target completes its handoff', () => {
+  it('allows absence before acceptance but cancels accepted absence at the first commit', () => {
+    const { result } = renderHook(() => useExtractionHandoff(['source']));
+    let token = 0;
+    act(() => { token = result.current.begin(source, 'target'); });
+    expect(result.current.handoff?.accepted).toBe(false);
+    act(() => result.current.accepted(token));
+    expect(result.current.handoff).toBeNull();
+  });
+
+  it('retains accepted present target until readiness and the handoff duration', () => {
     const { result } = renderHook(() => useExtractionHandoff(ids));
-    act(() => result.current.begin(source, 'target'));
+    let token = 0;
+    act(() => { token = result.current.begin(source, 'target'); result.current.accepted(token); });
     act(() => vi.advanceTimersByTime(1000));
-    expect(result.current.handoff).toEqual({ source, targetId: 'target', ready: false });
-    act(() => result.current.targetReady('target'));
+    expect(result.current.handoff?.source).toBe(source);
+    act(() => result.current.targetReady(token));
     act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION - 1));
     expect(result.current.handoff?.source).toBe(source);
     act(() => vi.advanceTimersByTime(1));
     expect(result.current.handoff).toBeNull();
   });
 
-  it('ignores stale readiness, cancels superseded timers, and cleans up on unmount', () => {
+  it('ignores old generation callbacks even when target IDs are reused', () => {
     const { result, unmount } = renderHook(() => useExtractionHandoff(ids));
-    act(() => { result.current.begin(source, 'target'); result.current.targetReady('target'); });
-    act(() => result.current.begin(source, 'next'));
-    act(() => result.current.targetReady('target'));
+    let old = 0, current = 0;
+    act(() => { old = result.current.begin(source, 'target'); result.current.accepted(old); result.current.targetReady(old); });
+    act(() => { current = result.current.begin(source, 'target'); });
+    act(() => { result.current.accepted(old); result.current.cancel(old); result.current.targetReady(old); });
     act(() => vi.advanceTimersByTime(EXTRACTION_HANDOFF_DURATION));
-    expect(result.current.handoff?.targetId).toBe('next');
-    act(() => result.current.cancel());
-    expect(result.current.handoff).toBeNull();
+    expect(result.current.handoff).toMatchObject({ token: current, accepted: false, ready: false });
+    act(() => { result.current.accepted(current); result.current.targetReady(current); });
     unmount();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('cleans up if the ready target disappears or reduced motion is requested', () => {
+  it('cleans up on removal before or after readiness and honors reduced motion', () => {
     const preference = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
     vi.stubGlobal('matchMedia', () => preference);
     const { result, rerender } = renderHook(({ sheets }) => useExtractionHandoff(sheets), { initialProps: { sheets: ids } });
-    act(() => { result.current.begin(source, 'target'); result.current.targetReady('target'); });
+    let token = 0;
+    act(() => { token = result.current.begin(source, 'target'); result.current.accepted(token); });
+    rerender({ sheets: ['source'] });
+    expect(result.current.handoff).toBeNull();
+    rerender({ sheets: ids });
+    act(() => { token = result.current.begin(source, 'target'); result.current.accepted(token); result.current.targetReady(token); });
     rerender({ sheets: ['source'] });
     expect(result.current.handoff).toBeNull();
     preference.matches = true;
     rerender({ sheets: ids });
-    act(() => { result.current.begin(source, 'target'); result.current.targetReady('target'); });
+    act(() => { token = result.current.begin(source, 'target'); result.current.accepted(token); result.current.targetReady(token); });
     expect(result.current.handoff).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('waits for first appearance but releases the snapshot if the target is removed before readiness', () => {
-    const { result, rerender } = renderHook(({ sheets }) => useExtractionHandoff(sheets), { initialProps: { sheets: ['source'] } });
-    act(() => result.current.begin(source, 'target'));
-    expect(result.current.handoff?.targetId).toBe('target');
-    rerender({ sheets: ids });
-    expect(result.current.handoff?.targetId).toBe('target');
-    rerender({ sheets: ['source'] });
-    expect(result.current.handoff).toBeNull();
-  });
-
-  it('does not let a stale failure cancel a newer handoff', () => {
-    const { result } = renderHook(() => useExtractionHandoff(ids));
-    act(() => result.current.begin(source, 'target'));
-    act(() => result.current.begin(source, 'next'));
-    act(() => result.current.cancel('target'));
-    expect(result.current.handoff?.targetId).toBe('next');
-    act(() => result.current.cancel('next'));
-    expect(result.current.handoff).toBeNull();
   });
 });

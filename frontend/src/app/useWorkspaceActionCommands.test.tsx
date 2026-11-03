@@ -4,6 +4,10 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 import { NavigationPalette } from './NavigationPalette';
 import { useRef, useState } from 'react';
+import { useWorkbookController } from '@application/react/useWorkbookController';
+import { useExtractionHandoff } from './useExtractionHandoff';
+import { cellRawContent } from '@workbook/read/queries';
+import type { ExtractionRequest } from '@application/core/extractionPreparation';
 
 type Props = Parameters<typeof useWorkspaceActionCommands>[0];
 function setup(columnCount = 1) {
@@ -40,6 +44,39 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it.each([false, true])('uses real controller publication receipt with same-batch undo %s', (undo) => {
+    const { props, sheet, cell, hook } = setup();
+    hook.unmount();
+    const source = sheetDocument({ id: sheet.id, name: 'Sheet', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
+    const identity = { rowId: source.content.rows[0]!, columnId: source.content.columns[0]! };
+    const targetId = '00000000-0000-0000-0000-000000000001';
+    const request: ExtractionRequest = { sourceSheetId: source.id, selection: { kind: 'cells', start: identity, end: identity }, targetSheetId: targetId, targetName: 'Target', targetRows: ['00000000-0000-0000-0000-000000000002'], targetColumns: ['00000000-0000-0000-0000-000000000003'], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } };
+    const { result } = renderHook(() => {
+      const controller = useWorkbookController({ initialWorkbook: workbookWithSheets([source]) });
+      const owner = useExtractionHandoff(Object.keys(controller.workbook.documents));
+      const tokens = useRef(new WeakMap<object, number>());
+      const selected = { ...cell, cell: identity };
+      const actions = useWorkspaceActionCommands({ ...props, commands: controller.commands, workbook: controller.workbook, sheet: controller.workbook.documents[source.id], activeCell: selected, selection: { anchor: selected, extent: selected, mode: 'cells' }, extraction: {
+        request: () => { tokens.current.set(request, owner.begin(source, targetId)); return request; },
+        onAccepted: (value) => owner.accepted(tokens.current.get(value)!),
+        onFailure: (value) => { if (value) owner.cancel(tokens.current.get(value)!); },
+        onSuccess: vi.fn(),
+      } });
+      return { controller, owner, actions };
+    });
+    act(() => {
+      result.current.actions.commands.find((item) => item.id === 'extract-selection')!.run();
+      if (undo) result.current.controller.commands.undo();
+    });
+    if (undo) {
+      expect(result.current.controller.workbook.documents[targetId]).toBeUndefined();
+      expect(cellRawContent(result.current.controller.workbook.documents[source.id]!, 'A1')).toBe('42');
+      expect(result.current.owner.handoff).toBeNull();
+    } else {
+      expect(result.current.controller.workbook.documents[targetId]).toBeDefined();
+      expect(result.current.owner.handoff).toMatchObject({ accepted: true, ready: false });
+    }
+  });
   it('prevents duplicate extraction while saving and permits another after settlement', async () => {
     const { command, hook, props, cell } = setup();
     let finish!: (value: unknown) => void;

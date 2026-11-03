@@ -187,6 +187,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const sheets = sheetsInOrder(workbook);
   const extractionHandoff = useExtractionHandoff(sheets.map((sheet) => sheet.id));
   const extractionFormulaSnapshot = useRef(formulaResults);
+  const extractionTokens = useRef(new WeakMap<object, number>());
   const activeSheetId = entrySheetId ?? activeCell?.sheetId;
   const selectedSheet = activeSheetId ? findSheetById(workbook, activeSheetId) : undefined;
   const dataModels = Object.values(workbook.dataModels ?? {});
@@ -795,10 +796,20 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       request: (sheet, selection) => {
         const viewport = referenceGridViewports[sheet.id];
         const request = extractionRequest(workbook, sheet, selection, { x: viewport?.scrollLeft ?? 0, y: viewport?.scrollTop ?? 0 }, projectedFramesById.get(sheet.id)?.position);
-        if (request) { extractionFormulaSnapshot.current = formulaResults; extractionHandoff.begin(sheet, request.targetSheetId); }
+        if (request) {
+          extractionFormulaSnapshot.current = formulaResults;
+          extractionTokens.current.set(request, extractionHandoff.begin(sheet, request.targetSheetId));
+        }
         return request;
       },
-      onFailure: extractionHandoff.cancel,
+      onAccepted: (request) => {
+        const token = extractionTokens.current.get(request);
+        if (token !== undefined) extractionHandoff.accepted(token);
+      },
+      onFailure: (request) => {
+        const token = request && extractionTokens.current.get(request);
+        if (token !== undefined) extractionHandoff.cancel(token);
+      },
       onSuccess: (request) => {
         const rowId = request.targetRows[0];
         const columnId = request.targetColumns[0];
@@ -1087,7 +1098,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}
                     onReferenceViewport={(id, viewport) => {
                       reportReferenceViewport(id, viewport);
-                      if (viewport && viewport.width > 0 && viewport.height > 0) extractionHandoff.targetReady(id);
+                      if (viewport && viewport.width > 0 && viewport.height > 0 && extractionHandoff.handoff?.targetId === id) extractionHandoff.targetReady(extractionHandoff.handoff.token);
                     }}
                     onUserViewportMovement={() => { recordUserGridMovement(); transport.cancel(); }}
                     historyRestore={gridPresentationReady ? historyRestoreForSheet(sheet.id) : undefined}
