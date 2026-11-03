@@ -194,7 +194,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (!mounted.current) return;
       const error = extractionFeedback(result);
       if (error) { extraction.onFailure?.(request); onFeedback(error); return; }
-      if (selectionRevision.current.revision === revision) { onCancelCut(); extraction.onSuccess(request); }
+      if (selectionRevision.current.revision === revision && commands.currentWorkbook().documents[request.targetSheetId]) {
+        onCancelCut(); extraction.onSuccess(request);
+      }
     }, () => { release(); if (mounted.current) { extraction.onFailure?.(request); onFeedback('The extraction could not be saved.'); } });
   }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {

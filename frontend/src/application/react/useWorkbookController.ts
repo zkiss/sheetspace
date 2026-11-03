@@ -406,6 +406,7 @@ export function useWorkbookController({
       return model ? [[sheet.id, entrySessions.get(sheet.id, model)]] : [];
     })),
     commands: {
+      currentWorkbook: () => optimisticWorkbook.current,
       extractSelection: (request) => extractionCommand(request, {
         history: contentHistory,
         submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),

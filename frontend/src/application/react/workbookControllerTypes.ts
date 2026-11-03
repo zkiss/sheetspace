@@ -16,6 +16,7 @@ import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
 
 export type WorkbookCommands = {
+  currentWorkbook: () => Workbook;
   extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest) => ExtractionSubmission;
   submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;

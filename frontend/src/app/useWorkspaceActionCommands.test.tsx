@@ -13,7 +13,7 @@ type Props = Parameters<typeof useWorkspaceActionCommands>[0];
 function setup(columnCount = 1) {
   const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount });
   const cell = { sheetId: sheet.id, cell: { rowId: sheet.content.rows[0]!, columnId: sheet.content.columns[0]! } };
-  const commands = { appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn(), deleteRow: vi.fn(), deleteColumn: vi.fn(), replaceModelDeclaration: vi.fn() };
+  const commands = { currentWorkbook: () => ({ documents: new Proxy({}, { get: () => sheet }) }), appendRow: vi.fn(), setSheetVisualScale: vi.fn(), changeSheetZOrder: vi.fn(), undo: vi.fn(), redo: vi.fn(), retryFailedSaves: vi.fn(), renameColumn: vi.fn(), deleteRow: vi.fn(), deleteColumn: vi.fn(), replaceModelDeclaration: vi.fn() };
   const controller = { createSheetAtViewportCenter: vi.fn(), zoomWorkspaceBy: vi.fn(), resetViewport: vi.fn() };
   const clipboard = { canWrite: () => true, canRead: () => true, write: vi.fn().mockResolvedValue(undefined), read: vi.fn() };
   const props = {
@@ -70,12 +70,13 @@ describe('workspace palette actions', () => {
     expect(props.onFeedback).toHaveBeenCalledWith('The extraction could not be saved.');
   });
 
-  it.each([false, true])('uses real controller publication receipt with same-batch undo %s', (undo) => {
+  it.each([false, true])('uses real controller publication receipt with same-batch undo %s', async (undo) => {
     const { props, sheet, cell, hook } = setup();
     hook.unmount();
     const source = sheetDocument({ id: sheet.id, name: 'Sheet', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
     const identity = { rowId: source.content.rows[0]!, columnId: source.content.columns[0]! };
     const targetId = '00000000-0000-0000-0000-000000000001';
+    const selectAndFocus = vi.fn();
     const request: ExtractionRequest = { sourceSheetId: source.id, selection: { kind: 'cells', start: identity, end: identity }, targetSheetId: targetId, targetName: 'Target', targetRows: ['00000000-0000-0000-0000-000000000002'], targetColumns: ['00000000-0000-0000-0000-000000000003'], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } };
     const { result } = renderHook(() => {
       const controller = useWorkbookController({ initialWorkbook: workbookWithSheets([source]) });
@@ -86,11 +87,11 @@ describe('workspace palette actions', () => {
         request: () => { tokens.current.set(request, owner.begin(source, targetId)); return request; },
         onAccepted: (value) => owner.accepted(tokens.current.get(value)!),
         onFailure: (value) => { if (value) owner.cancel(tokens.current.get(value)!); },
-        onSuccess: vi.fn(),
+        onSuccess: selectAndFocus,
       } });
       return { controller, owner, actions };
     });
-    act(() => {
+    await act(async () => {
       result.current.actions.commands.find((item) => item.id === 'extract-selection')!.run();
       if (undo) result.current.controller.commands.undo();
     });
@@ -98,9 +99,12 @@ describe('workspace palette actions', () => {
       expect(result.current.controller.workbook.documents[targetId]).toBeUndefined();
       expect(cellRawContent(result.current.controller.workbook.documents[source.id]!, 'A1')).toBe('42');
       expect(result.current.owner.handoff).toBeNull();
+      expect(selectAndFocus).not.toHaveBeenCalled();
+      expect(props.onCancelCut).not.toHaveBeenCalled();
     } else {
       expect(result.current.controller.workbook.documents[targetId]).toBeDefined();
       expect(result.current.owner.handoff).toMatchObject({ accepted: true, ready: false });
+      expect(selectAndFocus).toHaveBeenCalledWith(request);
     }
   });
   it('prevents duplicate extraction while saving and permits another after settlement', async () => {
