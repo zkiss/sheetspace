@@ -99,6 +99,10 @@ it('respects a rebound cancel chord without stealing ordinary input', async () =
     const close = vi.fn();
     render(<NavigationPalette commands={[]} onClose={close} />);
     const input = screen.getByLabelText('Command search');
+    const closeButton = screen.getByRole('button', { name: 'Close command palette' });
+    expect(closeButton).toHaveAttribute('title', 'Close (Alt+Q)');
+    expect(closeButton).toHaveTextContent('Alt+Q');
+    expect(screen.getByText('close', { selector: '.navigation-palette-footer span' })).toHaveTextContent('Alt+Q close');
     expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(true);
     expect(fireEvent.keyDown(input, { key: 'q' })).toBe(true);
     expect(close).not.toHaveBeenCalled();

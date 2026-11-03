@@ -1,4 +1,4 @@
-import { matchesShortcut } from '@shared/keyboard/keymap';
+import { matchesShortcut, shortcutLabel } from '@shared/keyboard/keymap';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './NavigationPalette.css';
 
@@ -31,6 +31,7 @@ export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
   const list = useRef<HTMLUListElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const panelTitle = panel?.title;
+  const cancelHint = shortcutLabel('cancel');
   const matches = commands.filter((command) => command.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const matchAvailability = matches.map((command) => command.unavailable ? '0' : '1').join('');
   const activeId = matches[index] ? `navigation-command-${matches[index]!.id}` : undefined;
@@ -93,7 +94,7 @@ export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
         {panel ? <strong>{panel.title}</strong> : <><span aria-hidden="true" className="navigation-palette-search-icon">⌕</span>
         <label className="navigation-palette-search-label" htmlFor="navigation-command-search">{rowPicker ? 'Row number' : 'Command search'}</label>
         <input aria-activedescendant={rowPicker ? undefined : activeId} aria-controls={rowPicker ? undefined : 'navigation-command-results'} aria-expanded={rowPicker ? undefined : 'true'} aria-haspopup={rowPicker ? undefined : 'listbox'} aria-invalid={rowError ? 'true' : undefined} aria-describedby={rowPicker ? 'navigation-row-hint' : undefined} id="navigation-command-search" inputMode={rowPicker ? 'numeric' : undefined} onChange={(event) => { setQuery(event.target.value); setIndex(0); setRowError(''); }} placeholder={rowPicker ? 'Enter a row number…' : 'Type a command or search…'} ref={input} role={rowPicker ? undefined : 'combobox'} value={query} /></>}
-        <button aria-label="Close command palette" className="navigation-palette-close" onClick={onClose} title="Close (Esc)" type="button">Esc</button>
+        <button aria-label="Close command palette" className="navigation-palette-close" onClick={onClose} title={cancelHint ? `Close (${cancelHint})` : 'Close'} type="button">{cancelHint ?? 'Close'}</button>
       </div>
       {panel ? <div className="navigation-palette-panel" ref={panelRef}>{panel.content}</div> : rowPicker ? <div className="navigation-row-picker" id="navigation-row-hint">
         <span>Go to a row in <strong>{rowPicker.sheetName}</strong></span>
@@ -110,7 +111,7 @@ export function NavigationPalette({ commands, onClose, rowPicker, panel }: {
         </li>)}
       </ul>}
       {!panel && !rowPicker && matches.length === 0 ? <p className="navigation-palette-empty" role="status">No commands found.</p> : null}
-      <div className="navigation-palette-footer">{!panel && !rowPicker ? <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span> : null}{!panel ? <span><kbd>↵</kbd> {rowPicker ? 'go to row' : 'select'}</span> : null}<span><kbd>Esc</kbd> close</span></div>
+      <div className="navigation-palette-footer">{!panel && !rowPicker ? <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span> : null}{!panel ? <span><kbd>↵</kbd> {rowPicker ? 'go to row' : 'select'}</span> : null}<span>{cancelHint ? <kbd>{cancelHint}</kbd> : null} close</span></div>
     </section>
   </div>;
 }
