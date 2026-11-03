@@ -30,6 +30,7 @@ import { ModelEntryRow, type EntryCommands } from './ModelEntryRow';
 import type { DataModel } from '@workbook/core/model';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
 import { useGridHistoryRestore } from './useGridHistoryRestore';
+import { useOwnedScroll } from './useOwnedScroll';
 import { isNativeEditorTarget, logicalUnitsPerRenderedPixel } from './gridScrollInput';
 import { clipboardHtml, clipboardMarkerFromHtml } from './clipboardHtml';
 import '@grid/SheetGrid.css';
@@ -101,6 +102,7 @@ export function SheetGrid({
   onHistoryRevealConsumed,
   formulaResults,
   scrollContainerRef,
+  ownedScroll,
   selectionMode,
   selectionOwner,
   sheet,
@@ -180,6 +182,7 @@ export function SheetGrid({
   onHistoryRevealConsumed?: (sheetId: string, identity: string) => void;
   formulaResults: FormulaEvaluationSnapshot;
   scrollContainerRef: RefObject<HTMLElement>;
+  ownedScroll?: { left: number; top: number };
   selectionMode?: CellSelectionMode;
   /** Controlled selection owner; omitted only by consumers without shared interaction state. */
   selectionOwner?: symbol | null;
@@ -213,6 +216,7 @@ export function SheetGrid({
   const columnItemKey = useCallback((index: number) => columnMetrics.itemKey(index) ?? index, [columnMetrics]);
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
+  useOwnedScroll(scrollContainerRef, ownedScroll);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
   const [navigationFocusIntent, setNavigationFocusIntent] = useState<NavigationFocusIntent | null>(null);

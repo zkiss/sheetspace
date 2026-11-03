@@ -191,6 +191,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const extractionFormulaSnapshot = useRef(formulaResults);
   const extractionTokens = useRef(new WeakMap<object, number>());
   const extractionRange = useRef<{ token: number; range: CellRange } | null>(null);
+  const extractionScroll = useRef<{ token: number; position: { left: number; top: number } } | null>(null);
   const activeSheetId = entrySheetId ?? activeCell?.sheetId;
   const selectedSheet = activeSheetId ? findSheetById(workbook, activeSheetId) : undefined;
   const dataModels = Object.values(workbook.dataModels ?? {});
@@ -810,6 +811,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         if (request) {
           extractionFormulaSnapshot.current = formulaResults;
           const token = extractionHandoff.begin(sheet, request.targetSheetId);
+          extractionScroll.current = { token, position: { left: body?.scrollLeft ?? viewport?.scrollLeft ?? 0, top: body?.scrollTop ?? viewport?.scrollTop ?? 0 } };
           const range = selectionAddressRange(sheet, selection);
           extractionRange.current = range ? { token, range } : null;
           extractionTokens.current.set(request, token);
@@ -1174,6 +1176,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
                     canRevealHistory={contentReveal.canReveal}
                     onHistoryRevealConsumed={contentReveal.consume}
                     scrollContainerRef={scrollContainerRef}
+                    ownedScroll={extractionHandoff.handoff?.source.id === sheet.id && extractionScroll.current?.token === extractionHandoff.handoff.token ? extractionScroll.current.position : undefined}
                     selectedRange={selectedRange}
                     selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
                     onSelectAxis={(...args) => { cancelNavigationBeforeUserMovement.current(); onSelectAxis(...args); }}
