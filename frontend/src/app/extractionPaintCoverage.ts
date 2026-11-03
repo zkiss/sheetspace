@@ -11,13 +11,13 @@ function intersection(...rects: Rect[]): Rect | null {
   return rect.right > rect.left && rect.bottom > rect.top ? rect : null;
 }
 
-function aperture(frame: Element): Rect | null {
+function aperture(frame: Element): Rect | 'empty' | null {
   const body = frame.querySelector<HTMLElement>('.sheet-frame-body');
   const corner = frame.querySelector('.sheet-grid-corner');
   if (!body || !corner) return null;
   const bounds = body.getBoundingClientRect();
   const header = corner.getBoundingClientRect();
-  if (bounds.width <= 0 || bounds.height <= 0 || header.width <= 0 || header.height <= 0) return null;
+  if (bounds.width <= 0 || bounds.height <= 0 || header.width <= 0 || header.height <= 0) return 'empty';
   const scale = body.offsetWidth ? bounds.width / body.offsetWidth : 1;
   return { left: header.right, top: header.bottom,
     right: body.clientWidth ? bounds.left + body.clientWidth * scale : bounds.right,
@@ -40,7 +40,8 @@ export function visibleExtractionCoverage(surface: Element, source: Element, tar
   range: CellRange, sheet: SheetDocument): 'unknown' | 'empty' | 'waiting' | 'covered' {
   const sourceAperture = aperture(source), body = source.querySelector<HTMLElement>('.sheet-frame-body');
   const clip = surface.getBoundingClientRect();
-  if (!sourceAperture || !body || clip.width <= 0 || clip.height <= 0 || !body.offsetWidth) return 'unknown';
+  if (clip.width <= 0 || clip.height <= 0 || sourceAperture === 'empty') return 'empty';
+  if (!sourceAperture || !body || !body.offsetWidth) return 'unknown';
   const visible = intersection(sourceAperture, clip);
   if (!visible) return 'empty';
   const scale = body.getBoundingClientRect().width / body.offsetWidth;
@@ -53,7 +54,7 @@ export function visibleExtractionCoverage(surface: Element, source: Element, tar
   if (columns === 'unknown' || rows === 'unknown') return 'unknown';
   if (!target) return 'waiting';
   const targetAperture = aperture(target);
-  if (!targetAperture) return 'waiting';
+  if (!targetAperture || targetAperture === 'empty') return 'waiting';
   for (let row = rows.first; row <= rows.last; row++) for (let column = columns.first; column <= columns.last; column++) {
     const sourceKey = cellKey({ rowIndex: row, columnIndex: column });
     const targetKey = cellKey({ rowIndex: row - range.start.rowIndex, columnIndex: column - range.start.columnIndex });

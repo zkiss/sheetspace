@@ -59,7 +59,7 @@ describe('committed extraction paint coverage', () => {
     const firstOnly = { start: range.start, end: range.start };
     expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('empty');
     surface.getBoundingClientRect = () => rect(0, 0, 0, 0);
-    expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('unknown');
+    expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('empty');
   });
   it('requires every visible mapped cell with matching text and geometry', () => {
     const { surface, source, target, range, last, sheet } = setup();
@@ -74,12 +74,21 @@ describe('committed extraction paint coverage', () => {
     expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
   });
 
-  it('does not infer offscreen or readiness from missing source cells or an unmeasured surface', () => {
+  it('does not infer offscreen or readiness from missing source cells or missing geometry', () => {
     const { surface, source, target, range, sheet } = setup();
     source.querySelector('[data-cell-key="B1"]')?.remove();
     expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
-    surface.getBoundingClientRect = () => rect(0, 0, 0, 0);
+    source.querySelector('.sheet-grid-corner')?.remove();
     expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('unknown');
+  });
+
+  it('treats measured hidden workspace, source body and corner as empty', () => {
+    for (const selector of ['surface', '.sheet-frame-body', '.sheet-grid-corner']) {
+      const { surface, source, target, range, sheet } = setup();
+      const hidden = selector === 'surface' ? surface : source.querySelector(selector)!;
+      hidden.getBoundingClientRect = () => rect(0, 0, 0, 0);
+      expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('empty');
+    }
   });
 
   it('requires only the fragments visible through both the surface and the scroll aperture', () => {
