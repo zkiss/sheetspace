@@ -75,7 +75,33 @@ describe('workspace palette actions', () => {
     props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: false, reason: 'protected-source' } });
     hook.rerender();
     act(() => command('extract-selection').run());
-    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('protected-source'));
+    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('bound to a data model'));
+  });
+  it('explains asynchronous range rejection without transferring ownership', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    await act(async () => finish({ ok: false, reason: 'unrepresentable-range' }));
+    expect(props.onFeedback).toHaveBeenCalledWith(expect.stringContaining('entire referenced range'));
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
+    expect(props.onCancelCut).not.toHaveBeenCalled();
+  });
+  it('suppresses extraction callbacks after unmount', async () => {
+    const { command, hook, props, cell } = setup();
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'cells', anchor: cell, extent: cell };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    hook.unmount();
+    await act(async () => finish({ ok: false, reason: 'unrepresentable-range' }));
+    expect(props.onFeedback).not.toHaveBeenCalled();
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
   });
   it.each(['row', 'column'] as const)('selects an adjacent cell only after %s deletion succeeds', async (axis) => {
     const { command, commands, props, sheet, cell } = setup();

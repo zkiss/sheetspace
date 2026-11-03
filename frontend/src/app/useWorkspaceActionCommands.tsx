@@ -25,6 +25,7 @@ import type { NavigationCommand } from './NavigationPalette';
 import { selectionAddressRange } from './workspaceSelection';
 import { extractionSelection } from './extractionSelection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
+import { extractionFeedback } from './extractionFeedback';
 
 type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; initialAction?: 'unbind' }
   | { kind: 'rename-column'; title: string; target: RenameColumnTarget; initialName: string }
@@ -172,12 +173,12 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     const revision = selectionRevision.current.revision;
     const request = extraction.request(sheet, selection);
     const submission = commands.extractSelection(request);
-    const message = failure(submission.result);
+    const message = extractionFeedback(submission.result);
     if (message) { closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       if (!mounted.current) return;
-      const error = failure(result);
+      const error = extractionFeedback(result);
       if (error) { onFeedback(error); return; }
       if (selectionRevision.current.revision === revision) { onCancelCut(); extraction.onSuccess(request); }
     }, () => { if (mounted.current) onFeedback('The extraction could not be saved.'); });
