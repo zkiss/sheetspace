@@ -231,7 +231,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const paintOwner = extractionHandoff.handoff;
   useExtractionPaintCoverage(workspaceController.workspaceSurfaceRef,
     paintOwner && extractionRange.current?.token === paintOwner.token
-      ? { token: paintOwner.token, sourceId: paintOwner.source.id, targetId: paintOwner.targetId, range: extractionRange.current.range, ready: paintOwner.ready }
+      ? { token: paintOwner.token, source: paintOwner.source, targetId: paintOwner.targetId, range: extractionRange.current.range, ready: paintOwner.ready }
       : null, extractionHandoff.targetReady, extractionHandoff.targetNotReady, extractionHandoff.cancel, workspaceController.viewport);
   const maximise = useMaximiseRuntime(workspaceController, workspaceController.workspaceSurfaceSize, reducedMotion, (id) => Boolean(findSheetById(workbook, id)), (id) => {
     const sheet = findSheetById(workbook, id);
@@ -1072,12 +1072,16 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               onOpenSheetMenu={workspaceController.openSheetMenu}
               onResizeCancel={cancelSheetFrameResize}
               onResizeMove={handleSheetFrameResizeMove}
-              onResizeStart={handleSheetFrameResizeStart}
+              onResizeStart={(id, direction, event) => {
+                if (id !== paintOwner?.source.id && id !== paintOwner?.targetId) handleSheetFrameResizeStart(id, direction, event);
+              }}
               onResizeStop={stopSheetFrameResize}
               onSheetFrameDragCancel={cancelSheetFrameDrag}
               onSheetFrameInteraction={workspaceController.closeSheetMenu}
               onSheetFrameDragMove={handleSheetFrameDragMove}
-              onSheetFrameDragStart={handleSheetFrameDragStart}
+              onSheetFrameDragStart={(id, event) => {
+                if (id !== paintOwner?.source.id && id !== paintOwner?.targetId) handleSheetFrameDragStart(id, event);
+              }}
               onSheetFrameDragStop={stopSheetFrameDrag}
               onSelectSheet={() => {
                 const target = onActivateSheet(sheet.id);

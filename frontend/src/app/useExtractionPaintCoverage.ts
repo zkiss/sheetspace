@@ -1,9 +1,10 @@
 import { useLayoutEffect } from 'react';
 import type { RefObject } from 'react';
 import type { CellRange } from '@workbook/core/address';
-import { extractionPaintCoverage, sourceApertureOutsideSurface } from './extractionPaintCoverage';
+import type { SheetDocument } from '@workbook/core/model';
+import { visibleExtractionCoverage } from './extractionPaintCoverage';
 
-type Operation = { token: number; sourceId: string; targetId: string; range: CellRange; ready: boolean };
+type Operation = { token: number; source: SheetDocument; targetId: string; range: CellRange; ready: boolean };
 
 export function useExtractionPaintCoverage(surface: RefObject<HTMLElement>, operation: Operation | null,
   targetReady: (token: number) => void, targetNotReady: (token: number) => void, cancel: (token: number) => void, geometryRevision: unknown) {
@@ -12,10 +13,11 @@ export function useExtractionPaintCoverage(surface: RefObject<HTMLElement>, oper
     if (!root || !operation) return;
     const check = () => {
       const frames = Array.from(root.querySelectorAll('[data-workspace-sheet-frame]'));
-      const source = frames.find((frame) => frame.getAttribute('data-sheet-id') === operation.sourceId);
+      const source = frames.find((frame) => frame.getAttribute('data-sheet-id') === operation.source.id);
       const target = frames.find((frame) => frame.getAttribute('data-sheet-id') === operation.targetId);
-      if (source && sourceApertureOutsideSurface(root, source)) cancel(operation.token);
-      else if (source && target && extractionPaintCoverage(root, source, target, operation.range)) targetReady(operation.token);
+      const coverage = source ? visibleExtractionCoverage(root, source, target, operation.range, operation.source) : 'unknown';
+      if (coverage === 'empty') cancel(operation.token);
+      else if (coverage === 'covered') targetReady(operation.token);
       else targetNotReady(operation.token);
     };
     check();

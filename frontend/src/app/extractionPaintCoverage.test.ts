@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { extractionPaintCoverage, sourceApertureOutsideSurface } from './extractionPaintCoverage';
+import { extractionPaintCoverage, sourceApertureOutsideSurface, visibleExtractionCoverage } from './extractionPaintCoverage';
+import { sheetDocument } from '@test-support/workbookFactories';
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
   return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) };
@@ -33,6 +34,32 @@ function setup() {
 }
 
 describe('committed extraction paint coverage', () => {
+  it('checks only visible cells of a large selection and retires a selection scrolled out of view', () => {
+    const { surface, source, target } = setup();
+    source.querySelectorAll('[data-cell-key]').forEach((cell) => cell.remove());
+    target.querySelectorAll('[data-cell-key]').forEach((cell) => cell.remove());
+    const body = source.querySelector<HTMLElement>('.sheet-frame-body')!;
+    Object.defineProperty(body, 'offsetWidth', { value: 300 });
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 200, columnCount: 200 });
+    const range = { start: { rowIndex: 0, columnIndex: 0 }, end: { rowIndex: 199, columnIndex: 199 } };
+    surface.getBoundingClientRect = () => rect(40, 26, 76, 26.4);
+    element(source, '', rect(40, 26, 76, 26.4), 'A1', 'value');
+    const targetCell = element(target, '', rect(40, 26, 76, 26.4), 'A1', 'value');
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('covered');
+    targetCell.remove();
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
+    target.append(targetCell);
+    targetCell.textContent = 'incorrect';
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
+    targetCell.textContent = 'value';
+    source.querySelector('[data-cell-key="A1"]')?.remove();
+    expect(visibleExtractionCoverage(surface, source, target, range, sheet)).toBe('waiting');
+    body.scrollTop = 100;
+    const firstOnly = { start: range.start, end: range.start };
+    expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('empty');
+    surface.getBoundingClientRect = () => rect(0, 0, 0, 0);
+    expect(visibleExtractionCoverage(surface, source, target, firstOnly, sheet)).toBe('unknown');
+  });
   it('requires every visible mapped cell with matching text and geometry', () => {
     const { surface, source, target, range, last } = setup();
     expect(extractionPaintCoverage(surface, source, target, range)).toBe(true);
