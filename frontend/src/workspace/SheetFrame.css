@@ -15,19 +15,29 @@
 }
 
 .sheet-frame-extraction-handoff {
-  animation: extraction-frame-chrome 240ms ease-out both;
+  border-color: transparent;
+  box-shadow: none;
+  background: transparent;
 }
 
 .sheet-frame-extraction-handoff .sheet-frame-header {
+  opacity: 0;
+}
+
+.sheet-frame-extraction-ready {
+  animation: extraction-frame-chrome 240ms ease-out both;
+}
+
+.sheet-frame-extraction-ready .sheet-frame-header {
   animation: extraction-header-chrome 240ms ease-out both;
 }
 
 @keyframes extraction-frame-chrome {
-  from { border-color: transparent; box-shadow: none; }
+  to { border-color: #bac7ce; box-shadow: 0 8px 24px rgb(23 32 42 / 12%); background: #ffffff; }
 }
 
 @keyframes extraction-header-chrome {
-  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
