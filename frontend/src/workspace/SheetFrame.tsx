@@ -29,6 +29,7 @@ export function SheetFrame({
   extractionHandoff,
   extractionSource,
   extractionReady,
+  extractionWaitingZIndex,
   presentation,
   overview,
   onDetailedFocusDisplaced,
@@ -59,6 +60,7 @@ export function SheetFrame({
   extractionHandoff?: boolean;
   extractionSource?: boolean;
   extractionReady?: boolean;
+  extractionWaitingZIndex?: number;
   presentation?: { sample: SheetPresentation; viewport: WorkspaceViewport };
   overview?: ReactNode;
   /** Reports that replacing this detailed body displaced native grid focus. */
@@ -141,7 +143,7 @@ export function SheetFrame({
         '--sheet-header-height': `${SHEET_HEADER_HEIGHT}px`,
         left: presentation ? (presentation.sample.frame.left - presentation.viewport.x) / presentation.viewport.scale : frame.position.x,
         top: presentation ? (presentation.sample.frame.top - presentation.viewport.y) / presentation.viewport.scale : frame.position.y,
-        zIndex: frame.zIndex,
+        zIndex: extractionHandoff && !extractionReady ? extractionWaitingZIndex ?? frame.zIndex : frame.zIndex,
         width: presentation?.sample.frame.width ?? frameSize.width,
         height: presentation?.sample.frame.height ?? frameSize.height,
         transform: `scale(${presentation ? 1 / presentation.viewport.scale : frame.visualScale})`,

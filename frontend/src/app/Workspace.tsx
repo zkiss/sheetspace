@@ -1038,6 +1038,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
               extractionHandoff={extractionHandoff.handoff?.targetId === sheet.id}
               extractionSource={extractionHandoff.handoff?.source.id === sheet.id}
               extractionReady={extractionHandoff.handoff?.ready}
+              extractionWaitingZIndex={extractionHandoff.handoff ? (projectedFramesById.get(extractionHandoff.handoff.source.id)?.zIndex ?? 0) - 0.5 : undefined}
               columnCount={tabular.columns.length + (creatingSheetAxes?.columns.length ?? 0)}
               frame={frame}
               presentation={maximise.state.sheetId === sheet.id && maximise.presentation ? { sample: maximise.presentation, viewport: workspaceController.viewport } : undefined}
