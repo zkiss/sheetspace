@@ -12,6 +12,7 @@ describe('rich persisted extraction', () => {
   it('round-trips names, formatting and canonical inbound references in lifecycle snapshots', async () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 1 });
     const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    source.frame.zIndex = 1; other.frame.zIndex = 2;
     const workbook = workbookWithSheets([source, other]);
     const cell = cellIdentityAt(source.content, 'A1')!;
     source.content.cells[cellIdentityKey(cell)] = '42';
@@ -35,6 +36,7 @@ describe('rich persisted extraction', () => {
     const assertExtracted = (current: Workbook) => {
       const document = current.documents[target]!;
       expect(document.frame).toMatchObject(request.frame);
+      expect(current.documents.other!.frame.zIndex).toBe(3);
       expect(document.columnNames).toEqual({ [targetColumn]: 'Named' });
       expect(document.content.cells[cellIdentityKey({ rowId: targetRow, columnId: targetColumn })]).toBe('42');
       expect(document.presentation.formatOverrides!.cells[cellIdentityKey({ rowId: targetRow, columnId: targetColumn })]).toEqual({ textColor: '#123456' });
@@ -49,6 +51,7 @@ describe('rich persisted extraction', () => {
     act(() => result.current.commands.undo());
     await waitFor(() => expect(result.current.canRedo).toBe(true));
     expect(snapshots[1]!.documents[target]).toBeUndefined();
+    expect(snapshots[1]!.documents.other!.frame.zIndex).toBe(2);
     expect(snapshots[1]!.documents.source!.columnNames).toEqual(source.columnNames);
     expect(snapshots[1]!.documents.source!.presentation.formatOverrides).toEqual(source.presentation.formatOverrides);
     const restored = Object.values(snapshots[1]!.documents.other!.content.cells)[0]!;

@@ -36,8 +36,11 @@ function committingLifecycleBackend(initial: Workbook) {
   return { saveModelLifecycle, durable: () => durable };
 }
 
-function setup() {
+function setup(withNeighbor = false) {
   const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
+  sheet.frame.zIndex = 1;
+  const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1 });
+  neighbor.frame.zIndex = 2;
   const cell = cellIdentityAt(sheet.content, 'A1')!;
   const request: ExtractionRequest = {
     sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell },
@@ -50,7 +53,7 @@ function setup() {
     saves.push({ before, after, pending });
     return pending.promise;
   });
-  const hook = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: autosaveClient({ saveModelLifecycle: save }) }));
+  const hook = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets(withNeighbor ? [sheet, neighbor] : [sheet]), apiClient: autosaveClient({ saveModelLifecycle: save }) }));
   return { ...hook, request, saves, save };
 }
 
@@ -63,6 +66,22 @@ async function settle(saves: ReturnType<typeof setup>['saves'], index: number, f
 }
 
 describe('online extraction replay', () => {
+  it('rolls back frame insertion and data together when settlement fails', async () => {
+    const { result, request, saves, save } = setup(true);
+    let submission!: ReturnType<typeof result.current.commands.extractSelection>;
+    act(() => { submission = result.current.commands.extractSelection(request); });
+    await waitFor(() => expect(saves).toHaveLength(1));
+    expect(saves[0]!.before.documents.neighbor!.frame.zIndex).toBe(2);
+    expect(saves[0]!.after.documents.neighbor!.frame.zIndex).toBe(3);
+    expect(saves[0]!.after.documents[request.targetSheetId]!.frame.zIndex).toBe(2);
+    await settle(saves, 0, true);
+    expect((await submission.completion).ok).toBe(false);
+    expect(result.current.workbook.documents.neighbor!.frame.zIndex).toBe(2);
+    expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
+    expect(result.current.workbook.documents.s!.content).toEqual(saves[0]!.before.documents.s!.content);
+    expect(result.current.canUndo).toBe(false);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
   it('settles a queued extraction after a successful predecessor and permits undo', async () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1 });
     const cell = cellIdentityAt(sheet.content, 'A1')!;

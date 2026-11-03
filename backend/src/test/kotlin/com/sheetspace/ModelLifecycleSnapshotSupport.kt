@@ -52,7 +52,7 @@ internal fun extractionWorkbook(): WorkbookState {
     val other = SheetDocument(
         id = SheetId(EXTRACTION_OTHER),
         name = "Other",
-        frame = FrameState(position = WorkspacePosition(-64.0, 0.0), zIndex = 1),
+        frame = FrameState(position = WorkspacePosition(-64.0, 0.0), zIndex = 3),
         content = TabularContent(
             rows = listOf(EXTRACTION_ROW_ONE),
             columns = listOf(EXTRACTION_OTHER_COLUMN),
@@ -114,6 +114,7 @@ internal fun extractedFrom(workbook: WorkbookState): WorkbookState {
         ),
     )
     val rewrittenOther = other.copy(
+        frame = other.frame.update(zIndex = 4),
         content = TabularContent(
             rows = other.tabularContent.rows,
             columns = other.tabularContent.columns,

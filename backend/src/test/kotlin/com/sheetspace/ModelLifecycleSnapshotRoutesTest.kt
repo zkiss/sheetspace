@@ -22,6 +22,7 @@ class ModelLifecycleSnapshotRoutesTest {
                     assertEquals(HttpStatusCode.OK, forward.status)
                     val saved = forward.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook()
                     assertEquals(semanticSnapshot(after), semanticSnapshot(saved))
+                    assertEquals(4, saved.documents.getValue(SheetId(EXTRACTION_OTHER)).frame.zIndex)
                     assertEquals(saved, store.loadWorkbookBundle())
                     assertEquals(before.manifest.revision + 1, saved.manifest.revision)
                     assertEquals(1, saved.documents.getValue(SheetId(EXTRACTION_SOURCE)).revision)
@@ -45,6 +46,7 @@ class ModelLifecycleSnapshotRoutesTest {
                     assertEquals(HttpStatusCode.OK, inverse.status)
                     val undone = inverse.decodeBody<WorkbookBundleResponse>().toLifecycleWorkbook()
                     assertEquals(semanticSnapshot(before), semanticSnapshot(undone))
+                    assertEquals(3, undone.documents.getValue(SheetId(EXTRACTION_OTHER)).frame.zIndex)
                     assertEquals(saved.manifest.revision + 1, undone.manifest.revision)
                     assertEquals(undone, store.loadWorkbookBundle())
 

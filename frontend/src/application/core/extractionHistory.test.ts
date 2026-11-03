@@ -27,6 +27,7 @@ describe('extraction history', () => {
   it('replays retargeted ordinary formulas on model sheets while protecting calculated cells', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
     const model = sheetDocument({ id: 'modelSheet', name: 'ModelSheet', rowCount: 1, columnCount: 2 });
+    source.frame.zIndex = 1; model.frame.zIndex = 2;
     model.modelId = 'model'; model.modelColumnBindings = { calc: model.content.columns[0]! };
     const before = modelWorkbook(declaration([calculatedProperty('calc', '=1')]), [source, model]);
     const cell = cellIdentityAt(source.content, 'A1')!;
@@ -34,6 +35,8 @@ describe('extraction history', () => {
     model.content.cells[ordinary] = prepareUserFormula('=@Source!A[1]', before, model.id);
     const result = extractSelection(before, { sourceSheetId: source.id, selection: { kind: 'cells', start: cell, end: cell }, targetSheetId: ids[0]!, targetName: 'Target', targetRows: [ids[1]!], targetColumns: [ids[2]!], frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 } });
     expect(result.ok).toBe(true); if (!result.ok) return;
+    expect(result.workbook.documents.modelSheet!.frame.zIndex).toBe(3);
+    expect(result.workbook.dataModels).toEqual(before.dataModels);
     expect(result.workbook.documents.modelSheet!.content.cells[ordinary]).not.toEqual(model.content.cells[ordinary]);
     const history = new ContentHistory(); history.recordExtraction(before, result.workbook);
     const undo = prepareExtractionReplay(result.workbook, history.peekUndo()!, 'undo');

@@ -4,6 +4,7 @@ import { deleteColumn } from './deleteColumn';
 import { deleteRow } from './deleteRow';
 import { prepareExtraction, type ExtractionRequest, type ExtractionPreparationFailure } from './extractionPreparation';
 import { prepareExtractionReferences, type ExtractionReferenceResult } from './extractionReferences';
+import { insertExtractionStacking } from './extractionStacking';
 import type { CellWrite } from './userActions';
 
 export type ExtractionFailure = ExtractionPreparationFailure | Extract<ExtractionReferenceResult, { ok: false }>['reason'];
@@ -53,5 +54,8 @@ export function extractSelection(workbook: Workbook, request: ExtractionRequest)
       result = deletion.value;
     }
   }
+  const target = result.documents[prepared.targetSheetId]!;
+  const withoutTarget = { ...result, manifest: { ...result.manifest, sheetIds: result.manifest.sheetIds.filter((id) => id !== target.id) } };
+  result = insertExtractionStacking(withoutTarget, prepared.sourceSheetId, target);
   return { ok: true, workbook: result, targetSheetId: prepared.targetSheetId, origin: prepared.origin, extents: prepared.extents };
 }
