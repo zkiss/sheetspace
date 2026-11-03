@@ -4,22 +4,32 @@ import { sheetsInOrder } from '@workbook/read/queries';
 const MAX_Z = 2147483647;
 
 export function insertExtractionStacking(workbook: Workbook, sourceId: string, target: SheetDocument): Workbook {
-  const ordered = [...sheetsInOrder(workbook)].sort((a, b) => a.frame.zIndex - b.frame.zIndex);
-  const sourceIndex = ordered.findIndex((sheet) => sheet.id === sourceId);
-  ordered.splice(sourceIndex + 1, 0, target);
-  const original = ordered.map((sheet) => sheet.frame.zIndex);
-  const targetIndex = sourceIndex + 1;
-  const upward = [...original];
-  upward[targetIndex] = upward[sourceIndex]! + 1;
-  for (let i = targetIndex + 1; i < ordered.length && upward[i]! <= upward[i - 1]!; i++) upward[i] = upward[i - 1]! + 1;
-  const downward = [...original];
-  downward[targetIndex] = targetIndex + 1 < ordered.length ? downward[targetIndex + 1]! - 1 : MAX_Z;
-  for (let i = sourceIndex; i >= 0 && downward[i]! >= downward[i + 1]!; i--) downward[i] = downward[i + 1]! - 1;
-  const changes = (values: number[]) => values.reduce((count, value, index) => count + Number(index !== targetIndex && value !== original[index]), 0);
-  const values = upward[upward.length - 1]! <= MAX_Z && (downward[0]! < 1 || changes(upward) <= changes(downward)) ? upward : downward;
+  const manifest = sheetsInOrder(workbook);
+  const rank = new Map([...manifest, target].map((sheet, index) => [sheet.id, index]));
+  const ordered = [...manifest].sort((a, b) => a.frame.zIndex - b.frame.zIndex);
+  const targetIndex = ordered.findIndex((sheet) => sheet.id === sourceId) + 1;
+  ordered.splice(targetIndex, 0, target);
+  const offsets = ordered.map(() => 0);
+  for (let i = 1; i < ordered.length; i++) {
+    offsets[i] = offsets[i - 1]! + Number(rank.get(ordered[i - 1]!.id)! > rank.get(ordered[i]!.id)!);
+  }
+  const low = 1 + offsets[targetIndex]!;
+  const high = MAX_Z - (offsets[offsets.length - 1]! - offsets[targetIndex]!);
+  // Costs change only when a clamped original crosses its old value.
+  const candidates = new Set([low, high, ordered[targetIndex - 1]!.frame.zIndex, ...ordered.flatMap((sheet, i) => i === targetIndex ? [] : [sheet.frame.zIndex + offsets[targetIndex]! - offsets[i]!])]);
+  let best: number[] | undefined;
+  let bestCost = Infinity;
+  for (const value of [...candidates].filter((n) => n >= low && n <= high).sort((a, b) => Math.abs(a - ordered[targetIndex - 1]!.frame.zIndex) - Math.abs(b - ordered[targetIndex - 1]!.frame.zIndex) || b - a)) {
+    const values = ordered.map((sheet) => sheet.frame.zIndex);
+    values[targetIndex] = value;
+    for (let i = targetIndex - 1; i >= 0; i--) values[i] = Math.min(values[i]!, values[i + 1]! - (offsets[i + 1]! - offsets[i]!));
+    for (let i = targetIndex + 1; i < values.length; i++) values[i] = Math.max(values[i]!, values[i - 1]! + (offsets[i]! - offsets[i - 1]!));
+    const cost = values.reduce((count, z, i) => count + Number(i !== targetIndex && z !== ordered[i]!.frame.zIndex), 0);
+    if (cost < bestCost) { best = values; bestCost = cost; }
+  }
   const documents = { ...workbook.documents };
   ordered.forEach((sheet, index) => {
-    documents[sheet.id] = sheet.frame.zIndex === values[index] ? sheet : { ...sheet, frame: { ...sheet.frame, zIndex: values[index]! } };
+    documents[sheet.id] = sheet.frame.zIndex === best![index] ? sheet : { ...sheet, frame: { ...sheet.frame, zIndex: best![index]! } };
   });
   return { ...workbook, manifest: { ...workbook.manifest, sheetIds: [...workbook.manifest.sheetIds, target.id] }, documents };
 }

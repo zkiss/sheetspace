@@ -35,8 +35,8 @@ describe('rich persisted extraction', () => {
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
     const assertExtracted = (current: Workbook) => {
       const document = current.documents[target]!;
-      expect(document.frame).toMatchObject(request.frame);
-      expect(current.documents.other!.frame.zIndex).toBe(3);
+      expect(document.frame).toMatchObject({ ...request.frame, zIndex: 1 });
+      expect(current.documents.other!.frame.zIndex).toBe(2);
       expect(document.columnNames).toEqual({ [targetColumn]: 'Named' });
       expect(document.content.cells[cellIdentityKey({ rowId: targetRow, columnId: targetColumn })]).toBe('42');
       expect(document.presentation.formatOverrides!.cells[cellIdentityKey({ rowId: targetRow, columnId: targetColumn })]).toEqual({ textColor: '#123456' });

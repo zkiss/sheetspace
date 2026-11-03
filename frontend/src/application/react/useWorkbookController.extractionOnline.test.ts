@@ -41,7 +41,7 @@ function setup(withNeighbor = false) {
   const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' } });
   sheet.frame.zIndex = 1;
   const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1 });
-  neighbor.frame.zIndex = 2;
+  neighbor.frame.zIndex = 1;
   const cell = cellIdentityAt(sheet.content, 'A1')!;
   const request: ExtractionRequest = {
     sourceSheetId: 's', selection: { kind: 'cells', start: cell, end: cell },
@@ -69,7 +69,7 @@ async function settle(saves: ReturnType<typeof setup>['saves'], index: number, f
 describe('online extraction replay', () => {
   it('reloads atomic stacking and data after extraction, undo and redo', async () => {
     const source = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1, cells: { A1: '42' }, zIndex: 1 });
-    const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1, zIndex: 2 });
+    const neighbor = sheetDocument({ id: 'neighbor', name: 'Neighbor', rowCount: 1, columnCount: 1, zIndex: 1 });
     const initial = workbookWithSheets([source, neighbor]);
     const cell = cellIdentityAt(source.content, 'A1')!;
     const request: ExtractionRequest = {
@@ -89,8 +89,8 @@ describe('online extraction replay', () => {
     };
     const expectExtracted = (workbook: Workbook) => {
       expect(workbook.documents.s!.frame).toEqual(source.frame);
-      expect(workbook.documents.neighbor!.frame).toEqual({ ...neighbor.frame, zIndex: 3 });
-      expect(workbook.documents[request.targetSheetId]!.frame.zIndex).toBe(2);
+      expect(workbook.documents.neighbor!.frame).toEqual({ ...neighbor.frame, zIndex: 2 });
+      expect(workbook.documents[request.targetSheetId]!.frame.zIndex).toBe(1);
       expect(tabularCellsByA1(workbook.documents.s!.content)).toEqual({});
       expect(tabularCellsByA1(workbook.documents[request.targetSheetId]!.content)).toEqual({ A1: '42' });
     };
@@ -124,12 +124,12 @@ describe('online extraction replay', () => {
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
     act(() => { submission = result.current.commands.extractSelection(request); });
     await waitFor(() => expect(saves).toHaveLength(1));
-    expect(saves[0]!.before.documents.neighbor!.frame.zIndex).toBe(2);
-    expect(saves[0]!.after.documents.neighbor!.frame.zIndex).toBe(3);
-    expect(saves[0]!.after.documents[request.targetSheetId]!.frame.zIndex).toBe(2);
+    expect(saves[0]!.before.documents.neighbor!.frame.zIndex).toBe(1);
+    expect(saves[0]!.after.documents.neighbor!.frame.zIndex).toBe(2);
+    expect(saves[0]!.after.documents[request.targetSheetId]!.frame.zIndex).toBe(1);
     await settle(saves, 0, true);
     expect((await submission.completion).ok).toBe(false);
-    expect(result.current.workbook.documents.neighbor!.frame.zIndex).toBe(2);
+    expect(result.current.workbook.documents.neighbor!.frame.zIndex).toBe(1);
     expect(result.current.workbook.documents[request.targetSheetId]).toBeUndefined();
     expect(result.current.workbook.documents.s!.content).toEqual(saves[0]!.before.documents.s!.content);
     expect(result.current.canUndo).toBe(false);
@@ -229,7 +229,7 @@ describe('online extraction replay', () => {
     await settle(saves, 0);
     expect(await submission.completion).toMatchObject({ ok: true, targetSheetId: request.targetSheetId, origin: { row: 0, column: 0 }, extents: { rowCount: 1, columnCount: 1 } });
     expect(result.current.canUndo).toBe(true);
-    expect(saves[0]!.after.documents['00000000-0000-0000-0000-000000000001']!.frame).toMatchObject(request.frame);
+    expect(saves[0]!.after.documents['00000000-0000-0000-0000-000000000001']!.frame).toMatchObject({ ...request.frame, zIndex: 1 });
     act(() => result.current.commands.undo());
     expect(result.current.canRedo).toBe(false);
     await settle(saves, 1);
@@ -239,7 +239,7 @@ describe('online extraction replay', () => {
     act(() => result.current.commands.redo());
     await settle(saves, 2);
     expect(result.current.canUndo).toBe(true);
-    expect(saves[2]!.after.documents['00000000-0000-0000-0000-000000000001']!.frame).toMatchObject(request.frame);
+    expect(saves[2]!.after.documents['00000000-0000-0000-0000-000000000001']!.frame).toMatchObject({ ...request.frame, zIndex: 1 });
     expect(save).toHaveBeenCalledTimes(3);
   });
 
