@@ -13,6 +13,7 @@ import '@workspace/SheetContextMenu.css';
 export function SheetContextMenu({
   menu,
   modelControls,
+  extraction,
   onAppendColumn,
   onAppendRow,
   onChangeZOrder,
@@ -23,6 +24,7 @@ export function SheetContextMenu({
 }: {
   menu: PendingSheetMenu;
   modelControls?: ReactNode;
+  extraction?: { run: () => void; unavailable?: string };
   onAppendColumn: (sheetId: string) => void;
   onAppendRow: (sheetId: string) => void;
   onChangeZOrder: (sheetId: string, direction: SheetZOrderDirection) => void;
@@ -56,6 +58,7 @@ export function SheetContextMenu({
       <button type="button" role="menuitem" onClick={() => onAppendColumn(sheet.id)}>
         Append column
       </button></>}
+      {extraction && <button type="button" role="menuitem" disabled={Boolean(extraction.unavailable)} title={extraction.unavailable} onClick={extraction.run}>Extract to new sheet</button>}
       <div aria-label="Display scale" className="sheet-context-menu-scale">
         <span className="sheet-context-menu-scale-label">Display scale</span>
         <label>

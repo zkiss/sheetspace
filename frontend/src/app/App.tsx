@@ -215,6 +215,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onSelectAxis={selectAxis}
         onSelectReferenceTarget={selectReferenceTarget}
         onRestoreSelection={restoreSelection}
+        interactionRevision={interactionRevision}
         onStartEdit={startEditingCell}
         referenceSelection={referenceSelection}
         selectionRange={selectionRange}

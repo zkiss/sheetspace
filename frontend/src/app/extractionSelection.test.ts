@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument } from '@test-support/workbookFactories';
 import type { CellSelection } from '@grid/cellInteractionContracts';
-import { extractionSelection } from './extractionSelection';
+import { extractionSelection, mappedExtractionSelection } from './extractionSelection';
+import { extractionRequest } from './extractionRequest';
+import { workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('extraction selection', () => {
   const sheet = sheetDocument({ id: 'source', name: 'Source' });
@@ -19,5 +21,15 @@ describe('extraction selection', () => {
     expect(extractionSelection(sheet, null)).toBeUndefined();
     expect(extractionSelection(sheet, { ...selection, extent: { ...extent, sheetId: 'other' } })).toBeUndefined();
     expect(extractionSelection(sheet, { ...selection, anchor: { ...anchor, cell: { ...anchor.cell, rowId: 'deleted' } } })).toBeUndefined();
+  });
+
+  it.each(['cells', 'rows', 'columns'] as const)('maps reversed %s endpoints to the complete target axes', (mode) => {
+    const selection = { mode, anchor, extent };
+    let id = 0;
+    const request = extractionRequest(workbookWithSheets([sheet]), sheet, selection, { x: 0, y: 0 }, undefined, () => `target-${id++}`)!;
+    const mapped = mappedExtractionSelection(sheet, selection, request)!;
+    expect(mapped.mode).toBe(mode);
+    expect(mapped.anchor).toEqual({ sheetId: request.targetSheetId, cell: { rowId: request.targetRows[1], columnId: request.targetColumns[1] } });
+    expect(mapped.extent).toEqual({ sheetId: request.targetSheetId, cell: { rowId: request.targetRows[0], columnId: request.targetColumns[0] } });
   });
 });

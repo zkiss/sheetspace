@@ -39,7 +39,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   commands: WorkbookCommands;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
-  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void };
+  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void; managesOwnership?: boolean };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
@@ -194,8 +194,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (!mounted.current) return;
       const error = extractionFeedback(result);
       if (error) { extraction.onFailure?.(request); onFeedback(error); return; }
-      if (selectionRevision.current.revision === revision && commands.currentWorkbook().documents[request.targetSheetId]) {
-        onCancelCut(); extraction.onSuccess(request);
+      if ((extraction.managesOwnership || selectionRevision.current.revision === revision) && commands.currentWorkbook().documents[request.targetSheetId]) {
+        if (!extraction.managesOwnership) onCancelCut();
+        extraction.onSuccess(request);
       }
     }, () => { release(); if (mounted.current) { extraction.onFailure?.(request); onFeedback('The extraction could not be saved.'); } });
   }, extractionUnavailable);

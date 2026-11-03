@@ -6,6 +6,7 @@ import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model
 import { cellKey, columnIndexToLabel } from '@workbook/core/address';
 import { addressRangeOf, cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
 import { selectionAddressRange } from './workspaceSelection';
+import { mappedExtractionSelection } from './extractionSelection';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
@@ -106,6 +107,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   referenceSelection,
   selectionRange,
   selectionOwner,
+  interactionRevision,
   saveStatus,
   sheetDialogOpen = false,
   creatingAxes,
@@ -153,6 +155,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   referenceSelection: ReferenceNavigationTarget | null;
   selectionRange: CellSelection | null;
   selectionOwner?: symbol | null;
+  interactionRevision?: () => number;
   saveStatus: SaveStatus;
   sheetDialogOpen?: boolean;
   creatingFrames: CreatingSheetFrameState[];
@@ -202,6 +205,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const extractionTokens = useRef(new WeakMap<object, number>());
   const extractionRange = useRef<{ token: number; range: CellRange } | null>(null);
   const extractionScroll = useRef<{ token: number; position: { left: number; top: number } } | null>(null);
+  const extractionSelectionOwner = useRef<{ token: number; selection: CellSelection; revision: number; saved: boolean; presented: boolean; paletteClosed: boolean; viewport?: string; identity?: number; frame?: string; size?: string } | null>(null);
+  const extractionCuts = useRef(new WeakMap<object, NonNullable<typeof clipboard.current.pendingCutSource>>());
+  const completeExtractionSelection = useRef<(token: number) => void>(() => {});
+  const tryExtractionSelection = useRef<(token: number) => void>(() => {});
   const activeSheetId = entrySheetId ?? activeCell?.sheetId;
   const selectedSheet = activeSheetId ? findSheetById(workbook, activeSheetId) : undefined;
   const dataModels = Object.values(workbook.dataModels ?? {});
@@ -247,9 +254,11 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     const sheet = findSheetById(workbook, id);
     return sheet && frameProjection(sheet);
   });
-  const extractionInputs = useRef({ workbook, workspaceController, maximise, reducedMotion });
-  extractionInputs.current = { workbook, workspaceController, maximise, reducedMotion };
+  const extractionInputs = useRef({ workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus });
+  extractionInputs.current = { workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus };
   const abortExtractionPresentation = () => {
+    const owner = extractionOwner.current;
+    if (owner && extractionSelectionOwner.current?.token === owner.token && !extractionSelectionOwner.current.presented) extractionSelectionOwner.current = null;
     extractionOwner.current = null;
     extractionGuard.current = null;
     if (extractionAnimation.current !== undefined) cancelAnimationFrame(extractionAnimation.current);
@@ -285,13 +294,13 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
         extractionGuard.current.settling = true;
         extractionGuard.current.viewport = JSON.stringify(inputs.workspaceController.viewport);
       }
-      if (result === 'empty' || inputs.reducedMotion) { abortExtractionPresentation(); return; }
+      if (result === 'empty' || inputs.reducedMotion) { completeExtractionSelection.current(token); abortExtractionPresentation(); return; }
       const start = performance.now();
       const tick = (now: number) => {
         if (extractionOwner.current !== operation) return;
         if (!extractionValid(operation)) { abortExtractionPresentation(); return; }
         const progress = Math.min(1, (now - start) / 240);
-        if (progress >= 1) { abortExtractionPresentation(); return; }
+        if (progress >= 1) { completeExtractionSelection.current(token); abortExtractionPresentation(); return; }
         setExtractionPresentation({ ...operation, sample: interpolatePresentation(operation.sample, end, progress) });
         extractionAnimation.current = requestAnimationFrame(tick);
       };
@@ -314,6 +323,18 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       abortExtractionPresentation();
     }
   });
+  useEffect(() => {
+    const onFocus = (event: FocusEvent) => {
+      const owner = extractionSelectionOwner.current;
+      if (!owner?.paletteClosed || !(event.target instanceof Element)) return;
+      if (event.target === document.body || event.target === document.documentElement) return;
+      const source = extractionOwner.current?.sourceId;
+      const frame = event.target.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
+      if (!source || frame?.dataset.sheetId !== source) extractionSelectionOwner.current = null;
+    };
+    document.addEventListener('focusin', onFocus, true);
+    return () => document.removeEventListener('focusin', onFocus, true);
+  }, []);
   useEffect(() => () => { if (extractionAnimation.current !== undefined) cancelAnimationFrame(extractionAnimation.current); extractionLease.current?.cancel(); extractionOwner.current = null; }, []);
   const modeActive = maximise.state.mode !== 'canvas';
   useEffect(() => setMaximiseActive(modeActive), [modeActive]);
@@ -445,6 +466,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     },
   });
   cancelNavigationBeforeUserMovement.current = () => {
+    extractionSelectionOwner.current = null;
     const operation = extractionOwner.current;
     if (operation) { extractionHandoff.cancel(operation.token); abortExtractionPresentation(); }
     if (restoreIntent.current) restoreIntent.current = () => false;
@@ -741,6 +763,38 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const { beginPendingGridFocus, gridFocusLease, handleDetailedBodyAvailable,
     handleDetailedFocusDisplaced, handleDetailedNativeFocus,
     handleDetailedNativeFocusReleased, handleKeyboardFocusRequestConsumed, pinsFocusedFrame } = gridFocus;
+  tryExtractionSelection.current = (token) => {
+    const owner = extractionSelectionOwner.current;
+    if (!owner || owner.token !== token || !owner.saved || !owner.presented) return;
+    extractionSelectionOwner.current = null;
+    if ((interactionRevision?.() ?? 0) !== owner.revision || sheetDialogOpen || commandPaletteOpen
+      || !commands.currentWorkbook().documents[owner.selection.anchor.sheetId]
+      || JSON.stringify(frameProjection(commands.currentWorkbook().documents[owner.selection.anchor.sheetId]!)) !== owner.frame
+      || JSON.stringify(workspaceController.workspaceSurfaceSize) !== owner.size
+      || JSON.stringify(workspaceController.viewport) !== owner.viewport || maximise.currentState().identity !== owner.identity) return;
+    if (onRestoreSelection(owner.selection)) beginPendingGridFocus(owner.selection.extent);
+  };
+  completeExtractionSelection.current = (token) => {
+    const owner = extractionSelectionOwner.current;
+    if (!owner || owner.token !== token) return;
+    owner.presented = true;
+    owner.viewport = JSON.stringify(extractionInputs.current.workspaceController.viewport);
+    owner.identity = extractionInputs.current.maximise.currentState().identity;
+    owner.size = JSON.stringify(extractionInputs.current.workspaceController.workspaceSurfaceSize);
+    const target = extractionInputs.current.workbook.documents[owner.selection.anchor.sheetId];
+    owner.frame = target && JSON.stringify(frameProjection(target));
+    tryExtractionSelection.current(token);
+  };
+  useLayoutEffect(() => {
+    const owner = extractionSelectionOwner.current;
+    if (owner && !commandPaletteOpen) owner.paletteClosed = true;
+    if (owner && ((interactionRevision?.() ?? 0) !== owner.revision || sheetDialogOpen
+      || (owner.paletteClosed && commandPaletteOpen)
+      || (owner.presented && (!workbook.documents[owner.selection.anchor.sheetId]
+        || JSON.stringify(frameProjection(workbook.documents[owner.selection.anchor.sheetId]!)) !== owner.frame
+        || JSON.stringify(workspaceController.workspaceSurfaceSize) !== owner.size
+        || JSON.stringify(workspaceController.viewport) !== owner.viewport || maximise.currentState().identity !== owner.identity)))) extractionSelectionOwner.current = null;
+  });
   const projectedFrames = sheets.map((sheet) => {
     const frame = frameProjection(sheet);
     const layout = frameLayoutPreview?.sheetId === sheet.id
@@ -886,6 +940,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
     maximise: { active: modeActive, toggle: toggleMaximise, zoom: zoomMaximisedView },
     extraction: {
+      managesOwnership: true,
       request: (sheet, selection) => {
         cancelNavigationBeforeUserMovement.current();
         const viewport = referenceGridViewports[sheet.id];
@@ -909,6 +964,9 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           request.frame.position = displayedExtractionFramePosition(sheet, range.start, scroll, displayed, finalViewport, request.frame.size);
           extractionFormulaSnapshot.current = formulaResults;
           const token = extractionHandoff.begin(sheet, request.targetSheetId);
+          const mapped = mappedExtractionSelection(sheet, selection, request);
+          extractionSelectionOwner.current = mapped ? { token, selection: mapped, revision: interactionRevision?.() ?? 0, saved: false, presented: false, paletteClosed: !commandPaletteOpen } : null;
+          if (clipboard.current.pendingCutSource) extractionCuts.current.set(request, clipboard.current.pendingCutSource);
           const operation = { token, sourceId: sheet.id, targetId: request.targetSheetId, sample: extractionOverlayPresentation(sheet, range.start, scroll, displayed, request.frame.size), maximised, accepted: false };
           extractionOwner.current = operation;
           extractionGuard.current = { sourceFrame: JSON.stringify({ position: sheet.frame.position, size: sheet.frame.size, visualScale: sheet.frame.visualScale }), size: JSON.stringify(workspaceController.workspaceSurfaceSize), viewport: JSON.stringify(workspaceController.viewport), identity: maximise.currentState().identity, settling: false };
@@ -932,17 +990,22 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       onFailure: (request) => {
         const token = request && extractionTokens.current.get(request);
         if (token !== undefined) {
+          const owner = extractionSelectionOwner.current;
+          const inputs = extractionInputs.current;
+          if (owner?.token === token && (inputs.interactionRevision?.() ?? 0) === owner.revision && !inputs.sheetDialogOpen && !inputs.commandPaletteOpen
+            && commands.currentWorkbook().documents[request!.sourceSheetId]) inputs.onRestoreGridFocus();
+          if (extractionSelectionOwner.current?.token === token) extractionSelectionOwner.current = null;
           extractionHandoff.cancel(token);
           if (extractionOwner.current?.token === token) abortExtractionPresentation();
         }
       },
       onSuccess: (request) => {
-        const rowId = request.targetRows[0];
-        const columnId = request.targetColumns[0];
-        if (!rowId || !columnId) return;
-        const target = { sheetId: request.targetSheetId, cell: { rowId, columnId } };
-        onSelectCell(target);
-        onFocusSelection(target);
+        const cut = extractionCuts.current.get(request);
+        if (cut && clipboard.current.pendingCutSource === cut) cancelPendingCut();
+        const token = extractionTokens.current.get(request);
+        if (token === undefined || extractionSelectionOwner.current?.token !== token) return;
+        extractionSelectionOwner.current.saved = true;
+        tryExtractionSelection.current(token);
       },
     },
     onCreateSheet: createSheet,
@@ -1057,6 +1120,10 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
           <SheetContextMenu
             key={menuSheet.id}
             menu={workspaceController.pendingSheetMenu}
+            extraction={(() => {
+              const action = actionPalette.commands.find((item) => item.id === 'extract-selection')!;
+              return { unavailable: menuSheet.id === selectedSheet?.id ? action.unavailable : 'Select cells on this sheet first', run: () => { workspaceController.closeSheetMenu(); action.run(); } };
+            })()}
             modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={commands.unbindSheetFromModel} sheet={menuSheet} />}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();
