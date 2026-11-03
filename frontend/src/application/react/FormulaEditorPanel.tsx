@@ -125,12 +125,15 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       event.preventDefault(); event.stopPropagation();
       setCompletionRequest(null); setHoveredReference(undefined); reportView(); onToggleMode(); return;
     }
+    const navigation = matchesShortcut(event, 'editor-commit-down') ? { key: 'Enter' as const, shift: false }
+      : matchesShortcut(event, 'editor-commit-next') ? { key: 'Tab' as const, shift: false }
+        : matchesShortcut(event, 'editor-commit-previous') ? { key: 'Tab' as const, shift: true } : undefined;
     if (readOnly) {
       event.stopPropagation();
-      if (event.key === 'Escape' || matchesShortcut(event, 'editor-apply')) {
+      if (matchesShortcut(event, 'completion-dismiss') || matchesShortcut(event, 'editor-cancel') || matchesShortcut(event, 'editor-apply')) {
         event.preventDefault(); event.stopPropagation(); onCancel();
-      } else if (cellMode === 'light' && onCommitAndNavigate && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
-        event.preventDefault(); event.stopPropagation(); onCommitAndNavigate({ key: event.key, shift: event.shiftKey });
+      } else if (cellMode === 'light' && onCommitAndNavigate && navigation) {
+        event.preventDefault(); event.stopPropagation(); onCommitAndNavigate(navigation);
       } else if (event.key === 'Enter' || matchesShortcut(event, 'editor-complete')) {
         event.preventDefault(); event.stopPropagation();
       }
@@ -143,22 +146,24 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
       setCompletionRequest({ selection: selection(), automatic: false });
       setCompletionIndex(0); setCompletionChosen(false); return;
     }
-    if (completionOpen && completionChosen && (event.key === 'Enter' || event.key === 'Tab') && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); event.stopPropagation(); acceptCompletion(); return; }
-    if (cellMode === 'light' && onCommitAndNavigate && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey))) {
+    if (completionOpen && completionChosen && matchesShortcut(event, 'completion-accept')) { event.preventDefault(); event.stopPropagation(); acceptCompletion(); return; }
+    if (cellMode === 'light' && onCommitAndNavigate && navigation) {
       event.preventDefault(); event.stopPropagation();
-      onCommitAndNavigate({ key: event.key, shift: event.shiftKey }); return;
+      onCommitAndNavigate(navigation); return;
     }
-    if (completionOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    const nextCompletion = matchesShortcut(event, 'completion-next');
+    const previousCompletion = matchesShortcut(event, 'completion-previous');
+    if (completionOpen && (nextCompletion || previousCompletion)) {
       event.preventDefault(); event.stopPropagation();
       setCompletionIndex((index) => completionChosen
-        ? Math.max(0, Math.min(index + (event.key === 'ArrowDown' ? 1 : -1), completions.length - 1))
-        : event.key === 'ArrowDown' ? 0 : completions.length - 1);
+        ? Math.max(0, Math.min(index + (nextCompletion ? 1 : -1), completions.length - 1))
+        : nextCompletion ? 0 : completions.length - 1);
       setCompletionChosen(true); return;
     }
-    if (event.key === 'Escape') {
+    if (matchesShortcut(event, 'completion-dismiss')) {
       event.preventDefault(); event.stopPropagation();
       setHoveredReference(undefined);
-      if (completionOpen && !event.shiftKey && !event.altKey) setCompletionRequest(null);
+      if (completionOpen) setCompletionRequest(null);
       else if (cellMode === 'light') onCancel();
       else if (completionRequest) setCompletionRequest(null);
       return;
@@ -253,12 +258,12 @@ export function FormulaEditorPanel({ ariaLabel, autoFocus = false, disabled = fa
     </FormulaEditorPopover> : null}
     {completionOpen ? <FormulaEditorPopover anchor={() => input.current ? formulaEditorCaret(input.current) : undefined} className="formula-editor-completion-popover">
       <ul aria-label="Formula completions" className="formula-editor-completions" id={completionsId} ref={completionsList} role="listbox">{completions.map((completion, index) => <li aria-selected={completionChosen && index === completionIndex} id={`${completionsId}-${index}`} key={`${completion.kind}-${completion.label}`} onMouseDown={(event) => { event.preventDefault(); acceptCompletion(index); }} role="option">{completion.label}</li>)}</ul>
-      <div className="formula-editor-completion-hint">↑↓ select · Enter/Tab accepts selection · Esc dismisses</div>
+      <div className="formula-editor-completion-hint">{shortcutLabel('completion-previous')} / {shortcutLabel('completion-next')} select · {shortcutLabel('completion-accept')} accepts selection · {shortcutLabel('completion-dismiss')} dismisses</div>
     </FormulaEditorPopover> : null}
     {!cellMode && analysis.diagnostics.length > 0 ? <ul className="formula-editor-diagnostics" role="status">{analysis.diagnostics.map((diagnostic, index) => <li key={`${diagnostic.sourceSpan.start}-${index}`}>{diagnostic.code} at {diagnostic.sourceSpan.start + 1}–{diagnostic.sourceSpan.end}</li>)}</ul> : null}
     {cellMode !== 'light' ? <div className="formula-editor-actions" onMouseDown={(event) => event.preventDefault()}>
       {!readOnly ? <button disabled={disabled || !formattingAvailable} onClick={() => { const result = formatFormula(raw, selection()); if (result.available) setEditor(result); }} type="button">Format</button> : null}
-      <button aria-label={readOnly ? 'Close formula' : 'Cancel formula'} disabled={disabled} onClick={onCancel} title={readOnly ? 'Close (Esc)' : `Cancel (${shortcutLabel('editor-cancel')})`} type="button">{readOnly ? 'Close' : 'Cancel'}</button>
+      <button aria-label={readOnly ? 'Close formula' : 'Cancel formula'} disabled={disabled} onClick={onCancel} title={readOnly ? `Close (${shortcutLabel('completion-dismiss')} / ${shortcutLabel('editor-cancel')} / ${shortcutLabel('editor-apply')})` : `Cancel (${shortcutLabel('editor-cancel')})`} type="button">{readOnly ? 'Close' : 'Cancel'}</button>
       {!readOnly ? <button disabled={disabled} onClick={onApply} title={`Apply (${shortcutLabel('editor-apply')})`} type="button">Apply</button> : null}
     </div> : null}
   </section>;
