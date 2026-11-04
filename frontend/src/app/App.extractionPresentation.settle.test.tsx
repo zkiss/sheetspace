@@ -41,15 +41,19 @@ function stubPaintedGeometry(...frames: HTMLElement[]) {
   for (const frame of frames) {
     const body = frame.querySelector<HTMLElement>('.sheet-frame-body')!;
     const corner = frame.querySelector<HTMLElement>('.sheet-grid-corner')!;
-    const cell = frame.querySelector<HTMLElement>('[data-cell-key="A1"]')!;
     Object.defineProperties(body, { offsetWidth: { configurable: true, value: 400 }, clientWidth: { configurable: true, value: 400 }, clientHeight: { configurable: true, value: 300 } });
     body.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 400, height: 300 });
     corner.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 40, height: 24 });
-    cell.getBoundingClientRect = () => testRect({ left: 50, top: 34, width: 120, height: 24 });
+    for (const cell of frame.querySelectorAll<HTMLElement>('[data-cell-key]')) {
+      const match = /^([A-Z])(\d+)$/.exec(cell.dataset.cellKey ?? '');
+      if (!match) continue;
+      const column = match[1].charCodeAt(0) - 65, row = Number(match[2]) - 1;
+      cell.getBoundingClientRect = () => testRect({ left: 50 + column * 120, top: 34 + row * 24, width: 120, height: 24 });
+    }
   }
 }
 
-async function reachExtractionRetire(clock: ExtractionClock, { maximised, saveGate }: { maximised: boolean; saveGate?: Promise<void> }): Promise<ExtractionState> {
+async function reachExtractionRetire(clock: ExtractionClock, { maximised, saveGate, row = false }: { maximised: boolean; saveGate?: Promise<void>; row?: boolean }): Promise<ExtractionState> {
   const realController = workbookController.useWorkbookController;
   let controller!: ExtractionState['controller'];
   vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => { controller = realController(options); return controller; });
@@ -62,6 +66,10 @@ async function reachExtractionRetire(clock: ExtractionClock, { maximised, saveGa
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
   fireEvent.click(within(source).getByRole('cell', { name: 'Inputs A1 empty cell' }));
+  if (row) {
+    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select row' }));
+  }
   if (maximised) {
     fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
     clock.runFrames(clock.now() + 400);
@@ -99,6 +107,25 @@ it.each(['presentation first', 'save first'] as const)('transfers extraction onl
     await act(async () => {});
   } else await act(async () => { save.resolve(); await save.promise; });
   expect(targetCell).toHaveAttribute('aria-selected', 'true');
+});
+
+it.each(['presentation first', 'save first'] as const)('transfers a pruned row only after %s and the other prerequisite', async (order) => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }));
+  const clock = useExtractionClock();
+  const save = deferred<void>();
+  const { source, target, controller } = await reachExtractionRetire(clock, { maximised: false, saveGate: save.promise, row: true });
+  expect(controller.commands.currentWorkbook().documents.inputs.content.rows).not.toContain('inputs:row:1');
+  expect(within(source).getByRole('cell', { name: 'Inputs B1 empty cell' })).toBeInTheDocument();
+  const cells = ['A1', 'B1'].map((address) => within(target).getByRole('cell', { name: `Sheet 1 ${address} empty cell` }));
+  for (const cell of cells) expect(cell).not.toHaveAttribute('aria-selected', 'true');
+
+  if (order === 'save first') await act(async () => { save.resolve(); await save.promise; });
+  else { clock.runFrames(clock.now() + 120); clock.runFrames(clock.now() + 250); await act(async () => {}); }
+  for (const cell of cells) expect(cell).not.toHaveAttribute('aria-selected', 'true');
+
+  if (order === 'save first') { clock.runFrames(clock.now() + 120); clock.runFrames(clock.now() + 250); await act(async () => {}); }
+  else await act(async () => { save.resolve(); await save.promise; });
+  for (const cell of cells) expect(cell).toHaveAttribute('aria-selected', 'true');
 });
 
 async function finishOwnedRestore(clock: ExtractionClock, { maximised }: { maximised: boolean }) {
