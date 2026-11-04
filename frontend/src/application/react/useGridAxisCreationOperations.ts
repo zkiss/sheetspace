@@ -36,9 +36,7 @@ class GridAxisCreationQueue {
   }
   enqueue(entry: Omit<AxisCreation, 'sequence' | 'status'>) {
     if (this.deletingSheets.has(entry.sheetId) || this.missingSheets.has(entry.sheetId)) return;
-    for (const existing of this.entries) {
-      if (existing.status === 'failed' && existing.sheetId === entry.sheetId) existing.status = 'superseded';
-    }
+    this.retireFailedPredecessors(entry.sheetId, this.nextSequence);
     this.entries.push({ ...entry, sequence: this.nextSequence++, status: 'queued' });
     this.publish();
   }
@@ -71,6 +69,7 @@ class GridAxisCreationQueue {
     const executions: Promise<void>[] = [];
     let entry = this.nextRunnable();
     while (entry) {
+      this.retireFailedPredecessors(entry.sheetId, entry.sequence);
       entry.status = 'running';
       this.running.add(entry.operationId);
       this.publish();
@@ -99,6 +98,11 @@ class GridAxisCreationQueue {
       earlier.sequence < candidate.sequence
       && earlier.sheetId === candidate.sheetId
       && (earlier.status === 'queued' || earlier.status === 'running')));
+  }
+  private retireFailedPredecessors(sheetId: string, sequence: number) {
+    for (const entry of this.entries) {
+      if (entry.sheetId === sheetId && entry.sequence < sequence && entry.status === 'failed') entry.status = 'superseded';
+    }
   }
   private hasRunningSheetEntry(sheetId: string) {
     return this.entries.some((entry) => entry.sheetId === sheetId && this.running.has(entry.operationId));

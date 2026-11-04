@@ -4,6 +4,46 @@ import { autosaveClient, deferred } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
 
+it.each(['succeeds', 'fails'] as const)('retires a failed creation when its queued successor %s', async (outcome) => {
+  const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+  const [first, second] = sheet.content.rows;
+  const firstResponse = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+  const secondResponse = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+  let persisted = sheet;
+  const appendRow = vi.fn().mockImplementationOnce(() => firstResponse.promise).mockImplementationOnce(() => secondResponse.promise);
+  const writeAxisOrder = vi.fn(async (_id, _axis, order, revision) => {
+    persisted = { ...persisted, revision: revision + 1, content: { ...persisted.content, rows: [...order] } };
+    return structuredClone(persisted);
+  });
+  const api = autosaveClient({ appendRow, writeAxisOrder, loadSheet: vi.fn(async () => structuredClone(persisted)) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => { result.current.commands.appendRow('s'); result.current.commands.appendRow('s'); });
+  await waitFor(() => expect(appendRow).toHaveBeenCalledTimes(1));
+  await act(async () => firstResponse.reject(new Error('first failed')));
+  await waitFor(() => expect(appendRow).toHaveBeenCalledTimes(2));
+  act(() => expect(result.current.commands.shiftAxis('s', 'row', [first!], 1)).toMatchObject({ status: 'rejected', reason: 'pending-axis-creation' }));
+  expect(writeAxisOrder).not.toHaveBeenCalled();
+  if (outcome === 'fails') {
+    await act(async () => secondResponse.reject(new Error('second failed')));
+    await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+    act(() => expect(result.current.commands.shiftAxis('s', 'row', [first!], 1)).toMatchObject({ status: 'rejected', reason: 'pending-axis-creation' }));
+    return;
+  }
+  persisted = { ...persisted, revision: 1, content: { ...persisted.content, rows: [first!, second!, 'new'] } };
+  await act(async () => secondResponse.resolve({ sheetId: 's', revision: 1, rowCount: 3, rowId: 'new' }));
+  await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  expect(result.current.workbook.documents.s!.content.rows).toEqual([first, second, 'new']);
+  act(() => expect(result.current.commands.shiftAxis('s', 'row', [first!], 1).status).toBe('changed'));
+  await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  expect(persisted.content.rows).toEqual([second, first, 'new']);
+  act(() => result.current.commands.undo());
+  await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  expect(persisted.content.rows).toEqual([first, second, 'new']);
+  act(() => result.current.commands.redo());
+  await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  expect(persisted.content.rows).toEqual([second, first, 'new']);
+});
+
 it.each(['pending', 'failed'] as const)('settles %s order and its successor before appending', async (state) => {
   const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 1 });
   const [a, b, c] = sheet.content.rows;
@@ -130,6 +170,11 @@ it('rejects moves and replay after failed creation until a replacement creation 
   persisted = { ...persisted, revision: 2, content: { ...persisted.content, rows: [second!, first!, 'new-row'] } };
   await act(async () => response.resolve({ sheetId: 's', revision: 2, rowCount: 3, rowId: 'new-row' }));
   await waitFor(() => expect(result.current.workbook.documents.s!.content.rows).toEqual([second, first, 'new-row']));
+  act(() => result.current.commands.undo());
+  expect(result.current.orderReplayFailure).toBe('order-conflict');
+  expect(result.current.canUndo).toBe(true);
+  expect(result.current.canRedo).toBe(false);
+  expect(result.current.workbook.documents.s!.content.rows).toEqual([second, first, 'new-row']);
   act(() => expect(result.current.commands.shiftAxis('s', 'row', [first!], 1).status).toBe('changed'));
   await waitFor(() => expect(writeAxisOrder).toHaveBeenCalledWith('s', 'row', [second, 'new-row', first], 2));
 });
