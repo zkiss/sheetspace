@@ -145,12 +145,12 @@ describe('navigation palette composition', () => {
 
     const source = screen.getByRole('cell', { name: /Invoice A1/ });
     await user.click(source);
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u' });
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u', code: 'KeyU' });
     expect(screen.getByText('Cell usages — Direct usages')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(source).toHaveFocus();
 
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'r' });
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'r', code: 'KeyR' });
     const row = screen.getByLabelText('Row number');
     await user.type(row, '2{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a row number from 1 to 1.');
@@ -169,10 +169,10 @@ describe('navigation palette composition', () => {
     fireEvent.keyDown(source, { altKey: true, key: 'Enter' });
     expect(screen.queryByText('No resolvable reference is available.')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'd' });
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'd', code: 'KeyD' });
     expect(screen.queryByText('Select a named property or property reference first.')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u' });
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u', code: 'KeyU' });
     expect(screen.getByText('No results')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(source).toHaveFocus();
@@ -221,7 +221,7 @@ describe('navigation palette composition', () => {
     fireEvent.keyDown(document.body, { ctrlKey: true, shiftKey: true, key: 'p' });
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
-    fireEvent.keyDown(document.body, { altKey: true, shiftKey: true, key: 'u' });
+    fireEvent.keyDown(document.body, { altKey: true, shiftKey: true, key: 'u', code: 'KeyU' });
     expect(screen.queryByText('Select a cell or named property first.')).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Command search' })).not.toBeInTheDocument();
   });

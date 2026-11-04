@@ -40,6 +40,16 @@ describe('shortcut matching', () => {
     expect(matchesShortcut(event('!', { code: 'Digit1', ctrlKey: true, shiftKey: true }), 'format-number', 'other')).toBe(true);
     expect(matchesShortcut(event('1', { code: 'Digit2', ctrlKey: true, shiftKey: true }), 'format-number', 'other')).toBe(false);
   });
+  it.each([
+    ['sheet', 'KeyS', 'Í', 'S'], ['column', 'KeyC', 'Ç', 'C'],
+    ['row', 'KeyR', '‰', 'R'], ['definition', 'KeyD', 'Î', 'D'],
+    ['errors', 'KeyE', 'Dead', 'E'], ['usages', 'KeyU', '¨', 'U'],
+  ])('matches macOS Option shortcut %s by physical key and displays its binding', (id, code, key, label) => {
+    expect(matchesShortcut(event(key, { code, altKey: true, shiftKey: true }), id, 'mac')).toBe(true);
+    expect(matchesShortcut(event(key, { code: 'KeyX', altKey: true, shiftKey: true }), id, 'mac')).toBe(false);
+    expect(matchesShortcut(event(key, { code, altKey: true }), id, 'mac')).toBe(false);
+    expect(shortcutLabel(id, 'mac')).toBe(`Alt+Shift+${label}`);
+  });
   it('keeps native clipboard chords and labels when app alternatives change', () => {
     const map: Keymap = { copy: [{ key: 'q', mod: true }] };
     expect(shortcutLabel('copy', 'mac', map)).toBe('⌘+C / ⌘+Q');

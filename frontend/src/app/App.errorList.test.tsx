@@ -18,7 +18,7 @@ it('opens errors from the shortcut and palette and navigates through the current
   render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} />);
   const cell = screen.getByRole('cell', { name: 'Inputs A1 cell' });
   fireEvent.click(cell);
-  fireEvent.keyDown(cell, { altKey: true, shiftKey: true, key: 'E' });
+  fireEvent.keyDown(cell, { altKey: true, shiftKey: true, key: 'E', code: 'KeyE' });
   expect(screen.getByRole('gridcell', { name: '@Inputs!A[1]' })).toHaveFocus();
   fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
   fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
@@ -26,7 +26,7 @@ it('opens errors from the shortcut and palette and navigates through the current
   const destination = screen.getByRole('cell', { name: 'Inputs B1 cell' });
   expect(destination).toHaveFocus();
   expect(destination).toHaveAttribute('data-navigation-highlight');
-  fireEvent.keyDown(destination, { altKey: true, shiftKey: true, key: 'E' });
+  fireEvent.keyDown(destination, { altKey: true, shiftKey: true, key: 'E', code: 'KeyE' });
   expect(screen.queryByRole('grid', { name: 'Error list' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
   fireEvent.click(screen.getByRole('button', { name: /Toggle error list Alt/ }));
@@ -42,7 +42,7 @@ it('does not steal the shortcut from an active cell editor', async () => {
   fireEvent.click(cell);
   fireEvent.keyDown(cell, { key: 'F2' });
   const editor = screen.getByRole('textbox', { name: 'Inputs A1 editor' });
-  fireEvent.keyDown(editor, { altKey: true, shiftKey: true, key: 'E' });
+  fireEvent.keyDown(editor, { altKey: true, shiftKey: true, key: 'E', code: 'KeyE' });
   expect(editor).toHaveFocus();
   expect(screen.queryByRole('grid', { name: 'Error list' })).not.toBeInTheDocument();
 });
@@ -55,7 +55,7 @@ it('refreshes errors after correction, undo and redo', async () => {
   await user.click(cell);
   await user.keyboard('42{Enter}');
   expect(screen.queryByRole('button', { name: /Toggle error list/ })).not.toBeInTheDocument();
-  fireEvent.keyDown(cell, { altKey: true, shiftKey: true, key: 'E' });
+  fireEvent.keyDown(cell, { altKey: true, shiftKey: true, key: 'E', code: 'KeyE' });
   expect(screen.getByText('No workbook errors.')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Close errors' }));
   await user.keyboard('{Control>}z{/Control}');

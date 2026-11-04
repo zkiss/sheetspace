@@ -15,7 +15,7 @@ it('transfers maximised presentation when sheet search chooses another sheet', a
   const sourceFrame = screen.getByRole('article', { name: 'Sheet Source' });
   fireEvent.click(within(sourceFrame).getByRole('cell', { name: 'Source A1 empty cell' }));
   fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
-  fireEvent.keyDown(document.body, { key: 'S', altKey: true, shiftKey: true });
+  fireEvent.keyDown(document.body, { key: 'S', code: 'KeyS', altKey: true, shiftKey: true });
   fireEvent.click(screen.getByRole('button', { name: /Target/ }));
   await waitFor(() => expect(screen.getByRole('article', { name: 'Sheet Target' })).toHaveAttribute('data-presented', 'true'));
   expect(sourceFrame).not.toHaveAttribute('data-presented');
