@@ -6,6 +6,28 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkbookController } from './useWorkbookController';
 
 describe('lifecycle settlement', () => {
+  it('rejects reorders while a lifecycle transition is pending and admits them after settlement', async () => {
+    const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const save = deferred<Workbook>();
+    const api = autosaveClient({ saveModelLifecycle: () => save.promise, loadSheet: vi.fn().mockResolvedValue(sheet) });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    let submission: ReturnType<typeof result.current.commands.addDataModel>;
+    act(() => { submission = result.current.commands.addDataModel({ id: 'm', name: 'Model', columns: [] }); });
+    const before = result.current.workbook;
+    act(() => {
+      expect(result.current.commands.shiftAxis('one', 'row', [sheet.content.rows[0]!], 1)).toMatchObject({ status: 'rejected', reason: 'pending-model-transition' });
+      expect(result.current.commands.gatherAxis('one', 'column', [sheet.content.columns[0]!], 2)).toMatchObject({ status: 'rejected', reason: 'pending-model-transition' });
+    });
+    expect(result.current.workbook).toBe(before);
+    expect(api.writeAxisOrder).not.toHaveBeenCalled();
+    expect(result.current.canUndo).toBe(false);
+    await act(async () => { save.resolve(result.current.workbook); await submission!.completion; });
+    act(() => expect(result.current.commands.shiftAxis('one', 'row', [sheet.content.rows[0]!], 1).status).toBe('changed'));
+    expect(result.current.workbook.documents.one!.content.rows).toEqual([...sheet.content.rows].reverse());
+    expect(result.current.canUndo).toBe(true);
+  });
+
   it('keeps history locked until successful settlement and resets it only once across rerenders', async () => {
     const workbook = workbookWithSheets([sheetDocument({ id: 'one', name: 'One' })]);
     const save = deferred<Workbook>();
