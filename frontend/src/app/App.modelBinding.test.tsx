@@ -319,9 +319,36 @@ describe('App model binding workflow', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Bind model' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
     await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    expect(within(panel).getByRole('combobox')).toBeDisabled();
     await act(async () => { save.reject(new Error('offline')); });
+    await waitFor(() => expect(within(panel).getByRole('alert')).toHaveTextContent('The data model change was not saved.'));
+    expect(within(panel).getByRole('combobox')).toBeEnabled();
     await waitFor(() => expect(cellAt('A1')).toBeInTheDocument());
     expect(cellAt('A1')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('does not restore a dismissed palette binding over a newer selection', async () => {
+    const { sheet } = inputsWorkbook();
+    const other = positionedSheet('other', 'Other', { x: 500, y: 96 });
+    const workbook = { ...workbookWithSheets([sheet, other]), dataModels: { invoice: declaredModel } };
+    const save = deferred<Workbook>();
+    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    render(<App initialWorkbook={workbook} apiClient={apiClient} />);
+    fireEvent.click(cellAt('A1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model…' }));
+    const panel = screen.getByRole('dialog');
+    fireEvent.change(within(panel).getByRole('combobox'), { target: { value: 'invoice' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole('button', { name: 'Close command palette' }));
+    const otherCell = screen.getByRole('cell', { name: 'Other A1 empty cell' });
+    fireEvent.click(otherCell);
+    await act(async () => { save.reject(new Error('offline')); });
+    expect(otherCell).toHaveAttribute('aria-selected', 'true');
+    expect(cellAt('A1')).not.toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('does not restore the pruned selection after a successful binding', async () => {

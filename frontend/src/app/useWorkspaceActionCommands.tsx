@@ -28,7 +28,7 @@ import { extractionSelection } from './extractionSelection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 import { extractionFeedback } from './extractionFeedback';
 
-type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; initialAction?: 'unbind' }
+type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; sheetId: string; initialAction?: 'unbind' }
   | { kind: 'rename-column'; title: string; target: RenameColumnTarget; initialName: string }
   | { kind: 'delete-property'; title: string; target: Extract<RenameColumnTarget, { kind: 'property' }>; selection: CellTarget; sheet: SheetDocument }
   | { kind: 'numbers'; title: string; fields: readonly CommandNumberField[]; apply: (values: number[]) => unknown };
@@ -203,8 +203,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('sheet-position', 'Move sheet…', 'Sheet', numbers('Move sheet', [
     { label: 'X position', value: sheet?.frame.position.x ?? 0 }, { label: 'Y position', value: sheet?.frame.position.y ?? 0 },
   ], ([x, y]) => sheet && commands.moveSheetFrame(sheet.id, { x: x!, y: y! })), noSheet);
-  add('bind-model', sheet?.modelId ? 'Rebind model…' : 'Bind model…', 'Data models', () => show({ kind: 'model', title: 'Sheet model binding' }), noSheet);
-  add('unbind-model', 'Unbind model…', 'Data models', () => show({ kind: 'model', title: 'Unbind model', initialAction: 'unbind' }), sheet?.modelId ? undefined : 'The selected sheet has no bound model');
+  add('bind-model', sheet?.modelId ? 'Rebind model…' : 'Bind model…', 'Data models', () => { if (sheet) show({ kind: 'model', title: 'Sheet model binding', sheetId: sheet.id }); }, noSheet);
+  add('unbind-model', 'Unbind model…', 'Data models', () => { if (sheet) show({ kind: 'model', title: 'Unbind model', sheetId: sheet.id, initialAction: 'unbind' }); }, sheet?.modelId ? undefined : 'The selected sheet has no bound model');
   add('edit-model', 'Edit bound model…', 'Data models', run(() => onOpenDataModels?.(sheet?.modelId), false), sheet?.modelId && onOpenDataModels ? undefined : 'The selected sheet has no bound model');
 
   add('edit-cell', 'Edit or inspect cell formula', 'Selection', run(() => activeCell && onEdit(activeCell), false), noCell, ['grid-cells']);
@@ -335,7 +335,10 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     const message = failure(commands.writeNumberFormats(formatting.descriptor.sheetId, writes));
     if (message) onFeedback(message);
   }} />;
-  if (panel?.kind === 'model' && sheet) content = <SheetModelControls key={`${sheet.id}:${panel.initialAction}`} models={Object.values(workbook.dataModels ?? {})} sheet={sheet} initialAction={panel.initialAction} onBind={commands.bindSheetToModel} onUnbind={commands.unbindSheetFromModel} onOpenDataModels={(id) => run(() => onOpenDataModels?.(id), false)()} />;
+  if (panel?.kind === 'model') {
+    const target = workbook.documents[panel.sheetId];
+    if (target) content = <SheetModelControls key={`${target.id}:${panel.initialAction}`} models={Object.values(workbook.dataModels ?? {})} sheet={target} initialAction={panel.initialAction} onBind={commands.bindSheetToModel} onUnbind={commands.unbindSheetFromModel} onOpenDataModels={(id) => run(() => onOpenDataModels?.(id), false)()} />;
+  }
   if (panel?.kind === 'delete-property') content = <DeletePropertyForm target={panel.target} onCancel={() => { setPanel(null); closePalette(); }} onApply={async () => {
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
     const model = workbook.dataModels?.[panel.target.modelId];
