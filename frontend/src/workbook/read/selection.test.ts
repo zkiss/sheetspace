@@ -23,6 +23,8 @@ for (const mode of ['rows', 'columns'] as const) {
       const removed = toggleAxisMember(sheet, added, id(2))!;
       expect(removed.members).toEqual([id(3), id(4), id(6)]);
       expect(mode === 'rows' ? removed.anchor.cell.rowId : removed.anchor.cell.columnId).toBe(id(3));
+      const removedExtent = toggleAxisMember(sheet, selection, id(6))!;
+      expect(removedExtent.extent).toEqual(target(2, 2));
       expect(toggleAxisMember(sheet, { ...selection, members: [id(2)], extent: selection.anchor }, id(2))).toBeUndefined();
       expect(toggleAxisMember(sheet, selection, 'missing')).toBeUndefined();
     });
@@ -36,6 +38,8 @@ for (const mode of ['rows', 'columns'] as const) {
       const content = { ...sheet.content, [mode]: sheet.content[mode].filter((item) => item !== id(2) && item !== id(6)), [mode === 'rows' ? 'columns' : 'rows']: sheet.content[mode === 'rows' ? 'columns' : 'rows'].filter((item) => item !== `s:${mode === 'rows' ? 'column' : 'row'}:2`) };
       const pruned = pruneAxisSelection({ ...sheet, content }, selection)!;
       expect(pruned.members).toEqual([id(4)]);
+      expect(pruned.anchor).toEqual(mode === 'rows' ? target(4, 1) : target(1, 4));
+      expect(pruned.extent).toEqual(mode === 'rows' ? target(4, 1) : target(1, 4));
       expect(projectSelection({ ...sheet, content }, pruned)?.rectangular).toBe(true);
       expect(pruneAxisSelection({ ...sheet, content: { ...content, [mode]: [] } }, selection)).toBeUndefined();
       expect(pruneAxisSelection({ ...sheet, content: { ...content, [mode]: content[mode].filter((x) => x !== id(4)) } }, selection)).toBeUndefined();
