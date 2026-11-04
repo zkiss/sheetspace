@@ -218,7 +218,7 @@ export function useCellEditing({
     } satisfies Record<CellNavigationDirection, { columnIndex: number; rowIndex: number }>;
     const next = adjacentTarget(sheet, target, delta[direction]);
     if (next) dispatch(extend
-      ? { type: 'extend-selection', target: next, requestFocus: true }
+      ? { type: 'extend-selection', target: next, requestFocus: true, sheet }
       : { type: 'navigate', target: next });
   }
 
@@ -245,7 +245,7 @@ export function useCellEditing({
       // Shift extends selection for directional navigation only. Tab and Enter
       // are traversal commands even when a single cell is selected.
       : request.shift && request.key !== 'Tab' && request.key !== 'Enter' && selection?.mode === 'cells'
-        ? { type: 'extend-selection', target: next, requestFocus: true }
+        ? { type: 'extend-selection', target: next, requestFocus: true, sheet }
         : { type: 'navigate', target: next });
     return true;
   }
@@ -321,8 +321,8 @@ export function useCellEditing({
     selectionRange: state.rangeSelection,
     selectionOwner: state.selectionOwner,
     selectCell: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'select', target, gesture }),
-    extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture }),
-    focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture }),
+    extendSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, gesture, sheet: findSheetById(workbook, target.sheetId) }),
+    focusSelection: (target: CellTarget, gesture?: SelectionGesture) => dispatch({ type: 'extend-selection', target, requestFocus: true, gesture, sheet: findSheetById(workbook, target.sheetId) }),
     settleSelectionGesture: (owner: symbol) => dispatch({ type: 'settle-selection-gesture', gesture: { owner } }),
     focusCurrentSelection: () => {
       if (!state.selection) return null;
@@ -330,8 +330,8 @@ export function useCellEditing({
       dispatch({ type: 'focus-current-selection' });
       return requestId;
     },
-    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture) => {
-      dispatch({ type: 'select-axis', mode, target, extend, gesture });
+    selectAxis: (mode: Exclude<CellSelectionMode, 'cells'>, target: CellTarget, extend: boolean, gesture?: SelectionGesture, intent?: 'plain' | 'extend' | 'toggle') => {
+      dispatch({ type: 'select-axis', mode, target, extend, gesture, intent, sheet: findSheetById(workbook, target.sheetId) });
     },
     selectReferenceTarget: (target: ReferenceNavigationTarget) => dispatch({ type: 'select-reference', target }),
     restoreSelection: (selection: CellSelection | null) => {

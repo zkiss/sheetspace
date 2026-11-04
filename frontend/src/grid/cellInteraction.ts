@@ -39,7 +39,7 @@ export const EMPTY_CELL_INTERACTION_STATE: CellInteractionState = {
 export type CellInteractionAction =
   | { type: 'select'; target: CellTarget; gesture?: SelectionGesture }
   | { type: 'activate-sheet'; target: CellTarget; requestFocus?: boolean }
-  | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean; gesture?: SelectionGesture }
+  | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean; gesture?: SelectionGesture; sheet?: SheetDocument }
   | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
   | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; intent?: 'plain' | 'extend' | 'toggle'; sheet?: SheetDocument; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
@@ -109,6 +109,22 @@ export function cellInteractionReducer(
       // A range never crosses sheets.  A new sheet starts a fresh selection.
       if (!anchor || anchor.sheetId !== action.target.sheetId) {
         return cellInteractionReducer(state, { type: 'select', target: action.target, gesture: action.gesture });
+      }
+      const current = state.rangeSelection;
+      if (action.sheet && current && current.mode !== 'cells' && current.members) {
+        const pruned = pruneAxisSelection(action.sheet, { ...current, mode: current.mode, members: current.members });
+        if (pruned) {
+          const id = current.mode === 'rows' ? action.target.cell.rowId : action.target.cell.columnId;
+          const selection = extendAxisSelection(action.sheet, pruned, id);
+          if (selection && projectSelection(action.sheet, selection)) {
+            const extended = { ...state, selection: action.target,
+              selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
+              selectionOwner: action.gesture?.owner ?? null, rangeSelection: { ...selection, extent: action.target },
+              focusRequest: null, referenceSelection: null, tabRunOriginColumnId: null };
+            return action.requestFocus ? withFocusRequest(extended, action.target) : extended;
+          }
+        }
+        return state;
       }
       const extended = {
         ...state,

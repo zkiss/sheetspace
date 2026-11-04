@@ -5,6 +5,20 @@ import { useCellEditing } from '@grid/useCellEditing';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('exact content selection', () => {
+  it.each(['rows', 'columns'] as const)('creates and extends exact %s through queued header actions', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', cells: {} });
+    const workbook = workbookWithSheets([sheet]);
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const { result } = renderHook(() => useCellEditing({ commands, workbook }));
+    const anchor = cellTargetAt(sheet, 'A1')!;
+    const extent = cellTargetAt(sheet, mode === 'rows' ? 'A3' : 'C1')!;
+    const axis = mode === 'rows' ? sheet.content.rows : sheet.content.columns;
+    act(() => {
+      result.current.selectAxis(mode, anchor, false);
+      result.current.extendSelection(extent);
+    });
+    expect(result.current.selectionRange?.members).toEqual(axis.slice(0, 3));
+  });
   it.each(['rows', 'columns'] as const)('clears only selected %s and keeps membership when endpoints are unchanged', (mode) => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', cells: { A1: 'a', A2: 'b', A3: 'c', A4: 'd', B1: 'e', C1: 'f', D1: 'g' } });
     const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
