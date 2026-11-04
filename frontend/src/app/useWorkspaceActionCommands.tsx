@@ -84,6 +84,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   }
   const noSheet = sheet ? undefined : 'Select a sheet first';
   const noCell = activeCell ? undefined : 'Select a cell first';
+  const noClipboardSelection = noCell ?? (!sheet || (selection && !projectSelection(sheet, selection)?.rectangular) ? 'Select a rectangular range first' : undefined);
   const noFormat = formatting.descriptor.valid ? undefined : 'Select cells, rows, or columns first';
   const actions: NavigationCommand[] = [];
   const add = (id: string, label: string, group: string, action: NavigationCommand['run'], unavailable?: string, keyboardContext?: readonly KeyboardContext[]) => {
@@ -202,22 +203,24 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     }, () => { release(); if (mounted.current) { extraction.onFailure?.(request); onFeedback('The extraction could not be saved.'); } });
   }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {
+    if (noClipboardSelection) return;
     const operation = ++clipboardOperation.current;
+    const revision = selectionRevision.current.revision;
     setClipboardBusy(true);
     try {
       if (kind === 'paste') {
         const content = await clipboardAccess.read();
-        if (clipboardOperation.current !== operation) return;
+        if (clipboardOperation.current !== operation || selectionRevision.current.revision !== revision) return;
         onPaste(content);
       } else {
         const content = kind === 'copy' ? onCopy() : onCut();
         if (!content) return;
         await clipboardAccess.write(content);
-        if (clipboardOperation.current !== operation) return;
+        if (clipboardOperation.current !== operation || selectionRevision.current.revision !== revision) return;
       }
       setPanel(null); closePalette();
     } catch {
-      if (clipboardOperation.current !== operation) return;
+      if (clipboardOperation.current !== operation || selectionRevision.current.revision !== revision) return;
       if (kind === 'cut') onCancelCut();
       closePalette();
       onFeedback('Clipboard access failed. Use the keyboard clipboard shortcut or allow clipboard access in your browser.');
@@ -225,9 +228,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (clipboardOperation.current === operation) setClipboardBusy(false);
     }
   }
-  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('copy', undefined, {})} in this browser`), ['native-clipboard']);
-  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('cut', undefined, {})} in this browser`), ['native-clipboard']);
-  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noCell ?? (clipboardAccess.canRead() ? undefined : `Use ${shortcutLabel('paste', undefined, {})} in this browser`), ['native-clipboard']);
+  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noClipboardSelection ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('copy', undefined, {})} in this browser`), ['native-clipboard']);
+  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noClipboardSelection ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('cut', undefined, {})} in this browser`), ['native-clipboard']);
+  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noClipboardSelection ?? (clipboardAccess.canRead() ? undefined : `Use ${shortcutLabel('paste', undefined, {})} in this browser`), ['native-clipboard']);
   add('cancel-cut', 'Cancel cut', 'Editing', run(onCancelCut), hasPendingCut ? undefined : 'No pending cut');
   add('select-row', 'Select row', 'Selection', run(() => activeCell && onSelectAxis('rows', activeCell)), noCell);
   add('select-column', 'Select column', 'Selection', run(() => activeCell && onSelectAxis('columns', activeCell)), noCell);

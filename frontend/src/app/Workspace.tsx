@@ -5,7 +5,7 @@ import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, columnIndexToLabel } from '@workbook/core/address';
 import { addressRangeOf, cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
-import { selectionAddressRange } from './workspaceSelection';
+import { rectangularSelectionAddressRange, selectionAddressRange } from './workspaceSelection';
 import { mappedExtractionSelection } from './extractionSelection';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
@@ -827,6 +827,8 @@ export function Workspace({
       ? { mode: 'cells' as const, anchor: activeCell, extent: activeCell }
       : undefined);
     if (!selection) return undefined;
+    const selected = findSheetById(workbook, selection.anchor.sheetId);
+    if (!selected || !rectangularSelectionAddressRange(selected, selection)) return undefined;
     if (selectionIncludesCalculatedColumn(workbook, selection)) {
       cancelPendingCut();
       setCalculatedCellFeedback(CALCULATED_CELL_PROTECTION);
@@ -844,7 +846,7 @@ export function Workspace({
     if (!activeCell) return;
     const destination = findSheetById(workbook, activeCell.sheetId);
     const destinationKey = destination && cellKeyForTarget(destination, activeCell);
-    if (!destination || !destinationKey) return;
+    if (!destination || !destinationKey || (selectionRange && !rectangularSelectionAddressRange(destination, selectionRange))) return;
     const hadPendingCut = clipboard.current.pendingCutSource !== undefined;
     const parsed = clipboard.current.parse(workbook, clipboardData);
     if (hadPendingCut && !clipboard.current.pendingCutSource) setClipboardRevision((revision) => revision + 1);

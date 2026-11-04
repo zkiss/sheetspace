@@ -37,6 +37,25 @@ describe('TSV clipboard codec', () => {
 });
 
 describe('clipboard payload provenance', () => {
+  it('rejects scattered axis selections without discarding a pending cut', () => {
+    const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 3 });
+    const workbook = workbookWithSheets([sheet]);
+    const store = new ClipboardPayloadStore();
+    const first = cellTargetAt(sheet, 'A1')!;
+    const last = cellTargetAt(sheet, 'C3')!;
+    const cut = store.cut(workbook, { mode: 'cells', anchor: first, extent: first });
+    expect(cut.ok).toBe(true);
+    for (const mode of ['rows', 'columns'] as const) {
+      const axis = mode === 'rows' ? sheet.content.rows : sheet.content.columns;
+      const scattered = { mode, anchor: first, extent: last, members: [axis[0]!, axis[2]!] };
+      expect(store.copy(workbook, scattered)).toEqual({ ok: false, reason: 'invalid-selection' });
+      expect(store.cut(workbook, scattered)).toEqual({ ok: false, reason: 'invalid-selection' });
+      expect(store.pendingCutSource).toBeDefined();
+      expect(store.copy(workbook, { ...scattered, members: [...axis] }).ok).toBe(true);
+      store.cut(workbook, { mode: 'cells', anchor: first, extent: first });
+    }
+  });
+
   it('retains stored formula metadata in an internal snapshot', () => {
     const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
     const workbook = workbookWithSheets([sheet]);
