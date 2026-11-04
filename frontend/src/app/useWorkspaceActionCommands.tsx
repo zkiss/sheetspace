@@ -70,6 +70,11 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     if (cut) cut.cancel(cut.marker);
   }
   const mounted = useRef(true);
+  function invalidateClipboardOperation() {
+    clipboardOperation.current += 1;
+    cancelUnconfirmedCut();
+    if (mounted.current) setClipboardBusy(false);
+  }
   const selectionContext = JSON.stringify([sheet?.id, activeCell, selection]);
   const selectionRevision = useRef({ context: selectionContext, revision: 0 });
   if (selectionRevision.current.context !== selectionContext) {
@@ -337,5 +342,5 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     if (!message) { setPanel(null); closePalette(); }
     return message;
   }} />;
-  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, preventClose: renameBusy, panel: panel ? { title: panel.title, content } : undefined, resetPanel: () => { clipboardOperation.current += 1; cancelUnconfirmedCut(); setClipboardBusy(false); setPanel(null); } };
+  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, preventClose: renameBusy, panel: panel ? { title: panel.title, content } : undefined, invalidateClipboardOperation, resetPanel: () => { invalidateClipboardOperation(); setPanel(null); } };
 }

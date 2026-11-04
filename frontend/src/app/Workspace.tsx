@@ -1347,7 +1347,12 @@ export function Workspace({
                     selectedRange={selectedRange}
                     selectionMode={selectionRange?.anchor.sheetId === sheet.id ? selectionRange.mode : undefined}
                     onSelectAxis={(...args) => { cancelNavigationBeforeUserMovement.current(); onSelectAxis(...args); }}
-                    clipboardInteraction={{ copy: copyGridSelection, cut: cutGridSelection, paste: pasteGridSelection, cancelCut: cancelPendingCut }}
+                    clipboardInteraction={{
+                      copy: () => { actionPalette.invalidateClipboardOperation(); return copyGridSelection(); },
+                      cut: () => { actionPalette.invalidateClipboardOperation(); return cutGridSelection(); },
+                      paste: (content) => { actionPalette.invalidateClipboardOperation(); pasteGridSelection(content); },
+                      cancelCut: () => { actionPalette.invalidateClipboardOperation(); cancelPendingCut(); },
+                    }}
                     sheet={tabular}
                   />
                 );
