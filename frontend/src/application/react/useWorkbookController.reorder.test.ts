@@ -39,6 +39,23 @@ describe('axis reorder history', () => {
     expect(result.current.orderReplayFailure).toBeUndefined();
   });
 
+  it('clears order conflict feedback and history when a lifecycle transition resets history', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet, other]) }));
+    act(() => result.current.commands.shiftAxis('s', 'row', [sheet.content.rows[0]!], 1));
+    act(() => result.current.commands.deleteSheet('s'));
+    act(() => result.current.commands.undo());
+    expect(result.current.orderReplayFailure).toBe('order-conflict');
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => expect(result.current.commands.renameColumn('other', other.content.columns[0]!, 'Revenue').result.ok).toBe(true));
+    expect(result.current.orderReplayFailure).toBeUndefined();
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(false);
+    expect(result.current.workbook.documents.other!.columnNames).toEqual({ [other.content.columns[0]!]: 'Revenue' });
+  });
+
   it('does not add history for invalid or boundary moves', () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 2 });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
