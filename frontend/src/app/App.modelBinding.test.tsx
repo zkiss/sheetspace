@@ -304,6 +304,22 @@ describe('App model binding workflow', () => {
     }
   });
 
+  it('does not restore the pruned selection after a successful binding', async () => {
+    const { workbook } = inputsWorkbook();
+    const initial = { ...workbook, dataModels: { invoice: declaredModel } };
+    const apiClient = persistedWorkbookClient(initial);
+    render(<App initialWorkbook={initial} apiClient={apiClient} />);
+
+    fireEvent.click(cellAt('A1'));
+    fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Bound to Invoice')).toBeInTheDocument());
+    expect(frame()).toHaveAttribute('data-row-count', '0');
+    expect(frame().querySelector('[aria-selected="true"]')).toBeNull();
+  });
+
   it('renders calculated cells read-only from the live declaration and follows a property reorder', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const workbook = workbookWithSheets([sheetDocument({ id: 'inputs', name: 'Inputs', position: { x: 48, y: 96 }, cells: { A1: '1' } })]);
