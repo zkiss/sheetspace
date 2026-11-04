@@ -1,0 +1,112 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { workbookApi, WorkbookApiError } from './workbookApi';
+import { WorkbookOutbox } from './workbookOutbox';
+import { WorkbookPersistenceTransport } from './workbookPersistenceTransport';
+import { sheetDocument } from '@test-support/workbookFactories';
+
+const before = ['r1', 'r2', 'r3'];
+const after = ['r2', 'r1', 'r3'];
+const intent = { kind: 'write-axis-order', sheetId: 'a', axis: 'row', before, after } as const;
+const sheet = (order: readonly string[], revision: number) => {
+  const document = sheetDocument({ id: 'a', name: 'A', revision });
+  return { ...document, content: { ...document.content, rows: [...order] } };
+};
+const conflict = () => new WorkbookApiError('conflict', 409, 'sheet-revision-conflict');
+const setup = (writeAxisOrder: ReturnType<typeof vi.fn>, loadSheet = vi.fn()) => {
+  const transport = new WorkbookPersistenceTransport({ writeAxisOrder, loadSheet });
+  transport.recordRevision('a', 1);
+  const outbox = new WorkbookOutbox();
+  outbox.enqueue('move', intent);
+  return { transport, outbox };
+};
+afterEach(() => vi.unstubAllGlobals());
+
+describe('axis order persistence', () => {
+  it('sends the revisioned API request and decodes its sheet', async () => {
+    const response = { id: 'a', name: 'A', revision: 2, frame: { position: { x: 0, y: 0 }, visualScale: 1, zIndex: 0 }, presentation: { rowHeights: {}, columnWidths: {} }, content: { kind: 'tabular', rows: ['r2', 'r1'], columns: ['c'], cells: [] } };
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const result = await workbookApi.writeAxisOrder('a/b', 'row', ['r2', 'r1'], 4);
+    expect(result.content.rows).toEqual(response.content.rows);
+    expect(fetch).toHaveBeenCalledWith('/api/sheets/a%2Fb/axis-order', expect.objectContaining({ method: 'PUT', headers: { 'Content-Type': 'application/json', 'If-Match': '4' }, body: JSON.stringify({ axis: 'row', order: ['r2', 'r1'] }) }));
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'bound-sheet-structure' }), { status: 400 }));
+    await expect(workbookApi.writeAxisOrder('a', 'column', [], 1)).rejects.toMatchObject({ status: 400, code: 'bound-sheet-structure' });
+  });
+  it('clones order arrays and keeps dependent moves behind failures', async () => {
+    const old = [...before]; const next = [...after];
+    const outbox = new WorkbookOutbox();
+    outbox.enqueue('one', { ...intent, before: old, after: next });
+    outbox.enqueue('two', { ...intent, before: next, after: old });
+    old.reverse(); next.reverse();
+    expect(outbox.inspect('one')?.intent).toEqual(intent);
+    expect(outbox.snapshot().map((entry) => entry.policy)).toEqual(['append', 'append']);
+    await outbox.executeNext({ execute: async () => { throw Error('offline'); } });
+    expect(await outbox.executeNext({ execute: vi.fn() })).toBeUndefined();
+  });
+  it('acknowledges a committed move with a lost response', async () => {
+    const write = vi.fn().mockRejectedValue(new TypeError('offline'));
+    const { outbox, transport } = setup(write, vi.fn().mockResolvedValue(sheet(after, 2)));
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(transport.revision('a')).toBe(2);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+  it('retries a conflict only after proving the original order', async () => {
+    const write = vi.fn().mockRejectedValueOnce(conflict()).mockResolvedValueOnce(sheet(after, 4));
+    const { outbox, transport } = setup(write, vi.fn().mockResolvedValue(sheet(before, 3)));
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(write).toHaveBeenLastCalledWith('a', 'row', after, 3);
+    expect(transport.revision('a')).toBe(4);
+  });
+  it('never overwrites a divergent order, including after manual retry', async () => {
+    const write = vi.fn().mockRejectedValue(conflict());
+    const load = vi.fn().mockResolvedValue(sheet(['r3', 'r2', 'r1'], 3));
+    const { outbox, transport } = setup(write, load);
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('move');
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+  it('re-proves order after a failed recovery and manually retries a pre-commit failure', async () => {
+    const write = vi.fn().mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(sheet(after, 3));
+    const load = vi.fn().mockRejectedValueOnce(new Error('load failed')).mockResolvedValueOnce(sheet(before, 2));
+    const { outbox, transport } = setup(write, load);
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    outbox.retry('move');
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(write).toHaveBeenLastCalledWith('a', 'row', after, 2);
+  });
+  it('serializes forward and inverse with successive revisions', async () => {
+    const write = vi.fn().mockResolvedValueOnce(sheet(after, 2)).mockResolvedValueOnce(sheet(before, 3));
+    const { outbox, transport } = setup(write);
+    outbox.enqueue('undo', { ...intent, before: after, after: before });
+    await outbox.executeNext(transport); await outbox.executeNext(transport);
+    expect(write).toHaveBeenNthCalledWith(2, 'a', 'row', before, 2);
+    expect(transport.revision('a')).toBe(3);
+  });
+  it('blocks missing revision and reports a missing sheet', async () => {
+    const write = vi.fn().mockRejectedValue(new WorkbookApiError('missing', 404, 'sheet-not-found'));
+    const transport = new WorkbookPersistenceTransport({ writeAxisOrder: write });
+    const entry = { operationId: 'move', intent, affectedSheetIds: ['a'] };
+    expect((await transport.execute(entry)).kind).toBe('blocked');
+    transport.recordRevision('a', 1);
+    expect(await transport.execute(entry)).toEqual({ kind: 'missing-sheet', sheetIds: ['a'] });
+  });
+  it('recovers malformed successful responses and server errors as ambiguous', async () => {
+    for (const failure of [new WorkbookApiError('invalid response', undefined, 'invalid-workbook-read-contract'), new WorkbookApiError('server error', 500)]) {
+      const write = vi.fn().mockRejectedValue(failure);
+      const { outbox, transport } = setup(write, vi.fn().mockResolvedValue(sheet(after, 2)));
+      expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+      expect(write).toHaveBeenCalledOnce();
+    }
+  });
+  it('reports missing sheets during recovery and does not retry rejected model columns', async () => {
+    const missing = new WorkbookApiError('missing', 404, 'sheet-not-found');
+    const first = setup(vi.fn().mockRejectedValue(conflict()), vi.fn().mockRejectedValue(missing));
+    expect(await first.transport.execute({ operationId: 'move', intent, affectedSheetIds: ['a'] })).toEqual({ kind: 'missing-sheet', sheetIds: ['a'] });
+    const guard = new WorkbookApiError('bound', 400, 'bound-sheet-structure');
+    const load = vi.fn();
+    const second = setup(vi.fn().mockRejectedValue(guard), load);
+    expect((await second.outbox.executeNext(second.transport))?.status).toBe('failed');
+    expect(load).not.toHaveBeenCalled();
+  });
+});

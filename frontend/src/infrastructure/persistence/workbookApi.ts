@@ -156,6 +156,11 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  writeAxisOrder(sheetId: string, axis: 'row' | 'column', order: readonly string[], revision: number): Promise<SheetDocument> {
+    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/axis-order`, {
+      method: 'PUT', body: JSON.stringify({ axis, order }), headers: revisionHeaders({ revision }),
+    }).then(decodeSheetDocument);
+  },
   saveModelLifecycle(before: Workbook, after: Workbook): Promise<Workbook> {
     return requestJson<WorkbookBundleResponse>('/api/workbook/model-lifecycle', {
       method: 'PUT', body: JSON.stringify({ before: encodeWorkbookBundle(before), after: encodeWorkbookBundle(after) }),
