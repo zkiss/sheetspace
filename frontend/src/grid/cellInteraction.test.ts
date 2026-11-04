@@ -21,6 +21,19 @@ const b1: CellTarget = {
 const a2: CellTarget = { sheetId: 'sheet-inputs', cell: { rowId: 'row-2', columnId: 'column-1' } };
 
 describe('cellInteractionReducer', () => {
+  it.each(['rows', 'columns'] as const)('builds exact %s selection using reducer-time state', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
+    const start = cellTargetAt(sheet, 'A1')!;
+    const second = cellTargetAt(sheet, mode === 'rows' ? 'A2' : 'B1')!;
+    const ids = mode === 'rows' ? sheet.content.rows : sheet.content.columns;
+    const first = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select-axis', mode, target: start, extend: false, sheet });
+    const extended = cellInteractionReducer(first, { type: 'select-axis', mode, target: second, extend: true, sheet });
+    expect(extended.rangeSelection?.members).toEqual(ids);
+    const toggled = cellInteractionReducer(extended, { type: 'select-axis', mode, target: start, extend: false, intent: 'toggle', sheet });
+    expect(toggled.rangeSelection?.members).toEqual([ids[1]]);
+    const cleared = cellInteractionReducer(toggled, { type: 'select-axis', mode, target: second, extend: false, intent: 'toggle', sheet });
+    expect(cleared.rangeSelection).toEqual({ mode: 'cells', anchor: second, extent: second });
+  });
   it('keeps selection, editing, and focus as distinct current cell state', () => {
     const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 });
     expect(selected.selection).toEqual(a1);

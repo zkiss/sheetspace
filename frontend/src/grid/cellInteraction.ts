@@ -3,6 +3,7 @@ import { cellKey } from '@workbook/core/address';
 import { type SheetDocument, type SheetTabularProjection } from '@workbook/core/model';
 import type { SelectionGesture, CellEditSession, CellSelection, CellSelectionMode, CellTarget, ReferenceNavigationTarget } from './cellInteractionContracts';
 import { formulaDraftKey } from './formulaDrafts';
+import { extendAxisSelection, projectSelection, pruneAxisSelection, toggleAxisMember } from '@workbook/read/selection';
 
 export type CellInteractionState = {
   selection: CellTarget | null;
@@ -40,7 +41,7 @@ export type CellInteractionAction =
   | { type: 'activate-sheet'; target: CellTarget; requestFocus?: boolean }
   | { type: 'extend-selection'; target: CellTarget; requestFocus?: boolean; gesture?: SelectionGesture }
   | { type: 'settle-selection-gesture'; gesture: SelectionGesture }
-  | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; gesture?: SelectionGesture }
+  | { type: 'select-axis'; mode: Exclude<CellSelectionMode, 'cells'>; target: CellTarget; extend: boolean; intent?: 'plain' | 'extend' | 'toggle'; sheet?: SheetDocument; gesture?: SelectionGesture }
   | { type: 'select-reference'; target: ReferenceNavigationTarget }
   | { type: 'restore-selection'; selection: CellSelection | null }
   | { type: 'start-edit'; session: CellEditSession; replaceSuspendedDraft?: boolean }
@@ -127,6 +128,32 @@ export function cellInteractionReducer(
       // live gesture must be rejected.
       return { ...state, selectionOwner: null };
     case 'select-axis': {
+      if (action.sheet) {
+        const { sheet, mode, target } = action;
+        const single = { mode, anchor: target, extent: target, members: [mode === 'rows' ? target.cell.rowId : target.cell.columnId] };
+        if (!projectSelection(sheet, single)) return state;
+        const previous = state.rangeSelection;
+        const current = previous?.mode === mode && previous.members && previous.anchor.sheetId === target.sheetId
+          ? pruneAxisSelection(sheet, { ...previous, mode, members: previous.members }) : undefined;
+        const intent = action.intent ?? (action.extend ? 'extend' : 'plain');
+        const id = single.members[0]!;
+        const selection = current && intent === 'extend' ? extendAxisSelection(sheet, current, id)
+          : current && intent === 'toggle' ? toggleAxisMember(sheet, current, id)
+            : single;
+        if (!selection) return cellInteractionReducer(state, { type: 'select', target, gesture: action.gesture });
+        const active = intent === 'toggle' ? selection.extent : target;
+        return {
+          ...state,
+          selection: active,
+          selectionsBySheet: { ...state.selectionsBySheet, [active.sheetId]: active },
+          selectionOwner: action.gesture?.owner ?? null,
+          rangeSelection: { ...selection, extent: active },
+          ...suspendEdit(state),
+          focusRequest: null,
+          referenceSelection: null,
+          tabRunOriginColumnId: null,
+        };
+      }
       const canExtend = action.extend
         && state.rangeSelection?.mode === action.mode
         && state.rangeSelection.anchor.sheetId === action.target.sheetId;
