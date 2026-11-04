@@ -55,7 +55,7 @@ export type WorkbookCommands = {
 };
 
 export type ExtractionCommandResult = import('@application/core/extractSelection').ExtractionResult | TransitionFailure | { ok: false; reason: 'extraction-history-too-large' };
-export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: 'pending-model-transition' };
+export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: 'pending-model-transition' | 'order-history-too-large' };
 export type ExtractionSubmission = Readonly<{ result: ExtractionCommandResult; completion: Promise<ExtractionCommandResult> }>;
 export type ExtractionReplayFailure = Extract<import('@application/core/extractionHistory').ExtractionReplayResult, { ok: false }>['reason'] | TransitionFailure['reason'];
 
@@ -87,6 +87,7 @@ export type WorkbookController = {
   canRedo: boolean;
   contentHistoryFeedback: ContentHistoryFeedback | undefined;
   extractionReplayFailure: ExtractionReplayFailure | undefined;
+  orderReplayFailure: 'pending-model-transition' | 'order-conflict' | undefined;
   mutationFailure: 'pending-model-transition' | undefined;
   formulaResults: FormulaEvaluationSnapshot;
   retryStartupLoad: () => void;

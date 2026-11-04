@@ -11,7 +11,7 @@ import { useExtractionReplay } from './useExtractionReplay';
 import { extractionCommand } from './extractionCommand';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
-import { applyAxisPermutation, gatherAxis, shiftAxis } from '@workbook/mutations/reorderAxis';
+import { gatherAxis, shiftAxis } from '@workbook/mutations/reorderAxis';
 import { createAxisReorder } from './axisReorder';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type CellKey } from '@workbook/core/address';
@@ -358,18 +358,7 @@ export function useWorkbookController({
       return;
     }
     if (transaction.kind === 'axis-order' && transaction.order) {
-      const { sheetId, axis, before, after } = transaction.order;
-      if (lifecycle.hasPending() || admissionLocks.current.has(sheetId)) return;
-      const sheet = optimisticWorkbook.current.documents[sheetId];
-      const current = axis === 'row' ? sheet?.content.rows : sheet?.content.columns;
-      const expected = direction === 'undo' ? after : before;
-      if (!current || current.length !== expected.length || current.some((id, index) => id !== expected[index])) return;
-      const result = applyAxisPermutation(optimisticWorkbook.current, sheetId, axis, direction === 'undo' ? before : after);
-      if (result.status !== 'changed') return;
-      publishOrder(sheetId, axis, result);
-      if (direction === 'undo') contentHistory.commitUndo(); else contentHistory.commitRedo();
-      setContentHistoryFeedback(undefined);
-      setHistoryRevision((revision) => revision + 1);
+      replayOrder(transaction.order, direction);
       return;
     }
     if (lifecycle.hasPending()) return;
@@ -392,10 +381,12 @@ export function useWorkbookController({
     setHistoryRevision((revision) => revision + 1);
   }
 
-  const { publishOrder, reorder } = createAxisReorder({
+  const [orderReplayFailure, setOrderReplayFailure] = useState<WorkbookController['orderReplayFailure']>();
+  const { replay: replayOrder, reorder } = createAxisReorder({
     current: optimisticWorkbook, setWorkbook, history: contentHistory,
     enqueue: savedAutosave.enqueue, hasPending: lifecycle.hasPending,
     admissionLocks, setMutationFailure, setContentHistoryFeedback,
+    setReplayFailure: setOrderReplayFailure,
     publishHistory: () => setHistoryRevision((revision) => revision + 1),
   });
 
@@ -533,6 +524,7 @@ export function useWorkbookController({
     canUndo: !lifecycle.hasPending() && contentHistory.canUndo,
     canRedo: !lifecycle.hasPending() && contentHistory.canRedo,
     contentHistoryFeedback: lifecycle.hasPending() ? undefined : contentHistoryFeedback,
+    orderReplayFailure,
     extractionReplayFailure: extractionReplay.failure,
     mutationFailure,
     formulaResults,

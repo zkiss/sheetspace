@@ -62,4 +62,32 @@ describe('ContentHistory', () => {
     history.record([write(null, 'x'.repeat(CONTENT_HISTORY_MAX_BYTES))], affected);
     expect(history.canUndo).toBe(false);
   });
+
+  it('rejects oversized order history without changing either stack', () => {
+    const history = new ContentHistory();
+    history.record([write(null, 'first')], affected);
+    history.record([write('first', 'second')], affected);
+    history.commitUndo();
+    const undo = history.peekUndo();
+    const redo = history.peekRedo();
+
+    expect(history.recordOrder({ sheetId: 's', axis: 'row', before: ['x'.repeat(CONTENT_HISTORY_MAX_BYTES)], after: [] }))
+      .toEqual({ ok: false, reason: 'order-history-too-large' });
+    expect(history.peekUndo()).toEqual(undo);
+    expect(history.peekRedo()).toEqual(redo);
+  });
+
+  it('copies retained order snapshots and invalidates redo for a new order', () => {
+    const history = new ContentHistory();
+    history.record([write(null, 'first')], affected);
+    history.commitUndo();
+    const order = { sheetId: 's', axis: 'row' as const, before: ['a', 'b'], after: ['b', 'a'] };
+    expect(history.recordOrder(order)).toEqual({ ok: true });
+    order.after[0] = 'changed';
+    expect(history.canRedo).toBe(false);
+    const snapshot = history.peekUndo()!;
+    expect(snapshot.order?.after).toEqual(['b', 'a']);
+    (snapshot.order!.before as string[])[0] = 'changed';
+    expect(history.peekUndo()?.order?.before).toEqual(['a', 'b']);
+  });
 });

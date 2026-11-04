@@ -76,9 +76,10 @@ export class ContentHistory {
   }
   recordOrder(order: NonNullable<ContentTransaction['order']>) {
     const bytes = new TextEncoder().encode(JSON.stringify(order)).byteLength;
+    if (bytes > CONTENT_HISTORY_MAX_BYTES) return { ok: false, reason: 'order-history-too-large' } as const;
     this.clearRedo();
-    if (bytes > CONTENT_HISTORY_MAX_BYTES) { this.clear(); return; }
     this.pushUndo(cloneTransaction({ kind: 'axis-order', order, writes: [], affected: { sheetIds: [order.sheetId], cells: [] }, bytes }));
+    return { ok: true } as const;
   }
   commitUndo() { const transaction = this.undoStack.pop(); if (!transaction) return; this.undoBytes -= transaction.bytes; this.pushRedo(transaction); }
   commitRedo() { const transaction = this.redoStack.pop(); if (!transaction) return; this.redoBytes -= transaction.bytes; this.pushUndo(transaction); }
