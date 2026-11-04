@@ -69,4 +69,40 @@ describe('axis order replay', () => {
     expect(feedback).toHaveBeenLastCalledWith(undefined);
     expect(history.canRedo).toBe(true);
   });
+
+  it('keeps both history stacks and the workbook intact while an admission lock blocks order operations', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 2 });
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const locks = new Set<string>();
+    const enqueue = vi.fn();
+    const feedback = vi.fn();
+    const mutationFailure = vi.fn();
+    const reorder = createAxisReorder({ current, history, enqueue, setWorkbook: vi.fn(), hasPending: () => false,
+      admissionLocks: { current: locks }, setMutationFailure: mutationFailure, setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: feedback });
+    const move = (id: string) => reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [id], 1));
+    move(sheet.content.rows[0]!);
+    move(sheet.content.rows[1]!);
+    reorder.replay(history.peekUndo()!.order!, 'undo');
+    const before = current.current;
+    const undo = history.peekUndo();
+    const redo = history.peekRedo();
+    const writes = enqueue.mock.calls.length;
+    locks.add('s');
+    expect(move(sheet.content.rows[1]!)).toMatchObject({ status: 'rejected', reason: 'pending-model-transition' });
+    expect(mutationFailure).toHaveBeenLastCalledWith('pending-model-transition');
+    reorder.replay(undo!.order!, 'undo');
+    expect(feedback).toHaveBeenLastCalledWith('pending-model-transition');
+    reorder.replay(redo!.order!, 'redo');
+    expect(feedback).toHaveBeenLastCalledWith('pending-model-transition');
+    expect(current.current).toBe(before);
+    expect(history.peekUndo()).toEqual(undo);
+    expect(history.peekRedo()).toEqual(redo);
+    expect(enqueue).toHaveBeenCalledTimes(writes);
+    locks.clear();
+    reorder.replay(redo!.order!, 'redo');
+    expect(feedback).toHaveBeenLastCalledWith(undefined);
+    expect(enqueue).toHaveBeenCalledTimes(writes + 1);
+  });
 });
