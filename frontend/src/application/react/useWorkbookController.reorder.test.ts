@@ -69,6 +69,16 @@ describe('axis reorder history', () => {
     expect(result.current.canUndo).toBe(false);
   });
 
+  it('rejects model-owned columns while allowing saved rows to move', () => {
+    const sheet = { ...sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 2 }), modelId: 'model' };
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
+    act(() => expect(result.current.commands.shiftAxis('s', 'column', [sheet.content.columns[0]!], 1).status).toBe('rejected'));
+    expect(result.current.canUndo).toBe(false);
+    act(() => expect(result.current.commands.shiftAxis('s', 'row', [sheet.content.rows[0]!], 1).status).toBe('changed'));
+    expect(result.current.workbook.documents.s!.content.rows).toEqual([...sheet.content.rows].reverse());
+    expect(result.current.workbook.documents.s!.content.columns).toEqual(sheet.content.columns);
+  });
+
   it('rejects an oversized order without publishing it or disturbing either history stack', () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 1 });
     const large = sheetDocument({ id: 'large', name: 'Large', rowCount: 2, columnCount: 1 });
@@ -119,5 +129,26 @@ describe('axis reorder history', () => {
     expect(result.current.canUndo).toBe(false);
     act(() => result.current.commands.redo());
     expect(result.current.workbook.documents.s!.content.columns).toEqual([a, c, e, b, d]);
+  });
+
+  it('recalculates cross-sheet references through reorder and replay', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+    const target = sheetDocument({ id: 'target', name: 'Target', rowCount: 1, columnCount: 1 });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet, target]) }));
+    act(() => {
+      result.current.commands.updateCellContent('s', 'A1', '7');
+      result.current.commands.updateCellContent('s', 'A2', '9');
+      result.current.commands.updateCellContent('target', 'A1', '=@Source!A[1]');
+    });
+    expect(result.current.formulaResults.target.A1).toMatchObject({ value: 7 });
+    act(() => result.current.commands.shiftAxis('s', 'row', [sheet.content.rows[0]!], 1));
+    expect(result.current.formulaResults.target.A1).toMatchObject({ value: 7 });
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A2')).toBe('7');
+    act(() => result.current.commands.undo());
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A1')).toBe('7');
+    expect(result.current.formulaResults.target.A1).toMatchObject({ value: 7 });
+    act(() => result.current.commands.redo());
+    expect(cellRawContent(result.current.workbook.documents.s!, 'A2')).toBe('7');
+    expect(result.current.formulaResults.target.A1).toMatchObject({ value: 7 });
   });
 });
