@@ -28,7 +28,7 @@ export const keymap = {
   row: [{ key: 'r', alt: true, shift: true }], definition: [{ key: 'd', alt: true, shift: true }],
   errors: [{ key: 'e', alt: true, shift: true }], usages: [{ key: 'u', alt: true, shift: true }],
   reference: [{ key: 'Enter', alt: true }],
-  copy: [{ key: 'c', mod: true }], cut: [{ key: 'x', mod: true }], paste: [{ key: 'v', mod: true }],
+  copy: [], cut: [], paste: [],
   bold: [{ key: 'b', mod: true }],
   'align-center': [{ key: 'e', mod: true, shift: true }],
   'align-left': [{ key: 'l', mod: true, shift: true }],
@@ -87,10 +87,15 @@ export const keymap = {
 
 export type ShortcutId = keyof typeof keymap;
 
+// Browser clipboard events always retain these native chords, independently of app bindings.
+const nativeClipboard: Keymap = {
+  copy: [{ key: 'c', mod: true }], cut: [{ key: 'x', mod: true }], paste: [{ key: 'v', mod: true }],
+};
+
 function bindings(id: string, platform: Platform, map: Keymap): readonly Shortcut[] {
   const binding = map[id];
-  if (!binding) return [];
-  return 'mac' in binding ? binding[platform] : binding;
+  const configured = !binding ? [] : 'mac' in binding ? binding[platform] : binding;
+  return [...(nativeClipboard[id] as readonly Shortcut[] | undefined ?? []), ...configured];
 }
 
 export function matchesShortcut(event: KeyboardInput, id: string, platform: Platform = detectPlatform(), map: Keymap = keymap): boolean {
@@ -101,6 +106,10 @@ export function matchesShortcut(event: KeyboardInput, id: string, platform: Plat
       && event.altKey === !!shortcut.alt && event.shiftKey === !!shortcut.shift
       && (shortcut.code ? event.code === shortcut.code : event.key.toLowerCase() === shortcut.key.toLowerCase());
   });
+}
+
+export function matchesNativeClipboard(event: KeyboardInput, id: string, platform: Platform = detectPlatform()): boolean {
+  return id in nativeClipboard && matchesShortcut(event, id, platform, {});
 }
 
 export function shortcutLabel(id: string, platform: Platform = detectPlatform(), map: Keymap = keymap): string | undefined {

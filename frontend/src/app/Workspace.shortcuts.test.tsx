@@ -5,10 +5,11 @@ import { smallSheetDocument } from '@test-support/workbookFactories';
 import { formattingSelection } from '@test-support/formattingProjection';
 import { Workspace } from './Workspace';
 import { formattingWorkspaceProps } from '@test-support/formattingWorkspace';
+import { systemClipboard } from './systemClipboard';
 
 vi.mock('@shared/keyboard/keymap', async (importOriginal) => {
   const original = await importOriginal<typeof import('@shared/keyboard/keymap')>();
-  const keymap = { ...original.keymap, 'data-models': [{ key: 'm', mod: true, shift: true }], 'text-colour': [{ key: 'k', mod: true, shift: true }] };
+  const keymap = { ...original.keymap, copy: [{ key: 'c', mod: true, shift: true }], 'data-models': [{ key: 'm', mod: true, shift: true }], 'text-colour': [{ key: 'k', mod: true, shift: true }] };
   return {
     ...original,
     keymap,
@@ -163,7 +164,7 @@ describe('keyboard labels and hints', () => {
   it('derives clipboard palette hints and disabled guidance from the keymap', () => {
     renderWorkspace();
     fireEvent.keyDown(document.body, { key: 'p', ctrlKey: true, shiftKey: true });
-    expect(screen.getByText('Ctrl+C')).toBeInTheDocument();
+    expect(screen.getByText('Ctrl+C / Ctrl+Shift+C')).toBeInTheDocument();
     expect(screen.getByText('Ctrl+X')).toBeInTheDocument();
     expect(screen.getByText('Ctrl+V')).toBeInTheDocument();
     expect(screen.getByText('Use Ctrl+C in this browser')).toBeInTheDocument();
@@ -246,6 +247,26 @@ describe('keyboard event ownership', () => {
     for (const key of ['c', 'x', 'v']) {
       expect(fireEvent.keyDown(document.body, { key, ctrlKey: true })).toBe(true);
     }
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('dispatches a configured clipboard alternative through the registered action, respecting focus and availability', async () => {
+    vi.spyOn(systemClipboard, 'canWrite').mockReturnValue(true);
+    const write = vi.spyOn(systemClipboard, 'write').mockResolvedValue();
+    const sheet = smallSheetDocument({ id: 'clipboard-keys', name: 'Clipboard', rowCount: 4, columnCount: 4 });
+    const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells'));
+    const view = render(<Workspace {...props} />);
+    const input = document.createElement('input');
+    document.body.append(input);
+    expect(fireEvent.keyDown(input, { key: 'c', ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(write).not.toHaveBeenCalled();
+    input.remove();
+    expect(fireEvent.keyDown(document.body, { key: 'c', ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(write).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    write.mockClear();
+    view.rerender(<Workspace {...props} selectionRange={null} activeCell={null} />);
+    expect(fireEvent.keyDown(document.body, { key: 'c', ctrlKey: true, shiftKey: true })).toBe(true);
     expect(write).not.toHaveBeenCalled();
   });
 });

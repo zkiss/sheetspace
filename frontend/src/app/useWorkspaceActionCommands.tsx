@@ -225,9 +225,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (clipboardOperation.current === operation) setClipboardBusy(false);
     }
   }
-  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('copy') ?? 'the keyboard shortcut'} in this browser`), ['native-clipboard']);
-  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('cut') ?? 'the keyboard shortcut'} in this browser`), ['native-clipboard']);
-  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noCell ?? (clipboardAccess.canRead() ? undefined : `Use ${shortcutLabel('paste') ?? 'the keyboard shortcut'} in this browser`), ['native-clipboard']);
+  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('copy', undefined, {})} in this browser`), ['native-clipboard']);
+  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('cut', undefined, {})} in this browser`), ['native-clipboard']);
+  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noCell ?? (clipboardAccess.canRead() ? undefined : `Use ${shortcutLabel('paste', undefined, {})} in this browser`), ['native-clipboard']);
   add('cancel-cut', 'Cancel cut', 'Editing', run(onCancelCut), hasPendingCut ? undefined : 'No pending cut');
   add('select-row', 'Select row', 'Selection', run(() => activeCell && onSelectAxis('rows', activeCell)), noCell);
   add('select-column', 'Select column', 'Selection', run(() => activeCell && onSelectAxis('columns', activeCell)), noCell);

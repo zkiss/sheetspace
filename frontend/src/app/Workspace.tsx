@@ -52,7 +52,7 @@ import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './mo
 import type { CellWriteResult } from '@application/core/userActions';
 import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
 import { NavigationPalette, type NavigationCommand } from './NavigationPalette';
-import { dispatchShortcut, matchesShortcut, shortcutLabel } from '@shared/keyboard/keymap';
+import { dispatchShortcut, matchesNativeClipboard, matchesShortcut, shortcutLabel } from '@shared/keyboard/keymap';
 import { ErrorList } from './ErrorList';
 import { ErrorReferencePreview } from './ErrorReferencePreview';
 import type { ErrorReferenceHover } from './errorCellText';
@@ -1004,7 +1004,7 @@ export function Workspace({
           case 'navigation': return navigationKeyboardEnabled;
           case 'no-editing': return editingCell === null;
           case 'grid-cells': return !!target?.closest('[data-cell-key][data-active-cell="true"]');
-          case 'native-clipboard': return false;
+          case 'native-clipboard': return editingCell === null && !matchesNativeClipboard(event, command.id);
           case 'formatting': return true;
           case 'grid-focus': return true;
         }

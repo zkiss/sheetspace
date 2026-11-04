@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { detectPlatform, dispatchShortcut, matchesShortcut, shortcutLabel, type KeyboardInput, type Keymap } from './keymap';
+import { detectPlatform, dispatchShortcut, matchesNativeClipboard, matchesShortcut, shortcutLabel, type KeyboardInput, type Keymap } from './keymap';
 
 function event(key: string, modifiers: Partial<KeyboardInput> = {}): KeyboardInput {
   return { key, code: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...modifiers };
@@ -39,6 +39,16 @@ describe('shortcut matching', () => {
   it('matches shifted formatting digits by physical code', () => {
     expect(matchesShortcut(event('!', { code: 'Digit1', ctrlKey: true, shiftKey: true }), 'format-number', 'other')).toBe(true);
     expect(matchesShortcut(event('1', { code: 'Digit2', ctrlKey: true, shiftKey: true }), 'format-number', 'other')).toBe(false);
+  });
+  it('keeps native clipboard chords and labels when app alternatives change', () => {
+    const map: Keymap = { copy: [{ key: 'q', mod: true }] };
+    expect(shortcutLabel('copy', 'mac', map)).toBe('⌘+C / ⌘+Q');
+    expect(shortcutLabel('copy', 'other', {})).toBe('Ctrl+C');
+    expect(matchesNativeClipboard(event('c', { metaKey: true }), 'copy', 'mac')).toBe(true);
+    expect(matchesNativeClipboard(event('c', { ctrlKey: true }), 'copy', 'mac')).toBe(false);
+    expect(matchesNativeClipboard(event('q', { ctrlKey: true }), 'copy', 'other')).toBe(false);
+    expect(matchesNativeClipboard(event('c', { ctrlKey: true }), 'undo', 'other')).toBe(false);
+    expect(matchesShortcut(event('q', { ctrlKey: true }), 'copy', 'other', map)).toBe(true);
   });
 });
 
