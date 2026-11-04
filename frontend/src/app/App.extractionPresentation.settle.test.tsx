@@ -128,6 +128,25 @@ it.each(['presentation first', 'save first'] as const)('transfers a pruned row o
   for (const cell of cells) expect(cell).toHaveAttribute('aria-selected', 'true');
 });
 
+it('does not reclaim selection or focus when a delayed extraction fails after newer selection', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }));
+  const clock = useExtractionClock();
+  const save = deferred<void>();
+  const { source, target } = await reachExtractionRetire(clock, { maximised: false, saveGate: save.promise });
+  const newerCell = within(source).getByRole('cell', { name: 'Inputs B1 empty cell' });
+  fireEvent.click(newerCell);
+  newerCell.focus();
+  const staleFrames = clock.pendingFrames();
+
+  await act(async () => { save.reject(new Error('save failed')); await save.promise.catch(() => {}); });
+  act(() => { for (const callback of staleFrames) callback(clock.now() + 10_000); });
+  clock.runFrames(clock.now() + 10_000);
+  expect(newerCell).toHaveAttribute('aria-selected', 'true');
+  expect(newerCell).toHaveFocus();
+  expect(target).not.toBeInTheDocument();
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+});
+
 async function finishOwnedRestore(clock: ExtractionClock, { maximised }: { maximised: boolean }) {
   if (!maximised) return;
   clock.runFrames(clock.now() + 400);

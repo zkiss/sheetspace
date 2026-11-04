@@ -304,6 +304,26 @@ describe('App model binding workflow', () => {
     }
   });
 
+  it('restores the owned selection after a delayed palette binding rejection', async () => {
+    const { sheet } = inputsWorkbook();
+    const other = positionedSheet('other', 'Other', { x: 500, y: 96 });
+    const workbook = { ...workbookWithSheets([sheet, other]), dataModels: { invoice: declaredModel } };
+    const save = deferred<Workbook>();
+    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    render(<App initialWorkbook={workbook} apiClient={apiClient} />);
+    fireEvent.click(cellAt('A1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model…' }));
+    const panel = screen.getByRole('dialog');
+    fireEvent.change(within(panel).getByRole('combobox'), { target: { value: 'invoice' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    await act(async () => { save.reject(new Error('offline')); });
+    await waitFor(() => expect(cellAt('A1')).toBeInTheDocument());
+    expect(cellAt('A1')).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('does not restore the pruned selection after a successful binding', async () => {
     const { workbook } = inputsWorkbook();
     const initial = { ...workbook, dataModels: { invoice: declaredModel } };

@@ -5,7 +5,7 @@ import { useCellEditing } from '@grid/useCellEditing';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 
-it.each(['owned', 'away-and-back', 'superseded', 'unmounted'] as const)('retains property failure feedback with %s selection ownership', async (ownership) => {
+it.each(['owned', 'away-and-back', 'superseded', 'unmounted', 'success-after-selection-change'] as const)('settles property deletion with %s selection ownership', async (ownership) => {
   const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 3 });
   const cell = cellTargetAt(sheet, 'A1')!;
   const bound = { ...sheet, modelId: 'model', modelColumnBindings: { property: cell.cell.columnId } };
@@ -13,7 +13,7 @@ it.each(['owned', 'away-and-back', 'superseded', 'unmounted'] as const)('retains
   const before = { ...workbookWithSheets([bound]), dataModels: { model } };
   const after = { ...before, documents: { ...before.documents, [bound.id]: { ...bound, content: { ...bound.content, columns: bound.content.columns.slice(1) } } } };
   let current = before;
-  let finish!: (result: { ok: boolean; reason: string }) => void;
+  let finish!: (result: { ok: boolean; reason?: string }) => void;
   let publish!: (before: typeof current, after: typeof current) => void;
   const replaceModelDeclaration = vi.fn((_model, observer) => {
     publish = observer;
@@ -39,9 +39,18 @@ it.each(['owned', 'away-and-back', 'superseded', 'unmounted'] as const)('retains
   act(() => result.current.editing.selectCell(cell));
   const original = result.current.editing.selectionRange;
   act(() => result.current.actions.commands.find((item) => item.id === 'delete-column')!.run());
+  if (ownership === 'success-after-selection-change') {
+    act(() => result.current.editing.selectCell(cellTargetAt(bound, 'B1')!));
+  }
   render(<>{result.current.actions.panel?.content}</>);
   fireEvent.click(screen.getByRole('button', { name: 'Delete property' }));
   expect(replaceModelDeclaration).toHaveBeenCalledOnce();
+  if (ownership === 'success-after-selection-change') {
+    await act(async () => { finish({ ok: true }); });
+    expect(onColumnDeleted).toHaveBeenCalledOnce();
+    expect(onRestore).not.toHaveBeenCalled();
+    return;
+  }
   if (ownership === 'away-and-back') {
     act(() => { result.current.editing.selectCell(cellTargetAt(bound, 'C1')!); result.current.editing.selectCell(cellTargetAt(bound, 'B1')!); });
   } else if (ownership === 'superseded') {
