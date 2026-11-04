@@ -77,6 +77,22 @@ describe('ContentHistory', () => {
     expect(history.peekRedo()).toEqual(redo);
   });
 
+  it('evicts oldest mixed entries when retained order bytes exceed the shared budget', () => {
+    const history = new ContentHistory();
+    history.record([write(null, 'oldest')], affected);
+    const first = 'a'.repeat(17000);
+    const second = 'b'.repeat(17000);
+    expect(history.recordOrder({ sheetId: 's', axis: 'row', before: [first], after: [first] })).toEqual({ ok: true });
+    history.record([write(null, 'newer')], affected);
+    expect(history.recordOrder({ sheetId: 's', axis: 'column', before: [second], after: [second] })).toEqual({ ok: true });
+
+    expect(history.peekUndo()?.order?.axis).toBe('column');
+    history.commitUndo();
+    expect(history.peekUndo()?.writes[0]?.afterRaw).toBe('newer');
+    history.commitUndo();
+    expect(history.canUndo).toBe(false);
+  });
+
   it('copies retained order snapshots and invalidates redo for a new order', () => {
     const history = new ContentHistory();
     history.record([write(null, 'first')], affected);

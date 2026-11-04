@@ -27,12 +27,13 @@ export function createAxisReorder(options: Options) {
   }
 
   function reorder(sheetId: string, axis: ReorderAxis, transform: (workbook: Workbook) => ReorderResult): ReorderCommandResult {
+    options.setReplayFailure(undefined);
     if (options.hasPending() || options.admissionLocks.current.has(sheetId)) {
       options.setMutationFailure('pending-model-transition');
       return { status: 'rejected', workbook: options.current.current, reason: 'pending-model-transition' };
     }
+    options.setMutationFailure(undefined);
     const result = transform(options.current.current);
-    options.setReplayFailure(undefined);
     if (result.status === 'changed') {
       const admitted = options.history.recordOrder({ sheetId, axis, before: result.before, after: result.after });
       if (!admitted.ok) return { status: 'rejected', workbook: options.current.current, reason: admitted.reason };
