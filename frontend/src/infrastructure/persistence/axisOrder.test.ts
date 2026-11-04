@@ -57,6 +57,63 @@ describe('axis order persistence', () => {
     expect(write).toHaveBeenLastCalledWith('a', 'row', after, 3);
     expect(transport.revision('a')).toBe(4);
   });
+  it.each([
+    new TypeError('offline'),
+    new WorkbookApiError('invalid response', undefined, 'invalid-workbook-read-contract'),
+    new WorkbookApiError('server error', 500),
+  ])('recovers a lost conflict-retry response and releases the inverse move: %s', async (failure) => {
+    const write = vi.fn().mockRejectedValueOnce(conflict()).mockRejectedValueOnce(failure).mockResolvedValueOnce(sheet(before, 5));
+    const load = vi.fn().mockResolvedValueOnce(sheet(before, 1)).mockResolvedValueOnce(sheet(before, 3))
+      .mockResolvedValueOnce(sheet(after, 4)).mockResolvedValueOnce(sheet(after, 4));
+    const { outbox, transport } = setup(write, load);
+    outbox.enqueue('undo', { ...intent, before: after, after: before });
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(transport.revision('a')).toBe(4);
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(write).toHaveBeenCalledTimes(3);
+    expect(write).toHaveBeenNthCalledWith(2, 'a', 'row', after, 3);
+    expect(write).toHaveBeenNthCalledWith(3, 'a', 'row', before, 4);
+    expect(transport.revision('a')).toBe(5);
+  });
+  it.each([
+    ['after', after, 'succeeded'],
+    ['before', before, 'failed'],
+    ['divergent', ['r3', 'r2', 'r1'], 'failed'],
+  ])('recovers a second conflict with %s order without a third write', async (_name, order, status) => {
+    const write = vi.fn().mockRejectedValue(conflict());
+    const load = vi.fn().mockResolvedValueOnce(sheet(before, 1)).mockResolvedValueOnce(sheet(before, 2)).mockResolvedValueOnce(sheet(order, 3));
+    const { outbox, transport } = setup(write, load);
+    outbox.enqueue('undo', { ...intent, before: after, after: before });
+    expect((await outbox.executeNext(transport))?.status).toBe(status);
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(3);
+    if (status === 'failed') expect(await outbox.executeNext(transport)).toBeUndefined();
+  });
+  it('does not automatically replay an ambiguous retry with proven prior order', async () => {
+    const write = vi.fn().mockRejectedValueOnce(conflict()).mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(sheet(after, 5));
+    const load = vi.fn().mockResolvedValueOnce(sheet(before, 1)).mockResolvedValueOnce(sheet(before, 2))
+      .mockResolvedValueOnce(sheet(before, 3)).mockResolvedValueOnce(sheet(before, 4));
+    const { outbox, transport } = setup(write, load);
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    expect(write).toHaveBeenCalledTimes(2);
+    outbox.retry('move');
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(write).toHaveBeenLastCalledWith('a', 'row', after, 4);
+  });
+  it('re-proves a committed retry after its recovery load fails', async () => {
+    const write = vi.fn().mockRejectedValueOnce(conflict()).mockRejectedValueOnce(new TypeError('offline'));
+    const load = vi.fn().mockResolvedValueOnce(sheet(before, 1)).mockResolvedValueOnce(sheet(before, 2))
+      .mockRejectedValueOnce(new Error('load failed')).mockResolvedValueOnce(sheet(after, 3));
+    const { outbox, transport } = setup(write, load);
+    outbox.enqueue('undo', { ...intent, before: after, after: before });
+    expect((await outbox.executeNext(transport))?.status).toBe('failed');
+    expect(await outbox.executeNext(transport)).toBeUndefined();
+    transport.recordRevision('a', 10);
+    outbox.retry('move');
+    expect((await outbox.executeNext(transport))?.status).toBe('succeeded');
+    expect(load).toHaveBeenCalledTimes(4);
+    expect(write).toHaveBeenCalledTimes(2);
+  });
   it('never overwrites a divergent order, including after manual retry', async () => {
     const write = vi.fn().mockRejectedValue(conflict());
     const load = vi.fn().mockResolvedValueOnce(sheet(before, 1)).mockResolvedValue(sheet(['r3', 'r2', 'r1'], 3));
