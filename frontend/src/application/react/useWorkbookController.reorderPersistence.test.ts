@@ -53,7 +53,8 @@ it('queues immediate moves and history replay behind a pending order save', asyn
   expect(persisted.content.columns).toEqual([y, x]);
   expect(result.current.workbook.documents.s!.revision).toBe(5);
   unmount();
-  const reloaded = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([persisted]) }));
+  const loaded = await api.loadSheet('s');
+  const reloaded = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([loaded]), apiClient: api }));
   expect(reloaded.result.current.workbook.documents.s!.content).toEqual(persisted.content);
   expect(reloaded.result.current.workbook.documents.s!.content.cells).toEqual(sheet.content.cells);
   expect(reloaded.result.current.workbook.documents.s!.presentation).toEqual(sheet.presentation);
@@ -82,6 +83,30 @@ it('retries a failed move before saving its optimistic successor', async () => {
   await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   expect(persisted.content.rows).toEqual([b, c, a]);
   expect(persisted.revision).toBe(2);
+});
+
+it('retains model binding metadata when a bound sheet row order is saved and reloaded', async () => {
+  const base = sheetDocument({ id: 's', name: 'Bound', rowCount: 2, columnCount: 2, cells: { A1: '9', B2: '=A1' } });
+  const sheet = { ...base, modelId: 'model', modelColumnBindings: { amount: base.content.columns[0]! } };
+  let persisted = sheet;
+  const api = autosaveClient({
+    loadSheet: vi.fn(async () => structuredClone(persisted)),
+    writeAxisOrder: vi.fn(async (_id, _axis, order, revision) => {
+      persisted = { ...persisted, revision: revision + 1, content: { ...persisted.content, rows: [...order] } };
+      return structuredClone(persisted);
+    }),
+  });
+  const mounted = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => expect(mounted.result.current.commands.shiftAxis('s', 'row', [sheet.content.rows[0]!], 1).status).toBe('changed'));
+  await waitFor(() => expect(mounted.result.current.saveStatus).toBe('saved'));
+  mounted.unmount();
+  const loaded = await api.loadSheet('s');
+  const reloaded = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([loaded]), apiClient: api }));
+  expect(reloaded.result.current.workbook.documents.s).toEqual(persisted);
+  expect(loaded.modelId).toBe('model');
+  expect(loaded.modelColumnBindings).toEqual(sheet.modelColumnBindings);
+  expect(loaded.content.cells).toEqual(sheet.content.cells);
+  expect(loaded.content.rows).toEqual([...sheet.content.rows].reverse());
 });
 
 it('recovers a revision conflict without replacing the optimistic successor', async () => {

@@ -49,12 +49,50 @@ it('preserves undo and redo while a same-sheet append is pending', async () => {
   act(() => result.current.commands.undo());
   await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
   act(() => result.current.commands.appendRow('s'));
+  const before = structuredClone(result.current.workbook);
   act(() => result.current.commands.redo());
   expect(result.current.orderReplayFailure).toBe('pending-axis-creation');
   expect(result.current.canRedo).toBe(true);
+  expect(result.current.canUndo).toBe(false);
+  expect(result.current.workbook).toEqual(before);
+  expect(api.writeAxisOrder).toHaveBeenCalledTimes(2);
   expect(result.current.workbook.documents.s!.content.rows).toEqual([first, second, third]);
   await act(async () => response.resolve({ sheetId: 's', revision: 3, rowCount: 4, rowId: 'appended' }));
   await waitFor(() => expect(result.current.workbook.documents.s!.content.rows).toContain('appended'));
+});
+
+it('rejects moves and replay after failed creation until a replacement creation settles', async () => {
+  const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+  const [first, second] = sheet.content.rows;
+  let persisted = sheet;
+  const response = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+  const appendRow = vi.fn().mockRejectedValueOnce(new Error('offline')).mockImplementationOnce(() => response.promise);
+  const writeAxisOrder = vi.fn(async (_id, _axis, order, revision) => {
+    persisted = { ...persisted, revision: revision + 1, content: { ...persisted.content, rows: [...order] } };
+    return structuredClone(persisted);
+  });
+  const api = autosaveClient({ appendRow, writeAxisOrder, loadSheet: vi.fn(async () => structuredClone(persisted)) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => result.current.commands.shiftAxis('s', 'row', [first!], 1));
+  await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  act(() => result.current.commands.appendRow('s'));
+  await waitFor(() => expect(appendRow).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(result.current.saveStatus).toBe('failed'));
+  act(() => expect(result.current.commands.shiftAxis('s', 'row', [first!], -1)).toMatchObject({ status: 'rejected', reason: 'pending-axis-creation' }));
+  const before = structuredClone(result.current.workbook);
+  act(() => result.current.commands.undo());
+  expect(result.current.orderReplayFailure).toBe('pending-axis-creation');
+  expect(result.current.canUndo).toBe(true);
+  expect(result.current.canRedo).toBe(false);
+  expect(result.current.workbook).toEqual(before);
+  expect(writeAxisOrder).toHaveBeenCalledTimes(1);
+  act(() => result.current.commands.appendRow('s'));
+  await waitFor(() => expect(appendRow).toHaveBeenCalledTimes(2));
+  persisted = { ...persisted, revision: 2, content: { ...persisted.content, rows: [second!, first!, 'new-row'] } };
+  await act(async () => response.resolve({ sheetId: 's', revision: 2, rowCount: 3, rowId: 'new-row' }));
+  await waitFor(() => expect(result.current.workbook.documents.s!.content.rows).toEqual([second, first, 'new-row']));
+  act(() => expect(result.current.commands.shiftAxis('s', 'row', [first!], 1).status).toBe('changed'));
+  await waitFor(() => expect(writeAxisOrder).toHaveBeenCalledWith('s', 'row', [second, 'new-row', first], 2));
 });
 
 it('blocks undo during column creation without blocking another sheet, then preserves the appended column', async () => {
