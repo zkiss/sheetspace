@@ -2,6 +2,7 @@ import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useCallback, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 import type { AxisSizeWrite, SheetTabularProjection } from '@workbook/core/model';
 import { AXIS_SIZE_LIMITS } from '@workbook/core/axisSizePolicy';
+import { projectSelection } from '@workbook/read/selection';
 import type { CellSelection } from './cellInteractionContracts';
 
 import type { AxisResizePreview } from './gridAxisMetrics';
@@ -14,13 +15,10 @@ type Session = AxisResizePreview & {
 export function resizeTargetIds(sheet: SheetTabularProjection, axis: AxisSizeWrite['axis'], id: string, selection?: CellSelection | null) {
   const ids = axis === 'row' ? sheet.rows : sheet.columns;
   if (!ids.includes(id)) return [];
-  if (selection?.mode !== (axis === 'row' ? 'rows' : 'columns')
-    || selection.anchor.sheetId !== sheet.id || selection.extent.sheetId !== sheet.id) return [id];
-  const start = ids.indexOf(axis === 'row' ? selection.anchor.cell.rowId : selection.anchor.cell.columnId);
-  const end = ids.indexOf(axis === 'row' ? selection.extent.cell.rowId : selection.extent.cell.columnId);
-  const index = ids.indexOf(id);
-  return start >= 0 && end >= 0 && index >= Math.min(start, end) && index <= Math.max(start, end)
-    ? ids.slice(Math.min(start, end), Math.max(start, end) + 1) : [id];
+  if (selection?.mode !== (axis === 'row' ? 'rows' : 'columns')) return [id];
+  const projection = projectSelection({ id: sheet.id, content: sheet }, selection);
+  const selected = axis === 'row' ? projection?.rows : projection?.columns;
+  return selected?.includes(id) ? selected : [id];
 }
 
 export function useAxisResize(options: {

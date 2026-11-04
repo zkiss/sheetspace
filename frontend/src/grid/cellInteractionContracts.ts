@@ -40,6 +40,7 @@ export type CellSelection = {
   mode: CellSelectionMode;
   anchor: CellTarget;
   extent: CellTarget;
+  members?: readonly string[];
 };
 
 export type ReferenceNavigationTarget =

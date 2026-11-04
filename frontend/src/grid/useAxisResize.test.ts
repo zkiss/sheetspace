@@ -38,6 +38,15 @@ function mountedHandle(width = 76, height = 26.4) {
 }
 
 describe('resizeTargetIds', () => {
+  it.each(['row', 'column'] as const)('targets exact selected %s members and not gaps or invalid membership', (axis) => {
+    const ids = axis === 'row' ? sheet.rows : sheet.columns;
+    const selection = { ...selected(axis, 0, 4), members: [ids[4]!, ids[0]!, ids[2]!] };
+    expect(resizeTargetIds(sheet, axis, ids[2]!, selection)).toEqual([ids[0], ids[2], ids[4]]);
+    expect(resizeTargetIds(sheet, axis, ids[1]!, selection)).toEqual([ids[1]]);
+    expect(resizeTargetIds(sheet, axis, ids[0]!, { ...selection, members: [ids[0]!, 'deleted', ids[4]!] })).toEqual([ids[0]]);
+    const opposite = axis === 'row' ? 'column' : 'row';
+    expect(resizeTargetIds(sheet, opposite, (opposite === 'row' ? sheet.rows : sheet.columns)[0]!, selection)).toEqual([(opposite === 'row' ? sheet.rows : sheet.columns)[0]]);
+  });
   it.each(['row', 'column'] as const)('selects matching and reversed selected %ss, including offscreen stable IDs', (axis) => {
     const ids = axis === 'row' ? sheet.rows : sheet.columns;
     expect(resizeTargetIds(sheet, axis, ids[90]!, selected(axis, 5, 90))).toEqual(ids.slice(5, 91));
@@ -71,6 +80,17 @@ describe('resizeTargetIds', () => {
 });
 
 describe('useAxisResize sessions', () => {
+  it.each(['row', 'column'] as const)('previews and commits only scattered selected %ss', (axis) => {
+    const commit = vi.fn(), handle = mountedHandle();
+    const ids = axis === 'row' ? sheet.rows : sheet.columns;
+    const selection = { ...selected(axis, 0, 4), members: [ids[0]!, ids[2]!, ids[4]!] };
+    const initial = axis === 'row' ? 26.4 : 76;
+    const { result } = renderHook(() => useAxisResize({ sheet, commit, selection }));
+    act(() => { result.current.start(event(handle), axis, ids[2]!, initial); result.current.move(event(handle, { clientX: 30, clientY: 30 })); });
+    expect(result.current.preview).toMatchObject({ ids: selection.members, size: initial + 20 });
+    act(() => result.current.stop(event(handle, { clientX: 30, clientY: 30 })));
+    expect(commit).toHaveBeenCalledWith(selection.members.map((axisId) => ({ axis, axisId, size: initial + 20 })));
+  });
   it.each([{ axis: 'column' as const, scale: .5, delta: 40 }, { axis: 'column' as const, scale: 2, delta: 40 }, { axis: 'row' as const, scale: .5, delta: 20 }, { axis: 'row' as const, scale: 2, delta: 20 }])('converts $axis movement at scale $scale and clamps both boundaries', ({ axis, scale, delta }) => {
     const commit = vi.fn(), handle = mountedHandle(76 * scale, 26.4 * scale);
     const { result } = renderHook(() => useAxisResize({ sheet, commit }));

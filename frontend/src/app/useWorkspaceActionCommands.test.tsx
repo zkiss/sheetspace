@@ -364,6 +364,27 @@ describe('workspace palette actions', () => {
     expect(props.closePalette).toHaveBeenCalledOnce();
   });
 
+  it.each(['row', 'column'] as const)('sizes and resets exact selected %ss without gaps', (axis) => {
+    const { command, hook, props } = setup(5);
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 5, columnCount: 5 });
+    props.sheet = sheet;
+    const ids = axis === 'row' ? sheet.content.rows : sheet.content.columns;
+    const target = (index: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[index]!, columnId: sheet.content.columns[index]! } });
+    props.selection = { mode: axis === 'row' ? 'rows' : 'columns', anchor: target(0), extent: target(4), members: [ids[0]!, ids[2]!, ids[4]!] };
+    props.commands.writeAxisSizes = vi.fn();
+    hook.rerender();
+    act(() => command(`size-${axis}`).run());
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.change(screen.getByLabelText(axis === 'row' ? 'Row height (pixels)' : 'Column width (pixels)'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(props.commands.writeAxisSizes).toHaveBeenCalledWith(sheet.id, [ids[0], ids[2], ids[4]].map((axisId) => ({ axis, axisId, size: 100 })));
+    act(() => command(`reset-size-${axis}`).run());
+    expect(props.commands.writeAxisSizes).toHaveBeenLastCalledWith(sheet.id, [ids[0], ids[2], ids[4]].map((axisId) => ({ axis, axisId, size: null })));
+    props.selection = { ...props.selection, members: [ids[0]!, 'deleted', ids[4]!] };
+    hook.rerender();
+    expect(command(`size-${axis}`).unavailable).toBe('Select cells, rows, or columns first');
+  });
+
   it('renames a selected column only after persistence succeeds', async () => {
     const { command, hook, commands, props, sheet, cell } = setup();
     expect(command('rename-column').unavailable).toBe('Select one existing column first');

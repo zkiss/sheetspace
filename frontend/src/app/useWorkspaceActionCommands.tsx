@@ -22,7 +22,7 @@ import { RenameColumnForm } from './RenameColumnForm';
 import { DeletePropertyForm } from './DeletePropertyForm';
 import { columnRenameTarget, type RenameColumnTarget } from '@application/core/renameColumn';
 import type { NavigationCommand, KeyboardContext } from './NavigationPalette';
-import { selectionAddressRange } from './workspaceSelection';
+import { projectSelection } from '@workbook/read/selection';
 import { shortcutLabel } from '@shared/keyboard/keymap';
 import { extractionSelection } from './extractionSelection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
@@ -257,9 +257,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     return value && formatting.descriptor.valid && commands.writeNumberFormats(formatting.descriptor.sheetId, materializeFormattingWrites(formatting.descriptor, 'numberFormat', value));
   }), noFormat ?? (currentFormat && currentFormat.kind !== 'general' ? undefined : 'Choose number or percent formatting first'), ['no-editing', 'formatting']);
 
-  const range = sheet && selection ? selectionAddressRange(sheet, selection) : undefined;
+  const projection = sheet && selection ? projectSelection(sheet, selection) : undefined;
   for (const axis of ['row', 'column'] as const) {
-    const ids = sheet && range ? (axis === 'row' ? sheet.content.rows.slice(range.start.rowIndex, range.end.rowIndex + 1) : sheet.content.columns.slice(range.start.columnIndex, range.end.columnIndex + 1)) : [];
+    const ids = (axis === 'row' ? projection?.rows : projection?.columns) ?? [];
     const value = axis === 'row' ? sheet?.presentation.rowHeights[ids[0]!] ?? DEFAULT_ROW_HEIGHT : sheet?.presentation.columnWidths[ids[0]!] ?? DEFAULT_COLUMN_WIDTH;
     const label = axis === 'row' ? 'Row height' : 'Column width';
     add(`size-${axis}`, `${label}…`, 'Selection', numbers(label, [{ label: `${label} (pixels)`, value, ...AXIS_SIZE_LIMITS[axis] }], ([size]) => sheet && commands.writeAxisSizes(sheet.id, ids.map((axisId) => ({ axis, axisId, size: size! })))), ids.length ? undefined : 'Select cells, rows, or columns first');
