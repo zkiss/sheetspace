@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { detectPlatform, dispatchShortcut, matchesNativeClipboard, matchesShortcut, shortcutLabel, type KeyboardInput, type Keymap } from './keymap';
+import { detectPlatform, dispatchShortcut, matchesNativeClipboard, matchesShortcut, shortcutAria, shortcutLabel, type KeyboardInput, type Keymap } from './keymap';
 
 function event(key: string, modifiers: Partial<KeyboardInput> = {}): KeyboardInput {
   return { key, code: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...modifiers };
@@ -36,9 +36,13 @@ describe('shortcut matching', () => {
     expect(matchesShortcut(event('Z', { metaKey: true, shiftKey: true }), 'redo', 'mac')).toBe(true);
     expect(matchesShortcut(event('y', { metaKey: true }), 'redo', 'mac')).toBe(false);
   });
-  it('matches shifted formatting digits by physical code', () => {
-    expect(matchesShortcut(event('!', { code: 'Digit1', ctrlKey: true, shiftKey: true }), 'format-number', 'other')).toBe(true);
-    expect(matchesShortcut(event('1', { code: 'Digit2', ctrlKey: true, shiftKey: true }), 'format-number', 'other')).toBe(false);
+  it.each([
+    ['format-general', '0', 'Digit0'], ['format-number', '1', 'Digit1'], ['format-percent', '5', 'Digit5'],
+  ])('matches %s shifted digits by physical code on both platforms', (id, key, code) => {
+    for (const [platform, modifier] of [['mac', { metaKey: true }], ['other', { ctrlKey: true }]] as const) {
+      expect(matchesShortcut(event('!', { code, ...modifier, shiftKey: true }), id, platform)).toBe(true);
+      expect(matchesShortcut(event(key, { code: 'Digit2', ...modifier, shiftKey: true }), id, platform)).toBe(false);
+    }
   });
   it.each([
     ['sheet', 'KeyS', 'Í', 'S'], ['column', 'KeyC', 'Ç', 'C'],
@@ -49,6 +53,22 @@ describe('shortcut matching', () => {
     expect(matchesShortcut(event(key, { code: 'KeyX', altKey: true, shiftKey: true }), id, 'mac')).toBe(false);
     expect(matchesShortcut(event(key, { code, altKey: true }), id, 'mac')).toBe(false);
     expect(shortcutLabel(id, 'mac')).toBe(`Alt+Shift+${label}`);
+  });
+  it.each([
+    ['sheet', 'S', 'KeyS'], ['column', 'C', 'KeyC'], ['row', 'R', 'KeyR'],
+    ['definition', 'D', 'KeyD'], ['errors', 'E', 'KeyE'], ['usages', 'U', 'KeyU'],
+  ])('matches other-platform %s by layout letter rather than physical position', (id, key, code) => {
+    expect(matchesShortcut(event(key, { code: 'Semicolon', altKey: true, shiftKey: true }), id, 'other')).toBe(true);
+    expect(matchesShortcut(event('O', { code, altKey: true, shiftKey: true }), id, 'other')).toBe(false);
+    expect(matchesShortcut(event(key, { code, altKey: true }), id, 'other')).toBe(false);
+    expect(matchesShortcut(event(key, { code, altKey: true, shiftKey: true, ctrlKey: true }), id, 'other')).toBe(false);
+    expect(matchesShortcut(event(key, { code, altKey: true, shiftKey: true, metaKey: true }), id, 'other')).toBe(false);
+    expect(shortcutLabel(id, 'other')).toBe(`Alt+Shift+${key}`);
+    expect(shortcutAria(id, 'other')).toBe(`Alt+Shift+${key}`);
+  });
+  it('uses physical positions rather than layout letters for macOS Option navigation', () => {
+    expect(matchesShortcut(event('O', { code: 'KeyS', altKey: true, shiftKey: true }), 'sheet', 'mac')).toBe(true);
+    expect(matchesShortcut(event('S', { code: 'Semicolon', altKey: true, shiftKey: true }), 'sheet', 'mac')).toBe(false);
   });
   it('keeps native clipboard chords and labels when app alternatives change', () => {
     const map: Keymap = { copy: [{ key: 'q', mod: true }] };

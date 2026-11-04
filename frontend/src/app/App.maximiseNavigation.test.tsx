@@ -6,7 +6,11 @@ import { measuredElementGeometry } from '@test-support/domGeometry';
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('transfers maximised presentation when sheet search chooses another sheet', async () => {
+it.each([
+  ['Linux', 'S', 'Semicolon'],
+  ['MacIntel', 'Í', 'KeyS'],
+])('transfers maximised presentation through %s sheet navigation', async (platform, key, code) => {
+  vi.stubGlobal('navigator', { platform });
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }));
   const source = smallSheetDocument({ id: 'source', name: 'Source', position: { x: 0, y: 0 } });
   const target = smallSheetDocument({ id: 'target', name: 'Target', position: { x: 1200, y: 0 } });
@@ -15,7 +19,7 @@ it('transfers maximised presentation when sheet search chooses another sheet', a
   const sourceFrame = screen.getByRole('article', { name: 'Sheet Source' });
   fireEvent.click(within(sourceFrame).getByRole('cell', { name: 'Source A1 empty cell' }));
   fireEvent.click(screen.getByRole('button', { name: 'Maximise sheet' }));
-  fireEvent.keyDown(document.body, { key: 'S', code: 'KeyS', altKey: true, shiftKey: true });
+  fireEvent.keyDown(document.body, { key, code, altKey: true, shiftKey: true });
   fireEvent.click(screen.getByRole('button', { name: /Target/ }));
   await waitFor(() => expect(screen.getByRole('article', { name: 'Sheet Target' })).toHaveAttribute('data-presented', 'true'));
   expect(sourceFrame).not.toHaveAttribute('data-presented');
