@@ -147,6 +147,33 @@ describe('extraction history', () => {
     expect(redo.workbook).toEqual(current);
   });
 
+  it('preserves live opposite-axis order, sizes and formats while reverting extraction-owned cells', () => {
+    const { before, after } = extraction('cells'), history = new ContentHistory();
+    history.recordExtraction(before, after);
+    const current = structuredClone(after);
+    const source = current.documents.source!;
+    source.content.rows.reverse();
+    source.content.columns.reverse();
+    source.content.cells.extra = 'unrelated';
+    source.presentation.rowHeights[source.content.rows[0]!] = 77;
+    source.presentation.columnWidths[source.content.columns[0]!] = 150;
+    source.presentation.formatOverrides = { rows: {}, columns: {}, cells: { extra: { fontWeight: 'bold' } } };
+    source.frame.position.x = 123;
+    current.dataModels = { model: { id: 'model', name: 'Model', columns: [] } };
+    const undo = prepareExtractionReplay(current, history.peekUndo()!, 'undo');
+    expect(undo.ok).toBe(true); if (!undo.ok) return;
+    expect(undo.workbook.documents[ids[0]!]).toBeUndefined();
+    expect(undo.workbook.documents.source!.content.cells.extra).toBe('unrelated');
+    expect(undo.workbook.documents.source!.content.rows).toEqual(source.content.rows);
+    expect(undo.workbook.documents.source!.content.columns).toEqual(source.content.columns);
+    expect(undo.workbook.documents.source!.presentation).toEqual(source.presentation);
+    expect(undo.workbook.documents.source!.frame).toEqual(source.frame);
+    expect(undo.workbook.dataModels).toEqual(current.dataModels);
+    history.commitUndo();
+    const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo');
+    expect(redo.ok && redo.workbook).toEqual(current);
+  });
+
   it('rejects changes to extraction-owned values without consuming history', () => {
     const { before, after } = extraction('cells'), history = new ContentHistory();
     history.recordExtraction(before, after);

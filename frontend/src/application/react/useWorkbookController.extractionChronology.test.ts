@@ -8,9 +8,12 @@ import type { Workbook } from '@workbook/core/model';
 import { useWorkbookController } from './useWorkbookController';
 
 describe('persisted extraction chronology', () => {
-  it('replays ordinary edits around extraction and uses the authoritative recreated revision', async () => {
-    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 1, columnCount: 1 });
+  it('replays edits, a multi-row reorder and extraction in chronological order', async () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 4, columnCount: 1 });
     sheet.revision = 4;
+    const [a, b, c, d] = sheet.content.rows;
+    const originalRows = [a, b, c, d];
+    const movedRows = [a, c, b, d];
     const cell = cellIdentityAt(sheet.content, 'A1')!;
     const target = '00000000-0000-0000-0000-000000000001';
     const request = {
@@ -20,7 +23,13 @@ describe('persisted extraction chronology', () => {
       frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 },
     };
     let lifecycleCount = 0;
+    const persistedSheet = structuredClone(sheet);
     const api = autosaveClient({
+      loadSheet: vi.fn().mockImplementation(async () => structuredClone(persistedSheet)),
+      writeAxisOrder: vi.fn().mockImplementation(async (_id, _axis, order: string[]) => {
+        persistedSheet.content.rows = [...order];
+        return structuredClone(persistedSheet);
+      }),
       writeCells: vi.fn().mockImplementation(async (revisions: { sheetId: string; revision: number }[]) => ({ sheets: revisions })),
       saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => {
         lifecycleCount += 1;
@@ -38,10 +47,14 @@ describe('persisted extraction chronology', () => {
 
     act(() => result.current.commands.updateCellContent('s', 'A1', '1'));
     await saved();
+    act(() => expect(result.current.commands.gatherAxis('s', 'row', [b!, d!], 4).status).toBe('changed'));
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(movedRows);
+    await saved();
     let submission!: ReturnType<typeof result.current.commands.extractSelection>;
     act(() => { submission = result.current.commands.extractSelection(request); });
     await act(async () => { expect((await submission.completion).ok).toBe(true); });
     expect(content(target)).toBe('1');
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(movedRows);
     expect(result.current.workbook.documents[target]!.revision).toBe(9);
     act(() => result.current.commands.updateCellContent(target, 'A1', '2'));
     await saved();
@@ -49,10 +62,15 @@ describe('persisted extraction chronology', () => {
     await saved();
     expect(content(target)).toBe('1');
     act(() => result.current.commands.undo());
-    await waitFor(() => expect(result.current.canRedo).toBe(true));
+    await waitFor(() => expect(result.current.workbook.documents[target]).toBeUndefined());
     expect(content(target)).toBeUndefined();
     expect(content('s')).toBe('1');
     expect(result.current.contentHistoryFeedback).toBeUndefined();
+    act(() => result.current.commands.undo());
+    await saved();
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(originalRows);
+    expect(content('s')).toBe('1');
+    expect(content(target)).toBeUndefined();
     act(() => result.current.commands.undo());
     await saved();
     expect(content('s')).toBeUndefined();
@@ -60,9 +78,15 @@ describe('persisted extraction chronology', () => {
     await saved();
     expect(content('s')).toBe('1');
     act(() => result.current.commands.redo());
+    await saved();
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(movedRows);
+    expect(content('s')).toBe('1');
+    expect(content(target)).toBeUndefined();
+    act(() => result.current.commands.redo());
     await waitFor(() => expect(result.current.workbook.documents[target]?.revision).toBe(1));
     await waitFor(() => expect(result.current.canRedo).toBe(true));
     expect(content(target)).toBe('1');
+    expect(result.current.workbook.documents.s!.content.rows).toEqual(movedRows);
     act(() => result.current.commands.redo());
     await saved();
     expect(content(target)).toBe('2');

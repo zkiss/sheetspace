@@ -5,6 +5,35 @@ import { shiftAxis } from '@workbook/mutations/reorderAxis';
 import { createAxisReorder } from './axisReorder';
 
 describe('axis order replay', () => {
+  it('replays only the owned order against live unrelated workbook state', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 2 });
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const reorder = createAxisReorder({ current, history, enqueue: vi.fn(), setWorkbook: vi.fn(), hasPending: () => false,
+      admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(), setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: vi.fn() });
+    const originalRows = [...sheet.content.rows];
+    reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [originalRows[0]!], 1));
+    const movedRows = [...current.current.documents.s!.content.rows];
+    const live = structuredClone(current.current);
+    const source = live.documents.s!;
+    source.content.columns.reverse();
+    source.content.cells.extra = 'unrelated';
+    source.presentation.rowHeights[originalRows[1]!] = 45;
+    source.presentation.columnWidths[source.content.columns[0]!] = 130;
+    source.presentation.formatOverrides = { rows: {}, columns: {}, cells: { extra: { fontWeight: 'bold' } } };
+    source.frame.position.x = 25;
+    live.dataModels = { model: { id: 'model', name: 'Model', columns: [] } };
+    current.current = live;
+    const expected = structuredClone(live);
+    expected.documents.s!.content.rows = originalRows;
+
+    reorder.replay(history.peekUndo()!.order!, 'undo');
+    expect(current.current).toEqual(expected);
+    reorder.replay(history.peekRedo()!.order!, 'redo');
+    expect(current.current.documents.s!.content.rows).toEqual(movedRows);
+    expect(current.current).toEqual(live);
+  });
   it('retains undo and redo on owned-order conflicts and recovers', () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 2 });
     const [a, b, c] = sheet.content.rows;
