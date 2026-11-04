@@ -41,6 +41,36 @@ describe('selection settlement ownership', () => {
     expect(result.current.ownsSelectionSettlement(current)).toBe(false);
   });
 
+  it('does not forgive an unrendered unrelated pruning when attributing a later publication', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
+    const before = workbookWithSheets([sheet]);
+    const unrelated = workbookWithSheets([{ ...sheet, content: { ...sheet.content, rows: sheet.content.rows.slice(1) } }]);
+    let current = before;
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const { result } = renderHook(() => useCellEditing({ commands, workbook: before, currentWorkbook: () => current }));
+    act(() => result.current.selectCell(cellTargetAt(sheet, 'A1')!));
+    const token = result.current.beginSelectionSettlement();
+    current = unrelated;
+    act(() => result.current.reconcileSelectionPublication(token, unrelated, unrelated));
+    expect(result.current.ownsSelectionSettlement(token)).toBe(false);
+  });
+
+  it('does not revive a lease after selection moves away and back', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const { result } = renderHook(() => useCellEditing({ commands, workbook }));
+    const first = cellTargetAt(sheet, 'A1')!;
+    act(() => result.current.selectCell(first));
+    const token = result.current.beginSelectionSettlement();
+    act(() => {
+      result.current.selectCell(cellTargetAt(sheet, 'B2')!);
+      result.current.selectCell(first);
+      result.current.reconcileSelectionPublication(token, workbook, workbook);
+    });
+    expect(result.current.ownsSelectionSettlement(token)).toBe(false);
+  });
+
   it('restores a selection against the live rollback before the rollback renders', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
     const before = workbookWithSheets([sheet]);

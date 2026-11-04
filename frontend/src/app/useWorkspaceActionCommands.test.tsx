@@ -186,7 +186,7 @@ describe('workspace palette actions', () => {
     hook.rerender();
     expect(command('extract-selection').unavailable).toBeUndefined();
     act(() => command('extract-selection').run());
-    expect(submit).toHaveBeenCalledWith(request);
+    expect(submit).toHaveBeenCalledWith(request, undefined);
     expect(onSuccess).not.toHaveBeenCalled();
     await act(async () => finish({ ok: true }));
     expect(onSuccess).toHaveBeenCalledWith(request);
@@ -317,7 +317,7 @@ describe('workspace palette actions', () => {
     render(<>{hook.result.current.panel?.content}</>);
     fireEvent.click(screen.getByRole('button', { name: 'Delete property' }));
     await waitFor(() => expect(props.onColumnDeleted).toHaveBeenCalledWith(bound, cell));
-    expect(commands.replaceModelDeclaration).toHaveBeenCalledWith({ ...model, columns: [] });
+    expect(commands.replaceModelDeclaration).toHaveBeenCalledWith({ ...model, columns: [] }, undefined);
   });
   it('hides structural commands for a bound sheet and restores them when unbound', () => {
     const { hook, props, sheet } = setup();

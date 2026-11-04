@@ -14,8 +14,9 @@ import type { CreatingSheetFrame } from '@application/core/sheetCreationState';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
-import type { LifecyclePublication } from './useLifecycleSettlement';
 import type { ReorderAxis, ReorderResult } from '@workbook/mutations/reorderAxis';
+
+export type LifecyclePublication = (before: Workbook, after: Workbook, phase: 'optimistic' | 'rollback') => void;
 
 export type WorkbookCommands = {
   currentWorkbook: () => Workbook;

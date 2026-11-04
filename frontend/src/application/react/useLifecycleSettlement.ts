@@ -4,9 +4,7 @@ import type { SetWorkbook } from '@calculation/workbookCalculation';
 import type { OutboxSnapshot } from '@infrastructure/persistence/workbookOutbox';
 import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import type { useSavedSheetAutosave } from './useSavedSheetAutosave';
-import type { TransitionFailure } from './workbookControllerTypes';
-
-export type LifecyclePublication = (before: Workbook, after: Workbook, phase: 'optimistic' | 'rollback') => void;
+import type { LifecyclePublication, TransitionFailure } from './workbookControllerTypes';
 
 export function useLifecycleSettlement(options: {
   autosaveEnabled: boolean;
