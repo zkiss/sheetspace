@@ -17,6 +17,7 @@ export type SelectionProjection = {
   columnRuns: Run[];
   bounds: { rowStart: number; rowEnd: number; columnStart: number; columnEnd: number };
   rectangular: boolean;
+  endpoints: { anchorRow: number; extentRow: number; anchorColumn: number; extentColumn: number };
 };
 
 function runs(indices: number[]): Run[] {
@@ -48,11 +49,12 @@ export function projectSelection(sheet: Sheet, selection: Selection): SelectionP
   if ([ar, er, ac, ec].some((index) => index < 0)) return undefined;
   if (selection.mode === 'cells' && selection.members !== undefined) return undefined;
   const selectedOrder = selection.mode === 'rows' ? order.rows : order.columns;
-  if (selection.members && (selection.members.length === 0 || new Set(selection.members).size !== selection.members.length ||
-      selection.members.some((id) => !selectedOrder.includes(id)) ||
-      !selection.members.includes(selection.mode === 'rows' ? selection.anchor.cell.rowId : selection.anchor.cell.columnId) ||
-      !selection.members.includes(selection.mode === 'rows' ? selection.extent.cell.rowId : selection.extent.cell.columnId))) return undefined;
   const selected = new Set(selection.members);
+  const saved = selection.members ? new Set(selectedOrder) : undefined;
+  if (selection.members && (selection.members.length === 0 || selected.size !== selection.members.length ||
+      selection.members.some((id) => !saved!.has(id)) ||
+      !selected.has(selection.mode === 'rows' ? selection.anchor.cell.rowId : selection.anchor.cell.columnId) ||
+      !selected.has(selection.mode === 'rows' ? selection.extent.cell.rowId : selection.extent.cell.columnId))) return undefined;
   const rowIndices = order.rows.flatMap((id, i) => (selection.mode === 'columns' || (selection.mode === 'rows' && selection.members ? selected.has(id) : i >= Math.min(ar, er) && i <= Math.max(ar, er))) ? [i] : []);
   const columnIndices = order.columns.flatMap((id, i) => (selection.mode === 'rows' || (selection.mode === 'columns' && selection.members ? selected.has(id) : i >= Math.min(ac, ec) && i <= Math.max(ac, ec))) ? [i] : []);
   const rowRuns = runs(rowIndices);
@@ -61,6 +63,7 @@ export function projectSelection(sheet: Sheet, selection: Selection): SelectionP
     rows: rowIndices.map((i) => order.rows[i]!), columns: columnIndices.map((i) => order.columns[i]!), rowRuns, columnRuns,
     bounds: { rowStart: rowIndices[0]!, rowEnd: rowIndices[rowIndices.length - 1]!, columnStart: columnIndices[0]!, columnEnd: columnIndices[columnIndices.length - 1]! },
     rectangular: rowRuns.length === 1 && columnRuns.length === 1,
+    endpoints: { anchorRow: ar, extentRow: er, anchorColumn: ac, extentColumn: ec },
   };
 }
 

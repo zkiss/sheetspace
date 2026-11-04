@@ -120,3 +120,17 @@ describe.each(formattingModes)('%s projection memo dependencies', (mode) => {
     expect(result.current.summary).toBeUndefined();
   });
 });
+
+describe.each(['rows', 'columns'] as const)('exact %s memo', (mode) => {
+  it('updates membership even when endpoints remain unchanged', () => {
+    const sheet = smallSheetDocument({ id: 'exact', name: 'Exact', rowCount: 4, columnCount: 4 });
+    const selection = formattingSelection(sheet, mode);
+    const axis = sheet.content[mode];
+    const first = { ...selection, members: [axis[0]!, axis[2]!] };
+    const { result, rerender } = renderHook(({ selection }) => useFormattingSelection(sheet, selection), { initialProps: { selection: first } });
+    const previous = result.current.descriptor;
+    rerender({ selection: { ...first, members: [axis[0]!, axis[1]!, axis[2]!] } });
+    expect(result.current.descriptor).not.toBe(previous);
+    expect(result.current.descriptor).toMatchObject({ valid: true, writeCount: 3 });
+  });
+});

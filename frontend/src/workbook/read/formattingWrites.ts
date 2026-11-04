@@ -10,24 +10,24 @@ export function materializeFormattingWrites<Property extends keyof CellAppearanc
 ): readonly FormatWrite[] {
   if (selection.mode === 'rows') {
     const writes: FormatWrite[] = [];
-    for (let rowIndex = selection.rowStart; rowIndex <= selection.rowEnd; rowIndex += 1) {
-      writes.push({ scope: 'row', targetId: selection.rows[rowIndex]!, properties: { [property]: value } });
+    for (const rowId of selection.selectedRows) {
+      writes.push({ scope: 'row', targetId: rowId, properties: { [property]: value } });
     }
     return writes;
   }
   if (selection.mode === 'columns') {
     const writes: FormatWrite[] = [];
-    for (let columnIndex = selection.columnStart; columnIndex <= selection.columnEnd; columnIndex += 1) {
-      writes.push({ scope: 'column', targetId: selection.columns[columnIndex]!, properties: { [property]: value } });
+    for (const columnId of selection.selectedColumns) {
+      writes.push({ scope: 'column', targetId: columnId, properties: { [property]: value } });
     }
     return writes;
   }
   const writes: FormatWrite[] = [];
-  for (let rowIndex = selection.rowStart; rowIndex <= selection.rowEnd; rowIndex += 1) {
-    for (let columnIndex = selection.columnStart; columnIndex <= selection.columnEnd; columnIndex += 1) {
+  for (const rowId of selection.selectedRows) {
+    for (const columnId of selection.selectedColumns) {
       writes.push({
         scope: 'cell',
-        targetId: cellIdentityKey({ rowId: selection.rows[rowIndex]!, columnId: selection.columns[columnIndex]! }),
+        targetId: cellIdentityKey({ rowId: rowId, columnId: columnId }),
         properties: { [property]: value },
       });
     }

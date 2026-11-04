@@ -29,12 +29,13 @@ export function useFormattingSelection(
   const mode = selection?.mode;
   const anchor = selection?.anchor;
   const extent = selection?.extent;
+  const members = selection?.members;
   const descriptorInputs = useMemo(() => [
-    sheet?.id, sheet?.content.rows, sheet?.content.columns, mode,
+    sheet?.id, sheet?.content.rows, sheet?.content.columns, mode, members,
     anchor?.sheetId, anchor?.cell.rowId, anchor?.cell.columnId,
     extent?.sheetId, extent?.cell.rowId, extent?.cell.columnId,
   ], [
-    sheet?.id, sheet?.content.rows, sheet?.content.columns, mode,
+    sheet?.id, sheet?.content.rows, sheet?.content.columns, mode, members,
     anchor?.sheetId, anchor?.cell.rowId, anchor?.cell.columnId,
     extent?.sheetId, extent?.cell.rowId, extent?.cell.columnId,
   ]);

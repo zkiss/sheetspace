@@ -44,11 +44,9 @@ export function summarizeFormattingDense(selection: ValidFormattingSelection, ov
     observe(accumulator, resolvePreloadedAppearanceProperty(cell, row, column, property));
   };
 
-  for (let rowIndex = selection.effectiveRowStart; rowIndex <= selection.effectiveRowEnd; rowIndex += 1) {
-    const rowId = selection.rows[rowIndex]!;
+  for (const rowId of selection.selectedRows) {
     const row = loadOwn(source.rows, rowId);
-    for (let columnIndex = selection.effectiveColumnStart; columnIndex <= selection.effectiveColumnEnd; columnIndex += 1) {
-      const columnId = selection.columns[columnIndex]!;
+    for (const columnId of selection.selectedColumns) {
       const column = loadOwn(source.columns, columnId);
       const cell = loadOwn(source.cells, cellIdentityKey({ rowId, columnId }));
       for (const property of formattingProperties) {
@@ -60,11 +58,9 @@ export function summarizeFormattingDense(selection: ValidFormattingSelection, ov
   if (selection.mode !== 'cells') {
     // Effective coverage is Cartesian, while local axis state is only the write axis.
     const records = selection.mode === 'rows' ? source.rows : source.columns;
-    const start = selection.mode === 'rows' ? selection.rowStart : selection.columnStart;
-    const end = selection.mode === 'rows' ? selection.rowEnd : selection.columnEnd;
-    const ids = selection.mode === 'rows' ? selection.rows : selection.columns;
-    for (let index = start; index <= end; index += 1) {
-      const record = loadOwn(records, ids[index]!);
+    const ids = selection.mode === 'rows' ? selection.selectedRows : selection.selectedColumns;
+    for (const id of ids) {
+      const record = loadOwn(records, id);
       for (const property of formattingProperties) observeLocalValue(property, record?.[property]);
     }
   }
