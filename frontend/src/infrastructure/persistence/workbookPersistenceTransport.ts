@@ -71,6 +71,8 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   }
   private async writeAxisOrder(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-axis-order' }>): Promise<TransportResult> {
     if (operationId === undefined) return { kind: 'blocked', reason: 'Missing operation ID for an axis order.' };
+    if (this.revision(intent.sheetId) === undefined) return { kind: 'blocked', reason: 'Missing revision for an axis order.' };
+    let provenRevision: number;
     const recover = async (failure: unknown): Promise<TransportResult | undefined> => {
       const latest = await this.loadSheets([intent.sheetId]);
       const result = latest[0];
@@ -84,16 +86,13 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
         return this.recordMany([{ sheetId: sheet.id, revision: sheet.revision }]);
       }
       if (!matches(intent.before)) throw failure;
+      provenRevision = sheet.revision;
       return undefined;
     };
-    if (operationId !== undefined && this.unsafeAxisOrderFailures.has(operationId)) {
-      const recovered = await recover(this.unsafeAxisOrderFailures.get(operationId));
-      if (recovered) return recovered;
-    }
+    const recovered = await recover(this.unsafeAxisOrderFailures.get(operationId) ?? new Error('Axis order differs from the expected prior order.'));
+    if (recovered) return recovered;
     const send = async () => {
-      const revision = this.revision(intent.sheetId);
-      if (revision === undefined) return { kind: 'blocked' as const, reason: 'Missing revision for an axis order.' };
-      const sheet = await this.method('writeAxisOrder')(intent.sheetId, intent.axis, intent.after, revision);
+      const sheet = await this.method('writeAxisOrder')(intent.sheetId, intent.axis, intent.after, provenRevision);
       if (operationId !== undefined) this.unsafeAxisOrderFailures.delete(operationId);
       return this.recordMany([{ sheetId: sheet.id, revision: sheet.revision }]);
     };
