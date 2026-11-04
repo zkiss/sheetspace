@@ -10,6 +10,7 @@ import type { Workspace } from '@app/Workspace';
 export function formattingCommands(): WorkbookCommands {
   return {
     currentWorkbook: () => workbookWithSheets([]),
+    gatherAxis: vi.fn(), shiftAxis: vi.fn(),
     extractSelection: vi.fn(),
     submitEntryDraft: vi.fn(), changeEntryField: vi.fn(), leaveEntryField: vi.fn(), dismissEntryFeedback: vi.fn(),
     addDataModel: vi.fn(),

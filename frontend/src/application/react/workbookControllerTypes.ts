@@ -14,9 +14,12 @@ import type { CreatingSheetFrame } from '@application/core/sheetCreationState';
 import type { CreatingGridAxes } from '@application/core/gridAxisCreationState';
 import { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import { useStartupWorkbookLoad } from './useStartupWorkbookLoad';
+import type { ReorderAxis, ReorderResult } from '@workbook/mutations/reorderAxis';
 
 export type WorkbookCommands = {
   currentWorkbook: () => Workbook;
+  gatherAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], gap: number) => ReorderCommandResult;
+  shiftAxis: (sheetId: string, axis: ReorderAxis, ids: readonly string[], direction: -1 | 1) => ReorderCommandResult;
   extractSelection: (request: import('@application/core/extractionPreparation').ExtractionRequest) => ExtractionSubmission;
   submitEntryDraft: (sheetId: string) => Promise<{ firstInvalid?: string; result?: { rowId: string; sheet: SheetDocument } }>;
   changeEntryField: (sheetId: string, propertyId: string, raw: string) => void;
@@ -52,6 +55,7 @@ export type WorkbookCommands = {
 };
 
 export type ExtractionCommandResult = import('@application/core/extractSelection').ExtractionResult | TransitionFailure | { ok: false; reason: 'extraction-history-too-large' };
+export type ReorderCommandResult = ReorderResult | { status: 'rejected'; workbook: Workbook; reason: 'pending-model-transition' };
 export type ExtractionSubmission = Readonly<{ result: ExtractionCommandResult; completion: Promise<ExtractionCommandResult> }>;
 export type ExtractionReplayFailure = Extract<import('@application/core/extractionHistory').ExtractionReplayResult, { ok: false }>['reason'] | TransitionFailure['reason'];
 

@@ -11,6 +11,7 @@ import { useExtractionReplay } from './useExtractionReplay';
 import { extractionCommand } from './extractionCommand';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
+import { applyAxisPermutation, gatherAxis, shiftAxis, type ReorderAxis, type ReorderResult } from '@workbook/mutations/reorderAxis';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type CellKey } from '@workbook/core/address';
 import {
@@ -47,7 +48,7 @@ import {
 
 export type { WorkbookCommands, ModelCommandResult, DataModelCommandSubmission, RenameColumnResult, RenameColumnSubmission, PasteCellsResult, MoveCellsResult, ContentHistoryCellSnapshot, ContentHistoryFeedback, WorkbookController } from './workbookControllerTypes';
 import { contentHistorySnapshot, contentHistoryAffectedSnapshot } from './workbookControllerTypes';
-import type { WorkbookController, WorkbookControllerState, TransitionFailure, PasteCellsResult, MoveCellsResult } from './workbookControllerTypes';
+import type { WorkbookController, WorkbookControllerState, TransitionFailure, PasteCellsResult, MoveCellsResult, ReorderCommandResult } from './workbookControllerTypes';
 
 export function useWorkbookController({
   apiClient,
@@ -355,6 +356,21 @@ export function useWorkbookController({
       extractionReplay.replay(transaction, direction);
       return;
     }
+    if (transaction.kind === 'axis-order' && transaction.order) {
+      const { sheetId, axis, before, after } = transaction.order;
+      if (lifecycle.hasPending() || admissionLocks.current.has(sheetId)) return;
+      const sheet = optimisticWorkbook.current.documents[sheetId];
+      const current = axis === 'row' ? sheet?.content.rows : sheet?.content.columns;
+      const expected = direction === 'undo' ? after : before;
+      if (!current || current.length !== expected.length || current.some((id, index) => id !== expected[index])) return;
+      const result = applyAxisPermutation(optimisticWorkbook.current, sheetId, axis, direction === 'undo' ? before : after);
+      if (result.status !== 'changed') return;
+      publishOrder(sheetId, axis, result);
+      if (direction === 'undo') contentHistory.commitUndo(); else contentHistory.commitRedo();
+      setContentHistoryFeedback(undefined);
+      setHistoryRevision((revision) => revision + 1);
+      return;
+    }
     if (lifecycle.hasPending()) return;
     extractionReplay.clearFailure();
     if (transaction.writes.some((write) => admissionLocks.current.has(write.sheetId))) { setMutationFailure('pending-model-transition'); return; }
@@ -373,6 +389,27 @@ export function useWorkbookController({
       after: contentHistorySnapshot(applied.persistence.writes, 'afterRaw'),
     }));
     setHistoryRevision((revision) => revision + 1);
+  }
+
+  function publishOrder(sheetId: string, axis: ReorderAxis, result: Extract<ReorderResult, { status: 'changed' }>) {
+    optimisticWorkbook.current = result.workbook;
+    setWorkbook(result.workbook, { kind: 'structure' });
+    savedAutosave.enqueue(crypto.randomUUID(), { kind: 'write-axis-order', sheetId, axis, before: result.before, after: result.after });
+  }
+
+  function reorder(sheetId: string, axis: ReorderAxis, transform: (workbook: Workbook) => ReorderResult): ReorderCommandResult {
+    if (lifecycle.hasPending() || admissionLocks.current.has(sheetId)) {
+      setMutationFailure('pending-model-transition');
+      return { status: 'rejected', workbook: optimisticWorkbook.current, reason: 'pending-model-transition' };
+    }
+    const result = transform(optimisticWorkbook.current);
+    if (result.status === 'changed') {
+      publishOrder(sheetId, axis, result);
+      contentHistory.recordOrder({ sheetId, axis, before: result.before, after: result.after });
+      setContentHistoryFeedback(undefined);
+      setHistoryRevision((revision) => revision + 1);
+    }
+    return result;
   }
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
@@ -407,6 +444,8 @@ export function useWorkbookController({
     })),
     commands: {
       currentWorkbook: () => optimisticWorkbook.current,
+      gatherAxis: (sheetId, axis, ids, gap) => reorder(sheetId, axis, (source) => gatherAxis(source, sheetId, axis, ids, gap)),
+      shiftAxis: (sheetId, axis, ids, direction) => reorder(sheetId, axis, (source) => shiftAxis(source, sheetId, axis, ids, direction)),
       extractSelection: (request) => extractionCommand(request, {
         history: contentHistory,
         submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
