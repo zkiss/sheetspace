@@ -291,6 +291,7 @@ export function useWorkbookController({
   const axisCreation = useGridAxisCreationOperations({
     autosaveEnabled,
     beforeCreate: lifecycle.wait,
+    waitForAxisOrders: savedAutosave.waitForAxisOrders,
     hasPendingRecreation: savedAutosave.hasPendingRecreation,
     currentWorkbook: () => optimisticWorkbook.current,
     persistenceCoordinator,

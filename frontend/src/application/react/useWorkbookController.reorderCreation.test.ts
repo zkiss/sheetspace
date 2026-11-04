@@ -4,6 +4,45 @@ import { autosaveClient, deferred } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { useWorkbookController } from './useWorkbookController';
 
+it.each(['pending', 'failed'] as const)('settles %s order and its successor before appending', async (state) => {
+  const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 1 });
+  const [a, b, c] = sheet.content.rows;
+  let persisted = sheet;
+  const pending = deferred<void>();
+  let first = true;
+  const writeAxisOrder = vi.fn(async (_id: string, _axis: 'row' | 'column', order: readonly string[], revision: number) => {
+    if (first) {
+      first = false;
+      if (state === 'failed') throw new Error('offline');
+      await pending.promise;
+    }
+    expect(revision).toBe(persisted.revision);
+    persisted = { ...persisted, revision: revision + 1, content: { ...persisted.content, rows: [...order] } };
+    return structuredClone(persisted);
+  });
+  const appendRow = vi.fn(async () => {
+    persisted = { ...persisted, revision: persisted.revision + 1, content: { ...persisted.content, rows: [...persisted.content.rows, 'new'] } };
+    return { sheetId: 's', revision: persisted.revision, rowCount: 4, rowId: 'new' };
+  });
+  const api = autosaveClient({ writeAxisOrder, appendRow, loadSheet: vi.fn(async () => structuredClone(persisted)) });
+  const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
+  act(() => result.current.commands.shiftAxis('s', 'row', [a!], 1));
+  await waitFor(() => expect(state === 'failed' ? result.current.saveStatus : writeAxisOrder.mock.calls.length).toBe(state === 'failed' ? 'failed' : 1));
+  act(() => {
+    result.current.commands.shiftAxis('s', 'row', [a!], 1);
+    result.current.commands.appendRow('s');
+  });
+  expect(appendRow).not.toHaveBeenCalled();
+  expect(result.current.workbook.documents.s!.content.rows).toEqual([b, c, a]);
+  if (state === 'failed') act(() => result.current.commands.retryFailedSaves());
+  else await act(async () => pending.resolve());
+  await waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+  expect(appendRow).toHaveBeenCalledTimes(1);
+  expect(persisted.content.rows).toEqual([b, c, a, 'new']);
+  expect(result.current.workbook.documents.s!.content.rows).toEqual(persisted.content.rows);
+  expect(persisted.revision).toBe(3);
+});
+
 it('rejects reorder during same-sheet creation until the appended identity is reconciled', async () => {
   const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
   const [first, second] = sheet.content.rows;

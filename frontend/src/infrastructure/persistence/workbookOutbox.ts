@@ -64,6 +64,19 @@ export class WorkbookOutbox {
       this.listeners.add(listener);
     });
   }
+  waitForAxisOrders(sheetId: SheetId): Promise<void> | undefined {
+    const hasUnsettled = () => this.entries.some((entry) => entry.intent.kind === 'write-axis-order'
+      && entry.intent.sheetId === sheetId && entry.status !== 'succeeded' && entry.status !== 'superseded');
+    if (!hasUnsettled()) return undefined;
+    return new Promise((resolve) => {
+      const listener = () => {
+        if (hasUnsettled()) return;
+        this.listeners.delete(listener);
+        resolve();
+      };
+      this.listeners.add(listener);
+    });
+  }
   waitFor(operationId: WorkbookOperationId): Promise<OutboxEntry> {
     return new Promise((resolve) => {
       const listener = () => {

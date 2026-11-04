@@ -152,6 +152,7 @@ export function useSavedSheetAutosave({
     discard: (operationId: string) => { outbox.remove(operationId); pump(); },
     waitFor: (operationId: string) => outbox.waitFor(operationId),
     waitForModelTransitions: () => outbox.waitForModelTransitions(),
+    waitForAxisOrders: (sheetId: SheetId) => outbox.waitForAxisOrders(sheetId),
     retryFailedSaves,
     saveStatus,
     supersedeSheetOperations,

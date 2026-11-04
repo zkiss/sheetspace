@@ -118,6 +118,7 @@ class GridAxisCreationQueue {
 export function useGridAxisCreationOperations({
   autosaveEnabled,
   beforeCreate,
+  waitForAxisOrders,
   hasPendingRecreation,
   currentWorkbook,
   persistenceCoordinator,
@@ -127,6 +128,7 @@ export function useGridAxisCreationOperations({
 }: {
   autosaveEnabled: boolean;
   beforeCreate?: () => Promise<void> | undefined;
+  waitForAxisOrders?: (sheetId: string) => Promise<void> | undefined;
   hasPendingRecreation?: (sheetId: string) => boolean;
   currentWorkbook: () => Workbook;
   persistenceCoordinator: WorkbookPersistenceCoordinator;
@@ -162,6 +164,8 @@ export function useGridAxisCreationOperations({
   const execute = useCallback(async (entry: AxisCreation) => {
     const wait = beforeCreate?.();
     if (wait) await wait;
+    const orders = waitForAxisOrders?.(entry.sheetId);
+    if (orders) await orders;
     return persistenceCoordinator.serialize([entry.sheetId], async () => {
       if (persistenceCoordinator.isSheetMissing(entry.sheetId)) return;
       const request = async (revision: number | undefined) => entry.axis === 'row'
@@ -190,7 +194,7 @@ export function useGridAxisCreationOperations({
       if ('rowId' in response) reconcileRef.current({ kind: 'append-row', sheetId: entry.sheetId, rowId: response.rowId });
       else reconcileRef.current({ kind: 'append-column', sheetId: entry.sheetId, columnId: response.columnId });
     });
-  }, [beforeCreate, currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient]);
+  }, [beforeCreate, currentWorkbook, persistenceCoordinator, recordRevision, resolvedApiClient, waitForAxisOrders]);
 
   const pump = useCallback(function pumpAvailable() {
     for (const execution of queue.executeAvailable(execute)) void execution.finally(pumpAvailable);
