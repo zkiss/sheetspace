@@ -87,7 +87,9 @@ describe('registered clipboard alternatives and native grid ownership', () => {
 
   it('rejects a selection owned by another sheet on native and palette routes', () => {
     vi.spyOn(systemClipboard, 'canWrite').mockReturnValue(true);
+    vi.spyOn(systemClipboard, 'canRead').mockReturnValue(true);
     const write = vi.spyOn(systemClipboard, 'write').mockResolvedValue();
+    const read = vi.spyOn(systemClipboard, 'read').mockResolvedValue({ text: 'clipboard' });
     const sheet = smallSheetDocument({ id: 'owned', name: 'Owned', rowCount: 4, columnCount: 4 });
     const selection = formattingSelection(sheet, 'cells');
     const props = formattingWorkspaceProps(sheet, { ...selection, extent: { ...selection.extent, sheetId: 'other' } });
@@ -102,9 +104,14 @@ describe('registered clipboard alternatives and native grid ownership', () => {
     expect(props.commands.pasteCells).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
     const search = screen.getByLabelText('Command search');
-    fireEvent.change(search, { target: { value: 'Copy selection' } });
-    fireEvent.keyDown(search, { key: 'Enter' });
+    for (const command of ['Copy selection', 'Cut selection', 'Paste']) {
+      fireEvent.change(search, { target: { value: command } });
+      fireEvent.keyDown(search, { key: 'Enter' });
+    }
     expect(write).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(props.commands.pasteStoredCells).not.toHaveBeenCalled();
+    expect(props.commands.pasteCells).not.toHaveBeenCalled();
   });
 
   it.each(['rows', 'columns'] as const)('copies contiguous %s through native and palette routes', async (mode) => {
