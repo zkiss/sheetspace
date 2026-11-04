@@ -873,8 +873,43 @@ export function Workspace({
       setCalculatedCellFeedback('The value does not match the data model column type.');
     }
   }
+  const bindingMounted = useRef(true);
+  const bindingTokens = useRef(new Set<ReturnType<NonNullable<typeof selectionSettlement>['beginSelectionSettlement']>>());
+  const bindingSettlement = useRef(selectionSettlement);
+  bindingSettlement.current = selectionSettlement;
+  useEffect(() => { const tokens = bindingTokens.current; bindingMounted.current = true; return () => {
+    bindingMounted.current = false;
+    tokens.forEach((token) => bindingSettlement.current?.cancelSelectionSettlement(token));
+    tokens.clear();
+  }; }, []);
+  function bindingSubmission(submit: (publication?: (before: Workbook, after: Workbook) => void) => ReturnType<typeof commands.bindSheetToModel>) {
+    const original = selectionSettlement?.queuedSelection();
+    const token = selectionSettlement?.beginSelectionSettlement();
+    if (token) bindingTokens.current.add(token);
+    const retire = () => { if (token) { bindingTokens.current.delete(token); selectionSettlement?.cancelSelectionSettlement(token); } };
+    const publication = token && selectionSettlement
+      ? (before: Workbook, after: Workbook) => selectionSettlement.reconcileSelectionPublication(token, before, after) : undefined;
+    let submission: ReturnType<typeof commands.bindSheetToModel>;
+    try { submission = submit(publication); } catch (error) {
+      retire();
+      throw error;
+    }
+    if (!submission.result.ok) {
+      retire();
+      return submission;
+    }
+    const settle = (failed: boolean) => {
+      if (token && selectionSettlement) {
+        if (failed && bindingMounted.current && selectionSettlement.ownsSelectionSettlement(token)) onRestoreSelection(original ?? null);
+        retire();
+      }
+    };
+    return { ...submission, completion: submission.completion.then((result) => { settle(!result.ok); return result; }, (error) => { settle(true); throw error; }) };
+  }
+  const bindSheetToModel: typeof commands.bindSheetToModel = (sheetId, modelId) => bindingSubmission((publication) => commands.bindSheetToModel(sheetId, modelId, publication));
+  const unbindSheetFromModel: typeof commands.unbindSheetFromModel = (sheetId) => bindingSubmission((publication) => commands.unbindSheetFromModel(sheetId, publication));
   const actionPalette = useWorkspaceActionCommands({
-    commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
+    commands: { ...commands, bindSheetToModel, unbindSheetFromModel }, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
     selectionSettlement, restoreSelection: onRestoreSelection,
     maximise: { active: modeActive, toggle: toggleMaximise, zoom: zoomMaximisedView },
     extraction: {
@@ -1113,7 +1148,7 @@ export function Workspace({
               const action = actionPalette.commands.find((item) => item.id === 'extract-selection')!;
               return { unavailable: menuSheet.id === selectedSheet?.id ? action.unavailable : 'Select cells on this sheet first', run: () => { workspaceController.closeSheetMenu(); action.run(); } };
             })()}
-            modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={commands.bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={commands.unbindSheetFromModel} sheet={menuSheet} />}
+            modelControls={<SheetModelControls key={menuSheet.id} models={dataModels} onBind={bindSheetToModel} onOpenDataModels={(modelId) => { workspaceController.closeSheetMenu(); onOpenDataModels?.(modelId); }} onUnbind={unbindSheetFromModel} sheet={menuSheet} />}
             onAppendColumn={(sheetId) => {
               workspaceController.closeSheetMenu();
               commands.appendColumn(sheetId);
