@@ -210,7 +210,14 @@ export function Workspace({
   const extractionTokens = useRef(new WeakMap<object, number>());
   const extractionRange = useRef<{ token: number; range: CellRange } | null>(null);
   const extractionScroll = useRef<{ token: number; position: { left: number; top: number } } | null>(null);
-  const extractionSelectionOwner = useRef<{ token: number; selection: CellSelection; revision: number; saved: boolean; presented: boolean; paletteClosed: boolean; viewport?: string; identity?: number; frame?: string; size?: string } | null>(null);
+  const extractionSelectionOwner = useRef<{ token: number; lease?: ReturnType<NonNullable<typeof selectionSettlement>['beginSelectionSettlement']>; selection: CellSelection; revision: number; saved: boolean; presented: boolean; paletteClosed: boolean; viewport?: string; identity?: number; frame?: string; size?: string } | null>(null);
+  const ownsExtractionSelection = (owner: NonNullable<typeof extractionSelectionOwner.current>) => owner.lease && selectionSettlement
+    ? selectionSettlement.ownsSelectionSettlement(owner.lease) : (interactionRevision?.() ?? 0) === owner.revision;
+  const clearExtractionSelection = () => {
+    const owner = extractionSelectionOwner.current;
+    if (owner?.lease) selectionSettlement?.cancelSelectionSettlement(owner.lease);
+    extractionSelectionOwner.current = null;
+  };
   const extractionCuts = useRef(new WeakMap<object, NonNullable<typeof clipboard.current.pendingCutSource>>());
   const completeExtractionSelection = useRef<(token: number) => void>(() => {});
   const tryExtractionSelection = useRef<(token: number) => void>(() => {});
@@ -263,7 +270,7 @@ export function Workspace({
   extractionInputs.current = { workbook, workspaceController, maximise, reducedMotion, sheetDialogOpen, commandPaletteOpen, interactionRevision, onRestoreGridFocus };
   const abortExtractionPresentation = () => {
     const owner = extractionOwner.current;
-    if (owner && extractionSelectionOwner.current?.token === owner.token && !extractionSelectionOwner.current.presented) extractionSelectionOwner.current = null;
+    if (owner && extractionSelectionOwner.current?.token === owner.token && !extractionSelectionOwner.current.presented) clearExtractionSelection();
     extractionOwner.current = null;
     extractionGuard.current = null;
     if (extractionAnimation.current !== undefined) cancelAnimationFrame(extractionAnimation.current);
@@ -335,11 +342,11 @@ export function Workspace({
       if (event.target === document.body || event.target === document.documentElement) return;
       const source = extractionOwner.current?.sourceId;
       const frame = event.target.closest<HTMLElement>('article.sheet-frame[data-sheet-id]');
-      if (!source || frame?.dataset.sheetId !== source) extractionSelectionOwner.current = null;
+      if (!source || frame?.dataset.sheetId !== source) clearExtractionSelection();
     };
     document.addEventListener('focusin', onFocus, true);
     return () => document.removeEventListener('focusin', onFocus, true);
-  }, []);
+  });
   useEffect(() => () => { if (extractionAnimation.current !== undefined) cancelAnimationFrame(extractionAnimation.current); extractionLease.current?.cancel(); extractionOwner.current = null; }, []);
   const modeActive = maximise.state.mode !== 'canvas';
   useEffect(() => setMaximiseActive(modeActive), [modeActive]);
@@ -471,7 +478,7 @@ export function Workspace({
     },
   });
   cancelNavigationBeforeUserMovement.current = () => {
-    extractionSelectionOwner.current = null;
+    clearExtractionSelection();
     const operation = extractionOwner.current;
     if (operation) { extractionHandoff.cancel(operation.token); abortExtractionPresentation(); }
     if (restoreIntent.current) restoreIntent.current = () => false;
@@ -701,8 +708,9 @@ export function Workspace({
   tryExtractionSelection.current = (token) => {
     const owner = extractionSelectionOwner.current;
     if (!owner || owner.token !== token || !owner.saved || !owner.presented) return;
-    extractionSelectionOwner.current = null;
-    if ((interactionRevision?.() ?? 0) !== owner.revision || sheetDialogOpen || commandPaletteOpen
+    const owned = ownsExtractionSelection(owner);
+    clearExtractionSelection();
+    if (!owned || sheetDialogOpen || commandPaletteOpen
       || !commands.currentWorkbook().documents[owner.selection.anchor.sheetId]
       || JSON.stringify(frameProjection(commands.currentWorkbook().documents[owner.selection.anchor.sheetId]!)) !== owner.frame
       || JSON.stringify(workspaceController.workspaceSurfaceSize) !== owner.size
@@ -723,12 +731,12 @@ export function Workspace({
   useLayoutEffect(() => {
     const owner = extractionSelectionOwner.current;
     if (owner && !commandPaletteOpen) owner.paletteClosed = true;
-    if (owner && ((interactionRevision?.() ?? 0) !== owner.revision || sheetDialogOpen
+    if (owner && (!ownsExtractionSelection(owner) || sheetDialogOpen
       || (owner.paletteClosed && commandPaletteOpen)
       || (owner.presented && (!workbook.documents[owner.selection.anchor.sheetId]
         || JSON.stringify(frameProjection(workbook.documents[owner.selection.anchor.sheetId]!)) !== owner.frame
         || JSON.stringify(workspaceController.workspaceSurfaceSize) !== owner.size
-        || JSON.stringify(workspaceController.viewport) !== owner.viewport || maximise.currentState().identity !== owner.identity)))) extractionSelectionOwner.current = null;
+        || JSON.stringify(workspaceController.viewport) !== owner.viewport || maximise.currentState().identity !== owner.identity)))) clearExtractionSelection();
   });
   const projectedFrames = sheets.map((sheet) => {
     const frame = frameProjection(sheet);
@@ -938,7 +946,8 @@ export function Workspace({
           extractionFormulaSnapshot.current = formulaResults;
           const token = extractionHandoff.begin(sheet, request.targetSheetId);
           const mapped = mappedExtractionSelection(sheet, selection, request);
-          extractionSelectionOwner.current = mapped ? { token, selection: mapped, revision: interactionRevision?.() ?? 0, saved: false, presented: false, paletteClosed: !commandPaletteOpen } : null;
+          clearExtractionSelection();
+          extractionSelectionOwner.current = mapped ? { token, lease: selectionSettlement?.beginSelectionSettlement(), selection: mapped, revision: interactionRevision?.() ?? 0, saved: false, presented: false, paletteClosed: !commandPaletteOpen } : null;
           if (clipboard.current.pendingCutSource) extractionCuts.current.set(request, clipboard.current.pendingCutSource);
           const operation = { token, sourceId: sheet.id, targetId: request.targetSheetId, sample: extractionOverlayPresentation(sheet, range.start, scroll, displayed, request.frame.size), maximised, accepted: false };
           extractionOwner.current = operation;
@@ -949,6 +958,10 @@ export function Workspace({
           extractionTokens.current.set(request, token);
         }
         return request;
+      },
+      publication: (request, before, after) => {
+        const owner = extractionSelectionOwner.current;
+        if (owner && owner.token === extractionTokens.current.get(request) && owner.lease) selectionSettlement?.reconcileSelectionPublication(owner.lease, before, after);
       },
       onAccepted: (request, target) => {
         const token = extractionTokens.current.get(request);
@@ -965,9 +978,9 @@ export function Workspace({
         if (token !== undefined) {
           const owner = extractionSelectionOwner.current;
           const inputs = extractionInputs.current;
-          if (owner?.token === token && (inputs.interactionRevision?.() ?? 0) === owner.revision && !inputs.sheetDialogOpen && !inputs.commandPaletteOpen
+          if (owner?.token === token && ownsExtractionSelection(owner) && !inputs.sheetDialogOpen && !inputs.commandPaletteOpen
             && commands.currentWorkbook().documents[request!.sourceSheetId]) inputs.onRestoreGridFocus();
-          if (extractionSelectionOwner.current?.token === token) extractionSelectionOwner.current = null;
+          if (extractionSelectionOwner.current?.token === token) clearExtractionSelection();
           extractionHandoff.cancel(token);
           if (extractionOwner.current?.token === token) abortExtractionPresentation();
         }
@@ -991,15 +1004,20 @@ export function Workspace({
     onSelectAxis: (axis, target) => onSelectAxis(axis, target, false),
     onRowDeleted: (sheet, target) => {
       const index = sheet.content.rows.indexOf(target.cell.rowId);
-      const remaining = sheet.content.rows.filter((rowId) => rowId !== target.cell.rowId);
+      const live = commands.currentWorkbook().documents[sheet.id];
+      if (!live) return;
+      const remaining = live.content.rows;
       const rowId = remaining[Math.min(index, remaining.length - 1)];
-      if (rowId) {
-        const next = { sheetId: sheet.id, cell: { ...target.cell, rowId } };
+      const columnId = live.content.columns.includes(target.cell.columnId) ? target.cell.columnId : live.content.columns[0];
+      if (rowId && columnId) {
+        const next = { sheetId: sheet.id, cell: { columnId, rowId } };
         onSelectCell(next);
         onFocusSelection(next);
       } else {
         onClearSelection();
+        const revision = interactionRevision?.();
         requestAnimationFrame(() => {
+          if (!bindingMounted.current || (interactionRevision && interactionRevision() !== revision) || extractionInputs.current.sheetDialogOpen || extractionInputs.current.commandPaletteOpen) return;
           const frame = document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"]`);
           (frame?.querySelector<HTMLElement>('.model-entry-cell') ?? frame?.querySelector<HTMLElement>('.sheet-grid'))?.focus();
         });
@@ -1007,15 +1025,22 @@ export function Workspace({
     },
     onColumnDeleted: (sheet, target) => {
       const index = sheet.content.columns.indexOf(target.cell.columnId);
-      const remaining = sheet.content.columns.filter((columnId) => columnId !== target.cell.columnId);
+      const live = commands.currentWorkbook().documents[sheet.id];
+      if (!live) return;
+      const remaining = live.content.columns;
       const columnId = remaining[Math.min(index, remaining.length - 1)];
-      if (columnId) {
-        const next = { sheetId: sheet.id, cell: { ...target.cell, columnId } };
+      const rowId = live.content.rows.includes(target.cell.rowId) ? target.cell.rowId : live.content.rows[0];
+      if (columnId && rowId) {
+        const next = { sheetId: sheet.id, cell: { columnId, rowId } };
         onSelectCell(next);
         onFocusSelection(next);
       } else {
         onClearSelection();
-        requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"] .sheet-grid`)?.focus());
+        const revision = interactionRevision?.();
+        requestAnimationFrame(() => {
+          if (!bindingMounted.current || (interactionRevision && interactionRevision() !== revision) || extractionInputs.current.sheetDialogOpen || extractionInputs.current.commandPaletteOpen) return;
+          document.querySelector<HTMLElement>(`[data-workspace-sheet-frame][data-sheet-id="${CSS.escape(sheet.id)}"] .sheet-grid`)?.focus();
+        });
       }
     },
     onSelectAll: (sheet) => {

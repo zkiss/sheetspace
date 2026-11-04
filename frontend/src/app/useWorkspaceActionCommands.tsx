@@ -43,7 +43,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   restoreSelection?: (selection: CellSelection | null) => boolean;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
-  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void; managesOwnership?: boolean };
+  extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; publication?: (request: ExtractionRequest, before: Workbook, after: Workbook) => void; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void; managesOwnership?: boolean };
   sheet: SheetDocument | undefined; workbook: Workbook; activeCell: CellTarget | null; selection: CellSelection | null;
   formatting: FormattingSelectionProjection; referencesVisible: boolean;
   canUndo: boolean; canRedo: boolean; canRetryFailedSaves: boolean;
@@ -224,7 +224,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     try {
       request = extraction.request(sheet, selection);
       if (!request) { release(); closePalette(); onFeedback('Select saved cells, rows, or columns first.'); return; }
-      submission = commands.extractSelection(request);
+      const requested = request;
+      submission = commands.extractSelection(request, extraction.publication ? (before, after) => extraction.publication?.(requested, before, after) : undefined);
     } catch {
       release(); extraction.onFailure?.(request); closePalette(); onFeedback('The extraction could not be started.'); return;
     }
