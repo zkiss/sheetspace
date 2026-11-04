@@ -40,4 +40,21 @@ describe('selection settlement ownership', () => {
     result.current.cancelSelectionSettlement(current);
     expect(result.current.ownsSelectionSettlement(current)).toBe(false);
   });
+
+  it('restores a selection against the live rollback before the rollback renders', () => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
+    const before = workbookWithSheets([sheet]);
+    const after = workbookWithSheets([{ ...sheet, content: { ...sheet.content, rows: [] } }]);
+    let current = before;
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const { result, rerender } = renderHook(({ workbook }) => useCellEditing({ commands, workbook, currentWorkbook: () => current }), { initialProps: { workbook: before } });
+    act(() => result.current.selectCell(cellTargetAt(sheet, 'A1')!));
+    const selection = result.current.selectionRange;
+    current = after;
+    rerender({ workbook: after });
+    expect(result.current.selectionRange).toBeNull();
+    current = before;
+    act(() => { expect(result.current.restoreSelection(selection)).toBe(true); });
+    expect(result.current.selectionRange).toEqual(selection);
+  });
 });

@@ -380,9 +380,9 @@ export function useWorkbookController({
       currentWorkbook: () => optimisticWorkbook.current,
       gatherAxis: (sheetId, axis, ids, gap) => mixedHistory.reorder(sheetId, axis, (source) => gatherAxis(source, sheetId, axis, ids, gap)),
       shiftAxis: (sheetId, axis, ids, direction) => mixedHistory.reorder(sheetId, axis, (source) => shiftAxis(source, sheetId, axis, ids, direction)),
-      extractSelection: (request) => extractionCommand(request, {
+      extractSelection: (request, publication) => extractionCommand(request, {
         history: contentHistory,
-        submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
+        submit: (transform, success) => applyModelLifecycleTransition(transform, success, true, publication),
         publish: () => { mixedHistory.clearFeedback(); setHistoryRevision((revision) => revision + 1); },
       }),
       submitEntryDraft: async (sheetId) => {
@@ -445,17 +445,17 @@ export function useWorkbookController({
         const model = entryModel(sheetId);
         if (model) { entrySessions.dismiss(sheetId, model, propertyId); publishEntries(); }
       },
-      bindSheetToModel: (sheetId, modelId) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID())),
-      unbindSheetFromModel: (sheetId) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId)),
+      bindSheetToModel: (sheetId, modelId, publication) => applyModelLifecycleTransition((source) => bindSheetToModel(source, sheetId, modelId, () => crypto.randomUUID()), undefined, false, publication),
+      unbindSheetFromModel: (sheetId, publication) => applyModelLifecycleTransition((source) => unbindSheetFromModel(source, sheetId), undefined, false, publication),
       addDataModel: (model) => applyModelLifecycleTransition((source) => addDataModel(source, model)),
-      replaceModelDeclaration: (model) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID())),
+      replaceModelDeclaration: (model, publication) => applyModelLifecycleTransition((source) => replaceModelDeclaration(source, model, () => crypto.randomUUID()), undefined, false, publication),
       renameColumn: (sheetId, columnId, name) => applyModelLifecycleTransition((source) => renameColumn(source, sheetId, columnId, name)),
       writeNumberFormats: (sheetId, writes) => applyAction({ kind: 'write-number-formats', sheetId, writes }),
       writeAxisSizes: (sheetId, writes) => applyAction({ kind: 'write-axis-sizes', sheetId, writes }),
       appendColumn: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendColumn(sheetId); else setMutationFailure('pending-model-transition'); },
       appendRow: (sheetId) => { if (!admissionLocks.current.has(sheetId)) axisCreation.appendRow(sheetId); else setMutationFailure('pending-model-transition'); },
-      deleteRow: (sheetId, rowId) => applyModelLifecycleTransition((source) => deleteRow(source, sheetId, rowId)),
-      deleteColumn: (sheetId, columnId) => applyModelLifecycleTransition((source) => deleteColumn(source, sheetId, columnId)),
+      deleteRow: (sheetId, rowId, publication) => applyModelLifecycleTransition((source) => deleteRow(source, sheetId, rowId), undefined, false, publication),
+      deleteColumn: (sheetId, columnId, publication) => applyModelLifecycleTransition((source) => deleteColumn(source, sheetId, columnId), undefined, false, publication),
       changeSheetZOrder,
       createSheet,
       deleteSheet: deleteSheetCommand,

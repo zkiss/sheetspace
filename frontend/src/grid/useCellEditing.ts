@@ -372,7 +372,7 @@ export function useCellEditing({
         dispatch({ type: 'restore-selection', selection: null });
         return true;
       }
-      const sheet = findSheetById(workbook, selection.anchor.sheetId);
+      const sheet = findSheetById(currentWorkbookRef.current?.() ?? workbook, selection.anchor.sheetId);
       const restored = sheet && selection.mode !== 'cells' && selection.members !== undefined
         ? pruneAxisSelection(sheet, { ...selection, mode: selection.mode, members: selection.members })
         : selection;

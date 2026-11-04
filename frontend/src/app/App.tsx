@@ -85,6 +85,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
   } = useCellEditing({
     commands,
     workbook,
+    currentWorkbook: commands.currentWorkbook,
   });
 
   function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string, confirm: () => void) {
