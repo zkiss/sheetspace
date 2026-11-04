@@ -5,6 +5,7 @@ import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection'
 import { decodeCellTextLiteral } from '@workbook/core/cellLiteral';
 import { type SheetDocument, type Workbook } from '@workbook/core/model';
 import { isCalculatedOwnedColumn } from '@workbook/core/calculatedOwnership';
+import { projectSelection, pruneAxisSelection } from '@workbook/read/selection';
 import type { CellWriteResult } from '@application/core/userActions';
 import type {
   SelectionGesture,
@@ -162,28 +163,18 @@ export function useCellEditing({
     }
     const sheet = findSheetById(workbook, target.sheetId);
     if (!sheet) return undefined;
+    if (!cellKeyForTarget(sheet, target)) return undefined;
     const selection = state.rangeSelection?.anchor.sheetId === target.sheetId
       ? state.rangeSelection
       : null;
-    const targetAddress = cellAddressOf(sheet.content, target.cell);
-    const anchor = selection ? cellAddressOf(sheet.content, selection.anchor.cell) : targetAddress;
-    const extent = selection ? cellAddressOf(sheet.content, selection.extent.cell) : targetAddress;
-    const start = anchor && extent ? {
-      columnIndex: selection?.mode === 'rows' ? 0 : Math.min(anchor.columnIndex, extent.columnIndex),
-      rowIndex: selection?.mode === 'columns' ? 0 : Math.min(anchor.rowIndex, extent.rowIndex),
-    } : undefined;
-    const end = anchor && extent ? {
-      columnIndex: selection?.mode === 'rows' ? sheet.content.columns.length - 1 : Math.max(anchor.columnIndex, extent.columnIndex),
-      rowIndex: selection?.mode === 'columns' ? sheet.content.rows.length - 1 : Math.max(anchor.rowIndex, extent.rowIndex),
-    } : undefined;
+    const projection = projectSelection(sheet, selection ?? { mode: 'cells', anchor: target, extent: target });
+    if (!projection) return undefined;
+    const rows = new Set(projection.rows);
+    const columns = new Set(projection.columns);
     const writes = Object.entries(sheet.content.cells).flatMap(([identityKey, raw]) => {
       if (!raw) return [];
       const identity = cellIdentityFromKey(identityKey);
-      const address = identity && cellAddressOf(sheet.content, identity);
-      if (!identity || !address || (start && end && (
-        address.columnIndex < start.columnIndex || address.columnIndex > end.columnIndex
-        || address.rowIndex < start.rowIndex || address.rowIndex > end.rowIndex
-      ))) return [];
+      if (!identity || !rows.has(identity.rowId) || !columns.has(identity.columnId)) return [];
       return [{ sheetId: sheet.id, ...identity, raw: '' }];
     });
     if (writes.length > 0) {
@@ -349,13 +340,14 @@ export function useCellEditing({
         return true;
       }
       const sheet = findSheetById(workbook, selection.anchor.sheetId);
-      const valid = sheet && selection.anchor.sheetId === selection.extent.sheetId
-        && cellKeyForTarget(sheet, selection.anchor) && cellKeyForTarget(sheet, selection.extent);
-      if (!valid) {
+      const restored = sheet && selection.mode !== 'cells' && selection.members !== undefined
+        ? pruneAxisSelection(sheet, { ...selection, mode: selection.mode, members: selection.members })
+        : selection;
+      if (!sheet || !restored || !projectSelection(sheet, restored)) {
         dispatch({ type: 'restore-selection', selection: null });
         return false;
       }
-      dispatch({ type: 'restore-selection', selection });
+      dispatch({ type: 'restore-selection', selection: restored });
       return true;
     },
     startEditingCell,
