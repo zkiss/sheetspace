@@ -884,7 +884,7 @@ export function Workspace({
         );
         const scroll = { x: body?.scrollLeft ?? viewport?.scrollLeft ?? 0, y: body?.scrollTop ?? viewport?.scrollTop ?? 0 };
         const request = extractionRequest(workbook, sheet, selection, scroll, projectedFramesById.get(sheet.id)?.position);
-        const range = selectionEndpointAddressRange(sheet, selection);
+        const range = rectangularSelectionAddressRange(sheet, selection);
         const surface = workspaceController.workspaceSurfaceRef.current;
         const sourceFrame = projectedFramesById.get(sheet.id) ?? frameProjection(sheet);
         const presented = maximise.state.sheetId === sheet.id && maximise.presentation ? maximise.presentation : canvasPresentation(sourceFrame, workspaceController.displayedViewport);

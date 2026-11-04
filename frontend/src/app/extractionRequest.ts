@@ -6,12 +6,12 @@ import type { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/
 import { MIN_SHEET_FRAME_HEIGHT, MIN_SHEET_FRAME_WIDTH, SHEET_HEADER_HEIGHT } from '@workspace/workspaceGeometry';
 import { extractionFramePosition } from './extractionGeometry';
 import { extractionSelection } from './extractionSelection';
-import { selectionEndpointAddressRange } from './workspaceSelection';
+import { rectangularSelectionAddressRange } from './workspaceSelection';
 
 export function extractionRequest(workbook: Workbook, sheet: SheetDocument, selection: CellSelection, scroll: WorkspacePosition,
   position: WorkspacePosition = sheet.frame.position, newId: () => string = () => crypto.randomUUID()): ExtractionRequest | undefined {
   const selected = extractionSelection(sheet, selection);
-  const range = selected && selectionEndpointAddressRange(sheet, selection);
+  const range = selected && rectangularSelectionAddressRange(sheet, selection);
   if (!selected || !range) return undefined;
   const rows = sheet.content.rows.slice(range.start.rowIndex, range.end.rowIndex + 1);
   const columns = sheet.content.columns.slice(range.start.columnIndex, range.end.columnIndex + 1);

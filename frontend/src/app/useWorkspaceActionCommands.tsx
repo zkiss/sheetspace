@@ -151,8 +151,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       else if (selectionRevision.current.revision === revision) onColumnDeleted(sheet, activeCell);
     }, () => { onFeedback('The command could not be saved.'); if (selectionRevision.current.revision === revision) closePalette(); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.columns.includes(activeCell.cell.columnId) ? undefined : 'Select a saved column first');
-  const columnId = sheet && selection && selection.anchor.sheetId === sheet.id && selection.extent.sheetId === sheet.id && selection.mode !== 'rows'
-    && selection.anchor.cell.columnId === selection.extent.cell.columnId ? selection.anchor.cell.columnId : undefined;
+  const selectedColumns = sheet && selection && selection.mode !== 'rows' ? projectSelection(sheet, selection)?.columns : undefined;
+  const columnId = selectedColumns?.length === 1 ? selectedColumns[0] : undefined;
   const renameTarget = sheet && columnId ? columnRenameTarget(workbook, sheet.id, columnId) : undefined;
   add('rename-column', 'Rename column…', 'Sheet', () => {
     if (!renameTarget || !sheet) return;
@@ -322,8 +322,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   }} />;
   if (panel?.kind === 'rename-column') content = <RenameColumnForm target={panel.target} initialName={panel.initialName} onCancel={() => { setPanel(null); closePalette(); }} onApply={async (name) => {
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
-    if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target) ||
+    if (sheet?.id !== panel.target.sheetId || columnId !== panel.target.columnId || JSON.stringify(current) !== JSON.stringify(panel.target) ||
       (current?.kind === 'ordinary' && (workbook.documents[current.sheetId]?.columnNames?.[current.columnId] ?? '') !== panel.initialName)) return 'The selected column has changed. Close and try again.';
+    const revision = selectionRevision.current.revision;
     const submission = commands.renameColumn(panel.target.sheetId, panel.target.columnId, name);
     setRenameBusy(true);
     let result;
@@ -334,7 +335,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (result.reason === 'duplicate') return 'That column name is already in use.';
       return `Could not rename the column: ${result.reason}.`;
     }
-    setPanel(null); closePalette();
+    setPanel(null); if (selectionRevision.current.revision === revision) closePalette();
     return undefined;
   }} />;
   if (panel?.kind === 'numbers') content = <CommandNumberForm key={panel.title} fields={panel.fields} onApply={(values) => {

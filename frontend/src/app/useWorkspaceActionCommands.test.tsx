@@ -44,6 +44,46 @@ function openRename() {
 }
 
 describe('workspace palette actions', () => {
+  it('rejects scattered extraction and endpoint-equal multi-column rename at execution', () => {
+    const { command, hook, props, sheet, cell } = setup(3);
+    props.selection = { mode: 'columns', anchor: cell, extent: cell, members: [sheet.content.columns[0]!, sheet.content.columns[2]!] };
+    props.extraction = { request: vi.fn(), onSuccess: vi.fn() };
+    hook.rerender();
+    expect(command('extract-selection').unavailable).toBeDefined();
+    expect(command('rename-column').unavailable).toBeDefined();
+    act(() => { command('extract-selection').run(); command('rename-column').run(); });
+    expect(props.extraction.request).not.toHaveBeenCalled();
+    expect(hook.result.current.panel).toBeUndefined();
+  });
+
+  it('does not transfer extraction ownership after members alone change', async () => {
+    const { command, hook, props, sheet, cell } = setup(3);
+    let finish!: (value: unknown) => void;
+    props.commands.extractSelection = vi.fn().mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'columns', anchor: cell, extent: cell, members: [sheet.content.columns[0]!] };
+    props.extraction = { request: vi.fn().mockReturnValue({}), onSuccess: vi.fn() };
+    hook.rerender();
+    act(() => command('extract-selection').run());
+    props.selection = { ...props.selection, members: [sheet.content.columns[0]!, sheet.content.columns[1]!] };
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(props.extraction.onSuccess).not.toHaveBeenCalled();
+  });
+  it('does not restore focus after rename when column membership changes during persistence', async () => {
+    const { command, hook, props, sheet, cell, commands } = setup(2);
+    let finish!: (value: { ok: boolean }) => void;
+    commands.renameColumn.mockReturnValue({ result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) });
+    props.selection = { mode: 'columns', anchor: cell, extent: cell, members: [sheet.content.columns[0]!] };
+    hook.rerender();
+    act(() => command('rename-column').run());
+    render(<>{hook.result.current.panel?.content}</>);
+    fireEvent.change(screen.getByLabelText('Column name'), { target: { value: 'Revenue' } });
+    fireEvent.submit(screen.getByLabelText('Column name').closest('form')!);
+    props.selection = { ...props.selection, members: [...sheet.content.columns] };
+    hook.rerender();
+    await act(async () => finish({ ok: true }));
+    expect(props.closePalette).not.toHaveBeenCalled();
+  });
   it('releases rendered ownership when an accepted extraction completion rejects', async () => {
     const { props, sheet, cell, hook } = setup();
     hook.unmount();

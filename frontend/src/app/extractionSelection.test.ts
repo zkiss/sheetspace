@@ -32,4 +32,27 @@ describe('extraction selection', () => {
     expect(mapped.anchor).toEqual({ sheetId: request.targetSheetId, cell: { rowId: request.targetRows[1], columnId: request.targetColumns[1] } });
     expect(mapped.extent).toEqual({ sheetId: request.targetSheetId, cell: { rowId: request.targetRows[0], columnId: request.targetColumns[0] } });
   });
+
+  it.each(['rows', 'columns'] as const)('rejects scattered and invalid %s members even with equal endpoints', (mode) => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 3 });
+    const target = { sheetId: source.id, cell: { rowId: source.content.rows[0]!, columnId: source.content.columns[0]! } };
+    const axis = mode === 'rows' ? source.content.rows : source.content.columns;
+    const selection = { mode, anchor: target, extent: target, members: [axis[0]!, axis[2]!] };
+    expect(extractionSelection(source, selection)).toBeUndefined();
+    expect(extractionRequest(workbookWithSheets([source]), source, selection, { x: 0, y: 0 })).toBeUndefined();
+    expect(extractionSelection(source, { ...selection, members: [axis[0]!, 'missing'] })).toBeUndefined();
+  });
+
+  it.each(['rows', 'columns'] as const)('extracts and maps exact contiguous %s members beyond equal endpoints', (mode) => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 3 });
+    const target = { sheetId: source.id, cell: { rowId: source.content.rows[0]!, columnId: source.content.columns[0]! } };
+    const axis = mode === 'rows' ? source.content.rows : source.content.columns;
+    const selection = { mode, anchor: target, extent: target, members: [axis[0]!, axis[1]!] };
+    let id = 0;
+    const request = extractionRequest(workbookWithSheets([source]), source, selection, { x: 0, y: 0 }, undefined, () => `target-${id++}`)!;
+    expect(request.selection).toEqual({ kind: mode, start: axis[0], end: axis[1] });
+    const mapped = mappedExtractionSelection(source, selection, request)!;
+    expect(mapped.members).toEqual((mode === 'rows' ? request.targetRows : request.targetColumns).slice(0, 2));
+    expect(mapped.anchor).toEqual(mapped.extent);
+  });
 });
