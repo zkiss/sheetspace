@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
-import { persistedWorkbookClient } from '@test-support/apiClients';
+import { deferred, persistedWorkbookClient } from '@test-support/apiClients';
+import type { Workbook } from '@workbook/core/model';
 import { App } from './App';
 
 async function deleteAxis(user: ReturnType<typeof userEvent.setup>, axis: 'row' | 'column') {
@@ -82,6 +83,49 @@ describe('structural deletion selection', () => {
     await user.click(screen.getByRole('cell', { name: 'Sheet B2 empty cell' }));
     await act(async () => { release(); await api.saveModelLifecycle.mock.results[0]!.value; });
     await waitFor(() => expect(screen.getByRole('cell', { name: 'Sheet B2 empty cell' })).toHaveFocus());
+  });
+
+  it.each(['row', 'column'] as const)('does not restore a stale selection when delayed %s deletion fails', async (axis) => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1, position: { x: 500, y: 100 } });
+    const workbook = workbookWithLegacyFormulaFixtures([sheet, other]);
+    const api = persistedWorkbookClient(workbook);
+    const save = deferred<Workbook>();
+    api.saveModelLifecycle.mockReturnValueOnce(save.promise);
+    render(<App initialWorkbook={workbook} apiClient={api} />);
+
+    await user.click(screen.getByRole('cell', { name: 'Sheet A1 empty cell' }));
+    await deleteAxis(user, axis);
+    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    const otherCell = screen.getByRole('cell', { name: 'Other A1 empty cell' });
+    await user.click(otherCell);
+    await act(async () => { save.reject(new Error('offline')); });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(otherCell).toHaveAttribute('aria-selected', 'true');
+    expect(otherCell).toHaveFocus();
+    expect(screen.getByRole('cell', { name: 'Sheet A1 empty cell' })).not.toHaveAttribute('aria-selected', 'true');
+  });
+
+  it.each(['row', 'column'] as const)('restores the owned selection when delayed %s deletion fails', async (axis) => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithLegacyFormulaFixtures([sheet]);
+    const api = persistedWorkbookClient(workbook);
+    const save = deferred<Workbook>();
+    api.saveModelLifecycle.mockReturnValueOnce(save.promise);
+    render(<App initialWorkbook={workbook} apiClient={api} />);
+
+    await user.click(screen.getByRole('cell', { name: 'Sheet A1 empty cell' }));
+    await deleteAxis(user, axis);
+    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    await act(async () => { save.reject(new Error('offline')); });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    const originalCell = screen.getByRole('cell', { name: 'Sheet A1 empty cell' });
+    expect(originalCell).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(originalCell).toHaveFocus());
   });
 });
 
