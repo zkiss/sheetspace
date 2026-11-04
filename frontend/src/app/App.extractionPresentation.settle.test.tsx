@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { persistedWorkbookClient } from '@test-support/apiClients';
+import { deferred, persistedWorkbookClient } from '@test-support/apiClients';
 import { measuredElementGeometry, testRect } from '@test-support/domGeometry';
 import { smallSheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import * as workbookController from '@application/react/useWorkbookController';
@@ -49,12 +49,15 @@ function stubPaintedGeometry(...frames: HTMLElement[]) {
   }
 }
 
-async function reachExtractionRetire(clock: ExtractionClock, { maximised }: { maximised: boolean }): Promise<ExtractionState> {
+async function reachExtractionRetire(clock: ExtractionClock, { maximised, saveGate }: { maximised: boolean; saveGate?: Promise<void> }): Promise<ExtractionState> {
   const realController = workbookController.useWorkbookController;
   let controller!: ExtractionState['controller'];
   vi.spyOn(workbookController, 'useWorkbookController').mockImplementation((options) => { controller = realController(options); return controller; });
   const workbook = workbookWithSheets([smallSheetDocument({ id: 'inputs', name: 'Inputs', visualScale: 0.8, position: { x: 48, y: 96 }, frameSize: { width: 310, height: 220 } })]);
-  render(<App initialWorkbook={workbook} apiClient={persistedWorkbookClient(workbook)} />);
+  const api = persistedWorkbookClient(workbook);
+  const save = api.saveModelLifecycle.getMockImplementation()!;
+  if (saveGate) api.saveModelLifecycle.mockImplementationOnce(async (...args) => { await saveGate; return save(...args); });
+  render(<App initialWorkbook={workbook} apiClient={api} />);
   const surface = screen.getByTestId('workspace-surface');
   measuredElementGeometry(surface, { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Inputs' });
@@ -73,6 +76,30 @@ async function reachExtractionRetire(clock: ExtractionClock, { maximised }: { ma
   clock.advanceTimers(250);
   return { source, target, surface, controller };
 }
+
+it.each(['presentation first', 'save first'] as const)('transfers extraction only after %s and the other prerequisite', async (order) => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }));
+  const clock = useExtractionClock();
+  const save = deferred<void>();
+  const { target } = await reachExtractionRetire(clock, { maximised: false, saveGate: save.promise });
+  const targetCell = within(target).getByRole('cell', { name: 'Sheet 1 A1 empty cell' });
+  expect(targetCell).not.toHaveAttribute('aria-selected', 'true');
+
+  if (order === 'save first') await act(async () => { save.resolve(); await save.promise; });
+  else {
+    clock.runFrames(clock.now() + 120);
+    clock.runFrames(clock.now() + 250);
+    await act(async () => {});
+  }
+  expect(targetCell).not.toHaveAttribute('aria-selected', 'true');
+
+  if (order === 'save first') {
+    clock.runFrames(clock.now() + 120);
+    clock.runFrames(clock.now() + 250);
+    await act(async () => {});
+  } else await act(async () => { save.resolve(); await save.promise; });
+  expect(targetCell).toHaveAttribute('aria-selected', 'true');
+});
 
 async function finishOwnedRestore(clock: ExtractionClock, { maximised }: { maximised: boolean }) {
   if (!maximised) return;
