@@ -26,6 +26,21 @@ function setup(columnCount = 1) {
 
 
 describe('clipboard route ownership', () => {
+  it.each(['copy', 'cut'] as const)('ignores a stale %s write after a sheet change', async (operation) => {
+    const { command, hook, props, clipboard } = setup();
+    let reject!: (error: Error) => void;
+    clipboard.write.mockReturnValueOnce(new Promise<void>((_, fail) => { reject = fail; }));
+    vi.mocked(props.onCopy).mockReturnValue({ text: 'value', marker: 'copy' });
+    vi.mocked(props.onCut).mockReturnValue({ text: 'value', marker: 'cut' });
+    act(() => command(operation).run());
+    props.sheet = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    hook.rerender();
+    await act(async () => reject(new Error('obsolete')));
+    expect(props.onFeedback).not.toHaveBeenCalled();
+    expect(props.closePalette).not.toHaveBeenCalled();
+    if (operation === 'cut') expect(props.onCancelCut).toHaveBeenCalledWith('cut');
+  });
+
   it.each(['sheet', 'members', 'members-away-and-back'] as const)('ignores a pending paste after %s changes', async (change) => {
     const { command, hook, props, clipboard, sheet, cell } = setup(3);
     const columns = sheet.content.columns;
