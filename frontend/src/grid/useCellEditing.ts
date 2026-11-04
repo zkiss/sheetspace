@@ -48,14 +48,19 @@ function adjacentTarget(
 export function useCellEditing({
   commands,
   workbook,
+  currentWorkbook,
 }: {
   commands: CellContentCommands;
   workbook: Workbook;
+  currentWorkbook?: () => Workbook;
 }) {
   const [state, dispatchInteraction] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
   const interactionRevision = useRef(0);
   const queuedState = useRef(state);
   const renderedState = useRef(state);
+  const settlementLease = useRef<{ token: symbol; revision: number } | null>(null);
+  const currentWorkbookRef = useRef(currentWorkbook);
+  currentWorkbookRef.current = currentWorkbook;
   if (renderedState.current !== state) { renderedState.current = state; queuedState.current = state; }
   function dispatch(action: Parameters<typeof cellInteractionReducer>[1]) {
     const previous = queuedState.current;
@@ -81,7 +86,7 @@ export function useCellEditing({
   }
 
   useEffect(() => {
-    dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(workbook) });
+    dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(currentWorkbookRef.current?.() ?? workbook) });
     dispatch({
       type: 'prune-sheets',
       sheetIds: new Set(sheetsInOrder(workbook).map((sheet) => sheet.id)),
@@ -308,6 +313,23 @@ export function useCellEditing({
   }
 
   return {
+    beginSelectionSettlement: () => {
+      const token = Symbol('selection-settlement');
+      settlementLease.current = { token, revision: interactionRevision.current };
+      return token;
+    },
+    ownsSelectionSettlement: (token: symbol) => settlementLease.current?.token === token
+      && settlementLease.current.revision === interactionRevision.current,
+    cancelSelectionSettlement: (token: symbol) => {
+      if (settlementLease.current?.token === token) settlementLease.current = null;
+    },
+    reconcileSelectionPublication: (token: symbol, before: Workbook, after: Workbook) => {
+      dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(before) });
+      const lease = settlementLease.current;
+      const owned = lease?.token === token && lease.revision === interactionRevision.current;
+      dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(after) });
+      if (owned && lease) lease.revision = interactionRevision.current;
+    },
     sheetSelectionTarget,
     interactionRevision: () => interactionRevision.current,
     activeCell: state.selection,

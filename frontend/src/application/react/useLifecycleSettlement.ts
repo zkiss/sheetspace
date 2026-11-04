@@ -6,6 +6,8 @@ import { WorkbookApiError } from '@infrastructure/persistence/workbookApi';
 import type { useSavedSheetAutosave } from './useSavedSheetAutosave';
 import type { TransitionFailure } from './workbookControllerTypes';
 
+export type LifecyclePublication = (before: Workbook, after: Workbook, phase: 'optimistic' | 'rollback') => void;
+
 export function useLifecycleSettlement(options: {
   autosaveEnabled: boolean;
   current: React.MutableRefObject<Workbook>;
@@ -41,10 +43,11 @@ export function useLifecycleSettlement(options: {
     if (!local) return transport;
     return transport ? Promise.all([local, transport]).then(() => undefined) : local;
   };
-  function submit<T extends { ok: true; value: Workbook }>(before: Workbook, result: T, onSuccess = options.resetHistory): Promise<T | TransitionFailure> {
+  function submit<T extends { ok: true; value: Workbook }>(before: Workbook, result: T, onSuccess = options.resetHistory, publication?: LifecyclePublication): Promise<T | TransitionFailure> {
     let release!: () => void;
     pending.current = new Promise<void>((resolve) => { release = resolve; });
     options.current.current = result.value;
+    publication?.(before, result.value, 'optimistic');
     options.setWorkbook(result.value, { kind: 'structure' });
     if (!options.autosaveEnabled) {
       onSuccess();
@@ -69,7 +72,9 @@ export function useLifecycleSettlement(options: {
         const restored = { ...before, documents };
         return restored;
       };
-      options.current.current = restore(options.current.current);
+      const beforeRollback = options.current.current;
+      options.current.current = restore(beforeRollback);
+      publication?.(beforeRollback, options.current.current, 'rollback');
       options.setWorkbook((current) => {
         const restored = restore(current);
         options.current.current = restored;

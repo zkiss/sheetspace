@@ -219,7 +219,7 @@ export function useWorkbookController({
     return applied;
   }
 
-  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
+  function applyModelLifecycleTransition<T extends { ok: true; value: Workbook } | { ok: false }>(transform: (source: Workbook) => T, onSuccess?: (before: Workbook, after: Workbook) => void, protectEntryContents = false, publication?: import('./useLifecycleSettlement').LifecyclePublication): Readonly<{ result: T | TransitionFailure; completion: Promise<T | TransitionFailure> }> {
     const before = optimisticWorkbook.current;
     const result = transform(before);
     if (!result.ok || result.value === before) return { result, completion: Promise.resolve(result) };
@@ -247,7 +247,7 @@ export function useWorkbookController({
       const rejected = { ok: false, reason: 'blocked-persistence-prerequisite' } as const;
       return { result: rejected, completion: Promise.resolve(rejected) };
     }
-    return { result, completion: lifecycle.submit(before, result, onSuccess && (() => onSuccess(before, result.value))) as Promise<T | TransitionFailure> };
+    return { result, completion: lifecycle.submit(before, result, onSuccess && (() => onSuccess(before, result.value)), publication) as Promise<T | TransitionFailure> };
 
   }
 
