@@ -28,6 +28,7 @@ class GridAxisCreationQueue {
 
   snapshot() { return this.entries.map((entry) => ({ ...entry })); }
   hasUnsettled() { return this.entries.some((entry) => ['queued', 'running', 'failed'].includes(entry.status)); }
+  hasUnsettledSheet(sheetId: string) { return this.entries.some((entry) => entry.sheetId === sheetId && ['queued', 'running', 'failed'].includes(entry.status)); }
   subscribe(listener: (entries: readonly AxisCreation[]) => void) {
     this.listeners.add(listener);
     listener(this.snapshot());
@@ -223,6 +224,7 @@ export function useGridAxisCreationOperations({
     appendRow: (sheetId: string) => append(sheetId, 'row'),
     creatingAxes,
     hasUnsettled: () => queue.hasUnsettled(),
+    hasUnsettledSheet: (sheetId: string) => queue.hasUnsettledSheet(sheetId),
     prepareSheetDeletion: (sheetId: string) => queue.prepareSheetDeletion(sheetId),
     saveStatus: failed ? 'failed' as const : saving ? 'saving' as const : 'saved' as const,
   };

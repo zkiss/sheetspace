@@ -12,12 +12,13 @@ type Options = {
   history: ContentHistory;
   enqueue: ReturnType<typeof useSavedSheetAutosave>['enqueue'];
   hasPending: () => boolean;
+  hasPendingAxisCreation?: (sheetId: string) => boolean;
   admissionLocks: { current: Set<string> };
   setMutationFailure: (failure: 'pending-model-transition' | undefined) => void;
   setContentHistoryFeedback: (feedback: undefined) => void;
   publishHistory: () => void;
   clearOtherFailures?: () => void;
-  setReplayFailure: (failure: 'pending-model-transition' | 'order-conflict' | undefined) => void;
+  setReplayFailure: (failure: 'pending-model-transition' | 'pending-axis-creation' | 'order-conflict' | undefined) => void;
 };
 
 export function createAxisReorder(options: Options) {
@@ -28,6 +29,9 @@ export function createAxisReorder(options: Options) {
   }
 
   function reorder(sheetId: string, axis: ReorderAxis, transform: (workbook: Workbook) => ReorderResult): ReorderCommandResult {
+    if (options.hasPendingAxisCreation?.(sheetId)) {
+      return { status: 'rejected', workbook: options.current.current, reason: 'pending-axis-creation' };
+    }
     if (options.hasPending() || options.admissionLocks.current.has(sheetId)) {
       options.setMutationFailure('pending-model-transition');
       return { status: 'rejected', workbook: options.current.current, reason: 'pending-model-transition' };
@@ -48,6 +52,10 @@ export function createAxisReorder(options: Options) {
   function replay(order: NonNullable<import('@application/core/contentHistory').ContentTransaction['order']>, direction: 'undo' | 'redo') {
     const { sheetId, axis, before, after } = order;
     options.setReplayFailure(undefined);
+    if (options.hasPendingAxisCreation?.(sheetId)) {
+      options.setReplayFailure('pending-axis-creation');
+      return;
+    }
     if (options.hasPending() || options.admissionLocks.current.has(sheetId)) {
       options.setReplayFailure('pending-model-transition');
       return;

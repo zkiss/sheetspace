@@ -341,7 +341,7 @@ export function useWorkbookController({
 
   const mixedHistory = useMixedHistory({
     current: optimisticWorkbook, setWorkbook, history: contentHistory,
-    enqueue: savedAutosave.enqueue, hasPending: lifecycle.hasPending,
+    enqueue: savedAutosave.enqueue, hasPending: lifecycle.hasPending, hasPendingAxisCreation: axisCreation.hasUnsettledSheet,
     admissionLocks, setMutationFailure, setContentHistoryFeedback,
     setCellFeedback: setContentHistoryFeedback, applyResult, formulaResults,
     submit: (transform, success) => applyModelLifecycleTransition(transform, success, true),
