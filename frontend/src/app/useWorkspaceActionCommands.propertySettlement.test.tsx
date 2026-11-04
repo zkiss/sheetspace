@@ -5,7 +5,7 @@ import { useCellEditing } from '@grid/useCellEditing';
 import { cellTargetAt } from '@grid/cellInteraction';
 import { useWorkspaceActionCommands } from './useWorkspaceActionCommands';
 
-it.each(['owned', 'away-and-back', 'superseded'] as const)('retains property failure feedback with %s selection ownership', async (ownership) => {
+it.each(['owned', 'away-and-back', 'superseded', 'unmounted'] as const)('retains property failure feedback with %s selection ownership', async (ownership) => {
   const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 1, columnCount: 3 });
   const cell = cellTargetAt(sheet, 'A1')!;
   const bound = { ...sheet, modelId: 'model', modelColumnBindings: { property: cell.cell.columnId } };
@@ -22,6 +22,7 @@ it.each(['owned', 'away-and-back', 'superseded'] as const)('retains property fai
     return { result: { ok: true }, completion: new Promise((resolve) => { finish = resolve; }) };
   });
   const onColumnDeleted = vi.fn();
+  const onRestore = vi.fn();
   const props = {
     commands: { currentWorkbook: () => current, replaceModelDeclaration }, controller: {}, sheet: bound, workbook: before, activeCell: cell,
     formatting: { descriptor: { valid: false } }, referencesVisible: true, canUndo: false, canRedo: false, canRetryFailedSaves: false,
@@ -30,9 +31,9 @@ it.each(['owned', 'away-and-back', 'superseded'] as const)('retains property fai
     onRowDeleted: vi.fn(), onColumnDeleted, onToggleReferences: vi.fn(), onFeedback: vi.fn(), onCopy: vi.fn(), onCut: vi.fn(),
     onPaste: vi.fn(), onCancelCut: vi.fn(), hasPendingCut: false,
   } as unknown as Parameters<typeof useWorkspaceActionCommands>[0];
-  const { result } = renderHook(() => {
+  const { result, unmount } = renderHook(() => {
     const editing = useCellEditing({ commands: { updateCellContent: vi.fn(), writeCells: vi.fn() }, workbook: before, currentWorkbook: () => current });
-    const actions = useWorkspaceActionCommands({ ...props, selection: editing.selectionRange, selectionSettlement: editing, restoreSelection: editing.restoreSelection });
+    const actions = useWorkspaceActionCommands({ ...props, selection: editing.selectionRange, selectionSettlement: editing, restoreSelection: (...args) => { onRestore(); return editing.restoreSelection(...args); } });
     return { editing, actions };
   });
   act(() => result.current.editing.selectCell(cell));
@@ -45,11 +46,14 @@ it.each(['owned', 'away-and-back', 'superseded'] as const)('retains property fai
     act(() => { result.current.editing.selectCell(cellTargetAt(bound, 'C1')!); result.current.editing.selectCell(cellTargetAt(bound, 'B1')!); });
   } else if (ownership === 'superseded') {
     result.current.editing.beginSelectionSettlement();
+  } else if (ownership === 'unmounted') {
+    unmount();
   }
   await act(async () => { current = before; publish(after, before); finish({ ok: false, reason: 'persistence-failed' }); });
   expect(await screen.findByRole('alert')).toHaveTextContent('persistence-failed');
   expect(screen.getByRole('button', { name: 'Delete property' })).toBeEnabled();
   expect(onColumnDeleted).not.toHaveBeenCalled();
+  if (ownership === 'unmounted') expect(onRestore).not.toHaveBeenCalled();
   if (ownership === 'owned') expect(result.current.editing.selectionRange).toEqual(original);
-  else expect(result.current.editing.selectionRange).not.toEqual(original);
+  else if (ownership !== 'unmounted') expect(result.current.editing.selectionRange).not.toEqual(original);
 });
