@@ -42,7 +42,7 @@ describe('axis order replay', () => {
     expect(enqueue).toHaveBeenCalledTimes(3);
   });
 
-  it('blocks pending replay and clears stale feedback on the next admission', () => {
+  it('blocks pending replay and retains feedback until successful admission', () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
     const current = { current: workbookWithSheets([sheet]) };
     const history = new ContentHistory();
@@ -60,7 +60,7 @@ describe('axis order replay', () => {
     expect(history.canUndo).toBe(true);
     expect(enqueue).toHaveBeenCalledTimes(1);
     reorder.reorder('s', 'row', () => { throw new Error('must not transform'); });
-    expect(feedback).toHaveBeenLastCalledWith(undefined);
+    expect(feedback).toHaveBeenLastCalledWith('pending-model-transition');
     expect(mutationFailure).toHaveBeenLastCalledWith('pending-model-transition');
     pending = false;
     reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [sheet.content.rows[0]!], 1));

@@ -16,6 +16,7 @@ type Options = {
   setMutationFailure: (failure: 'pending-model-transition' | undefined) => void;
   setContentHistoryFeedback: (feedback: undefined) => void;
   publishHistory: () => void;
+  clearOtherFailures?: () => void;
   setReplayFailure: (failure: 'pending-model-transition' | 'order-conflict' | undefined) => void;
 };
 
@@ -27,7 +28,6 @@ export function createAxisReorder(options: Options) {
   }
 
   function reorder(sheetId: string, axis: ReorderAxis, transform: (workbook: Workbook) => ReorderResult): ReorderCommandResult {
-    options.setReplayFailure(undefined);
     if (options.hasPending() || options.admissionLocks.current.has(sheetId)) {
       options.setMutationFailure('pending-model-transition');
       return { status: 'rejected', workbook: options.current.current, reason: 'pending-model-transition' };
@@ -37,6 +37,8 @@ export function createAxisReorder(options: Options) {
     if (result.status === 'changed') {
       const admitted = options.history.recordOrder({ sheetId, axis, before: result.before, after: result.after });
       if (!admitted.ok) return { status: 'rejected', workbook: options.current.current, reason: admitted.reason };
+      options.setReplayFailure(undefined);
+      options.clearOtherFailures?.();
       publishOrder(sheetId, axis, result);
       options.setContentHistoryFeedback(undefined);
       options.publishHistory();
@@ -59,6 +61,7 @@ export function createAxisReorder(options: Options) {
     }
     const result = applyAxisPermutation(options.current.current, sheetId, axis, direction === 'undo' ? before : after);
     if (result.status !== 'changed') { options.setReplayFailure('order-conflict'); return; }
+    options.clearOtherFailures?.();
     publishOrder(sheetId, axis, result);
     if (direction === 'undo') options.history.commitUndo(); else options.history.commitRedo();
     options.setContentHistoryFeedback(undefined);

@@ -25,6 +25,20 @@ describe('axis reorder history', () => {
     expect(result.current.workbook.documents.s!.content.rows).toEqual([b, c, a]);
   });
 
+  it('keeps order conflict feedback on frame changes and clears it on a new cell edit', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet, other]) }));
+    act(() => result.current.commands.shiftAxis('s', 'row', [sheet.content.rows[0]!], 1));
+    act(() => result.current.commands.deleteSheet('s'));
+    act(() => result.current.commands.undo());
+    expect(result.current.orderReplayFailure).toBe('order-conflict');
+    act(() => result.current.commands.moveSheetFrame('other', { x: 50, y: 60 }));
+    expect(result.current.orderReplayFailure).toBe('order-conflict');
+    act(() => result.current.commands.updateCellContent('other', 'A1', '42'));
+    expect(result.current.orderReplayFailure).toBeUndefined();
+  });
+
   it('does not add history for invalid or boundary moves', () => {
     const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 2 });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
