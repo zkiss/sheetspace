@@ -35,9 +35,12 @@ type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string
 
 export function useWorkspaceActionCommands({ commands, controller, sheet, workbook, activeCell, selection, formatting, referencesVisible,
   maximise, extraction,
+  selectionSettlement, restoreSelection,
   canUndo, canRedo, canRetryFailedSaves, navigation, closePalette, openPanel, onCreateSheet, onOpenDataModels, onRename, onDelete, onEdit, onClear,
   onSelectAxis, onSelectAll, onRowDeleted, onColumnDeleted, onToggleReferences, onFeedback, onCopy, onCut, onPaste, onCancelCut, hasPendingCut, clipboardAccess = systemClipboard }: {
   commands: WorkbookCommands;
+  selectionSettlement?: Pick<ReturnType<typeof import('@grid/useCellEditing').useCellEditing>, 'queuedSelection' | 'beginSelectionSettlement' | 'ownsSelectionSettlement' | 'cancelSelectionSettlement' | 'reconcileSelectionPublication'>;
+  restoreSelection?: (selection: CellSelection | null) => boolean;
   controller: ReturnType<typeof useWorkspaceController>;
   maximise?: { active: boolean; toggle: () => void; zoom: (factor: number) => void };
   extraction?: { request: (sheet: SheetDocument, selection: CellSelection) => ExtractionRequest | undefined; onSuccess: (request: ExtractionRequest) => void; onAccepted?: (request: ExtractionRequest, target: SheetDocument) => void; onFailure?: (request?: ExtractionRequest) => void; managesOwnership?: boolean };
@@ -123,15 +126,28 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('delete-row', 'Delete row', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;
     const revision = selectionRevision.current.revision;
-    const submission = commands.deleteRow(sheet.id, activeCell.cell.rowId);
+    const original = selectionSettlement?.queuedSelection() ?? selection;
+    const token = selectionSettlement?.beginSelectionSettlement();
+    const owned = () => mounted.current && (token && selectionSettlement
+      ? selectionSettlement.ownsSelectionSettlement(token) : selectionRevision.current.revision === revision);
+    const retire = () => { if (token) selectionSettlement?.cancelSelectionSettlement(token); };
+    const submission = commands.deleteRow(sheet.id, activeCell.cell.rowId, token && selectionSettlement
+      ? (before, after) => selectionSettlement.reconcileSelectionPublication(token, before, after) : undefined);
     const message = failure(submission.result);
-    if (message) { closePalette(); onFeedback(message); return; }
+    if (message) { retire(); closePalette(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       const error = failure(result);
-      if (error) { onFeedback(error); if (selectionRevision.current.revision === revision) closePalette(); }
-      else if (selectionRevision.current.revision === revision) onRowDeleted(sheet, activeCell);
-    }, () => { onFeedback('The command could not be saved.'); if (selectionRevision.current.revision === revision) closePalette(); });
+      if (error) {
+        onFeedback(error);
+        if (owned()) { restoreSelection?.(original); closePalette(); }
+      } else if (owned()) onRowDeleted(sheet, activeCell);
+      retire();
+    }, () => {
+      onFeedback('The command could not be saved.');
+      if (owned()) { restoreSelection?.(original); closePalette(); }
+      retire();
+    });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.rows.includes(activeCell.cell.rowId) ? undefined : 'Select a saved row first');
   add('delete-column', 'Delete column', 'Sheet', () => {
     if (!sheet || !activeCell || activeCell.sheetId !== sheet.id) return;

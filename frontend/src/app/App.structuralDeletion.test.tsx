@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
@@ -48,6 +48,23 @@ describe('structural deletion selection', () => {
     await waitFor(() => expect(screen.getByRole('cell', { name: 'Sheet B1 empty cell' })).toHaveFocus());
     expect(screen.getByRole('cell', { name: 'Sheet B1 empty cell' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('cell', { name: 'Sheet B2 empty cell' })).toBeInTheDocument();
+  });
+
+  it('does not reclaim selection after a newer click while row deletion is saving', async () => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 3, columnCount: 2 });
+    const workbook = workbookWithLegacyFormulaFixtures([sheet]);
+    const api = persistedWorkbookClient(workbook);
+    const save = api.saveModelLifecycle.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    api.saveModelLifecycle.mockImplementationOnce(async (...args) => { await pending; return save(...args); });
+    render(<App initialWorkbook={workbook} apiClient={api} />);
+    await user.click(screen.getByRole('cell', { name: 'Sheet B1 empty cell' }));
+    await deleteAxis(user, 'row');
+    await user.click(screen.getByRole('cell', { name: 'Sheet A2 empty cell' }));
+    await act(async () => { release(); await api.saveModelLifecycle.mock.results[0]!.value; });
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sheet A2 empty cell' })).toHaveFocus());
   });
 });
 

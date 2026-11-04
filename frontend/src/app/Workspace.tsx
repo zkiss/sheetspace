@@ -114,6 +114,7 @@ export function Workspace({
   selectionRange,
   selectionOwner,
   interactionRevision,
+  selectionSettlement,
   saveStatus,
   sheetDialogOpen = false,
   creatingAxes,
@@ -162,6 +163,7 @@ export function Workspace({
   selectionRange: CellSelection | null;
   selectionOwner?: symbol | null;
   interactionRevision?: () => number;
+  selectionSettlement?: Pick<ReturnType<typeof import('@grid/useCellEditing').useCellEditing>, 'queuedSelection' | 'beginSelectionSettlement' | 'ownsSelectionSettlement' | 'cancelSelectionSettlement' | 'reconcileSelectionPublication'>;
   saveStatus: SaveStatus;
   sheetDialogOpen?: boolean;
   creatingFrames: CreatingSheetFrameState[];
@@ -873,6 +875,7 @@ export function Workspace({
   }
   const actionPalette = useWorkspaceActionCommands({
     commands, controller: workspaceController, sheet: selectedSheet, workbook, activeCell, selection: selectionRange,
+    selectionSettlement, restoreSelection: onRestoreSelection,
     maximise: { active: modeActive, toggle: toggleMaximise, zoom: zoomMaximisedView },
     extraction: {
       managesOwnership: true,

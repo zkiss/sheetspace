@@ -314,6 +314,7 @@ export function useCellEditing({
   }
 
   return {
+    queuedSelection: () => queuedState.current.rangeSelection,
     beginSelectionSettlement: () => {
       const token = Symbol('selection-settlement');
       settlementLease.current = { token, revision: interactionRevision.current };

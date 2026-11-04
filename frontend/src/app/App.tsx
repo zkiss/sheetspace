@@ -65,6 +65,11 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     settleSelectionGesture,
     focusCurrentSelection,
     interactionRevision,
+    queuedSelection,
+    beginSelectionSettlement,
+    ownsSelectionSettlement,
+    cancelSelectionSettlement,
+    reconcileSelectionPublication,
     acknowledgeKeyboardFocusRequest,
     activateSheet,
     sheetSelectionTarget,
@@ -202,6 +207,7 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
         onSelectReferenceTarget={selectReferenceTarget}
         onRestoreSelection={restoreSelection}
         interactionRevision={interactionRevision}
+        selectionSettlement={{ queuedSelection, beginSelectionSettlement, ownsSelectionSettlement, cancelSelectionSettlement, reconcileSelectionPublication }}
         onStartEdit={startEditingCell}
         referenceSelection={referenceSelection}
         selectionRange={selectionRange}
