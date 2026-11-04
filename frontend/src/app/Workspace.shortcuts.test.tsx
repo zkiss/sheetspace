@@ -9,7 +9,7 @@ import { systemClipboard } from './systemClipboard';
 
 vi.mock('@shared/keyboard/keymap', async (importOriginal) => {
   const original = await importOriginal<typeof import('@shared/keyboard/keymap')>();
-  const keymap = { ...original.keymap, copy: [{ key: 'c', mod: true, shift: true }], 'data-models': [{ key: 'm', mod: true, shift: true }], 'text-colour': [{ key: 'k', mod: true, shift: true }] };
+  const keymap = { ...original.keymap, copy: [{ key: 'c', mod: true, shift: true }], 'data-models': [{ key: 'm', mod: true, shift: true }, { key: 'q' }], 'text-colour': [{ key: 'k', mod: true, shift: true }] };
   return {
     ...original,
     keymap,
@@ -36,6 +36,33 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof Workspace>> = 
 }
 
 describe('registered-command keyboard dispatch', () => {
+  it('dispatches a newly bound printable command before grid typing, while preserving ordinary typing and unavailable actions', () => {
+    const onOpenDataModels = vi.fn();
+    const { props, view } = renderWorkspace({ onOpenDataModels });
+    const cell = view.container.querySelector<HTMLElement>('[data-cell-key][data-active-cell="true"]');
+    expect(cell).not.toBeNull();
+    fireEvent.keyDown(cell!, { key: 'q' });
+    expect(onOpenDataModels).toHaveBeenCalledOnce();
+    expect(props.onStartEdit).not.toHaveBeenCalled();
+    fireEvent.keyDown(cell!, { key: 'a' });
+    expect(props.onStartEdit).toHaveBeenCalledOnce();
+    vi.mocked(props.onStartEdit).mockClear();
+    view.rerender(<Workspace {...props} onOpenDataModels={undefined} />);
+    fireEvent.keyDown(cell!, { key: 'q' });
+    expect(onOpenDataModels).toHaveBeenCalledOnce();
+    expect(props.onStartEdit).toHaveBeenCalledOnce();
+  });
+
+  it('runs the existing Shift+N command from a focused grid cell', () => {
+    const onCreateSheet = vi.fn();
+    const { props, view } = renderWorkspace({ onCreateSheet });
+    const cell = view.container.querySelector<HTMLElement>('[data-cell-key][data-active-cell="true"]')!;
+    cell.focus();
+    fireEvent.keyDown(cell, { key: 'N', shiftKey: true });
+    expect(onCreateSheet).toHaveBeenCalledOnce();
+    expect(props.onStartEdit).not.toHaveBeenCalled();
+  });
+
   it('opens a newly bound formatting panel without stealing its focus for the grid', async () => {
     const sheet = smallSheetDocument({ id: 'panel', name: 'Panel', rowCount: 4, columnCount: 4 });
     const props = formattingWorkspaceProps(sheet, formattingSelection(sheet, 'cells'));

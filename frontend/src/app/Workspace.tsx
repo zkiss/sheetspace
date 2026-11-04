@@ -1022,8 +1022,17 @@ export function Workspace({
       }
       if (eligible.some((command) => command.keyboardContext?.includes('formatting') && matchesShortcut(event, command.id))) event.preventDefault();
     }
+    function handleGridTypingShortcut(event: KeyboardEvent) {
+      const target = eventTargetElement(event.target);
+      if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey || !target?.matches('[data-cell-key][data-active-cell="true"]')) return;
+      handleKeydown(event);
+    }
+    window.addEventListener('keydown', handleGridTypingShortcut, true);
     window.addEventListener('keydown', handleKeydown);
-    return () => window.removeEventListener('keydown', handleKeydown);
+    return () => {
+      window.removeEventListener('keydown', handleGridTypingShortcut, true);
+      window.removeEventListener('keydown', handleKeydown);
+    };
   }, [editingCell, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   return (
     <>
