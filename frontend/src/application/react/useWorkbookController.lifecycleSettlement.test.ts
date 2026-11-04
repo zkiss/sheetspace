@@ -6,6 +6,61 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkbookController } from './useWorkbookController';
 
 describe('lifecycle settlement', () => {
+  it('does not publish a rejected deletion or a deletion blocked by a pending transition', async () => {
+    const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const save = deferred<Workbook>();
+    const api = autosaveClient({ saveModelLifecycle: () => save.promise });
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const publication = vi.fn();
+    let pending: ReturnType<typeof result.current.commands.deleteRow>;
+    act(() => {
+      expect(result.current.commands.deleteRow('one', 'missing', publication).result.ok).toBe(false);
+      pending = result.current.commands.deleteRow('one', sheet.content.rows[0]!);
+      expect(result.current.commands.deleteRow('one', sheet.content.rows[1]!, publication).result.ok).toBe(false);
+    });
+    expect(publication).not.toHaveBeenCalled();
+    await act(async () => { save.resolve(result.current.commands.currentWorkbook()); await pending!.completion; });
+    expect(publication).not.toHaveBeenCalled();
+  });
+  it('publishes exact optimistic and revision-adjusted rollback snapshots before completion', async () => {
+    const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const write = deferred<{ sheets: { sheetId: string; revision: number }[] }>();
+    const save = deferred<Workbook>();
+    const api = autosaveClient({ writeCells: vi.fn().mockReturnValue(write.promise), saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    const { result, rerender } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const publications: { before: Workbook; after: Workbook; phase: string }[] = [];
+    let completed = false;
+    let submission: ReturnType<typeof result.current.commands.deleteRow>;
+    act(() => {
+      result.current.commands.updateCellContent('one', 'A1', '1');
+      submission = result.current.commands.deleteRow('one', sheet.content.rows[0]!, (before, after, phase) => {
+        expect(result.current.commands.currentWorkbook()).toBe(after);
+        expect(completed).toBe(false);
+        publications.push({ before, after, phase });
+      });
+      expect(publications.map(({ phase }) => phase)).toEqual(['optimistic']);
+      expect(result.current.commands.currentWorkbook()).toBe(publications[0]!.after);
+    });
+    rerender();
+    expect(publications).toHaveLength(1);
+    await act(async () => write.resolve({ sheets: [{ sheetId: 'one', revision: 7 }] }));
+    await waitFor(() => expect(api.saveModelLifecycle).toHaveBeenCalledOnce());
+    await act(async () => {
+      save.reject(new Error('offline'));
+      await submission!.completion;
+      completed = true;
+    });
+    expect(publications.map(({ phase }) => phase)).toEqual(['optimistic', 'rollback']);
+    expect(publications[1]!.before.documents.one!.revision).toBe(7);
+    expect(publications[1]!.after.documents.one!.revision).toBe(7);
+    expect(publications[1]!.after.documents.one!.content.rows).toEqual(sheet.content.rows);
+    expect(result.current.commands.currentWorkbook()).toBe(publications[1]!.after);
+    expect(result.current.workbook).toBe(publications[1]!.after);
+    rerender();
+    expect(publications).toHaveLength(2);
+  });
   it('rejects reorders while a lifecycle transition is pending and admits them after settlement', async () => {
     const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);

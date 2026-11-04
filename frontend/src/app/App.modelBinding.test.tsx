@@ -1,8 +1,8 @@
 import { activateCellEditor } from '@test-support/appScreen';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DataModel } from '@workbook/core/model';
-import { autosaveClient, persistedWorkbookClient } from '@test-support/apiClients';
+import type { DataModel, Workbook } from '@workbook/core/model';
+import { autosaveClient, deferred, persistedWorkbookClient } from '@test-support/apiClients';
 import { openSheetContextMenu } from '@test-support/appScreen';
 import { positionedSheet, sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { App } from './App';
@@ -279,6 +279,29 @@ describe('App model binding workflow', () => {
     expect(screen.queryByLabelText('Bound to Invoice')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Bind model' })).toBeEnabled();
     expect(cellAt('A1')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it.each(['owned', 'newer selection'] as const)('settles a delayed rejected binding with %s', async (ownership) => {
+    const { sheet } = inputsWorkbook();
+    const other = positionedSheet('other', 'Other', { x: 500, y: 96 });
+    const workbook = { ...workbookWithSheets([sheet, other]), dataModels: { invoice: declaredModel } };
+    const save = deferred<Workbook>();
+    const apiClient = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValue(save.promise) });
+    render(<App initialWorkbook={workbook} apiClient={apiClient} />);
+    fireEvent.click(cellAt('A1'));
+    fireEvent.change(modelSelect(), { target: { value: 'invoice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Bind model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm bind' }));
+    await waitFor(() => expect(apiClient.saveModelLifecycle).toHaveBeenCalledOnce());
+    const otherCell = screen.getByRole('cell', { name: 'Other A1 empty cell' });
+    if (ownership === 'newer selection') fireEvent.click(otherCell);
+    await act(async () => { save.reject(new Error('offline')); });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('The data model change was not saved.'));
+    if (ownership === 'owned') expect(cellAt('A1')).toHaveAttribute('aria-selected', 'true');
+    else {
+      expect(otherCell).toHaveAttribute('aria-selected', 'true');
+      expect(cellAt('A1')).not.toHaveAttribute('aria-selected', 'true');
+    }
   });
 
   it('renders calculated cells read-only from the live declaration and follows a property reorder', async () => {
