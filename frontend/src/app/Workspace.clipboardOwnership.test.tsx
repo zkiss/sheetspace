@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { smallSheetDocument } from '@test-support/workbookFactories';
 import { formattingSelection } from '@test-support/formattingProjection';
@@ -8,7 +8,7 @@ import { systemClipboard } from './systemClipboard';
 
 vi.mock('@shared/keyboard/keymap', async (importOriginal) => {
   const original = await importOriginal<typeof import('@shared/keyboard/keymap')>();
-  const keymap = { ...original.keymap, cut: [{ key: 'x', mod: true, shift: true }], paste: [{ key: 'v', mod: true, shift: true }] };
+  const keymap = { ...original.keymap, copy: [{ key: 'c', mod: true, shift: true }], cut: [{ key: 'x', mod: true, shift: true }], paste: [{ key: 'v', mod: true, shift: true }] };
   return {
     ...original, keymap,
     matchesShortcut: (event: never, id: string, platform = original.detectPlatform(), map = keymap) => original.matchesShortcut(event, id, platform, map),
@@ -35,10 +35,17 @@ function setup() {
 
 describe('registered clipboard alternatives and native grid ownership', () => {
   it.each(['copy', 'cut', 'paste', 'cancel'] as const)('abandons a deferred alternative paste after native %s', async (route) => {
+    for (const outcome of ['resolve', 'reject'] as const) {
     vi.spyOn(systemClipboard, 'canRead').mockReturnValue(true);
     let resolve!: (value: { text: string }) => void;
-    const read = vi.spyOn(systemClipboard, 'read').mockReturnValueOnce(new Promise((done) => { resolve = done; })).mockResolvedValue({ text: 'subsequent' });
+    let reject!: (error: Error) => void;
+    let resolveNext!: (value: { text: string }) => void;
+    const read = vi.spyOn(systemClipboard, 'read').mockReturnValueOnce(new Promise((done, fail) => { resolve = done; reject = fail; })).mockReturnValueOnce(new Promise((done) => { resolveNext = done; }));
     const { props, cell } = setup();
+    if (route === 'cancel') {
+      fireEvent.cut(cell, { clipboardData: clipboardData() });
+      expect(cell).toHaveAttribute('data-pending-cut', 'true');
+    }
     fireEvent.keyDown(document.body, { key: 'v', ctrlKey: true, shiftKey: true });
     expect(read).toHaveBeenCalledOnce();
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
@@ -47,13 +54,42 @@ describe('registered clipboard alternatives and native grid ownership', () => {
     if (route === 'cut') fireEvent.cut(cell, { clipboardData: data });
     if (route === 'paste') fireEvent.paste(cell, { clipboardData: data });
     if (route === 'cancel') fireEvent.keyDown(cell, { key: 'Escape' });
+    if (route === 'copy' || route === 'cut') {
+      expect(data.types).toContain('text/plain');
+      expect(data.getData('application/x-sheetspace-clipboard')).toMatch(/^sheetspace:/);
+    }
+    if (route === 'cut') expect(cell).toHaveAttribute('data-pending-cut', 'true');
+    if (route === 'cancel') expect(cell).not.toHaveAttribute('data-pending-cut');
+    if (route === 'paste') expect(props.commands.pasteStoredCells).toHaveBeenCalledOnce();
+    expect(cell).toHaveAttribute('data-active-cell', 'true');
     const writes = vi.mocked(props.commands.pasteCells).mock.calls.length + vi.mocked(props.commands.pasteStoredCells).mock.calls.length;
-    await act(async () => resolve({ text: 'obsolete' }));
-    expect(vi.mocked(props.commands.pasteCells).mock.calls.length + vi.mocked(props.commands.pasteStoredCells).mock.calls.length).toBe(writes);
-    expect(props.onRestoreGridFocus).not.toHaveBeenCalled();
     fireEvent.keyDown(document.body, { key: 'v', ctrlKey: true, shiftKey: true });
     expect(read).toHaveBeenCalledTimes(2);
-    await act(async () => {});
+    await act(async () => { if (outcome === 'resolve') resolve({ text: 'obsolete' }); else reject(new Error('obsolete')); });
+    expect(vi.mocked(props.commands.pasteCells).mock.calls.length + vi.mocked(props.commands.pasteStoredCells).mock.calls.length).toBe(writes);
+    expect(props.onRestoreGridFocus).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => resolveNext({ text: 'subsequent' }));
+    vi.restoreAllMocks();
+    cleanup();
+    }
+  });
+
+  it.each(['resolve', 'reject'] as const)('suppresses an old alternative copy after native paste on %s', async (outcome) => {
+    vi.spyOn(systemClipboard, 'canWrite').mockReturnValue(true);
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const write = vi.spyOn(systemClipboard, 'write').mockReturnValueOnce(new Promise<void>((done, fail) => { resolve = done; reject = fail; }));
+    const { props, cell } = setup();
+    fireEvent.keyDown(document.body, { key: 'c', ctrlKey: true, shiftKey: true });
+    expect(write).toHaveBeenCalledOnce();
+    fireEvent.paste(cell, { clipboardData: clipboardData({ 'text/plain': 'native' }) });
+    expect(props.commands.pasteStoredCells).toHaveBeenCalledOnce();
+    await act(async () => { if (outcome === 'resolve') resolve(); else reject(new Error('obsolete')); });
+    expect(props.commands.pasteStoredCells).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledOnce();
+    expect(props.onRestoreGridFocus).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it.each(['rows', 'columns'] as const)('rejects scattered %s in native and palette routes', (mode) => {

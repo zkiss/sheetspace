@@ -2,6 +2,7 @@ import { activateCellEditor } from '@test-support/appScreen';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { systemClipboard } from './systemClipboard';
 import { autosaveClient } from '@test-support/apiClients';
 import { positionedSheet, workbookWithLegacyFormulaFixtures } from '@test-support/workbookFactories';
 import type { DataModel, Workbook } from '@workbook/core/model';
@@ -77,6 +78,32 @@ describe('App grid clipboard integration', () => {
     fireEvent.paste(cell('B2'), { clipboardData: cut });
     expect(cell('A1')).not.toHaveAttribute('data-pending-cut');
     expect(cell('B2')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('protects calculated cells through actual palette cut and paste', async () => {
+    vi.spyOn(systemClipboard, 'canWrite').mockReturnValue(true);
+    vi.spyOn(systemClipboard, 'canRead').mockReturnValue(true);
+    const write = vi.spyOn(systemClipboard, 'write').mockResolvedValue();
+    const read = vi.spyOn(systemClipboard, 'read').mockResolvedValue({ text: 'replacement' });
+    const apiClient = autosaveClient();
+    render(<App initialWorkbook={calculatedWorkbook()} apiClient={apiClient} />);
+    const cell = screen.getByRole('article', { name: 'Sheet Inputs' }).querySelector<HTMLElement>('[data-cell-key="B1"]')!;
+    fireEvent.click(cell);
+    const original = cell.textContent;
+    fireEvent.click(screen.getByRole('button', { name: 'Command palette' }));
+    const search = screen.getByLabelText('Command search');
+    fireEvent.change(search, { target: { value: 'Cut selection' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(write).not.toHaveBeenCalled();
+    expect(cell).not.toHaveAttribute('data-pending-cut');
+    expect(screen.getByRole('alert')).toHaveTextContent('calculated in the data model');
+    fireEvent.change(search, { target: { value: 'Paste' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    await waitFor(() => expect(read).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('calculated in the data model'));
+    expect(cell.textContent).toBe(original);
+    expect(apiClient.writeCells).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 
   it('cancels an earlier pending cut when a calculated selection rejects a new cut', () => {
