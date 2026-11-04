@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import { MouseEvent, useLayoutEffect, useRef, useState } from 'react';
 import { sheetCreationPlacement } from './sheetCreationPlacement';
 import { useWorkspaceGestures } from './useWorkspaceGestures';
@@ -121,7 +122,7 @@ export function useWorkspaceController({
     if (!pendingSheetMenu) return;
     // The menu owns Escape even when focus is still in the underlying grid.
     const cancelMenu = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.key !== 'Escape') return;
+      if (event.defaultPrevented || !matchesShortcut(event, 'cancel')) return;
       event.preventDefault();
       event.stopPropagation();
       closeSheetMenu();

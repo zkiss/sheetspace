@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { matchesShortcut, shortcutLabel } from '@shared/keyboard/keymap';
 import type { CellTarget } from '@grid/cellInteractionContracts';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import type { WorkbookError } from './workbookErrors';
@@ -63,14 +64,14 @@ export function ErrorList({ errors, open, focusRequest, onClose, onActivate, onN
     onFocusCapture={() => { ownsFocus.current = true; }}
     onBlurCapture={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) ownsFocus.current = false; }}
     onKeyDownCapture={(event) => {
-    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'e') {
+    if (matchesShortcut(event, 'errors')) {
       event.preventDefault(); event.stopPropagation(); onClose();
     }
   }} onKeyDown={(event) => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
+    if (matchesShortcut(event, 'cancel')) { event.preventDefault(); event.stopPropagation(); onClose(); }
   }}>
-    <header className="error-list-header"><strong>Errors <span>{errors.length}</span></strong><span className="error-list-hint">↑↓←→ navigate · F2 inspect / expand · F4 follow cell</span>
-      <button aria-label="Close errors" className="error-list-close" title="Close errors (Esc)" type="button" onClick={onClose}>×</button>
+    <header className="error-list-header"><strong>Errors <span>{errors.length}</span></strong><span className="error-list-hint">↑↓←→ navigate · {shortcutLabel('error-inspect')} inspect / expand · {shortcutLabel('error-follow')} follow cell</span>
+      <button aria-label="Close errors" className="error-list-close" title={`Close errors (${shortcutLabel('cancel')})`} type="button" onClick={onClose}>×</button>
     </header>
     <div className="error-list-scroll">
       {errors.length === 0 ? <p className="error-list-empty">No workbook errors.</p> : <table aria-label="Error list" aria-readonly="true" className="error-list-grid" role="grid">

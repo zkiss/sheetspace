@@ -37,10 +37,9 @@ import { canvasPresentation, interpolatePresentation, restoredViewport, type She
 import { displayedExtractionFramePosition, extractionOverlayPresentation } from './extractionGeometry';
 import type { ExtractionHandoffResult } from './useExtractionHandoff';
 import { WorkspaceSurface } from '@workspace/WorkspaceSurface';
-import { isOwnedPortalTarget } from '@workspace/workspaceEventPolicy';
+import { isOwnedPortalTarget, eventTargetElement, isNativeContentTarget } from '@workspace/workspaceEventPolicy';
 import { WorkspaceToolbar } from '@workspace/WorkspaceToolbar';
 import { NumberFormatControls } from '@workspace/NumberFormatControls';
-import { formattingActionWrites, formattingShortcut } from '@workspace/formattingActions';
 import { useFormattingSelection } from '@workspace/useFormattingSelection';
 import { mountedWorkspaceFrameIds } from '@workspace/workspaceFrameVirtualization';
 import { useOwnedHistoryReveal } from './useOwnedHistoryReveal';
@@ -53,6 +52,7 @@ import { modelColumnPresentation, selectionIncludesCalculatedColumn } from './mo
 import type { CellWriteResult } from '@application/core/userActions';
 import { usageQueries, type UsageQueryResult } from '@calculation/usageQueries';
 import { NavigationPalette, type NavigationCommand } from './NavigationPalette';
+import { dispatchShortcut, matchesNativeClipboard, matchesShortcut, shortcutLabel } from '@shared/keyboard/keymap';
 import { ErrorList } from './ErrorList';
 import { ErrorReferencePreview } from './ErrorReferencePreview';
 import type { ErrorReferenceHover } from './errorCellText';
@@ -65,7 +65,13 @@ import type { CellRange } from '@workbook/core/address';
 import { useSheetCreationRoute } from './useSheetCreationRoute';
 import type { PresentationSnapshot } from './sheetDialogContracts';
 import { clampWorkspaceZoom, normalizedWheelDelta, workspaceRectForFrame, zoomFactorFromWheelDelta } from '@workspace/workspaceGeometry';
-const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.'; export function Workspace({
+const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. Edit the calculation in Data models.';
+const titleWithShortcut = (label: string, id: string) => {
+  const hint = shortcutLabel(id);
+  return hint ? `${label} (${hint})` : label;
+};
+
+export function Workspace({
   activeCell,
   canRetryFailedSaves,
   canUndo = false,
@@ -188,10 +194,7 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   const [paletteView, setPaletteView] = useState(0);
   const paletteInvoker = useRef<HTMLElement | null>(null);
   const propertyDefinitionInvoker = useRef<HTMLElement | null>(null);
-  const openUsagesRef = useRef<() => void>(() => {});
-  const openReferenceChoicesRef = useRef<() => void>(() => {});
-  const openPropertyDefinitionRef = useRef<() => void>(() => {});
-  const runPaletteCommandRef = useRef<(id: string) => void>(() => {});
+  const keyboardCommandsRef = useRef<readonly NavigationCommand[]>([]);
   const [gridInteractionSheetIds, setGridInteractionSheetIds] = useState<ReadonlySet<string>>(() => new Set());
   const sheets = sheetsInOrder(workbook);
   const extractionExit = useRef<(token: number, result: ExtractionHandoffResult) => void>(() => {});
@@ -499,69 +502,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
       if (workspaceController.consumeViewportMovementIsUser()) navigationHistory.recordUserMovement();
     }
   }, [navigationHistory, workspaceController]);
-  useEffect(() => {
-    function handleShortcut(event: KeyboardEvent) {
-      if (!interactionsEnabled) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('textarea, input, select, [contenteditable="true"]') || event.defaultPrevented) return;
-      const key = event.key.toLowerCase();
-      const primaryModifier = event.ctrlKey || event.metaKey;
-      if (!primaryModifier && event.shiftKey && !event.altKey && key === 'n') {
-        event.preventDefault();
-        createSheet();
-        return;
-      }
-      if (event.altKey && !event.shiftKey && !primaryModifier && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-        if (!navigationKeyboardEnabled) return;
-        if (navigationHistory.traverse(event.key === 'ArrowLeft' ? 'back' : 'forward')) event.preventDefault();
-        return;
-      }
-      if (primaryModifier && event.shiftKey && !event.altKey && key === 'p' && navigationKeyboardEnabled) {
-        event.preventDefault();
-        paletteInvoker.current = target;
-        setCommandPaletteOpen(true);
-        return;
-      }
-      if (event.altKey && event.shiftKey && !primaryModifier && navigationKeyboardEnabled) {
-        if (key === 'e' && !editingCell) { event.preventDefault(); toggleErrors(); return; }
-        const commandId = ({ s: 'sheet', c: 'column', r: 'row' } as Record<string, string>)[key];
-        if (commandId) {
-          event.preventDefault();
-          paletteInvoker.current = target;
-          runPaletteCommandRef.current(commandId);
-          return;
-        }
-      }
-      if (event.altKey && event.shiftKey && !primaryModifier && key === 'u' && navigationKeyboardEnabled) {
-        event.preventDefault();
-        paletteInvoker.current = target;
-        openUsagesRef.current();
-        return;
-      }
-      if (event.altKey && event.shiftKey && !primaryModifier && key === 'd' && navigationKeyboardEnabled) {
-        event.preventDefault();
-        propertyDefinitionInvoker.current = target;
-        paletteInvoker.current = target;
-        openPropertyDefinitionRef.current();
-        return;
-      }
-      if (event.altKey && !event.shiftKey && !primaryModifier && event.key === 'Enter' && navigationKeyboardEnabled) {
-        event.preventDefault();
-        paletteInvoker.current = target;
-        openReferenceChoicesRef.current();
-        return;
-      }
-      const action = formattingShortcut(event);
-      if (!action) return;
-      event.preventDefault();
-      const writes = formattingActionWrites(formattingProjection, action, { editing: editingCell !== null, modal: !interactionsEnabled });
-      if (writes.length === 0 || !formattingProjection.descriptor.valid) return;
-      commands.writeNumberFormats(formattingProjection.descriptor.sheetId, writes);
-      onRestoreGridFocus();
-    }
-    window.addEventListener('keydown', handleShortcut);
-    return () => window.removeEventListener('keydown', handleShortcut);
-  }, [commands, createSheet, editingCell, formattingProjection, interactionsEnabled, navigationHistory, navigationKeyboardEnabled, onRestoreGridFocus, toggleErrors, workspaceController]);
   const {
     clearNavigationHighlight,
     navigateReference,
@@ -683,9 +623,6 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     }
     openChoices(choices.map((reference, index) => ({ id: `reference:${index}`, label: `Follow reference: ${reference.text}`, run: () => { if (navigateReference(reference)) closeCommandPalette(false); } })));
   }, [closeCommandPalette, commandPaletteOpen, navigateReference, navigableReferencesForFollow, openChoices]);
-  openUsagesRef.current = openUsages;
-  openReferenceChoicesRef.current = openReferenceChoices;
-  openPropertyDefinitionRef.current = openPropertyDefinition;
   const openSheetChoices = useCallback(() => {
     openChoices(sheets.map((sheet) => {
       const first = cellIdentityAt(sheet.content, { columnIndex: 0, rowIndex: 0 });
@@ -718,24 +655,20 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
   }, [activeCell, closeCommandPalette, navigateCellTarget, openChoices, selectedSheet, workbook.dataModels]);
   const paletteCommands = useMemo<NavigationCommand[]>(() => {
     const result: NavigationCommand[] = [];
-    result.unshift({ id: 'errors', label: 'Toggle error list', shortcut: 'Alt+Shift+E', run: () => { closeCommandPalette(false); toggleErrors(); } });
-    result.unshift({ id: 'row', label: 'Go to row…', shortcut: 'Alt+Shift+R', unavailable: selectedSheet?.content.rows.length ? undefined : 'No current sheet rows', run: () => {
+    result.unshift({ id: 'errors', label: 'Toggle error list', shortcut: shortcutLabel('errors'), keyboardContext: ['navigation', 'no-editing'], run: () => { closeCommandPalette(false); toggleErrors(); } });
+    result.unshift({ id: 'row', label: 'Go to row…', shortcut: shortcutLabel('row'), keyboardContext: ['navigation'], unavailable: selectedSheet?.content.rows.length ? undefined : 'No current sheet rows', run: () => {
       setPaletteChoices(null);
       setRowPickerOpen(true);
       setPaletteView((view) => view + 1);
       setCommandPaletteOpen(true);
     } });
-    result.unshift({ id: 'column', label: 'Go to column…', shortcut: 'Alt+Shift+C', unavailable: selectedSheet?.content.columns.length && selectedSheet.content.rows.length ? undefined : 'No current sheet columns', run: openColumnChoices });
-    result.unshift({ id: 'definition', label: 'Go to property definition', shortcut: 'Alt+Shift+D', unavailable: propertyForActiveCell() || propertyReferenceChoices().length ? undefined : 'Select a named property or property reference first', run: openPropertyDefinition });
-    result.unshift({ id: 'sheet', label: 'Go to sheet…', shortcut: 'Alt+Shift+S', unavailable: sheets.length ? undefined : 'No sheets available', run: openSheetChoices });
-    result.unshift({ id: 'reference', label: 'Follow reference', shortcut: 'Alt+Enter', unavailable: navigableReferencesForFollow().length ? undefined : 'No resolvable reference', run: openReferenceChoices });
-    result.unshift({ id: 'usages', label: 'Find usages', shortcut: 'Alt+Shift+U', unavailable: activeCell ? undefined : 'Select a cell first', run: openUsages });
+    result.unshift({ id: 'column', label: 'Go to column…', shortcut: shortcutLabel('column'), keyboardContext: ['navigation'], unavailable: selectedSheet?.content.columns.length && selectedSheet.content.rows.length ? undefined : 'No current sheet columns', run: openColumnChoices });
+    result.unshift({ id: 'definition', label: 'Go to property definition', shortcut: shortcutLabel('definition'), keyboardContext: ['navigation'], unavailable: propertyForActiveCell() || propertyReferenceChoices().length ? undefined : 'Select a named property or property reference first', run: openPropertyDefinition });
+    result.unshift({ id: 'sheet', label: 'Go to sheet…', shortcut: shortcutLabel('sheet'), keyboardContext: ['navigation'], unavailable: sheets.length ? undefined : 'No sheets available', run: openSheetChoices });
+    result.unshift({ id: 'reference', label: 'Follow reference', shortcut: shortcutLabel('reference'), keyboardContext: ['navigation'], unavailable: navigableReferencesForFollow().length ? undefined : 'No resolvable reference', run: openReferenceChoices });
+    result.unshift({ id: 'usages', label: 'Find usages', shortcut: shortcutLabel('usages'), keyboardContext: ['navigation'], unavailable: activeCell ? undefined : 'Select a cell first', run: openUsages });
     return result;
   }, [activeCell, closeCommandPalette, navigableReferencesForFollow, openColumnChoices, toggleErrors, openPropertyDefinition, openReferenceChoices, openSheetChoices, openUsages, propertyForActiveCell, propertyReferenceChoices, selectedSheet, sheets]);
-  runPaletteCommandRef.current = (id) => {
-    const command = paletteCommands.find((candidate) => candidate.id === id);
-    if (command && !command.unavailable) command.run();
-  };
   const {
     cancelSheetFrameDrag,
     cancelSheetFrameResize,
@@ -1054,12 +987,63 @@ const CALCULATED_CELL_PROTECTION = 'This cell is calculated in the data model. E
     onCopy: copyGridSelection, onCut: cutGridSelection, onPaste: pasteGridSelection, onCancelCut: cancelPendingCut,
     hasPendingCut: clipboard.current.pendingCutSource !== undefined,
   });
+  const commandPaletteCommand: NavigationCommand = { id: 'command-palette', label: 'Command palette', group: 'Workspace', keyboardContext: ['navigation'], run: () => { setCommandPaletteOpen(true); } };
+  const keyboardCommands = [commandPaletteCommand, ...paletteCommands, ...actionPalette.commands];
+  keyboardCommandsRef.current = keyboardCommands;
   const allPaletteCommands = [...paletteCommands.map((command) => ({ ...command, group: 'Navigation' })), ...actionPalette.commands]
     .sort((left, right) => left.group === right.group ? 0 : left.group === 'Navigation' ? -1 : right.group === 'Navigation' ? 1 : (left.group ?? '').localeCompare(right.group ?? ''));
+  useEffect(() => {
+    function handleKeydown(event: KeyboardEvent) {
+      if (event.defaultPrevented || !interactionsEnabled) return;
+      const target = eventTargetElement(event.target);
+      if (isNativeContentTarget(target)) return;
+      const surface = workspaceController.workspaceSurfaceRef.current;
+      if (target && surface && isOwnedPortalTarget(target, surface)) return;
+      const eligible = keyboardCommandsRef.current.filter((command) => (command.keyboardContext ?? []).every((context) => {
+        switch (context) {
+          case 'navigation': return navigationKeyboardEnabled;
+          case 'no-editing': return editingCell === null;
+          case 'grid-cells': return !!target?.closest('[data-cell-key][data-active-cell="true"]');
+          case 'native-clipboard': return editingCell === null && !matchesNativeClipboard(event, command.id);
+          case 'formatting': return true;
+          case 'grid-focus': return true;
+        }
+      }));
+      const dispatched = eligible.find((command) => !command.unavailable && matchesShortcut(event, command.id));
+      if (dispatched && target instanceof HTMLElement) {
+        paletteInvoker.current = target;
+        propertyDefinitionInvoker.current = target;
+      }
+      const restoreGridFocus = dispatched?.keyboardContext?.includes('grid-focus') ?? false;
+      if (dispatchShortcut(event, eligible, restoreGridFocus ? { restoreFocus: false } : undefined)) {
+        event.preventDefault();
+        if (restoreGridFocus) onRestoreGridFocus();
+        return;
+      }
+      if (eligible.some((command) => command.keyboardContext?.includes('formatting') && matchesShortcut(event, command.id))) event.preventDefault();
+    }
+    function handleGridTypingShortcut(event: KeyboardEvent) {
+      const target = eventTargetElement(event.target);
+      if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey || !target?.matches('[data-cell-key][data-active-cell="true"]')) return;
+      handleKeydown(event);
+    }
+    window.addEventListener('keydown', handleGridTypingShortcut, true);
+    window.addEventListener('keydown', handleKeydown);
+    return () => {
+      window.removeEventListener('keydown', handleGridTypingShortcut, true);
+      window.removeEventListener('keydown', handleKeydown);
+    };
+  }, [editingCell, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   return (
     <>
       <WorkspaceToolbar
         canMaximise={Boolean(selectedSheet) || modeActive}
+        titles={{
+          back: titleWithShortcut('Back', 'back'),
+          forward: titleWithShortcut('Forward', 'forward'),
+          commandPalette: titleWithShortcut('Command palette', 'command-palette'),
+          errorsList: `${errors.length} workbook ${errors.length === 1 ? 'error' : 'errors'} · ${titleWithShortcut(errorsOpen ? 'Hide error list' : 'Show error list', 'errors')}`,
+        }}
         maximised={modeActive || focusedRestore}
         onToggleMaximise={activateMaximise}
         onFocusMaximise={focusMaximise}

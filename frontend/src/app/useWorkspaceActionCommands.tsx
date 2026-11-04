@@ -21,8 +21,9 @@ import { CommandNumberForm, type CommandNumberField } from './CommandNumberForm'
 import { RenameColumnForm } from './RenameColumnForm';
 import { DeletePropertyForm } from './DeletePropertyForm';
 import { columnRenameTarget, type RenameColumnTarget } from '@application/core/renameColumn';
-import type { NavigationCommand } from './NavigationPalette';
+import type { NavigationCommand, KeyboardContext } from './NavigationPalette';
 import { selectionAddressRange } from './workspaceSelection';
+import { shortcutLabel } from '@shared/keyboard/keymap';
 import { extractionSelection } from './extractionSelection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 import { extractionFeedback } from './extractionFeedback';
@@ -76,7 +77,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       ? `The command was not applied${'reason' in result ? `: ${String(result.reason)}` : ''}.` : undefined;
   }
   function run(action: () => unknown, restoreFocus = true) {
-    return () => { setPanel(null); closePalette(restoreFocus); const message = failure(action()); if (message) onFeedback(message); };
+    return (context?: { restoreFocus?: boolean }) => { setPanel(null); closePalette(context?.restoreFocus ?? restoreFocus); const message = failure(action()); if (message) onFeedback(message); };
   }
   function numbers(title: string, fields: readonly CommandNumberField[], apply: (values: number[]) => unknown) {
     return () => show({ kind: 'numbers', title, fields, apply });
@@ -85,17 +86,17 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const noCell = activeCell ? undefined : 'Select a cell first';
   const noFormat = formatting.descriptor.valid ? undefined : 'Select cells, rows, or columns first';
   const actions: NavigationCommand[] = [];
-  const add = (id: string, label: string, group: string, action: () => void, unavailable?: string, shortcut?: string) => {
-    actions.push({ id, label, group, run: action, unavailable, shortcut });
+  const add = (id: string, label: string, group: string, action: NavigationCommand['run'], unavailable?: string, keyboardContext?: readonly KeyboardContext[]) => {
+    actions.push({ id, label, group, run: action, unavailable, shortcut: shortcutLabel(id), keyboardContext });
   };
 
-  add('new-sheet', 'New sheet…', 'Workspace', run(onCreateSheet, false), undefined, 'Shift+N');
+  add('new-sheet', 'New sheet…', 'Workspace', run(onCreateSheet, false));
   add('data-models', 'Data models…', 'Workspace', run(() => onOpenDataModels?.(), false), onOpenDataModels ? undefined : 'Data models unavailable');
   add('toggle-references', referencesVisible ? 'Hide references' : 'Show references', 'Workspace', run(onToggleReferences));
-  add('back', 'Back', 'Navigation', run(() => navigation.traverse('back'), false), navigation.canGoBack ? undefined : 'No previous location', 'Alt+Left');
-  add('forward', 'Forward', 'Navigation', run(() => navigation.traverse('forward'), false), navigation.canGoForward ? undefined : 'No forward location', 'Alt+Right');
-  add('undo', 'Undo', 'Editing', run(commands.undo), canUndo ? undefined : 'Nothing to undo', 'Ctrl/⌘+Z');
-  add('redo', 'Redo', 'Editing', run(commands.redo), canRedo ? undefined : 'Nothing to redo', 'Ctrl/⌘+Shift+Z');
+  add('back', 'Back', 'Navigation', run(() => navigation.traverse('back'), false), navigation.canGoBack ? undefined : 'No previous location', ['navigation']);
+  add('forward', 'Forward', 'Navigation', run(() => navigation.traverse('forward'), false), navigation.canGoForward ? undefined : 'No forward location', ['navigation']);
+  add('undo', 'Undo', 'Editing', run(commands.undo), canUndo ? undefined : 'Nothing to undo');
+  add('redo', 'Redo', 'Editing', run(commands.redo), canRedo ? undefined : 'Nothing to redo');
   add('retry-save', 'Retry failed saves', 'Workspace', run(commands.retryFailedSaves), canRetryFailedSaves ? undefined : 'No failed saves');
   add('maximise-sheet', maximise?.active ? 'Restore to workspace' : 'Maximise sheet', 'View', run(() => maximise?.toggle()), maximise && (maximise.active || sheet) ? undefined : 'Select a sheet first');
   add('zoom-in', 'Zoom in', 'View', run(() => maximise?.active ? maximise.zoom(1.2) : controller.zoomWorkspaceBy(1.2)));
@@ -164,8 +165,8 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('unbind-model', 'Unbind model…', 'Data models', () => show({ kind: 'model', title: 'Unbind model', initialAction: 'unbind' }), sheet?.modelId ? undefined : 'The selected sheet has no bound model');
   add('edit-model', 'Edit bound model…', 'Data models', run(() => onOpenDataModels?.(sheet?.modelId), false), sheet?.modelId && onOpenDataModels ? undefined : 'The selected sheet has no bound model');
 
-  add('edit-cell', 'Edit or inspect cell formula', 'Selection', run(() => activeCell && onEdit(activeCell), false), noCell, 'F2');
-  add('clear-cells', 'Clear cell contents', 'Selection', run(() => activeCell && onClear(activeCell)), noCell, 'Delete');
+  add('edit-cell', 'Edit or inspect cell formula', 'Selection', run(() => activeCell && onEdit(activeCell), false), noCell, ['grid-cells']);
+  add('clear-cells', 'Clear cell contents', 'Selection', run(() => activeCell && onClear(activeCell)), noCell, ['grid-cells']);
   const selectedExtraction = sheet && extractionSelection(sheet, selection);
   const extractionUnavailable = !selectedExtraction ? 'Select saved cells, rows, or columns first'
     : sheet?.modelId || sheet?.modelColumnBindings || sheet?.modelFormulaBindings ? 'Extract from an unbound sheet instead'
@@ -224,9 +225,9 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       if (clipboardOperation.current === operation) setClipboardBusy(false);
     }
   }
-  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : 'Use Ctrl/⌘+C in this browser'), 'Ctrl/⌘+C');
-  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : 'Use Ctrl/⌘+X in this browser'), 'Ctrl/⌘+X');
-  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noCell ?? (clipboardAccess.canRead() ? undefined : 'Use Ctrl/⌘+V in this browser'), 'Ctrl/⌘+V');
+  add('copy', 'Copy selection', 'Editing', () => { void clipboardAction('copy'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('copy', undefined, {})} in this browser`), ['native-clipboard']);
+  add('cut', 'Cut selection', 'Editing', () => { void clipboardAction('cut'); }, noCell ?? (clipboardAccess.canWrite() ? undefined : `Use ${shortcutLabel('cut', undefined, {})} in this browser`), ['native-clipboard']);
+  add('paste', 'Paste', 'Editing', () => { void clipboardAction('paste'); }, noCell ?? (clipboardAccess.canRead() ? undefined : `Use ${shortcutLabel('paste', undefined, {})} in this browser`), ['native-clipboard']);
   add('cancel-cut', 'Cancel cut', 'Editing', run(onCancelCut), hasPendingCut ? undefined : 'No pending cut');
   add('select-row', 'Select row', 'Selection', run(() => activeCell && onSelectAxis('rows', activeCell)), noCell);
   add('select-column', 'Select column', 'Selection', run(() => activeCell && onSelectAxis('columns', activeCell)), noCell);
@@ -235,26 +236,26 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const format = (action: FormattingAction) => run(() => formatting.descriptor.valid
     && commands.writeNumberFormats(formatting.descriptor.sheetId, formattingActionWrites(formatting, action)));
   for (const [kind, label] of [['general', 'General number format'], ['number', 'Number format'], ['percent', 'Percent format']] as const) {
-    add(`format-${kind}`, label, 'Formatting', format({ type: 'numberFormat', kind }), noFormat);
+    add(`format-${kind}`, label, 'Formatting', format({ type: 'numberFormat', kind }), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   }
-  add('bold', 'Toggle bold', 'Formatting', format({ type: 'bold' }), noFormat, 'Ctrl/⌘+B');
+  add('bold', 'Toggle bold', 'Formatting', format({ type: 'bold' }), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   for (const [value, label] of [['left', 'Align left'], ['center', 'Align center'], ['right', 'Align right'], ['general', 'Automatic alignment']] as const) {
-    add(`align-${value}`, label, 'Formatting', format({ type: 'alignment', value }), noFormat);
+    add(`align-${value}`, label, 'Formatting', format({ type: 'alignment', value }), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   }
   for (const [property, label] of [['numberFormat', 'Inherit number format'], ['fontWeight', 'Inherit bold setting'], ['horizontalAlignment', 'Inherit horizontal alignment'], ['textColor', 'Inherit text colour'], ['fillColor', 'Inherit fill colour']] as const) {
     add(`inherit-${property}`, label, 'Formatting', run(() => formatting.descriptor.valid && commands.writeNumberFormats(formatting.descriptor.sheetId,
-      materializeFormattingWrites(formatting.descriptor, property, null))), noFormat);
+      materializeFormattingWrites(formatting.descriptor, property, null))), noFormat, ['no-editing', 'formatting', 'grid-focus']);
   }
-  add('text-colour', 'Text colour…', 'Formatting', () => show({ kind: 'colour', title: 'Text colour', property: 'textColor' }), noFormat);
-  add('fill-colour', 'Fill colour…', 'Formatting', () => show({ kind: 'colour', title: 'Fill colour', property: 'fillColor' }), noFormat);
-  add('format-selection', 'Format selection…', 'Formatting', () => show({ kind: 'format', title: 'Format selection' }), noFormat);
+  add('text-colour', 'Text colour…', 'Formatting', () => show({ kind: 'colour', title: 'Text colour', property: 'textColor' }), noFormat, ['no-editing', 'formatting']);
+  add('fill-colour', 'Fill colour…', 'Formatting', () => show({ kind: 'colour', title: 'Fill colour', property: 'fillColor' }), noFormat, ['no-editing', 'formatting']);
+  add('format-selection', 'Format selection…', 'Formatting', () => show({ kind: 'format', title: 'Format selection' }), noFormat, ['no-editing', 'formatting']);
   const currentFormat = formatting.summary ? formatControlState(formatting.summary).format : null;
   add('precision', 'Number format precision…', 'Formatting', numbers('Number format precision', [
     { label: 'Decimal places', value: currentFormat && currentFormat.kind !== 'general' ? currentFormat.precision : 2, ...NUMBER_FORMAT_PRECISION_LIMITS, integer: true },
   ], ([precision]) => {
     const value = numberFormatWithPrecision(currentFormat, precision!);
     return value && formatting.descriptor.valid && commands.writeNumberFormats(formatting.descriptor.sheetId, materializeFormattingWrites(formatting.descriptor, 'numberFormat', value));
-  }), noFormat ?? (currentFormat && currentFormat.kind !== 'general' ? undefined : 'Choose number or percent formatting first'));
+  }), noFormat ?? (currentFormat && currentFormat.kind !== 'general' ? undefined : 'Choose number or percent formatting first'), ['no-editing', 'formatting']);
 
   const range = sheet && selection ? selectionAddressRange(sheet, selection) : undefined;
   for (const axis of ['row', 'column'] as const) {

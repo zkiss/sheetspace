@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import { PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SheetFrameDrag, SheetFrameLayoutCommands, SheetFrameResize, SheetFrameResizeDirection, SheetFrameScale } from './workspaceContracts';
 import { findSheetById } from '@workbook/read/queries';
@@ -314,7 +315,7 @@ export function useSheetFrameInteractions({
       return;
     }
     const cancel = () => cancelSheetFrameScale();
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
+    const key = (event: KeyboardEvent) => { if (matchesShortcut(event, 'cancel')) cancel(); };
     window.addEventListener('blur', cancel); window.addEventListener('keydown', key, true);
     return () => { window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key, true); cancel(); };
   }, [cancelSheetFrameScale, interactionsEnabled]);

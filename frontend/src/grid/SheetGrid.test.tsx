@@ -183,6 +183,23 @@ describe('SheetGrid clipboard routing', () => {
     expect(cancelCut).toHaveBeenCalledOnce();
   });
 
+  it('uses rebound cancel for cut without taking native editor keys', async () => {
+    const { keymap } = await import('@shared/keyboard/keymap');
+    const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+    const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+    try {
+      const cancelCut = vi.fn();
+      const grid = renderClipboardGrid({ cut: vi.fn(), copy: vi.fn(), paste: vi.fn(), cancelCut });
+      const editor = document.createElement('textarea'); grid.append(editor);
+      expect(fireEvent.keyDown(grid, { key: 'Escape' })).toBe(true);
+      expect(fireEvent.keyDown(editor, { key: 'q' })).toBe(true);
+      expect(fireEvent.keyDown(editor, { key: 'q', altKey: true })).toBe(true);
+      expect(cancelCut).not.toHaveBeenCalled();
+      fireEvent.keyDown(grid, { key: 'q', altKey: true });
+      expect(cancelCut).toHaveBeenCalledOnce();
+    } finally { map.cancel = original; }
+  });
+
   it('leaves cut and Escape in a live editor browser-native', () => {
     const cut = vi.fn(() => ({ text: 'A', marker: 'sheetspace:cut' }));
     const cancelCut = vi.fn();

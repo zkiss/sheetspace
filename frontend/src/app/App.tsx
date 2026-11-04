@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useRef, useState } from 'react';
 import './App.css';
 import type { WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
@@ -86,21 +86,6 @@ export function App({ apiClient, initialWorkbook }: AppProps = {}) {
     commands,
     workbook,
   });
-
-  useEffect(() => {
-    const handleHistoryShortcut = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || (key !== 'z' && key !== 'y')) return;
-      const target = event.target as HTMLElement | null;
-      if (dataModelsOpen || target?.closest('textarea, input, [contenteditable="true"]')) return;
-      const redo = key === 'y' || event.shiftKey;
-      if (redo ? !canRedo : !canUndo) return;
-      event.preventDefault();
-      if (redo) commands.redo(); else commands.undo();
-    };
-    window.addEventListener('keydown', handleHistoryShortcut);
-    return () => window.removeEventListener('keydown', handleHistoryShortcut);
-  }, [canRedo, canUndo, commands, dataModelsOpen]);
 
   function openCreationDialog(position: WorkspacePosition, viewportScale: number, label: string, confirm: () => void) {
     setPendingCreation({ position, viewportScale, label, confirm });

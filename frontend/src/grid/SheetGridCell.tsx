@@ -74,11 +74,13 @@ export function SheetGridCell({
     registerCell?.(cellKey, element);
   }, [cellKey, registerCell]);
   function handleCellKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented) return;
     const target = cellTargetAt(sheet, cellKey);
     if (!target) return;
     const action = gridCellKeyboardAction({
       altKey: event.altKey,
       ctrlKey: event.ctrlKey,
+      code: event.code,
       isActive,
       isCellTarget: event.target === event.currentTarget,
       key: event.key,

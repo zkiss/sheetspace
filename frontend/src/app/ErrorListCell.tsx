@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import type { FormulaInspectionReference } from '@workbook/formula/formulaInspectionContracts';
 import { SheetGridCellEditor, type CellFormulaEditorProps } from '@grid/SheetGridCellEditor';
@@ -64,8 +65,8 @@ export function ErrorListCell({ error, column, selected, onSelect, onMove, onNav
         event.preventDefault(); event.stopPropagation(); onMove(0, event.shiftKey ? -1 : 1, true);
       } else if (event.key === 'Home' || event.key === 'End') {
         event.preventDefault(); event.stopPropagation(); onMove(0, event.key === 'Home' ? -column : 3 - column);
-      } else if (event.key === 'F2') { event.preventDefault(); event.stopPropagation(); inspect(); }
-      else if (event.key === 'Enter' || event.key === 'F4') {
+      } else if (matchesShortcut(event, 'error-inspect')) { event.preventDefault(); event.stopPropagation(); inspect(); }
+      else if (matchesShortcut(event, 'error-follow')) {
         event.preventDefault(); event.stopPropagation();
         const reference = document.references[0];
         if (reference) navigate(reference); else inspect();

@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { expect, it, vi } from 'vitest';
 import type { DataModel } from '@workbook/core/model';
 import { DataModelDialog } from './DataModelDialog';
+import { workbookWithSheets } from '@test-support/workbookFactories';
+import type { Workbook } from '@workbook/core/model';
 
 const model: DataModel = { id: 'model', name: 'Invoice', columns: [
   { id: 'first', name: 'First', kind: 'manual', type: 'string' },
@@ -119,4 +121,81 @@ it.each([
   await waitFor(() => expect(within(form).getByRole('alert')).toHaveTextContent(message));
   expect(within(form).getByLabelText('Property 1 name')).toHaveValue('Changed');
   expect(onSave).toHaveBeenCalledOnce();
+});
+
+it.each(['MacIntel', 'Linux x86_64'])('saves a pending formula once with native primary on %s only', async (platform) => {
+  const platformSpy = vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+  try {
+    const { form, onSave } = editModel();
+    fireEvent.click(within(form).getByRole('button', { name: /=1/ }));
+    const formula = within(form).getByLabelText('Property 2 formula');
+    fireEvent.change(formula, { target: { value: '=42' } });
+    const mac = platform === 'MacIntel';
+    fireEvent.keyDown(formula, { key: 'Enter', ctrlKey: mac, metaKey: !mac });
+    fireEvent.keyDown(formula, { key: 'Enter', ctrlKey: !mac, metaKey: mac, shiftKey: true });
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.keyDown(formula, { key: 'Enter', ctrlKey: !mac, metaKey: mac });
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0]![0].columns[1]).toMatchObject({ formula: '=42' });
+  } finally { platformSpy.mockRestore(); }
+});
+
+it('uses rebound property commands and derives their hints', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = { ...map };
+  map['property-add'] = [{ key: 'a', alt: true }];
+  map['property-remove'] = [{ key: 'd', alt: true }];
+  map['property-move-up'] = [{ key: 'u', alt: true }];
+  map['property-move-down'] = [{ key: 'j', alt: true }];
+  try {
+    const { form, onSave } = editModel();
+    expect(within(form).getByTitle('Add below the current property with Alt+A')).toBeInTheDocument();
+    expect(within(form).getAllByTitle('Remove (Alt+D)')[0]).toBeInTheDocument();
+    expect(within(form).getAllByTitle('Move down (Alt+J)')[0]).toBeInTheDocument();
+    const name = (n: number) => within(form).getByLabelText(`Property ${n} name`);
+    fireEvent.keyDown(name(1), { key: 'Enter', altKey: true, shiftKey: true });
+    expect(within(form).queryByLabelText('Property 3 name')).not.toBeInTheDocument();
+    fireEvent.keyDown(name(1), { key: 'a', altKey: true });
+    fireEvent.change(name(2), { target: { value: 'Inserted' } });
+    fireEvent.keyDown(name(2), { key: 'j', altKey: true });
+    expect(name(3)).toHaveValue('Inserted');
+    fireEvent.keyDown(name(3), { key: 'u', altKey: true });
+    expect(name(2)).toHaveValue('Inserted');
+    fireEvent.keyDown(name(2), { key: 'd', altKey: true });
+    expect(name(2)).toHaveValue('Second');
+    fireEvent.click(within(form).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+  } finally { Object.assign(map, original); }
+});
+
+it('contains rebound cancellation for drafts and while saving', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const onCancel = vi.fn(), outer = vi.fn();
+    let resolve!: (value: { ok: true; value: Workbook }) => void;
+    const onSave = vi.fn(() => new Promise<{ ok: true; value: Workbook }>((done) => { resolve = done; }));
+    render(<div onKeyDown={outer}><DataModelDialog models={[model]} onCancel={onCancel} onSave={onSave} /></div>);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    let name = screen.getByLabelText('Model name');
+    expect(fireEvent.keyDown(name, { key: 'Escape' })).toBe(true);
+    expect(fireEvent.keyDown(name, { key: 'q' })).toBe(true);
+    outer.mockClear();
+    expect(fireEvent.keyDown(name, { key: 'q', altKey: true })).toBe(false);
+    expect(outer).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    name = screen.getByLabelText('Model name');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(fireEvent.keyDown(name, { key: 'q', altKey: true })).toBe(false);
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole('form', { name: 'Edit data model' })).toBeInTheDocument();
+    resolve({ ok: true, value: workbookWithSheets([]) });
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Edit data model' })).not.toBeInTheDocument());
+    expect(fireEvent.keyDown(screen.getByRole('dialog', { name: 'Data models' }), { key: 'q', altKey: true })).toBe(false);
+    expect(onCancel).toHaveBeenCalledOnce();
+  } finally { map.cancel = original; }
 });

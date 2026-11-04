@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useCallback, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 import type { AxisSizeWrite, SheetTabularProjection } from '@workbook/core/model';
 import { AXIS_SIZE_LIMITS } from '@workbook/core/axisSizePolicy';
@@ -50,7 +51,7 @@ export function useAxisResize(options: {
   useLayoutEffect(() => { if (session.current && !ownsSession()) cancel(); });
   useLayoutEffect(() => {
     if (options.interactionsEnabled === false) return;
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel(); };
+    const key = (event: KeyboardEvent) => { if (matchesShortcut(event, 'cancel')) cancel(); };
     const hidden = () => { if (document.visibilityState === 'hidden') cancel(); };
     // A focused cell editor stops Escape from bubbling; cancel the resize first.
     window.addEventListener('keydown', key, true);

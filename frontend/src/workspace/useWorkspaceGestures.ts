@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { WorkspacePosition } from '@workbook/core/model';
 import { normalizedWheelDelta, surfaceDeltaFromClient, surfacePointFromClient, surfaceSize, zoomFactorFromWheelDelta } from './workspaceGeometry';
@@ -40,6 +41,7 @@ export function useWorkspaceGestures(
     if (!surface || !interactionsEnabled) return;
     let pan: Pan | null = null;
     let space = false;
+    let panKey = '';
     let suppressClick = false;
     let gestureScale: number | null = null;
     let gestureZoom: ((factor: number, origin: WorkspacePosition) => void) | undefined;
@@ -60,19 +62,20 @@ export function useWorkspaceGestures(
       endPan();
     }
     function keyDown(event: KeyboardEvent) {
-      if (!event.defaultPrevented && event.key === 'Escape' && (pan || space || gestureScale !== null)) {
+      if (!event.defaultPrevented && matchesShortcut(event, 'cancel') && (pan || space || gestureScale !== null)) {
         consume(event);
         cancel();
         return;
       }
-      if (event.defaultPrevented || event.code !== 'Space' || event.altKey || event.ctrlKey || event.metaKey
+      if (event.defaultPrevented || !matchesShortcut(event, 'gesture-pan')
         || isNativeControlTarget(event.target)) return;
       if (event.target !== document.body && !surface!.contains(event.target as Node)) return;
       space = true;
+      panKey = event.code || event.key;
       consume(event);
     }
     function keyUp(event: KeyboardEvent) {
-      if (event.code !== 'Space') return;
+      if (!space || (event.code || event.key) !== panKey) return;
       if (space) consume(event);
       space = false;
       if (pan?.space) endPan();

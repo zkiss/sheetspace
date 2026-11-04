@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@shared/keyboard/keymap';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import type { ColourMode } from './colourControlReadout';
 import type { LocalOverrideState } from './appearanceControlState';
@@ -61,7 +62,7 @@ export function ColourPicker({
       if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false);
     };
     const closeWhenEscaped = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (matchesShortcut(event, 'cancel')) {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);

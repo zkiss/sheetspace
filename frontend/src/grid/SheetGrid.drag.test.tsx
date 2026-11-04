@@ -364,6 +364,53 @@ describe('SheetGrid pointer selection', () => {
     expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
   });
 
+  it('cancels a selection drag on the rebound chord, not the old key or typing', async () => {
+    const { keymap } = await import('@shared/keyboard/keymap');
+    const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+    const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+    try {
+    const sheet = tabularProjection(sheetDocument({ id: 'sheet-cancel-drag', name: 'Cancel drag' }));
+    const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });
+    const scrollContainerRef = createRef<HTMLDivElement>();
+    const cellInteraction = {
+      clear: vi.fn(), extend: vi.fn(), focusSelection: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn(),
+    };
+
+    render(
+      <div ref={scrollContainerRef} style={{ overflow: 'auto' }}>
+        <SheetGrid
+          activeCellKey={null}
+          axisProjection={axisProjection}
+          cellInteraction={cellInteraction}
+          editingCell={null}
+          editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
+          formulaResults={{}}
+          keyboardFocusRequest={null}
+          onKeyboardFocusRequestConsumed={vi.fn()}
+          navigationHighlightCellKey={null}
+          scrollContainerRef={scrollContainerRef}
+          sheet={sheet}
+        />
+      </div>,
+    );
+
+    const scrollContainer = scrollContainerRef.current!;
+    virtualGridGeometry(scrollContainer);
+    const grid = screen.getByTestId('sheet-grid');
+    const a1 = screen.getByRole('cell', { name: 'Cancel drag A1 empty cell' });
+    firePointer(a1, 'pointerdown', { button: 0, clientX: 50, clientY: 40, pointerId: 12 });
+    expect(fireEvent.keyDown(grid, { key: 'Escape' })).toBe(true);
+    expect(fireEvent.keyDown(grid, { key: 'q' })).toBe(true);
+    expect(cellInteraction.extend).not.toHaveBeenCalled();
+    fireEvent.keyDown(grid, { key: 'q', altKey: true });
+    firePointer(grid, 'pointermove', { clientX: 130, clientY: 40, pointerId: 12 });
+    firePointer(grid, 'pointerup', { clientX: 130, clientY: 40, pointerId: 12 });
+
+    expect(cellInteraction.extend).not.toHaveBeenCalled();
+    expect(cellInteraction.focusSelection).not.toHaveBeenCalled();
+    } finally { map.cancel = original; }
+  });
+
   it('cancels a cell drag on pointer cancellation without requesting final focus', () => {
     const sheet = tabularProjection(sheetDocument({ id: 'sheet-pointer-cancel', name: 'Pointer cancel' }));
     const axisProjection = projectGridAxes(sheet, { columns: [], rows: [] });

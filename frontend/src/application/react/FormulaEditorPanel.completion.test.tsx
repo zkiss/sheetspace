@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FormulaReferenceResolver } from '@workbook/formula/reference';
 import { FormulaEditorPanel } from './FormulaEditorPanel';
+import { keymap, type Binding } from '@shared/keyboard/keymap';
 
 const resolver: FormulaReferenceResolver = {
   currentSheetId: 'sheet', sheetByQualifier: () => undefined, coordinateAt: () => undefined, addressOf: () => undefined,
@@ -21,6 +22,137 @@ function setup(mode: 'light' | 'heavy' | 'model') {
 }
 
 describe('formula completion keyboard handling', () => {
+  it('uses rebound completion and navigation actions and displays their bindings', () => {
+    const map = keymap as unknown as Record<string, Binding>;
+    const originals = { ...map };
+    try {
+      map['completion-next'] = [{ key: 'F6' }];
+      map['completion-previous'] = [{ key: 'F5' }];
+      map['completion-accept'] = [{ key: 'F7' }];
+      map['completion-dismiss'] = [{ key: 'F8' }];
+      map['editor-commit-previous'] = [{ key: 'F9' }];
+      const { input, commit } = setup('light');
+      expect(screen.getByText(/F5 \/ F6 select · F7 accepts selection · F8 dismisses/)).toBeInTheDocument();
+      fireEvent.keyDown(input, { key: 'F6' });
+      expect(screen.getByRole('option', { selected: true })).toHaveTextContent('SUM');
+      fireEvent.keyDown(input, { key: 'F6' });
+      expect(screen.getByRole('option', { selected: true })).toHaveTextContent('SUMIF');
+      fireEvent.keyDown(input, { key: 'F5' });
+      expect(screen.getByRole('option', { selected: true })).toHaveTextContent(/^SUM$/);
+      fireEvent.keyDown(input, { key: 'F7' });
+      expect(input).toHaveValue('=SUM');
+      expect(commit).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'F9' });
+      expect(commit).toHaveBeenCalledWith({ key: 'Tab', shift: true });
+      fireEvent.change(input, { target: { value: '=SU' } });
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ctrlKey: true });
+      fireEvent.keyDown(input, { key: 'F5' });
+      expect(screen.getByRole('option', { selected: true })).toHaveTextContent('SUMIF');
+      fireEvent.keyDown(input, { key: 'F8', shiftKey: true });
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      fireEvent.keyDown(input, { key: 'F8' });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    } finally { Object.assign(map, originals); }
+  });
+
+  it.each(['MacIntel', 'Linux x86_64'])('uses only the native primary modifier on %s', (platform) => {
+    const platformMock = vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+    try {
+      const { input, apply, cancel } = setup('model');
+      const native = platform.startsWith('Mac') ? { metaKey: true } : { ctrlKey: true };
+      const wrong = platform.startsWith('Mac') ? { ctrlKey: true } : { metaKey: true };
+      fireEvent.keyDown(input, { key: 'Enter', ...wrong });
+      expect(apply).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'Enter', ...native, shiftKey: true });
+      expect(apply).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'Escape', ...wrong });
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'Escape', ...native, shiftKey: true });
+      expect(apply).not.toHaveBeenCalled(); expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'Enter', ...native });
+      fireEvent.keyDown(input, { key: 'Escape', ...native });
+      expect(apply).toHaveBeenCalledOnce(); expect(cancel).toHaveBeenCalledOnce();
+    } finally { platformMock.mockRestore(); }
+  });
+
+  it.each([
+    ['editor-commit-down', { key: 'Enter', shift: false }],
+    ['editor-commit-next', { key: 'Tab', shift: false }],
+    ['editor-commit-previous', { key: 'Tab', shift: true }],
+  ] as const)('translates rebound %s to its navigation payload', (action, payload) => {
+    const map = keymap as unknown as Record<string, Binding>;
+    const original = map[action];
+    try {
+      map[action] = [{ key: 'F9' }];
+      const { input, commit, apply, cancel, parent } = setup('light');
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      expect(screen.queryByRole('option', { selected: true })).not.toBeInTheDocument();
+      fireEvent.keyDown(input, { key: 'F9', altKey: true });
+      expect(commit).not.toHaveBeenCalled();
+      parent.mockClear();
+      expect(fireEvent.keyDown(input, { key: 'F9' })).toBe(false);
+      expect(commit).toHaveBeenCalledOnce(); expect(commit).toHaveBeenCalledWith(payload);
+      expect(input).toHaveValue('=SU');
+      expect(apply).not.toHaveBeenCalled(); expect(cancel).not.toHaveBeenCalled(); expect(parent).not.toHaveBeenCalled();
+    } finally { map[action] = original; }
+  });
+
+  it.each(['MacIntel', 'Linux x86_64'])('opens completion only with the native unmodified primary chord on %s', (platform) => {
+    const platformMock = vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+    try {
+      const { input } = setup('model');
+      const native = platform.startsWith('Mac') ? { metaKey: true } : { ctrlKey: true };
+      const wrong = platform.startsWith('Mac') ? { ctrlKey: true } : { metaKey: true };
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...wrong });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...native, shiftKey: true });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...native });
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...wrong });
+      expect(screen.queryByRole('option', { selected: true })).not.toBeInTheDocument();
+      fireEvent.keyDown(input, { key: ' ', code: 'Space', ...native, altKey: true });
+      expect(screen.queryByRole('option', { selected: true })).not.toBeInTheDocument();
+    } finally { platformMock.mockRestore(); }
+  });
+
+  it('separates rebound completion dismissal from light editor cancellation', () => {
+    const map = keymap as unknown as Record<string, Binding>;
+    const originals = { ...map };
+    try {
+      map['completion-dismiss'] = [{ key: 'F8' }];
+      map['editor-close'] = [{ key: 'F9' }];
+      const { input, cancel } = setup('light');
+      fireEvent.keyDown(input, { key: 'F8' });
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'F8' });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'F9' });
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally { Object.assign(map, originals); }
+  });
+
+  it('uses the rebound close action, not completion dismissal, for read-only editors and hints', () => {
+    const map = keymap as unknown as Record<string, Binding>;
+    const originals = { ...map }; const cancel = vi.fn();
+    try {
+      map['completion-dismiss'] = [{ key: 'F8' }];
+      map['editor-close'] = [{ key: 'F9' }];
+      render(<FormulaEditorPanel ariaLabel="Formula" readOnly onApply={vi.fn()} onCancel={cancel} onRawChange={vi.fn()} raw="=SU" resolver={resolver} sheetNames={[]} />);
+      const input = screen.getByLabelText('Formula');
+      expect(screen.getByRole('button', { name: 'Close formula' })).toHaveAttribute('title', expect.stringContaining('F9'));
+      expect(screen.getByRole('button', { name: 'Close formula' })).not.toHaveAttribute('title', expect.stringContaining('F8'));
+      fireEvent.keyDown(input, { key: 'F8' });
+      expect(cancel).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'F9' });
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally { Object.assign(map, originals); }
+  });
+
   it.each(['light', 'heavy', 'model'] as const)('accepts a selected completion in %s with Enter or Tab', (mode) => {
     const { input, apply, cancel, commit, parent } = setup(mode);
     const frames: FrameRequestCallback[] = [];
@@ -66,6 +198,8 @@ describe('formula completion keyboard handling', () => {
     const { input, apply, cancel } = setup(mode);
     fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
     fireEvent.keyDown(input, { key: 'Escape', metaKey: true });
+    expect(cancel).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Escape', ctrlKey: true });
     expect(apply).toHaveBeenCalledOnce(); expect(cancel).toHaveBeenCalledOnce();
   });
 

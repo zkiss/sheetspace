@@ -3,9 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
 import { NumberFormatControls } from './NumberFormatControls.testHarness';
 
+const titles = { back: 'Back', forward: 'Forward', commandPalette: 'Command palette', errorsList: 'Error list' };
+
 describe('compact workspace toolbar', () => {
   it('orders four cohesive formatting groups after creation, keeping precision and resets with their properties', () => {
     render(<WorkspaceToolbar canRetryFailedSaves={false} saveStatus="saved" onCreateSheet={vi.fn()} onRetryFailedSaves={vi.fn()}
+      titles={titles}
       formatControls={<NumberFormatControls sheet={undefined} selection={null} onWrite={vi.fn()} />} />);
     const toolbar = screen.getByRole('banner', { name: 'Workspace controls' });
     const groups = within(toolbar).getAllByRole('group');
@@ -29,7 +32,7 @@ describe('compact workspace toolbar', () => {
   });
 
   it('exposes create, changing live save status and a keyboard-accessible retry action', () => {
-    const props = { onCreateSheet: vi.fn(), onRetryFailedSaves: vi.fn(), canRetryFailedSaves: false, formatControls: <span>Formats</span> };
+    const props = { onCreateSheet: vi.fn(), onRetryFailedSaves: vi.fn(), canRetryFailedSaves: false, titles, formatControls: <span>Formats</span> };
     const { rerender } = render(<WorkspaceToolbar {...props} saveStatus="saved" />);
     fireEvent.click(screen.getByRole('button', { name: 'New sheet' }));
     expect(props.onCreateSheet).toHaveBeenCalledOnce();

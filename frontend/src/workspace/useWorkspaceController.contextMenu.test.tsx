@@ -87,3 +87,21 @@ describe('canvas context-menu eligibility', () => {
     expect(create).toHaveBeenCalledOnce();
   });
 });
+
+it('owns rebound menu cancellation but respects already prevented events', async () => {
+  const { keymap } = await import('@shared/keyboard/keymap');
+  const map = keymap as unknown as Record<string, import('@shared/keyboard/keymap').Binding>;
+  const original = map.cancel; map.cancel = [{ key: 'q', alt: true }];
+  try {
+    const { state, target } = setup();
+    contextMenu(target('sheet-title'));
+    expect(fireEvent.keyDown(target('input'), { key: 'Escape' })).toBe(true);
+    expect(fireEvent.keyDown(target('input'), { key: 'q' })).toBe(true);
+    const prevented = new KeyboardEvent('keydown', { key: 'q', altKey: true, bubbles: true, cancelable: true });
+    prevented.preventDefault(); fireEvent(target('input'), prevented);
+    expect(state().pendingSheetMenu).not.toBeNull();
+    expect(fireEvent.keyDown(target('input'), { key: 'q', altKey: true })).toBe(false);
+    expect(state().pendingSheetMenu).toBeNull();
+    expect(fireEvent.keyDown(target('input'), { key: 'q', altKey: true })).toBe(true);
+  } finally { map.cancel = original; }
+});

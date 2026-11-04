@@ -145,12 +145,12 @@ describe('navigation palette composition', () => {
 
     const source = screen.getByRole('cell', { name: /Invoice A1/ });
     await user.click(source);
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u' });
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u', code: 'KeyU' });
     expect(screen.getByText('Cell usages — Direct usages')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(source).toHaveFocus();
 
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'r' });
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'r', code: 'KeyR' });
     const row = screen.getByLabelText('Row number');
     await user.type(row, '2{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a row number from 1 to 1.');
@@ -159,7 +159,7 @@ describe('navigation palette composition', () => {
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
   });
 
-  it('reports unavailable shortcut commands and shows an empty usage result', async () => {
+  it('does not run unavailable shortcut commands and shows the reason in the palette', async () => {
     const user = userEvent.setup();
     const sheet = sheetDocument({ id: 'source', name: 'Source', rowCount: 1, columnCount: 1 });
     render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([sheet])} />);
@@ -167,13 +167,19 @@ describe('navigation palette composition', () => {
     const source = screen.getByRole('cell', { name: /Source A1/ });
     await user.click(source);
     fireEvent.keyDown(source, { altKey: true, key: 'Enter' });
-    expect(screen.getByText('No resolvable reference is available.')).toBeInTheDocument();
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'd' });
-    expect(screen.getByText('Select a named property or property reference first.')).toBeInTheDocument();
-    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u' });
+    expect(screen.queryByText('No resolvable reference is available.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'd', code: 'KeyD' });
+    expect(screen.queryByText('Select a named property or property reference first.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
+    fireEvent.keyDown(source, { altKey: true, shiftKey: true, key: 'u', code: 'KeyU' });
     expect(screen.getByText('No results')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(source).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Command palette' }));
+    expect(screen.getByRole('button', { name: /Follow reference/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Go to property definition/ })).toBeDisabled();
   });
 
   it('opens an empty sheet through the palette without fabricating a cell selection', async () => {
@@ -215,8 +221,9 @@ describe('navigation palette composition', () => {
     fireEvent.keyDown(document.body, { ctrlKey: true, shiftKey: true, key: 'p' });
     expect(screen.getByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
-    fireEvent.keyDown(document.body, { altKey: true, shiftKey: true, key: 'u' });
-    expect(screen.getByText('Select a cell or named property first.')).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { altKey: true, shiftKey: true, key: 'u', code: 'KeyU' });
+    expect(screen.queryByText('Select a cell or named property first.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Command search' })).not.toBeInTheDocument();
   });
 
   it('offers unnamed columns when a sheet retains a deleted model binding', async () => {

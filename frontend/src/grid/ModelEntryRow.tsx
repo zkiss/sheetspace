@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { matchesShortcut, shortcutAria, shortcutLabel } from '@shared/keyboard/keymap';
 import type { DataModel } from '@workbook/core/model';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
 import type { CellEditSession } from './cellInteractionContracts';
 import { SheetGridCellEditor, type SheetGridCellEditorInteraction } from './SheetGridCellEditor';
+import { gridNavigationRequest } from './sheetGridModel';
 import './ModelEntryRow.css';
 
 export type EntryCommands = {
@@ -78,22 +80,23 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
   function keyDown(event: KeyboardEvent<HTMLDivElement>, index: number, id: string) {
     if (event.target !== event.currentTarget || event.nativeEvent.isComposing) return;
     event.stopPropagation();
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      event.preventDefault(); focusColumn(index + (event.key === 'ArrowLeft' ? -1 : 1));
-    } else if (event.key === 'ArrowUp') {
+    const navigation = gridNavigationRequest(event);
+    if (navigation && !navigation.command && !navigation.shift && (navigation.key === 'ArrowLeft' || navigation.key === 'ArrowRight')) {
+      event.preventDefault(); focusColumn(index + (navigation.key === 'ArrowLeft' ? -1 : 1));
+    } else if (navigation && !navigation.command && !navigation.shift && navigation.key === 'ArrowUp') {
       event.preventDefault(); onNavigateUp?.(index);
-    } else if (event.key === 'ArrowDown') {
+    } else if (navigation && !navigation.command && !navigation.shift && navigation.key === 'ArrowDown') {
       event.preventDefault();
-    } else if (event.key === 'Tab') {
-      const next = index + (event.shiftKey ? -1 : 1);
+    } else if (navigation?.key === 'Tab') {
+      const next = index + (navigation.shift ? -1 : 1);
       if (next >= 0 && next < model.columns.length) { event.preventDefault(); focusColumn(next); }
-    } else if (event.key === 'Escape' && selected === id && session.draft.fields[id]?.message) {
+    } else if (matchesShortcut(event, 'cancel') && selected === id && session.draft.fields[id]?.message) {
       event.preventDefault(); commands.dismiss(id);
-    } else if (event.key === 'Enter') {
+    } else if (matchesShortcut(event, 'entry-submit')) {
       event.preventDefault(); void submit();
-    } else if (event.key === 'F2') {
+    } else if (matchesShortcut(event, 'entry-edit')) {
       event.preventDefault(); startEditing(id);
-    } else if ((event.key === 'Backspace' || event.key === 'Delete') && session.draft.fields[id]) {
+    } else if (matchesShortcut(event, 'clear-cells') && session.draft.fields[id]) {
       event.preventDefault(); commands.change(id, ''); commands.leave(id);
     } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault(); startEditing(id, event.key);
@@ -143,7 +146,7 @@ export function ModelEntryRow({ model, session, commands, style, columnWidths, e
       setSelected((current) => current === focusedProperty ? null : current);
     }}>
       {session.draft.fields[focusedProperty]?.message}
-      <button type="button" aria-keyshortcuts="Escape" onClick={() => { commands.dismiss(focusedProperty); cells.current.get(focusedProperty)?.focus(); }}>Dismiss (Esc)</button>
+      <button type="button" aria-keyshortcuts={shortcutAria('cancel')} onClick={() => { commands.dismiss(focusedProperty); cells.current.get(focusedProperty)?.focus(); }}>Dismiss ({shortcutLabel('cancel')})</button>
     </div>, document.body)}
     {!model.columns.some((column) => column.kind === 'manual') && !session.retryRequired && <div role="cell" className="model-entry-submit"><button type="button" disabled={session.pending || session.stale} onClick={() => void submit()}>Save record</button></div>}
     {session.failure && <div className="model-entry-failure" role="alert">{session.failure}{session.retryRequired && <button type="button" onClick={() => void submit()}>Retry saving record</button>}</div>}
