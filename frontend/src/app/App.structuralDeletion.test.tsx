@@ -66,6 +66,23 @@ describe('structural deletion selection', () => {
     await act(async () => { release(); await api.saveModelLifecycle.mock.results[0]!.value; });
     await waitFor(() => expect(screen.getByRole('cell', { name: 'Sheet A2 empty cell' })).toHaveFocus());
   });
+
+  it('does not reclaim selection after a newer click while column deletion is saving', async () => {
+    const user = userEvent.setup();
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 3 });
+    const workbook = workbookWithLegacyFormulaFixtures([sheet]);
+    const api = persistedWorkbookClient(workbook);
+    const save = api.saveModelLifecycle.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    api.saveModelLifecycle.mockImplementationOnce(async (...args) => { await pending; return save(...args); });
+    render(<App initialWorkbook={workbook} apiClient={api} />);
+    await user.click(screen.getByRole('cell', { name: 'Sheet A1 empty cell' }));
+    await deleteAxis(user, 'column');
+    await user.click(screen.getByRole('cell', { name: 'Sheet B2 empty cell' }));
+    await act(async () => { release(); await api.saveModelLifecycle.mock.results[0]!.value; });
+    await waitFor(() => expect(screen.getByRole('cell', { name: 'Sheet B2 empty cell' })).toHaveFocus());
+  });
 });
 
 describe('shared property deletion', () => {

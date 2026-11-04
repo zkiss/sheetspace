@@ -90,6 +90,19 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     return result && typeof result === 'object' && 'ok' in result && !result.ok
       ? `The command was not applied${'reason' in result ? `: ${String(result.reason)}` : ''}.` : undefined;
   }
+  function deletionSettlement() {
+    const revision = selectionRevision.current.revision;
+    const original = selectionSettlement ? selectionSettlement.queuedSelection() : selection;
+    const token = selectionSettlement?.beginSelectionSettlement();
+    return {
+      owned: () => mounted.current && (token && selectionSettlement
+        ? selectionSettlement.ownsSelectionSettlement(token) : selectionRevision.current.revision === revision),
+      retire: () => { if (token) selectionSettlement?.cancelSelectionSettlement(token); },
+      restore: () => restoreSelection?.(original),
+      publication: token && selectionSettlement
+        ? (before: Workbook, after: Workbook) => selectionSettlement.reconcileSelectionPublication(token, before, after) : undefined,
+    };
+  }
   function run(action: () => unknown, restoreFocus = true) {
     return (context?: { restoreFocus?: boolean }) => { setPanel(null); closePalette(context?.restoreFocus ?? restoreFocus); const message = failure(action()); if (message) onFeedback(message); };
   }
@@ -156,16 +169,17 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       show({ kind: 'delete-property', title: 'Delete property', target, selection: activeCell, sheet });
       return;
     }
-    const revision = selectionRevision.current.revision;
-    const submission = commands.deleteColumn(sheet.id, activeCell.cell.columnId);
+    const settlement = deletionSettlement();
+    const submission = commands.deleteColumn(sheet.id, activeCell.cell.columnId, settlement.publication);
     const message = failure(submission.result);
-    if (message) { closePalette(); onFeedback(message); return; }
+    if (message) { if (settlement.owned()) closePalette(); settlement.retire(); onFeedback(message); return; }
     closePalette(false);
     void submission.completion.then((result) => {
       const error = failure(result);
-      if (error) { onFeedback(error); if (selectionRevision.current.revision === revision) closePalette(); }
-      else if (selectionRevision.current.revision === revision) onColumnDeleted(sheet, activeCell);
-    }, () => { onFeedback('The command could not be saved.'); if (selectionRevision.current.revision === revision) closePalette(); });
+      if (error) { onFeedback(error); if (settlement.owned()) { settlement.restore(); closePalette(); } }
+      else if (settlement.owned()) onColumnDeleted(sheet, activeCell);
+      settlement.retire();
+    }, () => { onFeedback('The command could not be saved.'); if (settlement.owned()) { settlement.restore(); closePalette(); } settlement.retire(); });
   }, sheet && activeCell?.sheetId === sheet.id && sheet.content.columns.includes(activeCell.cell.columnId) ? undefined : 'Select a saved column first');
   const selectedColumns = sheet && selection && selection.mode !== 'rows' ? projectSelection(sheet, selection)?.columns : undefined;
   const columnId = selectedColumns?.length === 1 ? selectedColumns[0] : undefined;
@@ -325,15 +339,17 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     const current = columnRenameTarget(workbook, panel.target.sheetId, panel.target.columnId);
     const model = workbook.dataModels?.[panel.target.modelId];
     if (sheet?.id !== panel.target.sheetId || JSON.stringify(current) !== JSON.stringify(panel.target) || !model) return 'The selected property has changed. Close and try again.';
-    const revision = selectionRevision.current.revision;
-    const submission = commands.replaceModelDeclaration({ ...model, columns: model.columns.filter((property) => property.id !== panel.target.propertyId) });
+    const settlement = deletionSettlement();
+    const submission = commands.replaceModelDeclaration({ ...model, columns: model.columns.filter((property) => property.id !== panel.target.propertyId) }, settlement.publication);
     setRenameBusy(true);
     let result;
     try { result = submission.result.ok ? await submission.completion : submission.result; }
+    catch { if (settlement.owned()) settlement.restore(); settlement.retire(); return 'Could not delete the property: save failed.'; }
     finally { setRenameBusy(false); }
-    if (!result.ok) return `Could not delete the property: ${result.reason}.`;
+    if (!result.ok) { if (settlement.owned()) settlement.restore(); settlement.retire(); return `Could not delete the property: ${result.reason}.`; }
     setPanel(null);
-    if (selectionRevision.current.revision === revision) { closePalette(false); onColumnDeleted(panel.sheet, panel.selection); }
+    if (settlement.owned()) { closePalette(false); onColumnDeleted(panel.sheet, panel.selection); }
+    settlement.retire();
     return undefined;
   }} />;
   if (panel?.kind === 'rename-column') content = <RenameColumnForm target={panel.target} initialName={panel.initialName} onCancel={() => { setPanel(null); closePalette(); }} onApply={async (name) => {
