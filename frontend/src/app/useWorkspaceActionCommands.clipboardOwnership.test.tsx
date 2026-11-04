@@ -26,6 +26,31 @@ function setup(columnCount = 1) {
 
 
 describe('clipboard route ownership', () => {
+  it.each(['sheet', 'members', 'members-away-and-back'] as const)('ignores a pending paste after %s changes', async (change) => {
+    const { command, hook, props, clipboard, sheet, cell } = setup(3);
+    const columns = sheet.content.columns;
+    const extent = { ...cell, cell: { ...cell.cell, columnId: columns[2]! } };
+    props.selection = { mode: 'columns', anchor: cell, extent, members: [columns[0]!, columns[1]!, columns[2]!] };
+    hook.rerender();
+    let resolve!: (content: { text: string }) => void;
+    clipboard.read.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    act(() => command('paste').run());
+    if (change === 'sheet') {
+      props.sheet = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    } else {
+      props.selection = { ...props.selection, members: [columns[0]!, columns[2]!] };
+    }
+    hook.rerender();
+    if (change === 'members-away-and-back') {
+      props.selection = { ...props.selection!, members: [columns[0]!, columns[1]!, columns[2]!] };
+      hook.rerender();
+    }
+    await act(async () => resolve({ text: 'late' }));
+    expect(props.onPaste).not.toHaveBeenCalled();
+    expect(props.onFeedback).not.toHaveBeenCalled();
+    expect(props.closePalette).not.toHaveBeenCalled();
+  });
+
   it.each(['resolve', 'reject'])('invalidates a pending read without stale effects on %s', async (outcome) => {
     const { command, hook, props, clipboard } = setup();
     let resolve!: (content: { text: string }) => void;
