@@ -3,9 +3,57 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Workbook } from '@workbook/core/model';
 import { autosaveClient, deferred } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { cellTargetAt } from '@grid/cellInteraction';
+import { useCellEditing } from '@grid/useCellEditing';
 import { useWorkbookController } from './useWorkbookController';
 
 describe('lifecycle settlement', () => {
+  it('does not publish or save an unchanged unbind', async () => {
+    const sheet = sheetDocument({ id: 'one', name: 'One' });
+    const workbook = workbookWithSheets([sheet]);
+    const api = autosaveClient();
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const publication = vi.fn();
+    let submission: ReturnType<typeof result.current.commands.unbindSheetFromModel>;
+    act(() => { submission = result.current.commands.unbindSheetFromModel('one', publication); });
+    expect(await submission!.completion).toEqual({ ok: true, value: workbook });
+    expect(result.current.commands.currentWorkbook()).toBe(workbook);
+    expect(publication).not.toHaveBeenCalled();
+    expect(api.saveModelLifecycle).not.toHaveBeenCalled();
+  });
+
+  it('does not renew a retired selection lease when an ambiguous deletion recovers', async () => {
+    const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const save = deferred<Workbook>();
+    const api = autosaveClient({ saveModelLifecycle: vi.fn().mockReturnValueOnce(save.promise).mockImplementation(async (_before: Workbook, after: Workbook) => after) });
+    const { result } = renderHook(() => {
+      const controller = useWorkbookController({ initialWorkbook: workbook, apiClient: api });
+      const editing = useCellEditing({ commands: controller.commands, workbook: controller.workbook, currentWorkbook: controller.commands.currentWorkbook });
+      return { controller, editing };
+    });
+    act(() => result.current.editing.selectCell(cellTargetAt(sheet, 'A1')!));
+    const token = result.current.editing.beginSelectionSettlement();
+    const phases: string[] = [];
+    let submission: ReturnType<typeof result.current.controller.commands.deleteRow>;
+    act(() => {
+      submission = result.current.controller.commands.deleteRow('one', sheet.content.rows[0]!, (before, after, phase) => {
+        phases.push(phase);
+        result.current.editing.reconcileSelectionPublication(token, before, after);
+      });
+    });
+    await act(async () => { save.reject(new Error('offline')); await submission!.completion; });
+    expect(phases).toEqual(['optimistic', 'rollback']);
+    result.current.editing.cancelSelectionSettlement(token);
+    act(() => result.current.editing.selectCell(cellTargetAt(sheet, 'B2')!));
+    const newerSelection = result.current.editing.queuedSelection();
+    act(() => result.current.controller.commands.retryFailedSaves());
+    await waitFor(() => expect(result.current.controller.canRetryFailedSaves).toBe(false));
+    expect(api.saveModelLifecycle).toHaveBeenCalledTimes(2);
+    expect(phases).toEqual(['optimistic', 'rollback']);
+    expect(result.current.editing.ownsSelectionSettlement(token)).toBe(false);
+    expect(result.current.editing.queuedSelection()).toEqual(newerSelection);
+  });
   it.each(['before', 'after'] as const)('keeps the rollback authoritative when settlement occurs %s a rendered publication', async (renderTiming) => {
     const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);
