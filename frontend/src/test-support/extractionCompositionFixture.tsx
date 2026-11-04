@@ -25,7 +25,7 @@ import { useExtractionHandoff } from '@app/useExtractionHandoff';
 import { useExtractionPaintCoverage } from '@app/useExtractionPaintCoverage';
 import { extractionRequest } from '@app/extractionRequest';
 import { extractionFeedback } from '@app/extractionFeedback';
-import { selectionAddressRange } from '@app/workspaceSelection';
+import { selectionEndpointAddressRange } from '@app/workspaceSelection';
 
 // JSDOM has no layout, so the tests report deterministic rectangles for the
 // rendered surface, frames, bodies, corners and cells. The values are derived
@@ -223,7 +223,7 @@ function ExtractionComposition({
     const token = owner.begin(current, request.targetSheetId);
     tokensRef.current.set(request, token);
     capturedScrollRef.current = { token, position: { left: scroll.x, top: scroll.y } };
-    const range = selectionAddressRange(current, selection);
+    const range = selectionEndpointAddressRange(current, selection);
     capturedRangeRef.current = range ? { token, range } : null;
     const submission = controller.commands.extractSelection(request);
     if (!submission.result.ok) {

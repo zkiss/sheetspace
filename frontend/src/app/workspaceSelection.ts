@@ -4,7 +4,7 @@ import { addressRangeOf } from '@workbook/core/cellIdentity';
 import type { SheetDocument } from '@workbook/core/model';
 import type { CellSelection } from '@grid/cellInteractionContracts';
 
-export function selectionAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
+export function selectionEndpointAddressRange(sheet: SheetDocument, selection: CellSelection): CellRange | undefined {
   const range = addressRangeOf(sheet.content, { start: selection.anchor.cell, end: selection.extent.cell });
   if (!range) return undefined;
   const rowStart = Math.min(range.start.rowIndex, range.end.rowIndex);

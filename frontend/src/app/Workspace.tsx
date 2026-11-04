@@ -5,7 +5,7 @@ import { FormulaEvaluationSnapshot } from '@calculation/formulaValue';
 import { SheetDocument, Workbook, WorkspacePosition } from '@workbook/core/model';
 import { cellKey, columnIndexToLabel } from '@workbook/core/address';
 import { addressRangeOf, cellAddressOf, cellIdentityAt } from '@workbook/core/cellIdentity';
-import { rectangularSelectionAddressRange, selectionAddressRange } from './workspaceSelection';
+import { rectangularSelectionAddressRange, selectionEndpointAddressRange } from './workspaceSelection';
 import { mappedExtractionSelection } from './extractionSelection';
 import { cellRawContent, findSheetById, frameProjection, sheetsInOrder, tabularProjection } from '@workbook/read/queries';
 import { projectGridAxes } from '@grid/gridAxisProjection';
@@ -884,7 +884,7 @@ export function Workspace({
         );
         const scroll = { x: body?.scrollLeft ?? viewport?.scrollLeft ?? 0, y: body?.scrollTop ?? viewport?.scrollTop ?? 0 };
         const request = extractionRequest(workbook, sheet, selection, scroll, projectedFramesById.get(sheet.id)?.position);
-        const range = selectionAddressRange(sheet, selection);
+        const range = selectionEndpointAddressRange(sheet, selection);
         const surface = workspaceController.workspaceSurfaceRef.current;
         const sourceFrame = projectedFramesById.get(sheet.id) ?? frameProjection(sheet);
         const presented = maximise.state.sheetId === sheet.id && maximise.presentation ? maximise.presentation : canvasPresentation(sourceFrame, workspaceController.displayedViewport);
@@ -1166,7 +1166,7 @@ export function Workspace({
           const sheetEditingCell = editingCell?.target.sheetId === sheet.id ? editingCell : null;
           const formulaResolver = workbookFormulaReferenceResolver(workbook, sheet.id);
           const selectedRange = selectionRange?.anchor.sheetId === sheet.id
-            ? selectionAddressRange(sheet, selectionRange)
+            ? selectionEndpointAddressRange(sheet, selectionRange)
             : referenceSelection?.kind === 'range'
             && referenceSelection.sheetId === sheet.id
             ? addressRangeOf(sheet.content, referenceSelection.range)
