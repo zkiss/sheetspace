@@ -6,6 +6,37 @@ import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactori
 import { useWorkbookController } from './useWorkbookController';
 
 describe('lifecycle settlement', () => {
+  it.each(['before', 'after'] as const)('keeps the rollback authoritative when settlement occurs %s a rendered publication', async (renderTiming) => {
+    const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
+    const workbook = workbookWithSheets([sheet]);
+    const save = deferred<Workbook>();
+    const api = autosaveClient({ saveModelLifecycle: () => save.promise });
+    const { result, rerender } = renderHook(() => useWorkbookController({ initialWorkbook: workbook, apiClient: api }));
+    const phases: string[] = [];
+    let rollback: Workbook | undefined;
+    let submission: ReturnType<typeof result.current.commands.deleteRow>;
+    const submit = () => {
+      submission = result.current.commands.deleteRow('one', sheet.content.rows[0]!, (_before, after, phase) => {
+        expect(result.current.commands.currentWorkbook()).toBe(after);
+        phases.push(phase);
+        if (phase === 'rollback') rollback = after;
+      });
+    };
+    if (renderTiming === 'after') {
+      act(submit);
+      rerender();
+    }
+    await act(async () => {
+      if (renderTiming === 'before') submit();
+      save.reject(new Error('offline'));
+      await submission!.completion;
+    });
+    rerender();
+    expect(phases).toEqual(['optimistic', 'rollback']);
+    expect(result.current.commands.currentWorkbook()).toBe(rollback);
+    expect(result.current.workbook).toBe(rollback);
+    expect(rollback!.documents.one!.content.rows).toEqual(sheet.content.rows);
+  });
   it('does not publish a rejected deletion or a deletion blocked by a pending transition', async () => {
     const sheet = sheetDocument({ id: 'one', name: 'One', rowCount: 2, columnCount: 2 });
     const workbook = workbookWithSheets([sheet]);
