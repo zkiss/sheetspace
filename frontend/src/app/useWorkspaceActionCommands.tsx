@@ -54,7 +54,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   onColumnDeleted: (sheet: SheetDocument, target: CellTarget) => void;
   onToggleReferences: () => void; onFeedback: (message: string) => void;
   onCopy: () => SystemClipboardContent | undefined; onCut: () => SystemClipboardContent | undefined;
-  onPaste: (content: SystemClipboardContent) => void; onCancelCut: () => void; hasPendingCut: boolean;
+  onPaste: (content: SystemClipboardContent) => void; onCancelCut: (marker?: string) => void; hasPendingCut: boolean;
   clipboardAccess?: typeof systemClipboard;
 }) {
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -63,13 +63,19 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   const [extractionBusy, setExtractionBusy] = useState(false);
   const extractionPending = useRef(false);
   const clipboardOperation = useRef(0);
+  const unconfirmedCut = useRef<{ marker: string; cancel: (marker: string) => void }>();
+  function cancelUnconfirmedCut() {
+    const cut = unconfirmedCut.current;
+    unconfirmedCut.current = undefined;
+    if (cut) cut.cancel(cut.marker);
+  }
   const mounted = useRef(true);
   const selectionContext = JSON.stringify([sheet?.id, activeCell, selection]);
   const selectionRevision = useRef({ context: selectionContext, revision: 0 });
   if (selectionRevision.current.context !== selectionContext) {
     selectionRevision.current = { context: selectionContext, revision: selectionRevision.current.revision + 1 };
   }
-  useEffect(() => () => { clipboardOperation.current += 1; }, []);
+  useEffect(() => () => { clipboardOperation.current += 1; cancelUnconfirmedCut(); }, []);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   function show(next: Panel) { setPanel(next); openPanel(); }
   function failure(result: unknown) {
@@ -204,6 +210,7 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   }, extractionUnavailable);
   async function clipboardAction(kind: 'copy' | 'cut' | 'paste') {
     if (noClipboardSelection) return;
+    cancelUnconfirmedCut();
     const operation = ++clipboardOperation.current;
     const revision = selectionRevision.current.revision;
     setClipboardBusy(true);
@@ -215,13 +222,17 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
       } else {
         const content = kind === 'copy' ? onCopy() : onCut();
         if (!content) return;
+        if (kind === 'cut' && content.marker) unconfirmedCut.current = { marker: content.marker, cancel: onCancelCut };
         await clipboardAccess.write(content);
-        if (clipboardOperation.current !== operation || selectionRevision.current.revision !== revision) return;
+        if (clipboardOperation.current !== operation) return;
+        if (selectionRevision.current.revision !== revision) { cancelUnconfirmedCut(); return; }
+        if (kind === 'cut') unconfirmedCut.current = undefined;
       }
       setPanel(null); closePalette();
     } catch {
-      if (clipboardOperation.current !== operation || selectionRevision.current.revision !== revision) return;
-      if (kind === 'cut') onCancelCut();
+      if (clipboardOperation.current !== operation) return;
+      if (kind === 'cut') cancelUnconfirmedCut();
+      if (selectionRevision.current.revision !== revision) return;
       closePalette();
       onFeedback('Clipboard access failed. Use the keyboard clipboard shortcut or allow clipboard access in your browser.');
     } finally {
@@ -326,5 +337,5 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     if (!message) { setPanel(null); closePalette(); }
     return message;
   }} />;
-  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, preventClose: renameBusy, panel: panel ? { title: panel.title, content } : undefined, resetPanel: () => { clipboardOperation.current += 1; if (clipboardBusy) onCancelCut(); setClipboardBusy(false); setPanel(null); } };
+  return { commands: actions.sort((left, right) => (left.group ?? '').localeCompare(right.group ?? '')), busy: clipboardBusy, preventClose: renameBusy, panel: panel ? { title: panel.title, content } : undefined, resetPanel: () => { clipboardOperation.current += 1; cancelUnconfirmedCut(); setClipboardBusy(false); setPanel(null); } };
 }

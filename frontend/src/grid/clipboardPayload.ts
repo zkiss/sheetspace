@@ -93,7 +93,9 @@ export class ClipboardPayloadStore {
     return captured;
   }
 
-  cancelCut() { this.pendingCut = undefined; }
+  cancelCut(marker?: string) {
+    if (marker === undefined || this.pendingCut?.marker === marker) this.pendingCut = undefined;
+  }
   get pendingCutSource() { return this.pendingCut?.source; }
 
   private capture(workbook: Workbook, selection: CellSelection): ClipboardCopyResult {

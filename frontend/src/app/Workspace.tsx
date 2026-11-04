@@ -838,8 +838,8 @@ export function Workspace({
     if (cut.ok) setClipboardRevision((revision) => revision + 1);
     return cut.ok ? cut.value : undefined;
   }
-  function cancelPendingCut() {
-    clipboard.current.cancelCut();
+  function cancelPendingCut(marker?: string) {
+    clipboard.current.cancelCut(marker);
     setClipboardRevision((revision) => revision + 1);
   }
   function pasteGridSelection(clipboardData: { text: string; marker?: string }) {

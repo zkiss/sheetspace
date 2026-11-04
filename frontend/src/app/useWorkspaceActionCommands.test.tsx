@@ -495,4 +495,39 @@ describe('workspace palette actions', () => {
     await waitFor(() => expect(hook.result.current.busy).toBe(false));
     expect(props.onPaste).not.toHaveBeenCalled();
   });
+
+  it('cancels an unconfirmed cut when its selection changes before the write completes', async () => {
+    const { command, hook, props, clipboard, sheet, cell } = setup(2);
+    let resolve!: () => void;
+    clipboard.write.mockReturnValue(new Promise<void>((done) => { resolve = done; }));
+    vi.mocked(props.onCut).mockReturnValue({ text: 'value', marker: 'old' });
+    act(() => command('cut').run());
+    props.activeCell = { ...cell, cell: { ...cell.cell, columnId: sheet.content.columns[1]! } };
+    hook.rerender();
+    await act(async () => resolve());
+    expect(props.onCancelCut).toHaveBeenCalledWith('old');
+    expect(props.closePalette).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel a newer cut when an older write rejects', async () => {
+    const { command, props, clipboard } = setup();
+    let reject!: (error: Error) => void;
+    clipboard.write.mockReturnValueOnce(new Promise<void>((_, fail) => { reject = fail; }));
+    vi.mocked(props.onCut).mockReturnValueOnce({ text: 'old', marker: 'old' }).mockReturnValueOnce({ text: 'new', marker: 'new' });
+    act(() => command('cut').run());
+    await act(async () => { command('cut').run(); });
+    await act(async () => reject(new Error('late')));
+    expect(props.onCancelCut).toHaveBeenCalledTimes(1);
+    expect(props.onCancelCut).toHaveBeenCalledWith('old');
+    expect(props.onFeedback).not.toHaveBeenCalled();
+  });
+
+  it('cancels an unconfirmed cut on disposal', () => {
+    const { command, hook, props, clipboard } = setup();
+    clipboard.write.mockReturnValue(new Promise<void>(() => {}));
+    vi.mocked(props.onCut).mockReturnValue({ text: 'value', marker: 'cut' });
+    act(() => command('cut').run());
+    hook.unmount();
+    expect(props.onCancelCut).toHaveBeenCalledWith('cut');
+  });
 });
