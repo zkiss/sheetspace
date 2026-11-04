@@ -51,7 +51,11 @@ describe('axis order replay', () => {
       current.current = { ...current.current, documents: { ...current.current.documents, s: { ...document, content: { ...document.content, rows } } } };
     };
     setRows([c!, b!, a!]);
+    const conflictedUndo = current.current;
+    const undoEntry = history.peekUndo();
     reorder.replay(order, 'undo');
+    expect(current.current).toBe(conflictedUndo);
+    expect(history.peekUndo()).toEqual(undoEntry);
     expect(feedback).toHaveBeenLastCalledWith('order-conflict');
     expect(history.canUndo).toBe(true);
     expect(enqueue).toHaveBeenCalledTimes(1);
@@ -60,7 +64,11 @@ describe('axis order replay', () => {
     expect(feedback).toHaveBeenLastCalledWith(undefined);
     expect(current.current.documents.s!.content.rows).toEqual([a, b, c]);
     setRows([c!, b!, a!]);
+    const conflictedRedo = current.current;
+    const redoEntry = history.peekRedo();
     reorder.replay(order, 'redo');
+    expect(current.current).toBe(conflictedRedo);
+    expect(history.peekRedo()).toEqual(redoEntry);
     expect(feedback).toHaveBeenLastCalledWith('order-conflict');
     expect(history.canRedo).toBe(true);
     expect(enqueue).toHaveBeenCalledTimes(2);
@@ -69,6 +77,26 @@ describe('axis order replay', () => {
     expect(feedback).toHaveBeenLastCalledWith(undefined);
     expect(current.current.documents.s!.content.rows).toEqual([b, a, c]);
     expect(enqueue).toHaveBeenCalledTimes(3);
+  });
+
+  it('retains the order transaction when its sheet is missing', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 1 });
+    const current = { current: workbookWithSheets([sheet]) };
+    const history = new ContentHistory();
+    const enqueue = vi.fn();
+    const feedback = vi.fn();
+    const reorder = createAxisReorder({ current, history, enqueue, setWorkbook: vi.fn(), hasPending: () => false,
+      admissionLocks: { current: new Set() }, setMutationFailure: vi.fn(), setContentHistoryFeedback: vi.fn(),
+      publishHistory: vi.fn(), setReplayFailure: feedback });
+    reorder.reorder('s', 'row', (workbook) => shiftAxis(workbook, 's', 'row', [sheet.content.rows[0]!], 1));
+    const entry = history.peekUndo()!;
+    current.current = workbookWithSheets([]);
+    const before = current.current;
+    reorder.replay(entry.order!, 'undo');
+    expect(feedback).toHaveBeenLastCalledWith('order-conflict');
+    expect(current.current).toBe(before);
+    expect(history.peekUndo()).toEqual(entry);
+    expect(enqueue).toHaveBeenCalledTimes(1);
   });
 
   it('blocks pending replay and retains feedback until successful admission', () => {
