@@ -26,6 +26,9 @@ import kotlinx.serialization.json.Json
 data class PresentationWriteRequest(val writes: List<AxisSizeWrite> = emptyList(), val formatWrites: List<FormatWrite> = emptyList())
 
 @Serializable
+data class AxisOrderRequest(val axis: String, val order: List<String>)
+
+@Serializable
 data class HealthResponse(val status: String, val service: String)
 
 @Serializable
@@ -237,6 +240,17 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
+        put("/api/sheets/{sheetId}/axis-order") {
+            val sheetId = call.parameters["sheetId"] ?: return@put call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            if (!call.requireExistingSheet(workbookApplication, sheetId)) return@put
+            val expectedRevision = call.expectedSheetRevision() ?: return@put
+            val request = call.receiveRequest<AxisOrderRequest>() ?: return@put
+            call.respondApplicationResult {
+                val sheet = workbookApplication.reorderAxis(sheetId, expectedRevision, request.axis, request.order)
+                call.respond(WorkbookReadTransportAdapter.sheetDocument(sheet))
+            }
+        }
+
         patch("/api/workbook/sheet-z-order") {
             val request = call.receiveRequest<UpdateSheetZOrderRequest>() ?: return@patch
             call.respondApplicationResult {
@@ -388,6 +402,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.INVALID_CELL_PATCH -> HttpStatusCode.BadRequest to "invalid-cell-patch"
         WorkbookApplicationError.BOUND_SHEET_STRUCTURE -> HttpStatusCode.BadRequest to "bound-sheet-structure"
         WorkbookApplicationError.INVALID_MODEL_RECORD -> HttpStatusCode.BadRequest to "invalid-model-record"
+        WorkbookApplicationError.INVALID_AXIS_ORDER -> HttpStatusCode.BadRequest to "invalid-axis-order"
     }
     respondError(status, code)
 }
