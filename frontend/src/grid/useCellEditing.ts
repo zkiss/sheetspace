@@ -86,10 +86,11 @@ export function useCellEditing({
   }
 
   useEffect(() => {
-    dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(currentWorkbookRef.current?.() ?? workbook) });
+    const sheets = sheetsInOrder(currentWorkbookRef.current?.() ?? workbook);
+    dispatch({ type: 'reconcile-selection', sheets });
     dispatch({
       type: 'prune-sheets',
-      sheetIds: new Set(sheetsInOrder(workbook).map((sheet) => sheet.id)),
+      sheetIds: new Set(sheets.map((sheet) => sheet.id)),
     });
   }, [workbook]);
 

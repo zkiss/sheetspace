@@ -21,7 +21,7 @@ export function useLifecycleSettlement(options: {
   // An ambiguous failure may have committed server-side, so the exact payload
   // is retained for a later compare-and-swap retry instead of a new identity.
   const recoveries = useRef(new Map<string, { after: Workbook; onSuccess: () => void }>());
-  const { subscribeOutbox, revision, current } = options;
+  const { subscribeOutbox, revision } = options;
   const { setWorkbook } = options;
 
   useEffect(() => subscribeOutbox((snapshot) => {
@@ -30,11 +30,10 @@ export function useLifecycleSettlement(options: {
       if (entry?.status !== 'succeeded') continue;
       recoveries.current.delete(operationId);
       const restored = withCommittedRevisions(recovery.after, revision);
-      current.current = restored;
       setWorkbook(restored, { kind: 'structure' });
       recovery.onSuccess();
     }
-  }), [subscribeOutbox, revision, current, setWorkbook]);
+  }), [subscribeOutbox, revision, setWorkbook]);
 
   const hasPending = () => Boolean(pending.current) || options.autosave.hasModelTransition();
   const wait = () => {
@@ -46,9 +45,8 @@ export function useLifecycleSettlement(options: {
   function submit<T extends { ok: true; value: Workbook }>(before: Workbook, result: T, onSuccess = options.resetHistory, publication?: LifecyclePublication): Promise<T | TransitionFailure> {
     let release!: () => void;
     pending.current = new Promise<void>((resolve) => { release = resolve; });
-    options.current.current = result.value;
-    publication?.(before, result.value, 'optimistic');
     options.setWorkbook(result.value, { kind: 'structure' });
+    publication?.(before, result.value, 'optimistic');
     if (!options.autosaveEnabled) {
       onSuccess();
       pending.current = undefined;
@@ -73,13 +71,9 @@ export function useLifecycleSettlement(options: {
         return restored;
       };
       const beforeRollback = options.current.current;
-      options.current.current = restore(beforeRollback);
-      publication?.(beforeRollback, options.current.current, 'rollback');
-      options.setWorkbook((current) => {
-        const restored = restore(current);
-        options.current.current = restored;
-        return restored;
-      }, { kind: 'structure' });
+      const restored = restore(beforeRollback);
+      options.setWorkbook(restored, { kind: 'structure' });
+      publication?.(beforeRollback, restored, 'rollback');
       if (entry.status === 'blocked') {
         // Never dispatched, so definitely not committed; the captured snapshot
         // would be stale once the predecessor recovers. Discard as before.

@@ -70,7 +70,6 @@ export function useWorkbookController({
   });
   const { calculationRequest: pendingCalculation, workbook } = controllerState;
   const optimisticWorkbook = useRef(workbook);
-  optimisticWorkbook.current = workbook;
   const entrySessionsRef = useRef<ModelEntrySessions | undefined>(undefined);
   entrySessionsRef.current ??= new ModelEntrySessions();
   const entrySessions = entrySessionsRef.current;
@@ -90,11 +89,11 @@ export function useWorkbookController({
   const [contentHistoryFeedback, setContentHistoryFeedback] = useContentHistoryFeedback();
   const [mutationFailure, setMutationFailure] = useState<WorkbookController['mutationFailure']>();
   const setWorkbook = useCallback<SetWorkbook>((update, impact) => {
+    const nextWorkbook = typeof update === 'function'
+      ? update(optimisticWorkbook.current)
+      : update;
+    optimisticWorkbook.current = nextWorkbook;
     setControllerState((current) => {
-      const nextWorkbook = typeof update === 'function'
-        ? update(current.workbook)
-        : update;
-      optimisticWorkbook.current = nextWorkbook;
       if (nextWorkbook === current.workbook) {
         return current;
       }
@@ -172,7 +171,6 @@ export function useWorkbookController({
 
   function applyResult(result: WorkbookOperationResult): AppliedWorkbookOperation | undefined {
     if (!result.ok) return undefined;
-    optimisticWorkbook.current = result.value.nextWorkbook;
     setWorkbook(result.value.nextWorkbook, result.value.calculationImpact);
     return result.value;
   }
@@ -213,7 +211,6 @@ export function useWorkbookController({
     // mirrors it locally and never sends the protected write on the ordinary route.
     const next = materializeAppendedModelRow(applied.nextWorkbook, reconciliation.sheetId, reconciliation.rowId);
     if (next !== applied.nextWorkbook) {
-      optimisticWorkbook.current = next;
       setWorkbook(next, { kind: 'structure' });
     }
     return applied;
@@ -406,13 +403,11 @@ export function useWorkbookController({
             }
             const nextSheet = { ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, submission.rowId], cells } };
             const next = materializeAppendedModelRow({ ...current, documents: { ...current.documents, [sheetId]: nextSheet } }, sheetId, submission.rowId);
-            optimisticWorkbook.current = next;
             setWorkbook(next, { kind: 'structure' });
             return { rowId: submission.rowId, sheet: next.documents[sheetId]! };
           }
           const reconcile = (sheet: SheetDocument) => {
             const next = { ...optimisticWorkbook.current, documents: { ...optimisticWorkbook.current.documents, [sheetId]: sheet } };
-            optimisticWorkbook.current = next;
             setWorkbook(next, { kind: 'structure' });
           };
           return admitEntryRecord({
