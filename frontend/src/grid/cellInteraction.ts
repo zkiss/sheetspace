@@ -61,6 +61,7 @@ export type CellInteractionAction =
   | { type: 'acknowledge-focus'; requestId: number }
   | { type: 'cancel-focus'; requestId: number }
   | { type: 'clear-selection' }
+  | { type: 'reconcile-selection'; sheets: readonly SheetDocument[] }
   | { type: 'prune-sheets'; sheetIds: ReadonlySet<string> }
   | { type: 'prune-drafts'; targetKeys: ReadonlySet<string> };
 
@@ -117,11 +118,12 @@ export function cellInteractionReducer(
           const id = current.mode === 'rows' ? action.target.cell.rowId : action.target.cell.columnId;
           const selection = extendAxisSelection(action.sheet, pruned, id);
           if (selection && projectSelection(action.sheet, selection)) {
-            const extended = { ...state, selection: action.target,
-              selectionsBySheet: { ...state.selectionsBySheet, [action.target.sheetId]: action.target },
-              selectionOwner: action.gesture?.owner ?? null, rangeSelection: { ...selection, extent: action.target },
+            const target = cellKeyForTarget(action.sheet, action.target) ? action.target : selection.extent;
+            const extended = { ...state, selection: target,
+              selectionsBySheet: { ...state.selectionsBySheet, [target.sheetId]: target },
+              selectionOwner: action.gesture?.owner ?? null, rangeSelection: { ...selection, extent: target },
               focusRequest: null, referenceSelection: null, tabRunOriginColumnId: null };
-            return action.requestFocus ? withFocusRequest(extended, action.target) : extended;
+            return action.requestFocus ? withFocusRequest(extended, target) : extended;
           }
         }
         return state;
@@ -370,6 +372,8 @@ export function cellInteractionReducer(
       return state.focusRequest?.id === action.requestId ? { ...state, focusRequest: null } : state;
     case 'clear-selection':
       return { ...state, selection: null, selectionOwner: null, rangeSelection: null, ...suspendEdit(state), focusRequest: null, referenceSelection: null, tabRunOriginColumnId: null };
+    case 'reconcile-selection':
+      return reconcileCellSelection(state, action.sheets);
     case 'prune-sheets': {
       const keep = (target: CellTarget | null) => target && action.sheetIds.has(target.sheetId) ? target : null;
       const referenceSelection = state.referenceSelection
@@ -467,4 +471,48 @@ export function sameTarget(left: CellTarget | null, right: CellTarget | null) {
     && left.sheetId === right.sheetId
     && left.cell.rowId === right.cell.rowId
     && left.cell.columnId === right.cell.columnId);
+}
+
+function reconcileCellSelection(state: CellInteractionState, sheets: readonly SheetDocument[]): CellInteractionState {
+  const sheetById = new Map(sheets.map((sheet) => [sheet.id, sheet]));
+  const valid = (target: CellTarget | null) => {
+    const sheet = target && sheetById.get(target.sheetId);
+    return Boolean(sheet && cellKeyForTarget(sheet, target));
+  };
+  const first = (sheet: SheetDocument): CellTarget | null => {
+    const rowId = sheet.content.rows[0];
+    const columnId = sheet.content.columns[0];
+    return rowId && columnId ? { sheetId: sheet.id, cell: { rowId, columnId } } : null;
+  };
+  const remembered = Object.fromEntries(Object.entries(state.selectionsBySheet).flatMap(([id, target]) => {
+    const sheet = sheetById.get(id);
+    const next = valid(target) ? target : sheet && first(sheet);
+    return next ? [[id, next]] : [];
+  }));
+  let selection = state.selection;
+  let range = state.rangeSelection;
+  const sheet = selection && sheetById.get(selection.sheetId);
+  if (sheet && range && range.mode !== 'cells' && range.members) {
+    const pruned = pruneAxisSelection(sheet, { ...range, mode: range.mode, members: range.members });
+    if (pruned && projectSelection(sheet, pruned)) {
+      range = pruned;
+      selection = pruned.extent;
+    } else {
+      selection = first(sheet);
+      range = selection ? { mode: 'cells', anchor: selection, extent: selection } : null;
+    }
+  } else if (!valid(selection) || (range && (!sheet || !projectSelection(sheet, range)))) {
+    selection = sheet ? first(sheet) : null;
+    range = selection ? { mode: 'cells', anchor: selection, extent: selection } : null;
+  }
+  if (selection) remembered[selection.sheetId] = selection;
+  const oldMembers = state.rangeSelection?.members;
+  const newMembers = range?.members;
+  const membershipChanged = Boolean(oldMembers || newMembers) && (!oldMembers || !newMembers || oldMembers.length !== newMembers.length || oldMembers.some((id) => !newMembers.includes(id)));
+  const changed = membershipChanged || !((!state.selection && !selection) || sameTarget(state.selection, selection));
+  return {
+    ...state, selection, rangeSelection: range, selectionsBySheet: remembered,
+    selectionOwner: changed ? null : state.selectionOwner,
+    focusRequest: state.focusRequest && valid(state.focusRequest.target) ? state.focusRequest : null,
+  };
 }

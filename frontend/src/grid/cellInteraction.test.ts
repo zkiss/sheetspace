@@ -34,6 +34,38 @@ describe('cellInteractionReducer', () => {
     const cleared = cellInteractionReducer(toggled, { type: 'select-axis', mode, target: second, extend: false, intent: 'toggle', sheet });
     expect(cleared.rangeSelection).toEqual({ mode: 'cells', anchor: second, extent: second });
   });
+  it.each(['rows', 'columns'] as const)('prunes deleted %s identities without resurrecting them', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 3, columnCount: 3 });
+    const start = cellTargetAt(sheet, 'A1')!;
+    const end = cellTargetAt(sheet, mode === 'rows' ? 'A3' : 'C1')!;
+    const selected = cellInteractionReducer(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE,
+      { type: 'select-axis', mode, target: start, extend: false, sheet }),
+    { type: 'select-axis', mode, target: end, extend: true, sheet });
+    const axis = mode === 'rows' ? 'rows' : 'columns';
+    const reduced = { ...sheet, content: { ...sheet.content, [axis]: sheet.content[axis].slice(1) } };
+    const pruned = cellInteractionReducer(selected, { type: 'reconcile-selection', sheets: [reduced] });
+    expect(pruned.rangeSelection?.members).toEqual(sheet.content[axis].slice(1));
+    expect(pruned.rangeSelection?.anchor).not.toEqual(start);
+    const restored = cellInteractionReducer(pruned, { type: 'reconcile-selection', sheets: [sheet] });
+    expect(restored.rangeSelection?.members).toEqual(sheet.content[axis].slice(1));
+  });
+  it.each(['rows', 'columns'] as const)('falls back and cancels invalid focus when all selected %s disappear', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
+    const target = cellTargetAt(sheet, 'A1')!;
+    const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select-axis', mode, target, extend: false, sheet });
+    const focused = cellInteractionReducer(selected, { type: 'focus-current-selection' });
+    const axis = mode === 'rows' ? 'rows' : 'columns';
+    const reduced = { ...sheet, content: { ...sheet.content, [axis]: sheet.content[axis].slice(1) } };
+    const reconciled = cellInteractionReducer(focused, { type: 'reconcile-selection', sheets: [reduced] });
+    const fallback = cellTargetAt(reduced, 'A1')!;
+    expect(reconciled.selection).toEqual(fallback);
+    expect(reconciled.rangeSelection).toEqual({ mode: 'cells', anchor: fallback, extent: fallback });
+    expect(reconciled.focusRequest).toBeNull();
+    const empty = { ...reduced, content: { ...reduced.content, [axis]: [] } };
+    const cleared = cellInteractionReducer(reconciled, { type: 'reconcile-selection', sheets: [empty] });
+    expect(cleared.selection).toBeNull();
+    expect(cleared.rangeSelection).toBeNull();
+  });
   it('keeps selection, editing, and focus as distinct current cell state', () => {
     const selected = cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE, { type: 'select', target: a1 });
     expect(selected.selection).toEqual(a1);

@@ -53,8 +53,18 @@ export function useCellEditing({
 }) {
   const [state, dispatchInteraction] = useReducer(cellInteractionReducer, EMPTY_CELL_INTERACTION_STATE);
   const interactionRevision = useRef(0);
+  const queuedState = useRef(state);
+  const renderedState = useRef(state);
+  if (renderedState.current !== state) { renderedState.current = state; queuedState.current = state; }
   function dispatch(action: Parameters<typeof cellInteractionReducer>[1]) {
-    if (['select', 'extend-selection', 'select-axis', 'select-reference', 'restore-selection', 'clear-selection',
+    const previous = queuedState.current;
+    const next = cellInteractionReducer(previous, action);
+    queuedState.current = next;
+    const before = previous.rangeSelection?.members;
+    const after = next.rangeSelection?.members;
+    const membershipChanged = Boolean(before || after) && (!before || !after || before.length !== after.length || before.some((id) => !after.includes(id)));
+    if (action.type === 'reconcile-selection' && (membershipChanged || (previous.selection && !sameTarget(previous.selection, next.selection)))) interactionRevision.current += 1;
+    if (next !== previous && ['select', 'extend-selection', 'select-axis', 'select-reference', 'restore-selection', 'clear-selection',
       'activate-sheet', 'navigate', 'traverse-range', 'commit-tab', 'commit-enter', 'start-edit'].includes(action.type)) {
       interactionRevision.current += 1;
     }
@@ -72,6 +82,7 @@ export function useCellEditing({
   }
 
   useEffect(() => {
+    dispatch({ type: 'reconcile-selection', sheets: sheetsInOrder(workbook) });
     dispatch({
       type: 'prune-sheets',
       sheetIds: new Set(sheetsInOrder(workbook).map((sheet) => sheet.id)),

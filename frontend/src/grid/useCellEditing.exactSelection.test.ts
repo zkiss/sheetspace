@@ -42,6 +42,28 @@ describe('exact content selection', () => {
     expect(next.every((write) => (mode === 'rows' ? write.rowId : write.columnId) !== axis[2])).toBe(true);
   });
 
+  it.each(['rows', 'columns'] as const)('reconciles %s membership on deletion without reviving it on undo', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', cells: {} });
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const { result, rerender } = renderHook(({ workbook }) => useCellEditing({ commands, workbook }),
+      { initialProps: { workbook: workbookWithSheets([sheet]) } });
+    const anchor = cellTargetAt(sheet, 'A1')!;
+    const extent = cellTargetAt(sheet, mode === 'rows' ? 'A3' : 'C1')!;
+    const axis = mode === 'rows' ? 'rows' : 'columns';
+    const ids = sheet.content[axis].slice(0, 3);
+    act(() => { result.current.restoreSelection({ mode, anchor, extent, members: ids }); });
+    const revision = result.current.interactionRevision();
+    const reordered = { ...sheet, content: { ...sheet.content, [axis]: [...sheet.content[axis]].reverse() } };
+    rerender({ workbook: workbookWithSheets([reordered]) });
+    expect(result.current.interactionRevision()).toBe(revision);
+    const reduced = { ...sheet, content: { ...sheet.content, [axis]: sheet.content[axis].filter((id) => id !== ids[1]) } };
+    rerender({ workbook: workbookWithSheets([reduced]) });
+    expect(result.current.selectionRange?.members).toEqual([ids[0], ids[2]]);
+    expect(result.current.interactionRevision()).toBeGreaterThan(revision);
+    rerender({ workbook: workbookWithSheets([sheet]) });
+    expect(result.current.selectionRange?.members).toEqual([ids[0], ids[2]]);
+  });
+
   it('prunes missing identities when restoring and preserves the selection on rejected clear', () => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', cells: { A1: 'a', A3: 'c' } });
     const commands = { updateCellContent: vi.fn(), writeCells: vi.fn(() => ({ ok: false as const, reason: 'calculated-cell-write' as const })) };
