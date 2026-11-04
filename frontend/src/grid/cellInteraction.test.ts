@@ -21,6 +21,36 @@ const b1: CellTarget = {
 const a2: CellTarget = { sheetId: 'sheet-inputs', cell: { rowId: 'row-2', columnId: 'column-1' } };
 
 describe('cellInteractionReducer', () => {
+  it.each(['rows', 'columns'] as const)('commits %s pruning before an invalid extension', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 3, columnCount: 3 });
+    const start = cellTargetAt(sheet, 'A1')!;
+    const end = cellTargetAt(sheet, mode === 'rows' ? 'A3' : 'C1')!;
+    const selected = cellInteractionReducer(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE,
+      { type: 'select-axis', mode, target: start, extend: false, sheet }),
+    { type: 'select-axis', mode, target: end, extend: true, sheet });
+    const axis = mode === 'rows' ? 'rows' : 'columns';
+    const reduced = { ...sheet, content: { ...sheet.content, [axis]: sheet.content[axis].slice(1) } };
+    const result = cellInteractionReducer(selected, { type: 'extend-selection', target: start, sheet: reduced });
+    expect(result.rangeSelection?.members).toEqual(sheet.content[axis].slice(1));
+    expect(result.rangeSelection?.anchor).not.toEqual(start);
+  });
+  it.each(['rows', 'columns'] as const)('invalidates %s gesture when only the orthogonal anchor changes', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
+    const anchor = cellTargetAt(sheet, mode === 'rows' ? 'B1' : 'A2')!;
+    const extent = cellTargetAt(sheet, mode === 'rows' ? 'A2' : 'B1')!;
+    const owner = Symbol('gesture');
+    const selected = cellInteractionReducer(cellInteractionReducer(EMPTY_CELL_INTERACTION_STATE,
+      { type: 'select-axis', mode, target: anchor, extend: false, sheet, gesture: { owner, start: true } }),
+    { type: 'select-axis', mode, target: extent, extend: true, sheet, gesture: { owner } });
+    const orthogonal = mode === 'rows' ? 'columns' : 'rows';
+    const reduced = { ...sheet, content: { ...sheet.content, [orthogonal]: sheet.content[orthogonal].slice(0, 1) } };
+    const reconciled = cellInteractionReducer(selected, { type: 'reconcile-selection', sheets: [reduced] });
+    expect(reconciled.selection).toEqual(extent);
+    expect(reconciled.rangeSelection?.anchor).not.toEqual(anchor);
+    expect(reconciled.selectionOwner).toBeNull();
+    expect(cellInteractionReducer(reconciled, { type: 'settle-selection-gesture', gesture: { owner } })).toBe(reconciled);
+    expect(cellInteractionReducer(reconciled, { type: 'extend-selection', target: extent, sheet: reduced, gesture: { owner } })).toBe(reconciled);
+  });
   it.each(['rows', 'columns'] as const)('builds exact %s selection using reducer-time state', (mode) => {
     const sheet = sheetDocument({ id: 'sheet-inputs', name: 'Inputs', rowCount: 2, columnCount: 2 });
     const start = cellTargetAt(sheet, 'A1')!;

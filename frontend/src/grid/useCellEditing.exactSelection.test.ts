@@ -5,6 +5,32 @@ import { useCellEditing } from '@grid/useCellEditing';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 
 describe('exact content selection', () => {
+  it.each(['rows', 'columns'] as const)('invalidates queued %s gesture when an orthogonal anchor disappears', (mode) => {
+    const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', rowCount: 2, columnCount: 2 });
+    const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
+    const { result, rerender } = renderHook(({ workbook }) => useCellEditing({ commands, workbook }),
+      { initialProps: { workbook: workbookWithSheets([sheet]) } });
+    const anchor = cellTargetAt(sheet, mode === 'rows' ? 'B1' : 'A2')!;
+    const extent = cellTargetAt(sheet, mode === 'rows' ? 'A2' : 'B1')!;
+    const owner = Symbol('gesture');
+    act(() => {
+      result.current.selectAxis(mode, anchor, false, { owner, start: true });
+      result.current.selectAxis(mode, extent, true, { owner });
+    });
+    const revision = result.current.interactionRevision();
+    const orthogonal = mode === 'rows' ? 'columns' : 'rows';
+    const reduced = { ...sheet, content: { ...sheet.content, [orthogonal]: sheet.content[orthogonal].slice(0, 1) } };
+    rerender({ workbook: workbookWithSheets([reduced]) });
+    expect(result.current.interactionRevision()).toBeGreaterThan(revision);
+    expect(result.current.activeCell).toEqual(extent);
+    const updatedRevision = result.current.interactionRevision();
+    act(() => {
+      result.current.extendSelection(extent, { owner });
+      result.current.settleSelectionGesture(owner);
+    });
+    expect(result.current.interactionRevision()).toBe(updatedRevision);
+    expect(result.current.selectionOwner).toBeNull();
+  });
   it.each(['rows', 'columns'] as const)('creates and extends exact %s through queued header actions', (mode) => {
     const sheet = sheetDocument({ id: 'sheet', name: 'Sheet', cells: {} });
     const workbook = workbookWithSheets([sheet]);

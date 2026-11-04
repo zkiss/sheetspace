@@ -106,6 +106,13 @@ export function cellInteractionReducer(
       return action.requestFocus === false ? activated : withFocusRequest(activated, action.target);
     }
     case 'extend-selection': {
+      if (action.sheet && state.rangeSelection?.mode !== 'cells' && state.rangeSelection?.members
+        && state.selection?.sheetId === action.sheet.id) {
+        const reconciled = reconcileCellSelection(state, [action.sheet], true);
+        if (action.gesture && !action.gesture.start && reconciled.selectionOwner !== action.gesture.owner) return reconciled;
+        if (reconciled.rangeSelection?.mode === 'cells' || !reconciled.rangeSelection) return reconciled;
+        state = reconciled;
+      }
       const anchor = state.rangeSelection?.anchor;
       // A range never crosses sheets.  A new sheet starts a fresh selection.
       if (!anchor || anchor.sheetId !== action.target.sheetId) {
@@ -148,6 +155,11 @@ export function cellInteractionReducer(
     case 'select-axis': {
       if (action.sheet) {
         const { sheet, mode, target } = action;
+        if (state.rangeSelection?.mode !== 'cells' && state.rangeSelection?.members && state.selection?.sheetId === sheet.id) {
+          const reconciled = reconcileCellSelection(state, [sheet], true);
+          if (action.gesture && !action.gesture.start && reconciled.selectionOwner !== action.gesture.owner) return reconciled;
+          state = reconciled;
+        }
         const single = { mode, anchor: target, extent: target, members: [mode === 'rows' ? target.cell.rowId : target.cell.columnId] };
         if (!projectSelection(sheet, single)) return state;
         const previous = state.rangeSelection;
@@ -473,7 +485,15 @@ export function sameTarget(left: CellTarget | null, right: CellTarget | null) {
     && left.cell.columnId === right.cell.columnId);
 }
 
-function reconcileCellSelection(state: CellInteractionState, sheets: readonly SheetDocument[]): CellInteractionState {
+export function sameSelectionIdentity(left: CellSelection | null, right: CellSelection | null): boolean {
+  if (!left || !right) return left === right;
+  if (left.mode !== right.mode || !sameTarget(left.anchor, right.anchor) || !sameTarget(left.extent, right.extent)) return false;
+  const a = left.members;
+  const b = right.members;
+  return !a && !b || Boolean(a && b && a.length === b.length && a.every((id) => b.includes(id)));
+}
+
+function reconcileCellSelection(state: CellInteractionState, sheets: readonly SheetDocument[], partial = false): CellInteractionState {
   const sheetById = new Map(sheets.map((sheet) => [sheet.id, sheet]));
   const valid = (target: CellTarget | null) => {
     const sheet = target && sheetById.get(target.sheetId);
@@ -486,7 +506,7 @@ function reconcileCellSelection(state: CellInteractionState, sheets: readonly Sh
   };
   const remembered = Object.fromEntries(Object.entries(state.selectionsBySheet).flatMap(([id, target]) => {
     const sheet = sheetById.get(id);
-    const next = valid(target) ? target : sheet && first(sheet);
+    const next = !sheet && partial ? target : valid(target) ? target : sheet && first(sheet);
     return next ? [[id, next]] : [];
   }));
   let selection = state.selection;
@@ -506,13 +526,11 @@ function reconcileCellSelection(state: CellInteractionState, sheets: readonly Sh
     range = selection ? { mode: 'cells', anchor: selection, extent: selection } : null;
   }
   if (selection) remembered[selection.sheetId] = selection;
-  const oldMembers = state.rangeSelection?.members;
-  const newMembers = range?.members;
-  const membershipChanged = Boolean(oldMembers || newMembers) && (!oldMembers || !newMembers || oldMembers.length !== newMembers.length || oldMembers.some((id) => !newMembers.includes(id)));
-  const changed = membershipChanged || !((!state.selection && !selection) || sameTarget(state.selection, selection));
+  const changed = !sameSelectionIdentity(state.rangeSelection, range)
+    || !((!state.selection && !selection) || sameTarget(state.selection, selection));
   return {
     ...state, selection, rangeSelection: range, selectionsBySheet: remembered,
     selectionOwner: changed ? null : state.selectionOwner,
-    focusRequest: state.focusRequest && valid(state.focusRequest.target) ? state.focusRequest : null,
+    focusRequest: state.focusRequest && (valid(state.focusRequest.target) || (partial && !sheetById.has(state.focusRequest.target.sheetId))) ? state.focusRequest : null,
   };
 }

@@ -25,6 +25,7 @@ import {
   cellKeyForTarget,
   EMPTY_CELL_INTERACTION_STATE,
   sameTarget,
+  sameSelectionIdentity,
 } from '@grid/cellInteraction';
 
 function adjacentTarget(
@@ -60,10 +61,8 @@ export function useCellEditing({
     const previous = queuedState.current;
     const next = cellInteractionReducer(previous, action);
     queuedState.current = next;
-    const before = previous.rangeSelection?.members;
-    const after = next.rangeSelection?.members;
-    const membershipChanged = Boolean(before || after) && (!before || !after || before.length !== after.length || before.some((id) => !after.includes(id)));
-    if (action.type === 'reconcile-selection' && (membershipChanged || (previous.selection && !sameTarget(previous.selection, next.selection)))) interactionRevision.current += 1;
+    if (action.type === 'reconcile-selection' && (!sameSelectionIdentity(previous.rangeSelection, next.rangeSelection)
+      || !((!previous.selection && !next.selection) || sameTarget(previous.selection, next.selection)))) interactionRevision.current += 1;
     if (next !== previous && ['select', 'extend-selection', 'select-axis', 'select-reference', 'restore-selection', 'clear-selection',
       'activate-sheet', 'navigate', 'traverse-range', 'commit-tab', 'commit-enter', 'start-edit'].includes(action.type)) {
       interactionRevision.current += 1;
