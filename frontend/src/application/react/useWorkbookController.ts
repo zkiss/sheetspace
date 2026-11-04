@@ -11,7 +11,8 @@ import { useExtractionReplay } from './useExtractionReplay';
 import { extractionCommand } from './extractionCommand';
 import { cellIdentityAt, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { createEmptyWorkbook, validateSheetName } from '@workbook/mutations/operations';
-import { applyAxisPermutation, gatherAxis, shiftAxis, type ReorderAxis, type ReorderResult } from '@workbook/mutations/reorderAxis';
+import { applyAxisPermutation, gatherAxis, shiftAxis } from '@workbook/mutations/reorderAxis';
+import { createAxisReorder } from './axisReorder';
 import { cellRawContent, findSheetById, sheetsInOrder } from '@workbook/read/queries';
 import { type CellKey } from '@workbook/core/address';
 import {
@@ -48,7 +49,7 @@ import {
 
 export type { WorkbookCommands, ModelCommandResult, DataModelCommandSubmission, RenameColumnResult, RenameColumnSubmission, PasteCellsResult, MoveCellsResult, ContentHistoryCellSnapshot, ContentHistoryFeedback, WorkbookController } from './workbookControllerTypes';
 import { contentHistorySnapshot, contentHistoryAffectedSnapshot } from './workbookControllerTypes';
-import type { WorkbookController, WorkbookControllerState, TransitionFailure, PasteCellsResult, MoveCellsResult, ReorderCommandResult } from './workbookControllerTypes';
+import type { WorkbookController, WorkbookControllerState, TransitionFailure, PasteCellsResult, MoveCellsResult } from './workbookControllerTypes';
 
 export function useWorkbookController({
   apiClient,
@@ -391,26 +392,12 @@ export function useWorkbookController({
     setHistoryRevision((revision) => revision + 1);
   }
 
-  function publishOrder(sheetId: string, axis: ReorderAxis, result: Extract<ReorderResult, { status: 'changed' }>) {
-    optimisticWorkbook.current = result.workbook;
-    setWorkbook(result.workbook, { kind: 'structure' });
-    savedAutosave.enqueue(crypto.randomUUID(), { kind: 'write-axis-order', sheetId, axis, before: result.before, after: result.after });
-  }
-
-  function reorder(sheetId: string, axis: ReorderAxis, transform: (workbook: Workbook) => ReorderResult): ReorderCommandResult {
-    if (lifecycle.hasPending() || admissionLocks.current.has(sheetId)) {
-      setMutationFailure('pending-model-transition');
-      return { status: 'rejected', workbook: optimisticWorkbook.current, reason: 'pending-model-transition' };
-    }
-    const result = transform(optimisticWorkbook.current);
-    if (result.status === 'changed') {
-      publishOrder(sheetId, axis, result);
-      contentHistory.recordOrder({ sheetId, axis, before: result.before, after: result.after });
-      setContentHistoryFeedback(undefined);
-      setHistoryRevision((revision) => revision + 1);
-    }
-    return result;
-  }
+  const { publishOrder, reorder } = createAxisReorder({
+    current: optimisticWorkbook, setWorkbook, history: contentHistory,
+    enqueue: savedAutosave.enqueue, hasPending: lifecycle.hasPending,
+    admissionLocks, setMutationFailure, setContentHistoryFeedback,
+    publishHistory: () => setHistoryRevision((revision) => revision + 1),
+  });
 
   function moveSheetFrame(sheetId: string, position: WorkspacePosition): WorkbookOperationResult {
     const localSheetId = sheetId;

@@ -34,4 +34,19 @@ describe('axis reorder history', () => {
     });
     expect(result.current.canUndo).toBe(false);
   });
+
+  it('gathers noncontiguous columns as one undoable action', () => {
+    const sheet = sheetDocument({ id: 's', name: 'Source', rowCount: 2, columnCount: 5 });
+    const [a, b, c, d, e] = sheet.content.columns;
+    const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]) }));
+    act(() => {
+      expect(result.current.commands.gatherAxis('s', 'column', [b!, d!], 5).status).toBe('changed');
+    });
+    expect(result.current.workbook.documents.s!.content.columns).toEqual([a, c, e, b, d]);
+    act(() => result.current.commands.undo());
+    expect(result.current.workbook.documents.s!.content.columns).toEqual([a, b, c, d, e]);
+    expect(result.current.canUndo).toBe(false);
+    act(() => result.current.commands.redo());
+    expect(result.current.workbook.documents.s!.content.columns).toEqual([a, c, e, b, d]);
+  });
 });
