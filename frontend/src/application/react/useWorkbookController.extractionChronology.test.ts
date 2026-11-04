@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { autosaveClient } from '@test-support/apiClients';
+import { autosaveClient, deferred } from '@test-support/apiClients';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import { cellIdentityAt } from '@workbook/core/cellIdentity';
 import { cellRawContent } from '@workbook/read/queries';
@@ -23,6 +23,7 @@ describe('persisted extraction chronology', () => {
       frame: { position: { x: 0, y: 0 }, size: { width: 100, height: 100 }, zIndex: 2 },
     };
     let lifecycleCount = 0;
+    const replaySaves: Array<{ pending: ReturnType<typeof deferred<Workbook>>; response: Workbook }> = [];
     const persistedSheet = structuredClone(sheet);
     const api = autosaveClient({
       loadSheet: vi.fn().mockImplementation(async () => structuredClone(persistedSheet)),
@@ -31,11 +32,14 @@ describe('persisted extraction chronology', () => {
         return structuredClone(persistedSheet);
       }),
       writeCells: vi.fn().mockImplementation(async (revisions: { sheetId: string; revision: number }[]) => ({ sheets: revisions })),
-      saveModelLifecycle: vi.fn().mockImplementation(async (_before: Workbook, after: Workbook) => {
+      saveModelLifecycle: vi.fn().mockImplementation((_before: Workbook, after: Workbook) => {
         lifecycleCount += 1;
         const copy = structuredClone(after);
         if (copy.documents[target]) copy.documents[target]!.revision = lifecycleCount === 1 ? 9 : 1;
-        return copy;
+        if (lifecycleCount === 1) return Promise.resolve(copy);
+        const pending = deferred<Workbook>();
+        replaySaves.push({ pending, response: copy });
+        return pending.promise;
       }),
     });
     const { result } = renderHook(() => useWorkbookController({ initialWorkbook: workbookWithSheets([sheet]), apiClient: api }));
@@ -44,6 +48,11 @@ describe('persisted extraction chronology', () => {
       return document && cellRawContent(document, 'A1');
     };
     const saved = async () => waitFor(() => expect(result.current.saveStatus).toBe('saved'));
+    const settleReplay = async (index: number) => {
+      await waitFor(() => expect(replaySaves).toHaveLength(index + 1));
+      await act(async () => { replaySaves[index]!.pending.resolve(replaySaves[index]!.response); });
+      await saved();
+    };
 
     act(() => result.current.commands.updateCellContent('s', 'A1', '1'));
     await saved();
@@ -62,10 +71,13 @@ describe('persisted extraction chronology', () => {
     await saved();
     expect(content(target)).toBe('1');
     act(() => result.current.commands.undo());
-    await waitFor(() => expect(result.current.workbook.documents[target]).toBeUndefined());
+    await settleReplay(0);
     expect(content(target)).toBeUndefined();
     expect(content('s')).toBe('1');
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(true);
     expect(result.current.contentHistoryFeedback).toBeUndefined();
+    expect(result.current.extractionReplayFailure).toBeUndefined();
     act(() => result.current.commands.undo());
     await saved();
     expect(result.current.workbook.documents.s!.content.rows).toEqual(originalRows);
@@ -83,8 +95,11 @@ describe('persisted extraction chronology', () => {
     expect(content('s')).toBe('1');
     expect(content(target)).toBeUndefined();
     act(() => result.current.commands.redo());
-    await waitFor(() => expect(result.current.workbook.documents[target]?.revision).toBe(1));
-    await waitFor(() => expect(result.current.canRedo).toBe(true));
+    await settleReplay(1);
+    expect(result.current.workbook.documents[target]?.revision).toBe(1);
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(true);
+    expect(result.current.extractionReplayFailure).toBeUndefined();
     expect(content(target)).toBe('1');
     expect(result.current.workbook.documents.s!.content.rows).toEqual(movedRows);
     act(() => result.current.commands.redo());
