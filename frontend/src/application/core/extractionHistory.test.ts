@@ -132,16 +132,28 @@ describe('extraction history', () => {
     expect(history.canRedo).toBe(false);
   });
 
-  it.each(['content', 'frame', 'model'] as const)('rejects stale %s changes without consuming history', (change) => {
+  it.each(['content', 'frame', 'model'] as const)('preserves unrelated %s changes across replay', (change) => {
     const { before, after } = extraction('cells'), history = new ContentHistory();
     history.recordExtraction(before, after);
     const current = structuredClone(after);
     if (change === 'content') current.documents.source!.content.cells.extra = 'other';
     if (change === 'frame') current.documents.source!.frame.position.x += 1;
     if (change === 'model') current.dataModels = { model: { id: 'model', name: 'Model', columns: [] } };
+    const undo = prepareExtractionReplay(current, history.peekUndo()!, 'undo');
+    expect(undo.ok).toBe(true); if (!undo.ok) return;
+    history.commitUndo();
+    const redo = prepareExtractionReplay(undo.workbook, history.peekRedo()!, 'redo');
+    expect(redo.ok).toBe(true); if (!redo.ok) return;
+    expect(redo.workbook).toEqual(current);
+  });
+
+  it('rejects changes to extraction-owned values without consuming history', () => {
+    const { before, after } = extraction('cells'), history = new ContentHistory();
+    history.recordExtraction(before, after);
+    const current = structuredClone(after);
+    current.documents[ids[0]!]!.name = 'changed';
     expect(prepareExtractionReplay(current, history.peekUndo()!, 'undo')).toEqual({ ok: false, reason: 'stale-extraction-history' });
     expect(history.canUndo).toBe(true);
-    expect(history.canRedo).toBe(false);
   });
 
   it('uses live revisions rather than historic counters for replay', () => {
