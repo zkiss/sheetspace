@@ -6,6 +6,7 @@ import { WorkbookPersistenceCoordinator } from '@infrastructure/persistence/work
 import { WorkbookApiError, workbookApi, type WorkbookApi } from '@infrastructure/persistence/workbookApi';
 import type { SetWorkbook } from '@calculation/workbookCalculation';
 import { positionedSheet, workbookWithSheets } from '@test-support/workbookFactories';
+import { deferred } from '@test-support/apiClients';
 
 function renderAxisOperations({
   autosaveEnabled = true,
@@ -138,6 +139,43 @@ describe('useGridAxisCreationOperations', () => {
     act(() => hook.result.current.appendRow(sheet.id));
     await waitFor(() => expect(appendRow).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(hook.result.current.saveStatus).toBe('saved'));
+  });
+
+  it.each(['succeeds', 'fails'] as const)('retires a failed row while its already-queued column %s', async (outcome) => {
+    const row = deferred<{ sheetId: string; revision: number; rowCount: number; rowId: string }>();
+    const column = deferred<{ sheetId: string; revision: number; columnCount: number; columnId: string }>();
+    const appendRow = vi.fn(() => row.promise);
+    const appendColumn = vi.fn(() => column.promise);
+    const { hook, sheet, reconcile } = renderAxisOperations({ apiClient: { appendRow, appendColumn } });
+    act(() => { hook.result.current.appendRow(sheet.id); hook.result.current.appendColumn(sheet.id); });
+    await waitFor(() => expect(appendRow).toHaveBeenCalledOnce());
+    expect(appendColumn).not.toHaveBeenCalled();
+    expect(hook.result.current.creatingAxes[sheet.id]?.rows).toHaveLength(1);
+    expect(hook.result.current.creatingAxes[sheet.id]?.columns).toHaveLength(1);
+    await act(async () => row.reject(new Error('first failed')));
+    await waitFor(() => expect(appendColumn).toHaveBeenCalledOnce());
+    expect(hook.result.current.saveStatus).toBe('saving');
+    expect(hook.result.current.hasUnsettled()).toBe(true);
+    expect(hook.result.current.hasUnsettledSheet(sheet.id)).toBe(true);
+    expect(hook.result.current.hasUnsettledSheet('other')).toBe(false);
+    expect(hook.result.current.creatingAxes[sheet.id]?.rows).toHaveLength(0);
+    expect(hook.result.current.creatingAxes[sheet.id]?.columns).toHaveLength(1);
+    if (outcome === 'fails') {
+      await act(async () => column.reject(new Error('second failed')));
+      await waitFor(() => expect(hook.result.current.saveStatus).toBe('failed'));
+      expect(hook.result.current.hasUnsettledSheet(sheet.id)).toBe(true);
+      expect(reconcile).not.toHaveBeenCalled();
+    } else {
+      await act(async () => column.resolve({ sheetId: sheet.id, revision: 4, columnCount: 11, columnId: 'new-column' }));
+      await waitFor(() => expect(hook.result.current.saveStatus).toBe('saved'));
+      expect(hook.result.current.hasUnsettled()).toBe(false);
+      expect(hook.result.current.hasUnsettledSheet(sheet.id)).toBe(false);
+      expect(reconcile).toHaveBeenCalledOnce();
+      expect(reconcile).toHaveBeenCalledWith({ kind: 'append-column', sheetId: sheet.id, columnId: 'new-column' });
+    }
+    expect(hook.result.current.creatingAxes[sheet.id]).toBeUndefined();
+    expect(appendRow).toHaveBeenCalledOnce();
+    expect(appendColumn).toHaveBeenCalledOnce();
   });
 
   it('does not issue a queued request after its sheet becomes missing', async () => {
