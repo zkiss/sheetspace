@@ -81,7 +81,7 @@ export const keymap = {
   'property-remove': [{ key: 'Delete', alt: true, shift: true }],
   'property-move-up': [{ key: 'ArrowUp', alt: true, shift: true }],
   'property-move-down': [{ key: 'ArrowDown', alt: true, shift: true }],
-  'gesture-pan': [{ key: 'Space', code: 'Space' }],
+  'gesture-pan': [{ key: 'Space', code: 'Space' }, { key: 'Space', code: 'Space', shift: true }],
   cancel: [{ key: 'Escape' }],
 } as const satisfies Keymap;
 

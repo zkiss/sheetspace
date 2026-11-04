@@ -232,6 +232,19 @@ describe('workspace pointer ownership and lifecycle', () => {
     expect(state().viewport.x).toBe(10);
   });
 
+  it('pans with Shift+Space and ends when Space is released', () => {
+    const { surface, state, capture } = setup();
+    const cell = screen.getByRole('cell');
+    fireEvent.keyDown(cell, { key: ' ', code: 'Space', shiftKey: true });
+    expect(pointer(cell, 'pointerdown').defaultPrevented).toBe(true);
+    expect(capture.has(7)).toBe(true);
+    pointer(surface, 'pointermove', { clientX: 10 });
+    fireEvent.keyUp(document.body, { key: ' ', code: 'Space', shiftKey: true });
+    expect(state().viewport.x).toBe(10);
+    expect(state().isPanningWorkspace).toBe(false);
+    expect(capture.size).toBe(0);
+  });
+
   it('retains held Space through cell blur and pointerup for a second focused-cell drag', () => {
     const { surface, state, capture } = setup();
     const cell = screen.getByRole('cell');
