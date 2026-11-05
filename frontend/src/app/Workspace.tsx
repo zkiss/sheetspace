@@ -1072,6 +1072,8 @@ export function Workspace({
           case 'native-clipboard': return editingCell === null && !matchesNativeClipboard(event, command.id);
           case 'formatting': return true;
           case 'grid-focus': return true;
+          case 'native-grid': return gridFocusLease?.phase === 'native-owned' && gridFocusLease.sheetId === activeCell?.sheetId
+            && target === document.activeElement && !!target?.closest('[data-cell-key][data-active-cell="true"]');
         }
       }));
       const dispatched = eligible.find((command) => !command.unavailable && matchesShortcut(event, command.id));
@@ -1098,7 +1100,7 @@ export function Workspace({
       window.removeEventListener('keydown', handleGridTypingShortcut, true);
       window.removeEventListener('keydown', handleKeydown);
     };
-  }, [editingCell, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
+  }, [activeCell?.sheetId, editingCell, gridFocusLease, interactionsEnabled, navigationKeyboardEnabled, onRestoreGridFocus, workspaceController]);
   return (
     <>
       <WorkspaceToolbar

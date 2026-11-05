@@ -27,6 +27,7 @@ import { shortcutLabel } from '@shared/keyboard/keymap';
 import { extractionSelection } from './extractionSelection';
 import type { ExtractionRequest } from '@application/core/extractionPreparation';
 import { extractionFeedback } from './extractionFeedback';
+import { reorderSelection } from '@workbook/read/reorderSelection';
 
 type Panel = { kind: 'format'; title: string } | { kind: 'colour'; title: string; property: 'textColor' | 'fillColor' } | { kind: 'model'; title: string; sheetId: string; initialAction?: 'unbind' }
   | { kind: 'rename-column'; title: string; target: RenameColumnTarget; initialName: string }
@@ -282,6 +283,19 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
   add('select-row', 'Select row', 'Selection', run(() => activeCell && onSelectAxis('rows', activeCell)), noCell);
   add('select-column', 'Select column', 'Selection', run(() => activeCell && onSelectAxis('columns', activeCell)), noCell);
   add('select-all', 'Select all cells', 'Selection', run(() => sheet && onSelectAll(sheet)), sheet?.content.rows.length && sheet.content.columns.length ? undefined : 'Select a nonempty sheet first');
+
+  for (const [id, label, axis, direction] of [
+    ['move-row-up', 'Move rows up', 'row', -1], ['move-row-down', 'Move rows down', 'row', 1],
+    ['move-column-left', 'Move columns left', 'column', -1], ['move-column-right', 'Move columns right', 'column', 1],
+  ] as const) {
+    const ids = sheet ? reorderSelection(sheet, selection, activeCell, axis) : [];
+    add(id, label, 'Selection', () => {
+      const live = sheet && commands.currentWorkbook().documents[sheet.id];
+      if (!live) return;
+      const selected = reorderSelection(live, selection, activeCell, axis);
+      if (selected.length) commands.shiftAxis(live.id, axis, selected, direction);
+    }, ids.length ? undefined : 'Select a saved cell first', ['no-editing', 'native-grid']);
+  }
 
   const format = (action: FormattingAction) => run(() => formatting.descriptor.valid
     && commands.writeNumberFormats(formatting.descriptor.sheetId, formattingActionWrites(formatting, action)));
