@@ -21,21 +21,21 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true) {
   const gather = vi.fn(); const select = vi.fn(); const activity = vi.fn();
   const anchor = cellTargetAt(sheet, 'A1')!;
   const selection = { mode: axis, anchor, extent: anchor, members: axis === 'rows' ? [sheet.rows[0], sheet.rows[2]] : [sheet.columns[0], sheet.columns[2]] };
-  const view = (changes: { activeSheetId?: string; interactionsEnabled?: boolean; allowColumnGather?: boolean; selectionOwner?: symbol; sheet?: typeof sheet } = {}) => {
+  const view = (changes: { activeSheetId?: string; interactionsEnabled?: boolean; allowColumnGather?: boolean; modelId?: string; selectionOwner?: symbol; sheet?: typeof sheet } = {}) => {
     const currentSheet = changes.sheet ?? sheet;
     return <div ref={ref}><SheetGrid activeCellKey="A1" activeSheetId={changes.activeSheetId ?? sheet.id} axisProjection={projectGridAxes(currentSheet)}
     cellInteraction={{ clear: vi.fn(), navigate: vi.fn(), select: vi.fn(), startEditing: vi.fn() }}
     editingCell={null} editorInteraction={{ FormulaEditor: FormulaEditorPanel, cancel: vi.fn(), commit: vi.fn(), commitAndNavigate: vi.fn(), updateValue: vi.fn() }}
     formulaResults={{}} keyboardFocusRequest={null} onKeyboardFocusRequestConsumed={vi.fn()} navigationHighlightCellKey={null}
     logicalSelection={selection} selectionOwner={changes.selectionOwner} interactionsEnabled={changes.interactionsEnabled}
-    onSelectAxis={select} onGatherAxis={gather} allowColumnGather={changes.allowColumnGather ?? allowColumnGather}
+    onSelectAxis={select} onGatherAxis={gather} allowColumnGather={changes.allowColumnGather ?? allowColumnGather} modelId={changes.modelId}
     onPointerInteractionChange={activity} scrollContainerRef={ref} sheet={currentSheet} /></div>;
   };
   const rendered = render(view());
   virtualGridGeometry(ref.current!, { width: 400, height: 160 });
   return { sheet, gather, select, activity, container: ref.current!, grid: screen.getByTestId('sheet-grid'), rerender: (changes: Parameters<typeof view>[0]) => rendered.rerender(view(changes)), unmount: rendered.unmount };
 }
-afterEach(cleanup);
+afterEach(() => { cleanup(); delete (document as Partial<Document>).elementFromPoint; });
 describe('header gather controls', () => {
   it('gathers scattered selected rows at the original gap without selecting again', () => {
     const { sheet, gather, select, activity, grid } = setup();
@@ -81,6 +81,50 @@ describe('header gather controls', () => {
     pointer(button, 'pointerdown', 20, 30); pointer(grid, 'pointermove', 20, 100); pointer(grid, 'pointercancel', 20, 100);
     pointer(grid, 'pointerup', 20, 100);
     expect(gather).not.toHaveBeenCalled();
+  });
+  it('rejects an overlapping sheet during preview and rechecks the release surface', () => {
+    const { gather, grid, container } = setup();
+    const otherSheet = document.createElement('div');
+    document.body.append(otherSheet);
+    const surface = vi.fn((): Element | null => grid);
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: surface });
+    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    pointer(button, 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', 20, 100);
+    expect(screen.getByTestId('axis-gather-preview')).toBeInTheDocument();
+    surface.mockReturnValue(otherSheet);
+    pointer(grid, 'pointermove', 20, 100);
+    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    surface.mockReturnValue(null);
+    pointer(grid, 'pointermove', 20, 100);
+    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    surface.mockReturnValue(container);
+    pointer(grid, 'pointermove', 20, 100);
+    surface.mockReturnValue(otherSheet);
+    pointer(grid, 'pointerup', 20, 100);
+    expect(gather).not.toHaveBeenCalled();
+    otherSheet.remove();
+  });
+  it.each([[undefined, 'model-a'], ['model-a', undefined], ['model-a', 'model-b']] as const)(
+    'cancels row gathering when model changes from %s to %s', (before, after) => {
+      const { gather, grid, rerender } = setup();
+      rerender({ modelId: before });
+      pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+      pointer(grid, 'pointermove', 20, 100);
+      expect(screen.getByTestId('axis-gather-preview')).toBeInTheDocument();
+      rerender({ modelId: after });
+      expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+      pointer(grid, 'pointerup', 20, 100);
+      expect(gather).not.toHaveBeenCalled();
+    },
+  );
+  it('allows row gathering while the model binding remains unchanged', () => {
+    const { sheet, gather, grid, rerender } = setup();
+    rerender({ modelId: 'model-a' });
+    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', 20, 100);
+    pointer(grid, 'pointerup', 20, 100);
+    expect(gather).toHaveBeenCalledWith('row', [sheet.rows[0], sheet.rows[2]], 3);
   });
   it('passes the original gap to the real gather mutation', () => {
     const { sheet, gather, grid } = setup();

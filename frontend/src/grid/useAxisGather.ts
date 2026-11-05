@@ -13,14 +13,14 @@ import { projectSelection } from '@workbook/read/selection';
 type Axis = 'row' | 'column';
 type Options = {
   sheet: SheetTabularProjection; selection?: CellSelection | null; selectionOwner?: symbol | null;
-  activeSheetId?: string | null; enabled: boolean; allowColumns: boolean;
+  activeSheetId?: string | null; modelId?: string; enabled: boolean; allowColumns: boolean;
   columns: GridAxisProjection['columns']; rows: GridAxisProjection['rows'];
   columnMetrics: GridAxisMetrics; rowMetrics: GridAxisMetrics;
   gridRef: RefObject<HTMLDivElement>; scrollContainerRef: RefObject<HTMLElement>;
   select?: (mode: 'rows' | 'columns', target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   settle?: (owner: symbol) => void; focus?: (target: CellTarget) => void; gather?: (axis: Axis, ids: readonly string[], gap: number) => void;
 };
-type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; sheetId: string; owner: symbol | null | undefined;
+type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; sheetId: string; modelId?: string; owner: symbol | null | undefined;
   gesture?: symbol; awaitingOwner: boolean; selection?: CellSelection | null; activeSheetId: string | null | undefined; pointerId: number; element: HTMLElement;
   x: number; y: number; moved: boolean; focusTarget?: CellTarget };
 type Preview = { axis: Axis; start: number; size: number; gap: number };
@@ -38,7 +38,7 @@ export function useAxisGather(options: Options) {
   }, []);
   const owns = useCallback(() => {
     const current = session.current; const next = latest.current;
-    if (!current || !next.enabled || !next.gather || !current.element.isConnected || current.sheetId !== next.sheet.id
+    if (!current || !next.enabled || !next.gather || !current.element.isConnected || current.sheetId !== next.sheet.id || current.modelId !== next.modelId
       || (next.activeSheetId !== current.activeSheetId && !(current.awaitingOwner && next.activeSheetId === current.sheetId))
       || (next.activeSheetId != null && next.activeSheetId !== current.sheetId && !current.awaitingOwner)
       || (current.axis === 'column' && !next.allowColumns)) return false;
@@ -59,6 +59,7 @@ export function useAxisGather(options: Options) {
   function target(x: number, y: number): Preview | null {
     const current = session.current; const next = latest.current; const container = next.scrollContainerRef.current;
     if (!current || !container) return null;
+    if (document.elementFromPoint && !container.contains(document.elementFromPoint(x, y))) return null;
     const rect = container.getBoundingClientRect();
     const px = (x - rect.left) * (rect.width ? container.offsetWidth / rect.width : 1) - container.clientLeft;
     const py = (y - rect.top) * (rect.height ? container.offsetHeight / rect.height : 1) - container.clientTop;
@@ -93,7 +94,7 @@ export function useAxisGather(options: Options) {
       gesture = Symbol('axis-gather');
       next.select(axis === 'row' ? 'rows' : 'columns', targetCell, false, { owner: gesture, start: true });
     }
-    session.current = { axis, ids, order: [...(axis === 'row' ? next.sheet.rows : next.sheet.columns)], sheetId: next.sheet.id,
+    session.current = { axis, ids, order: [...(axis === 'row' ? next.sheet.rows : next.sheet.columns)], sheetId: next.sheet.id, modelId: next.modelId,
       owner: next.selectionOwner, gesture, awaitingOwner: Boolean(gesture), selection: next.selection, activeSheetId: next.activeSheetId,
       pointerId: event.pointerId, element, x: event.clientX, y: event.clientY, moved: false, focusTarget };
     setActive(true); element.setPointerCapture?.(event.pointerId);

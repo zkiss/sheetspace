@@ -1347,6 +1347,7 @@ export function Workspace({
                     logicalSelection={presentingReferenceRange ? undefined : selectionRange}
                     onWriteAxisSizes={(writes) => commands.writeAxisSizes(sheet.id, writes)}
                     allowColumnGather={sheet.modelId === undefined}
+                    modelId={sheet.modelId}
                     onGatherAxis={(axis, ids, gap) => commands.gatherAxis(sheet.id, axis, ids, gap)}
                     onPointerInteractionChange={handleGridPointerInteractionChange}
                     onScrollContainerAvailable={(element) => registerScrollContainer(sheet.id, element)}

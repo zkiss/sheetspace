@@ -117,6 +117,7 @@ export function SheetGrid({
   onWriteAxisSizes,
   onGatherAxis,
   allowColumnGather = true,
+  modelId,
   interactionsEnabled = true,
   onPointerInteractionChange,
   onNativeFocusTarget,
@@ -139,6 +140,7 @@ export function SheetGrid({
   onWriteAxisSizes?: (writes: readonly AxisSizeWrite[]) => void;
   onGatherAxis?: (axis: 'row' | 'column', ids: readonly string[], gap: number) => void;
   allowColumnGather?: boolean;
+  modelId?: string;
   interactionsEnabled?: boolean;
   /** Keeps this grid mounted while a live pointer session owns it. */
   onPointerInteractionChange?: (sheetId: string, active: boolean) => void;
@@ -225,7 +227,7 @@ export function SheetGrid({
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
   const gather = useAxisGather({ sheet, selection: logicalSelection, selectionOwner, activeSheetId,
-    enabled: interactionsEnabled, allowColumns: allowColumnGather, columns, rows, columnMetrics, rowMetrics,
+    enabled: interactionsEnabled, allowColumns: allowColumnGather, modelId, columns, rows, columnMetrics, rowMetrics,
     gridRef, scrollContainerRef, select: onSelectAxis, settle: cellInteraction.settleSelectionGesture, focus: cellInteraction.focusSelection, gather: onGatherAxis });
   useOwnedScroll(scrollContainerRef, ownedScroll);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
