@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import type { Workbook } from '../core/model';
+import { cellIdentityAt, cellIdentityKey } from '../core/cellIdentity';
+import { applyAxisPermutation } from '../mutations/reorderAxis';
 import { prepareFormulaEdit, prepareUserFormula } from './formulaPreparation';
+import { resolveStoredEndpoint } from './reference';
 import { projectStoredFormula } from './storedFormulaProjection';
 
 const sheet = sheetDocument({ id: 'inputs-id', name: 'Inputs', rowCount: 2, columnCount: 2 });
@@ -14,6 +17,27 @@ function modeledWorkbook(name = 'Cost'): Workbook {
 }
 
 describe('stored editable projection', () => {
+  it('preserves stored formulas and resolves stable and positional endpoints after a row permutation', () => {
+    const content = prepare('=@A[1]+@A[#1]+SUM(@A[1]:A[#2])');
+    const formulaCell = cellIdentityKey(cellIdentityAt(sheet.content, 'B1')!);
+    const original = workbookWithSheets([{ ...sheet, content: { ...sheet.content, cells: { [formulaCell]: content } } }]);
+    const result = applyAxisPermutation(original, sheet.id, 'row', [...sheet.content.rows].reverse());
+    expect(result.status).toBe('changed');
+    const changed = result.workbook;
+    expect(changed.documents[sheet.id].content.cells[formulaCell]).toBe(content);
+
+    const projection = projectStoredFormula(content, changed, sheet.id);
+    expect(projection.text).toBe('=@A[2]+@A[#1]+SUM(@A[2]:A[#2])');
+    expect(projection.analysis.references.every(({ live }) => live)).toBe(true);
+    const endpoints = projection.analysis.references.flatMap(({ lexeme }) => lexeme.endpoints);
+    const resolved = endpoints.map((endpoint) => resolveStoredEndpoint(changed, sheet.id, endpoint));
+    expect(resolved.map((item) => item?.address.rowIndex)).toEqual([1, 0, 1, 1]);
+    expect(resolved.every((item) => item?.exists)).toBe(true);
+    expect(cellIdentityAt(changed.documents[sheet.id].content, resolved[0]!.address)?.rowId).toBe(sheet.content.rows[0]);
+    expect(cellIdentityAt(changed.documents[sheet.id].content, resolved[1]!.address)?.rowId).toBe(sheet.content.rows[1]);
+    expect(prepareUserFormula(projection.text, changed, sheet.id)).toBe(content);
+  });
+
   it('projects ambiguous alphabetic stable identities after reorder and preserves them through edits', () => {
     const originalSheet = { ...sheet, content: { ...sheet.content, columns: ['B', 'A'], rows: ['2', '1'] } };
     const original = workbookWithSheets([originalSheet]);
