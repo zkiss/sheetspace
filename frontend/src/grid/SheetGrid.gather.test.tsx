@@ -9,6 +9,7 @@ import { tabularProjection } from '@workbook/read/queries';
 import { testRect, virtualGridGeometry } from '@test-support/domGeometry';
 import { gatherAxis } from '@workbook/mutations/reorderAxis';
 import { cellTargetAt } from './cellInteraction';
+import * as fs from 'node:fs';
 
 function pointer(element: Element, type: string, x: number, y: number, pointerId = 1) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
@@ -40,6 +41,21 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); delete (document as Partial<Document>).elementFromPoint; });
 describe('header gather controls', () => {
+  it('bounds drag handles to their headers instead of inheriting full-size toolbar buttons', () => {
+    const style = document.createElement('style');
+    style.textContent = `button { min-height: 2.25rem; } ${fs.readFileSync('src/grid/SheetGrid.css', 'utf8')}`;
+    document.head.append(style);
+    try {
+      setup();
+      for (const handle of screen.getAllByRole('button', { name: /^Drag (row|column) / })) {
+        const computed = getComputedStyle(handle);
+        expect(computed.minHeight).toBe('0');
+        expect(computed.height).toBe('100%');
+        expect(computed.lineHeight).toBe('1');
+      }
+    } finally { style.remove(); }
+  });
+
   it.each(['rows', 'columns'] as const)('scrolls %s at a scaled edge and releases the stationary pointer at its updated gap', (axis) => {
     let callback: FrameRequestCallback | undefined;
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((next) => { callback = next; return 1; });

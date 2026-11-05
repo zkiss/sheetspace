@@ -3,6 +3,8 @@ import { applyWorkbookOperation, type WorkbookOperation } from './userActions';
 import { emptySheetPresentation, AXIS_SIZE_LIMITS, isValidAxisSize } from '@workbook/core/axisSizePolicy';
 import type { AxisSizeWrite } from '@workbook/core/model';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
+import { applyAxisPermutation } from '@workbook/mutations/reorderAxis';
+import { cellIdentityKey } from '@workbook/core/cellIdentity';
 
 const sheet = sheetDocument({ id: 's', name: 'Sizes', cells: { A1: '=@B[1]', B1: '3' } });
 const workbook = workbookWithSheets([sheet]);
@@ -11,6 +13,24 @@ const apply = (writes: readonly AxisSizeWrite[], source = workbook, sheetId = sh
   applyWorkbookOperation(source, { kind: 'write-axis-sizes', operationId: 'op', sheetId, writes });
 
 describe('axis size operations', () => {
+  it('retains identity-attached formatting when reordered axes are resized and reset', () => {
+    const formats = { rows: { [row]: { fontWeight: 'bold' as const } },
+      columns: { [column]: { textColor: '#123456' as const } },
+      cells: { [cellIdentityKey({ rowId: row, columnId: column })]: { fillColor: '#abcdef' as const } } };
+    const formatted = workbookWithSheets([{ ...sheet, presentation: { ...sheet.presentation, formatOverrides: formats } }]);
+    const reordered = applyAxisPermutation(formatted, sheet.id, 'row', [...sheet.content.rows].reverse());
+    if (reordered.status !== 'changed') throw new Error('Expected reordered rows');
+
+    const resized = apply([{ axis: 'row', axisId: row, size: 44 }, { axis: 'column', axisId: column, size: 120 }], reordered.workbook);
+
+    if (!resized.ok) throw new Error('Expected resized axes');
+    expect(resized.value.nextWorkbook.documents[sheet.id].presentation).toEqual({ rowHeights: { [row]: 44 }, columnWidths: { [column]: 120 }, formatOverrides: formats });
+    const reset = apply([{ axis: 'row', axisId: row, size: null }, { axis: 'column', axisId: column, size: null }], resized.value.nextWorkbook);
+    if (!reset.ok) throw new Error('Expected reset sizes');
+    expect(reset.value.nextWorkbook.documents[sheet.id].presentation).toEqual(formatted.documents[sheet.id].presentation);
+    expect(reordered.workbook.documents[sheet.id].presentation).toEqual(formatted.documents[sheet.id].presentation);
+  });
+
   it('has sparse defaults and inclusive finite size limits', () => {
     expect(emptySheetPresentation()).toEqual({ rowHeights: {}, columnWidths: {} });
     for (const axis of ['row', 'column'] as const) {

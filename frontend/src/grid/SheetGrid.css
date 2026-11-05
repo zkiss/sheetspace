@@ -113,6 +113,9 @@
 
 .sheet-grid-gather-handle {
   cursor: grab;
+  min-height: 0;
+  height: 100%;
+  line-height: 1;
   border: 0;
   padding: 0 2px;
   background: transparent;

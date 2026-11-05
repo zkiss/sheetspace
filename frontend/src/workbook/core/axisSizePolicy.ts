@@ -31,7 +31,7 @@ export function validAxisSizeWrites(content: TabularContent, writes: readonly Ax
 }
 
 export function applyAxisSizeWrites(presentation: SheetPresentation, writes: readonly AxisSizeWrite[]): SheetPresentation {
-  const next = { rowHeights: { ...presentation.rowHeights }, columnWidths: { ...presentation.columnWidths } };
+  const next = { ...presentation, rowHeights: { ...presentation.rowHeights }, columnWidths: { ...presentation.columnWidths } };
   for (const write of writes) {
     const overrides = write.axis === 'row' ? next.rowHeights : next.columnWidths;
     if (write.size === null) delete overrides[write.axisId];
