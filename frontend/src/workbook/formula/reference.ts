@@ -254,16 +254,43 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
     const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
     if (match.endpoints.some((endpoint) => endpoint.kind === 'recipe')) {
       if (!sheetId) continue;
+      const addresses = match.endpoints.map((endpoint) => {
+        const recipe = endpoint.recipe;
+        if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical')) {
+          const columnIndex = resolver.columnIndexOf?.(sheetId, recipe.value.columnId, recipe.value.propertyId);
+          return columnIndex === undefined ? undefined : { columnIndex, rowIndex: recipe.kind === 'positional-canonical' ? recipe.value.rowIndex : 0 };
+        }
+        return endpoint.coordinate && resolver.addressOf(sheetId, endpoint.coordinate);
+      });
+      if (addresses.every((address) => address !== undefined) && match.endpoints.length === 2) {
+        const [first, last] = addresses as [CellAddress, CellAddress];
+        if (match.endpoints[1].open) {
+          const low = Math.min(first.columnIndex, last.columnIndex), high = Math.max(first.columnIndex, last.columnIndex);
+          if (mappings.some(({ source }) => {
+            const address = source.sheetId === sheetId && resolver.addressOf(sheetId, source.cell);
+            return address && address.rowIndex >= first.rowIndex && address.columnIndex >= low && address.columnIndex <= high;
+          })) return { ok: false, reason: 'unrepresentable-range' };
+        } else {
+          const moved = geometry(sheetId, [first, last]);
+          if (!moved.ok) return moved;
+        }
+      }
       const targets = match.endpoints.map((endpoint) => {
         if (endpoint.kind === 'recipe') return { sheetId, endpoint };
         const mapping = mappings.find(({ source }) => source.sheetId === sheetId && source.cell.columnId === endpoint.coordinate?.columnId && source.cell.rowId === endpoint.coordinate.rowId);
         return { sheetId: mapping?.destination.sheetId ?? sheetId, endpoint, coordinate: mapping?.destination.cell };
       });
       if (targets.some((target) => target.sheetId !== sheetId)) return { ok: false, reason: 'unrepresentable-range' };
-      for (const target of targets) {
-        if (!target.coordinate) continue;
-        const named = target.endpoint.propertyId ? resolver.namedAddressAt?.(sheetId, target.coordinate) : undefined;
-        edits.push({ ...target.endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(target.coordinate, target.endpoint.anchors, named?.propertyId, target.endpoint.open) });
+      const properties = targets.map(({ endpoint, coordinate }) => {
+        if (endpoint.recipe && 'propertyId' in endpoint.recipe.value) return endpoint.recipe.value.propertyId;
+        return coordinate && endpoint.propertyId ? resolver.namedAddressAt?.(sheetId, coordinate)?.propertyId : endpoint.propertyId;
+      });
+      const useNamed = targets.length === 1 || properties.every(Boolean);
+      for (const [index, target] of targets.entries()) {
+        const recipe = target.endpoint.recipe;
+        const coordinate = target.coordinate ?? (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical') ? { columnId: recipe.value.columnId, rowIndex: recipe.kind === 'positional-canonical' ? recipe.value.rowIndex : 0 } : undefined);
+        if (!coordinate || (!target.coordinate && (useNamed || !properties[index]))) continue;
+        edits.push({ ...target.endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(coordinate, target.endpoint.anchors, useNamed ? properties[index] : undefined, target.endpoint.open) });
       }
       if (match.qualifier.kind === 'unqualified' && sheetId !== (destinationSheetId ?? resolver.currentSheetId)) edits.push({ start: match.endpoints[0].sourceSpan.start, end: match.endpoints[0].sourceSpan.start, value: `${sheetId}!` });
       continue;

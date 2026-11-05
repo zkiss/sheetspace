@@ -25,14 +25,22 @@ describe('stored formula move', () => {
   });
 
   it('moves stable mixed endpoints independently and rejects split sheets', () => {
-    const content = prepare('=SUM(@A[#1]:B[2])');
-    expect(projectStoredFormula(move(content, [mapping('B2', 'B3')]), workbook, source.id).text).toBe('=SUM(@A[#1]:B[3])');
-    expect(moveStoredFormula(content, workbook, source.id, source.id, [mapping('B2', 'B3', other)])).toEqual({ ok: false, reason: 'unrepresentable-range' });
+    const content = prepare('=SUM(@A[#1]:B[1])');
+    expect(projectStoredFormula(move(content, [mapping('A1', 'B1'), mapping('B1', 'C1')]), workbook, source.id).text).toBe('=SUM(@A[#1]:C[1])');
+    expect(moveStoredFormula(content, workbook, source.id, source.id, [mapping('B1', 'B3', other)])).toEqual({ ok: false, reason: 'unrepresentable-range' });
   });
 
   it('keeps both positional endpoints when contents move', () => {
     const content = prepare('=SUM(@A[#1]:B[#2])');
-    expect(move(content, [mapping('A1', 'A2'), mapping('B2', 'B3')])).toBe(content);
+    expect(move(content, [mapping('A1', 'A1'), mapping('B2', 'B2')])).toBe(content);
+  });
+
+  it.each([
+    ['=SUM(@A[#1]:C[1])', mapping('B1', 'E1')],
+    ['=SUM(@A[#1]:C[1])', mapping('B1', 'E1', other)],
+    ['=SUM(@A[#1]:B)', mapping('B2', 'C2')],
+  ])('rejects unrepresentable positional range moves: %s', (text, mapped) => {
+    expect(moveStoredFormula(prepare(text), workbook, source.id, source.id, [mapped])).toEqual({ ok: false, reason: 'unrepresentable-range' });
   });
 
   it('retains a positional start and open end during formula relocation', () => {
@@ -120,6 +128,9 @@ describe('stored formula move', () => {
       ['=@Revenue', [mapping('A1', 'B1')], '=@Cost[1]'],
       ['=@Revenue', [mapping('A1', 'C1')], '=@C[1]'],
       ['=SUM(@Revenue[1]:Cost[1])', [mapping('A1', 'B1'), mapping('B1', 'C1')], '=SUM(@B[1]:C[1])'],
+      ['=SUM(@Revenue[#1]:Cost[1])', [mapping('A1', 'B1'), mapping('B1', 'C1')], '=SUM(@A[#1]:C[1])'],
+      ['=SUM(@Cost[1]:Revenue[#1])', [mapping('A1', 'B1'), mapping('B1', 'C1')], '=SUM(@C[1]:A[#1])'],
+      ['=SUM(@Revenue[#1]:Cost[1])', [mapping('B1', 'A1')], '=SUM(@Revenue[#1]:Revenue[1])'],
     ] as const) {
       const content = prepareUserFormula(text, book, source.id);
       const result = move(content, [...mappings], source.id, book);
