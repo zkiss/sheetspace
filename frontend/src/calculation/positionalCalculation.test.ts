@@ -37,6 +37,23 @@ it('refreshes positional cross-sheet edges without evaluating unchanged stable r
   expect(calculation.updateStored(calculationProjection(newTarget), newTarget, { kind: 'cells', cells: [{ sheetId: 's', key: 'A1' }] }).o.C1).toMatchObject({ value: 21 });
 });
 
+it('recalculates exchanged positional operands and their dependents despite unchanged dependency sets', () => {
+  const source = sheetDocument({ id: 's', name: 'Source', rowCount: 3, columnCount: 1, cells: { A1: '1', A2: '2', A3: '4' } });
+  const output = sheetDocument({ id: 'o', name: 'Output', rowCount: 1, columnCount: 3 });
+  let workbook = workbookWithSheets([source, output]);
+  workbook = writeFormula(workbook, 'A1', '=@Source!A[#1]-@Source!A[#2]');
+  workbook = writeFormula(workbook, 'B1', '=@A[1]*2');
+  workbook = writeFormula(workbook, 'C1', '=@Source!A[#3]');
+  const calculation = new FormulaCalculation();
+  expect(calculation.updateStored(calculationProjection(workbook), workbook, { kind: 'structure' }).o).toMatchObject({ A1: { value: -1 }, B1: { value: -2 } });
+  const moved = applyAxisPermutation(workbook, 's', 'row', [source.content.rows[1]!, source.content.rows[0]!, source.content.rows[2]!]);
+  if (moved.status !== 'changed') throw new Error('Expected permutation');
+  const evaluated: string[] = [];
+  const snapshot = calculation.updateStored(calculationProjection(moved.workbook), moved.workbook, { kind: 'structure' }, (sheet, key) => evaluated.push(`${sheet}:${key}`));
+  expect(snapshot.o).toMatchObject({ A1: { value: 1 }, B1: { value: 2 }, C1: { value: 4 } });
+  expect(evaluated.sort()).toEqual(['o:A1', 'o:B1']);
+});
+
 it.each([
   ['=SUM(@Source!A[1]:A[2])', 3, 3],
   ['=SUM(@Source!A[#1]:A[#2])', 3, 6],

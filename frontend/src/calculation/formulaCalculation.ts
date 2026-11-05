@@ -27,6 +27,7 @@ import { cellIdentityFromKey } from '@workbook/core/cellIdentity';
 import type { Workbook } from '@workbook/core/model';
 import { collectFormulaReferences, parseFormula } from '@workbook/formula/syntax';
 import { builtInFormulaFunctions } from '@calculation/formulaBuiltins';
+import { resolveRowReference } from './rowReference';
 
 /**
  * Owns dependency edges and derived values for the calculation projection.
@@ -86,7 +87,7 @@ export class FormulaCalculation {
     const nextFormulaNodes = formulaNodes(nextGraph);
     const orderOnly = effectiveImpact.kind === 'structure' && this.previousProjection && isRowOrderOnly(this.previousProjection, projection);
     const impacted = effectiveImpact.kind === 'structure'
-      ? orderOnly ? orderImpactedNodes(projection, previousGraph, nextGraph, parse ?? parseFormula) : new Set(nextFormulaNodes)
+      ? orderOnly ? orderImpactedNodes(this.previousProjection!, projection, previousGraph, nextGraph, parse ?? parseFormula) : new Set(nextFormulaNodes)
       : dependentClosure(
           new Set(effectiveImpact.cells.map(({ sheetId, key }) => {
             const sheet = projection.sheets.find((candidate) => candidate.id === sheetId);
@@ -141,7 +142,7 @@ function isRowOrderOnly(previous: CalculationProjection, next: CalculationProjec
   });
 }
 
-function orderImpactedNodes(projection: CalculationProjection, previous: FormulaDependencyGraph, next: FormulaDependencyGraph, parse: ReturnType<typeof storedFormulaParser>): Set<string> {
+function orderImpactedNodes(previousProjection: CalculationProjection, projection: CalculationProjection, previous: FormulaDependencyGraph, next: FormulaDependencyGraph, parse: ReturnType<typeof storedFormulaParser>): Set<string> {
   const changed = new Set<string>();
   for (const [node, dependencies] of next.dependencies) {
     const old = previous.dependencies.get(node);
@@ -150,7 +151,14 @@ function orderImpactedNodes(projection: CalculationProjection, previous: Formula
   for (const sheet of projection.sheets) for (const [key, raw] of Object.entries(sheet.cells)) {
     if (!raw.startsWith('=')) continue;
     const parsed = parse(raw, sheet.id);
-    if (parsed.kind === 'formula' && collectFormulaReferences(parsed.expression).some((reference) => reference.kind === 'range' || (reference.kind === 'canonical' && reference.range) || (reference.kind === 'row-reference' && reference.endpoints.length > 1))) changed.add(sheetCellNodeId(sheet.id, key));
+    if (parsed.kind === 'formula' && collectFormulaReferences(parsed.expression).some((reference) => {
+      if (reference.kind === 'range' || (reference.kind === 'canonical' && reference.range) || (reference.kind === 'row-reference' && reference.endpoints.length > 1)) return true;
+      if (reference.kind !== 'row-reference' || reference.endpoints[0]?.kind !== 'positional-canonical') return false;
+      const targetId = reference.sheetId ?? sheet.id;
+      const oldSheet = previousProjection.sheets.find((candidate) => candidate.id === targetId);
+      const newSheet = projection.sheets.find((candidate) => candidate.id === targetId);
+      return oldSheet && newSheet && resolveRowReference(oldSheet, reference)?.keys[0] !== resolveRowReference(newSheet, reference)?.keys[0];
+    })) changed.add(sheetCellNodeId(sheet.id, key));
   }
   return dependentClosure(changed, previous.dependents, next.dependents);
 }
