@@ -289,12 +289,12 @@ export function useWorkspaceActionCommands({ commands, controller, sheet, workbo
     ['move-column-left', 'Move columns left', 'column', -1], ['move-column-right', 'Move columns right', 'column', 1],
   ] as const) {
     const ids = sheet ? reorderSelection(sheet, selection, activeCell, axis) : [];
-    add(id, label, 'Selection', () => {
+    add(id, label, 'Selection', run(() => {
       const live = sheet && commands.currentWorkbook().documents[sheet.id];
       if (!live) return;
       const selected = reorderSelection(live, selection, activeCell, axis);
       if (selected.length) commands.shiftAxis(live.id, axis, selected, direction);
-    }, ids.length ? undefined : 'Select a saved cell first', ['no-editing', 'native-grid']);
+    }), ids.length ? undefined : 'Select a saved cell first', ['no-editing', 'native-grid']);
   }
 
   const format = (action: FormattingAction) => run(() => formatting.descriptor.valid

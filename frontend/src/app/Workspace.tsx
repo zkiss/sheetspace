@@ -1082,7 +1082,7 @@ export function Workspace({
         propertyDefinitionInvoker.current = target;
       }
       const restoreGridFocus = dispatched?.keyboardContext?.includes('grid-focus') ?? false;
-      if (dispatchShortcut(event, eligible, restoreGridFocus ? { restoreFocus: false } : undefined)) {
+      if (dispatchShortcut(event, eligible, restoreGridFocus || dispatched?.keyboardContext?.includes('native-grid') ? { restoreFocus: false } : undefined)) {
         event.preventDefault();
         if (restoreGridFocus) onRestoreGridFocus();
         return;
