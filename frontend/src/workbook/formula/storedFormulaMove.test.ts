@@ -156,6 +156,18 @@ describe('stored formula move', () => {
     const changed = structuredClone(book);
     changed.documents.source.modelColumnBindings.revenue = "missing";
     expect(move(dead, [mapping('B1', 'C1')], source.id, changed)).toBe(dead);
+    const relocationBook = { ...changed, documents: { ...changed.documents, other: { ...changed.documents.source, id: other.id, name: other.name, modelColumnBindings: { revenue: source.content.columns[0], cost: source.content.columns[1] } } } };
+    for (const text of ['=@Revenue[#1]', '=SUM(@Revenue[#1]:Cost[1])']) {
+      const original = prepareUserFormula(text, book, source.id);
+      const relocated = move(original, [mapping('B1', 'C1')], other.id, relocationBook);
+      const analysis = analyzeStoredFormula(relocated, relocationBook, other.id);
+
+      expect(analyzeStoredFormula(original, relocationBook, other.id).references[0].live).toBe(true);
+      expect(relocated).toBe(original.replace('@', '@source!'));
+      expect(analysis.references[0].lexeme.qualifier?.value).toBe(source.id);
+      expect(analysis.references[0].live).toBe(false);
+      expect(projectStoredFormula(relocated, relocationBook, other.id).text).toContain('#REF!');
+    }
   });
 
   it('preserves mixed invalid and malformed fragments while mapping live references', () => {

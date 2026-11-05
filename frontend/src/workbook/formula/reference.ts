@@ -261,7 +261,10 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
         }
         return endpoint.propertyId && endpoint.coordinate && !resolver.namedAddressOf?.(sheetId, endpoint.propertyId, endpoint.coordinate);
       });
-      if (deadNamedBinding) continue;
+      if (deadNamedBinding) {
+        if (match.qualifier.kind === 'unqualified' && sheetId !== (destinationSheetId ?? resolver.currentSheetId)) edits.push({ start: match.endpoints[0].sourceSpan.start, end: match.endpoints[0].sourceSpan.start, value: `${sheetId}!` });
+        continue;
+      }
       const addresses = match.endpoints.map((endpoint) => {
         const recipe = endpoint.recipe;
         if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical')) {
