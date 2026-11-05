@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FormulaEditorPanel } from '@application/react/FormulaEditorPanel';
 import { projectGridAxes } from './gridAxisProjection';
@@ -15,8 +15,9 @@ function pointer(element: Element, type: string, x: number, y: number, pointerId
   Object.defineProperty(event, 'pointerId', { value: pointerId });
   fireEvent(element, event);
 }
-function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true) {
-  const sheet = tabularProjection(smallSheetDocument({ id: 'gather', name: 'Gather' }));
+function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true, long = false) {
+  const original = tabularProjection(smallSheetDocument({ id: 'gather', name: 'Gather' }));
+  const sheet = long ? { ...original, rows: Array.from({ length: 30 }, (_, i) => `row-${i}`), columns: Array.from({ length: 30 }, (_, i) => `column-${i}`) } : original;
   const ref = createRef<HTMLDivElement>();
   const gather = vi.fn(); const select = vi.fn(); const activity = vi.fn();
   const anchor = cellTargetAt(sheet, 'A1')!;
@@ -35,8 +36,74 @@ function setup(axis: 'rows' | 'columns' = 'rows', allowColumnGather = true) {
   virtualGridGeometry(ref.current!, { width: 400, height: 160 });
   return { sheet, gather, select, activity, container: ref.current!, grid: screen.getByTestId('sheet-grid'), rerender: (changes: Parameters<typeof view>[0]) => rendered.rerender(view(changes)), unmount: rendered.unmount };
 }
-afterEach(() => { cleanup(); delete (document as Partial<Document>).elementFromPoint; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); delete (document as Partial<Document>).elementFromPoint; });
 describe('header gather controls', () => {
+  it.each(['rows', 'columns'] as const)('scrolls %s at a scaled edge and releases the stationary pointer at its updated gap', (axis) => {
+    let callback: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((next) => { callback = next; return 1; });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { callback = undefined; });
+    const { sheet, gather, grid, container, activity } = setup(axis, true, true);
+    Object.defineProperties(container, { scrollHeight: { configurable: true, value: 900 }, scrollWidth: { configurable: true, value: 3000 } });
+    container.getBoundingClientRect = () => testRect({ left: 10, top: 10, width: 200, height: 80 });
+    const row = axis === 'rows';
+    const x = row ? 20 : 205; const y = row ? 85 : 15;
+    pointer(screen.getByRole('button', { name: row ? 'Drag row 1' : 'Drag column A' }), 'pointerdown', 20, 25);
+    pointer(grid, 'pointermove', x, y);
+    const before = screen.getByTestId('axis-gather-preview').getAttribute('style');
+    expect(callback).toBeDefined();
+    act(() => { const next = callback!; callback = undefined; next(16); });
+    expect(row ? container.scrollTop : container.scrollLeft).toBeGreaterThan(12);
+    act(() => { for (let i = 0; i < 5 && callback; i++) { const next = callback; callback = undefined; next(32 + i * 16); } });
+    expect(screen.getByTestId('axis-gather-preview').getAttribute('style')).not.toBe(before);
+    expect(activity).toHaveBeenLastCalledWith(sheet.id, true);
+    pointer(grid, 'pointerup', x, y);
+    expect(gather).toHaveBeenCalledTimes(1);
+    expect(callback).toBeUndefined();
+  });
+  it('updates the stationary target on external scrolling and cancels queued work over an invalid surface', () => {
+    let callback: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((next) => { callback = next; return 1; });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { callback = undefined; });
+    const { gather, grid, container } = setup('rows', true, true);
+    Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 900 });
+    const surface = vi.fn((): Element | null => grid);
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: surface });
+    pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', 20, 155);
+    const before = screen.getByTestId('axis-gather-preview').getAttribute('style');
+    container.scrollTop = 80;
+    fireEvent.scroll(container);
+    expect(screen.getByTestId('axis-gather-preview').getAttribute('style')).not.toBe(before);
+    expect(callback).toBeDefined();
+    surface.mockReturnValue(null);
+    fireEvent.scroll(container);
+    expect(callback).toBeUndefined();
+    expect(screen.queryByTestId('axis-gather-preview')).not.toBeInTheDocument();
+    pointer(grid, 'pointerup', 20, 155);
+    expect(gather).not.toHaveBeenCalled();
+  });
+  it('stops at scroll bounds and restarts in the opposite direction without retaining cancelled work', () => {
+    let callback: FrameRequestCallback | undefined;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((next) => { callback = next; return 1; });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { callback = undefined; });
+    const { grid, container, gather } = setup('rows', true, true);
+    Object.defineProperty(container, 'scrollHeight', { configurable: true, value: 200 });
+    const button = screen.getByRole('button', { name: 'Drag row 1' });
+    pointer(button, 'pointerdown', 20, 30);
+    pointer(grid, 'pointermove', 20, 155);
+    act(() => { for (let i = 0; i < 10 && callback; i++) { const next = callback; callback = undefined; next(i * 16); } });
+    expect(container.scrollTop).toBe(40);
+    expect(callback).toBeUndefined();
+    pointer(grid, 'pointermove', 20, 30);
+    expect(callback).toBeDefined();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(callback).toBeUndefined();
+    pointer(grid, 'pointerup', 20, 25);
+    expect(gather).not.toHaveBeenCalled();
+    pointer(button, 'pointerdown', 20, 30);
+    pointer(grid, 'pointerup', 20, 30);
+    expect(gather).not.toHaveBeenCalled();
+  });
   it('gathers scattered selected rows at the original gap without selecting again', () => {
     const { sheet, gather, select, activity, grid } = setup();
     pointer(screen.getByRole('button', { name: 'Drag row 1' }), 'pointerdown', 20, 30);

@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 import type { SheetTabularProjection } from '@workbook/core/model';
 import { cellKey } from '@workbook/core/address';
 import { cellTargetAt } from './cellInteraction';
@@ -22,16 +22,19 @@ type Options = {
 };
 type Session = { axis: Axis; ids: readonly string[]; order: readonly string[]; sheetId: string; modelId?: string; owner: symbol | null | undefined;
   gesture?: symbol; awaitingOwner: boolean; selection?: CellSelection | null; activeSheetId: string | null | undefined; pointerId: number; element: HTMLElement;
-  x: number; y: number; moved: boolean; focusTarget?: CellTarget };
+  x: number; y: number; clientX: number; clientY: number; moved: boolean; focusTarget?: CellTarget };
 type Preview = { axis: Axis; start: number; size: number; gap: number };
 
 export function useAxisGather(options: Options) {
   const latest = useRef(options); latest.current = options;
   const session = useRef<Session | null>(null);
+  const frame = useRef<number | null>(null);
   const [active, setActive] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const cancel = useCallback(() => {
     const current = session.current; session.current = null;
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
     setActive(false); setPreview(null);
     if (current?.element.hasPointerCapture?.(current.pointerId)) current.element.releasePointerCapture(current.pointerId);
     if (current?.gesture) latest.current.settle?.(current.gesture);
@@ -74,6 +77,47 @@ export function useAxisGather(options: Options) {
     const block = axisGatherBlock(entries, metrics, current.ids, gap);
     return block ? { axis: current.axis, gap, ...block } : null;
   }
+  function update() {
+    const current = session.current; const container = latest.current.scrollContainerRef.current;
+    if (!current || !container || !owns()) { if (current) cancel(); return; }
+    const result = current.moved ? target(current.clientX, current.clientY) : null;
+    setPreview(result);
+    if (!result) {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
+      return;
+    }
+    if (frame.current !== null) return;
+    const rect = container.getBoundingClientRect();
+    const row = current.axis === 'row';
+    const scale = row ? rect.height / container.offsetHeight : rect.width / container.offsetWidth;
+    if (!Number.isFinite(scale) || scale <= 0) return;
+    const position = row ? current.clientY - rect.top : current.clientX - rect.left;
+    const start = ((row ? container.clientTop + GRID_COLUMN_HEADER_HEIGHT : container.clientLeft + GRID_ROW_HEADER_WIDTH) * scale);
+    const end = ((row ? container.clientTop + container.clientHeight : container.clientLeft + container.clientWidth) * scale);
+    const edge = 32;
+    const velocity = position < start + edge ? -Math.min(1, (start + edge - position) / edge)
+      : position > end - edge ? Math.min(1, (position - end + edge) / edge) : 0;
+    const scroll = row ? container.scrollTop : container.scrollLeft;
+    const max = row ? container.scrollHeight - container.clientHeight : container.scrollWidth - container.clientWidth;
+    if (!velocity || (velocity < 0 ? scroll <= 0 : scroll >= max)) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      if (session.current !== current || !owns()) { if (session.current === current) cancel(); return; }
+      if (!target(current.clientX, current.clientY)) { setPreview(null); return; }
+      const before = row ? container.scrollTop : container.scrollLeft;
+      const value = Math.max(0, Math.min(max, before + velocity * 12 / scale));
+      if (row) container.scrollTop = value; else container.scrollLeft = value;
+      if ((row ? container.scrollTop : container.scrollLeft) !== before) update();
+    });
+  }
+  const updateRef = useRef(update); updateRef.current = update;
+  useEffect(() => {
+    const container = options.scrollContainerRef.current;
+    const onScroll = () => updateRef.current();
+    container?.addEventListener('scroll', onScroll);
+    return () => container?.removeEventListener('scroll', onScroll);
+  }, [options.scrollContainerRef]);
   function start(event: PointerEvent<HTMLButtonElement>, axis: Axis, id: string) {
     event.stopPropagation();
     const next = latest.current; const element = next.gridRef.current;
@@ -96,14 +140,17 @@ export function useAxisGather(options: Options) {
     }
     session.current = { axis, ids, order: [...(axis === 'row' ? next.sheet.rows : next.sheet.columns)], sheetId: next.sheet.id, modelId: next.modelId,
       owner: next.selectionOwner, gesture, awaitingOwner: Boolean(gesture), selection: next.selection, activeSheetId: next.activeSheetId,
-      pointerId: event.pointerId, element, x: event.clientX, y: event.clientY, moved: false, focusTarget };
+      pointerId: event.pointerId, element, x: event.clientX, y: event.clientY, clientX: event.clientX, clientY: event.clientY, moved: false, focusTarget };
     setActive(true); element.setPointerCapture?.(event.pointerId);
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const current = session.current; if (!current || current.pointerId !== event.pointerId) return;
     if (!owns()) { cancel(); return; }
     if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > 4) current.moved = true;
-    setPreview(current.moved ? target(event.clientX, event.clientY) : null);
+    current.clientX = event.clientX; current.clientY = event.clientY;
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    update();
   }
   function stop(event: PointerEvent<HTMLDivElement>) {
     const current = session.current; if (!current || current.pointerId !== event.pointerId) return;
