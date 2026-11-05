@@ -427,16 +427,26 @@ export function SheetGrid({
   useEffect(() => {
     if (!activeAddress) { revealedActiveCell.current = null; return; }
     if (!revealEnabled) return;
-    if (!scrollContainerRef.current) return;
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
     const identity = `${sheet.id}:${activeCellKey}`;
     if (revealedActiveCell.current === identity) return;
     const rowIndex = axisIndexForDurableIndex(rows, activeAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, activeAddress.columnIndex);
     if (rowIndex === undefined || columnIndex === undefined) return;
     revealedActiveCell.current = identity;
-    rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
-    columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
-  }, [revealEnabled, activeAddress, activeCellKey, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
+    if (scrollContainer.clientWidth && scrollContainer.clientHeight) {
+      const reveal = gridCellReveal({ rows: rowMetrics, columns: columnMetrics }, { row: rowIndex, column: columnIndex }, {
+        width: scrollContainer.clientWidth, height: scrollContainer.clientHeight,
+        left: scrollContainer.scrollLeft, top: scrollContainer.scrollTop,
+      });
+      if (reveal.row) scrollContainer.scrollTop = reveal.row.scroll;
+      if (reveal.column) scrollContainer.scrollLeft = reveal.column.scroll;
+    } else {
+      rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
+      columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
+    }
+  }, [revealEnabled, activeAddress, activeCellKey, columnMetrics, rowMetrics, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
   useEffect(() => {
     if (navigationRequestGeneration == null) return;
     if (!revealEnabled || (ownsGridRestore && !ownsGridRestore(sheet.id, navigationRequestGeneration))) return;
