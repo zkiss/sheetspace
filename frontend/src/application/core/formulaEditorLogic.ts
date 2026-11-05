@@ -3,6 +3,7 @@ import type { FormulaScalarValue } from '@calculation/formulaValue';
 import { analyzeFormulaSyntax, type FormulaReferenceResolver } from '@workbook/formula/reference';
 import { rangeReferenceIdentity, type FormulaReferenceIdentity } from '@workbook/core/referenceIdentity';
 import { formatPropertyReferenceToken, formatSheetReferenceToken, parseFormulaSyntax, type FormulaReference, type FormulaSourceSpan, type FormulaSyntaxResult, type FormulaSyntaxToken } from '@workbook/formula/syntax';
+import { rowReferenceTarget } from '@workbook/formula/rowReferenceTarget';
 
 export type FormulaEditorSelection = { start: number; end: number };
 export type FormulaCompletion = {
@@ -118,7 +119,11 @@ export function outdentFormulaSelection(raw: string, selection: FormulaEditorSel
 
 /** A stable target identity is independent of raw spelling and source position. */
 export function stableReferenceIdentity(reference: FormulaReference, resolver: FormulaReferenceResolver): FormulaReferenceIdentity | undefined {
-  if (reference.kind === 'row-reference') return undefined;
+  if (reference.kind === 'row-reference') {
+    const target = rowReferenceTarget(reference, resolver);
+    if (!target) return undefined;
+    return target.end ? rangeReferenceIdentity(target.sheetId, target.start, target.end) : { kind: 'cell', sheetId: target.sheetId, ...target.start };
+  }
   const sheetId = reference.kind === 'canonical'
     ? reference.sheetId ?? resolver.currentSheetId
     : reference.sheetId === undefined ? resolver.currentSheetId : resolver.sheetByQualifier(reference.sheetId);

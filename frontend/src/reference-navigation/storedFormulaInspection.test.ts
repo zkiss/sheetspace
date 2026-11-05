@@ -6,6 +6,21 @@ import { projectStoredFormula } from '@workbook/formula/storedFormulaProjection'
 import { inspectFormula, inspectStoredFormula, navigableReferencesAtCaret } from './formulaInspection';
 
 describe('stored formula inspection', () => {
+  it('resolves positional and mixed references against the current row order', () => {
+    const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 3, columnCount: 1 });
+    const other = sheetDocument({ id: 'other', name: 'Other', rowCount: 1, columnCount: 1 });
+    const workbook = workbookWithSheets([source, other]);
+    const content = prepareUserFormula('=@Source!A[#$2]+SUM(@Source!A[1]:A[#2])+@Source!A[#9]', workbook, other.id);
+    const reordered = { ...source, content: { ...source.content, rows: [...source.content.rows].reverse() } };
+    const updated = workbookWithSheets([reordered, other]);
+    const inspection = inspectStoredFormula(content, updated, other)!;
+    expect(inspection.raw).toContain('@Source!A[#$2]');
+    expect(inspection.references[0]).toMatchObject({ navigable: true, target: { sheetId: source.id, identity: { rowId: source.content.rows[1] } } });
+    expect(inspection.references[1]).toMatchObject({ navigable: true, target: { sheetId: source.id, range: { start: { rowId: source.content.rows[0] }, end: { rowId: source.content.rows[1] } } } });
+    expect(inspection.references[2]).toMatchObject({ broken: true, navigable: false });
+    expect(inspectFormula('=@Source!A[#2]', updated, other)?.references[0]).toMatchObject({ navigable: true, target: { sheetId: source.id, identity: { rowId: source.content.rows[1] } } });
+    expect(inspectFormula(content, updated, other)?.references[0]).toMatchObject({ navigable: true, target: { sheetId: source.id, identity: { rowId: source.content.rows[1] } } });
+  });
   it('navigates local and qualified ordinary named cells and ranges after renaming', () => {
     const source = sheetDocument({ id: 'source', name: 'Source', rowCount: 2, columnCount: 2 });
     const named = { ...source, columnNames: { [source.content.columns[0]!]: 'First', [source.content.columns[1]!]: 'Second' } };

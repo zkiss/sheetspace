@@ -3,6 +3,7 @@ import { namedColumns } from '../core/columnNames';
 import type { SheetId, Workbook } from '../core/model';
 import { findSheetById, sheetsInOrder } from '../read/queries';
 import { formulaMoveGeometry } from './formulaMoveGeometry';
+import { rowReferenceTarget } from './rowReferenceTarget';
 import type { FormulaCoordinate, FormulaMoveMapping, FormulaReferenceResolver } from './formulaTransformTypes';
 import type { FormulaPositionalCoordinate } from './syntaxTypes';
 export type { FormulaCoordinate, FormulaMoveMapping, FormulaMoveTarget, FormulaReferenceResolver } from './formulaTransformTypes';
@@ -54,7 +55,10 @@ function namedColumnPredicate(resolver?: FormulaReferenceResolver) {
 export function analyzeFormulaSyntax(raw: string, resolver: FormulaReferenceResolver, stored = false): FormulaSyntaxResult {
   const analysis = parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn: stored ? undefined : namedColumnPredicate(resolver), stored });
   const diagnostics = analysis.referenceLexemes.map(matchFromLexeme)
-    .filter((match) => stored && !match.canonical || !referenceMatchResolves(match, resolver))
+    .filter((match) => {
+      const rowReference = analysis.references.find((reference) => reference.kind === 'row-reference' && reference.sourceSpan.start === match.sourceSpan.start);
+      return rowReference?.kind === 'row-reference' ? !rowReferenceTarget(rowReference, resolver) : stored && !match.canonical || !referenceMatchResolves(match, resolver);
+    })
     .map((match) => ({ kind: 'reference' as const, code: '#REF!' as const, sourceSpan: match.sourceSpan }));
   const references = analysis.references.map((reference) => stored ? reference : resolveNamedReference(reference, resolver));
   const resolvedByStart = new Map(references.map((reference) => [reference.sourceSpan.start, reference]));
