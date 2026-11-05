@@ -109,6 +109,15 @@ describe('live identity-based grid travel', () => {
     expect(effects.every((effect) => effect.cancel.mock.calls.length > 0)).toBe(true);
   });
 
+  it('does not treat an unrelated gesture settlement as authority to animate a simultaneous reorder', () => {
+    const { sheet, move, update } = setup();
+    update({ selectionOwner: Symbol('other gesture') });
+    move([...sheet.rows].reverse(), sheet.columns, { selectionOwner: null });
+    expect(animation.effects).toHaveLength(0);
+    move(sheet.rows);
+    expect(animation.effects.length).toBeGreaterThan(0);
+  });
+
   it('does not animate initial, unchanged or content-only projections or replay reduced-motion changes', () => {
     const { sheet, move, update } = setup();
     expect(animation.effects).toHaveLength(0);

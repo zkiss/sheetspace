@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject, type MutableRefObject } from 'react';
 import { axisMotionSnapshot, planAxisMotion, type AxisMotionSnapshot } from './gridAxisMotion';
 import { animateGridAxes, type GridAxisMotionPlan } from './gridAxisMotionEffects';
 import type { GridAxisProjection } from './gridAxisProjection';
@@ -12,7 +12,7 @@ function topology(items: AxisMotionSnapshot) {
     items.flatMap((item, index) => item.saved ? [] : [[index, item.key, item.size]])];
 }
 
-export function useGridAxisMotion({ gridRef, scrollContainerRef, projection, rowMetrics, columnMetrics, sheetId, activeSheetId, owner, enabled }: {
+export function useGridAxisMotion({ gridRef, scrollContainerRef, projection, rowMetrics, columnMetrics, sheetId, activeSheetId, owner, completedGatherOwner, enabled }: {
   gridRef: RefObject<HTMLDivElement>;
   scrollContainerRef: RefObject<HTMLElement>;
   projection: GridAxisProjection;
@@ -21,6 +21,7 @@ export function useGridAxisMotion({ gridRef, scrollContainerRef, projection, row
   sheetId: string;
   activeSheetId?: string | null;
   owner?: symbol | null;
+  completedGatherOwner?: MutableRefObject<symbol | null>;
   enabled: boolean;
 }) {
   const previous = useRef<Snapshot>();
@@ -59,9 +60,12 @@ export function useGridAxisMotion({ gridRef, scrollContainerRef, projection, row
     const allowed = enabled && !reduced && (activeSheetId === undefined || activeSheetId === sheetId);
     const context = JSON.stringify([sheetId, activeSheetId, allowed, topology(rows), topology(columns)]);
     const before = previous.current;
+    // Successful gather settlement and its order commit share a React batch, unlike superseding intent.
+    const settledGather = owner === null && before?.owner != null && before.owner === completedGatherOwner?.current;
+    if (completedGatherOwner) completedGatherOwner.current = null;
     previous.current = { rows, columns, context, owner };
     if (!before) return;
-    if (before.context !== context || before.owner !== owner || !allowed) { clear(); return; }
+    if (before.context !== context || (before.owner !== owner && !settledGather) || !allowed) { clear(); return; }
     if (JSON.stringify([before.rows, before.columns]) === JSON.stringify([rows, columns])) return;
     const next = { rows: planAxisMotion(before.rows, rows, top, height), columns: planAxisMotion(before.columns, columns, left, width) };
     clear();
@@ -69,7 +73,7 @@ export function useGridAxisMotion({ gridRef, scrollContainerRef, projection, row
       activePlan.current = next;
       setPlan(next);
     }
-  }, [scrollContainerRef, projection.rows, projection.columns, rowMetrics, columnMetrics, enabled, activeSheetId, sheetId, owner, clear, reduced]);
+  }, [scrollContainerRef, projection.rows, projection.columns, rowMetrics, columnMetrics, enabled, activeSheetId, sheetId, owner, completedGatherOwner, clear, reduced]);
   useLayoutEffect(() => {
     if (!plan || !gridRef.current) return;
     const cancel = animateGridAxes(gridRef.current, plan, () => {

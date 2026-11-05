@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject, type MutableRefObject } from 'react';
 import type { SheetTabularProjection } from '@workbook/core/model';
 import { cellKey } from '@workbook/core/address';
 import { cellTargetAt } from './cellInteraction';
@@ -17,6 +17,7 @@ type Options = {
   columns: GridAxisProjection['columns']; rows: GridAxisProjection['rows'];
   columnMetrics: GridAxisMetrics; rowMetrics: GridAxisMetrics;
   gridRef: RefObject<HTMLDivElement>; scrollContainerRef: RefObject<HTMLElement>;
+  completedGatherOwner?: MutableRefObject<symbol | null>;
   select?: (mode: 'rows' | 'columns', target: CellTarget, extend: boolean, gesture?: SelectionGesture) => void;
   settle?: (owner: symbol) => void; focus?: (target: CellTarget) => void; gather?: (axis: Axis, ids: readonly string[], gap: number) => void;
 };
@@ -157,6 +158,7 @@ export function useAxisGather(options: Options) {
     const valid = owns() && (!current.awaitingOwner || latest.current.selectionOwner === undefined);
     const moved = current.moved || Math.hypot(event.clientX - current.x, event.clientY - current.y) > 4;
     const result = valid && moved ? target(event.clientX, event.clientY) : null;
+    if (result && latest.current.completedGatherOwner) latest.current.completedGatherOwner.current = current.gesture ?? null;
     if (valid && current.focusTarget) latest.current.focus?.(current.focusTarget);
     cancel();
     if (result) latest.current.gather?.(current.axis, current.ids, result.gap);

@@ -213,6 +213,7 @@ export function SheetGrid({
   const revealedHistoryIdentity = useRef<string>();
   const revealedNavigationIdentity = useRef<number>();
   const gridRef = useRef<HTMLDivElement>(null);
+  const completedGatherOwner = useRef<symbol | null>(null);
   const nextGridFocusRequestId = useRef(1);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const rowHeaderRef = useRef<HTMLDivElement>(null);
@@ -224,14 +225,14 @@ export function SheetGrid({
   const rowMetrics = axisMetrics?.rows ?? projectedMetrics.rows;
   const columnMetrics = axisMetrics?.columns ?? projectedMetrics.columns;
   const motion = useGridAxisMotion({ gridRef, scrollContainerRef, projection: axisProjection, rowMetrics, columnMetrics,
-    sheetId: sheet.id, activeSheetId, owner: selectionOwner, enabled: interactionsEnabled });
+    sheetId: sheet.id, activeSheetId, owner: selectionOwner, completedGatherOwner, enabled: interactionsEnabled });
   const rowItemKey = useCallback((index: number) => rowMetrics.itemKey(index) ?? index, [rowMetrics]);
   const columnItemKey = useCallback((index: number) => columnMetrics.itemKey(index) ?? index, [columnMetrics]);
   const rowItemSize = useCallback((index: number) => rowMetrics.itemSize(index) ?? 0, [rowMetrics]);
   const columnItemSize = useCallback((index: number) => columnMetrics.itemSize(index) ?? 0, [columnMetrics]);
   const gather = useAxisGather({ sheet, selection: logicalSelection, selectionOwner, activeSheetId,
     enabled: interactionsEnabled, allowColumns: allowColumnGather, modelId, columns, rows, columnMetrics, rowMetrics,
-    gridRef, scrollContainerRef, select: onSelectAxis, settle: cellInteraction.settleSelectionGesture, focus: cellInteraction.focusSelection, gather: onGatherAxis });
+    gridRef, scrollContainerRef, completedGatherOwner, select: onSelectAxis, settle: cellInteraction.settleSelectionGesture, focus: cellInteraction.focusSelection, gather: onGatherAxis });
   useOwnedScroll(scrollContainerRef, ownedScroll);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(scrollContainerRef.current);
   const [gridEntryFocusIntent, setGridEntryFocusIntent] = useState<GridFocusIntent | null>(null);
