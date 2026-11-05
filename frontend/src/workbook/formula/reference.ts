@@ -200,30 +200,45 @@ function displayProjection(raw: string, resolver: FormulaReferenceResolver, opti
   };
 }
 
-export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, destination: FormulaCoordinate, resolver: FormulaReferenceResolver, context: FormulaCopyContext = {}): FormulaTransformResult {
+export function copyCanonicalFormula(raw: string, source: FormulaCoordinate, destination: FormulaCoordinate, resolver: FormulaReferenceResolver, context: FormulaCopyContext = {}, options: { stored?: boolean } = {}): FormulaTransformResult {
   const sourceSheetId = context.sourceSheetId ?? resolver.currentSheetId; const destinationSheetId = context.destinationSheetId ?? sourceSheetId;
   const origin = resolver.addressOf(sourceSheetId, source); const target = resolver.addressOf(destinationSheetId, destination);
   if (!origin || !target) return { ok: false, reason: 'unresolved-coordinate' };
   const edits: Edit[] = [];
-  for (const match of canonicalMatches(raw)) {
+  for (const match of lexemeMatches(raw, undefined, options).filter((item) => item.canonical)) {
     const originalSheet = targetSheet(match.qualifier, sourceSheetId);
     if (!originalSheet) return { ok: false, reason: 'unresolved-coordinate' };
     const resultSheet = match.qualifier.kind === 'unqualified' ? destinationSheetId : originalSheet;
-    const translated = [];
+    const translated: { endpoint: Endpoint; coordinate: FormulaCoordinate | FormulaPositionalCoordinate; propertyId?: string }[] = [];
     for (const endpoint of match.endpoints) {
+      const recipe = endpoint.recipe;
+      if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical')) {
+        const propertyId = recipe.value.propertyId;
+        const columnIndex = resolver.columnIndexOf?.(originalSheet, recipe.value.columnId, propertyId);
+        if (columnIndex === undefined) return { ok: false, reason: 'unresolved-coordinate' };
+        const rowIndex = recipe.kind === 'positional-canonical' ? recipe.value.rowIndex : 0;
+        const address = translateCopyAddress({ columnIndex, rowIndex }, endpoint.anchors, origin, target);
+        const column = resolver.columnAt?.(resultSheet, address.columnIndex);
+        if (!column || (!endpoint.open && (!Number.isSafeInteger(address.rowIndex) || address.rowIndex < 0 || address.rowIndex >= Number.MAX_SAFE_INTEGER))) return { ok: false, reason: 'unresolved-coordinate' };
+        translated.push({ endpoint, coordinate: { columnId: column.columnId, rowIndex: address.rowIndex }, ...(propertyId && column.propertyId ? { propertyId: column.propertyId } : {}) });
+        continue;
+      }
       const address = endpoint.coordinate && resolver.addressOf(originalSheet, endpoint.coordinate);
       if (!address) return { ok: false, reason: 'unresolved-coordinate' };
       const translatedAddress = translateCopyAddress(address, endpoint.anchors, origin, target);
-      if (endpoint.open && translated[0]) translatedAddress.rowIndex = resolver.addressOf(resultSheet, translated[0].coordinate)!.rowIndex;
+      if (endpoint.open && translated[0]) {
+        const first = translated[0].coordinate;
+        translatedAddress.rowIndex = 'rowIndex' in first ? first.rowIndex : resolver.addressOf(resultSheet, first)!.rowIndex;
+      }
       const coordinate = resolver.coordinateAt(resultSheet, translatedAddress);
       if (!coordinate) return { ok: false, reason: 'unresolved-coordinate' };
       if (endpoint.propertyId && !resolver.namedAddressOf?.(originalSheet, endpoint.propertyId, endpoint.coordinate!)) return { ok: false, reason: 'unresolved-coordinate' };
-      translated.push({ endpoint, coordinate, named: endpoint.propertyId && resolver.namedAddressAt?.(resultSheet, coordinate) });
+      const named = endpoint.propertyId && resolver.namedAddressAt?.(resultSheet, coordinate);
+      translated.push({ endpoint, coordinate, ...(named ? { propertyId: named.propertyId } : {}) });
     }
-    const useNamedRange = translated.length === 2 && translated.every(({ named }) => named);
-    for (const { endpoint, coordinate, named } of translated) {
-      const useNamedEndpoint = named && (translated.length === 1 || useNamedRange);
-      edits.push({ ...endpoint.sourceSpan, value: endpoint.open ? formatOpenCanonical(coordinate, endpoint.anchors, useNamedEndpoint ? named.propertyId : undefined) : useNamedEndpoint ? formatNamedCanonical(named.propertyId, coordinate, endpoint.anchors) : formatCanonical(coordinate, endpoint.anchors) });
+    const useNamedRange = translated.length === 2 && translated.every(({ propertyId }) => propertyId);
+    for (const { endpoint, coordinate, propertyId } of translated) {
+      edits.push({ ...endpoint.sourceSpan, value: formatCanonicalFormulaEndpoint(coordinate, endpoint.anchors, translated.length === 1 || useNamedRange ? propertyId : undefined, endpoint.open) });
     }
   }
   return { ok: true, raw: applyEdits(raw, edits) };
@@ -272,6 +287,8 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
   const sheet = (id: SheetId) => workbook.documents[id];
   const namedAddressOf = (sheetId: SheetId, propertyId: string, coordinate: FormulaCoordinate) => { const document = sheet(sheetId); const property = document && namedColumns(workbook, document).find((column) => column.id === propertyId && column.columnId === coordinate.columnId); if (!document || !property) return undefined; const rowIndex = document.content.rows.indexOf(coordinate.rowId); const columnIndex = document.content.columns.indexOf(coordinate.columnId); return rowIndex < 0 || columnIndex < 0 ? undefined : { name: property.name, address: { rowIndex, columnIndex } }; };
   return { currentSheetId,
+    columnIndexOf: (sheetId, columnId, propertyId) => { const document = sheet(sheetId); const index = document?.content.columns.indexOf(columnId) ?? -1; return index < 0 || (propertyId && !namedColumns(workbook, document!).some((column) => column.id === propertyId && column.columnId === columnId)) ? undefined : index; },
+    columnAt: (sheetId, index) => { const document = sheet(sheetId); const columnId = document?.content.columns[index]; if (!document || !columnId) return undefined; const property = namedColumns(workbook, document).find((item) => item.columnId === columnId); return { columnId, ...(property ? { propertyId: property.id } : {}) }; },
     lastRowId: (sheetId) => sheet(sheetId)?.content.rows.slice(-1)[0],
     sheetByQualifier: (qualifier) => Object.values(workbook.documents).find((entry) => entry.id === qualifier || entry.name === qualifier)?.id,
     displaySheetQualifier: (sheetId) => { const name = sheet(sheetId)?.name; return name && (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`); },
