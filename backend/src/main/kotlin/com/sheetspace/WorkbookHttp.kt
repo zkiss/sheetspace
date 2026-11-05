@@ -29,6 +29,9 @@ data class PresentationWriteRequest(val writes: List<AxisSizeWrite> = emptyList(
 data class AxisOrderRequest(val axis: String, val order: List<String>)
 
 @Serializable
+data class SortingWriteRequest(val sorting: List<SortCriterion>, val order: List<String>)
+
+@Serializable
 data class HealthResponse(val status: String, val service: String)
 
 @Serializable
@@ -240,6 +243,17 @@ fun Application.configureHttp(workbookApplication: WorkbookApplication) {
             }
         }
 
+        put("/api/sheets/{sheetId}/sorting") {
+            val sheetId = call.parameters["sheetId"] ?: return@put call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
+            if (!call.requireExistingSheet(workbookApplication, sheetId)) return@put
+            val expectedRevision = call.expectedSheetRevision() ?: return@put
+            val request = call.receiveRequest<SortingWriteRequest>() ?: return@put
+            call.respondApplicationResult {
+                val sheet = workbookApplication.writeSorting(sheetId, expectedRevision, request.sorting, request.order)
+                call.respond(WorkbookReadTransportAdapter.sheetDocument(sheet))
+            }
+        }
+
         put("/api/sheets/{sheetId}/axis-order") {
             val sheetId = call.parameters["sheetId"] ?: return@put call.respondError(HttpStatusCode.BadRequest, "sheet-id-required")
             if (!call.requireExistingSheet(workbookApplication, sheetId)) return@put
@@ -403,6 +417,7 @@ private suspend fun ApplicationCall.respondApplicationError(error: WorkbookAppli
         WorkbookApplicationError.BOUND_SHEET_STRUCTURE -> HttpStatusCode.BadRequest to "bound-sheet-structure"
         WorkbookApplicationError.INVALID_MODEL_RECORD -> HttpStatusCode.BadRequest to "invalid-model-record"
         WorkbookApplicationError.INVALID_AXIS_ORDER -> HttpStatusCode.BadRequest to "invalid-axis-order"
+        WorkbookApplicationError.INVALID_SORTING -> HttpStatusCode.BadRequest to "invalid-sorting"
     }
     respondError(status, code)
 }

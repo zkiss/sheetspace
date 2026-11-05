@@ -159,6 +159,11 @@ function encodePathSegment(value: string): string {
 }
 
 export const workbookApi = {
+  writeSorting(sheetId: string, sorting: readonly SortCriterion[], order: readonly string[], revision: number): Promise<SheetDocument> {
+    return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/sorting`, {
+      method: 'PUT', body: JSON.stringify({ sorting, order }), headers: revisionHeaders({ revision }),
+    }).then(decodeSheetDocument);
+  },
   writeAxisOrder(sheetId: string, axis: 'row' | 'column', order: readonly string[], revision: number): Promise<SheetDocument> {
     return requestJson<SheetDocumentResponse>(`/api/sheets/${encodePathSegment(sheetId)}/axis-order`, {
       method: 'PUT', body: JSON.stringify({ axis, order }), headers: revisionHeaders({ revision }),

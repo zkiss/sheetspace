@@ -10,6 +10,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   /** Transactions that failed recovery must prove their original state again before manual retry. */
   private readonly unsafeCellWriteFailures = new Map<WorkbookOperationId, unknown>();
   private readonly unsafeAxisOrderFailures = new Map<WorkbookOperationId, unknown>();
+  private readonly unsafeSortingFailures = new Map<WorkbookOperationId, unknown>();
 
   constructor(
     private readonly api: Partial<WorkbookApi> = {},
@@ -46,6 +47,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
   private async executeWithRetry(operationId: WorkbookOperationId | undefined, intent: WorkbookPersistenceIntent, affectedSheetIds: readonly SheetId[]) {
     // A structural snapshot is a compare-and-swap, never a revision-only replay.
     if (intent.kind === 'model-lifecycle') return this.request(intent);
+    if (intent.kind === 'write-sorting') return this.writeSorting(operationId, intent);
     if (intent.kind === 'write-axis-order') return this.writeAxisOrder(operationId, intent);
     if (intent.kind === 'write-cells' && operationId !== undefined && this.unsafeCellWriteFailures.has(operationId)) {
       const recovered = await this.recoverUnsafeCellWrite(operationId, intent);
@@ -67,6 +69,42 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
         return saved.kind === 'saved' ? { ...saved, missingSheetIds } : saved;
       }
       return this.request(intent);
+    }
+  }
+  private async writeSorting(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-sorting' }>): Promise<TransportResult> {
+    if (operationId === undefined || this.revision(intent.sheetId) === undefined) return { kind: 'blocked', reason: 'Missing operation ID or revision for sorting.' };
+    const matches = (sheet: SheetDocument, state: typeof intent.before) =>
+      sheet.content.rows.length === state.rows.length && sheet.content.rows.every((id, index) => id === state.rows[index])
+      && (sheet.sorting ?? []).length === state.sorting.length && (sheet.sorting ?? []).every((criterion, index) =>
+        criterion.columnId === state.sorting[index].columnId && criterion.direction === state.sorting[index].direction);
+    const recover = async (failure: unknown): Promise<{ result?: TransportResult; revision?: number }> => {
+      const [loaded] = await this.loadSheets([intent.sheetId]);
+      if (loaded.kind === 'missing') return { result: { kind: 'missing-sheet', sheetIds: [intent.sheetId] } };
+      const sheet = loaded.sheet;
+      this.recordRevision(sheet.id, sheet.revision);
+      if (matches(sheet, intent.after)) {
+        this.unsafeSortingFailures.delete(operationId);
+        return { result: this.recordMany([{ sheetId: sheet.id, revision: sheet.revision }]) };
+      }
+      if (!matches(sheet, intent.before)) throw failure;
+      return { revision: sheet.revision };
+    };
+    let state = await recover(this.unsafeSortingFailures.get(operationId) ?? new Error('Sorting differs from the expected prior state.'));
+    if (state.result) return state.result;
+    let mayRetry = true;
+    while (true) {
+      try {
+        const sheet = await this.method('writeSorting')(intent.sheetId, intent.after.sorting, intent.after.rows, state.revision!);
+        this.unsafeSortingFailures.delete(operationId);
+        return this.recordMany([{ sheetId: sheet.id, revision: sheet.revision }]);
+      } catch (failure) {
+        if (!isRevisionConflict(failure) && !isAmbiguousAxisResponse(failure)) throw failure;
+        this.unsafeSortingFailures.set(operationId, failure);
+        state = await recover(failure);
+        if (state.result) return state.result;
+        if (!isRevisionConflict(failure) || !mayRetry) throw failure;
+        mayRetry = false;
+      }
     }
   }
   private async writeAxisOrder(operationId: WorkbookOperationId | undefined, intent: Extract<WorkbookPersistenceIntent, { kind: 'write-axis-order' }>): Promise<TransportResult> {
@@ -165,6 +203,7 @@ export class WorkbookPersistenceTransport implements PersistenceTransport {
     }));
   }
   private async request(intent: WorkbookPersistenceIntent): Promise<TransportResult> {
+    if (intent.kind === 'write-sorting') throw new Error('Sorting requires guarded execution.');
     if (intent.kind === 'write-axis-order') throw new Error('Axis order requires guarded execution.');
     if (intent.kind === 'model-lifecycle') {
       const workbook = await this.method('saveModelLifecycle')(intent.before, intent.after);

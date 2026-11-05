@@ -1,10 +1,9 @@
 import { applyAxisSizeWrites, validAxisSizeWrites } from '@workbook/core/axisSizePolicy';
-import type { AxisSizeWrite } from '@workbook/core/model';
 import { calculatedOwnedColumns } from '@workbook/core/calculatedOwnership';
 import { boundColumnType } from '@workbook/core/modelColumnTypes';
 import { classifyCellValue, matchesModelColumnType } from '@calculation/formulaValue';
 import { applyFormatWrites, emptySheetFormatOverrides, validFormatWrites } from '@workbook/core/numberFormat';
-import type { AppearanceWrite, CellAppearance } from '@workbook/core/model';
+import type { AppearanceWrite, AxisSizeWrite, CellAppearance, SortCriterion } from '@workbook/core/model';
 import type { CalculationImpact } from '@workbook/read/calculationProjection';
 import { cellAddressOf, cellIdentityFromKey, cellIdentityKey } from '@workbook/core/cellIdentity';
 import { cellKey } from '@workbook/core/address';
@@ -49,6 +48,7 @@ export type BackendWorkbookReconciliation =
   | { kind: 'append-column'; sheetId: SheetId; columnId: ColumnId };
 
 export type WorkbookPersistenceIntent =
+  | { kind: 'write-sorting'; sheetId: SheetId; before: { sorting: readonly SortCriterion[]; rows: readonly RowId[] }; after: { sorting: readonly SortCriterion[]; rows: readonly RowId[] } }
   | { kind: 'model-lifecycle'; before: Workbook; after: Workbook }
   | { kind: 'write-axis-order'; sheetId: SheetId; axis: 'row' | 'column'; before: readonly string[]; after: readonly string[] }
   | { kind: 'write-axis-sizes'; sheetId: SheetId; writes: readonly AxisSizeWrite[] }

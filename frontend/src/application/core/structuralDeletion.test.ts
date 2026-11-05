@@ -44,6 +44,14 @@ describe('structural deletion', () => {
     expect(sheet.presentation.rowHeights).toEqual(f.sheet.presentation.rowHeights);
     expect(result.value.documents.other).toBe(f.book.documents.other);
   });
+  it('removes only criteria referring to the deleted column', () => {
+    const f = fixture();
+    const sorting = [{ columnId: f.c1, direction: 'ascending' as const }, { columnId: f.c2, direction: 'descending' as const }];
+    const book = { ...f.book, documents: { ...f.book.documents, s: { ...f.sheet, sorting } } };
+    const result = deleteColumn(book, 's', f.c1);
+    expect(result.ok).toBe(true); if (!result.ok) return;
+    expect(result.value.documents.s.sorting).toEqual([sorting[1]]);
+  });
   it('rejects unknown identities and bound columns while allowing bound row deletion', () => {
     const f = fixture(); const bound = { ...f.book, documents: { ...f.book.documents, s: { ...f.sheet, modelId: 'm' } } };
     expect(deleteRow(f.book, 'missing', f.r1)).toEqual({ ok: false, reason: 'unknown-row' });

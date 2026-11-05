@@ -65,6 +65,7 @@ enum class WorkbookApplicationError {
     BOUND_SHEET_STRUCTURE,
     INVALID_MODEL_RECORD,
     INVALID_AXIS_ORDER,
+    INVALID_SORTING,
 }
 
 class WorkbookApplicationException(
@@ -72,6 +73,7 @@ class WorkbookApplicationException(
 ) : RuntimeException("Workbook operation rejected: $error")
 
 interface WorkbookApplication {
+    fun writeSorting(sheetId: String, expectedRevision: Long, sorting: List<SortCriterion>, order: List<String>): SheetDocument
     fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument
     fun saveModelLifecycle(before: WorkbookState, after: WorkbookState): WorkbookState
     fun loadManifest(): WorkbookManifest
@@ -108,6 +110,20 @@ class DefaultWorkbookApplication(
     private val store: WorkbookStore,
     private val recordValidation: RecordValueValidation = SharedRecordValueValidation,
 ) : WorkbookApplication {
+    override fun writeSorting(sheetId: String, expectedRevision: Long, sorting: List<SortCriterion>, order: List<String>): SheetDocument =
+        updateExistingSheet(sheetId, expectedRevision) { workbook, sheet ->
+            val content = sheet.tabularContent
+            val columns = content.columns.map(ColumnId::value).toSet()
+            if (sorting.map { it.columnId }.distinct().size != sorting.size ||
+                sorting.any { it.columnId !in columns || it.direction !in setOf("ascending", "descending") }
+            ) throw WorkbookApplicationException(WorkbookApplicationError.INVALID_SORTING)
+            val rows = content.rows.map(RowId::value)
+            if (order.size != rows.size || order.toSet() != rows.toSet()) {
+                throw WorkbookApplicationException(WorkbookApplicationError.INVALID_AXIS_ORDER)
+            }
+            if (sorting == sheet.sorting && order == rows) return@updateExistingSheet workbook
+            workbook.replaceSheet(sheet.copy(sorting = sorting, content = TabularContent(order.map(::RowId), content.columns, content.cellContents)))
+        }
     override fun reorderAxis(sheetId: String, expectedRevision: Long, axis: String, order: List<String>): SheetDocument =
         updateExistingSheet(sheetId, expectedRevision) { workbook, sheet ->
             val content = sheet.tabularContent
