@@ -17,6 +17,21 @@ export type FormulaTransformResult = { ok: true; raw: string } | { ok: false; re
 export type FormulaCopyContext = { sourceSheetId?: SheetId; destinationSheetId?: SheetId };
 export type FormulaDisplayProjection = { raw: string; referenceSpans: readonly FormulaSourceSpan[] };
 
+/** Resolve a stored endpoint against the current workbook without changing its recipe. */
+export function resolveStoredEndpoint(workbook: Workbook, sheetId: string, endpoint: FormulaReferenceLexeme['endpoints'][number], openRowIndex = 0): { address: CellAddress; name?: string; exists: boolean } | undefined {
+  const sheet = workbook.documents[sheetId];
+  if (!sheet || !('columnId' in endpoint.value)) return undefined;
+  const columnId = endpoint.value.columnId;
+  const columnIndex = sheet.content.columns.indexOf(columnId);
+  if (columnIndex < 0) return undefined;
+  const propertyId = 'propertyId' in endpoint.value ? endpoint.value.propertyId : undefined;
+  const property = propertyId && namedColumns(workbook, sheet).find((item) => item.id === propertyId && item.columnId === columnId);
+  if (propertyId && !property) return undefined;
+  const rowIndex = endpoint.kind === 'positional-canonical' ? endpoint.value.rowIndex : endpoint.kind === 'open-canonical' ? openRowIndex : 'rowId' in endpoint.value ? sheet.content.rows.indexOf(endpoint.value.rowId) : -1;
+  if (rowIndex < 0) return undefined;
+  return { address: { columnIndex, rowIndex }, ...(property ? { name: property.name } : {}), exists: rowIndex < sheet.content.rows.length };
+}
+
 type Endpoint = { open?: boolean; kind: 'a1' | 'canonical' | 'named' | 'recipe'; recipe?: FormulaReferenceLexeme['endpoints'][number]; address?: CellAddress; coordinate?: FormulaCoordinate; propertyId?: string; propertyName?: string; row?: number; anchors: FormulaAxisAnchor; sourceSpan: FormulaSourceSpan };
 type Match = { sourceSpan: FormulaSourceSpan; qualifier: FormulaQualifier; endpoints: Endpoint[]; canonical: boolean };
 type Edit = FormulaSourceSpan & { value: string };
@@ -295,7 +310,7 @@ function matchFromLexeme(lexeme: FormulaReferenceLexeme): Match {
     if (endpoint.kind === 'named') return { ...base, kind: 'named', ...endpoint.value };
     return { ...base, kind: 'canonical', coordinate: { columnId: endpoint.value.columnId, rowId: endpoint.value.rowId }, ...(endpoint.kind === 'stored-named' ? { propertyId: endpoint.value.propertyId } : {}) };
   });
-  return { sourceSpan: lexeme.sourceSpan, qualifier, endpoints, canonical: lexeme.endpoints[0]?.kind === 'canonical' || lexeme.endpoints[0]?.kind === 'stored-named' };
+  return { sourceSpan: lexeme.sourceSpan, qualifier, endpoints, canonical: lexeme.endpoints.every((endpoint) => endpoint.kind === 'canonical' || endpoint.kind === 'stored-named' || endpoint.kind === 'positional-canonical' || endpoint.kind === 'open-canonical') };
 }
 function canonicalMatches(raw: string): Match[] { return lexemeMatches(raw).filter((match) => match.canonical && !match.endpoints.some((endpoint) => endpoint.kind === 'recipe')); }
 function toToken(match: Match): FormulaReferenceToken {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sheetDocument, workbookWithSheets } from '@test-support/workbookFactories';
 import type { Workbook } from '../core/model';
-import { prepareUserFormula } from './formulaPreparation';
+import { prepareFormulaEdit, prepareUserFormula } from './formulaPreparation';
 import { projectStoredFormula } from './storedFormulaProjection';
 
 const sheet = sheetDocument({ id: 'inputs-id', name: 'Inputs', rowCount: 2, columnCount: 2 });
@@ -14,6 +14,39 @@ function modeledWorkbook(name = 'Cost'): Workbook {
 }
 
 describe('stored editable projection', () => {
+  it('preserves positional rows independently from stable rows through reorder and edits', () => {
+    const content = prepare('=@A[1]+@A[#$1]');
+    const changed = workbookWithSheets([reordered]);
+    const display = projectStoredFormula(content, changed, sheet.id);
+    expect(display.text).toBe('=@B[2]+@B[#$1]');
+    expect(display.analysis.references.every(({ live }) => live)).toBe(true);
+    expect(prepareFormulaEdit(`${display.text}+1`, content, changed, sheet.id)).toBe(`${content}+1`);
+  });
+
+  it('retains a missing positional recipe and resolves it when rows grow', () => {
+    const content = prepare('=@A[#3]');
+    const missing = projectStoredFormula(content, workbook, sheet.id);
+    expect(missing.text).toBe('=@A[#3]');
+    expect(missing.analysis.references[0].live).toBe(false);
+    const grown = workbookWithSheets([{ ...sheet, content: { ...sheet.content, rows: [...sheet.content.rows, 'new-row'] } }]);
+    expect(projectStoredFormula(content, grown, sheet.id).analysis.references[0].live).toBe(true);
+  });
+
+  it('projects mixed and open endpoints independently', () => {
+    const content = prepare('=SUM(@A[2]:B[#1])+SUM(@A[#1]:B)');
+    const projection = projectStoredFormula(content, workbookWithSheets([reordered]), sheet.id);
+    expect(projection.text).toBe('=SUM(@B[1]:A[#1])+SUM(@B[#1]:A)');
+    expect(projection.analysis.references.every(({ live }) => live)).toBe(true);
+  });
+
+  it('binds positional named references to their property and quoted sheet identities', () => {
+    const original = modeledWorkbook('Cost');
+    original.documents[sheet.id].name = 'Old Inputs';
+    const content = prepareUserFormula("=@'Old Inputs'!Cost[#2]", original, sheet.id);
+    const changed = modeledWorkbook('New Cost');
+    changed.documents[sheet.id] = { ...changed.documents[sheet.id], name: 'Renamed', content: reordered.content };
+    expect(projectStoredFormula(content, changed, sheet.id).text).toBe("=@Renamed!'New Cost'[#2]");
+  });
   it('projects current names and positions with reversed range order and independent anchors', () => {
     const content = prepare('=@Inputs!$B[$2]:A[1]+@A[2]');
     const renamed = workbookWithSheets([{ ...reordered, name: 'New Inputs' }]);
