@@ -27,6 +27,7 @@ import { cssRemFromPixels } from '@shared/styles/styleTokens';
 import { axisIndexForDurableIndex, hasDurableIndex, mergeVirtualIndexes, parseCellAddress, pinnedAxisIndices, virtualItemsOrTestFallback } from './sheetGridProjection';
 import { useGridPointerSelection } from './useGridPointerSelection';
 import { SheetGridRows } from './SheetGridRows';
+import { gridSelectionPresentation } from './gridSelectionPresentation';
 import { ModelEntryRow, type EntryCommands } from './ModelEntryRow';
 import type { DataModel } from '@workbook/core/model';
 import type { EntrySessionState } from '@application/core/modelEntrySession';
@@ -208,6 +209,7 @@ export function SheetGrid({
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const rowHeaderRef = useRef<HTMLDivElement>(null);
   const { columns, rows } = axisProjection;
+  const selectionPresentation = useMemo(() => gridSelectionPresentation(sheet, logicalSelection, selectedRange), [sheet, logicalSelection, selectedRange]);
   const resize = useAxisResize({ sheet, selection: logicalSelection, selectionOwner, activeSheetId, commit: onWriteAxisSizes, interactionsEnabled });
   const projectedMetrics = useMemo(() => createSheetGridAxisMetrics(axisProjection, presentation, resize.preview),
     [axisProjection, presentation, resize.preview]);
@@ -690,11 +692,9 @@ export function SheetGrid({
         columnLabels={columnLabels}
         virtualColumns={virtualColumns}
         resize={onWriteAxisSizes ? resize : undefined}
-        selectedColumnIndices={selectionMode === 'columns' && selectedRange
-          ? new Set(Array.from({ length: selectedRange.end.columnIndex - selectedRange.start.columnIndex + 1 }, (_, index) => selectedRange.start.columnIndex + index))
-          : undefined}
+        selectedColumnIndices={(selectionPresentation.mode ?? selectionMode) === 'columns' ? selectionPresentation.columns : undefined}
       />
-      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectedRange, selectionMode, sheet, virtualColumns, virtualRows }} />
+      <SheetGridRows {...{ activeCellKey, selectionTransition, calculatedColumnIds, cellInteraction, columns, editingCell, editorInteraction, focusIntent, formulaResults, historyFeedbackCells, navigationHighlightCellKey, navigationHighlightIdentity, navigationHighlightRange, onNativeFocusTarget, onWriteAxisSizes, pendingCutCells, presentation, registerCell, resize, rowHeaderRef, rows, selectionPresentation, selectionMode, sheet, virtualColumns, virtualRows }} />
       {entryRow && <ModelEntryRow {...entryRow} editorInteraction={editorInteraction} sheetId={sheet.id} sheetName={sheet.name} onNavigateUp={(columnIndex) => {
         if (!sheet.rows.length || columnIndex >= sheet.columns.length) return;
         const key = cellKey({ columnIndex, rowIndex: sheet.rows.length - 1 });

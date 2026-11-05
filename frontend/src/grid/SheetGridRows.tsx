@@ -14,6 +14,7 @@ import { AxisResizeHandle } from './AxisResizeHandle';
 import { getSheetCellDisplayText } from './sheetGridModel';
 import { axisKey, isAddressInRange } from './sheetGridProjection';
 import type { useAxisResize } from './useAxisResize';
+import type { gridSelectionPresentation } from './gridSelectionPresentation';
 
 type HistoryFeedback = { before: string | null; beforeDisplay: string | null; after: string | null };
 type SheetGridRowsProps = {
@@ -38,7 +39,7 @@ type SheetGridRowsProps = {
   resize: ReturnType<typeof useAxisResize>;
   rowHeaderRef: RefObject<HTMLDivElement>;
   rows: GridAxisProjection['rows'];
-  selectedRange?: { start: { columnIndex: number; rowIndex: number }; end: { columnIndex: number; rowIndex: number } };
+  selectionPresentation: ReturnType<typeof gridSelectionPresentation>;
   selectionMode?: CellSelectionMode;
   sheet: SheetTabularProjection;
   virtualColumns: readonly VirtualItem[];
@@ -87,8 +88,8 @@ function RowHeader({ props, row, virtualRow }: {
   virtualRow: VirtualItem;
 }) {
   const selected = row.kind === 'saved'
-    && props.selectionMode === 'rows'
-    && isAddressInRange({ rowIndex: row.durableIndex, columnIndex: 0 }, props.selectedRange);
+    && (props.selectionPresentation.mode ?? props.selectionMode) === 'rows'
+    && props.selectionPresentation.rows.has(row.durableIndex);
   return (
     <div
       aria-label={row.kind === 'creating' ? 'Creating row' : undefined}
@@ -155,7 +156,7 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
 }) {
   const address = { columnIndex: column.durableIndex, rowIndex: row.durableIndex };
   const key = cellKey(address);
-  const rangeSelected = isAddressInRange(address, props.selectedRange);
+  const rangeSelected = props.selectionPresentation.rows.has(address.rowIndex) && props.selectionPresentation.columns.has(address.columnIndex);
   const historyFeedback = props.historyFeedbackCells?.get(key);
   const identity = cellIdentityAt(props.sheet, key);
   const appearance = identity
@@ -185,7 +186,7 @@ function SavedCell({ column, props, row, virtualColumn, virtualRow }: {
     navigationHighlightIdentity={props.navigationHighlightIdentity}
     onNativeFocusTarget={props.onNativeFocusTarget}
     registerCell={props.registerCell}
-    selectionEdges={rangeSelected ? selectionEdges(address, props.selectedRange) : undefined}
+    selectionEdges={rangeSelected ? selectionEdges(address, props.selectionPresentation) : undefined}
     sheet={props.sheet}
     style={cellStyle(virtualColumn, virtualRow, appearance)}
     tabIndex={props.activeCellKey === key ? 0 : -1}
@@ -207,13 +208,12 @@ function cellStyle(virtualColumn: VirtualItem, virtualRow: VirtualItem, appearan
   };
 }
 
-function selectionEdges(address: { columnIndex: number; rowIndex: number }, range: SheetGridRowsProps['selectedRange']) {
-  if (!range) return undefined;
+function selectionEdges(address: { columnIndex: number; rowIndex: number }, selection: SheetGridRowsProps['selectionPresentation']) {
   return [
-    address.rowIndex === range.start.rowIndex ? 'sheet-grid-selection-top' : '',
-    address.rowIndex === range.end.rowIndex ? 'sheet-grid-selection-bottom' : '',
-    address.columnIndex === range.start.columnIndex ? 'sheet-grid-selection-left' : '',
-    address.columnIndex === range.end.columnIndex ? 'sheet-grid-selection-right' : '',
+    !selection.rows.has(address.rowIndex - 1) ? 'sheet-grid-selection-top' : '',
+    !selection.rows.has(address.rowIndex + 1) ? 'sheet-grid-selection-bottom' : '',
+    !selection.columns.has(address.columnIndex - 1) ? 'sheet-grid-selection-left' : '',
+    !selection.columns.has(address.columnIndex + 1) ? 'sheet-grid-selection-right' : '',
   ].filter(Boolean).join(' ');
 }
 

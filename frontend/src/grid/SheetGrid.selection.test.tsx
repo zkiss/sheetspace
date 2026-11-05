@@ -14,6 +14,7 @@ import { SheetGrid } from './SheetGrid';
 import { createModelEntryDraft } from '@application/core/modelEntryDraft';
 import { keymap } from '@shared/keyboard/keymap';
 import type { DataModel } from '@workbook/core/model';
+import type { CellSelection } from './cellInteractionContracts';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -48,11 +49,12 @@ function frames() {
 
 const commands = { updateCellContent: vi.fn(), writeCells: vi.fn() };
 const consumed = vi.fn();
-function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }: {
+function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel, logicalSelection }: {
   sheet: ReturnType<typeof sheetDocument>;
   entryModel?: DataModel;
   replacement?: 'cell' | 'range' | 'edit';
   replacementKey?: string;
+  logicalSelection?: CellSelection | null;
 }) {
   const workbook = useMemo(() => workbookWithSheets([sheet]), [sheet]);
   const interaction = useCellEditing({ commands, workbook });
@@ -111,6 +113,7 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }
         navigationHighlightCellKey={null}
         scrollContainerRef={scrollContainerRef}
         selectedRange={selectedRange}
+        logicalSelection={logicalSelection}
         selectionMode={range?.mode}
         onSelectAxis={interaction.selectAxis}
         sheet={projection}
@@ -120,6 +123,32 @@ function SelectionGrid({ sheet, replacement, replacementKey = 'C1', entryModel }
 }
 function state() { return JSON.parse(screen.getByTestId('selection-state').textContent!); }
 function activeCell(name: string, key: string) { return screen.getByRole('cell', { name: `${name} ${key} empty cell` }); }
+
+describe('exact selection presentation', () => {
+  it.each(['rows', 'columns'] as const)('paints separated %s and their independent edges after reorder', (mode) => {
+    const sheet = sheetDocument({ id: 'exact', name: 'Exact', rowCount: 4, columnCount: 4 });
+    const target = (row: number, column: number) => ({ sheetId: sheet.id, cell: { rowId: sheet.content.rows[row]!, columnId: sheet.content.columns[column]! } });
+    const selection: CellSelection = { mode, anchor: target(0, 0), extent: mode === 'rows' ? target(2, 0) : target(0, 2), members: mode === 'rows' ? [sheet.content.rows[0]!, sheet.content.rows[2]!] : [sheet.content.columns[0]!, sheet.content.columns[2]!] };
+    const view = render(<SelectionGrid sheet={sheet} logicalSelection={selection} />);
+    const first = activeCell('Exact', 'A1');
+    const gap = activeCell('Exact', mode === 'rows' ? 'A2' : 'B1');
+    const second = activeCell('Exact', mode === 'rows' ? 'A3' : 'C1');
+    expect(first).toHaveClass(mode === 'rows' ? 'sheet-grid-selection-bottom' : 'sheet-grid-selection-right');
+    expect(second).toHaveClass(mode === 'rows' ? 'sheet-grid-selection-top' : 'sheet-grid-selection-left');
+    expect(first).toHaveClass('sheet-grid-cell-range-selected');
+    expect(second).toHaveClass('sheet-grid-cell-range-selected');
+    expect(gap).not.toHaveClass('sheet-grid-cell-range-selected');
+    const headers = screen.getAllByRole(mode === 'rows' ? 'rowheader' : 'columnheader').filter((header) => header.hasAttribute('data-axis-durable-index'));
+    expect(headers[0]).toHaveClass('sheet-grid-axis-selected');
+    expect(headers[1]).not.toHaveClass('sheet-grid-axis-selected');
+    expect(headers[2]).toHaveClass('sheet-grid-axis-selected');
+    const content = { ...sheet.content, [mode]: [...sheet.content[mode]] };
+    [content[mode][1], content[mode][2]] = [content[mode][2]!, content[mode][1]!];
+    view.rerender(<SelectionGrid sheet={{ ...sheet, content }} logicalSelection={selection} />);
+    expect(activeCell('Exact', 'A1')).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-bottom' : 'sheet-grid-selection-right');
+    expect(activeCell('Exact', mode === 'rows' ? 'A2' : 'B1')).not.toHaveClass(mode === 'rows' ? 'sheet-grid-selection-top' : 'sheet-grid-selection-left');
+  });
+});
 
 // Native offsets stop at the content size, unlike JSDOM's default writable properties.
 function clampedScroll(container: HTMLElement, maximum: { left: number; top: number }) {
