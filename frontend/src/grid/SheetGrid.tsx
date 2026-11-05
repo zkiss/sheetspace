@@ -430,6 +430,7 @@ export function SheetGrid({
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     const identity = `${sheet.id}:${activeCellKey}`;
+    if (dragging) { revealedActiveCell.current = identity; return; }
     if (revealedActiveCell.current === identity) return;
     const rowIndex = axisIndexForDurableIndex(rows, activeAddress.rowIndex);
     const columnIndex = axisIndexForDurableIndex(columns, activeAddress.columnIndex);
@@ -446,7 +447,7 @@ export function SheetGrid({
       rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
       columnVirtualizer.scrollToIndex(columnIndex, { align: 'auto' });
     }
-  }, [revealEnabled, activeAddress, activeCellKey, columnMetrics, rowMetrics, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
+  }, [revealEnabled, dragging, activeAddress, activeCellKey, columnMetrics, rowMetrics, columnVirtualizer, rowVirtualizer, columns, rows, scrollContainerRef, sheet.id]);
   useEffect(() => {
     if (navigationRequestGeneration == null) return;
     if (!revealEnabled || (ownsGridRestore && !ownsGridRestore(sheet.id, navigationRequestGeneration))) return;
