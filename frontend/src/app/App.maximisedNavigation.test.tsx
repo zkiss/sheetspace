@@ -8,9 +8,9 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 function setup(empty = false, reducedMotion = true) {
   vi.stubGlobal('matchMedia', () => ({ matches: reducedMotion, addEventListener: () => {}, removeEventListener: () => {} }));
-  const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: empty ? 0 : 30, columnCount: empty ? 0 : 10,
+  const inputs = sheetDocument({ id: 'inputs', name: 'Inputs', rowCount: empty ? 0 : 5, columnCount: empty ? 0 : 3,
     position: { x: 500, y: 100 }, visualScale: 0.8, zIndex: 7 });
-  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', cells: { A1: '=SUM(@inputs!B[3]:C[5])' } });
+  const outputs = sheetDocument({ id: 'outputs', name: 'Outputs', rowCount: 2, columnCount: 1, cells: { A1: '=SUM(@inputs!B[3]:C[5])' } });
   render(<App initialWorkbook={workbookWithLegacyFormulaFixtures([inputs, outputs])} />);
   measuredElementGeometry(screen.getByTestId('workspace-surface'), { width: 800, height: 600 });
   const source = screen.getByRole('article', { name: 'Sheet Outputs' });
