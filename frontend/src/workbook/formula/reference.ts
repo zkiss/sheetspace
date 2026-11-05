@@ -22,7 +22,7 @@ type Match = { sourceSpan: FormulaSourceSpan; qualifier: FormulaQualifier; endpo
 type Edit = FormulaSourceSpan & { value: string };
 
 /** Reference recognition is delegated to formulaSyntax, including malformed-formula recovery. */
-export function formulaReferenceTokens(raw: string, resolver?: FormulaReferenceResolver): FormulaReferenceToken[] { return lexemeMatches(raw, resolver).map(toToken); }
+export function formulaReferenceTokens(raw: string, resolver?: FormulaReferenceResolver, options: { stored?: boolean } = {}): FormulaReferenceToken[] { return lexemeMatches(raw, resolver, options).map(toToken); }
 
 function namedColumnPredicate(resolver?: FormulaReferenceResolver) {
   return (qualifier: string | undefined, name: string) => {
@@ -273,7 +273,7 @@ export function workbookFormulaReferenceResolver(workbook: Workbook, currentShee
 }
 
 function rawMatches(raw: string, resolver?: FormulaReferenceResolver): Match[] { return lexemeMatches(raw, resolver).filter((match) => !match.canonical); }
-function lexemeMatches(raw: string, resolver?: FormulaReferenceResolver): Match[] { return formulaReferenceLexemes(raw, namedColumnPredicate(resolver)).map(matchFromLexeme); }
+function lexemeMatches(raw: string, resolver?: FormulaReferenceResolver, options: { stored?: boolean } = {}): Match[] { return formulaReferenceLexemes(raw, namedColumnPredicate(resolver), options).map(matchFromLexeme); }
 function referenceMatchResolves(match: Match, resolver: FormulaReferenceResolver): boolean {
   const sheetId = match.canonical
     ? targetSheet(match.qualifier, resolver.currentSheetId)

@@ -394,7 +394,7 @@ export class FormulaParser {
     }
     this.index = propertyStart;
     const canonical = /^(\$?)([A-Za-z0-9_:-]+)\[(\$?)([A-Za-z0-9_:-]+)\]/.exec(this.input.slice(this.index));
-    if (canonical && !this.userReferences && !/^[A-Za-z]+$/.test(canonical[2])) {
+    if (canonical && !this.userReferences && (this.stored || !/^[A-Za-z]+$/.test(canonical[2]))) {
       this.index += canonical[0].length;
       return {
         kind: 'canonical',

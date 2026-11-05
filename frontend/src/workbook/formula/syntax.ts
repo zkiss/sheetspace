@@ -30,8 +30,8 @@ export type {
   UnaryFormula,
 } from './syntaxTypes';
 
-export function formulaReferenceLexemes(raw: string, isNamedColumn?: FormulaNamedColumnPredicate): FormulaReferenceLexeme[] {
-  return parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn }).referenceLexemes;
+export function formulaReferenceLexemes(raw: string, isNamedColumn?: FormulaNamedColumnPredicate, options: { stored?: boolean } = {}): FormulaReferenceLexeme[] {
+  return parseFormulaSyntax(raw, { preserveUnknownFunctions: true, isNamedColumn, ...options }).referenceLexemes;
 }
 
 /** Syntactically valid calls retain one general function AST. */
@@ -54,7 +54,7 @@ export function parseFormulaSyntax(
   if (!raw.startsWith('=')) {
     return { result: { kind: 'not-formula', raw }, references: [], referenceLexemes: [], tokens: raw ? [{ kind: 'text', sourceSpan: { start: 0, end: raw.length } }] : [], diagnostics: [] };
   }
-  return new FormulaParser(raw.slice(1), options.isNamedColumn, options.referenceMode === 'user', options.stored).parse(raw);
+  return new FormulaParser(raw.slice(1), options.stored ? undefined : options.isNamedColumn, options.referenceMode === 'user', options.stored).parse(raw);
 }
 
 /** User spelling never grants stable-identity authority, even when it resembles stored syntax. */
