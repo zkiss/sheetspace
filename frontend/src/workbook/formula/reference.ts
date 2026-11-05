@@ -254,6 +254,14 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
     const sheetId = targetSheet(match.qualifier, resolver.currentSheetId);
     if (match.endpoints.some((endpoint) => endpoint.kind === 'recipe')) {
       if (!sheetId) continue;
+      const deadNamedBinding = match.endpoints.some((endpoint) => {
+        const recipe = endpoint.recipe;
+        if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical') && 'propertyId' in recipe.value) {
+          return resolver.columnIndexOf?.(sheetId, recipe.value.columnId, recipe.value.propertyId) === undefined;
+        }
+        return endpoint.propertyId && endpoint.coordinate && !resolver.namedAddressOf?.(sheetId, endpoint.propertyId, endpoint.coordinate);
+      });
+      if (deadNamedBinding) continue;
       const addresses = match.endpoints.map((endpoint) => {
         const recipe = endpoint.recipe;
         if (recipe && (recipe.kind === 'positional-canonical' || recipe.kind === 'open-canonical')) {
@@ -262,7 +270,8 @@ export function moveCanonicalFormula(raw: string, resolver?: FormulaReferenceRes
         }
         return endpoint.coordinate && resolver.addressOf(sheetId, endpoint.coordinate);
       });
-      if (addresses.every((address) => address !== undefined) && match.endpoints.length === 2) {
+      const hasPositionalEndpoint = match.endpoints.some((endpoint) => endpoint.recipe?.kind === 'positional-canonical');
+      if (!hasPositionalEndpoint && addresses.every((address) => address !== undefined) && match.endpoints.length === 2) {
         const [first, last] = addresses as [CellAddress, CellAddress];
         if (match.endpoints[1].open) {
           const low = Math.min(first.columnIndex, last.columnIndex), high = Math.max(first.columnIndex, last.columnIndex);

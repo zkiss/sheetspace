@@ -32,15 +32,29 @@ describe('stored formula move', () => {
 
   it('keeps both positional endpoints when contents move', () => {
     const content = prepare('=SUM(@A[#1]:B[#2])');
-    expect(move(content, [mapping('A1', 'A1'), mapping('B2', 'B2')])).toBe(content);
+    for (const mapped of [mapping('A1', 'E1'), mapping('B2', 'E2', other), mapping('B1', 'E1'), mapping('B1', 'E1', other)]) {
+      expect(move(content, [mapped])).toBe(content);
+    }
   });
 
   it.each([
     ['=SUM(@A[#1]:C[1])', mapping('B1', 'E1')],
     ['=SUM(@A[#1]:C[1])', mapping('B1', 'E1', other)],
     ['=SUM(@A[#1]:B)', mapping('B2', 'C2')],
-  ])('rejects unrepresentable positional range moves: %s', (text, mapped) => {
-    expect(moveStoredFormula(prepare(text), workbook, source.id, source.id, [mapped])).toEqual({ ok: false, reason: 'unrepresentable-range' });
+  ])('retains positional range targets when members move: %s', (text, mapped) => {
+    expect(move(prepare(text), [mapped])).toBe(prepare(text));
+  });
+
+  it.each([
+    ['=SUM(@A[#1]:C[1])', 'C1', 'E1', '=SUM(@A[#1]:E[1])'],
+    ['=SUM(@C[1]:A[#1])', 'C1', 'A1', '=SUM(@A[1]:A[#1])'],
+    ['=SUM(@C[#1]:A[1])', 'A1', 'E1', '=SUM(@C[#1]:E[1])'],
+  ])('uses transformed endpoints rather than moved membership: %s', (text, from, to, expected) => {
+    expect(projectStoredFormula(move(prepare(text), [mapping(from, to)]), workbook, source.id).text).toBe(expected);
+  });
+
+  it('retains stable open range membership restrictions', () => {
+    expect(moveStoredFormula(prepare('=SUM(@A[1]:B)'), workbook, source.id, source.id, [mapping('B2', 'C2')])).toEqual({ ok: false, reason: 'unrepresentable-range' });
   });
 
   it('retains a positional start and open end during formula relocation', () => {
@@ -138,6 +152,10 @@ describe('stored formula move', () => {
       expect(projectStoredFormula(result, book, source.id).text).toBe(expected);
       expect(analyzeStoredFormula(result, book, source.id).references.every(({ live }) => live)).toBe(true);
     }
+    const dead = prepareUserFormula('=SUM(@Revenue[#1]:Cost[1])', book, source.id);
+    const changed = structuredClone(book);
+    changed.documents.source.modelColumnBindings.revenue = "missing";
+    expect(move(dead, [mapping('B1', 'C1')], source.id, changed)).toBe(dead);
   });
 
   it('preserves mixed invalid and malformed fragments while mapping live references', () => {
